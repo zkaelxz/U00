@@ -214,427 +214,439 @@ def render_workspace_tab():
             st.rerun()
 
     st.divider()
-    st.subheader("2. Content source")
+    with st.expander("2. 📥 Content source", expanded=False):
 
-    source_language = st.selectbox(
-        "Source language",
-        ["zh", "ja", "ko"],
-        index=["zh", "ja", "ko"].index(source_language),
-        format_func=lambda l: {"zh": "🇨🇳 Chinese", "ja": "🇯🇵 Japanese", "ko": "🇰🇷 Korean"}[l],
-    )
-    if source_language != drama.get("source_language"):
-        db.update_drama(picked_id, source_language=source_language)
-
-    with st.expander(f"📕 Raw {source_language.upper()} novel (optional -- helps transcription)"):
-        st.caption(
-            "Different from the reference translation below: this is the ORIGINAL-language "
-            "novel, used as context for speech recognition, not for translation. Whisper "
-            "primes on a short excerpt plus your glossary's names, which meaningfully helps it "
-            "guess the right proper nouns and phrasing instead of the nearest-sounding word."
+        source_language = st.selectbox(
+            "Source language",
+            ["zh", "ja", "ko"],
+            index=["zh", "ja", "ko"].index(source_language),
+            format_func=lambda l: {"zh": "🇨🇳 Chinese", "ja": "🇯🇵 Japanese", "ko": "🇰🇷 Korean"}[l],
         )
-        raw_novel_file = st.file_uploader(
-            f"Upload the raw {source_language.upper()} novel (.txt/.md/.epub)",
-            type=["txt", "md", "epub"], key=f"raw_novel_{picked_id}")
-        _existing_raw_path = os.path.join(ddir, "raw_novel_context.txt")
-        _has_existing_raw = os.path.exists(_existing_raw_path)
-        if raw_novel_file is not None:
-            try:
-                _raw_text = core_module.load_novel_text_for_context(
-                    raw_novel_file.getvalue(), raw_novel_file.name)
-                with open(_existing_raw_path, "w", encoding="utf-8") as f:
-                    f.write(_raw_text)
-                st.success(f"Loaded {len(_raw_text):,} characters.")
-                _has_existing_raw = True
-            except ImportError as e:
-                st.error(str(e))
-        if _has_existing_raw:
-            st.caption(f"✅ Raw novel context saved (~{os.path.getsize(_existing_raw_path):,} bytes).")
-            if st.button("🗑️ Remove raw novel context", key=f"rmraw_{picked_id}"):
-                os.remove(_existing_raw_path)
-                st.rerun()
+        if source_language != drama.get("source_language"):
+            db.update_drama(picked_id, source_language=source_language)
 
-    content_mode = st.radio(
-        "What are you working from?",
-        ["audio_drama", "novel_narration"],
-        index=0 if (drama.get("content_mode") or "audio_drama") == "audio_drama" else 1,
-        format_func=lambda m: "🎧 Audio drama (I have the audio, + transcript)"
-                     if m == "audio_drama" else
-                     "📖 Novel only (no audio -- generate a full AI narration)",
-        horizontal=False,
-    )
-    if content_mode != drama.get("content_mode"):
-        db.update_drama(picked_id, content_mode=content_mode)
-
-    audio_file = None
-    transcript_text = ""
-    novel_narration_text = ""
-    existing_audio = None
-
-    if content_mode == "audio_drama":
-        if drama["audio_filename"]:
-            p = os.path.join(ddir, drama["audio_filename"])
-            if os.path.exists(p):
-                existing_audio = p
-        audio_file = st.file_uploader(
-            "Audio or video file *(required)*" + (" — already uploaded" if existing_audio else ""),
-            type=["mp3", "wav", "m4a", "flac", "ogg", "mp4", "mkv", "mov", "webm"],
-            key=f"audio_up_{picked_id}")
-
-        with st.expander("🔗 Or download from a URL instead"):
+        with st.expander(f"📕 Raw {source_language.upper()} novel (optional -- helps transcription)"):
             st.caption(
-                "Fetches audio/video directly via yt-dlp (YouTube and many other sites) -- "
-                "no need to run it on the command line and upload the result yourself. Only "
-                "use this for content you actually have the right to use. Needs "
-                "`pip install yt-dlp`."
+                "Different from the reference translation below: this is the ORIGINAL-language "
+                "novel, used as context for speech recognition, not for translation. Whisper "
+                "primes on a short excerpt plus your glossary's names, which meaningfully helps it "
+                "guess the right proper nouns and phrasing instead of the nearest-sounding word."
             )
-            dl_url = st.text_input("Video URL", key=f"dl_url_{picked_id}")
-            dl_audio_only = st.checkbox(
-                "Audio only (recommended -- smaller, and this is all the pipeline needs "
-                "unless you also want the video for hardsub/dub export later)",
-                value=True, key=f"dl_audio_only_{picked_id}")
-            if st.button("⬇️ Download", disabled=not dl_url.strip()):
-                progress_bar = st.progress(0.0)
-                status = st.empty()
+            raw_novel_file = st.file_uploader(
+                f"Upload the raw {source_language.upper()} novel (.txt/.md/.epub)",
+                type=["txt", "md", "epub"], key=f"raw_novel_{picked_id}")
+            _existing_raw_path = os.path.join(ddir, "raw_novel_context.txt")
+            _has_existing_raw = os.path.exists(_existing_raw_path)
+            if raw_novel_file is not None:
                 try:
-                    import video_download
-                    downloaded_path = video_download.download(
-                        dl_url.strip(), ddir, audio_only=dl_audio_only,
-                        progress_cb=lambda frac, msg: (progress_bar.progress(frac), status.caption(msg)))
-                    if dl_audio_only:
-                        db.update_drama(picked_id, audio_filename=os.path.basename(downloaded_path))
-                    else:
-                        audio_out = os.path.join(ddir, "audio.wav")
-                        with st.spinner("Extracting audio from downloaded video..."):
-                            core_module.extract_audio_from_video(downloaded_path, audio_out)
-                        db.update_drama(picked_id, audio_filename="audio.wav",
-                                         source_video_filename=os.path.basename(downloaded_path))
-                    st.success("Downloaded.")
+                    _raw_text = core_module.load_novel_text_for_context(
+                        raw_novel_file.getvalue(), raw_novel_file.name)
+                    with open(_existing_raw_path, "w", encoding="utf-8") as f:
+                        f.write(_raw_text)
+                    st.success(f"Loaded {len(_raw_text):,} characters.")
+                    _has_existing_raw = True
+                except ImportError as e:
+                    st.error(str(e))
+            if _has_existing_raw:
+                st.caption(f"✅ Raw novel context saved (~{os.path.getsize(_existing_raw_path):,} bytes).")
+                if st.button("🗑️ Remove raw novel context", key=f"rmraw_{picked_id}"):
+                    os.remove(_existing_raw_path)
                     st.rerun()
-                except ImportError as exc:
-                    st.error(str(exc))
-                except video_download.DownloadError as exc:
-                    st.error(str(exc))
 
-        st.markdown("**Transcript**")
-        transcript_mode = st.radio(
-            "Where does the transcript come from?",
-            ["have_transcript", "whisper"],
-            format_func=lambda m: ("I have the transcript (most accurate)"
-                                    if m == "have_transcript" else
-                                    "I don't have one -- let Whisper transcribe the audio"),
-            key=f"tmode_{picked_id}", horizontal=False)
-
-        if transcript_mode == "have_transcript":
-            st.caption("Paste the official or fan transcript. Using a real transcript is "
-                      "meaningfully better than speech recognition -- Whisper misreads names "
-                      "and uncommon terms, and those errors carry straight into the translation.")
-            transcript_text = st.text_area("Transcript *(required)*", height=180,
-                                            key=f"transcript_{picked_id}")
-        else:
-            st.caption("Whisper will produce the transcript from the audio itself. Expect errors "
-                      "on names, sect terms, and anything homophone-heavy -- you can correct them "
-                      "in the review table before translating. Larger model = fewer mistakes.")
-            transcript_text = ""
-    else:
-        st.caption(
-            "Paste the novel text (Chinese). It'll be chunked into narration lines, "
-            "speaker-tagged automatically (dialogue vs. narrator), translated, and "
-            "synthesized into a full AI narration track -- no source audio needed."
+        content_mode = st.radio(
+            "What are you working from?",
+            ["audio_drama", "novel_narration"],
+            index=0 if (drama.get("content_mode") or "audio_drama") == "audio_drama" else 1,
+            format_func=lambda m: "🎧 Audio drama (I have the audio, + transcript)"
+                         if m == "audio_drama" else
+                         "📖 Novel only (no audio -- generate a full AI narration)",
+            horizontal=False,
         )
-        with st.expander("📷 Or extract text from chapter/page scan images (OCR)"):
-            st.caption(
-                "For chapters served as images instead of selectable text. "
-                "Backend options depend on source language -- see README for install steps."
-            )
-            ocr_images = st.file_uploader("Upload page images (in reading order)",
-                                           type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-            ocr_backend_options = ["tesseract", "paddle"] if source_language == "zh" else (
-                ["manga_ocr", "tesseract"] if source_language == "ja" else ["tesseract"])
-            ocr_backend = st.radio("OCR backend", ocr_backend_options, horizontal=True,
-                                    help="manga_ocr: best for JP speech-bubble crops. "
-                                         "paddle: higher accuracy for Chinese, heavier install.")
-            if ocr_images and st.button("Extract text from images"):
-                import ocr as ocr_module
-                img_paths = []
-                for img in ocr_images:
-                    p = os.path.join(ddir, f"ocr_{img.name}")
-                    with open(p, "wb") as f:
-                        f.write(img.getbuffer())
-                    img_paths.append(p)
-                with st.spinner("Running OCR..."):
-                    extracted = ocr_module.extract_text_from_images(
-                        img_paths, backend=ocr_backend, source_language=source_language)
-                st.session_state[f"ocr_text_{picked_id}"] = extracted
-                st.success(f"Extracted {len(extracted):,} characters. Review below before using.")
+        if content_mode != drama.get("content_mode"):
+            db.update_drama(picked_id, content_mode=content_mode)
 
-        ocr_default = st.session_state.get(f"ocr_text_{picked_id}", "")
+        audio_file = None
+        transcript_text = ""
+        novel_narration_text = ""
+        existing_audio = None
 
-        with st.expander("📚 Or import from an EPUB you own"):
-            st.caption("Requires `pip install ebooklib beautifulsoup4`.")
-            epub_file = st.file_uploader("Upload .epub", type=["epub"], key="epub_upload")
-            if epub_file:
-                epub_path = os.path.join(ddir, "source.epub")
-                with open(epub_path, "wb") as f:
-                    f.write(epub_file.getbuffer())
-                import epub_io
-                try:
-                    n_chapters = epub_io.get_epub_chapter_count(epub_path)
-                    ec1, ec2 = st.columns(2)
-                    ch_start = ec1.number_input("From chapter", value=1, min_value=1, max_value=n_chapters)
-                    ch_end = ec2.number_input("To chapter", value=min(5, n_chapters), min_value=1, max_value=n_chapters)
-                    if st.button("Import chapters from EPUB"):
-                        with st.spinner("Extracting text..."):
-                            extracted = epub_io.import_epub_text(epub_path, chapter_range=(ch_start - 1, ch_end))
-                        st.session_state[f"ocr_text_{picked_id}"] = extracted
-                        st.success(f"Imported {len(extracted):,} characters from chapters {ch_start}-{ch_end}.")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Couldn't read that EPUB: {e}")
+        if content_mode == "audio_drama":
+            if drama["audio_filename"]:
+                p = os.path.join(ddir, drama["audio_filename"])
+                if os.path.exists(p):
+                    existing_audio = p
 
-        novel_narration_text = st.text_area("Novel text *(required)*", value=ocr_default, height=220)
+            # A segmented choice instead of "uploader always visible, download
+            # option buried in a collapsed expander below it" -- the expander
+            # version was easy to scroll past entirely, which is exactly why
+            # people couldn't find the download option.
+            import_method = st.radio(
+                "Add audio/video" + (" — already added" if existing_audio else ""),
+                ["upload", "url"],
+                format_func=lambda m: "📁 Upload a file" if m == "upload"
+                                       else "🔗 Download from a URL (yt-dlp)",
+                horizontal=True, key=f"import_method_{picked_id}")
 
-    st.subheader("3. Reference novel translation (optional, isolated to this drama)")
-    st.caption("If this drama already has an official/fan English translation elsewhere, "
-               "paste it here to keep terminology consistent -- separate from the novel "
-               "narration text above, which is what actually gets read aloud.")
-    existing_novel_text = None
-    novel_path = os.path.join(ddir, drama["novel_reference_filename"]) if drama["novel_reference_filename"] else None
-    if novel_path and os.path.exists(novel_path):
-        with open(novel_path, "r", encoding="utf-8") as f:
-            existing_novel_text = f.read()
-        st.caption(f"Novel reference already saved (~{len(existing_novel_text):,} chars).")
-    novel_file = st.file_uploader("Upload novel translation (.txt/.md)", type=["txt", "md"], key="novel_up")
-    novel_pasted = st.text_area("...or paste it here", height=100, key="novel_paste")
-
-    # ---- Build a glossary from the novel ----------------------------------
-    with st.expander("📕 Build a glossary from this novel"):
-        st.caption(
-            "The novel is usually the better source for terminology than the drama's "
-            "dialogue -- it's longer and introduces more names, sects and places. Terms are "
-            "sampled from across the whole text, not just the opening chapters, so later "
-            "introductions aren't missed. Only terminology is extracted; no passages are stored."
-        )
-        _gl_series = drama.get("series_id")
-        if not _gl_series:
-            st.info("Assign this drama to a series first (under Translation below) -- "
-                   "glossaries are shared across a series so every book and season stays "
-                   "consistent.")
-        else:
-            _novel_src = (existing_novel_text or "")
-            if novel_file is not None:
-                _novel_src = novel_file.getvalue().decode("utf-8", errors="ignore")
-            elif novel_pasted.strip():
-                _novel_src = novel_pasted
-
-            # Reuses the raw novel uploaded above (Content source -> "Raw novel") rather
-            # than asking for it a second time -- one upload now feeds both transcription
-            # priming and this pairing, instead of needing the same file twice.
-            _raw_context_path = os.path.join(ddir, "raw_novel_context.txt")
-            if os.path.exists(_raw_context_path):
-                with open(_raw_context_path, "r", encoding="utf-8") as f:
-                    _orig_src = f.read()
-                st.caption(f"✅ Using the raw {source_language.upper()} novel uploaded above "
-                          f"(~{len(_orig_src):,} chars) as the paired original-language source. "
-                          f"With both, terms are extracted as matched pairs -- capturing how "
-                          f"each was actually rendered rather than inventing new wording.")
+            if import_method == "upload":
+                audio_file = st.file_uploader(
+                    "Audio or video file *(required)*",
+                    type=["mp3", "wav", "m4a", "flac", "ogg", "mp4", "mkv", "mov", "webm"],
+                    key=f"audio_up_{picked_id}")
             else:
-                st.caption(f"Optionally provide the ORIGINAL {source_language.upper()} novel too. "
-                          f"With both, terms are extracted as matched pairs -- capturing how "
-                          f"each was actually rendered rather than inventing new wording. "
-                          f"(Uploading it here also saves it for transcription priming above.)")
-                orig_novel_file = st.file_uploader(
-                    f"Original {source_language.upper()} novel", type=["txt", "md", "epub"],
-                    key="orig_novel_up")
-                _orig_src = ""
-                if orig_novel_file is not None:
+                st.caption(
+                    "Fetches audio/video directly via yt-dlp (YouTube and many other sites) -- "
+                    "no need to run it on the command line and upload the result yourself. Only "
+                    "use this for content you actually have the right to use. Needs "
+                    "`pip install yt-dlp`."
+                )
+                dl_url = st.text_input("Video URL", key=f"dl_url_{picked_id}")
+                dl_audio_only = st.checkbox(
+                    "Audio only (recommended -- smaller, and this is all the pipeline needs "
+                    "unless you also want the video for hardsub/dub export later)",
+                    value=True, key=f"dl_audio_only_{picked_id}")
+                if st.button("⬇️ Download", disabled=not dl_url.strip()):
+                    progress_bar = st.progress(0.0)
+                    status = st.empty()
                     try:
-                        _orig_src = core_module.load_novel_text_for_context(
-                            orig_novel_file.getvalue(), orig_novel_file.name)
-                        with open(_raw_context_path, "w", encoding="utf-8") as f:
-                            f.write(_orig_src)
-                        st.success(f"Saved -- also now feeding transcription priming above.")
-                    except ImportError as e:
-                        st.error(str(e))
+                        import video_download
+                        downloaded_path = video_download.download(
+                            dl_url.strip(), ddir, audio_only=dl_audio_only,
+                            progress_cb=lambda frac, msg: (progress_bar.progress(frac), status.caption(msg)))
+                        if dl_audio_only:
+                            db.update_drama(picked_id, audio_filename=os.path.basename(downloaded_path))
+                        else:
+                            audio_out = os.path.join(ddir, "audio.wav")
+                            with st.spinner("Extracting audio from downloaded video..."):
+                                core_module.extract_audio_from_video(downloaded_path, audio_out)
+                            db.update_drama(picked_id, audio_filename="audio.wav",
+                                             source_video_filename=os.path.basename(downloaded_path))
+                        st.success("Downloaded.")
+                        st.rerun()
+                    except ImportError as exc:
+                        st.error(str(exc))
+                    except video_download.DownloadError as exc:
+                        st.error(str(exc))
 
-            gl_key = st.session_state.get(f"settings_{drama.get('translation_engine') or 'claude'}", "")
-            if st.button("📖 Extract glossary from novel"):
-                if not (_novel_src.strip() or _orig_src.strip()):
-                    st.warning("Upload or paste a novel first.")
-                elif not gl_key:
-                    st.warning("Set an API key in the ⚙️ Settings sidebar first.")
-                else:
-                    eng_gl = translate_engines.get_engine(
-                        drama.get("translation_engine") or "claude", gl_key)
-                    # If both are supplied the original is the source and the
-                    # existing translation shows the established rendering.
-                    src_text = _orig_src if _orig_src.strip() else _novel_src
-                    en_text = _novel_src if _orig_src.strip() else ""
-                    bar = st.progress(0.0, text="Reading the novel...")
+            st.markdown("**Transcript**")
+            transcript_mode = st.radio(
+                "Where does the transcript come from?",
+                ["have_transcript", "whisper"],
+                format_func=lambda m: ("I have the transcript (most accurate)"
+                                        if m == "have_transcript" else
+                                        "I don't have one -- let Whisper transcribe the audio"),
+                key=f"tmode_{picked_id}", horizontal=False)
+
+            if transcript_mode == "have_transcript":
+                st.caption("Paste the official or fan transcript. Using a real transcript is "
+                          "meaningfully better than speech recognition -- Whisper misreads names "
+                          "and uncommon terms, and those errors carry straight into the translation.")
+                transcript_text = st.text_area("Transcript *(required)*", height=180,
+                                                key=f"transcript_{picked_id}")
+            else:
+                st.caption("Whisper will produce the transcript from the audio itself. Expect errors "
+                          "on names, sect terms, and anything homophone-heavy -- you can correct them "
+                          "in the review table before translating. Larger model = fewer mistakes.")
+                transcript_text = ""
+        else:
+            st.caption(
+                "Paste the novel text (Chinese). It'll be chunked into narration lines, "
+                "speaker-tagged automatically (dialogue vs. narrator), translated, and "
+                "synthesized into a full AI narration track -- no source audio needed."
+            )
+            with st.expander("📷 Or extract text from chapter/page scan images (OCR)"):
+                st.caption(
+                    "For chapters served as images instead of selectable text. "
+                    "Backend options depend on source language -- see README for install steps."
+                )
+                ocr_images = st.file_uploader("Upload page images (in reading order)",
+                                               type=["png", "jpg", "jpeg"], accept_multiple_files=True)
+                ocr_backend_options = ["tesseract", "paddle"] if source_language == "zh" else (
+                    ["manga_ocr", "tesseract"] if source_language == "ja" else ["tesseract"])
+                ocr_backend = st.radio("OCR backend", ocr_backend_options, horizontal=True,
+                                        help="manga_ocr: best for JP speech-bubble crops. "
+                                             "paddle: higher accuracy for Chinese, heavier install.")
+                if ocr_images and st.button("Extract text from images"):
+                    import ocr as ocr_module
+                    img_paths = []
+                    for img in ocr_images:
+                        p = os.path.join(ddir, f"ocr_{img.name}")
+                        with open(p, "wb") as f:
+                            f.write(img.getbuffer())
+                        img_paths.append(p)
+                    with st.spinner("Running OCR..."):
+                        extracted = ocr_module.extract_text_from_images(
+                            img_paths, backend=ocr_backend, source_language=source_language)
+                    st.session_state[f"ocr_text_{picked_id}"] = extracted
+                    st.success(f"Extracted {len(extracted):,} characters. Review below before using.")
+
+            ocr_default = st.session_state.get(f"ocr_text_{picked_id}", "")
+
+            with st.expander("📚 Or import from an EPUB you own"):
+                st.caption("Requires `pip install ebooklib beautifulsoup4`.")
+                epub_file = st.file_uploader("Upload .epub", type=["epub"], key="epub_upload")
+                if epub_file:
+                    epub_path = os.path.join(ddir, "source.epub")
+                    with open(epub_path, "wb") as f:
+                        f.write(epub_file.getbuffer())
+                    import epub_io
                     try:
-                        proposed_gl = tguide.extract_glossary_from_novel(
-                            src_text, eng_gl, source_language=source_language,
-                            english_translation=en_text,
-                            known_terms=db.list_glossary_terms(_gl_series),
-                            progress_cb=lambda f: bar.progress(f, text=f"Reading... {f*100:.0f}%"))
-                        bar.empty()
-                        st.session_state[f"novel_glossary_{picked_id}"] = proposed_gl
-                        st.success(f"Proposed {len(proposed_gl)} term(s). Review below.")
+                        n_chapters = epub_io.get_epub_chapter_count(epub_path)
+                        ec1, ec2 = st.columns(2)
+                        ch_start = ec1.number_input("From chapter", value=1, min_value=1, max_value=n_chapters)
+                        ch_end = ec2.number_input("To chapter", value=min(5, n_chapters), min_value=1, max_value=n_chapters)
+                        if st.button("Import chapters from EPUB"):
+                            with st.spinner("Extracting text..."):
+                                extracted = epub_io.import_epub_text(epub_path, chapter_range=(ch_start - 1, ch_end))
+                            st.session_state[f"ocr_text_{picked_id}"] = extracted
+                            st.success(f"Imported {len(extracted):,} characters from chapters {ch_start}-{ch_end}.")
+                            st.rerun()
                     except Exception as e:
-                        bar.empty()
-                        st.error(f"Extraction failed: {e}")
+                        st.error(f"Couldn't read that EPUB: {e}")
 
-            _proposed_gl = st.session_state.get(f"novel_glossary_{picked_id}", [])
-            if _proposed_gl:
-                st.caption(f"Review {len(_proposed_gl)} proposed term(s) -- uncheck anything wrong:")
-                gl_df = pd.DataFrame(_proposed_gl)
-                gl_df.insert(0, "Add", True)
-                edited_gl = st.data_editor(gl_df, width='stretch', hide_index=True,
-                                            key=f"gl_editor_{picked_id}")
-                if st.button("➕ Add these terms to the series glossary"):
-                    n_added = 0
-                    for row in edited_gl[edited_gl["Add"]].to_dict("records"):
-                        db.upsert_glossary_term(
-                            _gl_series, row.get("term", ""), row.get("suggested_translation", ""),
-                            notes=row.get("reason", ""), category=row.get("category"),
-                            policy=row.get("policy"))
-                        n_added += 1
-                    st.session_state[f"novel_glossary_{picked_id}"] = []
-                    st.success(f"Added {n_added} term(s) to the glossary.")
-                    st.rerun()
+            novel_narration_text = st.text_area("Novel text *(required)*", value=ocr_default, height=220)
 
-            st.divider()
-            st.caption("**Or import a glossary file you already have** (CSV, TSV, or JSON). "
-                      "A plain two-column term/translation sheet works.")
-            gl_file = st.file_uploader("Glossary file", type=["csv", "tsv", "json"], key="gl_file_up")
-            if gl_file is not None and st.button("📥 Import glossary file"):
-                raw = gl_file.getvalue().decode("utf-8", errors="ignore")
-                imported, warns = tguide.parse_glossary_file(raw, gl_file.name)
-                for w in warns[:10]:
-                    st.caption(f"⚠️ {w}")
-                if imported:
-                    for t in imported:
-                        db.upsert_glossary_term(
-                            _gl_series, t["term_original"], t["term_translation"],
-                            notes=t["notes"], category=t["category"],
-                            policy=t["policy"], enforce_exact=t["enforce_exact"])
-                    st.success(f"Imported {len(imported)} term(s).")
-                    st.rerun()
+    with st.expander("3. 📚 Reference novel (optional) & recognition settings", expanded=False):
+        st.caption("If this drama already has an official/fan English translation elsewhere, "
+                   "paste it here to keep terminology consistent -- separate from the novel "
+                   "narration text above, which is what actually gets read aloud.")
+        existing_novel_text = None
+        novel_path = os.path.join(ddir, drama["novel_reference_filename"]) if drama["novel_reference_filename"] else None
+        if novel_path and os.path.exists(novel_path):
+            with open(novel_path, "r", encoding="utf-8") as f:
+                existing_novel_text = f.read()
+            st.caption(f"Novel reference already saved (~{len(existing_novel_text):,} chars).")
+        novel_file = st.file_uploader("Upload novel translation (.txt/.md)", type=["txt", "md"], key="novel_up")
+        novel_pasted = st.text_area("...or paste it here", height=100, key="novel_paste")
+
+        # ---- Build a glossary from the novel ----------------------------------
+        with st.expander("📕 Build a glossary from this novel"):
+            st.caption(
+                "The novel is usually the better source for terminology than the drama's "
+                "dialogue -- it's longer and introduces more names, sects and places. Terms are "
+                "sampled from across the whole text, not just the opening chapters, so later "
+                "introductions aren't missed. Only terminology is extracted; no passages are stored."
+            )
+            _gl_series = drama.get("series_id")
+            if not _gl_series:
+                st.info("Assign this drama to a series first (under Translation below) -- "
+                       "glossaries are shared across a series so every book and season stays "
+                       "consistent.")
+            else:
+                _novel_src = (existing_novel_text or "")
+                if novel_file is not None:
+                    _novel_src = novel_file.getvalue().decode("utf-8", errors="ignore")
+                elif novel_pasted.strip():
+                    _novel_src = novel_pasted
+
+                # Reuses the raw novel uploaded above (Content source -> "Raw novel") rather
+                # than asking for it a second time -- one upload now feeds both transcription
+                # priming and this pairing, instead of needing the same file twice.
+                _raw_context_path = os.path.join(ddir, "raw_novel_context.txt")
+                if os.path.exists(_raw_context_path):
+                    with open(_raw_context_path, "r", encoding="utf-8") as f:
+                        _orig_src = f.read()
+                    st.caption(f"✅ Using the raw {source_language.upper()} novel uploaded above "
+                              f"(~{len(_orig_src):,} chars) as the paired original-language source. "
+                              f"With both, terms are extracted as matched pairs -- capturing how "
+                              f"each was actually rendered rather than inventing new wording.")
                 else:
-                    st.error("Nothing could be imported from that file.")
+                    st.caption(f"Optionally provide the ORIGINAL {source_language.upper()} novel too. "
+                              f"With both, terms are extracted as matched pairs -- capturing how "
+                              f"each was actually rendered rather than inventing new wording. "
+                              f"(Uploading it here also saves it for transcription priming above.)")
+                    orig_novel_file = st.file_uploader(
+                        f"Original {source_language.upper()} novel", type=["txt", "md", "epub"],
+                        key="orig_novel_up")
+                    _orig_src = ""
+                    if orig_novel_file is not None:
+                        try:
+                            _orig_src = core_module.load_novel_text_for_context(
+                                orig_novel_file.getvalue(), orig_novel_file.name)
+                            with open(_raw_context_path, "w", encoding="utf-8") as f:
+                                f.write(_orig_src)
+                            st.success(f"Saved -- also now feeding transcription priming above.")
+                        except ImportError as e:
+                            st.error(str(e))
 
-            _current_gl = db.list_glossary_terms(_gl_series)
-            if _current_gl:
-                st.download_button(
-                    f"📤 Export glossary ({len(_current_gl)} terms) as CSV",
-                    tguide.glossary_to_csv(_current_gl),
-                    file_name="glossary.csv")
+                gl_key = st.session_state.get(f"settings_{drama.get('translation_engine') or 'claude'}", "")
+                if st.button("📖 Extract glossary from novel"):
+                    if not (_novel_src.strip() or _orig_src.strip()):
+                        st.warning("Upload or paste a novel first.")
+                    elif not gl_key:
+                        st.warning("Set an API key in the ⚙️ Settings sidebar first.")
+                    else:
+                        eng_gl = translate_engines.get_engine(
+                            drama.get("translation_engine") or "claude", gl_key)
+                        # If both are supplied the original is the source and the
+                        # existing translation shows the established rendering.
+                        src_text = _orig_src if _orig_src.strip() else _novel_src
+                        en_text = _novel_src if _orig_src.strip() else ""
+                        bar = st.progress(0.0, text="Reading the novel...")
+                        try:
+                            proposed_gl = tguide.extract_glossary_from_novel(
+                                src_text, eng_gl, source_language=source_language,
+                                english_translation=en_text,
+                                known_terms=db.list_glossary_terms(_gl_series),
+                                progress_cb=lambda f: bar.progress(f, text=f"Reading... {f*100:.0f}%"))
+                            bar.empty()
+                            st.session_state[f"novel_glossary_{picked_id}"] = proposed_gl
+                            st.success(f"Proposed {len(proposed_gl)} term(s). Review below.")
+                        except Exception as e:
+                            bar.empty()
+                            st.error(f"Extraction failed: {e}")
 
-    whisper_size = st.selectbox(
-        "Speech recognition model", ["small", "medium", "large-v3"], index=1,
-        disabled=content_mode == "novel_narration",
-        help="large-v3 is markedly better on Chinese names and homophones. It's free, "
-             "just slower and ~3GB to download — and much faster with GPU enabled.")
+                _proposed_gl = st.session_state.get(f"novel_glossary_{picked_id}", [])
+                if _proposed_gl:
+                    st.caption(f"Review {len(_proposed_gl)} proposed term(s) -- uncheck anything wrong:")
+                    gl_df = pd.DataFrame(_proposed_gl)
+                    gl_df.insert(0, "Add", True)
+                    edited_gl = st.data_editor(gl_df, width='stretch', hide_index=True,
+                                                key=f"gl_editor_{picked_id}")
+                    if st.button("➕ Add these terms to the series glossary"):
+                        n_added = 0
+                        for row in edited_gl[edited_gl["Add"]].to_dict("records"):
+                            db.upsert_glossary_term(
+                                _gl_series, row.get("term", ""), row.get("suggested_translation", ""),
+                                notes=row.get("reason", ""), category=row.get("category"),
+                                policy=row.get("policy"))
+                            n_added += 1
+                        st.session_state[f"novel_glossary_{picked_id}"] = []
+                        st.success(f"Added {n_added} term(s) to the glossary.")
+                        st.rerun()
 
-    with st.expander("🎯 Recognition accuracy (free — worth doing)"):
-        st.caption(
-            "Whisper mishears proper nouns constantly in Chinese, because a wrong guess is "
-            "usually still a real word — nothing looks broken until you read the translation. "
-            "Priming it with the names it should expect fixes a lot of that at no cost."
-        )
-        _gl_terms = (db.list_glossary_terms(drama["series_id"])
-                     if drama.get("series_id") else [])
-        _auto_prompt = core_module.build_initial_prompt(_gl_terms)
-        if _auto_prompt:
-            st.caption(f"From this series' glossary ({len(_gl_terms)} terms): `{_auto_prompt[:120]}`")
+                st.divider()
+                st.caption("**Or import a glossary file you already have** (CSV, TSV, or JSON). "
+                          "A plain two-column term/translation sheet works.")
+                gl_file = st.file_uploader("Glossary file", type=["csv", "tsv", "json"], key="gl_file_up")
+                if gl_file is not None and st.button("📥 Import glossary file"):
+                    raw = gl_file.getvalue().decode("utf-8", errors="ignore")
+                    imported, warns = tguide.parse_glossary_file(raw, gl_file.name)
+                    for w in warns[:10]:
+                        st.caption(f"⚠️ {w}")
+                    if imported:
+                        for t in imported:
+                            db.upsert_glossary_term(
+                                _gl_series, t["term_original"], t["term_translation"],
+                                notes=t["notes"], category=t["category"],
+                                policy=t["policy"], enforce_exact=t["enforce_exact"])
+                        st.success(f"Imported {len(imported)} term(s).")
+                        st.rerun()
+                    else:
+                        st.error("Nothing could be imported from that file.")
+
+                _current_gl = db.list_glossary_terms(_gl_series)
+                if _current_gl:
+                    st.download_button(
+                        f"📤 Export glossary ({len(_current_gl)} terms) as CSV",
+                        tguide.glossary_to_csv(_current_gl),
+                        file_name="glossary.csv")
+
+        whisper_size = st.selectbox(
+            "Speech recognition model", ["small", "medium", "large-v3"], index=1,
+            disabled=content_mode == "novel_narration",
+            help="large-v3 is markedly better on Chinese names and homophones. It's free, "
+                 "just slower and ~3GB to download — and much faster with GPU enabled.")
+
+        with st.expander("🎯 Recognition accuracy (free — worth doing)"):
+            st.caption(
+                "Whisper mishears proper nouns constantly in Chinese, because a wrong guess is "
+                "usually still a real word — nothing looks broken until you read the translation. "
+                "Priming it with the names it should expect fixes a lot of that at no cost."
+            )
+            _gl_terms = (db.list_glossary_terms(drama["series_id"])
+                         if drama.get("series_id") else [])
+            _auto_prompt = core_module.build_initial_prompt(_gl_terms)
+            if _auto_prompt:
+                st.caption(f"From this series' glossary ({len(_gl_terms)} terms): `{_auto_prompt[:120]}`")
+            else:
+                st.caption("No glossary terms yet. Build one from the novel above, or type names "
+                          "below — either feeds recognition.")
+            _manual_prompt = st.text_input(
+                "Extra names to expect (、 or comma separated)",
+                key=f"initprompt_{picked_id}",
+                placeholder="沈清疑、云隐宗、神机营")
+            _name_prompt = "、".join(x for x in [_auto_prompt.rstrip("。"),
+                                                  _manual_prompt.strip()] if x)
+            if _name_prompt:
+                _name_prompt += "。"
+
+            _raw_novel_path = os.path.join(ddir, "raw_novel_context.txt")
+            if os.path.exists(_raw_novel_path):
+                with open(_raw_novel_path, "r", encoding="utf-8") as f:
+                    _novel_excerpt = core_module.extract_novel_excerpt_for_prompt(f.read())
+                initial_prompt = core_module.combine_initial_prompt(_name_prompt, _novel_excerpt)
+                st.caption(f"Including an excerpt from the raw novel you uploaded above "
+                          f"({len(_novel_excerpt):,} of its characters, names take priority).")
+            else:
+                initial_prompt = _name_prompt
+
+            beam_size = st.slider("Search width (beam size)", 1, 10, 5,
+                                   help="Higher considers more alternatives before committing. "
+                                        "8-10 helps on difficult audio; it costs time, not money.")
+
+            min_silence_ms = st.slider(
+                "Speech-splitting sensitivity (ms of silence to start a new line)", 300, 3000, 2000, 100,
+                help="The default (2000ms) merges any two stretches of speech separated by less "
+                     "than 2 seconds of silence into ONE segment -- with only the first sentence "
+                     "kept as that line's text. For back-to-back dialogue, internal-monologue "
+                     "narration, or quick exchanges, this routinely swallows several real lines "
+                     "into one oversized block. Lower it (500-1000ms) if lines feel too long or "
+                     "thoughts/dialogue seem to go missing. Too low starts splitting mid-sentence "
+                     "on normal speech pauses -- there's no universally correct value.")
+            if min_silence_ms < 2000:
+                st.caption(f"Set to {min_silence_ms}ms -- more, shorter lines than the default; "
+                          f"re-run 'Check line coverage' below after aligning to see the effect.")
+
+            if not st.session_state.get("use_gpu"):
+                st.caption("💡 GPU is off. On your card, enabling it under Settings → Performance "
+                          "makes large-v3 practical rather than painfully slow.")
+
+        alignment_method = st.selectbox(
+            "Timing method (when you have a real transcript)",
+            ["whisper_diff", "qwen3_forced_align"],
+            format_func=lambda m: ("Whisper + character-diff (current default)"
+                                    if m == "whisper_diff" else
+                                    "Qwen3-ForcedAligner (experimental -- true forced alignment)"),
+            disabled=content_mode == "novel_narration",
+            help="The default runs Whisper for timing, then fuzzy-matches your real transcript "
+                 "against Whisper's (often wrong) text character-by-character, guessing each "
+                 "match's timestamp as an even split across its Whisper segment. Qwen3-ForcedAligner "
+                 "instead aligns your ACTUAL transcript text directly against the audio -- no "
+                 "guessing, no fuzzy-matching against ASR errors -- but needs `pip install "
+                 "qwen-asr torch` and is unverified on this project's content. Only applies when "
+                 "you supplied a real transcript above; Whisper's own text has nothing to align "
+                 "against. Falls back to the default automatically if qwen-asr isn't installed.")
+
+        asr_backend_choice = st.selectbox(
+            "Transcription model (when Whisper is doing the transcript, not just timing)",
+            ["whisper", "qwen3_asr"],
+            format_func=lambda m: ("Whisper (current default)" if m == "whisper" else
+                                    "Qwen3-ASR (experimental -- purpose-built for zh/ja/ko)"),
+            disabled=content_mode == "novel_narration",
+            help="Only applies when you picked 'let Whisper transcribe the audio' above -- if you "
+                 "supplied a real transcript, this has no effect (nothing to transcribe). Public "
+                 "benchmarks show Qwen3-ASR well ahead of Whisper on Mandarin, especially under "
+                 "noise; no direct Japanese comparison was found, so this is unverified on that "
+                 "language specifically. Needs `pip install qwen-asr torch`, re-transcribes each "
+                 "of Whisper's segments individually (so it's slower than one Whisper pass), and "
+                 "keeps Whisper's own segment timing either way -- only the transcribed text "
+                 "changes. Falls back to Whisper automatically if qwen-asr isn't installed.")
+
+    with st.expander("4. 🎙️ Speaker diarization", expanded=False):
+        if content_mode == "audio_drama":
+            st.caption(
+                "Distinguishes different voices/characters in the audio, so lines can be grouped "
+                "by character and dubbed with different voices (or cloned). Needs `pyannote.audio` "
+                "installed and a free Hugging Face token -- see README."
+            )
+            hf_token = st.text_input("Hugging Face token (for diarization)", type="password",
+                                      value=st.session_state.get("settings_hf_token", ""))
+            run_diarize = st.checkbox("Run speaker diarization during alignment", value=False,
+                                       disabled=not hf_token)
         else:
-            st.caption("No glossary terms yet. Build one from the novel above, or type names "
-                      "below — either feeds recognition.")
-        _manual_prompt = st.text_input(
-            "Extra names to expect (、 or comma separated)",
-            key=f"initprompt_{picked_id}",
-            placeholder="沈清疑、云隐宗、神机营")
-        _name_prompt = "、".join(x for x in [_auto_prompt.rstrip("。"),
-                                              _manual_prompt.strip()] if x)
-        if _name_prompt:
-            _name_prompt += "。"
-
-        _raw_novel_path = os.path.join(ddir, "raw_novel_context.txt")
-        if os.path.exists(_raw_novel_path):
-            with open(_raw_novel_path, "r", encoding="utf-8") as f:
-                _novel_excerpt = core_module.extract_novel_excerpt_for_prompt(f.read())
-            initial_prompt = core_module.combine_initial_prompt(_name_prompt, _novel_excerpt)
-            st.caption(f"Including an excerpt from the raw novel you uploaded above "
-                      f"({len(_novel_excerpt):,} of its characters, names take priority).")
-        else:
-            initial_prompt = _name_prompt
-
-        beam_size = st.slider("Search width (beam size)", 1, 10, 5,
-                               help="Higher considers more alternatives before committing. "
-                                    "8-10 helps on difficult audio; it costs time, not money.")
-
-        min_silence_ms = st.slider(
-            "Speech-splitting sensitivity (ms of silence to start a new line)", 300, 3000, 2000, 100,
-            help="The default (2000ms) merges any two stretches of speech separated by less "
-                 "than 2 seconds of silence into ONE segment -- with only the first sentence "
-                 "kept as that line's text. For back-to-back dialogue, internal-monologue "
-                 "narration, or quick exchanges, this routinely swallows several real lines "
-                 "into one oversized block. Lower it (500-1000ms) if lines feel too long or "
-                 "thoughts/dialogue seem to go missing. Too low starts splitting mid-sentence "
-                 "on normal speech pauses -- there's no universally correct value.")
-        if min_silence_ms < 2000:
-            st.caption(f"Set to {min_silence_ms}ms -- more, shorter lines than the default; "
-                      f"re-run 'Check line coverage' below after aligning to see the effect.")
-
-        if not st.session_state.get("use_gpu"):
-            st.caption("💡 GPU is off. On your card, enabling it under Settings → Performance "
-                      "makes large-v3 practical rather than painfully slow.")
-
-    alignment_method = st.selectbox(
-        "Timing method (when you have a real transcript)",
-        ["whisper_diff", "qwen3_forced_align"],
-        format_func=lambda m: ("Whisper + character-diff (current default)"
-                                if m == "whisper_diff" else
-                                "Qwen3-ForcedAligner (experimental -- true forced alignment)"),
-        disabled=content_mode == "novel_narration",
-        help="The default runs Whisper for timing, then fuzzy-matches your real transcript "
-             "against Whisper's (often wrong) text character-by-character, guessing each "
-             "match's timestamp as an even split across its Whisper segment. Qwen3-ForcedAligner "
-             "instead aligns your ACTUAL transcript text directly against the audio -- no "
-             "guessing, no fuzzy-matching against ASR errors -- but needs `pip install "
-             "qwen-asr torch` and is unverified on this project's content. Only applies when "
-             "you supplied a real transcript above; Whisper's own text has nothing to align "
-             "against. Falls back to the default automatically if qwen-asr isn't installed.")
-
-    asr_backend_choice = st.selectbox(
-        "Transcription model (when Whisper is doing the transcript, not just timing)",
-        ["whisper", "qwen3_asr"],
-        format_func=lambda m: ("Whisper (current default)" if m == "whisper" else
-                                "Qwen3-ASR (experimental -- purpose-built for zh/ja/ko)"),
-        disabled=content_mode == "novel_narration",
-        help="Only applies when you picked 'let Whisper transcribe the audio' above -- if you "
-             "supplied a real transcript, this has no effect (nothing to transcribe). Public "
-             "benchmarks show Qwen3-ASR well ahead of Whisper on Mandarin, especially under "
-             "noise; no direct Japanese comparison was found, so this is unverified on that "
-             "language specifically. Needs `pip install qwen-asr torch`, re-transcribes each "
-             "of Whisper's segments individually (so it's slower than one Whisper pass), and "
-             "keeps Whisper's own segment timing either way -- only the transcribed text "
-             "changes. Falls back to Whisper automatically if qwen-asr isn't installed.")
-
-    st.subheader("4. Speaker diarization")
-    if content_mode == "audio_drama":
-        st.caption(
-            "Distinguishes different voices/characters in the audio, so lines can be grouped "
-            "by character and dubbed with different voices (or cloned). Needs `pyannote.audio` "
-            "installed and a free Hugging Face token -- see README."
-        )
-        hf_token = st.text_input("Hugging Face token (for diarization)", type="password",
-                                  value=st.session_state.get("settings_hf_token", ""))
-        run_diarize = st.checkbox("Run speaker diarization during alignment", value=False,
-                                   disabled=not hf_token)
-    else:
-        st.caption("For novel narration, speaker attribution is done by the translation LLM "
-                   "(who's speaking each line) instead of audio diarization -- no audio to analyze.")
-        hf_token, run_diarize = None, False
+            st.caption("For novel narration, speaker attribution is done by the translation LLM "
+                       "(who's speaking each line) instead of audio diarization -- no audio to analyze.")
+            hf_token, run_diarize = None, False
 
     st.subheader("5. Translation")
 
