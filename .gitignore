@@ -1,0 +1,25 @@
+# Your library -- audio, video, translations, database. Never commit this:
+# it's your data, it's large, and it may contain purchased content.
+library/
+
+# Secrets
+.env
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+env/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp

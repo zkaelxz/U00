@@ -1,0 +1,84 @@
+"""
+ocr.py -- extracts text from image-based novel/manga pages (some
+platforms serve chapters as image scans rather than selectable text,
+specifically to block copy/paste). Feeds into the novel-narration
+pipeline as if it were pasted text.
+
+Backends:
+  - tesseract: general-purpose, supports Chinese/Japanese/Korean with
+    the right language pack. Easiest to install.
+  - paddle: higher-accuracy Chinese specifically.
+  - manga_ocr: purpose-built for Japanese manga speech bubbles/vertical
+    text (what koharu uses under the hood) -- noticeably better than
+    Tesseract on stylized fonts and bubble layouts, Japanese only.
+"""
+
+import os
+
+# Tesseract language codes per source language
+TESSERACT_LANG = {"zh": "chi_sim", "ja": "jpn", "ko": "kor"}
+
+
+def extract_text_tesseract(image_path: str, lang: str = "chi_sim") -> str:
+    """Requires: `pip install pytesseract pillow` + the Tesseract binary
+    itself installed system-wide, with the matching language pack.
+      macOS:   brew install tesseract tesseract-lang
+      Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor
+      Windows: https://github.com/UB-Mannheim/tesseract/wiki (select
+               the languages you need during install)
+    """
+    import pytesseract
+    from PIL import Image
+    return pytesseract.image_to_string(Image.open(image_path), lang=lang)
+
+
+def extract_text_paddle(image_path: str) -> str:
+    """Higher-accuracy alternative for Chinese text specifically.
+    Requires: `pip install paddleocr paddlepaddle` (heavier install,
+    downloads its own detection/recognition models on first use)."""
+    from paddleocr import PaddleOCR
+    global _paddle_instance
+    if "_paddle_instance" not in globals():
+        globals()["_paddle_instance"] = PaddleOCR(use_angle_cls=True, lang="ch")
+    result = globals()["_paddle_instance"].ocr(image_path, cls=True)
+    lines = []
+    for page in result:
+        for _box, (text, _confidence) in page:
+            lines.append(text)
+    return "\n".join(lines)
+
+
+def extract_text_manga_ocr(image_path: str) -> str:
+    """Purpose-built for Japanese manga: trained specifically on speech
+    bubbles and vertical/stylized text layouts, so it handles the kind
+    of pages Tesseract struggles with. Japanese only.
+    Requires: `pip install manga-ocr` (downloads its model on first use).
+    Note: designed for single speech-bubble crops, not full pages --
+    for best results, crop to one bubble/text block per image. Whole-
+    page results will be noisier."""
+    from manga_ocr import MangaOcr
+    global _manga_ocr_instance
+    if "_manga_ocr_instance" not in globals():
+        globals()["_manga_ocr_instance"] = MangaOcr()
+    return globals()["_manga_ocr_instance"](image_path)
+
+
+def extract_text_from_images(image_paths, backend: str = "tesseract",
+                              source_language: str = "zh") -> str:
+    """Runs OCR over multiple page images (e.g. a whole chapter's worth
+    of screenshots) in order and joins them into one block of text,
+    ready to feed into the novel-narration pipeline."""
+    if backend == "manga_ocr":
+        fn = extract_text_manga_ocr
+    elif backend == "paddle":
+        fn = extract_text_paddle
+    else:
+        lang = TESSERACT_LANG.get(source_language, "chi_sim")
+        fn = lambda p: extract_text_tesseract(p, lang=lang)
+
+    chunks = []
+    for path in image_paths:
+        text = fn(path).strip()
+        if text:
+            chunks.append(text)
+    return "\n\n".join(chunks)

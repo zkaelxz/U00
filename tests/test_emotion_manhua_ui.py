@@ -1,0 +1,364 @@
+"""
+tests/test_emotion_manhua_ui.py -- emotion tagging, manhua/webtoon
+handling, and the UI design primitives.
+"""
+import sys, os, tempfile, shutil
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import numpy as np
+import cv2
+import emotion as em
+import scanlate
+import ui_theme as ui
+from core import Line
+
+
+class PureMT:
+    supports_reference = False
+
+
+class TestEmotionGuidance:
+    def test_neutral_lines_excluded(self):
+        g = em.build_emotion_guidance({0: {"emotion": "neutral", "intensity": 0.9, "note": ""}}, [0])
+        assert g == ""
+
+    def test_low_intensity_excluded(self):
+        g = em.build_emotion_guidance({0: {"emotion": "sarcastic", "intensity": 0.1, "note": ""}}, [0])
+        assert g == ""
+
+    def test_charged_line_included_with_register_guidance(self):
+        g = em.build_emotion_guidance(
+            {0: {"emotion": "suppressed_anger", "intensity": 0.8, "note": ""}}, [0])
+        assert "Line 1" in g and "suppressed_anger" in g
+        assert "clipped" in g
+
+    def test_sarcasm_guidance_warns_against_softening(self):
+        g = em.build_emotion_guidance(
+            {0: {"emotion": "sarcastic", "intensity": 0.9, "note": ""}}, [0])
+        assert "soften" in g.lower() or "opposite" in g.lower()
+
+    def test_empty_map_and_empty_indices(self):
+        assert em.build_emotion_guidance({}, [0]) == ""
+        assert em.build_emotion_guidance({0: {"emotion": "angry", "intensity": 1.0}}, []) == ""
+
+    def test_note_is_included(self):
+        g = em.build_emotion_guidance(
+            {0: {"emotion": "angry", "intensity": 0.9, "note": "shouting"}}, [0])
+        assert "shouting" in g
+
+
+class TestEmotionSummary:
+    def test_counts_and_high_risk(self):
+        s = em.emotion_summary({
+            0: {"emotion": "sarcastic", "intensity": 0.9},
+            1: {"emotion": "neutral", "intensity": 0.5},
+            2: {"emotion": "flirtatious", "intensity": 0.8},
+        })
+        assert s["total"] == 3 and s["high_risk"] == 2
+
+    def test_empty(self):
+        assert em.emotion_summary({})["total"] == 0
+
+    def test_pure_mt_returns_no_tags(self):
+        assert em.detect_emotions([Line(idx=0, start=0, end=1, zh="a")], PureMT()) == {}
+
+
+class TestTtsDelivery:
+    def test_strong_emotion_adjusts_delivery(self):
+        assert em.suggest_tts_delivery("angry", 0.9)["rate"] != "+0%"
+
+    def test_weak_emotion_stays_neutral(self):
+        assert em.suggest_tts_delivery("angry", 0.2)["rate"] == "+0%"
+
+    def test_unknown_emotion_neutral(self):
+        assert em.suggest_tts_delivery("nope", 0.9)["rate"] == "+0%"
+
+    def test_all_tags_have_descriptions(self):
+        for k, v in em.EMOTION_TAGS.items():
+            assert isinstance(v, str) and v
+
+
+class TestManhuaPanels:
+    def _page(self, d):
+        page = np.full((800, 600, 3), 255, dtype=np.uint8)
+        cv2.rectangle(page, (20, 20), (580, 380), (0, 0, 0), 4)
+        cv2.rectangle(page, (20, 420), (580, 780), (0, 0, 0), 4)
+        p = os.path.join(d, "page.png")
+        cv2.imwrite(p, page)
+        return p
+
+    def test_detects_panels(self):
+        d = tempfile.mkdtemp()
+        try:
+            assert len(scanlate.detect_panels(self._page(d))) >= 1
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_missing_file_raises(self):
+        try:
+            scanlate.detect_panels("/nonexistent/x.png")
+            assert False, "should raise"
+        except ValueError:
+            pass
+
+
+class TestWebtoonSlicing:
+    def _strip(self, d, h=5000):
+        strip = np.full((h, 800, 3), 255, dtype=np.uint8)
+        for band in range(0, h, 900):
+            cv2.rectangle(strip, (50, band + 50), (750, min(band + 700, h - 1)), (120, 120, 120), -1)
+        p = os.path.join(d, "strip.png")
+        cv2.imwrite(p, strip)
+        return p
+
+    def test_tall_strip_is_sliced(self):
+        d = tempfile.mkdtemp()
+        try:
+            assert len(scanlate.split_webtoon_strip(self._strip(d), target_height=1600)) > 1
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_slices_cover_entire_strip(self):
+        d = tempfile.mkdtemp()
+        try:
+            sl = scanlate.split_webtoon_strip(self._strip(d, 5000), target_height=1600)
+            assert sl[0]["y_start"] == 0
+            assert sl[-1]["y_end"] == 5000
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_all_slices_have_positive_height(self):
+        d = tempfile.mkdtemp()
+        try:
+            for s in scanlate.split_webtoon_strip(self._strip(d), target_height=1600):
+                assert s["y_end"] > s["y_start"]
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_short_image_not_sliced(self):
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "s.png")
+            cv2.imwrite(p, np.full((500, 400, 3), 255, dtype=np.uint8))
+            assert len(scanlate.split_webtoon_strip(p, target_height=1600)) == 1
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_slices_written_to_disk(self):
+        d = tempfile.mkdtemp()
+        try:
+            saved = scanlate.save_webtoon_slices(self._strip(d), os.path.join(d, "out"),
+                                                  target_height=1600)
+            assert saved and all(os.path.exists(s["path"]) for s in saved)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class TestTextRegionClassification:
+    def test_returns_valid_kind(self):
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "p.png")
+            img = np.full((400, 400, 3), 255, dtype=np.uint8)
+            cv2.rectangle(img, (50, 50), (350, 150), (255, 255, 255), -1)
+            cv2.rectangle(img, (50, 50), (350, 150), (0, 0, 0), 3)
+            cv2.imwrite(p, img)
+            out = scanlate.classify_text_regions(p, [{"x": 50, "y": 50, "w": 300, "h": 100}])
+            assert out[0]["kind"] in scanlate.TEXT_REGION_KINDS
+            assert 0.0 <= out[0]["kind_confidence"] <= 1.0
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_missing_file_defaults_to_bubble(self):
+        out = scanlate.classify_text_regions("/nope/x.png", [{"x": 0, "y": 0, "w": 10, "h": 10}])
+        assert out[0]["kind"] == "bubble"
+
+    def test_all_kinds_documented(self):
+        for k, v in scanlate.TEXT_REGION_KINDS.items():
+            assert isinstance(v, str) and v
+
+    def test_font_style_sampling_returns_suggestion(self):
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "p.png")
+            cv2.imwrite(p, np.full((200, 200, 3), 255, dtype=np.uint8))
+            s = scanlate.sample_text_style(p, {"x": 10, "y": 10, "w": 100, "h": 50})
+            assert s["suggested_style"] in ("handwritten", "bold", "regular")
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_font_sampling_missing_file_fallback(self):
+        s = scanlate.sample_text_style("/nope/x.png", {"x": 0, "y": 0, "w": 5, "h": 5})
+        assert s["weight"] == "regular"
+
+
+class TestUiPrimitives:
+    def test_status_pill_uses_status_colour(self):
+        h = ui.status_pill("translated")
+        assert "bh-pill" in h and ui.STATUS_COLORS["translated"][0] in h
+
+    def test_unknown_status_keeps_label_neutral_colour(self):
+        h = ui.status_pill("bogus")
+        assert "bogus" in h and ui.STATUS_COLORS["not started"][0] in h
+
+    def test_all_statuses_have_colours(self):
+        for k, (fg, bg) in ui.STATUS_COLORS.items():
+            assert fg.startswith("#") and bg.startswith("#")
+
+    def test_stage_mapping(self):
+        assert ui.stage_for_drama({"status": "not started"}, False) == 0
+        assert ui.stage_for_drama({"status": "not started", "audio_filename": "a"}, False) == 1
+        assert ui.stage_for_drama({"status": "aligned"}, True) == 2
+        assert ui.stage_for_drama({"status": "translated"}, True) == 3
+        assert ui.stage_for_drama({"status": "dubbed"}, True) == 4
+
+    def test_stage_handles_none_drama(self):
+        assert ui.stage_for_drama(None, False) == 0
+
+
+class TestReaderFollowAlong:
+    """Highlighting the line that's currently playing has to happen in the
+    page itself -- Streamlit can't observe an <audio> element's position.
+    These check the generated markup carries what the JS needs."""
+
+    def _stub_segment(self):
+        import sys, types
+        seg = types.ModuleType("segment")
+        seg.segment_and_annotate = lambda text, lang: [(text, "pinyin")]
+        sys.modules["segment"] = seg
+
+    def _lines(self, start=0.0):
+        from core import Line
+        return [Line(idx=i, start=start + i * 3, end=start + i * 3 + 3,
+                     zh=f"第{i}句", en=f"line {i}") for i in range(4)]
+
+    def test_rows_carry_timing_data(self):
+        import reader
+        self._stub_segment()
+        html = reader.build_reader_html(self._lines(), "zh", {})
+        assert 'data-start=' in html and 'data-end=' in html
+
+    def test_no_follow_bar_without_audio(self):
+        import reader
+        self._stub_segment()
+        html = reader.build_reader_html(self._lines(), "zh", {})
+        assert '<div id="followbar"' not in html
+
+    def test_follow_bar_and_listener_present_with_audio(self):
+        import reader
+        self._stub_segment()
+        html = reader.build_reader_html(self._lines(), "zh", {},
+                                         audio_data_uri="data:audio/mp3;base64,AAA")
+        assert '<div id="followbar"' in html
+        assert "timeupdate" in html
+        assert "scrollIntoView" in html
+
+    def test_offset_is_zero_for_the_first_page(self):
+        import reader
+        self._stub_segment()
+        html = reader.build_reader_html(self._lines(0.0), "zh", {},
+                                         audio_data_uri="data:audio/mp3;base64,AAA")
+        assert "PAGE_START_OFFSET = 0.0" in html
+
+    def test_offset_matches_a_mid_drama_page(self):
+        # The embedded clip covers only this page, so its t=0 is the page's
+        # first line -- absolute timestamps need that offset added back.
+        import reader
+        self._stub_segment()
+        html = reader.build_reader_html(self._lines(600.0), "zh", {},
+                                         audio_data_uri="data:audio/mp3;base64,AAA")
+        assert "PAGE_START_OFFSET = 600.0" in html
+
+    def test_active_line_styling_in_every_theme(self):
+        import reader
+        self._stub_segment()
+        for theme in ("light", "sepia", "dark"):
+            html = reader.build_reader_html(self._lines(), "zh", {}, theme=theme,
+                                             audio_data_uri="data:audio/mp3;base64,A")
+            assert ".line-row.playing" in html
+
+
+class TestDarkModeCoverage:
+    """The dark toggle only covered a subset of what the app actually uses
+    -- checkboxes, radios, the toggle itself, sliders, file uploaders, and
+    critically the success/info/warning/error alert boxes (used constantly
+    throughout the app) had no dark styling at all, leaving them white
+    against a dark background."""
+
+    def test_covers_every_widget_type_the_app_actually_uses(self):
+        import inspect
+        import ui_theme as ui
+        src = inspect.getsource(ui.inject_dark_css)
+        required = [
+            "stAlert", "stCheckbox", "stRadio", "stToggle", "stSlider",
+            "stFileUploaderDropzone", "stProgress", "popover",
+            "stChatMessage", "stChatInput", "stDataEditor",
+        ]
+        missing = [r for r in required if r not in src]
+        assert missing == [], f"still uncovered: {missing}"
+
+    def test_previously_covered_selectors_still_present(self):
+        # Regression guard: expanding the sheet must not have dropped
+        # anything that was already working.
+        import inspect
+        import ui_theme as ui
+        src = inspect.getsource(ui.inject_dark_css)
+        for required in ("stExpander", "stMetric", "stTextInput", "stButton",
+                         "stTabs", "stDataFrame"):
+            assert required in src, f"regression: {required} was dropped"
+
+    def test_dark_palette_has_all_expected_keys(self):
+        import ui_theme as ui
+        for key in ("bg", "surface", "ink", "muted", "border", "accent", "accent_soft"):
+            assert key in ui.DARK
+            assert ui.DARK[key].startswith("#")
+
+
+class TestHfTokenInScanlateMlDetector:
+    """The Whisper model download was fixed to use an HF token earlier,
+    but the Scanlate ML bubble detector's own huggingface_hub call was a
+    separate code path that never got the same fix -- same warning,
+    different function, easy to miss without checking both."""
+
+    def _stub_hf_and_ultralytics(self):
+        import sys, types
+        calls = {}
+        fake_hf = types.ModuleType("huggingface_hub")
+        def fake_download(repo_id, filename):
+            import os
+            calls["env_token"] = os.environ.get("HF_TOKEN")
+            return "/fake/model.pt"
+        fake_hf.hf_hub_download = fake_download
+        sys.modules["huggingface_hub"] = fake_hf
+        fake_ul = types.ModuleType("ultralytics")
+        fake_ul.YOLO = lambda path: types.SimpleNamespace(predict=lambda *a, **k: [])
+        sys.modules["ultralytics"] = fake_ul
+        return calls
+
+    def test_explicit_token_argument_reaches_the_download(self):
+        import os
+        calls = self._stub_hf_and_ultralytics()
+        import scanlate
+        os.environ.pop("HF_TOKEN", None)
+        scanlate.__dict__.pop("_bubble_ml_model", None)
+        scanlate.detect_bubbles_ml("/fake/image.png", hf_token="explicit-token")
+        assert calls["env_token"] == "explicit-token"
+
+    def test_falls_back_to_an_already_set_environment_token(self):
+        import os
+        calls = self._stub_hf_and_ultralytics()
+        import scanlate
+        scanlate.__dict__.pop("_bubble_ml_model", None)
+        os.environ["HF_TOKEN"] = "env-token"
+        scanlate.detect_bubbles_ml("/fake/image.png")
+        assert calls["env_token"] == "env-token"
+        os.environ.pop("HF_TOKEN", None)
+
+    def test_no_token_available_does_not_crash(self):
+        calls = self._stub_hf_and_ultralytics()
+        import scanlate
+        import os
+        os.environ.pop("HF_TOKEN", None)
+        scanlate.__dict__.pop("_bubble_ml_model", None)
+        scanlate.detect_bubbles_ml("/fake/image.png")  # must not raise
+        assert calls["env_token"] is None

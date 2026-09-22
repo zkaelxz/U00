@@ -1,0 +1,14 @@
+# Visual theme. Restrained palette on purpose: one accent colour doing the
+# work, everything else neutral, so emphasis actually means something.
+[theme]
+primaryColor = "#7C5CBF"
+backgroundColor = "#FCFCFD"
+secondaryBackgroundColor = "#F4F4F7"
+textColor = "#1F1F23"
+font = "sans serif"
+
+[server]
+maxUploadSize = 2048
+
+[browser]
+gatherUsageStats = false

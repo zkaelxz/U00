@@ -1,0 +1,115 @@
+"""
+video_download.py -- fetches audio/video from a URL (YouTube and the many
+other sites yt-dlp supports) directly into a drama's folder, so you don't
+need to run yt-dlp on the command line yourself and then upload the
+result through the file picker.
+
+Wraps yt-dlp's Python API (not the CLI) so progress can drive a Streamlit
+progress bar the same way translation/dubbing already do (progress_cb
+pattern -- see translate_engines.translate_lines_with_engine, dub.py).
+
+SETUP: pip install yt-dlp
+Needs ffmpeg on PATH for the audio-extraction postprocessor -- already a
+hard requirement of this project (used throughout core.py, video_export.py).
+
+LEGAL: this is a generic download tool, same as running yt-dlp by hand
+would be -- only point it at content you actually have the right to use
+(your own recordings, purchased/licensed copies, or platforms whose
+terms permit it).
+"""
+
+import os
+
+
+class DownloadError(RuntimeError):
+    """Raised when yt-dlp fails to fetch/extract, so callers can show a
+    clear message instead of yt-dlp's raw exception text."""
+
+
+def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None) -> str:
+    """Downloads `url` into `out_dir` and returns the path to the
+    resulting file.
+
+    audio_only=True (the default -- matches most of this project's audio-
+    drama use case): extracts to a single downloaded_audio.wav via the
+    same ffmpeg this project already requires, so it drops straight into
+    the existing audio pipeline with no separate extraction step.
+
+    audio_only=False: downloads the best available muxed video instead,
+    as downloaded_video.<ext> -- the CALLER is responsible for running it
+    through the same video->audio extraction step already used for
+    uploaded video files (core.extract_audio_from_video), exactly as if
+    it had been picked with the file uploader.
+
+    progress_cb: optional callable(fraction: float, message: str), same
+    shape as the progress_cb used elsewhere in this project, so callers
+    can plug it into the same st.progress() widgets.
+
+    Raises ImportError if yt-dlp isn't installed, or DownloadError (with
+    the original exception chained) if the download/extraction itself
+    fails.
+    """
+    try:
+        import yt_dlp
+    except ImportError as exc:
+        raise ImportError("Downloading from a URL needs yt-dlp: pip install yt-dlp") from exc
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    def _hook(d):
+        if not progress_cb:
+            return
+        status = d.get("status")
+        if status == "downloading":
+            total = d.get("total_bytes") or d.get("total_bytes_estimate")
+            downloaded = d.get("downloaded_bytes", 0)
+            frac = (downloaded / total) if total else 0.0
+            speed = (d.get("_speed_str") or "").strip()
+            progress_cb(frac * 0.9, f"Downloading... {(d.get('_percent_str') or '').strip()} {speed}")
+        elif status == "finished":
+            progress_cb(0.9, "Download complete, extracting audio..." if audio_only
+                        else "Download complete.")
+
+    if audio_only:
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(out_dir, "downloaded_audio.%(ext)s"),
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
+            "progress_hooks": [_hook],
+            "quiet": True, "no_warnings": True, "noplaylist": True,
+        }
+    else:
+        ydl_opts = {
+            "format": "bestvideo+bestaudio/best",
+            "outtmpl": os.path.join(out_dir, "downloaded_video.%(ext)s"),
+            "progress_hooks": [_hook],
+            "quiet": True, "no_warnings": True, "noplaylist": True,
+            "merge_output_format": "mp4",
+        }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            final_path = ydl.prepare_filename(info)
+    except Exception as exc:
+        raise DownloadError(
+            f"Couldn't download from that URL.\n\n{type(exc).__name__}: {exc}\n\n"
+            "Common causes: the link is wrong/private/region-locked, the site isn't "
+            "supported by yt-dlp, or yt-dlp is out of date for a site that changed "
+            "recently -- try `pip install -U yt-dlp` first."
+        ) from exc
+
+    if audio_only:
+        # FFmpegExtractAudio rewrites the extension to the target codec
+        # after the fact -- prepare_filename() reports the pre-conversion
+        # name, so swap it to what's actually on disk.
+        final_path = os.path.splitext(final_path)[0] + ".wav"
+
+    if not os.path.exists(final_path):
+        raise DownloadError(
+            f"yt-dlp reported success but the expected output file is missing: {final_path}"
+        )
+
+    if progress_cb:
+        progress_cb(1.0, "Done.")
+    return final_path
