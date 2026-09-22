@@ -1,0 +1,70 @@
+streamlit>=1.49          # width='stretch' replaced use_container_width
+faster-whisper>=1.0
+anthropic>=0.34
+pandas>=2.0
+opencv-python>=4.8      # bubble detection + inpainting for Scanlate
+
+# --- Optional, install what you actually plan to use ---
+
+# Translation engines beyond Claude:
+openai>=1.30          # for DeepSeek (OpenAI-compatible API)
+deepl>=1.18            # for DeepL
+requests>=2.31             # for Google Translate REST calls, metadata lookup, navigator
+beautifulsoup4>=4.12       # for metadata lookup and navigator page parsing
+
+# Speaker diarization:
+pyannote.audio>=3.1
+
+# Qwen3-ASR transcription backend + Qwen3-ForcedAligner timing (optional,
+# experimental -- see asr_backend.py and forced_align.py):
+qwen-asr>=0.1
+
+# Download audio/video directly from a URL instead of the file picker
+# (optional -- see video_download.py). Update often: pip install -U yt-dlp
+yt-dlp>=2024.1
+
+# AI dubbing:
+edge-tts>=6.1
+pydub>=0.25
+
+# Voice cloning (optional, heavier -- needs GPU strongly recommended):
+f5-tts>=0.9
+
+# OCR for image-based chapter scans (optional):
+pytesseract>=0.3
+pillow>=10.0
+# paddleocr>=2.7        # uncomment for higher-accuracy Chinese OCR (heavier install)
+# paddlepaddle>=2.6
+# manga-ocr>=0.1        # uncomment for Japanese manga speech-bubble OCR
+
+# Offline TTS (optional, no internet/API needed):
+piper-tts>=1.2
+
+# Voice cloning alternative, hosted (optional, paid API, no GPU needed):
+elevenlabs>=1.0
+
+# ML-based bubble detection for Scanlate (optional, better accuracy than
+# the free OpenCV heuristic, heavier install):
+ultralytics>=8.0
+huggingface_hub>=0.20
+
+# Anki .apkg export for Reader vocab (optional -- CSV export needs nothing extra):
+genanki>=0.13
+
+# Interactive Reader: word segmentation + pinyin/furigana + definitions (optional):
+jieba>=0.42          # Chinese segmentation
+pypinyin>=0.50        # Chinese pinyin
+sudachipy>=0.6        # Japanese segmentation (pure Python, no MeCab binary needed)
+sudachidict_core>=20240716  # Japanese dictionary data for sudachipy
+pykakasi>=2.3          # Japanese kanji -> hiragana readings (furigana)
+kiwipiepy>=0.18        # Korean segmentation (pure Python, no Java needed)
+
+# EPUB import/export for novel-narration mode (optional):
+ebooklib>=0.18
+
+# Test suite (optional, for running tests/):
+pytest>=7.4
+
+# Reading JavaScript-rendered sites (baihehub, Fanjiao) -- optional.
+# After installing, also run:  playwright install chromium
+playwright>=1.40
