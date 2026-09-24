@@ -407,6 +407,13 @@ class GeminiEngine:
 # DeepL -- fast, cheap, pure MT (no reference-novel awareness)
 # ---------------------------------------------------------------------------
 
+# DeepL's own source-language codes -- confirmed via direct testing that
+# hardcoding "ZH" regardless of the drama's actual source language was a
+# real bug: a Japanese or Korean drama translated through DeepL was
+# silently telling DeepL its audio was Chinese the whole time.
+_DEEPL_SOURCE_LANGS = {"zh": "ZH", "ja": "JA", "ko": "KO"}
+
+
 class DeepLEngine:
     name = "deepl"
     supports_reference = False
@@ -416,8 +423,9 @@ class DeepLEngine:
         self.translator = deepl.Translator(api_key)
 
     def translate_batch(self, zh_lines, context: dict):
+        source_lang = _DEEPL_SOURCE_LANGS.get(context.get("source_language", "zh"), "ZH")
         results = self.translator.translate_text(
-            zh_lines, source_lang="ZH", target_lang="EN-US"
+            zh_lines, source_lang=source_lang, target_lang="EN-US"
         )
         if not isinstance(results, list):
             results = [results]
@@ -440,8 +448,14 @@ class GoogleEngine:
     def translate_batch(self, zh_lines, context: dict):
         import requests
         url = "https://translation.googleapis.com/language/translate/v2"
+        # This app's own source_language values ("zh"/"ja"/"ko") already
+        # match Google's own codes directly -- no mapping table needed,
+        # unlike DeepL's differently-cased codes above. Hardcoding "zh"
+        # here regardless of the actual source was the same real bug as
+        # DeepLEngine's: a Japanese/Korean drama silently mistranslated.
         resp = requests.post(url, params={"key": self.api_key}, json={
-            "q": zh_lines, "source": "zh", "target": "en", "format": "text",
+            "q": zh_lines, "source": context.get("source_language", "zh"),
+            "target": "en", "format": "text",
         })
         resp.raise_for_status()
         data = resp.json()
@@ -853,6 +867,10 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
         "locale": locale,
         "glossary_terms": glossary_terms,
         "style_guidelines": style_guidelines,
+        # Regression fix: DeepL/Google both used to hardcode "zh" here
+        # regardless of the drama's actual source language -- a Japanese
+        # or Korean drama translated through either silently mistranslated.
+        "source_language": (drama_meta or {}).get("source_language", "zh"),
     }
     errors = []
     n_batches = (len(target_lines) + batch_size - 1) // batch_size

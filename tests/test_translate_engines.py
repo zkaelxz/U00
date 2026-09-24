@@ -154,6 +154,38 @@ class TestTranslateLinesWithEngine:
         # not re-translating the 2 that already succeeded)
         assert engine2.call_count == 1
 
+    def test_source_language_from_drama_meta_reaches_the_engine(self):
+        """Regression test for a real bug: DeepLEngine/GoogleEngine used
+        to hardcode source_language="zh" regardless of the drama's actual
+        source, so a Japanese/Korean drama silently mistranslated through
+        either. context["source_language"] must reflect drama_meta."""
+        seen_context = {}
+
+        class RecordingEngine:
+            supports_reference = False
+
+            def translate_batch(self, zh_lines, context):
+                seen_context.update(context)
+                return [f"EN:{t}" for t in zh_lines]
+
+        lines = [Line(idx=0, start=0, end=1, zh="a")]
+        te.translate_lines_with_engine(lines, RecordingEngine(), {"source_language": "ja"})
+        assert seen_context["source_language"] == "ja"
+
+    def test_source_language_defaults_to_zh_when_missing(self):
+        seen_context = {}
+
+        class RecordingEngine:
+            supports_reference = False
+
+            def translate_batch(self, zh_lines, context):
+                seen_context.update(context)
+                return [f"EN:{t}" for t in zh_lines]
+
+        lines = [Line(idx=0, start=0, end=1, zh="a")]
+        te.translate_lines_with_engine(lines, RecordingEngine(), {})
+        assert seen_context["source_language"] == "zh"
+
 
 class TestBuildLlmInstructions:
     def test_locale_us_default(self):
@@ -347,6 +379,132 @@ class TestGeminiEngine:
         engine = te.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {})
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
+
+
+class TestDeepLEngine:
+    """Regression coverage for a real bug: source_language was hardcoded
+    to "ZH" regardless of the drama's actual source language, so a
+    Japanese or Korean drama translated through DeepL silently told
+    DeepL its audio was Chinese the whole time."""
+
+    def _install_fake_deepl(self, monkeypatch):
+        import sys, types
+        fake_module = types.ModuleType("deepl")
+        captured = {}
+
+        class FakeResult:
+            def __init__(self, text):
+                self.text = text
+
+        class FakeTranslator:
+            def __init__(self, api_key):
+                captured["api_key"] = api_key
+
+            def translate_text(self, texts, source_lang, target_lang):
+                captured["source_lang"] = source_lang
+                captured["target_lang"] = target_lang
+                return [FakeResult(f"EN:{t}") for t in texts]
+
+        fake_module.Translator = FakeTranslator
+        monkeypatch.setitem(sys.modules, "deepl", fake_module)
+        return captured
+
+    def test_defaults_to_chinese_source(self, monkeypatch):
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        result = engine.translate_batch(["你好"], {})
+        assert result == ["EN:你好"]
+        assert captured["source_lang"] == "ZH"
+
+    def test_japanese_source_language_reaches_deepl(self, monkeypatch):
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["こんにちは"], {"source_language": "ja"})
+        assert captured["source_lang"] == "JA"
+
+    def test_korean_source_language_reaches_deepl(self, monkeypatch):
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["안녕"], {"source_language": "ko"})
+        assert captured["source_lang"] == "KO"
+
+    def test_a_single_result_is_normalized_to_a_list(self, monkeypatch):
+        """DeepL's SDK returns a bare TextResult (not a list) when given
+        a single-element input list -- confirmed real behavior, not
+        hypothetical, hence the isinstance check in the engine itself."""
+        import sys, types
+
+        class FakeResult:
+            def __init__(self, text):
+                self.text = text
+
+        class FakeTranslator:
+            def __init__(self, api_key):
+                pass
+
+            def translate_text(self, texts, source_lang, target_lang):
+                return FakeResult("EN:solo")  # bare object, not a list
+
+        fake_module = types.ModuleType("deepl")
+        fake_module.Translator = FakeTranslator
+        monkeypatch.setitem(sys.modules, "deepl", fake_module)
+
+        engine = te.DeepLEngine("fake-key")
+        result = engine.translate_batch(["solo"], {})
+        assert result == ["EN:solo"]
+
+
+class TestGoogleEngine:
+    """Same regression coverage as TestDeepLEngine, for GoogleEngine."""
+
+    def test_defaults_to_chinese_source(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "EN:你好"}]}}
+
+        def fake_post(url, params=None, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        engine = te.GoogleEngine("fake-key")
+        result = engine.translate_batch(["你好"], {})
+        assert result == ["EN:你好"]
+        assert captured["json"]["source"] == "zh"
+
+    def test_japanese_source_language_reaches_google(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "EN:x"}]}}
+
+        monkeypatch.setattr("requests.post",
+                             lambda url, params=None, json=None: captured.update(json=json) or FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        engine.translate_batch(["x"], {"source_language": "ja"})
+        assert captured["json"]["source"] == "ja"
+
+    def test_korean_source_language_reaches_google(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "EN:x"}]}}
+
+        monkeypatch.setattr("requests.post",
+                             lambda url, params=None, json=None: captured.update(json=json) or FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        engine.translate_batch(["x"], {"source_language": "ko"})
+        assert captured["json"]["source"] == "ko"
 
 
 class TestCallLlmJson:
