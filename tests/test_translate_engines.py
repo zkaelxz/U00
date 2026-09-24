@@ -399,6 +399,25 @@ class TestLookaheadContext:
         te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=0)
         assert all(call["upcoming_lines"] == [] for call in engine.calls)
 
+    def test_upcoming_excludes_lines_already_in_a_noncontiguous_batch(self):
+        """Regression test for a real bug: when force_retranslate=False
+        (the default) skips an already-translated line in the middle,
+        the batch is no longer a contiguous slice of `lines` -- the old
+        `last_pos = first_pos + len(batch) - 1` arithmetic assumed it
+        always was, and could land back inside the batch itself. That
+        showed the model one of ITS OWN lines as "upcoming" (context
+        only, don't translate this) while asking it to translate that
+        very line right now in the same batch."""
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(5)]
+        lines[1].en = "already translated"  # skipped: force_retranslate defaults to False
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=3, context_window_ahead=1)
+        # target_lines = [l0, l2, l3, l4] (l1 skipped) -- first batch is
+        # [l0, l2, l3], whose real next line is l4, not l3 (still part
+        # of this very batch).
+        assert engine.calls[0]["zh_lines"] == ["l0", "l2", "l3"]
+        assert engine.calls[0]["upcoming_lines"] == ["l4"]
+
 
 class TestSpeakerNamesReachTheBatch:
     def test_known_character_name_is_resolved_from_speaker_label(self):
@@ -457,9 +476,27 @@ class TestParseIdKeyedJson:
         result = te._parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
         assert result == {"1": "First.", "2": "Second."}
 
-    def test_falls_back_to_positional_array_for_a_noncompliant_model(self):
+    def test_falls_back_to_positional_array_for_a_noncompliant_model_when_lengths_match(self):
+        """The positional-array fallback is only safe when the array's
+        length exactly matches what was asked for -- see the short-list
+        test below for why a mismatched length must NOT be guessed at
+        positionally."""
         result = te._parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
         assert result == {"1": "Hello.", "2": "Hi."}
+
+    def test_short_positional_array_is_rejected_not_misassigned(self):
+        """Regression test for a real bug: ["A", "C"] for ids [1, 2, 3]
+        used to zip positionally into {"1": "A", "2": "C"} -- silently
+        putting line 3's translation ("C") on line 2's id. A length
+        mismatch has no reliable position-to-id mapping at all, so it
+        must come back empty and let the retry path re-request the
+        missing ones instead."""
+        result = te._parse_id_keyed_json('["A", "C"]', [1, 2, 3])
+        assert result == {}
+
+    def test_long_positional_array_is_also_rejected(self):
+        result = te._parse_id_keyed_json('["A", "B", "C"]', [1, 2])
+        assert result == {}
 
     def test_markdown_fences_are_stripped(self):
         result = te._parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
@@ -467,6 +504,29 @@ class TestParseIdKeyedJson:
 
     def test_malformed_json_returns_empty_not_raises(self):
         assert te._parse_id_keyed_json("not json at all", [1, 2]) == {}
+
+    def test_non_string_values_are_treated_as_missing(self):
+        """{"1": null, "2": ["x"]} used to pass straight through, leaving
+        ln.en set to None or a list. Any non-string value must be
+        dropped so the id is treated as missing and gets retried."""
+        result = te._parse_id_keyed_json('{"1": null, "2": ["x"], "3": "Hi."}', [1, 2, 3])
+        assert result == {"3": "Hi."}
+
+    def test_non_string_values_in_a_positional_array_are_also_dropped(self):
+        result = te._parse_id_keyed_json('["Hi.", null]', [1, 2])
+        assert result == {"1": "Hi."}
+
+    def test_prose_wrapped_around_the_json_object_is_tolerated(self):
+        """Small local models often add commentary around the JSON --
+        e.g. "Here you go:\\n{...}". The first JSON value anywhere in the
+        text should be extracted rather than requiring the whole
+        response to be nothing but JSON."""
+        result = te._parse_id_keyed_json('Here you go:\n{"1": "Hello."}\nHope that helps!', [1])
+        assert result == {"1": "Hello."}
+
+    def test_prose_wrapped_around_a_positional_array_is_tolerated(self):
+        result = te._parse_id_keyed_json('Sure, here it is: ["Hello.", "Hi."]', [1, 2])
+        assert result == {"1": "Hello.", "2": "Hi."}
 
 
 class TestRequestTranslationsWithRetry:
@@ -1129,6 +1189,94 @@ class TestFlagUncertainLines:
         te.flag_uncertain_lines(lines, engine, batch_size=10)
         assert lines[0].flag == "slang_idiom"
         assert lines[0].flag_note == "new note"
+
+
+class SequentialClaudeShapedEngine:
+    """Claude-shaped fake returning canned raw response strings in order,
+    one per call -- used to test the id-keyed retry mechanism directly
+    (a first response missing an id, followed by a retry response)."""
+    supports_reference = True
+    model = "fake-model"
+
+    def __init__(self, responses):
+        self.client = self
+        self.messages = self
+        self.responses = list(responses)
+        self.call_count = 0
+
+    def create(self, model, max_tokens, messages):
+        text = self.responses[self.call_count]
+        self.call_count += 1
+        return type("Resp", (), {"content": [_FakeBlock(text)]})()
+
+
+class TestTagSpeakersLlm:
+    """tag_speakers_llm used to request a plain positional JSON array and
+    zip/extend it onto zh_chunks by position -- the same misassignment
+    bug class as translation itself. Now id-keyed, same mechanism as
+    translate_batch's own fix."""
+
+    def test_well_formed_object_response_assigns_labels_by_id(self):
+        engine = SequentialClaudeShapedEngine(['{"1": "Xiaoling", "2": "Narrator"}'])
+        labels = te.tag_speakers_llm(["你好", "那天下着雨。"], engine)
+        assert labels == ["Xiaoling", "Narrator"]
+
+    def test_a_response_missing_one_id_is_retried_and_lands_on_the_right_chunk(self):
+        engine = SequentialClaudeShapedEngine([
+            '{"1": "Xiaoling"}',  # id 2 missing from the first response
+            '{"2": "Yun"}',       # retry supplies it
+        ])
+        labels = te.tag_speakers_llm(["你好", "你也好"], engine)
+        assert labels == ["Xiaoling", "Yun"]
+
+    def test_still_missing_after_retry_defaults_to_narrator_not_blank(self):
+        engine = SequentialClaudeShapedEngine(['{"1": "Xiaoling"}', '{}'])
+        labels = te.tag_speakers_llm(["你好", "你也好"], engine)
+        assert labels == ["Xiaoling", "Narrator"]
+
+    def test_pure_mt_engine_returns_all_narrator(self):
+        class PureMT:
+            supports_reference = False
+        labels = te.tag_speakers_llm(["a", "b"], PureMT())
+        assert labels == ["Narrator", "Narrator"]
+
+
+class TestRewriteForPacingLlm:
+    """rewrite_for_pacing_llm used to request a plain positional JSON
+    array and zip() it onto the batch by position -- same bug class.
+    Now id-keyed: a missing id leaves that line's existing .en
+    untouched rather than a wrong rewrite landing on it."""
+
+    def test_rewrites_lines_by_id(self):
+        lines = [Line(idx=0, start=0, end=1, zh="z0", en="A very long original line."),
+                 Line(idx=1, start=0, end=1, zh="z1", en="Another very long line.")]
+        engine = SequentialClaudeShapedEngine(['{"1": "Short one.", "2": "Short two."}'])
+        te.rewrite_for_pacing_llm(lines, engine)
+        assert lines[0].en == "Short one."
+        assert lines[1].en == "Short two."
+
+    def test_a_missing_id_leaves_that_lines_en_untouched(self):
+        lines = [Line(idx=0, start=0, end=1, zh="z0", en="Original one."),
+                 Line(idx=1, start=0, end=1, zh="z1", en="Original two.")]
+        engine = SequentialClaudeShapedEngine([
+            '{"1": "Rewritten one."}',  # id 2 missing from the first response
+            '{}',                        # retry also comes back empty
+        ])
+        te.rewrite_for_pacing_llm(lines, engine)
+        assert lines[0].en == "Rewritten one."
+        assert lines[1].en == "Original two."  # untouched, not blanked or misassigned
+
+    def test_pure_mt_engine_is_a_noop(self):
+        class PureMT:
+            supports_reference = False
+        lines = [Line(idx=0, start=0, end=1, zh="z0", en="Original.")]
+        te.rewrite_for_pacing_llm(lines, PureMT())
+        assert lines[0].en == "Original."
+
+    def test_empty_list_is_a_noop(self):
+        class Engine:
+            supports_reference = True
+        assert te.rewrite_for_pacing_llm([], Engine()) == []
 
 
 class TestOfflineTestEngine:
