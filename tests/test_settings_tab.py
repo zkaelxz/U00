@@ -68,6 +68,20 @@ class TestLoadsFromEnvFile:
         _load_env_defaults(env_path)  # must not raise
         assert not st.session_state.get("settings_hf_token")
 
+    def test_loads_gemini_key(self, tmp_path):
+        env_path = _write_env(tmp_path / ".env", "GEMINI_API_KEY=g_abc123\n")
+        _load_env_defaults(env_path)
+        assert st.session_state.get("settings_gemini") == "g_abc123"
+
+    def test_gemini_does_not_fall_back_to_google_api_key(self, tmp_path):
+        # GOOGLE_API_KEY belongs to the separate Google Translate engine --
+        # a Cloud Translation key isn't guaranteed to also work as a Gemini
+        # key, so gemini must not silently pick it up.
+        env_path = _write_env(tmp_path / ".env", "GOOGLE_API_KEY=translate_key_only\n")
+        _load_env_defaults(env_path)
+        assert st.session_state.get("settings_google") == "translate_key_only"
+        assert not st.session_state.get("settings_gemini")
+
 
 class TestAlreadySetValuesWin:
     def test_manually_typed_value_is_not_overwritten(self, tmp_path):

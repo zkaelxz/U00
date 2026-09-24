@@ -77,7 +77,7 @@ def render_diagnostics_tab():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     api_keys_set = {
         key: bool(st.session_state.get(f"settings_{key}"))
-        for key in ["claude", "deepseek", "deepl", "google", "elevenlabs", "hf_token"]
+        for key in ["claude", "deepseek", "gemini", "deepl", "google", "elevenlabs", "hf_token"]
     }
 
     if st.button("🔍 Run diagnostics", type="primary"):

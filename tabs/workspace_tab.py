@@ -256,6 +256,13 @@ def render_workspace_tab():
         c1, c2 = st.columns(2)
         title_en = c1.text_input("Title (English)", value=drama["title_en"] or "")
         title_zh = c2.text_input("Title (Chinese)", value=drama["title_zh"] or "")
+        source_url = st.text_input(
+            "Source URL (original YouTube/stream link, optional)",
+            value=drama.get("source_url") or "",
+            help="For a Streamer/VOD drama, this is a place to keep the original link -- "
+                 "Title (English)/(Chinese) above already double as the stream's "
+                 "translated/untranslated name, so this is just the remaining piece: "
+                 "where it came from.")
         author = c1.text_input("Author", value=drama["author"] or "")
         studio = c2.text_input("Studio", value=drama["studio"] or "")
         director = c1.text_input("Director", value=drama["director"] or "")
@@ -324,7 +331,8 @@ def render_workspace_tab():
                              summary=summary, media_type=media_type, genre=genre,
                              publication_status=pub_status,
                              chapter_count=int(chapter_count) if chapter_count else None,
-                             custom_tags=custom_tags, personal_notes=personal_notes)
+                             custom_tags=custom_tags, personal_notes=personal_notes,
+                             source_url=source_url)
             st.success("Saved.")
             st.rerun()
         if st.button("🗑️ Delete this drama", type="secondary"):
@@ -485,13 +493,15 @@ def render_workspace_tab():
                             dl_url.strip(), ddir, audio_only=dl_audio_only,
                             progress_cb=lambda frac, msg: (progress_bar.progress(frac), status.caption(msg)))
                         if dl_audio_only:
-                            db.update_drama(picked_id, audio_filename=os.path.basename(downloaded_path))
+                            db.update_drama(picked_id, audio_filename=os.path.basename(downloaded_path),
+                                             source_url=dl_url.strip())
                         else:
                             audio_out = os.path.join(ddir, "audio.wav")
                             with st.spinner("Extracting audio from downloaded video..."):
                                 core_module.extract_audio_from_video(downloaded_path, audio_out)
                             db.update_drama(picked_id, audio_filename="audio.wav",
-                                             source_video_filename=os.path.basename(downloaded_path))
+                                             source_video_filename=os.path.basename(downloaded_path),
+                                             source_url=dl_url.strip())
                         st.success("Downloaded.")
                         st.rerun()
                     except ImportError as exc:
@@ -1377,7 +1387,12 @@ def render_workspace_tab():
                     st.success(f"Aligned {len(lines)} lines.")
                 background_jobs.clear_job(_transcribe_job_id)
             elif _tjob["status"] == "error":
-                st.error(f"Transcription failed: {_tjob['error']}")
+                # This job slot is shared between the Whisper transcription
+                # path and the hardsub-OCR path (both use _transcribe_job_id,
+                # since only one can run at a time for a given drama) -- label
+                # the failure by which one actually ran, not always "Transcription".
+                _failed_step = "Reading captions from video" if _hardsub_mode else "Transcription"
+                st.error(f"{_failed_step} failed: {_tjob['error']}")
                 with st.expander("Details"):
                     st.code(_tjob.get("traceback", ""), language="text")
                 background_jobs.clear_job(_transcribe_job_id)
