@@ -1495,8 +1495,22 @@ def render_workspace_tab():
         if can_prep and _editing_locked:
             st.info(_editing_locked_message)
         run_prep = b1.button(prep_label, type="primary", disabled=not can_prep or _editing_locked)
+
+        # Ollama is exempted from the API-key check above, so with nothing
+        # in its place, clicking Translate against a stopped local server
+        # used to start a background job that only failed once
+        # translate_batch's own 300s request timeout expired. Checked here,
+        # before the button, rather than left to fail inside the job.
+        _ollama_unreachable = False
+        if engine_choice == "ollama":
+            _ollama_base_url = st.session_state.get("settings_ollama_url") or "http://localhost:11434"
+            if not translate_engines.check_ollama_reachable(_ollama_base_url):
+                _ollama_unreachable = True
+                st.warning(f"⚠️ Can't reach Ollama at `{_ollama_base_url}` — is it running?")
+
         run_translate = b2.button("🌐 Translate all lines",
-                                   disabled=st.session_state.lines is None or not api_key)
+                                   disabled=st.session_state.lines is None or not api_key
+                                            or _ollama_unreachable)
         force_retranslate = b2.checkbox(
             "Force re-translate everything (redoes lines that already have a "
             "translation too, not just what's missing)",
