@@ -105,6 +105,30 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     })
 
 
+def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backend):
+    """
+    Runs hardsub_ocr's sample-frames -> auto-detect-caption-band -> OCR ->
+    dedupe pipeline in a background thread. Same reasoning as
+    run_transcribe_job above: OCR-ing every sampled frame of a long video
+    is slow, and it needs to report real progress and not block the rest
+    of the app while it runs. The result already carries real per-cue
+    timing from the OCR pass itself, so unlike a raw Whisper transcript it
+    needs no separate alignment step -- the polling code on the other end
+    builds Lines directly from it, the same way Whisper's own
+    speech-to-text override (rather than an aligned user transcript) does.
+    """
+    import hardsub_ocr
+    cues = hardsub_ocr.extract_hardsub_subtitles(
+        video_path, language=language, sample_interval=sample_interval,
+        ocr_backend=ocr_backend,
+        progress_cb=lambda frac: background_jobs.update_progress(
+            job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
+    if not cues:
+        background_jobs.set_result(job_id, {"failed_reason": "empty"})
+        return
+    background_jobs.set_result(job_id, {"segments": cues})
+
+
 def render_workspace_tab():
     st.subheader("1. Choose a drama")
     all_dramas = db.list_dramas()
@@ -425,16 +449,24 @@ def render_workspace_tab():
                         st.error(str(exc))
 
             st.markdown("**Transcript**")
+            _video_exts = (".mp4", ".mkv", ".mov", ".webm")
+            _has_video_source = bool(drama.get("source_video_filename")) or (
+                audio_file is not None
+                and os.path.splitext(audio_file.name)[1].lower() in _video_exts)
             _transcript_mode_options = ["have_transcript", "whisper"]
+            if _has_video_source:
+                _transcript_mode_options.append("hardsub_ocr")
             transcript_mode = st.radio(
                 "Where does the transcript come from?",
                 _transcript_mode_options,
                 index=_transcript_mode_options.index(drama.get("transcript_mode") or "have_transcript")
                       if (drama.get("transcript_mode") or "have_transcript") in _transcript_mode_options
                       else 0,
-                format_func=lambda m: ("I have the transcript (most accurate)"
-                                        if m == "have_transcript" else
-                                        "I don't have one -- let Whisper transcribe the audio"),
+                format_func=lambda m: {
+                    "have_transcript": "I have the transcript (most accurate)",
+                    "whisper": "I don't have one -- let Whisper transcribe the audio",
+                    "hardsub_ocr": "The video already has captions burned in -- read those instead (OCR, experimental)",
+                }[m],
                 key=f"tmode_{picked_id}", horizontal=False)
             if transcript_mode != drama.get("transcript_mode"):
                 db.update_drama(picked_id, transcript_mode=transcript_mode)
@@ -445,6 +477,24 @@ def render_workspace_tab():
                           "and uncommon terms, and those errors carry straight into the translation.")
                 transcript_text = st.text_area("Transcript *(required)*", height=180,
                                                 key=f"transcript_{picked_id}")
+            elif transcript_mode == "hardsub_ocr":
+                st.caption("Samples frames from the video, auto-finds the caption band, and reads "
+                          "its text with OCR instead of transcribing the audio -- for clips where "
+                          "the caption is what should be translated, not necessarily whatever's "
+                          "spoken (compilations, variety shows, or audio that doesn't match the "
+                          "caption). Experimental: auto-detection can miss unusual caption "
+                          "placement/styling, and only reads ONE caption region even if the video "
+                          "has captions in two places at once (e.g. a header AND a bottom caption).")
+                ocr_backend_choice = st.selectbox(
+                    "OCR engine", ["tesseract", "paddle"] if source_language == "zh" else ["tesseract"],
+                    format_func=lambda b: "Tesseract (general-purpose)" if b == "tesseract"
+                                            else "PaddleOCR (higher accuracy for Chinese, heavier install)",
+                    key=f"hardsub_ocr_backend_{picked_id}")
+                sample_interval = st.slider(
+                    "Sample every N seconds", 0.5, 3.0, 1.0, step=0.5,
+                    key=f"hardsub_interval_{picked_id}",
+                    help="Lower catches short-lived captions more reliably but takes longer to run.")
+                transcript_text = ""
             else:
                 st.caption("Whisper will produce the transcript from the audio itself. Expect errors "
                           "on names, sect terms, and anything homophone-heavy -- you can correct them "
@@ -959,18 +1009,24 @@ def render_workspace_tab():
         b1, b2 = st.columns(2)
         if has_audio_pipeline:
             _has_audio = bool(audio_file or existing_audio)
-            _whisper_mode = st.session_state.get(f"tmode_{picked_id}") == "whisper"
-            _has_transcript = bool(transcript_text.strip()) or _whisper_mode
-            can_prep = _has_audio and _has_transcript
-            prep_label = "▶ Transcribe & Align" if not _whisper_mode else "▶ Transcribe with Whisper"
+            _tmode = st.session_state.get(f"tmode_{picked_id}")
+            _whisper_mode = _tmode == "whisper"
+            _hardsub_mode = _tmode == "hardsub_ocr"
+            _has_transcript = bool(transcript_text.strip()) or _whisper_mode or _hardsub_mode
+            can_prep = (_has_video_source if _hardsub_mode else _has_audio) and _has_transcript
+            prep_label = ("▶ Read Captions from Video" if _hardsub_mode else
+                          "▶ Transcribe with Whisper" if _whisper_mode else
+                          "▶ Transcribe & Align")
 
             # A disabled button with no explanation is a dead end -- say what's missing.
             if not can_prep:
                 _missing = []
-                if not _has_audio:
+                if _hardsub_mode and not _has_video_source:
+                    _missing.append("a video file (audio-only won't have captions to read)")
+                elif not _hardsub_mode and not _has_audio:
                     _missing.append("an audio or video file")
                 if not _has_transcript:
-                    _missing.append("a transcript (paste one, or switch to Whisper above)")
+                    _missing.append("a transcript (paste one, or switch to Whisper/caption-OCR above)")
                 st.info("Still needed before this can run: " + " and ".join(_missing) + ".")
         else:
             can_prep = bool(novel_narration_text.strip())
@@ -1020,20 +1076,36 @@ def render_workspace_tab():
             with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
                 f.write(transcript_text)
 
-            _local_model = st.session_state.get("settings_whisper_model_path", "").strip() or None
-            started = background_jobs.start_job(
-                _transcribe_job_id, run_transcribe_job,
-                _transcribe_job_id, audio_path, whisper_size, source_language,
-                st.session_state.get("use_gpu", False), _local_model,
-                st.session_state.get("settings_hf_token", "") or None,
-                initial_prompt, beam_size, min_silence_ms)
-            if started:
-                st.info("Transcription started in the background -- it keeps running even if you "
-                        "switch tabs or close this browser tab. Come back here any time to see "
-                        "progress; it'll pick up right where it is.")
-                st.rerun()
+            if _hardsub_mode:
+                video_filename = drama.get("source_video_filename")
+                video_path = os.path.join(ddir, video_filename) if video_filename else None
+                started = background_jobs.start_job(
+                    _transcribe_job_id, run_hardsub_ocr_job,
+                    _transcribe_job_id, video_path, source_language,
+                    st.session_state.get(f"hardsub_interval_{picked_id}", 1.0),
+                    st.session_state.get(f"hardsub_ocr_backend_{picked_id}", "tesseract"))
+                if started:
+                    st.info("Reading captions from the video in the background -- it keeps running "
+                            "even if you switch tabs or close this browser tab. Come back here any "
+                            "time to see progress; it'll pick up right where it is.")
+                    st.rerun()
+                else:
+                    st.warning("A caption-reading job is already running for this drama.")
             else:
-                st.warning("A transcription is already running for this drama.")
+                _local_model = st.session_state.get("settings_whisper_model_path", "").strip() or None
+                started = background_jobs.start_job(
+                    _transcribe_job_id, run_transcribe_job,
+                    _transcribe_job_id, audio_path, whisper_size, source_language,
+                    st.session_state.get("use_gpu", False), _local_model,
+                    st.session_state.get("settings_hf_token", "") or None,
+                    initial_prompt, beam_size, min_silence_ms)
+                if started:
+                    st.info("Transcription started in the background -- it keeps running even if you "
+                            "switch tabs or close this browser tab. Come back here any time to see "
+                            "progress; it'll pick up right where it is.")
+                    st.rerun()
+                else:
+                    st.warning("A transcription is already running for this drama.")
 
         elif run_prep and content_mode == "novel_narration":
             with open(os.path.join(ddir, "novel_narration_source.txt"), "w", encoding="utf-8") as f:
@@ -1096,8 +1168,20 @@ def render_workspace_tab():
                             "Settings → Performance if you'd rather not see this each time, or "
                             "reinstall the CUDA-enabled build matching your driver version.")
 
-                    _use_whisper_text = st.session_state.get(f"tmode_{picked_id}") == "whisper"
-                    if _use_whisper_text:
+                    _result_tmode = st.session_state.get(f"tmode_{picked_id}")
+                    if _result_tmode == "hardsub_ocr":
+                        # OCR already produced real per-cue timing straight from
+                        # the video -- no separate alignment step needed, same
+                        # reasoning as the Whisper-text-override branch below,
+                        # just sourced from captions instead of speech.
+                        lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
+                                 for i, seg in enumerate(segments) if seg["text"].strip()]
+                        transcript_text = "\n".join(ln.zh for ln in lines)
+                        st.warning("This transcript came from OCR on the video's burned-in "
+                                  "captions, so expect occasional misreads (especially on "
+                                  "stylized fonts or busy backgrounds) -- correct them in the "
+                                  "review table below **before** translating.")
+                    elif _result_tmode == "whisper":
                         # No supplied transcript: use a transcription model's own text.
                         # Segment TIMING always comes from Whisper's VAD (segments, above)
                         # -- asr_backend_choice only affects which model's TEXT fills

@@ -207,6 +207,41 @@ Works best on single speech-bubble crops rather than whole pages.
 characters are common, especially on compressed screenshots.
 
 
+## Reading captions already burned into a video (hardsub OCR, experimental)
+
+For clips where the caption is what should be translated regardless of
+what's actually spoken — a compilation, a variety show, a short with a
+caption over background music — pick "The video already has captions
+burned in" in the Workspace's transcript-source choice instead of Whisper
+or a pasted transcript. Only shows up once a **video** file (not
+audio-only) is attached, since it needs the actual picture, not just the
+audio track.
+
+It samples frames from the video, auto-finds the row band most likely to
+contain the caption (looking for text-like edges that stay in the same
+place while the rest of the picture keeps changing underneath), reads
+each sampled frame with the same Tesseract/PaddleOCR backends the page-
+scan OCR above uses, and collapses repeated frames of the same caption
+into one timed line — the output drops into the same review table,
+translate, and export pipeline as a Whisper transcript. No new
+dependency beyond what's already required for Scanlate/page-scan OCR
+(opencv-python, pytesseract + the Tesseract binary, or PaddleOCR) — you
+do still need `ffmpeg` (already required generally, see Setup above).
+
+Real limitations, not edge cases to eventually round out:
+- It finds **one** caption band. A video with captions in two places at
+  once (a stylized header AND a separate bottom caption, for instance)
+  only gets whichever one scores higher — the other is missed entirely.
+- It's a heuristic, not a trained detector — a static logo/watermark can
+  occasionally outscore a genuinely low-contrast or unusually-placed
+  caption.
+- Runs in the background with a progress bar (same as Whisper
+  transcription), but is slower than audio transcription for the same
+  runtime — it's OCR-ing a frame every N seconds, not just decoding
+  audio. Raise the sample interval (in the same section) if it's taking
+  too long and you can tolerate missing very short-lived captions.
+
+
 ## Speaker diarization (audio-drama mode)
 
 Needs `pip install pyannote.audio`, a free Hugging Face token

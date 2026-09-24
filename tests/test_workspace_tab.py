@@ -1,6 +1,6 @@
 """
-tests/test_workspace_tab.py -- run_transcribe_job(), the background-thread
-target for the "Transcribe & Align" button.
+tests/test_workspace_tab.py -- background-thread job targets for the
+Workspace tab's "Transcribe & Align" / "Read Captions from Video" buttons.
 
 Regression coverage for a real bug: the Whisper pass used to run as a
 blocking call directly inside the button's click handler, with only a
@@ -11,7 +11,8 @@ transcription pass now runs in a background thread with real progress,
 and the two known/expected failure modes (model download failure, no
 audio detected) are recorded on the job result instead of raised, so the
 UI can keep showing its existing specific, actionable messages instead of
-a generic error+traceback.
+a generic error+traceback. run_hardsub_ocr_job follows the exact same
+pattern for the burned-in-caption OCR path.
 """
 import os
 import sys
@@ -19,7 +20,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-from tabs.workspace_tab import run_transcribe_job
+from tabs.workspace_tab import run_transcribe_job, run_hardsub_ocr_job
 import core as core_module
 
 
@@ -135,4 +136,75 @@ def test_unexpected_exception_still_propagates(monkeypatch):
         assert False, "unexpected exceptions must propagate"
     except RuntimeError as e:
         assert "something genuinely broke" in str(e)
+    _clear(job_id)
+
+
+def test_hardsub_ocr_success_stores_segments(monkeypatch):
+    job_id = "test_hardsub_ok"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+
+    fake_cues = [{"start": 0.0, "end": 2.0, "text": "你好"}]
+    import hardsub_ocr
+    monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: fake_cues)
+
+    run_hardsub_ocr_job(job_id, "/fake.mp4", "zh", 1.0, "tesseract")
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"segments": fake_cues}
+    _clear(job_id)
+
+
+def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
+    job_id = "test_hardsub_progress"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+
+    def fake_extract(video_path, language, sample_interval, ocr_backend, progress_cb=None):
+        progress_cb(0.4)
+        return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+
+    import hardsub_ocr
+    monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+    run_hardsub_ocr_job(job_id, "/fake.mp4", "zh", 1.0, "tesseract")
+
+    status = background_jobs.get_status(job_id)
+    assert status["progress"] == 0.4
+    assert "40%" in status["message"]
+    _clear(job_id)
+
+
+def test_hardsub_ocr_empty_cues_is_recorded_not_raised(monkeypatch):
+    job_id = "test_hardsub_empty"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+
+    import hardsub_ocr
+    monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: [])
+
+    run_hardsub_ocr_job(job_id, "/fake.mp4", "zh", 1.0, "tesseract")
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"failed_reason": "empty"}
+    _clear(job_id)
+
+
+def test_hardsub_ocr_unexpected_exception_still_propagates(monkeypatch):
+    job_id = "test_hardsub_unexpected"
+    _clear(job_id)
+
+    import hardsub_ocr
+    def fake_extract(*a, **k):
+        raise RuntimeError("ffmpeg not found")
+    monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+    try:
+        run_hardsub_ocr_job(job_id, "/fake.mp4", "zh", 1.0, "tesseract")
+        assert False, "unexpected exceptions must propagate"
+    except RuntimeError as e:
+        assert "ffmpeg not found" in str(e)
     _clear(job_id)
