@@ -109,7 +109,9 @@ def render_scanlate_tab():
                         backend = "manga_ocr" if sc_lang == "ja" else "tesseract"
                         try:
                             b["source_text"] = ocr_module.extract_text_from_images(
-                                [crop_path], backend=backend, source_language=sc_lang).strip()
+                                [crop_path], backend=backend, source_language=sc_lang,
+                                tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None
+                            ).strip()
                         except Exception:
                             b["source_text"] = ""
                 if sc_api_key:

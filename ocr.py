@@ -35,7 +35,8 @@ def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplifi
     return TESSERACT_LANG.get(source_language, "chi_sim")
 
 
-def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6) -> str:
+def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
+                            tesseract_cmd: str = None) -> str:
     """Requires: `pip install pytesseract pillow` + the Tesseract binary
     itself installed system-wide, with the matching language pack.
       macOS:   brew install tesseract tesseract-lang
@@ -49,9 +50,18 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6)
     drop the last character of a short, single-line CJK image -- exactly
     the shape of a cropped hardsub caption band, and not rare enough on
     novel/manga page scans either to leave on the default.
+
+    tesseract_cmd: optional full path to the tesseract binary
+    (e.g. "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"). The Windows
+    installer doesn't always add itself to PATH, which pytesseract has no
+    way to detect on its own -- it just raises TesseractNotFoundError
+    with no hint of the actual cause. Set once in Settings -> OCR rather
+    than editing a system PATH variable by hand.
     """
     import pytesseract
     from PIL import Image
+    if tesseract_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
     return pytesseract.image_to_string(Image.open(image_path), lang=lang,
                                         config=f"--psm {psm}")
 
@@ -101,7 +111,8 @@ def extract_text_manga_ocr(image_path: str) -> str:
 
 def extract_text_from_images(image_paths, backend: str = "tesseract",
                               source_language: str = "zh",
-                              chinese_script: str = "simplified") -> str:
+                              chinese_script: str = "simplified",
+                              tesseract_cmd: str = None) -> str:
     """Runs OCR over multiple page images (e.g. a whole chapter's worth
     of screenshots) in order and joins them into one block of text,
     ready to feed into the novel-narration pipeline."""
@@ -111,7 +122,7 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
         fn = extract_text_paddle
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
-        fn = lambda p: extract_text_tesseract(p, lang=lang)
+        fn = lambda p: extract_text_tesseract(p, lang=lang, tesseract_cmd=tesseract_cmd)
 
     chunks = []
     for path in image_paths:

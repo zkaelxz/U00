@@ -117,6 +117,17 @@ def render_settings_sidebar():
             st.caption("Leave blank to download automatically on first use. Models are cached "
                       "after the first download, so this only matters once per model size.")
 
+        with st.expander("OCR", expanded=False):
+            st.session_state["settings_tesseract_cmd"] = st.text_input(
+                "Tesseract binary path (optional)",
+                value=st.session_state.get("settings_tesseract_cmd", ""),
+                placeholder=r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                help="Only needed if OCR fails with \"tesseract is not installed or it's not "
+                     "in your PATH\" even after installing it -- the Windows installer doesn't "
+                     "always add itself to PATH. Point this at tesseract.exe directly instead "
+                     "of editing a system PATH variable by hand. Leave blank if OCR already "
+                     "works.")
+
         with st.expander("Performance", expanded=False):
             st.session_state["use_gpu"] = st.checkbox(
                 "Use GPU where available", value=st.session_state.get("use_gpu", False),
