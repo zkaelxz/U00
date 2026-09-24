@@ -9,7 +9,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
-- Steps 6–10: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4, R6 and R7 are deferred (see §3).
+- Steps 6–10: transcription quality (6) → export formats (6b) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -68,6 +68,7 @@ Rules for every milestone:
 | 4 | Change the number of speakers and press "Re-run speaker detection". Check the speakers change and the transcript text doesn't. |
 | 5 | Translate with Ollama and check it uses the 7B model. Run transcription then translation back-to-back with no out-of-memory error. |
 | 6 | Transcribe an episode that used to get repeated-phrase loops, and check timings stay in sync to the end. |
+| 6b | Export the same episode as SRT, VTT and ASS. Check all three play correctly in your usual player, and ASS shows different speakers in different colours. |
 | 7 | Translate one episode in "High quality" mode. Check the cost estimate shows first and the critiques appear as notes. |
 | 8 | Open a second episode of the same series. Check the voice suggestions are sensible and nothing is labelled until you confirm it. |
 | 9 | Set a low cost cap and check the job stops at it. Run one Bulk-mode translation and check results arrive on the right lines. |
@@ -163,6 +164,7 @@ These are things that are broken now, or that break without warning.
    - Pass `options.num_ctx`, sized from the estimated prompt length, with a floor of at least 16k and a Settings field to override it.
    - Warn when the estimated prompt is bigger than the limit.
    - Use Ollama's `format` parameter with a JSON schema for structured replies. This pairs with Step 1's id-keyed JSON.
+   - **Check Ollama is actually reachable before a button that uses it is enabled.** Right now Ollama is exempted from the API-key check (`_needs_key`, `workspace_tab.py` ~line 1430) with no reachability check in its place, so clicking Translate with the local server stopped starts a background job that only fails once the new 300-second timeout expires. Add a short (2–3s timeout) `GET <base_url>/api/tags` health check, and disable the Ollama-dependent buttons with "⚠️ Can't reach Ollama at `<url>` — is it running?" when it fails. Cache the result briefly (a few seconds) so it isn't re-checked on every rerun.
 4. **edge-tts 403 errors.**
    - Microsoft periodically blocks edge-tts; the latest report is a 403 on the WebSocket handshake in January 2026. The fix is usually `pip install -U edge-tts`.
    - Catch this in `dub._edge_tts_synthesize` and show "Microsoft blocked the request — run `pip install -U edge-tts`".
@@ -185,6 +187,7 @@ These are things that are broken now, or that break without warning.
 - Diagnostics reports whether a JS runtime is present.
 - The CI workflow runs on the Step 1c pull request itself and passes.
 - `constraints.txt` exists, and the README install command uses it.
+- A test shows the Ollama-dependent buttons are disabled with the reachability message when the health check fails, and enabled when it succeeds.
 
 ### Step 1d — Free engines for testing (clearly labelled)
 The goal: every AI feature can be tried for free before spending money on a paid engine, and free output is always clearly marked as such.
@@ -302,6 +305,18 @@ Changes:
 
 **Exit:** mocked tests cover the new Whisper kwargs, the smaller chunk size, the zero-duration fallback and separator backend selection.
 
+### Step 6b — Export formats (VTT and ASS) *(un-deferred by request — was R6)*
+SRT already works everywhere, so this is additive, not a fix.
+1. **VTT writer** next to `core.lines_to_srt`/`lines_to_bilingual_srt` — same structure, WebVTT's header and timestamp format.
+2. **ASS writer** — enough to be worth adding over VTT: one style per known character (from `characters`/`series_characters`), so each speaker gets a consistent colour; position/margin fields left at sensible defaults rather than exposed as settings in this step.
+3. **Long-cue handling**, shared by both new writers: split a cue over a configurable character-per-line limit (default per source language, e.g. tighter for CJK) at a sentence or clause boundary where one exists, otherwise at the nearest space; never mid-word.
+4. Add format choice (SRT/VTT/ASS) next to the existing export button, defaulting to SRT so nothing changes for anyone who doesn't pick a new format.
+
+**Exit:**
+- A VTT and an ASS export of the same drama both load and play correctly in mpv and VLC, with ASS showing distinct per-speaker colours.
+- A test shows a long line is split at a sensible boundary, not mid-word.
+- SRT export is byte-identical to before this step.
+
 ### Step 7 — Reflect translation mode *(new feature; needs Step 1)*
 - Add an optional "High quality" setting:
   1. translate the batch;
@@ -391,7 +406,6 @@ Changes:
 | Milestone | Why it's deferred | Revisit when |
 |---|---|---|
 | **R4** — standalone VAD, Qwen3-ASR independent of Whisper, word timestamps, resumable jobs | The biggest and riskiest change. Whisper already works, and nobody has shown Qwen3-ASR is better on this content. | Whisper transcripts are clearly poor, or long jobs keep failing partway through. |
-| **R6** — VTT and ASS export | SRT plays everywhere. | Styled or colour-per-speaker subtitles are wanted. |
 | **R7** — full-pipeline benchmark | A developer tool whose main use is deciding R4. | R4 is being reconsidered. |
 | **R1-full** — a general artifact and versioning system | R1-lite covers the need that matters (not losing the original). | Several stages need a history of versions. |
 | **R2 windowing** — diarizing long audio in windows | Only matters for streams several hours long. | Long VODs become a regular input. |
@@ -424,6 +438,7 @@ Changes:
   | 4 — R2 speaker detection | — | Not started |
   | 5 — R3-lite local-model defaults | — | Not started |
   | 6 — Transcription quality | — | Not started |
+  | 6b — Export formats (VTT/ASS) | — | Not started |
   | 7 — Reflect translation mode | — | Not started |
   | 8 — Recurring-voice suggestions | — | Not started |
   | 9 — Cost controls & bulk discounts | — | Not started |
