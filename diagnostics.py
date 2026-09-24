@@ -86,6 +86,22 @@ def check_ffmpeg():
         return {"found": True, "path": path, "version": "found but version check failed"}
 
 
+# In yt-dlp's own preference order -- Deno is its default; the others
+# also work when that's what's actually installed.
+JS_RUNTIME_CANDIDATES = ["deno", "node", "bun", "quickjs"]
+
+
+def check_js_runtime():
+    """Since late 2025, YouTube downloads through yt-dlp need one of
+    these on PATH (its EJS system) or formats silently go missing --
+    see video_download.py/live_translate.py's own js_runtimes option."""
+    for name in JS_RUNTIME_CANDIDATES:
+        path = shutil.which(name)
+        if path:
+            return {"found": True, "name": name, "path": path}
+    return {"found": False, "name": None, "path": None}
+
+
 def check_dependency(module_name: str) -> bool:
     """Checks importability without actually importing (avoids side
     effects and is faster for modules with heavy import-time work,
@@ -150,6 +166,7 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
     return {
         "python": check_python_version(),
         "ffmpeg": check_ffmpeg(),
+        "js_runtime": check_js_runtime(),
         "dependencies": check_all_dependencies(),
         "files": check_file_completeness(project_root),
         "library_writable": check_library_writable(library_dir),

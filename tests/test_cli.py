@@ -34,6 +34,7 @@ def _translate_args(**overrides):
     defaults = dict(
         id=None, status=None, engine="claude", api_key="fake-key", model=None,
         style_note=None, style_preset="audio_drama", locale="en-US", force=False,
+        ollama_num_ctx=None,
     )
     defaults.update(overrides)
     return argparse.Namespace(**defaults)

@@ -489,3 +489,38 @@ class TestTimeoutCheckerItself:
         p.write_text(src)
         assert _find_requests_calls_missing_timeout(str(p)) == []
 
+
+class TestConstraintsFile:
+    """Regression coverage for a real gap: requirements files only give
+    minimum versions (>=), so a fresh install could silently pull in a
+    new major version -- exactly how pyannote 4 broke diarization.
+    constraints.txt pins known-risky packages' major versions; this
+    checks it exists, caps what it's supposed to, and that the README's
+    install command actually uses it."""
+
+    def _read_constraints(self):
+        path = os.path.join(PROJECT_ROOT, "constraints.txt")
+        assert os.path.exists(path), "constraints.txt is missing"
+        return open(path, encoding="utf-8").read()
+
+    def test_caps_the_packages_known_to_have_broken_before(self):
+        text = self._read_constraints()
+        for pinned in ("pyannote.audio<5", "transformers<6", "torch<3",
+                       "torchaudio<3", "streamlit<2", "faster-whisper<2"):
+            assert pinned in text, f"missing pin: {pinned}"
+
+    def test_yt_dlp_and_edge_tts_are_left_uncapped(self):
+        """Both need to stay current against sites/services that change
+        often -- capping them would trade a fixable problem for a worse,
+        deliberately-frozen one. Checks only actual pin lines, not the
+        file's own comments explaining why they're absent."""
+        pin_lines = [line for line in self._read_constraints().splitlines()
+                     if line.strip() and not line.strip().startswith("#")]
+        for line in pin_lines:
+            assert not line.lower().startswith("yt-dlp"), line
+            assert not line.lower().startswith("edge-tts"), line
+
+    def test_readme_install_command_uses_constraints_txt(self):
+        readme = open(os.path.join(PROJECT_ROOT, "README.md"), encoding="utf-8").read()
+        assert "-c constraints.txt" in readme
+

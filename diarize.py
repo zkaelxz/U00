@@ -11,6 +11,11 @@ This requires internet access on YOUR machine (to download the model
 the first time) and works better with a GPU, but runs on CPU too --
 just slower. Not run inside this sandbox since it has no network; the
 code is here for you to run locally.
+
+pyannote.audio 4.x needs Python 3.10+ and reads audio with ffmpeg
+through torchcodec (3.x doesn't need either). Its pipeline(audio) call
+also returns a different result type than 3.x -- see the getattr() in
+diarize() below for why that's handled rather than assumed away.
 """
 
 import os
@@ -36,10 +41,16 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None):
         pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1", use_auth_token=hf_token
         )
-    diarization = pipeline(audio_path, num_speakers=num_speakers)
+    result = pipeline(audio_path, num_speakers=num_speakers)
+    # pyannote.audio 4.x's pipeline(audio) returns a DiarizeOutput dataclass
+    # (its .speaker_diarization attribute holds the actual Annotation)
+    # instead of an Annotation directly, so .itertracks() would otherwise
+    # break on 4.x with an AttributeError. 3.x's plain Annotation has no
+    # such attribute, so this falls through to using it directly.
+    annotation = getattr(result, "speaker_diarization", result)
 
     segments = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
+    for turn, _, speaker in annotation.itertracks(yield_label=True):
         segments.append({"start": turn.start, "end": turn.end, "speaker": speaker})
     return segments
 

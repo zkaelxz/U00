@@ -96,7 +96,15 @@ def resolve_stream_url(url: str) -> str:
         raise ImportError("Live capture needs yt-dlp: pip install yt-dlp") from exc
 
     def _try(fmt, player_client=None):
-        opts = {"format": fmt, "quiet": True, "no_warnings": True}
+        opts = {"format": fmt, "quiet": True, "no_warnings": True,
+                # Since late 2025, YouTube downloads need an external JS
+                # runtime through yt-dlp's EJS system, or formats silently
+                # go missing -- likely the real cause behind at least some
+                # of the "no video formats found" failures this already
+                # works around below. Deno is yt-dlp's own default; listing
+                # the others too means it still works if only one of them
+                # happens to be installed.
+                "js_runtimes": ["deno", "node", "bun", "quickjs"]}
         if player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -125,10 +133,13 @@ def resolve_stream_url(url: str) -> str:
         raise LiveCaptureError(
             f"Couldn't resolve that stream URL.\n\n{type(last_exc).__name__}: {last_exc}\n\n"
             "\"No video formats found\" even on a confirmed-live stream with current yt-dlp "
-            "usually means YouTube's proof-of-origin token requirement -- tried the standard "
-            "player-client workarounds "
-            f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}) without success. This is a known, "
-            "actively-shifting YouTube/yt-dlp issue, not specific to this app -- check "
+            "usually means either YouTube's proof-of-origin token requirement -- tried the "
+            "standard player-client workarounds "
+            f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}) without success -- or that yt-dlp has "
+            "no JavaScript runtime to use (Deno, Node, Bun or QuickJS; check the Diagnostics "
+            "tab). If you don't have one, install Deno (https://deno.land) and run "
+            "`pip install -U yt-dlp`. Otherwise this is a known, actively-shifting "
+            "YouTube/yt-dlp issue, not specific to this app -- check "
             "https://github.com/yt-dlp/yt-dlp/issues for the current recommended workaround "
             "(often a specific --extractor-args player_client value, or supplying browser "
             "cookies via --cookies-from-browser), since which client currently works changes "

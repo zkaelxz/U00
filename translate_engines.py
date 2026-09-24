@@ -981,6 +981,32 @@ class TestOfflineEngine:
         return out
 
 
+# Ollama's own default context window can be as small as 2-4k tokens,
+# and a prompt longer than it gets silently TRUNCATED FROM THE START --
+# exactly where the system instructions/glossary/reference novel live --
+# with no error at all. This floor is deliberately generous: asking for
+# more context than needed costs some memory but never loses a prompt,
+# while asking for too little does so silently.
+OLLAMA_MIN_NUM_CTX = 16384
+
+
+def _estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAMA_MIN_NUM_CTX) -> int:
+    """Rough token-count estimate for sizing num_ctx -- not precise (CJK
+    and English tokenize very differently), so it deliberately errs
+    generous (~1 token per 3 characters, then +20% headroom) rather than
+    precise, since underestimating is what causes silent truncation."""
+    total_chars = len(system_text) + len(numbered)
+    estimated_tokens = int((total_chars / 3) * 1.2)
+    return max(floor, estimated_tokens)
+
+
+# A flat {"<id>": "<text>"} object, matching exactly what
+# _parse_id_keyed_json expects back -- passed as Ollama's `format` so
+# structured output does the work of staying on-shape instead of hoping
+# the model follows the prompt's instructions unprompted.
+_OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
+
+
 class OllamaEngine:
     """Fully local/offline translation via Ollama (https://ollama.com) --
     no API key, no internet needed once you've pulled a model. Quality
@@ -1011,8 +1037,21 @@ class OllamaEngine:
         if novel_reference and novel_reference.strip():
             system_text += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
                              "only):\n\n" + novel_reference.strip())
+        num_ctx_override = context.get("ollama_num_ctx_override")
 
         def call_model(numbered):
+            estimated = _estimate_ollama_num_ctx(system_text, numbered)
+            # The override can only raise the window, never lower it below
+            # what's actually needed -- a manual value smaller than the
+            # estimate would silently reintroduce the exact truncation bug
+            # this exists to prevent, so the larger of the two always wins.
+            num_ctx = max(estimated, num_ctx_override) if num_ctx_override else estimated
+            if num_ctx_override and num_ctx_override < estimated:
+                import applog
+                applog.get_logger().warning(
+                    f"Ollama num_ctx override ({num_ctx_override}) is smaller than the "
+                    f"estimated prompt size ({estimated}) -- using {estimated} instead to "
+                    "avoid silently truncating the prompt.")
             resp = requests.post(f"{self.base_url}/api/chat", json={
                 "model": self.model,
                 "messages": [
@@ -1020,6 +1059,8 @@ class OllamaEngine:
                     {"role": "user", "content": "Translate these lines:\n\n" + numbered},
                 ],
                 "stream": False,
+                "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
+                "options": {"num_ctx": num_ctx},
             }, timeout=300)  # local models can be slow, especially CPU-only or larger ones
             resp.raise_for_status()
             return resp.json()["message"]["content"].strip()
@@ -1101,12 +1142,17 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
                                  style_guidelines: str = "", cancel_check_cb=None,
                                  context_window: int = 6, context_window_ahead: int = 3,
-                                 character_names: dict = None):
+                                 character_names: dict = None, ollama_num_ctx_override: int = None):
     """cancel_check_cb: optional callable returning True if the run should
     stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
     so a background translation job can be stopped safely (rather than
     racing a destructive action like a full library reset against a
-    thread that's still writing)."""
+    thread that's still writing).
+
+    ollama_num_ctx_override: optional Settings override for OllamaEngine's
+    context-window size. Ignored by every other engine. OllamaEngine
+    itself never lets this go below what the actual prompt needs --
+    see _estimate_ollama_num_ctx's docstring for why."""
     """lines: list of objects with .zh and .en attributes (mutated in place).
 
     character_names: optional {speaker_label: character_name} (see
@@ -1184,6 +1230,7 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
         # regardless of the drama's actual source language -- a Japanese
         # or Korean drama translated through either silently mistranslated.
         "source_language": (drama_meta or {}).get("source_language", "zh"),
+        "ollama_num_ctx_override": ollama_num_ctx_override,
     }
     errors = []
     n_batches = (len(target_lines) + batch_size - 1) // batch_size

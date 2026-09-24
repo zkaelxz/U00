@@ -223,6 +223,7 @@ def cmd_translate(args):
             novel_reference=novel_reference, force_retranslate=args.force,
             locale=args.locale, glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
+            ollama_num_ctx_override=args.ollama_num_ctx,
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines),
         )
@@ -328,6 +329,10 @@ def main():
     p_translate.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
+    p_translate.add_argument("--ollama-num-ctx", type=int, default=None,
+                              help="Override Ollama's context window size. Only ever raises it "
+                                   "above the automatic per-prompt estimate, never below -- "
+                                   "leave unset to size it automatically (recommended).")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
@@ -352,6 +357,7 @@ def main():
     p_run.add_argument("--style-preset", default="audio_drama", choices=list(tguide.STYLE_PRESETS))
     p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
     p_run.add_argument("--force", action="store_true")
+    p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")
