@@ -7,7 +7,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 - Target design: [`phase1-architecture.md`](phase1-architecture.md).
 - Audited code: branch `baihe-subtitler` at commit `7af8453`. Every `file:function` reference below is on that branch.
 
-**Build order:** R5 → R0 → R1-lite → R2 → R3-lite. Milestones R4, R6 and R7 are deferred (see §3).
+**Build order:** R5 → safety fixes (Step 1b) → R0 → R1-lite → R2 → R3-lite. Milestones R4, R6 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -60,12 +60,31 @@ Rules for every milestone:
 
 **Exit:** a fake engine that returns lines out of order, too few lines, or extra lines never assigns a translation to the wrong line, and the prompt contains speaker names.
 
+### Step 1b — Safety fixes (from code review of `55f142d`)
+Do these right after Step 1 and before Step 2. They're small, and they protect existing work while the later steps are built.
+
+1. **Concurrent jobs overwrite each other.**
+   - The problem: `run_translate_job`, `run_flag_job` and `run_fix_flagged_lines_job` (`tabs/workspace_tab.py`) each get their own copy of the lines and save all of them through `db.save_lines`, which deletes and re-inserts every line. Since commit `8997242` these jobs can run at the same time, so the last job to save wins. Starting "Find lines to flag" during a translation wipes the translations done so far, and the translation's next batch wipes the flags.
+   - Short-term fix: refuse to start a line-writing job (translate, flag, fix-flagged) while another one is running for the same drama, and show a clear message saying why.
+   - Proper fix (land it in Step 2): each job writes only the fields it owns — translation writes `en`; flagging writes `flag`/`flag_note`.
+2. **API keys leak into errors.**
+   - The problem: the Gemini calls (`translate_engines.py` around lines 253 and 456, and `qa.py`) and Google Translate (around line 391) put the key in the URL (`params={"key": ...}`). A `raise_for_status()` failure then includes the full URL, key included, in the error message. That message is shown in the UI and stored in `dramas.last_translate_errors`.
+   - Fix: send the key in a header (`x-goog-api-key` for Gemini; Google Translate v2 accepts `X-Goog-Api-Key` as well), and redact anything that looks like a key or token from error strings before they're shown or stored.
+3. **Requests with no time limit.** Add `timeout=` to every `requests.post`/`requests.get` in `translate_engines.py` and `qa.py`: Gemini, Google, Ollama and Q&A. Without one, a server that stops responding leaves the job stuck at "running" forever.
+4. *(Minor)* Tests that hard-import optional libraries (`jieba`, `pytesseract`, `cv2`) should use `pytest.importorskip`, so a core-only install gives a clean test run.
+
+**Exit:**
+- A test shows a second line-writing job is refused while one is running.
+- A test shows a failed Gemini request's stored error contains no key.
+- Every HTTP call has a timeout (a test or static check).
+
 ### Step 2 — R0: Permanent line IDs
 - Give `lines` a stable primary-key id that survives merges, edits and re-saves.
 - Replace delete-all in `db.save_lines` with an upsert/diff by id. Also fix its double `conn.close()`.
 - Move `translation_notes`, `line_emotions`, `consistency_issues` and `reading_history` from `idx` to line id, with a one-time migration for existing projects.
 - Add one shared row→`Line` loader and use it in `cli.cmd_translate`, `cli.cmd_dub` and `workspace_tab`. This fixes `cmd_dub` dropping flags.
 - Switch R5's translation ids to the real line ids.
+- Make background jobs save only the fields they own (see Step 1b #1), then remove the short-term "one job at a time" block.
 
 **Exit:** after a merge, a note or flag that was attached to a line is still attached to the same line.
 
