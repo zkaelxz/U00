@@ -354,7 +354,13 @@ def init_db():
                           ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
                           ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
                           ("publication_status", "TEXT"), ("chapter_count", "INTEGER"),
-                          ("custom_tags", "TEXT"), ("personal_notes", "TEXT")]:
+                          ("custom_tags", "TEXT"), ("personal_notes", "TEXT"),
+                          # Recognition/alignment pipeline choices -- previously only
+                          # lived in Streamlit session_state, which resets on every
+                          # app restart, so "I don't have a transcript" (and the
+                          # model/backend picks) had to be re-selected every time.
+                          ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
+                          ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT")]:
         if col not in drama_cols:
             conn.execute(f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
     char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}

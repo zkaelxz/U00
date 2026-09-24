@@ -92,12 +92,34 @@ def _find_use_before_def(node):
     return problems
 
 
+def _bound_names_from_import(n):
+    """Names a single Import/ImportFrom node binds, e.g. `import x as y`
+    binds `y`. Mirrors _find_use_before_def's own visit_Import/
+    visit_ImportFrom handling, so "was this name assigned later" and
+    "does an import count as assigning it" agree with each other."""
+    if isinstance(n, ast.Import):
+        return {(a.asname or a.name).split(".")[0] for a in n.names}
+    if isinstance(n, ast.ImportFrom):
+        return {a.asname or a.name for a in n.names if a.name != "*"}
+    return set()
+
+
 def _scan_tab_file(path):
     """Returns a list of (function_name, lineno, var_name) for names that
     are read before being assigned AND are also assigned somewhere later
     in the same function -- filtering out ordinary wildcard-imported
     names (st, db, etc.) from `from common import *`, which this static
-    pass can't see and isn't trying to check."""
+    pass can't see and isn't trying to check.
+
+    "Assigned somewhere later" must count a later `import x as name` the
+    same way it counts `name = ...` -- a real shipped bug (tguide used
+    early in render_workspace_tab, then re-imported as a local `import
+    translation_guide as tguide` far below) was an exact use-before-def
+    that _find_use_before_def correctly detected, but this filter used
+    to only recognize ast.Name Store nodes as "assigned later", and an
+    import produces an ast.alias, not an ast.Name -- so the real finding
+    was silently dropped here before it ever reached anyone.
+    """
     src = open(path, encoding="utf-8").read()
     tree = ast.parse(src, path)
     results = []
@@ -106,12 +128,48 @@ def _scan_tab_file(path):
             continue
         for lineno, name in _find_use_before_def(node):
             has_later_assignment = any(
-                isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == name
+                (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and n.id == name)
+                or name in _bound_names_from_import(n)
                 for n in ast.walk(node)
             )
             if has_later_assignment:
                 results.append((node.name, lineno, name))
     return results
+
+
+class TestScanTabFileCatchesLaterReimport:
+    """Regression test for the tguide/UnboundLocalError bug: a name used
+    early in a render_ function, then re-imported locally (`import x as
+    name`) later in the SAME function, makes Python treat that name as
+    local to the whole function -- the earlier use raises
+    UnboundLocalError at runtime, the moment that code path actually
+    runs. _find_use_before_def already caught this as a use-before-
+    assignment; _scan_tab_file's own filter was silently dropping it
+    because it only recognized plain `name = ...` as a later assignment,
+    not a later import. This exercises the real, file-based path
+    (_scan_tab_file), not just the lower-level detector, since that's
+    where the bug actually was."""
+
+    def test_catches_use_before_a_later_import_as(self, tmp_path):
+        src = (
+            "def render_x():\n"
+            "    thing.do_something()\n"
+            "    import something_else as thing\n"
+        )
+        f = tmp_path / "fake_tab.py"
+        f.write_text(src, encoding="utf-8")
+        problems = _scan_tab_file(str(f))
+        assert any(name == "thing" for _, _, name in problems)
+
+    def test_still_clean_when_the_import_comes_first(self, tmp_path):
+        src = (
+            "def render_x():\n"
+            "    import something_else as thing\n"
+            "    thing.do_something()\n"
+        )
+        f = tmp_path / "fake_tab.py"
+        f.write_text(src, encoding="utf-8")
+        assert _scan_tab_file(str(f)) == []
 
 
 class TestNoUseBeforeDefinition:

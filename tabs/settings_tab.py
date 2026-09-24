@@ -10,17 +10,25 @@ import os
 from common import st
 
 
-def _load_env_defaults():
+def _load_env_defaults(env_path: str = None):
     """Reads API keys from a local .env file (or real environment
-    variables) once per session, so you don't retype them on every
+    variables) on every render, so editing .env while the app is still
+    running is picked up on the next rerun instead of needing a full
     restart. .env is gitignored -- keys never reach the database or a
-    commit. Values already typed in this session always win, so the
-    file can't silently override a key you just changed."""
-    if st.session_state.get("_env_loaded"):
-        return
+    commit. Values already set in session_state (typed manually, or
+    loaded from .env on an earlier run) always win over the file, so
+    this can't silently override a key you've since changed by hand --
+    that's what actually protects "already typed wins", not how often
+    this function runs, so calling it every render is safe. Re-parsing
+    a few-line file on each rerun is cheap enough not to matter.
+
+    env_path: override for tests -- normally the project root's .env,
+    derived from this file's own location.
+    """
     env = {}
-    env_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    if env_path is None:
+        env_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
     if os.path.exists(env_path):
         try:
             with open(env_path, encoding="utf-8") as fh:
@@ -50,7 +58,6 @@ def _load_env_defaults():
             if val:
                 st.session_state[f"settings_{settings_key}"] = val
                 break
-    st.session_state["_env_loaded"] = True
 
 SETTINGS_KEYS = {
     "claude": "Claude / Anthropic API key",
