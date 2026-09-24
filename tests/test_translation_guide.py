@@ -134,6 +134,27 @@ class TestTermCategoriesAndPolicies:
             assert expected in tg.TERM_CATEGORIES
 
 
+class TestGroupNotesByLine:
+    """group_notes_by_line() -- reshapes db.list_translation_notes()'s
+    flat rows into {line_idx: [...]}, the shape core.lines_to_srt() needs
+    to inline a note onto the exported subtitle line it's about."""
+
+    def test_groups_by_line_idx(self):
+        notes = [{"line_idx": 3, "term": "a", "note": "note a"},
+                 {"line_idx": 3, "term": "b", "note": "note b"},
+                 {"line_idx": 7, "term": "c", "note": "note c"}]
+        grouped = tg.group_notes_by_line(notes)
+        assert len(grouped[3]) == 2
+        assert grouped[7] == [{"term": "c", "note": "note c"}]
+
+    def test_notes_with_no_line_idx_are_dropped(self):
+        notes = [{"line_idx": None, "term": "a", "note": "note a"}]
+        assert tg.group_notes_by_line(notes) == {}
+
+    def test_empty_input_returns_empty_dict(self):
+        assert tg.group_notes_by_line([]) == {}
+
+
 class TestNotesFormatting:
     def test_notes_render_with_title(self):
         notes = [{"line_idx": 5, "term": "一石二鸟", "note_type": "idiom", "note": "A set phrase."}]

@@ -32,18 +32,34 @@ def fmt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def lines_to_srt(lines, field="en") -> str:
+def _notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
+    """notes_by_idx: {line_idx: [{"term", "note"}, ...]}, from
+    db.list_translation_notes() grouped by line -- see
+    translation_guide.group_notes_by_line(). Renders as a bracketed
+    aside appended to that line's subtitle text, e.g. "[Qijutang: lit.
+    'Hall of Sitting Together', used as a joke]", so a reader watching
+    the exported video (not just the in-app Reader) sees why a wordplay
+    or reference reads the way it does, right where it happens.
+    """
+    if not notes_by_idx or line_idx not in notes_by_idx:
+        return ""
+    asides = "; ".join(f"{n['term']}: {n['note']}" for n in notes_by_idx[line_idx])
+    return f"\n[{asides}]"
+
+
+def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
-        text = getattr(ln, field)
+        text = getattr(ln, field) + _notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
 
-def lines_to_bilingual_srt(lines) -> str:
+def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
         text = f"{ln.en}\n{ln.zh}" if ln.en else ln.zh
+        text += _notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 

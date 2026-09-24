@@ -47,6 +47,31 @@ class TestLinesToSrt:
         srt = lines_to_bilingual_srt(lines)
         assert "你好" in srt
 
+    def test_notes_by_idx_appends_a_bracketed_aside(self):
+        lines = [Line(idx=5, start=0.0, end=1.0, zh="齊居堂", en="Qijutang")]
+        notes = {5: [{"term": "Qijutang", "note": "lit. 'Hall of Sitting Together', used as a joke"}]}
+        srt = lines_to_srt(lines, "en", notes_by_idx=notes)
+        assert "Qijutang: lit. 'Hall of Sitting Together', used as a joke" in srt
+
+    def test_notes_by_idx_only_touches_the_matching_line(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello"),
+                 Line(idx=1, start=1.0, end=2.0, zh="再见", en="Bye")]
+        notes = {1: [{"term": "再见", "note": "a note"}]}
+        srt = lines_to_srt(lines, "en", notes_by_idx=notes)
+        entries = srt.split("\n\n")
+        assert "[再见: a note]" not in entries[0]
+        assert "[再见: a note]" in entries[1]
+
+    def test_no_notes_by_idx_leaves_srt_unchanged(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")]
+        assert lines_to_srt(lines, "en") == lines_to_srt(lines, "en", notes_by_idx=None)
+
+    def test_bilingual_also_supports_notes_by_idx(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")]
+        notes = {0: [{"term": "你好", "note": "a greeting"}]}
+        srt = lines_to_bilingual_srt(lines, notes_by_idx=notes)
+        assert "[你好: a greeting]" in srt
+
 
 class TestSplitUserTranscript:
     def test_multi_line_input_splits_on_newlines(self):
