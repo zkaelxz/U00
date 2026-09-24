@@ -286,6 +286,23 @@ def render_workspace_tab():
                 if os.path.exists(p):
                     existing_audio = p
 
+            if existing_audio:
+                st.caption(f"✅ Current audio: `{drama['audio_filename']}` "
+                          f"({storage.format_bytes(os.path.getsize(existing_audio))})"
+                          + (f" + video `{drama['source_video_filename']}`"
+                             if drama.get("source_video_filename") else ""))
+                if st.button("🗑️ Remove current audio/video", key=f"rm_audio_{picked_id}"):
+                    for _fname_field in ("audio_filename", "source_video_filename"):
+                        _fname = drama.get(_fname_field)
+                        if _fname:
+                            _fpath = os.path.join(ddir, _fname)
+                            if os.path.exists(_fpath):
+                                os.remove(_fpath)
+                    db.update_drama(picked_id, audio_filename=None, source_video_filename=None)
+                    st.success("Removed. Upload or download something to replace it -- your "
+                              "transcript/lines below (if any) are untouched.")
+                    st.rerun()
+
             # A segmented choice instead of "uploader always visible, download
             # option buried in a collapsed expander below it" -- the expander
             # version was easy to scroll past entirely, which is exactly why
