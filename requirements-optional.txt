@@ -4,6 +4,10 @@
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
 deepl>=1.18             # DeepL
+transformers>=4.40      # local NLLB-200 engine -- genuinely free, fully
+                         # offline, no API key ever. Downloads a model
+                         # (2.4-5.2GB depending on size picked) on first use.
+sentencepiece>=0.2       # tokenizer NLLB-200 needs
 
 # --- download audio/video directly from a URL (video_download.py) ---
 yt-dlp>=2024.1           # YouTube and many other sites. Update often

@@ -1326,8 +1326,16 @@ def render_workspace_tab():
                      "erroring, check ai.google.dev/gemini-api/docs/models for what's "
                      "currently available.")
             st.session_state["settings_gemini_model"] = engine_model
+        elif engine_choice == "nllb":
+            _model_keys = list(translate_engines.NLLB_MODELS.keys())
+            engine_model = st.selectbox(
+                "NLLB model size", _model_keys,
+                format_func=lambda m: translate_engines.NLLB_MODELS[m],
+                help="Downloads once, then runs fully offline -- no API key, no per-line cost. "
+                     "600M is the practical default on CPU; 1.3B is a real quality step up if "
+                     "you have the RAM/disk/patience for the heavier download and slower runs.")
 
-        _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate")
+        _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate", "nllb")
         if engine_choice == "test_offline":
             st.success("Dry-run mode: no API key, no network, no cost. Produces obvious [TEST] "
                       "placeholder text so you can confirm the pipeline works end to end before "

@@ -462,6 +462,78 @@ class GoogleEngine:
         return [t["translatedText"] for t in data["data"]["translations"]]
 
 
+# ---------------------------------------------------------------------------
+# Local NLLB-200 -- genuinely free, fully offline neural MT, no API key
+# ---------------------------------------------------------------------------
+
+# NLLB-200's own language codes for the three source languages this app
+# supports. zh always maps to Simplified here (NLLB has a separate
+# zho_Hant code for Traditional) -- see NLLBEngine's docstring for why
+# that's a real, currently-unaddressed limitation rather than an oversight.
+_NLLB_LANG_CODES = {"zh": "zho_Hans", "ja": "jpn_Jpan", "ko": "kor_Hang"}
+
+NLLB_MODELS = {
+    "facebook/nllb-200-distilled-600M": "600M -- fastest, lightest download (~2.4GB), practical on CPU",
+    "facebook/nllb-200-distilled-1.3B": "1.3B -- better quality, slower, heavier download (~5.2GB)",
+}
+
+# Keyed by (model_name, source_language) -- NLLB bakes src_lang into the
+# pipeline object itself, so a drama that mixes source languages across
+# runs needs a separate pipeline per language, same shape as Whisper's own
+# _whisper_model_cache in core.py.
+_nllb_pipeline_cache = {}
+
+
+class NLLBEngine:
+    """Fully local, offline neural machine translation via Meta's NLLB-200
+    -- no API key, no network once the model's downloaded once, no
+    per-token cost. This is a REAL translation engine, not a placeholder
+    like test_offline: it actually produces usable (if rougher) English,
+    just with meaningfully lower quality than Claude/DeepSeek/Gemini on
+    tone, idiom, and character-voice consistency, since it's pure
+    sequence-to-sequence MT with no instruction-following ability at all
+    -- the same category as DeepL/Google, not an LLM. Good for a genuinely
+    free bulk draft, or for fully offline/no-budget use; expect to
+    hand-polish idiom-heavy or emotionally nuanced lines afterward.
+
+    Known limitation: chinese_script isn't threaded through here yet --
+    zh always uses NLLB's Simplified code (zho_Hans). NLLB does have a
+    separate zho_Hant code for Traditional, so a Traditional-script drama
+    translated through this engine is feeding NLLB text in a script it
+    isn't being told to expect, which will cost some accuracy. Worth
+    fixing if this engine sees real use on Traditional-script content;
+    not done here since it needs the same context-threading this file's
+    source_language fix just added, for a script that isn't the default.
+
+    Requires: `pip install transformers sentencepiece torch` (already a
+    dependency of several other optional features in this app). The
+    model downloads from Hugging Face on first use and is cached on disk
+    afterward, the same as a Whisper model -- no API key involved at any
+    point, this only ever runs locally.
+    """
+    name = "nllb"
+    supports_reference = False
+
+    def __init__(self, api_key: str = None, model: str = "facebook/nllb-200-distilled-600M"):
+        # api_key is unused (kept for get_engine's consistent constructor
+        # signature across engines -- NLLB needs no key at all).
+        self.model_name = model
+
+    def _get_pipeline(self, source_language: str):
+        cache_key = (self.model_name, source_language)
+        if cache_key not in _nllb_pipeline_cache:
+            from transformers import pipeline
+            src_lang = _NLLB_LANG_CODES.get(source_language, "zho_Hans")
+            _nllb_pipeline_cache[cache_key] = pipeline(
+                "translation", model=self.model_name, src_lang=src_lang, tgt_lang="eng_Latn")
+        return _nllb_pipeline_cache[cache_key]
+
+    def translate_batch(self, zh_lines, context: dict):
+        pipe = self._get_pipeline(context.get("source_language", "zh"))
+        results = pipe(list(zh_lines))
+        return [r["translation_text"] for r in results]
+
+
 def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int = 15, usage_cb=None):
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
@@ -791,6 +863,7 @@ ENGINES = {
     "google": GoogleEngine,
     "ollama": OllamaEngine,
     "libretranslate": LibreTranslateEngine,
+    "nllb": NLLBEngine,
 }
 
 ENGINE_NOTES = {
@@ -802,6 +875,7 @@ ENGINE_NOTES = {
     "google": "Broadest language coverage, cheapest at scale, no reference-novel awareness.",
     "ollama": "Runs models locally via Ollama. No per-token billing, but quality depends on your hardware -- a usable model needs meaningful RAM/VRAM. Supports novel reference.",
     "libretranslate": "Self-hosted LibreTranslate or LTEngine. No per-word cost once running, but you host it: LibreTranslate needs ~8GB RAM for full language support, and LTEngine's best model wants a 24GB GPU. The hosted libretranslate.com API is PAID. Pure MT, no reference-novel awareness.",
+    "nllb": "Genuinely free, fully offline, no API key ever -- runs Meta's NLLB-200 locally. A real translation (unlike test_offline), but noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini since it's pure MT with no instruction-following. Downloads a model (2.4-5.2GB) on first use. No reference-novel awareness.",
 }
 
 

@@ -207,6 +207,7 @@ everything, use the delete button in Library or Workspace instead.
 | `google` | Broadest coverage, cheapest at scale, pure MT. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
 | `libretranslate` | Self-hosted [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) or [LTEngine](https://github.com/LibreTranslate/LTEngine). Pure MT, no reference-novel awareness. **See the cost note below — "open source" is not the same as "free to use".** |
+| `nllb` | Fully local via Meta's [NLLB-200](https://github.com/facebookresearch/fairseq/tree/nllb) (`transformers` + `sentencepiece`). Genuinely free and fully offline — no API key, ever, unlike every paid engine above. A real translation (unlike `test_offline`), but pure MT with no instruction-following, so noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini. Downloads a model (2.4–5.2GB depending on size picked) on first use, then never touches the network again. |
 
 Only `claude`, `deepseek`, `gemini`, and `ollama` (LLM-based) can do
 speaker attribution for novel-narration mode — DeepL/Google will just tag
@@ -256,6 +257,7 @@ different claims:
 | `google` | Paid per character | API key |
 | `ollama` | No billing | Your own hardware — a model worth using wants real RAM/VRAM |
 | `libretranslate` | No billing **if self-hosted** | Your own server. LibreTranslate wants ~8GB RAM and ~10GB disk for full language support. LTEngine's best model (gemma3-27b) wants roughly a 24GB-VRAM GPU; CPU-only runs, but slowly. |
+| `nllb` | No billing, ever | Nothing beyond `pip install transformers sentencepiece` and disk space for the model (2.4GB for the 600M size, 5.2GB for 1.3B). Runs on CPU, just slower than with a GPU. |
 
 **The hosted libretranslate.com API is a paid service** with pricing
 tiers and requires a key — pointing this app at it is not free. The
