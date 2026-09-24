@@ -122,8 +122,10 @@ URL you have the right to download from, only.
 
 ### Prerequisites
 
-Python 3.9+ and `ffmpeg` **with libass support** (needed for burning
-subtitles into video). Most standard `ffmpeg` builds already include it.
+Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
+diarization -- it also reads audio through ffmpeg via torchcodec) and
+`ffmpeg` **with libass support** (needed for burning subtitles into
+video). Most standard `ffmpeg` builds already include it.
 
 ```bash
 # macOS
@@ -140,13 +142,20 @@ sudo apt install ffmpeg
 ```bash
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 ```
 
 `requirements.txt` is grouped by feature — skip `pyannote.audio` if
 you're not diarizing, skip `f5-tts` if you're not cloning voices, etc.
 See `requirements-optional.txt` for the full list of opt-in features
 (OCR backends, alternate TTS/ASR engines) with install notes for each.
+
+`-c constraints.txt` caps a handful of packages at major versions known
+not to have broken this app (that's exactly how pyannote 4 broke
+diarization before) — it doesn't install anything by itself. If you've
+run `make_lock.bat` and have a `constraints.lock.txt`, use that instead
+(`-c constraints.lock.txt`) to reproduce your own known-working setup
+exactly.
 
 ## Usage
 

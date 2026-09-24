@@ -1,0 +1,33 @@
+# constraints.txt -- upper bounds for packages that have broken this
+# app before (or are judged likely to). Used alongside a requirements
+# file, not instead of one:
+#
+#   pip install -r requirements-core.txt -c constraints.txt
+#
+# A constraints file doesn't install anything by itself -- it only caps
+# whichever major version pip would otherwise resolve, for these
+# specific packages, direct or transitive. Most dependencies aren't
+# listed here at all and stay uncapped; a plain `>=` in the requirements
+# file already covers them.
+#
+# yt-dlp and edge-tts are deliberately left OUT: both need to stay
+# current to keep working against sites/services that change often
+# (see the Step 1c JS-runtime and 403 fixes), so capping them would
+# trade a known, fixable problem (an occasional break, fixed by
+# upgrading) for a worse one (deliberately staying broken).
+#
+# If make_lock.bat has been run, constraints.lock.txt (an exact
+# `pip freeze` snapshot of a setup that's known to work) takes priority
+# over this file -- see that script for details.
+
+pyannote.audio<5     # 4.x changed pipeline(audio)'s return type (DiarizeOutput
+                      # instead of Annotation) -- diarize.py's own diarize()
+                      # already handles both shapes, but a future 5.x could
+                      # change just as much again with no warning.
+transformers<6        # backs the local NLLB-200 engine and Qwen3-ASR/ForcedAligner.
+torch<3
+torchaudio<3
+streamlit<2           # this app targets Streamlit's current widget API
+                       # (width='stretch', st.dialog, AppTest, etc.) -- a 2.x
+                       # could remove or rename any of it.
+faster-whisper<2       # core.transcribe_for_timing's main transcription backend.

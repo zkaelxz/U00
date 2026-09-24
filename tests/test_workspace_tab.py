@@ -20,6 +20,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
 import background_jobs
 import db
 import translate_engines
@@ -304,6 +305,9 @@ def test_hardsub_ocr_success_stores_segments(monkeypatch):
                                       "error": None, "cancel_requested": False, "result": None}
 
     fake_cues = [{"start": 0.0, "end": 2.0, "text": "你好"}]
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: fake_cues)
 
@@ -326,6 +330,9 @@ def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
         progress_cb(0.4)
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
 
@@ -343,6 +350,9 @@ def test_hardsub_ocr_empty_cues_is_recorded_not_raised(monkeypatch):
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: [])
 
@@ -357,6 +367,9 @@ def test_hardsub_ocr_unexpected_exception_still_propagates(monkeypatch):
     job_id = "test_hardsub_unexpected"
     _clear(job_id)
 
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     def fake_extract(*a, **k):
         raise RuntimeError("ffmpeg not found")
@@ -887,3 +900,59 @@ class TestLineEditingLockedDuringAJob:
         at.session_state[f"ocr_text_{did}"] = text
         at.run(timeout=30)
         return at
+
+
+class TestOllamaReachabilityGatesTranslateButton:
+    """UI-level regression coverage for a real gap: Ollama is exempted
+    from the API-key check entirely (_needs_key), with nothing in its
+    place -- clicking Translate against a stopped local server used to
+    start a background job that only failed once translate_batch's own
+    300s request timeout expired. The button is now disabled up front
+    (with a clear warning) when a quick health check fails."""
+
+    def _drama_with_ollama_engine(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="ollama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        # A second rerun: the first pass loads the drama's lines from the
+        # database into session_state (further down the script than
+        # run_translate's own disabled= check), so a fresh session_state
+        # starting at None always renders that button disabled on the
+        # very first pass regardless of Ollama reachability. This mirrors
+        # a real session, where the widget reflects state set on an
+        # earlier rerun, not state this same rerun is still populating.
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_translate_is_disabled_and_warns_when_ollama_is_unreachable(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: False)
+        did = self._drama_with_ollama_engine(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🌐 Translate all lines").disabled is True
+        assert any("Can't reach Ollama" in w.value for w in at.warning)
+
+    def test_translate_is_enabled_when_ollama_is_reachable(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: True)
+        did = self._drama_with_ollama_engine(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🌐 Translate all lines").disabled is False
+        assert not any("Can't reach Ollama" in w.value for w in at.warning)

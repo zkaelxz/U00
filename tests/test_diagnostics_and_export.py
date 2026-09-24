@@ -28,6 +28,30 @@ class TestDiagnostics:
         assert "found" in result
         assert isinstance(result["found"], bool)
 
+    def test_js_runtime_check_returns_expected_shape(self):
+        result = diagnostics.check_js_runtime()
+        assert "found" in result
+        assert isinstance(result["found"], bool)
+
+    def test_js_runtime_finds_deno_on_path(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which",
+                             lambda name: "/usr/bin/deno" if name == "deno" else None)
+        assert diagnostics.check_js_runtime() == {
+            "found": True, "name": "deno", "path": "/usr/bin/deno"}
+
+    def test_js_runtime_falls_through_to_a_later_candidate(self, monkeypatch):
+        """Deno is checked first (yt-dlp's own default), but this app
+        works with any of the supported runtimes -- confirms the check
+        doesn't stop looking after the first miss."""
+        monkeypatch.setattr(diagnostics.shutil, "which",
+                             lambda name: "/usr/bin/node" if name == "node" else None)
+        assert diagnostics.check_js_runtime() == {
+            "found": True, "name": "node", "path": "/usr/bin/node"}
+
+    def test_js_runtime_reports_missing_when_none_found(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        assert diagnostics.check_js_runtime() == {"found": False, "name": None, "path": None}
+
     def test_check_dependency_true_for_stdlib_backed_package(self):
         # json is always importable
         assert diagnostics.check_dependency("json") is True
@@ -60,7 +84,8 @@ class TestDiagnostics:
     def test_run_full_diagnostics_returns_all_sections(self, tmp_path_str):
         result = diagnostics.run_full_diagnostics(
             PROJECT_ROOT, os.path.join(tmp_path_str, "lib"), {"claude": True})
-        for section in ("python", "ffmpeg", "dependencies", "files", "library_writable", "api_keys"):
+        for section in ("python", "ffmpeg", "js_runtime", "dependencies", "files",
+                        "library_writable", "api_keys"):
             assert section in result
 
 
