@@ -27,6 +27,34 @@ def _sanitize_filename(name: str, max_length: int = 80) -> str:
     return name[:max_length]
 
 
+_PRONOUN_CUSTOM = "Custom…"
+
+
+def _pronoun_picker(label, current, key, unset_label="Unspecified (use the default)", help=None,
+                    in_form=False):
+    """she/her, he/him, they/them, or free-text Custom… -- returns the
+    pronoun text to store ("" for unset). `current` may be a legacy
+    "female"/"male" value; it's shown as its mapped preset. in_form: an
+    st.form doesn't rerun when the selectbox changes, so the custom box
+    has to be visible up front instead of appearing on "Custom…"."""
+    current = tguide.normalize_pronouns(current)
+    options = [""] + tguide.PRONOUN_PRESETS + [_PRONOUN_CUSTOM]
+    index = options.index(current) if current in options else len(options) - 1
+    picked = st.selectbox(label, options, index=index, key=key, help=help,
+                          format_func=lambda p: unset_label if p == "" else p)
+    if picked != _PRONOUN_CUSTOM and not in_form:
+        return picked
+    custom = st.text_input(
+        f"{label} (custom)" if not in_form else "Custom pronouns (used when Custom… is picked)",
+        key=f"{key}_custom", value=current if current not in options else "",
+        placeholder="e.g. xe/xem")
+    if picked != _PRONOUN_CUSTOM:
+        return picked
+    # Nothing typed yet: keep the saved value rather than clearing it the
+    # moment someone opens the custom box.
+    return custom.strip() or current
+
+
 def _jump_to_line_button(picked_id, line_idx, all_lines, key):
     """A button that lands on the right page of the Review & edit table
     for a specific line, instead of leaving a flagged-line list (pacing
@@ -58,12 +86,14 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     that on its next rerun rather than this function updating any UI
     directly, which it structurally cannot do from here.
     """
-    # {speaker_label: character_name}, named characters only -- a line
+    # {speaker_label: "Name (pronouns)"}, named characters only -- a line
     # whose speaker has no name set is shown to the translator with no
     # name at all (see translate_lines_with_engine's own docstring),
     # never the raw diarization label, which isn't a name.
-    character_names = {c["speaker_label"]: c["character_name"]
-                        for c in db.list_characters(drama_id) if c.get("character_name")}
+    _series_id = (db.get_drama(drama_id) or {}).get("series_id")
+    character_names = tguide.build_speaker_labels(
+        db.list_characters_with_series_names(drama_id),
+        db.list_series_characters(_series_id) if _series_id else [])
     _, errors = translate_engines.translate_lines_with_engine(
         lines, engine, drama_meta=drama_meta, style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
@@ -1194,8 +1224,9 @@ def render_workspace_tab():
                  "Whisper's transcribed character for a pronoun isn't a reliable gender signal "
                  "-- for an all/mostly-female cast, this tells the translator to default an "
                  "ambiguous reference to female instead of guessing from that character. A "
-                 "specific character's gender (set below, or under 6. Name your characters) "
-                 "always wins over this default.")
+                 "specific character's pronouns always win over this default -- set them under "
+                 "📖 Series glossary → 👥 People & pronouns (for a series), or per drama in "
+                 "6. Name your characters.")
         custom_guide_notes = st.text_area(
             "Project-specific translation notes (optional)", height=68,
             placeholder="e.g. this character always speaks formally; keep the narrator distant")
@@ -1343,11 +1374,13 @@ def render_workspace_tab():
                         st.success("Added.")
                         st.rerun()
 
-                st.markdown("**Known characters in this series**")
+                st.markdown("**👥 People & pronouns**")
                 st.caption("A recurring cast (a streamer's regulars, or a book series' main "
                           "characters) that persists across every drama in this series -- once "
                           "someone's added here, section 6 below lets you pick them by name for "
-                          "any drama instead of retyping and re-spelling it each time.")
+                          "any drama instead of retyping and re-spelling it each time. Their "
+                          "pronouns here are the default for every drama; section 6 can override "
+                          "them for one drama.")
                 series_chars = db.list_series_characters(sid)
                 if series_chars:
                     for sc in series_chars:
@@ -1370,29 +1403,26 @@ def render_workspace_tab():
                                 value=sc["notes"] or "", key=f"scnotes_{sc['id']}",
                                 label_visibility="collapsed",
                                 placeholder="Nicknames, speaking style, relationships (optional)")
-                            _gender_opts = ["", "female", "male"]
-                            _cur_gender = sc.get("gender") or ""
-                            sc_gender = st.selectbox(
-                                "Pronouns", _gender_opts,
-                                index=_gender_opts.index(_cur_gender) if _cur_gender in _gender_opts else 0,
-                                format_func=lambda g: {"": "Unspecified (use the default)",
-                                                        "female": "she/her", "male": "he/him"}[g],
-                                key=f"scgender_{sc['id']}",
+                            _cur_pronouns = tguide.normalize_pronouns(sc.get("gender"))
+                            sc_pronouns = _pronoun_picker(
+                                "Pronouns", _cur_pronouns, key=f"scgender_{sc['id']}",
                                 help="Fixes this character's pronouns in translation, overriding "
                                      "both Whisper's transcribed 他/她/它 (unreliable -- they're "
                                      "homophones in speech) and the \"default to she/her\" toggle "
                                      "above.")
-                            if sc_notes != (sc["notes"] or "") or sc_gender != _cur_gender:
+                            if sc_notes != (sc["notes"] or "") or sc_pronouns != _cur_pronouns:
                                 db.upsert_series_character(sid, sc["character_name"],
                                                             aliases=sc["aliases"] or "", notes=sc_notes,
-                                                            gender=sc_gender)
+                                                            gender=sc_pronouns)
                 else:
                     st.caption("None yet -- add someone below, or link an existing per-drama "
                               "character to a new series character in section 6.")
                 with st.form(f"add_series_char_{sid}", clear_on_submit=True):
                     new_char_name = st.text_input("Add a known character")
+                    new_char_pronouns = _pronoun_picker(
+                        "Pronouns", "", key=f"add_sc_pronouns_{sid}", in_form=True)
                     if st.form_submit_button("Add") and new_char_name:
-                        db.upsert_series_character(sid, new_char_name)
+                        db.upsert_series_character(sid, new_char_name, gender=new_char_pronouns)
                         st.success(f"Added '{new_char_name}'.")
                         st.rerun()
 
@@ -1822,8 +1852,9 @@ def render_workspace_tab():
             _emap = db.load_emotions(picked_id)
             _emotion_block = emotion.build_emotion_guidance(
                 _emap, [ln.idx for ln in st.session_state.lines]) if _emap else ""
-            _gender_block = (tguide.build_character_gender_hints(db.list_series_characters(drama["series_id"]))
-                              if drama.get("series_id") else "")
+            _gender_block = tguide.build_character_gender_hints(
+                db.list_series_characters(drama["series_id"]) if drama.get("series_id") else [],
+                db.list_characters_with_series_names(picked_id))
             style_guidelines = tguide.build_style_guidelines(
                 style_preset, glossary_terms=glossary_terms,
                 include_genre_notes=include_genre_notes,
@@ -1956,6 +1987,17 @@ def render_workspace_tab():
                     if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
                         db.upsert_character(picked_id, c["speaker_label"], character_name=name,
                                              voice_actor=va, tts_voice=voice)
+                    _series_default = tguide.normalize_pronouns(c.get("series_pronouns"))
+                    _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
+                    c_pronouns = _pronoun_picker(
+                        f"Pronouns ({name or c['speaker_label']})", _shown_pronouns,
+                        key=f"cpronouns_{c['speaker_label']}",
+                        help=("Defaults to this person's pronouns under People & pronouns "
+                              f"({_series_default}); setting it here overrides that for this "
+                              "drama only." if _series_default else
+                              "Fixes this character's pronouns in translation for this drama."))
+                    if c_pronouns != _shown_pronouns:
+                        db.upsert_character(picked_id, c["speaker_label"], pronouns=c_pronouns)
                     if (drama.get("series_id") and name.strip()
                             and name.strip() not in [sc["character_name"] for sc in _series_chars]):
                         # Deliberately opt-in, not automatic on every keystroke --
