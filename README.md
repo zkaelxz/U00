@@ -112,6 +112,8 @@ URL you have the right to download from, only.
   detect speech bubbles, auto-clean the original text, auto-translate
   and place text, then adjust position/size/font/text per bubble
   before final render. Free OpenCV-based detection by default.
+- **Live (experimental)**: near-live translation of an ongoing stream,
+  chunked and translated as it arrives rather than after the fact.
 - **CLI**: headless batch mode (`cli.py`) for unattended runs across
   your whole library.
 - **Bulk export**: zip up subtitles + dub/narration tracks.
@@ -612,6 +614,40 @@ failures to the database and showing them as a standing banner in
 Workspace until dismissed or the drama is re-translated cleanly. Click
 Translate again; already-translated lines are skipped automatically, so
 this doesn't re-cost anything already done.
+
+### Live (experimental)
+
+For translating a stream as it happens rather than after the fact: the
+🔴 Live tab pulls a running stream, cuts it into short chunks (10-60s,
+your choice) as they arrive, transcribes and translates each chunk in
+the background, and shows a growing feed of original + translated lines
+you refresh manually.
+
+This is a genuinely different, looser tradeoff than the rest of the
+app, not just a faster version of it:
+- **Latency is at least one chunk's length.** A 20s chunk means a line
+  said at t=0 doesn't appear until roughly t=20-40 (transcribe +
+  translate both have to finish first). Shorter chunks lower the delay
+  but give Whisper less context per cut, so a sentence split across a
+  chunk boundary can transcribe worse than the same audio in one piece.
+  There's no setting that removes this tradeoff, only where you sit on it.
+- **Lower accuracy than the normal pipeline on purpose.** Each chunk is
+  transcribed independently -- no cross-chunk context, and none of the
+  glossary/proper-noun priming (`initial_prompt`) the rest of the app
+  uses for names.
+- **Doesn't save into your Library yet.** The feed is ephemeral for
+  this first version; copy anything worth keeping before you stop it.
+- **A resolved stream URL can expire** after a few hours on some
+  platforms -- if new lines stop appearing on a long-running stream,
+  stop and start again to re-resolve a fresh one.
+- Needs `yt-dlp` (already required for URL downloads elsewhere) and
+  `ffmpeg` (already a hard requirement of this project) -- no new
+  dependency.
+- Built and verified against a real, continuous ffmpeg capture-and-
+  segment pipeline; **not tested against an actual live YouTube/Twitch
+  broadcast**, since that needs a real stream running at test time.
+  Sanity-check the first couple of lines after starting before relying
+  on it for a whole stream.
 
 ### Novel-narration line timing
 

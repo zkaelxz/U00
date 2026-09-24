@@ -19,7 +19,8 @@ import ui_theme
 # missing module) doesn't prevent every other tab from loading.
 _tab_import_errors = {}
 for _name in ("settings_tab", "library_tab", "reader_tab", "scanlate_tab",
-              "navigator_tab", "discover_tab", "workspace_tab", "diagnostics_tab"):
+              "navigator_tab", "discover_tab", "workspace_tab", "live_tab",
+              "diagnostics_tab"):
     try:
         __import__(f"tabs.{_name}")
     except Exception as _exc:
@@ -70,8 +71,8 @@ if "active_drama_id" not in st.session_state:
 if "lines" not in st.session_state:
     st.session_state.lines = None
 
-tab_library, tab_workspace, tab_reader, tab_scanlate, tab_navigator, tab_discover, tab_diagnostics = st.tabs(
-    ["📚 Library", "🛠️ Workspace", "📖 Read & Watch", "🖼️ Scanlate", "🧭 Navigator", "🔎 Discover", "🩺 Diagnostics"])
+tab_library, tab_workspace, tab_reader, tab_scanlate, tab_navigator, tab_discover, tab_live, tab_diagnostics = st.tabs(
+    ["📚 Library", "🛠️ Workspace", "📖 Read & Watch", "🖼️ Scanlate", "🧭 Navigator", "🔎 Discover", "🔴 Live", "🩺 Diagnostics"])
 
 with tab_library:
     _safe_render(tabs.library_tab.render_library_tab, "Library", "library_tab")
@@ -90,6 +91,9 @@ with tab_discover:
 
 with tab_workspace:
     _safe_render(tabs.workspace_tab.render_workspace_tab, "Workspace", "workspace_tab")
+
+with tab_live:
+    _safe_render(tabs.live_tab.render_live_tab, "Live", "live_tab")
 
 with tab_diagnostics:
     _safe_render(tabs.diagnostics_tab.render_diagnostics_tab, "Diagnostics", "diagnostics_tab")
