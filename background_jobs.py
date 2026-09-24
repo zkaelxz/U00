@@ -145,6 +145,24 @@ def other_line_writing_job(drama_id, exclude_prefix: str):
     return None
 
 
+def any_line_writing_job(drama_id) -> bool:
+    """True if a translate/flag/fix-flagged-lines job is currently
+    running for this drama. other_line_writing_job() above only stops
+    these three jobs from clashing with EACH OTHER -- a person's own
+    manual edit (the line editor's save, merge lines, a per-line fix,
+    undo/restore) still races one of them the same way: whichever
+    saves last through db.save_lines() silently wins. workspace_tab.py
+    uses this to lock every control that saves lines on the main
+    thread while one of these jobs is running for the drama being
+    viewed."""
+    with _lock:
+        for prefix in LINE_WRITING_JOB_PREFIXES:
+            job = _jobs.get(f"{prefix}{drama_id}")
+            if job and job["status"] == "running":
+                return True
+    return False
+
+
 def request_cancel(job_id: str):
     """Sets a cooperative cancellation flag. The job itself has to check
     is_cancel_requested() between units of work -- this can't forcibly

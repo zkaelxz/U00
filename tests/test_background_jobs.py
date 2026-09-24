@@ -322,6 +322,56 @@ class TestLineWritingJobConflictGuard:
         bg.clear_job("translate_507")
 
 
+class TestAnyLineWritingJob:
+    """other_line_writing_job() above only stops the three line-writing
+    jobs from clashing with EACH OTHER. A person's own manual edit in
+    Workspace's Review & edit section (save, merge, a per-line fix,
+    undo/restore) still races a running one of those jobs the same way --
+    any_line_writing_job() is the guard workspace_tab.py checks to lock
+    those controls while any of the three is running for the drama."""
+
+    def test_false_when_nothing_is_running(self):
+        assert bg.any_line_writing_job(601) is False
+
+    def test_true_while_translate_is_running(self):
+        bg.start_job("translate_602", lambda: time.sleep(0.05))
+        assert bg.any_line_writing_job(602) is True
+        _wait("translate_602")
+        bg.clear_job("translate_602")
+
+    def test_true_while_flag_is_running(self):
+        bg.start_job("flag_603", lambda: time.sleep(0.05))
+        assert bg.any_line_writing_job(603) is True
+        _wait("flag_603")
+        bg.clear_job("flag_603")
+
+    def test_true_while_fixflag_is_running(self):
+        bg.start_job("fixflag_604", lambda: time.sleep(0.05))
+        assert bg.any_line_writing_job(604) is True
+        _wait("fixflag_604")
+        bg.clear_job("fixflag_604")
+
+    def test_false_for_a_different_drama(self):
+        bg.start_job("translate_605", lambda: time.sleep(0.05))
+        assert bg.any_line_writing_job(606) is False
+        _wait("translate_605")
+        bg.clear_job("translate_605")
+
+    def test_false_once_the_job_has_finished(self):
+        bg.start_job("translate_607", lambda: None)
+        _wait("translate_607")
+        assert bg.any_line_writing_job(607) is False
+        bg.clear_job("translate_607")
+
+    def test_false_for_a_non_line_writing_job(self):
+        """emotion/consistency/notes jobs don't call db.save_lines() --
+        no race to guard against, so they must not lock editing."""
+        bg.start_job("emotion_608", lambda: time.sleep(0.05))
+        assert bg.any_line_writing_job(608) is False
+        _wait("emotion_608")
+        bg.clear_job("emotion_608")
+
+
 class TestFailedJobIsLogged:
     """Before this, the app had no logging at all -- a background job's
     failure left only whatever happened to be on screen at the time.
