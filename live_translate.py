@@ -65,6 +65,17 @@ class LiveCaptureError(RuntimeError):
     yt-dlp/subprocess traceback."""
 
 
+# Attempted in order until one returns a usable format. "No video formats
+# found" on a confirmed-live, confirmed-up-to-date-yt-dlp stream is a real,
+# widely-reported YouTube-side issue, not a bug specific to this app: since
+# 2024 YouTube has increasingly required a proof-of-origin ("PO") token for
+# the default web player client, and yt-dlp's own maintainers' documented
+# workaround is to request formats through a different player client that
+# doesn't need one -- which one currently works shifts over time as YouTube
+# and yt-dlp keep adjusting, so several are tried rather than betting on one.
+_YOUTUBE_CLIENT_FALLBACKS = ["android", "tv", "web_safari"]
+
+
 def resolve_stream_url(url: str) -> str:
     """
     Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
@@ -77,39 +88,45 @@ def resolve_stream_url(url: str) -> str:
     except ImportError as exc:
         raise ImportError("Live capture needs yt-dlp: pip install yt-dlp") from exc
 
-    def _try(fmt):
-        with yt_dlp.YoutubeDL({"format": fmt, "quiet": True, "no_warnings": True}) as ydl:
+    def _try(fmt, player_client=None):
+        opts = {"format": fmt, "quiet": True, "no_warnings": True}
+        if player_client:
+            opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
+        with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=False)
 
-    try:
-        info = _try("bestaudio/best")
-    except Exception as exc:
-        # "No video formats found" specifically means yt-dlp's extractor
-        # came back with an empty format list for this URL at all -- not
-        # that bestaudio was unavailable (the /best fallback would have
-        # caught that). Retrying with a plainer format string sometimes
-        # recovers it, since some live manifests only expose combined
-        # audio+video formats and reject an audio-first format spec
-        # outright rather than falling through.
-        if "no video formats found" in str(exc).lower():
-            try:
-                info = _try("best")
-            except Exception:
+    last_exc = None
+    for fmt, player_client in (
+        [("bestaudio/best", None), ("best", None)]
+        + [("best", c) for c in _YOUTUBE_CLIENT_FALLBACKS]
+    ):
+        try:
+            info = _try(fmt, player_client)
+            break
+        except Exception as exc:
+            last_exc = exc
+            # Only worth ever retrying for this exact failure shape -- any
+            # other error (private video, bad URL, network) will fail the
+            # same way on every attempt, so don't burn time looping on it.
+            if "no video formats found" not in str(exc).lower():
                 raise LiveCaptureError(
                     f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
-                    "\"No video formats found\" usually means one of: the video "
-                    "isn't actually live right now (this only works on a "
-                    "currently-broadcasting stream, not a regular finished video or "
-                    "short), yt-dlp is out of date for a recent YouTube change "
-                    "(`pip install -U yt-dlp`), or the content needs sign-in/is "
-                    "region-locked. Confirm the stream is live in a browser first."
+                    "Common causes: the link is wrong/private/region-locked, the stream "
+                    "hasn't started yet, or it's already ended."
                 ) from exc
-        else:
-            raise LiveCaptureError(
-                f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
-                "Common causes: the link is wrong/private/region-locked, the stream "
-                "hasn't started yet, or it's already ended."
-            ) from exc
+    else:
+        raise LiveCaptureError(
+            f"Couldn't resolve that stream URL.\n\n{type(last_exc).__name__}: {last_exc}\n\n"
+            "\"No video formats found\" even on a confirmed-live stream with current yt-dlp "
+            "usually means YouTube's proof-of-origin token requirement -- tried the standard "
+            "player-client workarounds "
+            f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}) without success. This is a known, "
+            "actively-shifting YouTube/yt-dlp issue, not specific to this app -- check "
+            "https://github.com/yt-dlp/yt-dlp/issues for the current recommended workaround "
+            "(often a specific --extractor-args player_client value, or supplying browser "
+            "cookies via --cookies-from-browser), since which client currently works changes "
+            "as both sides keep adjusting."
+        ) from last_exc
 
     stream_url = info.get("url")
     if not stream_url:
