@@ -44,6 +44,11 @@ def _load_env_defaults(env_path: str = None):
     for settings_key, env_names in {
         "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
         "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
+        # Deliberately NOT falling back to GOOGLE_API_KEY here -- that name
+        # is already claimed by the separate Google Translate engine above,
+        # and a Cloud Translation key isn't guaranteed to also work as a
+        # Gemini API key (different products, often different projects).
+        "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
         "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
         "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
         "elevenlabs": ("BAIHE_ELEVENLABS_KEY", "ELEVENLABS_API_KEY"),
@@ -62,6 +67,7 @@ def _load_env_defaults(env_path: str = None):
 SETTINGS_KEYS = {
     "claude": "Claude / Anthropic API key",
     "deepseek": "DeepSeek API key",
+    "gemini": "Gemini API key",
     "deepl": "DeepL API key",
     "google": "Google Translate API key",
     "ollama_url": "Ollama base URL",
