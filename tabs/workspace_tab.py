@@ -270,7 +270,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                     os.remove(slice_path)
         if ln.zh.strip():
             try:
-                translated = engine.translate_batch([ln.zh], {})[0]
+                translated = engine.translate_batch([ln.zh], {"source_language": source_language})[0]
                 if hasattr(engine, "last_usage"):
                     db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
                                  "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
