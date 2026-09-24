@@ -113,10 +113,36 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
     raise last_exception
 
 
+# Reused from forced_align.py rather than duplicated -- both files need
+# the same "zh"/"ja"/"ko" -> full language name mapping.
+from forced_align import LANGUAGE_NAMES
+
+# How each of this app's own content_mode/media_type values reads in a
+# sentence, for the opening line of the system prompt. Falls back to
+# "content" (still correct, just generic) for anything not listed here
+# rather than guessing at a label.
+_MEDIUM_DESCRIPTIONS = {
+    "audio_drama": "audio drama", "video_drama": "video drama",
+    "streamer_vod": "livestream VOD", "novel_narration": "novel",
+    "novel": "novel", "manhwa": "manhwa", "manga": "manga", "manhua": "manhua",
+    "asmr": "ASMR audio", "other": "content",
+}
+
+
 def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, locale: str = "en-US",
-                            glossary_terms=None, style_guidelines: str = "", recent_context=None):
+                            glossary_terms=None, style_guidelines: str = "", recent_context=None,
+                            upcoming_lines=None):
+    """
+    upcoming_lines: raw (untranslated) source text for the few lines
+    immediately AFTER this batch, shown for context only -- the model is
+    told explicitly not to translate them here. Fixes a real, one-sided
+    gap: recent_context already showed how PRECEDING lines were
+    translated, but nothing showed what comes next, so a line ending on
+    a cliffhanger or an incomplete thought had no forward context to
+    resolve against, only backward.
+    """
     meta_lines = []
-    for label, key in [("Title", "title_en"), ("Chinese title", "title_zh"),
+    for label, key in [("Title", "title_en"), ("Original title", "title_zh"),
                         ("Author", "author"), ("Studio", "studio"),
                         ("Director", "director"), ("Voice actors", "voice_actors")]:
         val = drama_meta.get(key)
@@ -158,14 +184,34 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
     else:
         context_block = ""
 
+    if upcoming_lines:
+        upcoming_block = (
+            "\nWhat's said immediately AFTER this batch, in the original language "
+            "(for context only -- a line that ends on an unresolved thought or a "
+            "cliffhanger may need this to translate correctly). Do NOT translate "
+            "these here, they'll be translated in a later batch:\n"
+            + "\n".join(f"- {t}" for t in upcoming_lines) + "\n"
+        )
+    else:
+        upcoming_block = ""
+
+    source_language = drama_meta.get("source_language") or "zh"
+    source_language_name = LANGUAGE_NAMES.get(source_language, "the source language")
+    medium = _MEDIUM_DESCRIPTIONS.get(
+        drama_meta.get("content_mode") or drama_meta.get("media_type"), "content")
+
     instructions = (
-        "You are translating a Chinese baihe (GL/yuri) audio drama into "
-        "natural, idiomatic English subtitles. You will be given numbered "
-        "lines of dialogue to translate in each request.\n\n"
+        f"You are translating {source_language_name} baihe (GL/yuri) {medium} into "
+        "natural, idiomatic English subtitles. You will be given numbered lines to "
+        "translate in each request, each optionally prefixed with the name of the "
+        "character speaking it in [brackets] -- use that to get pronouns, honorifics, "
+        "and register right, but never include the bracketed name itself in your "
+        "translation.\n\n"
         + (f"Drama metadata:\n{meta_block}\n\n" if meta_block else "")
         + locale_instruction
         + glossary_block
         + context_block
+        + upcoming_block
         + "Rules:\n"
         "- Keep each translation concise enough to read comfortably as a subtitle.\n"
         "- Keep character names, honorifics, and recurring terms consistent.\n"
@@ -176,8 +222,10 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
         "- If a line has no clear match in the reference, translate it naturally while "
         "staying consistent with the established voice.\n"
         + (f"- Additional style notes: {style_note}\n" if style_note else "")
-        + "- Return ONLY a JSON array of strings, one per input line, in the same order. "
-        "No preamble, no markdown fences, no commentary."
+        + "- Return ONLY a JSON object mapping each line's number (as a string) to its "
+        "translation, e.g. {\"1\": \"...\", \"2\": \"...\"} -- include EVERY number you "
+        "were given, and no numbers you weren't. No preamble, no markdown fences, no "
+        "commentary."
     )
     return instructions, meta_block
 
@@ -193,6 +241,90 @@ def _parse_json_array(text: str, fallback_count: int):
     # fallback: try to split numbered lines
     lines = [l.split(". ", 1)[-1].strip() for l in text.splitlines() if l.strip()]
     return lines[:fallback_count] if lines else [""] * fallback_count
+
+
+def _build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None) -> str:
+    """
+    Builds the numbered-line block shown to the model, e.g.:
+        1. [Xiaoling] 你好
+        2. 那天下着雨。
+    speaker_names (parallel to zh_lines, None entries allowed) prefixes
+    only the lines a name is actually known for -- a line with no known
+    speaker (narration, an unlabeled line) is left unprefixed rather
+    than showing a placeholder like "[Unknown]", which would just be
+    noise the model has to ignore.
+    """
+    out = []
+    for idx, (i, zh) in enumerate(zip(ids, zh_lines)):
+        name = speaker_names[idx] if speaker_names else None
+        prefix = f"[{name}] " if name else ""
+        out.append(f"{i}. {prefix}{zh}")
+    return "\n".join(out)
+
+
+def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
+    """
+    Parses a response expected to be a JSON object mapping each line's
+    id (as a string) to its translation, e.g. {"1": "Hello.", "2": "Hi."}.
+    Returns {id_str: text} for whichever of expected_ids actually came
+    back -- a missing id just isn't a key here, it's the caller's job
+    (_request_translations_with_retry) to decide what to do about that,
+    not this function's.
+
+    Tolerates a plain JSON array too (mapping array position to id
+    positionally) for a model that ignores the object-shape instruction
+    -- graceful degradation, not the primary path.
+    """
+    stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    expected_str = {str(i) for i in expected_ids}
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return {}
+    if isinstance(data, dict):
+        return {str(k): v for k, v in data.items() if str(k) in expected_str}
+    if isinstance(data, list):
+        return {str(expected_ids[i]): v for i, v in enumerate(data) if i < len(expected_ids)}
+    return {}
+
+
+def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1):
+    """
+    The shared id-keyed request/parse/retry-missing logic behind every
+    LLM translation engine's own translate_batch (Claude/DeepSeek/
+    Gemini/Ollama) -- built once here instead of once per engine, same
+    reasoning as call_llm_json's own consolidation elsewhere in this file.
+
+    call_model_fn(numbered_text: str) -> raw response text from the
+    model; each engine supplies its own closure that does its own API
+    call (and updates its own usage tracking) with the given numbered
+    lines substituted into its own instructions.
+
+    This is what actually fixes the real bug this replaces: the old
+    code trusted a plain JSON array's POSITION to mean the same thing as
+    the input batch's position, so a response one line short (a common
+    LLM failure: merging two lines into one, or silently dropping a
+    line) silently shifted every translation after the gap onto the
+    wrong line. Requesting an id-keyed object and looking up by id
+    instead of position means a missing/extra/reordered response entry
+    can only ever affect ITS OWN line, never any other one -- and this
+    retries the specific lines that came back missing (once) before
+    giving up and leaving only THOSE blank, rather than treating one
+    incomplete response as a reason to redo (or lose) the whole batch.
+    """
+    ids = list(range(1, len(zh_lines) + 1))
+    remaining_ids = list(ids)
+    result_map = {}
+    for _attempt in range(max_retries + 1):
+        if not remaining_ids:
+            break
+        batch_lines = [zh_lines[i - 1] for i in remaining_ids]
+        batch_names = ([speaker_names[i - 1] for i in remaining_ids] if speaker_names else None)
+        numbered = _build_numbered_lines(remaining_ids, batch_lines, batch_names)
+        text = call_model_fn(numbered)
+        result_map.update(_parse_id_keyed_json(text, remaining_ids))
+        remaining_ids = [i for i in ids if str(i) not in result_map]
+    return [result_map.get(str(i), "") for i in ids]
 
 
 def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
@@ -287,6 +419,7 @@ class ClaudeEngine:
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
             recent_context=context.get("recent_context"),
+            upcoming_lines=context.get("upcoming_lines"),
         )
         blocks = [{"type": "text", "text": instructions}]
         novel_reference = context.get("novel_reference")
@@ -297,18 +430,19 @@ class ClaudeEngine:
                         + novel_reference.strip(),
                 "cache_control": {"type": "ephemeral"},
             })
-        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(zh_lines))
-        resp = self.client.messages.create(
-            model=self.model, max_tokens=4000, system=blocks,
-            messages=[{"role": "user", "content": "Translate these lines:\n\n" + numbered}],
-        )
-        if hasattr(resp, "usage"):
-            self.last_usage = {
-                "input_tokens": getattr(resp.usage, "input_tokens", 0),
-                "output_tokens": getattr(resp.usage, "output_tokens", 0),
-            }
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
-        return _parse_json_array(text, len(zh_lines))
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        def call_model(numbered):
+            resp = self.client.messages.create(
+                model=self.model, max_tokens=4000, system=blocks,
+                messages=[{"role": "user", "content": "Translate these lines:\n\n" + numbered}],
+            )
+            if hasattr(resp, "usage"):
+                self.last_usage["input_tokens"] += getattr(resp.usage, "input_tokens", 0)
+                self.last_usage["output_tokens"] += getattr(resp.usage, "output_tokens", 0)
+            return "".join(b.text for b in resp.content if b.type == "text").strip()
+
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
 
 
 # ---------------------------------------------------------------------------
@@ -332,27 +466,29 @@ class DeepSeekEngine:
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
             recent_context=context.get("recent_context"),
+            upcoming_lines=context.get("upcoming_lines"),
         )
         novel_reference = context.get("novel_reference")
         system_text = instructions
         if novel_reference and novel_reference.strip():
             system_text += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
                              "only):\n\n" + novel_reference.strip())
-        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(zh_lines))
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system_text},
-                {"role": "user", "content": "Translate these lines:\n\n" + numbered},
-            ],
-        )
-        if hasattr(resp, "usage") and resp.usage:
-            self.last_usage = {
-                "input_tokens": getattr(resp.usage, "prompt_tokens", 0),
-                "output_tokens": getattr(resp.usage, "completion_tokens", 0),
-            }
-        text = resp.choices[0].message.content.strip()
-        return _parse_json_array(text, len(zh_lines))
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        def call_model(numbered):
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": "Translate these lines:\n\n" + numbered},
+                ],
+            )
+            if hasattr(resp, "usage") and resp.usage:
+                self.last_usage["input_tokens"] += getattr(resp.usage, "prompt_tokens", 0)
+                self.last_usage["output_tokens"] += getattr(resp.usage, "completion_tokens", 0)
+            return resp.choices[0].message.content.strip()
+
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
 
 
 # ---------------------------------------------------------------------------
@@ -380,27 +516,29 @@ class GeminiEngine:
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
             recent_context=context.get("recent_context"),
+            upcoming_lines=context.get("upcoming_lines"),
         )
         novel_reference = context.get("novel_reference")
         if novel_reference and novel_reference.strip():
             instructions += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
                               "only):\n\n" + novel_reference.strip())
-        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(zh_lines))
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{self.model}:generateContent")
-        resp = requests.post(url, params={"key": self.api_key}, json={
-            "systemInstruction": {"parts": [{"text": instructions}]},
-            "contents": [{"parts": [{"text": "Translate these lines:\n\n" + numbered}]}],
-        })
-        resp.raise_for_status()
-        data = resp.json()
-        usage = data.get("usageMetadata") or {}
-        self.last_usage = {
-            "input_tokens": usage.get("promptTokenCount", 0),
-            "output_tokens": usage.get("candidatesTokenCount", 0),
-        }
-        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return _parse_json_array(text, len(zh_lines))
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        def call_model(numbered):
+            resp = requests.post(url, params={"key": self.api_key}, json={
+                "systemInstruction": {"parts": [{"text": instructions}]},
+                "contents": [{"parts": [{"text": "Translate these lines:\n\n" + numbered}]}],
+            })
+            resp.raise_for_status()
+            data = resp.json()
+            usage = data.get("usageMetadata") or {}
+            self.last_usage["input_tokens"] += usage.get("promptTokenCount", 0)
+            self.last_usage["output_tokens"] += usage.get("candidatesTokenCount", 0)
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
 
 
 # ---------------------------------------------------------------------------
@@ -798,24 +936,27 @@ class OllamaEngine:
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
             recent_context=context.get("recent_context"),
+            upcoming_lines=context.get("upcoming_lines"),
         )
         novel_reference = context.get("novel_reference")
         system_text = instructions
         if novel_reference and novel_reference.strip():
             system_text += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
                              "only):\n\n" + novel_reference.strip())
-        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(zh_lines))
-        resp = requests.post(f"{self.base_url}/api/chat", json={
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_text},
-                {"role": "user", "content": "Translate these lines:\n\n" + numbered},
-            ],
-            "stream": False,
-        })
-        resp.raise_for_status()
-        text = resp.json()["message"]["content"].strip()
-        return _parse_json_array(text, len(zh_lines))
+
+        def call_model(numbered):
+            resp = requests.post(f"{self.base_url}/api/chat", json={
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_text},
+                    {"role": "user", "content": "Translate these lines:\n\n" + numbered},
+                ],
+                "stream": False,
+            })
+            resp.raise_for_status()
+            return resp.json()["message"]["content"].strip()
+
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
 
 
 class LibreTranslateEngine:
@@ -891,13 +1032,23 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                                  save_cb=None, force_retranslate: bool = False,
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
                                  style_guidelines: str = "", cancel_check_cb=None,
-                                 context_window: int = 6):
+                                 context_window: int = 6, context_window_ahead: int = 3,
+                                 character_names: dict = None):
     """cancel_check_cb: optional callable returning True if the run should
     stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
     so a background translation job can be stopped safely (rather than
     racing a destructive action like a full library reset against a
     thread that's still writing)."""
     """lines: list of objects with .zh and .en attributes (mutated in place).
+
+    character_names: optional {speaker_label: character_name} (see
+    db.list_characters) -- resolves each line's raw diarization label
+    into an actual name shown to the translator, e.g. "[Xiaoling] 你好"
+    instead of just "你好". Drives correct pronouns/honorifics/register,
+    which the model previously had zero signal for. A line whose speaker
+    has no name set is shown with no prefix at all, not the raw label
+    (a diarization id like "SPEAKER_00" isn't a name and would just be
+    noise for the model to ignore).
 
     save_cb: optional callback invoked after every batch (successful or
     not) with the full `lines` list so far, so progress survives a
@@ -914,6 +1065,19 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
     A failed batch is retried once, then, if it fails again, its lines
     are left untranslated (.en stays empty) and noted in the returned
     `errors` list, rather than raising and losing everything after it.
+    A batch whose engine returns the WRONG NUMBER of translations is
+    treated the same way -- a real, confirmed bug this replaces: the
+    old code paired the response with the batch by raw list position
+    (zip()), so a response one line short (a common LLM failure: merging
+    two lines into one, or silently dropping a line) silently shifted
+    every translation after the gap onto the wrong line. A length
+    mismatch is now always a batch error, never a misassignment --
+    fixing the actual mismatch (an engine's own id-keyed JSON response
+    parsing, for Claude/DeepSeek/Gemini/Ollama) lives in each engine's
+    own translate_batch, since that's where the real per-line recovery
+    (retry only the missing ones, not the whole batch) can happen with
+    the id information still available; by the time a bare list[str]
+    reaches here, all this can safely check is its length.
 
     By default, lines that already have non-empty .en are skipped --
     so calling this again after a partial failure only retries what's
@@ -927,6 +1091,12 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
     relation ("her", "that guy") a few lines back has nothing to resolve
     against, and the model has to guess fresh every batch instead of
     staying consistent with what came right before it. 0 disables this.
+
+    context_window_ahead: same idea, forward instead of back -- how many
+    lines immediately AFTER this batch (raw, untranslated) get shown for
+    context only. A line ending on a cliffhanger or an incomplete thought
+    previously had nothing to resolve against going forward, only
+    backward. 0 disables this.
     """
     target_lines = lines if force_retranslate else [ln for ln in lines if not ln.en.strip()]
     if not target_lines:
@@ -934,6 +1104,7 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             progress_cb(1.0)
         return lines, []
 
+    character_names = character_names or {}
     context = {
         "drama_meta": drama_meta,
         "style_note": style_note,
@@ -952,21 +1123,32 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
         if cancel_check_cb and cancel_check_cb():
             break
         batch = target_lines[start:start + batch_size]
+        first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)
         if context_window > 0:
             # Recomputed each batch (not just once outside the loop) since
             # more lines have been translated -- including by this very
             # loop -- by the time later batches run.
-            first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)
             preceding = lines[max(0, first_pos - context_window):first_pos]
             context["recent_context"] = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
+        if context_window_ahead > 0:
+            last_pos = first_pos + len(batch) - 1
+            upcoming = lines[last_pos + 1:last_pos + 1 + context_window_ahead]
+            context["upcoming_lines"] = [ln.zh for ln in upcoming if ln.zh.strip()]
+        context["speaker_labels"] = [character_names.get(ln.speaker) for ln in batch]
         try:
             translations = call_with_backoff(
                 lambda: engine.translate_batch([ln.zh for ln in batch], context)
             )
             if usage_cb and hasattr(engine, "last_usage"):
                 usage_cb(engine.last_usage.get("input_tokens", 0), engine.last_usage.get("output_tokens", 0))
-            for ln, tr in zip(batch, translations):
-                ln.en = tr
+            if len(translations) != len(batch):
+                errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
+                               "error": f"engine returned {len(translations)} translation(s) for "
+                                        f"{len(batch)} line(s) -- left untranslated rather than "
+                                        f"risk assigning a translation to the wrong line"})
+            else:
+                for ln, tr in zip(batch, translations):
+                    ln.en = tr
         except Exception as e:
             errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch], "error": str(e)})
         if save_cb:

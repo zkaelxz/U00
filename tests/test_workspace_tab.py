@@ -20,9 +20,11 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
+import db
+import translate_engines
 from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
-                                 run_fix_flagged_lines_job)
+                                 run_fix_flagged_lines_job, run_translate_job)
 import core as core_module
 from core import Line
 
@@ -701,4 +703,52 @@ def test_fix_flagged_job_ignores_unflagged_lines(isolated_db):
     assert loaded[0]["en"] == "No problem."  # untouched
     result = background_jobs.get_status(job_id)["result"]
     assert result == {"fixed_count": 0, "total_flagged": 0}
+    _clear(job_id)
+
+
+def test_translate_job_resolves_named_characters_for_the_engine(isolated_db, monkeypatch):
+    """Regression coverage for a real audit finding: the translator never
+    got told who was speaking a line at all, which drives correct
+    pronouns/honorifics/register -- run_translate_job now resolves each
+    speaker's name from the characters table and threads it through."""
+    job_id = "test_translate_speakers"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    isolated_db.upsert_character(did, "SPEAKER_00", character_name="Xiaoling")
+    lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
+
+    seen = {}
+    def fake_translate(lines, engine, **kwargs):
+        seen["character_names"] = kwargs.get("character_names")
+        return lines, []
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+    run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                       None, "", "claude", "audio_drama")
+
+    assert seen["character_names"] == {"SPEAKER_00": "Xiaoling"}
+    _clear(job_id)
+
+
+def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch):
+    job_id = "test_translate_no_speakers"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    isolated_db.upsert_character(did, "SPEAKER_00")  # no character_name set
+    lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
+
+    seen = {}
+    def fake_translate(lines, engine, **kwargs):
+        seen["character_names"] = kwargs.get("character_names")
+        return lines, []
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+    run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                       None, "", "claude", "audio_drama")
+
+    assert seen["character_names"] == {}
     _clear(job_id)

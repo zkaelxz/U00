@@ -217,6 +217,60 @@ class TestBuildLlmInstructions:
         assert "My Drama" in instructions
         assert "An Author" in instructions
 
+    def test_defaults_to_chinese_when_source_language_unset(self):
+        instructions, _ = te.build_llm_instructions("", {}, None)
+        assert "Chinese baihe" in instructions
+
+    def test_japanese_source_language_reaches_the_prompt(self):
+        """Regression test for a real bug found during audit: the system
+        prompt used to hardcode "Chinese baihe" regardless of the drama's
+        actual source language, so a Japanese or Korean drama's own
+        translator was told it was translating Chinese the whole time."""
+        instructions, _ = te.build_llm_instructions("", {"source_language": "ja"}, None)
+        assert "Japanese baihe" in instructions
+        assert "Chinese baihe" not in instructions
+
+    def test_korean_source_language_reaches_the_prompt(self):
+        instructions, _ = te.build_llm_instructions("", {"source_language": "ko"}, None)
+        assert "Korean baihe" in instructions
+
+    def test_content_mode_reaches_the_prompt(self):
+        instructions, _ = te.build_llm_instructions(
+            "", {"source_language": "zh", "content_mode": "novel_narration"}, None)
+        assert "novel" in instructions
+
+    def test_streamer_vod_content_mode_reaches_the_prompt(self):
+        instructions, _ = te.build_llm_instructions(
+            "", {"source_language": "ja", "content_mode": "streamer_vod"}, None)
+        assert "livestream VOD" in instructions
+        assert "Japanese baihe" in instructions
+
+    def test_upcoming_lines_included_when_provided(self):
+        instructions, _ = te.build_llm_instructions(
+            "", {}, None, upcoming_lines=["下一句话"])
+        assert "下一句话" in instructions
+        assert "AFTER this batch" in instructions
+
+    def test_no_upcoming_lines_omits_the_section(self):
+        instructions, _ = te.build_llm_instructions("", {}, None, upcoming_lines=None)
+        assert "AFTER this batch" not in instructions
+
+    def test_prompt_mentions_speaker_bracket_convention(self):
+        # The model needs to be told what the [Name] prefix means and
+        # that it shouldn't leak into the translation -- not just have
+        # names silently appear in the numbered lines with no explanation.
+        instructions, _ = te.build_llm_instructions("", {}, None)
+        assert "[" in instructions and "speaking" in instructions.lower()
+
+    def test_returns_object_shaped_json_instruction_not_array(self):
+        """Regression test for the real zip()-misalignment bug: the old
+        prompt asked for a bare JSON array (position-trust); the fix asks
+        for an id-keyed object so a missing/extra/reordered response
+        entry can only ever affect its own line."""
+        instructions, _ = te.build_llm_instructions("", {}, None)
+        assert "JSON object" in instructions
+        assert "JSON array of strings" not in instructions
+
 
 class TestEstimateCost:
     def test_known_model_computes_nonzero_cost(self):
@@ -270,7 +324,9 @@ class ContextCapturingEngine:
 
     def translate_batch(self, zh_lines, context):
         self.calls.append({"zh_lines": list(zh_lines),
-                            "recent_context": list(context.get("recent_context") or [])})
+                            "recent_context": list(context.get("recent_context") or []),
+                            "upcoming_lines": list(context.get("upcoming_lines") or []),
+                            "speaker_labels": list(context.get("speaker_labels") or [])})
         return [f"EN:{z}" for z in zh_lines]
 
 
@@ -315,6 +371,214 @@ class TestContextWindow:
         result, errors = te.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
         assert errors == []
         assert all(ln.en for ln in result)
+
+
+class TestLookaheadContext:
+    def test_last_batch_has_no_upcoming_lines(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=3)
+        assert engine.calls[1]["upcoming_lines"] == []
+
+    def test_earlier_batch_sees_the_next_lines_raw_text(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=3)
+        # First batch (l0, l1) should see l2, l3 as raw upcoming text.
+        assert engine.calls[0]["upcoming_lines"] == ["l2", "l3"]
+
+    def test_lookahead_is_capped_by_context_window_ahead(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=1)
+        assert engine.calls[0]["upcoming_lines"] == ["l2"]
+
+    def test_zero_disables_lookahead(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window_ahead=0)
+        assert all(call["upcoming_lines"] == [] for call in engine.calls)
+
+
+class TestSpeakerNamesReachTheBatch:
+    def test_known_character_name_is_resolved_from_speaker_label(self):
+        lines = [Line(idx=0, start=0, end=1, zh="l0", speaker="SPEAKER_00")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+                                        character_names={"SPEAKER_00": "Xiaoling"})
+        assert engine.calls[0]["speaker_labels"] == ["Xiaoling"]
+
+    def test_unknown_speaker_label_resolves_to_none_not_the_raw_label(self):
+        """A raw diarization id like SPEAKER_00 isn't a name -- showing it
+        to the model as if it were would just be confusing noise."""
+        lines = [Line(idx=0, start=0, end=1, zh="l0", speaker="SPEAKER_00")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, character_names={})
+        assert engine.calls[0]["speaker_labels"] == [None]
+
+    def test_line_with_no_speaker_at_all_resolves_to_none(self):
+        lines = [Line(idx=0, start=0, end=1, zh="l0", speaker=None)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10,
+                                        character_names={"SPEAKER_00": "Xiaoling"})
+        assert engine.calls[0]["speaker_labels"] == [None]
+
+
+class TestBuildNumberedLines:
+    def test_lines_with_no_speaker_names_have_no_prefix(self):
+        result = te._build_numbered_lines([1, 2], ["你好", "再见"])
+        assert result == "1. 你好\n2. 再见"
+
+    def test_known_speaker_is_prefixed_in_brackets(self):
+        result = te._build_numbered_lines([1, 2], ["你好", "再见"], speaker_names=["Xiaoling", None])
+        assert result == "1. [Xiaoling] 你好\n2. 再见"
+
+    def test_ids_need_not_start_at_one(self):
+        # Used for retrying only the missing ids from a partial response --
+        # their ORIGINAL batch ids must be preserved, not renumbered.
+        result = te._build_numbered_lines([3, 5], ["a", "b"])
+        assert result == "3. a\n5. b"
+
+
+class TestParseIdKeyedJson:
+    def test_parses_a_well_formed_object(self):
+        result = te._parse_id_keyed_json('{"1": "Hello.", "2": "Hi."}', [1, 2])
+        assert result == {"1": "Hello.", "2": "Hi."}
+
+    def test_ignores_unexpected_extra_ids(self):
+        result = te._parse_id_keyed_json('{"1": "Hello.", "99": "bogus"}', [1, 2])
+        assert result == {"1": "Hello."}
+
+    def test_missing_ids_are_simply_absent_from_the_result(self):
+        result = te._parse_id_keyed_json('{"1": "Hello."}', [1, 2])
+        assert result == {"1": "Hello."}
+
+    def test_shuffled_key_order_is_still_correctly_matched_by_id(self):
+        result = te._parse_id_keyed_json('{"2": "Second.", "1": "First."}', [1, 2])
+        assert result == {"1": "First.", "2": "Second."}
+
+    def test_falls_back_to_positional_array_for_a_noncompliant_model(self):
+        result = te._parse_id_keyed_json('["Hello.", "Hi."]', [1, 2])
+        assert result == {"1": "Hello.", "2": "Hi."}
+
+    def test_markdown_fences_are_stripped(self):
+        result = te._parse_id_keyed_json('```json\n{"1": "Hello."}\n```', [1])
+        assert result == {"1": "Hello."}
+
+    def test_malformed_json_returns_empty_not_raises(self):
+        assert te._parse_id_keyed_json("not json at all", [1, 2]) == {}
+
+
+class TestRequestTranslationsWithRetry:
+    def test_a_complete_well_ordered_response_needs_no_retry(self):
+        calls = []
+        def call_model(numbered):
+            calls.append(numbered)
+            return '{"1": "A.", "2": "B."}'
+        result = te._request_translations_with_retry(["a", "b"], None, call_model)
+        assert result == ["A.", "B."]
+        assert len(calls) == 1
+
+    def test_shuffled_response_order_still_lands_on_the_right_line(self):
+        """The core fix this replaces: the old code trusted array POSITION,
+        so a shuffled/reordered response silently misassigned lines. Id-
+        keyed lookup means shuffled key order in the raw response can't
+        do that anymore."""
+        def call_model(numbered):
+            return '{"3": "Third.", "1": "First.", "2": "Second."}'
+        result = te._request_translations_with_retry(["a", "b", "c"], None, call_model)
+        assert result == ["First.", "Second.", "Third."]
+
+    def test_missing_lines_are_retried_and_recovered(self):
+        calls = []
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "First."}'  # line 2 missing this round
+            return '{"2": "Second."}'  # retry recovers it
+        result = te._request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        assert result == ["First.", "Second."]
+        assert len(calls) == 2
+        assert "2. b" in calls[1]  # retry only re-sent the missing line
+        assert "1. a" not in calls[1]
+
+    def test_still_missing_after_retries_exhausted_leaves_that_line_blank_only(self):
+        def call_model(numbered):
+            return '{"1": "First."}'  # line 2 never comes back, ever
+        result = te._request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
+        assert result == ["First.", ""]  # only the genuinely-missing line is blank
+
+    def test_extra_unexpected_ids_in_the_response_are_ignored(self):
+        def call_model(numbered):
+            return '{"1": "First.", "2": "Second.", "47": "bogus extra"}'
+        result = te._request_translations_with_retry(["a", "b"], None, call_model)
+        assert result == ["First.", "Second."]
+
+    def test_speaker_names_reach_the_numbered_lines_sent_to_the_model(self):
+        captured = {}
+        def call_model(numbered):
+            captured["numbered"] = numbered
+            return '{"1": "Hi."}'
+        te._request_translations_with_retry(["你好"], ["Xiaoling"], call_model)
+        assert "[Xiaoling]" in captured["numbered"]
+
+
+class TestTranslationLengthMismatchSafety:
+    """The exit condition for this milestone: a misbehaving engine must
+    never cause a translation to land on the wrong line."""
+
+    class WrongCountEngine:
+        def __init__(self, translations):
+            self.translations = translations
+
+        def translate_batch(self, zh_lines, context):
+            return self.translations
+
+    def test_too_few_translations_leaves_the_whole_batch_untranslated_not_shifted(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(3)]
+        engine = self.WrongCountEngine(["EN:l0", "EN:l1"])  # one short
+        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=3)
+
+        assert len(errors) == 1
+        # None of the lines got ANY translation -- specifically, l2's real
+        # translation was never silently assigned to l1 or vice versa.
+        assert all(ln.en == "" for ln in result)
+
+    def test_too_many_translations_leaves_the_whole_batch_untranslated_not_shifted(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(2)]
+        engine = self.WrongCountEngine(["EN:l0", "EN:l1", "EN:extra"])
+        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+
+        assert len(errors) == 1
+        assert all(ln.en == "" for ln in result)
+
+    def test_correct_count_still_assigns_normally(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(2)]
+        engine = self.WrongCountEngine(["EN:l0", "EN:l1"])
+        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+
+        assert errors == []
+        assert result[0].en == "EN:l0"
+        assert result[1].en == "EN:l1"
+
+    def test_a_later_batch_with_the_right_count_is_unaffected_by_an_earlier_bad_one(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+
+        class MixedEngine:
+            def __init__(self):
+                self.call_count = 0
+
+            def translate_batch(self, zh_lines, context):
+                self.call_count += 1
+                if self.call_count == 1:
+                    return ["only one"]  # batch of 2, wrong count
+                return [f"EN:{z}" for z in zh_lines]
+
+        result, errors = te.translate_lines_with_engine(lines, MixedEngine(), {}, batch_size=2)
+
+        assert len(errors) == 1
+        assert result[0].en == "" and result[1].en == ""       # first batch: left blank
+        assert result[2].en == "EN:l2" and result[3].en == "EN:l3"  # second batch: correct
 
 
 class TestGeminiEngine:
@@ -366,6 +630,51 @@ class TestGeminiEngine:
 
         sys_text = captured["json"]["systemInstruction"]["parts"][0]["text"]
         assert "她来了 -> She came." in sys_text
+
+    def test_speaker_labels_reach_the_actual_numbered_lines_sent(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
+
+        def fake_post(url, params=None, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        engine = te.GeminiEngine("fake-key")
+        result = engine.translate_batch(["你好"], {"speaker_labels": ["Xiaoling"]})
+
+        user_text = captured["json"]["contents"][0]["parts"][0]["text"]
+        assert "[Xiaoling] 你好" in user_text
+        assert result == ["Hi."]
+
+    def test_a_response_missing_one_id_is_retried_before_giving_up(self, monkeypatch):
+        call_count = {"n": 0}
+
+        class FakeResponse:
+            def __init__(self, text):
+                self._text = text
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": self._text}]}}]}
+
+        def fake_post(url, params=None, json=None):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return FakeResponse('{"1": "First."}')  # line 2 missing
+            return FakeResponse('{"2": "Second."}')  # retry recovers it
+
+        monkeypatch.setattr("requests.post", fake_post)
+        engine = te.GeminiEngine("fake-key")
+        result = engine.translate_batch(["a", "b"], {})
+
+        assert result == ["First.", "Second."]
+        assert call_count["n"] == 2
 
     def test_missing_usage_metadata_does_not_crash(self, monkeypatch):
         class FakeResponse:
