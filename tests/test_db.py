@@ -710,3 +710,49 @@ class TestFullLibraryReset:
         cedict_path = os.path.join(isolated_db.LIBRARY_DIR, "cedict.txt")
         assert not os.path.exists(cedict_path)
         isolated_db.reset_library()  # must not raise just because there's nothing to remove
+
+
+class TestSnapshotDatabase:
+    """Regression coverage for a real gap: the backup feature used to
+    copy library.db as a plain file while the database runs in WAL mode
+    (see get_conn) -- a write still sitting in library.db-wal could be
+    missing from that copy, or the copy could be mid-write. snapshot_database
+    uses SQLite's own backup API instead, which is what actually guarantees
+    a consistent, complete copy regardless of the WAL file's state."""
+
+    def test_snapshot_is_written_to_disk(self, isolated_db, tmp_path_str):
+        isolated_db.create_drama(title_en="Test Drama")
+        dest = os.path.join(tmp_path_str, "snapshot.db")
+
+        isolated_db.snapshot_database(dest)
+
+        assert os.path.exists(dest)
+        assert os.path.getsize(dest) > 0
+
+    def test_snapshot_includes_a_write_made_just_before_it(self, isolated_db, tmp_path_str):
+        did = isolated_db.create_drama(title_en="Before Snapshot")
+        dest = os.path.join(tmp_path_str, "snapshot.db")
+
+        isolated_db.snapshot_database(dest)
+
+        import sqlite3
+        conn = sqlite3.connect(dest)
+        row = conn.execute("SELECT title_en FROM dramas WHERE id = ?", (did,)).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "Before Snapshot"
+
+    def test_snapshot_is_independent_of_the_live_database(self, isolated_db, tmp_path_str):
+        """The snapshot is a standalone file -- writing to the live
+        database afterward must not change it."""
+        did = isolated_db.create_drama(title_en="Original")
+        dest = os.path.join(tmp_path_str, "snapshot.db")
+        isolated_db.snapshot_database(dest)
+
+        isolated_db.update_drama(did, title_en="Changed After Snapshot")
+
+        import sqlite3
+        conn = sqlite3.connect(dest)
+        row = conn.execute("SELECT title_en FROM dramas WHERE id = ?", (did,)).fetchone()
+        conn.close()
+        assert row[0] == "Original"

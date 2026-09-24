@@ -1789,18 +1789,24 @@ def render_workspace_tab():
                                  flag=l.flag, flag_note=l.flag_note)
                            for l in st.session_state.lines]
 
-            started = background_jobs.start_job(
-                _translate_job_id, run_translate_job,
-                _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
-                novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
-                engine_choice, style_preset, context_window)
-            if started:
-                st.info("Translation started in the background -- it keeps running even if you "
-                        "switch tabs or close this one. Come back here any time to see progress; "
-                        "it'll pick up right where it is.")
-                st.rerun()
+            _conflict = background_jobs.other_line_writing_job(picked_id, "translate_")
+            if _conflict:
+                st.warning(f"Can't start translation -- a {_conflict} job is already running "
+                           "for this drama. Both save every line, so running at the same time "
+                           "would let one silently overwrite the other. Wait for it to finish.")
             else:
-                st.warning("A translation is already running for this drama.")
+                started = background_jobs.start_job(
+                    _translate_job_id, run_translate_job,
+                    _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
+                    novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
+                    engine_choice, style_preset, context_window)
+                if started:
+                    st.info("Translation started in the background -- it keeps running even if you "
+                            "switch tabs or close this one. Come back here any time to see progress; "
+                            "it'll pick up right where it is.")
+                    st.rerun()
+                else:
+                    st.warning("A translation is already running for this drama.")
 
         if _job:
             if _job["status"] == "running":
@@ -2223,19 +2229,26 @@ def render_workspace_tab():
                 _flag_job_id = f"flag_{picked_id}"
                 _fjob = background_jobs.get_status(_flag_job_id)
                 if st.button("Find lines to flag") and api_key:
-                    engine_f = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                         speaker=l.speaker, dub_filename=l.dub_filename,
-                                         flag=l.flag, flag_note=l.flag_note)
-                                   for l in edited_rows]
-                    started = background_jobs.start_job(_flag_job_id, run_flag_job,
-                                                          _flag_job_id, picked_id, _lines_copy, engine_f,
-                                                          engine_choice)
-                    if started:
-                        st.info("Checking in the background -- safe to switch tabs while this runs.")
-                        st.rerun()
+                    _conflict = background_jobs.other_line_writing_job(picked_id, "flag_")
+                    if _conflict:
+                        st.warning(f"Can't start flagging -- a {_conflict} job is already "
+                                   "running for this drama. Both save every line, so running "
+                                   "at the same time would let one silently overwrite the "
+                                   "other. Wait for it to finish.")
                     else:
-                        st.warning("Already checking for this drama.")
+                        engine_f = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                        _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                             speaker=l.speaker, dub_filename=l.dub_filename,
+                                             flag=l.flag, flag_note=l.flag_note)
+                                       for l in edited_rows]
+                        started = background_jobs.start_job(_flag_job_id, run_flag_job,
+                                                              _flag_job_id, picked_id, _lines_copy, engine_f,
+                                                              engine_choice)
+                        if started:
+                            st.info("Checking in the background -- safe to switch tabs while this runs.")
+                            st.rerun()
+                        else:
+                            st.warning("Already checking for this drama.")
 
                 if _fjob:
                     if _fjob["status"] == "running":
@@ -2286,22 +2299,29 @@ def render_workspace_tab():
                         "on this drama to re-transcribe, so only re-translation runs. Clears the "
                         "flag on any line this actually changes.")
                     if st.button("🔁 Re-transcribe + re-translate flagged lines") and api_key:
-                        engine_ff = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                        _lines_copy_ff = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                                speaker=l.speaker, dub_filename=l.dub_filename,
-                                                flag=l.flag, flag_note=l.flag_note)
-                                          for l in edited_rows]
-                        started = background_jobs.start_job(
-                            _fixflag_job_id, run_fix_flagged_lines_job,
-                            _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
-                            whisper_size, st.session_state.get("use_gpu", False), source_language,
-                            engine_ff, engine_choice)
-                        if started:
-                            st.info("Fixing flagged lines in the background -- safe to switch tabs "
-                                    "while this runs.")
-                            st.rerun()
+                        _conflict = background_jobs.other_line_writing_job(picked_id, "fixflag_")
+                        if _conflict:
+                            st.warning(f"Can't start this -- a {_conflict} job is already "
+                                       "running for this drama. Both save every line, so "
+                                       "running at the same time would let one silently "
+                                       "overwrite the other. Wait for it to finish.")
                         else:
-                            st.warning("Already fixing flagged lines for this drama.")
+                            engine_ff = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                            _lines_copy_ff = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                                    speaker=l.speaker, dub_filename=l.dub_filename,
+                                                    flag=l.flag, flag_note=l.flag_note)
+                                              for l in edited_rows]
+                            started = background_jobs.start_job(
+                                _fixflag_job_id, run_fix_flagged_lines_job,
+                                _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
+                                whisper_size, st.session_state.get("use_gpu", False), source_language,
+                                engine_ff, engine_choice)
+                            if started:
+                                st.info("Fixing flagged lines in the background -- safe to switch tabs "
+                                        "while this runs.")
+                                st.rerun()
+                            else:
+                                st.warning("Already fixing flagged lines for this drama.")
 
                     if _ffjob:
                         if _ffjob["status"] == "running":

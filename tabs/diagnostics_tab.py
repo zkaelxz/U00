@@ -57,6 +57,18 @@ def render_diagnostics_tab():
             st.rerun()
 
     st.divider()
+    st.subheader("📜 Log")
+    st.caption("The last lines from library/logs/app.log -- background job failures land "
+              "here even after the on-screen message is gone. Use the copy icon in the "
+              "top-right of the box below to copy it for a bug report.")
+    import applog
+    log_lines = applog.tail(50)
+    if log_lines:
+        st.code("\n".join(log_lines), language="text")
+    else:
+        st.caption("Nothing logged yet.")
+
+    st.divider()
     st.subheader("🎯 Accuracy benchmark")
     st.caption(
         "Catches an 'improvement' that actually makes things worse. Register a real sample "
