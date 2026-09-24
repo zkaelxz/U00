@@ -225,16 +225,29 @@ These are things that are broken now, or that break without warning.
 - A restarted app picks up a pending batch by its saved id.
 - A test shows the stable prompt part is byte-identical across batches of the same drama.
 
-### Step 10 — One-click Windows launcher *(convenience)*
+### Step 10 — One-click Windows launcher, own window & desktop shortcut *(convenience)*
 - Add a `start.bat` (plus an optional `start.ps1`) that:
   - creates or activates the venv on first run;
   - installs `requirements-core.txt` if it's missing;
   - runs Diagnostics' dependency check and prints anything missing in plain words (ffmpeg, the JS runtime, CUDA);
-  - starts `streamlit run app.py` and opens the browser.
-- It's safe to run twice: if the app is already running on the port, it just opens the browser.
-- Add a short "Double-click `start.bat`" section at the top of the README's Installation section.
+  - starts `streamlit run app.py --server.headless true`, so no extra browser tab opens;
+  - opens the app in its **own window**.
+- **Own window** (it looks like a desktop program, with no tabs or address bar):
+  - Use Microsoft Edge's app mode: `msedge --app=http://localhost:<port>`. Edge ships with Windows, so nothing new needs installing.
+  - Fall back to Chrome's `--app=` flag, then to the default browser, if Edge isn't found.
+  - Wait until the server answers before opening the window, so it doesn't show a "can't connect" page.
+- It's safe to run twice: if the app is already running on the port, it just opens the window.
+- **Desktop shortcut:**
+  - Add a `make_shortcut.bat` (or a first-run prompt in `start.bat`) that creates a **"Baihe Subtitler"** shortcut on the desktop pointing to `start.bat`.
+  - Use a bundled `.ico` app icon, and set the shortcut to start minimized so the console window stays out of the way.
+  - Create it with PowerShell's `WScript.Shell` `CreateShortcut`; no extra dependencies.
+- **Out of scope:** a packaged `.exe` (PyInstaller or similar), because it would be multi-GB and couldn't add optional features later. The app is for personal use only, so the launcher is enough.
+- Add a short "Double-click `start.bat`, or the desktop shortcut" section at the top of the README's Installation section.
 
-**Exit:** on a clean Windows machine with Python and ffmpeg installed, double-clicking `start.bat` gets the app open in the browser with no typed commands. Check this by hand; it can't be unit-tested.
+**Exit:** on a clean Windows machine with Python and ffmpeg installed, all of these work with no typed commands. Check them by hand; this can't be unit-tested.
+- Double-clicking `start.bat`, or the desktop shortcut, opens the app in its own window.
+- Running it a second time just opens the window again.
+- The shortcut shows the app icon.
 
 ---
 
