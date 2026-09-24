@@ -14,7 +14,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
-- Steps 6–10: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10). Milestones R4 and R7 are deferred (see §3).
+- Steps 6–11: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10) → Scanlate ML detector/inpainting/OCR routing (11). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -83,6 +83,7 @@ Rules for every milestone:
 | 9b | Start a long transcription and check the ETA appears and looks reasonable. Open the model-cache panel and delete one entry. Select 2–3 dramas in a series in Library and run bulk translate. Set browser cookies in Settings and download a login-gated TikTok/Instagram/Bilibili clip. Use "Copy diagnostics for support" and check no path/username shows up. |
 | 9c | Save a preset from one drama, apply it to a new one, and check every captured field is still editable afterward. |
 | 10 | Double-click the desktop shortcut. The app should open in its own window. |
+| 11 | On a real comic page, run Scanlate with the ML detector + LaMa-manga inpainting installed and compare the result against the OpenCV-only path — the ML version should have no visible edge where text was removed. Try a Japanese, Chinese and Korean page and check the OCR backend auto-picked is the right one for each. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -476,6 +477,30 @@ Library's own framing is managing "dozens of titles," but every new drama starts
 - Running it a second time just opens the window again.
 - The shortcut shows the app icon.
 
+### Step 11 — Scanlate: finish the ML detector, add real inpainting, auto-route OCR
+`scanlate.py`'s own comments already point at the right fix — a `detect_bubbles_ml()` stub naming a real model that was never wired up, and an honest note that inpainting is "a plain rectangular inset, not a shape-aware mask." Checked seven comparable open-source manga/comic translators' actual code and license (not just their READMEs) to find what's real, free, and safe to build on:
+
+| Project | License | Verdict |
+|---|---|---|
+| [manga-image-translator](https://github.com/zyddnys/manga-image-translator), [Kites](https://github.com/Unheat/Kites) | GPL-3.0 | **Not usable** — would force this app's whole codebase open |
+| [gnurt2041/MangaOCR](https://github.com/gnurt2041/MangaOCR) | No license stated | **Not usable** — unlicensed means all rights reserved by default |
+| [comic-translate](https://github.com/ogkalu2/comic-translate) | Apache-2.0 | Ideas only (see item 4) — its own demo images (Frieren, etc.) have no stated license separate from the code and are from currently-published, copyrighted manga; **not** brought in as test fixtures |
+| [koharu](https://github.com/koharu-rs/koharu) | MIT/Apache-2.0 (app); its detection *model* has a training-data caveat, see item 3 | Its actual detection model is the real find here (item 3) |
+| [kha-white/manga-ocr](https://github.com/kha-white/manga-ocr) | Apache-2.0 | Already a Baihe dependency, nothing new to add |
+| [EasyScanlate](https://github.com/Liiesl/EasyScanlate) | MIT | Rust + a GUI framework — architecture doesn't transfer to this Python app |
+
+1. **Finish `detect_bubbles_ml()`, and fix a real dependency mismatch found along the way.** The docstring names `ogkalu/comic-text-and-bubble-detector` (Hugging Face, Apache-2.0, 3 classes: bubble / text-in-bubble / text-outside-bubble, boxes only — confirmed real) as the intended model, but `requirements.txt` already installs `ultralytics` for it — and that model is **RT-DETR-v2, not a YOLO model**, so `ultralytics` can't actually load it. That mismatch is plausibly *why* the hook was never finished. Swap to whatever this model's real inference stack needs (its Hugging Face card shows ONNX/safetensors, loadable through `transformers` or plain ONNX Runtime — confirm against the current card when implementing) and wire it into `detect_bubbles_ml()` as an optional, better-than-OpenCV-heuristic backend.
+2. **Add real ML inpainting**, replacing the current plain OpenCV `cv2.inpaint` as the default when it's installed: [`mayocream/lama-manga`](https://huggingface.co/mayocream/lama-manga) — MIT licensed, a Big-LaMa checkpoint fine-tuned on ~300k manga/anime images specifically (not generic photo-LaMa), ~989MB safetensors, 4-channel input (RGB + mask) → 3-channel RGB output. This is the direct, concrete fix for the "plain rectangular inset, not shape-aware" limitation the code already names — most of the visible improvement comes from this one model, independent of item 1 or item 3.
+3. **Optional, more advanced: real shape-aware masking**, which item 1's detector does *not* provide on its own (it gives boxes, not masks) — [`mayocream/koharu-layout-rfdetr-seg-2xl-1152`](https://huggingface.co/mayocream/koharu-layout-rfdetr-seg-2xl-1152), the actual detection model behind koharu (a separate Hugging Face artifact from koharu's own Rust app — usable from Python without needing any Rust/WebGPU code). Real segmentation output (text / SFX / bubble / panel), ~40MB safetensors, ships its own Python `load_model.py` loader. **License caveat, stated plainly, same as the one already implicit in Baihe's existing `manga-ocr` dependency:** its training data includes Manga109, which carries academic-use terms — fine for this app's personal use, worth knowing if it's ever redistributed or used commercially. Mark this as an optional upgrade over item 1's box-only detector, not a requirement.
+4. **Auto-route the OCR backend by source language**, the way comic-translate does, but with maintained choices — `manga-ocr` for Japanese (already a dependency), `paddleocr` for Chinese, `paddleocr`/`tesseract` for Korean. **Explicitly not** adopting comic-translate's choice of Pororo for Korean: checked its maintenance status and even a Hugging Face mirror of just its OCR piece exists specifically because people are worried about the main library's long-term upkeep — a fragile dependency not worth taking on. Keep manual backend override available; auto-routing is just a better default.
+5. All of this stays optional/opt-in, same spirit as the existing `detect_bubbles_ml()` docstring — the free OpenCV heuristic (detection) and plain `cv2.inpaint` (inpainting) remain the zero-install default; these are better backends for someone who installs the extra weight, not a replacement that changes default behaviour.
+
+**Exit:**
+- A test shows `detect_bubbles_ml()` actually loads and runs the named model (mocked, no real network/weights in tests) and falls back cleanly to `detect_bubbles_cv()` when the model isn't installed.
+- A test shows the LaMa-manga inpainting backend is selected when available, OpenCV inpainting when it isn't.
+- A test shows OCR backend selection follows source language by default and can still be overridden manually.
+- Manual check (real weights, on your own PC): run detection + inpainting on a real page with both the ML and OpenCV-only paths and compare — the ML inpainting result should show no visible box edge where text was removed.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -526,6 +551,7 @@ Library's own framing is managing "dozens of titles," but every new drama starts
   | 9b — Job ETAs, model disk management, bulk series translate | — | Not started | — |
   | 9c — Drama/project presets | — | Not started | — |
   | 10 — Windows launcher | — | Not started | — |
+  | 11 — Scanlate ML detector/inpainting/OCR routing | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
@@ -569,7 +595,7 @@ different session picking up reviews later:
 
 ---
 
-## 6. Sources for Steps 1c and 6–9c
+## 6. Sources for Steps 1c, 6–9c and 11
 - yt-dlp — [External JS runtime now required](https://github.com/yt-dlp/yt-dlp/issues/15012), [EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
 - pyannote — [releases (4.0 breaking changes)](https://github.com/pyannote/pyannote-audio/releases), [community-1 model card](https://huggingface.co/pyannote/speaker-diarization-community-1), [community-1 blog](https://www.pyannote.ai/blog/community-1)
 - Ollama — [context length docs](https://docs.ollama.com/context-length), [silent truncation write-up](https://particula.tech/blog/ollama-num-ctx-silent-prompt-truncation)
@@ -586,3 +612,5 @@ different session picking up reviews later:
   - **[Echoly](https://github.com/sonpiaz/echoly)** — read [`content.js`](https://raw.githubusercontent.com/sonpiaz/echoly/main/content.js) directly (the first pass guessed this code lived in `background.js`, which was wrong — `background.js` only handles session-cookie auth). Confirmed the real "token-guarded async" pattern with actual code (Step 9b's generation-counter guard).
   - **[ZastTranslate](https://github.com/zast57/ZastTranslate)** — smaller and less established than it looked from its own README: 13 stars, 1 fork, 48 files (confirmed via its file tree), not "highly popular" in the sense the others are. One real, useful file resolved on direct fetch — [`fitted_cps_config.py`](https://raw.githubusercontent.com/zast57/ZastTranslate/main/fitted_cps_config.py) (Step 6b's CPS table, values taken directly from it). Its README's other headline claims (an "8-stage subtitle stabilization pipeline," a "222-rule domain dictionary") could **not** be verified against source after several direct attempts — treated as unconfirmed marketing copy, not cited as fact anywhere else in this doc.
   - **Checked, no new gap found beyond what's already here:** [Whishper](https://github.com/pluja/whishper) (AGPL-3.0) — confirmed real 4-service Docker split (`transcription-api`/`backend`/`frontend`), but couldn't retrieve the actual Faster-Whisper wrapper source, so nothing beyond the README-level LibreTranslate/CPS-editor points already used. [VideoTranscriber](https://github.com/DataAnts-AI/VideoTranscriber) — read `app.py` directly; confirmed its ASS style dict's `italic`/`alignment` fields, now added to Step 6b; its diarization (likely pyannote, via an HF-token-gated `utils.diarization` import) and audio-file-keyed caching don't add anything Baihe doesn't already do or already plan (Step 3). [302_video_translation](https://github.com/302ai/302_video_translation) (AGPL-3.0) — confirmed a pure frontend wrapper with all subtitle/translation logic delegated to 302.AI's proprietary API; no pipeline code exists in the repo to learn from. [Synthalingua](https://github.com/cyberofficial/Synthalingua) (AGPL-3.0) — confirmed its overlap/"padded audio" chunk-context mechanism is real (`modules/stream_transcription_module.py`), but its own code explicitly does **not** deduplicate genuinely repeated overlapping text, only suppresses near-duplicates — a known limitation of theirs, not something to copy; comparable to what Baihe's Live tab already does. [Live-YT-Translator](https://github.com/petergpt/Live-YT-Translator) — small Chrome extension delegating everything to OpenAI's Realtime API; architecture doesn't transfer to a downloaded-VOD batch tool.
+
+- **Scanlate/OCR survey (Step 11)** — licenses and pipeline stages checked directly for every project, not from README claims. GPL-3.0, code not usable: [manga-image-translator](https://github.com/zyddnys/manga-image-translator), [Kites](https://github.com/Unheat/Kites). No license stated, not usable: [gnurt2041/MangaOCR](https://github.com/gnurt2041/MangaOCR). Apache-2.0/MIT, checked for ideas (not code, given the language/architecture mismatch for koharu and EasyScanlate): [comic-translate](https://github.com/ogkalu2/comic-translate) (its demo images are not usable as test material — no separate license from currently-published, copyrighted manga), [koharu](https://github.com/koharu-rs/koharu) (Rust/WebGPU app, MIT/Apache-2.0 — but see its detection *model* below, which is the real find), [kha-white/manga-ocr](https://github.com/kha-white/manga-ocr) (Apache-2.0, already a Baihe dependency), [EasyScanlate](https://github.com/Liiesl/EasyScanlate) (MIT, Rust + Iced GUI). Models used directly in Step 11: [`ogkalu/comic-text-and-bubble-detector`](https://huggingface.co/ogkalu/comic-text-and-bubble-detector) (Apache-2.0, RT-DETR-v2, boxes only), [`mayocream/lama-manga`](https://huggingface.co/mayocream/lama-manga) (MIT, manga/anime-finetuned LaMa inpainting), [`mayocream/koharu-layout-rfdetr-seg-2xl-1152`](https://huggingface.co/mayocream/koharu-layout-rfdetr-seg-2xl-1152) (koharu's actual detection+segmentation model, usable from Python independent of koharu's Rust app — Manga109 training-data caveat noted in Step 11 item 3). Checked and deliberately not adopted: Pororo for Korean OCR (comic-translate's choice) — maintenance concerns confirmed, not brought in.
