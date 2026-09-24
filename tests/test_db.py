@@ -259,6 +259,36 @@ class TestSeriesCharacters:
         assert isolated_db.list_series_characters(sid1)[0]["notes"] == "A's guest"
         assert isolated_db.list_series_characters(sid2)[0]["notes"] == "B's guest"
 
+    def test_gender_can_be_set_and_read_back(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan", gender="female")
+        [sc] = isolated_db.list_series_characters(sid)
+        assert sc["gender"] == "female"
+
+    def test_gender_defaults_to_unset(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        assert not sc["gender"]
+
+    def test_updating_notes_without_passing_gender_does_not_clear_it(self, isolated_db):
+        """A different flow (e.g. section 6's "remember this character")
+        calls upsert_series_character() without a gender argument at all
+        -- that must not silently wipe a gender set earlier elsewhere."""
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan", gender="female")
+        isolated_db.upsert_series_character(sid, "Su Shan", notes="updated notes")
+        [sc] = isolated_db.list_series_characters(sid)
+        assert sc["gender"] == "female"
+        assert sc["notes"] == "updated notes"
+
+    def test_gender_can_be_explicitly_cleared(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan", gender="female")
+        isolated_db.upsert_series_character(sid, "Su Shan", gender="")
+        [sc] = isolated_db.list_series_characters(sid)
+        assert not sc["gender"]
+
     def test_rename_updates_in_place(self, isolated_db):
         sid = isolated_db.get_or_create_series("Streamer A")
         isolated_db.upsert_series_character(sid, "Su Shan")

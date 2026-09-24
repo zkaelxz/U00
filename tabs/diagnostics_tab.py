@@ -6,11 +6,55 @@ from common import *
 import diagnostics
 import time
 
+# job_id prefixes this app actually uses (see background_jobs.start_job
+# call sites) -- everything before the last "_<drama_id>" segment.
+_JOB_LABELS = {
+    "translate": "Translating",
+    "transcribe": "Transcribing / reading captions",
+    "flag": "Review queue (flagging lines)",
+    "emotion": "Detecting emotional register",
+    "consistency": "Checking translation consistency",
+    "notes": "Generating translation notes",
+}
+
+
+def _describe_job(job_id: str) -> str:
+    """Turns a raw job_id like 'emotion_42' into 'Detecting emotional
+    register -- Some Drama Title', so the jobs list means something at a
+    glance instead of showing internal id strings."""
+    if job_id == "live_capture":
+        return "🔴 Live capture"
+    prefix, _, suffix = job_id.rpartition("_")
+    if prefix in _JOB_LABELS and suffix.isdigit():
+        drama = db.get_drama(int(suffix))
+        title = (drama.get("title_en") or drama.get("title_zh") or f"drama #{suffix}") if drama else f"drama #{suffix} (deleted)"
+        return f"{_JOB_LABELS[prefix]} -- {title}"
+    return job_id
+
 
 def render_diagnostics_tab():
     st.subheader("🩺 Check my setup")
     st.caption("Run this any time something isn't working -- shows what's installed, what's "
               "missing, and what's configured, in one place.")
+
+    st.divider()
+    st.subheader("🏃 Running jobs")
+    st.caption("Everything currently running in the background across every drama -- "
+              "translation, transcription, review checks, and Live capture all show up here "
+              "the moment they start, not just in the tab that started them.")
+    running = background_jobs.list_running_jobs()
+    if not running:
+        st.caption("Nothing running right now.")
+    else:
+        for job_id, job in running.items():
+            jc1, jc2 = st.columns([5, 1])
+            jc1.progress(job.get("progress", 0.0) or 0.0,
+                         text=f"{_describe_job(job_id)} -- {job.get('message') or 'Running...'}")
+            if jc2.button("⏹️ Cancel", key=f"jobs_panel_cancel_{job_id}"):
+                background_jobs.request_cancel(job_id)
+                st.rerun()
+        if st.button("🔄 Refresh", key="jobs_panel_refresh"):
+            st.rerun()
 
     st.divider()
     st.subheader("☠️ Danger zone")

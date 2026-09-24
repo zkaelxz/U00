@@ -163,9 +163,39 @@ Genre notes (baihe / GL):
   consistent English pet name.
 """
 
+FEMALE_PRONOUN_DEFAULT_GUIDANCE = """
+Pronoun default: unless context, an honorific, or a character's known gender
+(see below, if given) says otherwise, default an ambiguous third-person
+reference to female (she/her/hers) -- most baihe/GL casts are entirely or
+almost entirely women, and spoken Mandarin doesn't distinguish 他/她/它
+(all pronounced "tā"), so a transcribed pronoun's written character is not
+a reliable gender signal to translate literally.
+"""
+
+
+def build_character_gender_hints(series_characters) -> str:
+    """series_characters: rows from db.list_series_characters() (each may
+    carry a `gender` column: "female" | "male" | "" | None). Returns a
+    block naming every character with a gender actually set, so the
+    translator resolves that character's pronouns from the assignment
+    rather than from Mandarin's homophone-ambiguous 他/她/它. Empty
+    string if nobody has a gender assigned -- callers should skip adding
+    this block entirely rather than inject an empty header.
+    """
+    labeled = [c for c in series_characters if c.get("gender") in ("female", "male")]
+    if not labeled:
+        return ""
+    lines = ["KNOWN CHARACTER GENDERS (resolve this character's pronouns "
+             "accordingly, overriding any other default):"]
+    for c in labeled:
+        pronoun = "she/her" if c["gender"] == "female" else "he/him"
+        lines.append(f"  {c['character_name']}: {pronoun}")
+    return "\n".join(lines)
+
 
 def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=None,
-                            include_genre_notes: bool = True, custom_notes: str = ""):
+                            include_genre_notes: bool = True, custom_notes: str = "",
+                            default_female_pronouns: bool = False):
     """Assembles the full craft-guidance block injected into translation
     prompts. glossary_terms: rows from db.list_glossary_terms(), which
     may carry `category` and `policy` columns."""
@@ -177,6 +207,8 @@ def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=Non
     ]
     if include_genre_notes:
         parts.append(BAIHE_SPECIFIC_GUIDANCE)
+    if default_female_pronouns:
+        parts.append(FEMALE_PRONOUN_DEFAULT_GUIDANCE)
 
     if glossary_terms:
         # Group by policy so the instruction reads as rules, not a flat list

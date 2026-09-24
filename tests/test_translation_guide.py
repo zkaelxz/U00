@@ -51,6 +51,15 @@ class TestStylePresets:
         g = tg.build_style_guidelines("audio_drama", include_genre_notes=False)
         assert "Genre notes" not in g
 
+    def test_female_pronoun_default_is_off_by_default(self):
+        g = tg.build_style_guidelines("audio_drama")
+        assert "Pronoun default" not in g
+
+    def test_female_pronoun_default_can_be_enabled(self):
+        g = tg.build_style_guidelines("audio_drama", default_female_pronouns=True)
+        assert "default an ambiguous third-person" in g
+        assert "他/她/它" in g
+
     def test_custom_notes_appended(self):
         g = tg.build_style_guidelines("audio_drama", custom_notes="keep the narrator distant")
         assert "keep the narrator distant" in g
@@ -58,6 +67,35 @@ class TestStylePresets:
     def test_empty_custom_notes_adds_no_section(self):
         g = tg.build_style_guidelines("audio_drama", custom_notes="   ")
         assert "ADDITIONAL PROJECT NOTES" not in g
+
+
+class TestCharacterGenderHints:
+    """build_character_gender_hints() -- a fixed pronoun assignment for a
+    named character, since spoken Mandarin's 他/她/它 are homophones and
+    Whisper's transcribed pronoun character isn't a reliable gender
+    signal to translate literally."""
+
+    def test_no_characters_have_a_gender_set_returns_empty(self):
+        chars = [{"character_name": "Su Shan", "gender": None},
+                 {"character_name": "Liang", "gender": ""}]
+        assert tg.build_character_gender_hints(chars) == ""
+
+    def test_labels_female_and_male_correctly(self):
+        chars = [{"character_name": "Su Shan", "gender": "female"},
+                 {"character_name": "Liang", "gender": "male"}]
+        result = tg.build_character_gender_hints(chars)
+        assert "Su Shan: she/her" in result
+        assert "Liang: he/him" in result
+
+    def test_characters_without_a_gender_are_omitted_not_listed_as_unknown(self):
+        chars = [{"character_name": "Su Shan", "gender": "female"},
+                 {"character_name": "Guest", "gender": None}]
+        result = tg.build_character_gender_hints(chars)
+        assert "Su Shan" in result
+        assert "Guest" not in result
+
+    def test_empty_list_returns_empty(self):
+        assert tg.build_character_gender_hints([]) == ""
 
 
 class TestGlossaryInGuidelines:

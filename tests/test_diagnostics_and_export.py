@@ -180,3 +180,29 @@ class TestExportPackage:
         for m in manifest:
             if not m.startswith("("):
                 assert m in names
+
+
+class TestDescribeJob:
+    """tabs.diagnostics_tab._describe_job() -- turns a raw job_id like
+    'emotion_42' into a human-readable line for the Running jobs panel,
+    since a bare internal id string means nothing to look at."""
+
+    def test_live_capture_has_a_fixed_label(self):
+        from tabs.diagnostics_tab import _describe_job
+        assert _describe_job("live_capture") == "🔴 Live capture"
+
+    def test_known_prefix_includes_the_drama_title(self, isolated_db):
+        from tabs.diagnostics_tab import _describe_job
+        did = isolated_db.create_drama(title_en="Test Drama")
+        result = _describe_job(f"emotion_{did}")
+        assert "Detecting emotional register" in result
+        assert "Test Drama" in result
+
+    def test_deleted_drama_says_so_instead_of_crashing(self, isolated_db):
+        from tabs.diagnostics_tab import _describe_job
+        result = _describe_job("flag_999999")
+        assert "deleted" in result
+
+    def test_unrecognized_job_id_falls_back_to_the_raw_string(self):
+        from tabs.diagnostics_tab import _describe_job
+        assert _describe_job("some_custom_thing") == "some_custom_thing"
