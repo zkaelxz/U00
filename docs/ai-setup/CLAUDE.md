@@ -13,8 +13,16 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 
 ## How to work
 
-- **One step, one branch, off the latest `baihe-subtitler`.** Don't start
-  the next step until the current one is reviewed and merged.
+- **One step, one branch, off the latest `baihe-subtitler`.**
+- **Check the roadmap's §4 "Working agreement" for which mode you're in.**
+  Steps 1e–10 are **autonomous mode** (as of 2026-09-24, at the user's
+  request): build, test, open the PR, and **merge it yourself**, then
+  start the next step immediately off the updated branch — no stop to
+  wait for review or a merge go-ahead. Step 11 onward goes back to the
+  original **gated mode**: stop after pushing and wait for "create a PR
+  for this step." If the roadmap's own working-agreement section
+  disagrees with this summary, the roadmap is the source of truth — it
+  may have changed since this file was last copied in.
 - **Branch name:** `step-<id>-<short-name>`, where `<id>` is the roadmap's
   own step id exactly as it appears there (`1b`, `1c-pre`, `6b`, `9b`, ...)
   and `<short-name>` is a few lowercase hyphenated words describing the
@@ -44,19 +52,30 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   stop and ask the user to confirm they've switched this chat to Opus
   before you write any code for it — then wait for that confirmation.
   Every other step is fine on whatever model the chat is already on.
+  **This applies in both modes** — autonomous mode (above) relaxes the
+  review/merge gate, not this one.
 - **Re-verify before fixing.** The roadmap was written by reading the code
   at a point in time; re-read the files it names and confirm the problem
   still exists as described before changing anything. If the code has
   moved on or the roadmap is wrong, say so instead of forcing a fix that
   no longer applies.
-- **When you finish a step:** run the full suite (`python run_tests.py`),
-  push the branch, and give a short plain-English summary — what changed,
-  what the user will notice in the app, anything you're unsure about —
-  then **stop**. Don't create a pull request yet.
-- **Pull requests:** only when the user explicitly says "create a PR for
-  this step" (that means the planning session has already reviewed and
-  approved the branch). Open it into `baihe-subtitler`. Don't merge it
-  yourself.
+- **When you finish a step, in autonomous mode (Steps 1e–10):** run the
+  full suite (`python run_tests.py`), open a pull request into
+  `baihe-subtitler` with a short plain-English summary (what changed,
+  what the user will notice, anything you're unsure about), **merge it
+  yourself**, then start the next step off the updated branch. Post the
+  summary either way, but don't wait for a reply before continuing. If a
+  step's own exit conditions genuinely can't be met, or something looks
+  wrong, stop and say so instead of merging around it — autonomous mode
+  means no one else is checking, so this is the one place to be careful
+  rather than fast.
+- **When you finish a step, in gated mode (Step 11 onward):** run the full
+  suite, push the branch, give the same summary, then **stop**. Don't
+  create a pull request yet.
+- **Pull requests in gated mode:** only when the user explicitly says
+  "create a PR for this step" (that means the planning session has
+  already reviewed and approved the branch). Open it into
+  `baihe-subtitler`. Don't merge it yourself.
 
 ## Tests
 

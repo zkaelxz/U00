@@ -2,19 +2,24 @@
 
 > **NEXT:** Step 1d (`step-1d-free-testing-engines`) is reviewed and
 > approved — diff and all 5 exit conditions checked directly against the
-> real branch, not just the summary given. Create its PR and merge into
-> `baihe-subtitler`, then start Step 1e off the updated branch.
-> **Still outstanding, confirmed not done in Step 1d:** the root
-> `CLAUDE.md` on `baihe-subtitler` still predates the
-> Opus-confirmation-before-switching rule and the dead/redundant-code
-> cleanup rules (checked directly — `git show
+> real branch. Create its PR and merge into `baihe-subtitler` (this last
+> gated merge — everything from Step 1e through Step 10 is now
+> **autonomous mode**, see §4: the implementing chat builds, tests, opens
+> the PR, and merges it itself, moving straight to the next step with no
+> stop for review or a merge go-ahead, except the existing
+> Opus-confirmation stop for Steps 2/6c/9).
+> **Before Step 1e starts:** the root `CLAUDE.md` on `baihe-subtitler`
+> still predates the Opus-confirmation-before-switching rule and the
+> dead/redundant-code cleanup rules (checked directly — `git show
 > origin/step-1d-free-testing-engines:CLAUDE.md` still lacks both). Have
 > the implementing session re-copy the current
 > `docs/ai-setup/CLAUDE.md` from this planning branch into
-> `baihe-subtitler`'s root before or as part of starting Step 1e, so it's
-> working from current rules. Also still open from last time: confirm
-> with the user whether `step-1c-pre-ai-setup`/`step-1c-dependency-fixes`
-> being gone from origin was intentional or GitHub's merge-UI default.
+> `baihe-subtitler`'s root before or as part of starting Step 1e — this
+> matters more now that autonomous mode means no per-step review will
+> catch a rule the implementing chat doesn't know about. Also still open
+> from last time: confirm with the user whether
+> `step-1c-pre-ai-setup`/`step-1c-dependency-fixes` being gone from
+> origin was intentional or GitHub's merge-UI default.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
 > memory, as of 2026-09-24. If this line is stale, the status table below
 > it is the source of truth.)*
@@ -628,13 +633,9 @@ Found by asking directly "anything else to improve — models, performance, GUI 
 ## 4. Working agreement between the two chats
 
 - **Planning chat:** branch `claude/baihe-subtitle-planning-95qyvq`, docs only. Roadmap changes go here.
-- **Implementing chat:** follows this pull request flow for every step.
-  1. Build the step on its own branch off the latest `baihe-subtitler`. Push it, report which step is done and anything that changed the plan, then **stop**.
-  2. The user asks the planning chat to "check Step X", and it reviews the branch against this roadmap. Put any fixes on the **same branch**.
-  3. Once the planning chat approves it, the user says "create a PR for this step". Then open a pull request **into `baihe-subtitler`** with a short plain-English summary. **Don't merge it yourself.**
-  4. The user merges it on GitHub.
-  5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
-  6. **Before starting one of the steps in the table below, stop and ask the user to confirm they've switched to Opus for this chat, then wait for that confirmation before writing any code for the step.** Every other step uses whatever model the chat is already on — no need to ask.
+- **Implementing chat — two different flows depending on where the roadmap is:**
+  - **Steps 1e through 10 (autonomous mode, starting 2026-09-24 at the user's request — "most of the checks have been good, let the AI go through the steps without additional checks"):** build the step on its own branch off the latest `baihe-subtitler`, run the full suite, open a pull request into `baihe-subtitler` **and merge it yourself**, then start the next step off the updated branch — no stop for the planning chat's diff review and no stop for the user's merge go-ahead in between steps. Still push a short plain-English summary of what changed with each step, for the record, but don't wait for a reply before continuing. **Still stop and ask the user to confirm they've switched to Opus** before one of the steps in the table below, per the existing rule — that wasn't part of what the user asked to relax, and it only affects Steps 2, 6c and 9 within this range. If a step's own exit conditions can't be met, or something looks genuinely wrong (not just "the planning chat would nitpick this"), stop and say so rather than merging around it.
+  - **Steps 11 onward (back to the original gated flow):** once the roadmap's current list (through Step 10) is done, later additions go back to review-gated: build on its own branch, push, report, then **stop**; the user asks the planning chat to "check Step X"; once approved, the user says "create a PR for this step"; open the PR but **don't merge it yourself**; the user merges on GitHub; start the next step only after the previous one is merged. The user's own framing for this: once the current list is finished, further changes are "smaller scale," worth going back to a closer look before they land.
 - **Model recommendation per step.** Everything not listed here is fine on Sonnet — these are the steps with either a schema/data migration touching every existing project, correctness that depends on getting an edge case right rather than following a clear spec, or several interacting moving parts in one step:
 
   | Step | Why it needs the extra care |
@@ -645,7 +646,7 @@ Found by asking directly "anything else to improve — models, performance, GUI 
   | 11b — Novel narration TTS quality | Has grown into the step with the most interacting parts: four TTS backends with different capabilities (only one does voice design, only one does emotion), parallelized generation with a per-backend single-threaded exception, and the emotion→delivery mapping — a lot of places for one backend's quirk to leak into another's behaviour. |
 
   Everything else — including Step 11's model-swap fix, Step 10's uninstaller — is normal-risk, well-specified work; Sonnet has already handled comparable steps (1, 1b, 1c) correctly.
-- **Status** (updated on every review — see §5 for how to keep this accurate; last checked against the real branch state on 2026-09-24). **Manual check** tracks the user's own real-model check from §2's table, separately from merge status — a step can be merged with its manual check still pending. It moves to ✅ only when the user says "manual check passed for Step X"; the planning chat doesn't infer it.
+- **Status** (last checked against the real branch state on 2026-09-24). For Steps 1e–10 in autonomous mode, there's no per-step "check Step X" request to trigger a table update — the planning chat should re-sync this table by checking real git state (§5 rule 1) whenever asked, or on its own initiative when picking the thread back up, rather than waiting to be told a step finished. **Manual check** tracks the user's own real-model check from §2's table, separately from merge status — a step can be merged with its manual check still pending, and that's expected to lag further behind in autonomous mode since steps land back-to-back. It moves to ✅ only when the user says "manual check passed for Step X"; the planning chat doesn't infer it.
 
   | Step | Branch | Merged | Manual check |
   |---|---|---|---|
@@ -685,8 +686,11 @@ Found by asking directly "anything else to improve — models, performance, GUI 
 
 ## 5. How each step gets reviewed
 
-So a review is consistent step to step, and survives a context reset or a
-different session picking up reviews later:
+**Steps 1e–10 run in autonomous mode (§4) — these rules apply when the
+planning chat is asked to spot-check something, re-sync the status table,
+or review Step 11 onward, not as a mandatory per-step gate through Step 10.**
+So a review is consistent whenever it does happen, and survives a context
+reset or a different session picking up reviews later:
 
 1. **Never trust memory for branch/PR/merge state.** Before saying a step is
    done, merged, or ready for review, `git fetch origin` and check the actual
