@@ -6,7 +6,7 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import call_with_backoff
+from translate_engines import call_with_backoff, GeminiEngine
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -45,15 +45,35 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
     messages = list(chat_history or [])
     messages.append({"role": "user", "content": question})
 
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
+    client = getattr(engine, "client", None)
+    if client is not None and hasattr(client, "messages"):
+        resp = call_with_backoff(lambda: client.messages.create(
             model=engine.model, max_tokens=1000, system=system_prompt, messages=messages,
         ))
         return "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
+    if client is not None:
         full_messages = [{"role": "system", "content": system_prompt}] + messages
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
+        resp = call_with_backoff(lambda: client.chat.completions.create(
             model=engine.model, messages=full_messages,
         ))
         return resp.choices[0].message.content.strip()
+    if isinstance(engine, GeminiEngine):
+        # Gemini has no .client (its translate_batch calls the REST endpoint
+        # directly) -- same request shape, folding the running chat history
+        # into one prompt since generateContent's own multi-turn "contents"
+        # format isn't worth the extra plumbing for this one caller.
+        import requests
+        history_text = "\n\n".join(
+            f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{engine.model}:generateContent")
+        resp = call_with_backoff(lambda: requests.post(
+            url, params={"key": engine.api_key},
+            json={"systemInstruction": {"parts": [{"text": system_prompt}]},
+                  "contents": [{"parts": [{"text": history_text}]}]}))
+        resp.raise_for_status()
+        try:
+            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError):
+            return "This engine doesn't support chat-style Q&A."
     return "This engine doesn't support chat-style Q&A."

@@ -15,7 +15,7 @@ existing entries with new information rather than starting over.
 
 import re
 import json
-from translate_engines import call_with_backoff
+from translate_engines import call_llm_json
 
 ENTRY_TYPES = {
     "character": "A person in the story",
@@ -79,7 +79,7 @@ def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict = 
             + known_block + f"\n\nExcerpt:\n{excerpt}"
         )
 
-        text = _call_llm(engine, prompt, max_tokens=4000)
+        text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]")
         text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
         try:
             entries = json.loads(text)
@@ -129,7 +129,7 @@ def build_timeline(lines, engine, up_to_line_idx: int, max_context: int = 400):
         'Return ONLY a JSON array: [{"line_idx": 0, "event": "..."}]. '
         "No preamble, no markdown fences.\n\n" + excerpt
     )
-    text = _call_llm(engine, prompt, max_tokens=2000)
+    text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]")
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         events = json.loads(text)
@@ -172,16 +172,3 @@ def format_wiki_as_markdown(entries, drama_title: str = "", spoiler_note: str = 
     return header + "\n".join(sections)
 
 
-def _call_llm(engine, prompt: str, max_tokens: int = 2000) -> str:
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        return resp.choices[0].message.content.strip()
-    return "[]"

@@ -336,7 +336,8 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     return image
 
 
-def translate_page_with_context(texts, engine, drama_meta: dict, previous_context: str = ""):
+def translate_page_with_context(texts, engine, drama_meta: dict, previous_context: str = "",
+                                 usage_cb=None):
     """
     Translates a page's bubble texts with awareness of what happened on
     prior pages, the way Torii's context-passing works for manga --
@@ -347,7 +348,7 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     page's translate call (see below). Returns (translations, new_context)
     -- pass new_context into the next page's call to keep the chain going.
     """
-    from translate_engines import call_with_backoff
+    from translate_engines import call_llm_json
     import re, json
 
     if not getattr(engine, "supports_reference", False):
@@ -364,18 +365,8 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
         '"1-2 sentence summary of what just happened, to carry into the next page"}. '
         "No preamble, no markdown fences."
     )
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=1500,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        text = resp.choices[0].message.content.strip()
-    else:
+    text = call_llm_json(engine, prompt, max_tokens=1500, fallback=None, usage_cb=usage_cb)
+    if text is None:
         return [""] * len(texts), previous_context
 
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()

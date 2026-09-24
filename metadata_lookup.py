@@ -50,19 +50,9 @@ def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
         '"director": "...", "voice_actors": "comma, separated, names", "summary": "1-3 sentences"}. '
         "No preamble, no markdown fences.\n\n" + snippet
     )
-    from translate_engines import call_with_backoff
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=1000,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        text = resp.choices[0].message.content.strip()
-    else:
+    from translate_engines import call_llm_json
+    text = call_llm_json(engine, prompt, max_tokens=1000, fallback=None)
+    if text is None:
         return {}
 
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
