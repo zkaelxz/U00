@@ -212,10 +212,12 @@ def cmd_translate(args):
         # a real, confirmed gap between what the Workspace Translate
         # button sends and what this command sent for the same drama.
         glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else None
+        series_chars = db.list_series_characters(d["series_id"]) if d.get("series_id") else []
+        drama_chars = db.list_characters_with_series_names(d["id"])
         style_guidelines = tguide.build_style_guidelines(
-            style_preset=args.style_preset, glossary_terms=glossary_terms)
-        character_names = {c["speaker_label"]: c["character_name"]
-                            for c in db.list_characters(d["id"]) if c.get("character_name")}
+            style_preset=args.style_preset, glossary_terms=glossary_terms,
+            custom_notes=tguide.build_character_gender_hints(series_chars, drama_chars))
+        character_names = tguide.build_speaker_labels(drama_chars, series_chars)
         print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _, batch_errors = translate_engines.translate_lines_with_engine(

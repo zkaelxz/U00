@@ -98,6 +98,58 @@ class TestCharacterGenderHints:
         assert tg.build_character_gender_hints([]) == ""
 
 
+class TestCharacterPronouns:
+    """Step 1e: pronouns as free text (she/her, he/him, they/them, or a
+    custom value), settable per drama for dramas with no series, with the
+    per-drama value overriding the series value."""
+
+    def test_legacy_female_male_still_map_to_she_and_he(self):
+        assert tg.normalize_pronouns("female") == "she/her"
+        assert tg.normalize_pronouns("male") == "he/him"
+        assert tg.normalize_pronouns(None) == ""
+        assert tg.normalize_pronouns("  they/them ") == "they/them"
+
+    def test_they_them_and_custom_values_reach_the_hints(self):
+        chars = [{"character_name": "Ash", "gender": "they/them"},
+                 {"character_name": "Rin", "gender": "xe/xem"}]
+        result = tg.build_character_gender_hints(chars)
+        assert "Ash: they/them" in result
+        assert "Rin: xe/xem" in result
+
+    def test_standalone_drama_per_drama_pronouns_produce_hints(self):
+        drama_chars = [{"speaker_label": "SPEAKER_00", "character_name": "Xiaoling",
+                        "pronouns": "they/them", "series_pronouns": None}]
+        result = tg.build_character_gender_hints([], drama_chars)
+        assert "Xiaoling: they/them" in result
+
+    def test_per_drama_value_overrides_the_series_value(self):
+        series = [{"character_name": "Su Shan", "gender": "female"}]
+        drama_chars = [{"speaker_label": "SPEAKER_00", "character_name": "Su Shan",
+                        "pronouns": "they/them", "series_pronouns": "female"}]
+        result = tg.build_character_gender_hints(series, drama_chars)
+        assert "Su Shan: they/them" in result
+        assert "she/her" not in result
+        assert tg.build_speaker_labels(drama_chars, series) == {"SPEAKER_00": "Su Shan (they/them)"}
+
+    def test_linked_series_value_is_the_per_drama_default(self):
+        drama_chars = [{"speaker_label": "SPEAKER_00", "character_name": "Su Shan",
+                        "pronouns": None, "series_pronouns": "female"}]
+        assert tg.build_speaker_labels(drama_chars, []) == {"SPEAKER_00": "Su Shan (she/her)"}
+
+    def test_unlinked_but_same_named_series_character_is_used(self):
+        series = [{"character_name": "Liang", "gender": "male"}]
+        drama_chars = [{"speaker_label": "SPEAKER_01", "character_name": "Liang",
+                        "pronouns": None, "series_pronouns": None}]
+        assert tg.build_speaker_labels(drama_chars, series) == {"SPEAKER_01": "Liang (he/him)"}
+
+    def test_speaker_labels_skip_unnamed_and_leave_unset_pronouns_off(self):
+        drama_chars = [{"speaker_label": "SPEAKER_00", "character_name": "Xiaoling",
+                        "pronouns": None, "series_pronouns": None},
+                       {"speaker_label": "SPEAKER_01", "character_name": None,
+                        "pronouns": "she/her", "series_pronouns": None}]
+        assert tg.build_speaker_labels(drama_chars) == {"SPEAKER_00": "Xiaoling"}
+
+
 class TestGlossaryInGuidelines:
     def test_terms_appear_in_output(self):
         g = tg.build_style_guidelines("audio_drama", glossary_terms=SAMPLE_GLOSSARY)
