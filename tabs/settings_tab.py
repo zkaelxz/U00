@@ -31,7 +31,18 @@ def _load_env_defaults(env_path: str = None):
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
     if os.path.exists(env_path):
         try:
-            with open(env_path, encoding="utf-8") as fh:
+            # utf-8-sig, not utf-8: Notepad (the default editor most Windows
+            # users would reach for to make a .env file) saves UTF-8 files
+            # WITH a byte-order-mark by default. Plain utf-8 doesn't strip
+            # it, so the first key in the file silently comes back as
+            # "﻿HF_TOKEN" instead of "HF_TOKEN" -- a real, confirmed
+            # failure mode: whichever variable happens to be first in the
+            # file never matches its lookup name, while later variables
+            # (or the same file saved by an editor that doesn't add a BOM)
+            # work fine, which is exactly what makes it so confusing to
+            # diagnose from the outside. utf-8-sig strips a BOM if present
+            # and behaves identically to utf-8 when there isn't one.
+            with open(env_path, encoding="utf-8-sig") as fh:
                 for line in fh:
                     line = line.strip()
                     if not line or line.startswith("#") or "=" not in line:
