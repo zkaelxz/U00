@@ -1,5 +1,10 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
+> **NEXT:** run Step 1c-pre in the implementing chat ("Do Step 1c-pre").
+> *(Kept accurate per §5 rule 1 — checked against real branch state, not
+> memory, as of 2026-09-24. If this line is stale, the status table below
+> it is the source of truth.)*
+
 Status: agreed plan (**shortened version**). This doc is written in the
 **planning** chat, and the **implementing** chat carries it out on
 `baihe-subtitler`.
@@ -9,7 +14,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
-- Steps 6–10: transcription quality (6) → export formats (6b) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4 and R7 are deferred (see §3).
+- Steps 6–10: transcription quality (6) → export formats (6b) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate (9b) → Windows launcher (10). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -72,6 +77,7 @@ Rules for every milestone:
 | 7 | Translate one episode in "High quality" mode. Check the cost estimate shows first and the critiques appear as notes. |
 | 8 | Open a second episode of the same series. Check the voice suggestions are sensible and nothing is labelled until you confirm it. |
 | 9 | Set a low cost cap and check the job stops at it. Run one Bulk-mode translation and check results arrive on the right lines. |
+| 9b | Start a long transcription and check the ETA appears and looks reasonable. Open the model-cache panel and delete one entry. Select 2–3 dramas in a series in Library and run bulk translate. |
 | 10 | Double-click the desktop shortcut. The app should open in its own window. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
@@ -308,14 +314,23 @@ Changes:
 ### Step 6b — Export formats (VTT and ASS) *(un-deferred by request — was R6)*
 SRT already works everywhere, so this is additive, not a fix.
 1. **VTT writer** next to `core.lines_to_srt`/`lines_to_bilingual_srt` — same structure, WebVTT's header and timestamp format.
-2. **ASS writer** — enough to be worth adding over VTT: one style per known character (from `characters`/`series_characters`), so each speaker gets a consistent colour; position/margin fields left at sensible defaults rather than exposed as settings in this step.
-3. **Long-cue handling**, shared by both new writers: split a cue over a configurable character-per-line limit (default per source language, e.g. tighter for CJK) at a sentence or clause boundary where one exists, otherwise at the nearest space; never mid-word.
-4. Add format choice (SRT/VTT/ASS) next to the existing export button, defaulting to SRT so nothing changes for anyone who doesn't pick a new format.
+2. **ASS writer** with real style controls — this is the format that makes styled/"clip streamer"-look subtitles possible; VTT and SRT can't carry per-line font/colour/position. Expose, with sensible defaults so nobody has to touch them:
+   - font family (a short list of fonts that are commonly preinstalled, plus a free-text field for any font installed on the machine doing the export/burn — note in the UI that an uncommon font must be installed locally or it silently falls back);
+   - size, bold on/off, primary (fill) colour, outline colour and outline width;
+   - one colour per known character (from `characters`/`series_characters`), reusing Step 1e's character list, so each speaker is visually distinct without the user setting each one by hand;
+   - a couple of starting **presets** the user can tune from, not a fixed look — e.g. "Clean" (today's plain default) and "Streamer clip" (bold, larger size, thick high-contrast outline — the common shape of Japanese clip-channel subtitles: legible over busy video/gameplay, not an exact copy of any one channel's style). Position/margin stay at sensible defaults, not exposed yet.
+3. **Long-cue handling**, shared by all three writers: split a cue over a configurable character-per-line limit (default per source language, e.g. tighter for CJK) at a sentence or clause boundary where one exists, otherwise at the nearest space; never mid-word.
+4. Add format choice (SRT/VTT/ASS) and the style controls above next to the existing export button, defaulting to SRT + "Clean" so nothing changes for anyone who doesn't touch the new controls.
+5. **Fix: expose hardsub (burned-in) styling, which already exists in the backend but is invisible in the UI.** `video_export.burn_subtitles` already accepts `font_size`/`font_color`/`outline_color`, but section 10's "Export full subtitled episode" calls it with no arguments (`workspace_tab.py` ~line 2819), so every hardsub export silently uses the same fixed look regardless of what's picked elsewhere. Two changes:
+   - wire the same style controls from item 2 into that call;
+   - when the chosen format is ASS, burn the `.ass` file directly (`ffmpeg -vf "subtitles=file.ass"`, no `force_style` needed — libass reads the per-speaker styles straight from the file) instead of building one flat `force_style` string, so hardsub gets per-speaker colours too, not just softsub.
 
 **Exit:**
-- A VTT and an ASS export of the same drama both load and play correctly in mpv and VLC, with ASS showing distinct per-speaker colours.
+- A VTT and an ASS export of the same drama both load and play correctly in mpv and VLC, with ASS showing distinct per-speaker colours and the chosen font/size/outline.
 - A test shows a long line is split at a sensible boundary, not mid-word.
 - SRT export is byte-identical to before this step.
+- A hardsub export using the "Streamer clip" preset visibly differs from one using "Clean" (checked by hand — burning video isn't something a unit test can judge).
+- A test shows burning an ASS file skips `force_style` entirely.
 
 ### Step 7 — Reflect translation mode *(new feature; needs Step 1)*
 - Add an optional "High quality" setting:
@@ -375,6 +390,18 @@ SRT already works everywhere, so this is additive, not a fix.
 - A restarted app picks up a pending batch by its saved id.
 - A test shows the stable prompt part is byte-identical across batches of the same drama.
 
+### Step 9b — Job ETAs, model disk management, bulk series translate
+Three independent, additive gaps found while reviewing for efficiency and missing functionality — no shared code between them, grouped here to keep the step count down.
+
+1. **Time estimate on long jobs.** `background_jobs` already tracks `started_at` and a `progress` fraction (`update_progress(job_id, frac, message)`); nothing currently uses them together. Add a simple ETA next to the existing progress bar: `elapsed = now - started_at`, `remaining ≈ elapsed * (1 - frac) / frac`, shown as "~N min remaining" once `frac` is past a small threshold (too noisy right at the start). Pure UI addition — no new job-tracking fields needed.
+2. **Downloaded-model disk management.** `storage.py` reports disk usage for the app's own `library/` folder, but Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in Hugging Face's own cache (`~/.cache/huggingface` by default) with no visibility or cleanup from inside the app. Across several ASR/TTS backends this can reach tens of GB. Add a small panel (Diagnostics, next to the existing dependency checks) that lists what's in the HF cache with each entry's size, and a delete button per entry — a thin wrapper over `huggingface_hub.scan_cache_dir()`, which already gives size-per-revision without reimplementing cache-format parsing.
+3. **Bulk "translate everything untranslated" across a series.** Library's existing bulk actions (`tabs/library_tab.py` ~line 127, `library_bulk_select`) cover status, delete and export, but not starting a job — translating multiple dramas still means opening each one individually. Add a bulk action that starts a `run_translate_job` per selected drama with no translation yet, each drama's own saved engine/glossary/style/locale settings (same as its own Workspace tab would use), queued one at a time rather than all at once (see Step 3's/Step 1c's GPU-load reasoning — avoid starting several GPU-touching jobs simultaneously). Respect the Step 1b line-writing job guard per drama; skip (don't queue) a drama that already has one running.
+
+**Exit:**
+- A test shows the ETA display appears once progress is non-trivial and disappears/holds sensibly at 0% and 100%.
+- A test shows the model-cache panel lists entries with sizes and that deleting one actually frees the space (using a fake cache dir, not the real HF cache).
+- A test shows the bulk translate action starts one job per eligible selected drama and skips any drama with a job already running, using each drama's own settings.
+
 ### Step 10 — One-click Windows launcher, own window & desktop shortcut *(convenience)*
 - Add a `start.bat` (plus an optional `start.ps1`) that:
   - creates or activates the venv on first run;
@@ -423,27 +450,29 @@ SRT already works everywhere, so this is additive, not a fix.
   3. Once the planning chat approves it, the user says "create a PR for this step". Then open a pull request **into `baihe-subtitler`** with a short plain-English summary. **Don't merge it yourself.**
   4. The user merges it on GitHub.
   5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
-- **Status** (updated on every review — see §6 for how to keep this accurate; last checked against the real branch state on 2026-09-24):
+- **Status** (updated on every review — see §5 for how to keep this accurate; last checked against the real branch state on 2026-09-24). **Manual check** tracks the user's own real-model check from §2's table, separately from merge status — a step can be merged with its manual check still pending. It moves to ✅ only when the user says "manual check passed for Step X"; the planning chat doesn't infer it.
 
-  | Step | Branch | Status |
-  |---|---|---|
-  | 1 — R5 translation fixes | `claude/r5-translation-fixes` | ✅ Merged (`baihe-subtitler` PR, includes the planning-review follow-up fixes) |
-  | 1b — Safety fixes | `step-1b-safety-fixes` | ✅ Merged (PR #2, includes the edit-lock follow-up) |
-  | 1c-pre — AI setup | *(files drafted on this branch, not yet copied in)* | Drafted, not started by the implementing session |
-  | 1c — Dependency fixes | — | Not started |
-  | 1d — Free testing engines | — | Not started |
-  | 1e — Character pronouns | — | Not started |
-  | 2 — R0 permanent line IDs | — | Not started |
-  | 3 — R1-lite original transcript | — | Not started |
-  | 4 — R2 speaker detection | — | Not started |
-  | 5 — R3-lite local-model defaults | — | Not started |
-  | 6 — Transcription quality | — | Not started |
-  | 6b — Export formats (VTT/ASS) | — | Not started |
-  | 7 — Reflect translation mode | — | Not started |
-  | 8 — Recurring-voice suggestions | — | Not started |
-  | 9 — Cost controls & bulk discounts | — | Not started |
-  | 10 — Windows launcher | — | Not started |
+  | Step | Branch | Merged | Manual check |
+  |---|---|---|---|
+  | 1 — R5 translation fixes | `claude/r5-translation-fixes` (deleted post-merge) | ✅ Merged | ⏳ Pending |
+  | 1b — Safety fixes | `step-1b-safety-fixes` (deleted post-merge) | ✅ Merged (PR #2) | ⏳ Pending |
+  | 1c-pre — AI setup | *(drafted here, not yet copied in)* | Not started | — |
+  | 1c — Dependency fixes | — | Not started | — |
+  | 1d — Free testing engines | — | Not started | — |
+  | 1e — Character pronouns | — | Not started | — |
+  | 2 — R0 permanent line IDs | — | Not started | — |
+  | 3 — R1-lite original transcript | — | Not started | — |
+  | 4 — R2 speaker detection | — | Not started | — |
+  | 5 — R3-lite local-model defaults | — | Not started | — |
+  | 6 — Transcription quality | — | Not started | — |
+  | 6b — Export formats (VTT/ASS) | — | Not started | — |
+  | 7 — Reflect translation mode | — | Not started | — |
+  | 8 — Recurring-voice suggestions | — | Not started | — |
+  | 9 — Cost controls & bulk discounts | — | Not started | — |
+  | 9b — Job ETAs, model disk management, bulk series translate | — | Not started | — |
+  | 10 — Windows launcher | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
+- **Branch cleanup:** turn on **Settings → General → Pull Requests → "Automatically delete head branches"** on the repo (a one-time GitHub setting, not something either chat can set — no tool here has repo-admin access). Every future merged branch then deletes itself; nobody needs manual delete access.
 - To read this doc from the implementing chat:
   ```
   git fetch origin claude/baihe-subtitle-planning-95qyvq

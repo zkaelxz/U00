@@ -15,6 +15,14 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 
 - **One step, one branch, off the latest `baihe-subtitler`.** Don't start
   the next step until the current one is reviewed and merged.
+- **Branch name:** `step-<id>-<short-name>`, where `<id>` is the roadmap's
+  own step id exactly as it appears there (`1b`, `1c-pre`, `6b`, `9b`, ...)
+  and `<short-name>` is a few lowercase hyphenated words describing the
+  step, e.g. `step-2-permanent-line-ids`, `step-6b-export-formats`. Earlier
+  branches (`claude/r5-translation-fixes`, `step-1b-safety-fixes`) predate
+  this convention — don't rename those, just follow it going forward. The
+  point is that the roadmap's status table and branch names always match
+  at a glance.
 - **Keep changes minimal.** Only what the step's roadmap entry asks for —
   no extra refactors, no new features, no dependency upgrades beyond what
   the step names.
