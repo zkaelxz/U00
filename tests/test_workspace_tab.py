@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
 from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
-                                 run_emotion_job, run_consistency_job, run_translation_notes_job)
+                                 run_emotion_job, run_consistency_job, run_translation_notes_job,
+                                 run_fix_flagged_lines_job)
 import core as core_module
 from core import Line
 
@@ -429,4 +430,123 @@ def test_translation_notes_job_persists_and_logs_usage(isolated_db):
     assert saved[0]["term"] == "画蛇添足"
     summary = isolated_db.get_usage_summary(did)
     assert summary["input_tokens"] == 25
+    _clear(job_id)
+
+
+class FakeFixEngine:
+    """translate_batch-shaped fake, matching the real per-call last_usage
+    reset (see translate_engines.py) rather than an accumulator -- this is
+    what run_fix_flagged_lines_job's usage-logging reads after every call."""
+    model = "fake-model"
+
+    def __init__(self, translations=None, fail_for=None):
+        self.translations = translations or {}
+        self.fail_for = fail_for or set()
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+    def translate_batch(self, lines, context):
+        text = lines[0]
+        if text in self.fail_for:
+            raise RuntimeError("translation API down")
+        self.last_usage = {"input_tokens": 10, "output_tokens": 4}
+        return [self.translations.get(text, f"[translated] {text}")]
+
+
+def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, monkeypatch, tmp_path):
+    job_id = "test_fixflag_audio"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="stale transcription", en="stale translation",
+                   flag="ambiguous_reference", flag_note="unclear")]
+    isolated_db.save_lines(did, lines)
+
+    audio_path = str(tmp_path / "audio.wav")
+    with open(audio_path, "wb") as f:
+        f.write(b"x")
+
+    import tabs.workspace_tab as wt
+    monkeypatch.setattr(wt.core_module, "extract_audio_slice", lambda *a, **k: None)
+    monkeypatch.setattr(wt.core_module, "transcribe_for_timing",
+                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "她昨天来了"}])
+
+    engine = FakeFixEngine(translations={"她昨天来了": "She came yesterday."})
+    run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
+                               engine, "claude")
+
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["zh"] == "她昨天来了"
+    assert loaded[0]["en"] == "She came yesterday."
+    assert loaded[0]["flag"] is None
+    assert loaded[0]["flag_note"] == ""
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"fixed_count": 1, "total_flagged": 1}
+    summary = isolated_db.get_usage_summary(did)
+    assert summary["input_tokens"] == 10
+    assert summary["output_tokens"] == 4
+    _clear(job_id)
+
+
+def test_fix_flagged_job_skips_retranscription_with_no_audio(isolated_db, monkeypatch):
+    """Novel narration has no audio to re-transcribe -- only re-translation
+    should run, on the line's existing zh text."""
+    job_id = "test_fixflag_noaudio"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="画蛇添足", en="old translation",
+                   flag="mistranslation", flag_note="check this")]
+    isolated_db.save_lines(did, lines)
+
+    engine = FakeFixEngine(translations={"画蛇添足": "Gilding the lily"})
+    run_fix_flagged_lines_job(job_id, did, lines, None, "medium", False, "zh", engine, "claude")
+
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["zh"] == "画蛇添足"  # unchanged -- nothing to re-transcribe
+    assert loaded[0]["en"] == "Gilding the lily"
+    assert loaded[0]["flag"] is None
+    _clear(job_id)
+
+
+def test_fix_flagged_job_leaves_flag_set_when_translation_fails(isolated_db):
+    """A failed re-translation must not silently lose the flag -- the line
+    stays flagged so it isn't mistaken for resolved."""
+    job_id = "test_fixflag_fail"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="old",
+                   flag="mistranslation", flag_note="check")]
+    isolated_db.save_lines(did, lines)
+
+    engine = FakeFixEngine(fail_for={"你好"})
+    run_fix_flagged_lines_job(job_id, did, lines, None, "medium", False, "zh", engine, "claude")
+
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["flag"] == "mistranslation"
+    assert loaded[0]["en"] == "old"
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"fixed_count": 0, "total_flagged": 1}
+    _clear(job_id)
+
+
+def test_fix_flagged_job_ignores_unflagged_lines(isolated_db):
+    job_id = "test_fixflag_unflagged"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="没有问题", en="No problem.", flag=None)]
+    isolated_db.save_lines(did, lines)
+
+    engine = FakeFixEngine()
+    run_fix_flagged_lines_job(job_id, did, lines, None, "medium", False, "zh", engine, "claude")
+
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["en"] == "No problem."  # untouched
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"fixed_count": 0, "total_flagged": 0}
     _clear(job_id)
