@@ -29,6 +29,17 @@ CLAUDE_MODELS = {
     "claude-sonnet-4-6": "Sonnet 4.6 -- previous generation",
 }
 
+# Selectable Gemini models. Google's naming/lineup changes at least as
+# often as Anthropic's -- if a model here starts 404ing, check
+# https://ai.google.dev/gemini-api/docs/models for the current list and
+# update both this and PRICING_PER_MILLION_TOKENS below. Verified against
+# ai.google.dev/gemini-api/docs/pricing in September 2026.
+GEMINI_MODELS = {
+    "gemini-flash-lite-latest": "Flash-Lite -- cheapest, recommended default for bulk subtitle translation",
+    "gemini-flash-latest": "Flash -- stronger nuance than Flash-Lite, still inexpensive",
+    "gemini-pro-latest": "Pro -- highest quality, most expensive",
+}
+
 PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0},
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
@@ -40,6 +51,9 @@ PRICING_PER_MILLION_TOKENS = {
     # cost out instead of silently reporting $0.
     "deepseek-chat": {"input": 0.28, "output": 0.42},
     "deepseek-reasoner": {"input": 0.55, "output": 2.19},
+    "gemini-flash-lite-latest": {"input": 0.30, "output": 2.50},
+    "gemini-flash-latest": {"input": 0.75, "output": 3.75},
+    "gemini-pro-latest": {"input": 2.0, "output": 12.0},
 }
 
 
@@ -100,7 +114,7 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
 
 
 def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, locale: str = "en-US",
-                            glossary_terms=None, style_guidelines: str = ""):
+                            glossary_terms=None, style_guidelines: str = "", recent_context=None):
     meta_lines = []
     for label, key in [("Title", "title_en"), ("Chinese title", "title_zh"),
                         ("Author", "author"), ("Studio", "studio"),
@@ -133,6 +147,17 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
     else:
         glossary_block = ""
 
+    if recent_context:
+        ctx_pairs = "\n".join(f"- {zh} -> {en}" for zh, en in recent_context)
+        context_block = (
+            "\nHow the lines immediately before this batch were just translated "
+            "(for continuity -- a pronoun, an ongoing topic, or a person referred "
+            "to only by relation may depend on this). These are NOT part of what "
+            f"you're translating now:\n{ctx_pairs}\n"
+        )
+    else:
+        context_block = ""
+
     instructions = (
         "You are translating a Chinese baihe (GL/yuri) audio drama into "
         "natural, idiomatic English subtitles. You will be given numbered "
@@ -140,6 +165,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
         + (f"Drama metadata:\n{meta_block}\n\n" if meta_block else "")
         + locale_instruction
         + glossary_block
+        + context_block
         + "Rules:\n"
         "- Keep each translation concise enough to read comfortably as a subtitle.\n"
         "- Keep character names, honorifics, and recurring terms consistent.\n"
@@ -189,6 +215,7 @@ class ClaudeEngine:
             context.get("novel_reference"), locale=context.get("locale", "en-US"),
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
+            recent_context=context.get("recent_context"),
         )
         blocks = [{"type": "text", "text": instructions}]
         novel_reference = context.get("novel_reference")
@@ -233,6 +260,7 @@ class DeepSeekEngine:
             context.get("novel_reference"), locale=context.get("locale", "en-US"),
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
+            recent_context=context.get("recent_context"),
         )
         novel_reference = context.get("novel_reference")
         system_text = instructions
@@ -253,6 +281,54 @@ class DeepSeekEngine:
                 "output_tokens": getattr(resp.usage, "completion_tokens", 0),
             }
         text = resp.choices[0].message.content.strip()
+        return _parse_json_array(text, len(zh_lines))
+
+
+# ---------------------------------------------------------------------------
+# Gemini (Google) -- cheap, strong multilingual, OpenAI-style REST call
+# ---------------------------------------------------------------------------
+
+class GeminiEngine:
+    """Uses the plain generateContent REST endpoint with an API-key query
+    param (like GoogleEngine below), rather than the google-genai SDK --
+    no extra dependency needed, and it's a simple enough API that the SDK
+    doesn't buy much here."""
+    name = "gemini"
+    supports_reference = True
+
+    def __init__(self, api_key: str, model: str = "gemini-flash-lite-latest"):
+        self.api_key = api_key
+        self.model = model
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+    def translate_batch(self, zh_lines, context: dict):
+        import requests
+        instructions, _ = build_llm_instructions(
+            context.get("style_note", ""), context.get("drama_meta", {}),
+            context.get("novel_reference"), locale=context.get("locale", "en-US"),
+            glossary_terms=context.get("glossary_terms"),
+            style_guidelines=context.get("style_guidelines", ""),
+            recent_context=context.get("recent_context"),
+        )
+        novel_reference = context.get("novel_reference")
+        if novel_reference and novel_reference.strip():
+            instructions += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
+                              "only):\n\n" + novel_reference.strip())
+        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(zh_lines))
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{self.model}:generateContent")
+        resp = requests.post(url, params={"key": self.api_key}, json={
+            "systemInstruction": {"parts": [{"text": instructions}]},
+            "contents": [{"parts": [{"text": "Translate these lines:\n\n" + numbered}]}],
+        })
+        resp.raise_for_status()
+        data = resp.json()
+        usage = data.get("usageMetadata") or {}
+        self.last_usage = {
+            "input_tokens": usage.get("promptTokenCount", 0),
+            "output_tokens": usage.get("candidatesTokenCount", 0),
+        }
+        text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
         return _parse_json_array(text, len(zh_lines))
 
 
@@ -523,6 +599,7 @@ class OllamaEngine:
             context.get("novel_reference"), locale=context.get("locale", "en-US"),
             glossary_terms=context.get("glossary_terms"),
             style_guidelines=context.get("style_guidelines", ""),
+            recent_context=context.get("recent_context"),
         )
         novel_reference = context.get("novel_reference")
         system_text = instructions
@@ -583,6 +660,7 @@ ENGINES = {
     "test_offline": TestOfflineEngine,
     "claude": ClaudeEngine,
     "deepseek": DeepSeekEngine,
+    "gemini": GeminiEngine,
     "deepl": DeepLEngine,
     "google": GoogleEngine,
     "ollama": OllamaEngine,
@@ -593,6 +671,7 @@ ENGINE_NOTES = {
     "test_offline": "FREE dry run -- no API key, no network, no cost. Produces obvious [TEST] placeholder text so you can verify the whole pipeline works before spending anything. Not a real translation.",
     "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
     "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
+    "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
     "deepl": "Fast, natural phrasing, but no reference-novel awareness -- pure MT.",
     "google": "Broadest language coverage, cheapest at scale, no reference-novel awareness.",
     "ollama": "Runs models locally via Ollama. No per-token billing, but quality depends on your hardware -- a usable model needs meaningful RAM/VRAM. Supports novel reference.",
@@ -611,7 +690,8 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
-                                 style_guidelines: str = "", cancel_check_cb=None):
+                                 style_guidelines: str = "", cancel_check_cb=None,
+                                 context_window: int = 6):
     """cancel_check_cb: optional callable returning True if the run should
     stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
     so a background translation job can be stopped safely (rather than
@@ -639,6 +719,14 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
     so calling this again after a partial failure only retries what's
     actually missing, instead of re-translating (and re-paying for)
     everything. Pass force_retranslate=True to redo everything anyway.
+
+    context_window: how many already-translated lines immediately before
+    each batch get shown to the model (as "how this was already
+    translated", not something to retranslate). Batches are translated in
+    isolation otherwise -- a pronoun or a person referred to only by
+    relation ("her", "that guy") a few lines back has nothing to resolve
+    against, and the model has to guess fresh every batch instead of
+    staying consistent with what came right before it. 0 disables this.
     """
     target_lines = lines if force_retranslate else [ln for ln in lines if not ln.en.strip()]
     if not target_lines:
@@ -660,6 +748,13 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
         if cancel_check_cb and cancel_check_cb():
             break
         batch = target_lines[start:start + batch_size]
+        if context_window > 0:
+            # Recomputed each batch (not just once outside the loop) since
+            # more lines have been translated -- including by this very
+            # loop -- by the time later batches run.
+            first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)
+            preceding = lines[max(0, first_pos - context_window):first_pos]
+            context["recent_context"] = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
         try:
             translations = call_with_backoff(
                 lambda: engine.translate_batch([ln.zh for ln in batch], context)

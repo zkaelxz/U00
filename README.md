@@ -148,14 +148,29 @@ adding dramas without ever opening the GUI).
 |---|---|
 | `claude` | Best for tone/character voice. Supports novel reference + prompt caching. |
 | `deepseek` | Cheap, strong on Chinese. Supports novel reference. |
+| `gemini` | Close to DeepSeek on price (Flash-Lite tier), strong on Chinese/Japanese. Supports novel reference. Google's model lineup/pricing changes often — see `GEMINI_MODELS` in `translate_engines.py` if a run starts erroring. |
 | `deepl` | Fast, natural phrasing, pure MT — no reference-novel awareness. |
 | `google` | Broadest coverage, cheapest at scale, pure MT. |
 | `ollama` | Runs locally via [Ollama](https://ollama.com). No per-token billing, but it uses your hardware — a usable model wants meaningful RAM/VRAM. Supports novel reference. Won't match Claude/DeepSeek on nuance. |
 | `libretranslate` | Self-hosted [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) or [LTEngine](https://github.com/LibreTranslate/LTEngine). Pure MT, no reference-novel awareness. **See the cost note below — "open source" is not the same as "free to use".** |
 
-Only `claude`, `deepseek`, and `ollama` (LLM-based) can do speaker
-attribution for novel-narration mode — DeepL/Google will just tag
+Only `claude`, `deepseek`, `gemini`, and `ollama` (LLM-based) can do
+speaker attribution for novel-narration mode — DeepL/Google will just tag
 everything "Narrator".
+
+### Context from recent lines
+
+The "Context lines shown from before each batch" slider (Workspace, next
+to the engine/locale settings) shows the LLM-based engines above how the
+immediately preceding lines were already translated, not just the batch
+currently being translated. Batches are otherwise translated in
+isolation — a pronoun or someone referred to only by relation ("her",
+"that guy") a few lines back has nothing to resolve against, and the
+model has to guess fresh every batch instead of staying consistent with
+what came right before it. Defaults to 6 lines; 0 turns it off. Doesn't
+apply to the pure-MT engines (DeepL, Google, LibreTranslate) — they
+translate one line at a time with no concept of surrounding context at
+all.
 
 ### What each engine actually costs
 
@@ -166,6 +181,7 @@ different claims:
 |---|---|---|
 | `claude` | Paid per token | API key from console.anthropic.com (separate from, and billed separately to, a Claude.ai subscription) |
 | `deepseek` | Paid per token, far cheaper than Claude | API key |
+| `gemini` | Paid per token, close to DeepSeek on the Flash-Lite tier | API key from aistudio.google.com |
 | `deepl` | Paid above a limited free tier | API key |
 | `google` | Paid per character | API key |
 | `ollama` | No billing | Your own hardware — a model worth using wants real RAM/VRAM |
