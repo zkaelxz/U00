@@ -8,7 +8,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 - Audited code: branch `baihe-subtitler` at commit `7af8453`. Every `file:function` reference below is on that branch.
 
 **Build order:**
-- Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → R0 → R1-lite → R2 → R3-lite.
+- Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → free testing engines (1d) → R0 → R1-lite → R2 → R3-lite.
 - Steps 6–10: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4, R6 and R7 are deferred (see §3).
 
 ## Decisions already made
@@ -60,6 +60,7 @@ Rules for every milestone:
 | 1 | Translate a short episode that has named characters. Check that pronouns and honorifics match who's speaking, and that no line got another line's translation. |
 | 1b | Start Translate, then try "Find lines to flag" and editing a line. Both should be refused with a message. Make a database-only backup and a full backup, then open Diagnostics and check the log shows the job. |
 | 1c | Download a short YouTube clip. Run speaker detection. Translate with Ollama if you use it. Generate an edge-tts dub line. |
+| 1d | Using only the 🧪 Free engines (Test mode, then Ollama or Gemini free tier), run every AI button once: translate, flag, consistency, emotion, notes, Q&A. Each should produce a result or a clear "not supported by this engine" message, never a silent empty result. Export a subtitle made with Test mode and check the warning appears. |
 | 2 | Add a note to a line, merge it with its neighbour, and check the note is still on the right line. |
 | 3 | Edit a few lines, then use "Compare with original" / "Restore original" on one of them. |
 | 4 | Change the number of speakers and press "Re-run speaker detection". Check the speakers change and the transcript text doesn't. |
@@ -153,6 +154,42 @@ These are things that are broken now, or that break without warning.
 - Diagnostics reports whether a JS runtime is present.
 - The CI workflow runs on the Step 1c pull request itself and passes.
 - `constraints.txt` exists, and the README install command uses it.
+
+### Step 1d — Free engines for testing (clearly labelled)
+The goal: every AI feature can be tried for free before spending money on a paid engine, and free output is always clearly marked as such.
+
+1. **Bug: Ollama silently does nothing for most AI features.**
+   - `translate_engines.call_llm_json` handles Claude (`client.messages`), OpenAI-style clients (DeepSeek) and `GeminiEngine`, but not `OllamaEngine`, which has no `client`. For every other engine it returns the `fallback` value.
+   - So with Ollama, flagging (`flag_uncertain_lines`), consistency (`check_consistency_llm`), emotion detection, translation notes, novel speaker tagging (`tag_speakers_llm`) and the dub-pacing rewrite (`rewrite_for_pacing_llm`) all silently return nothing. Check Q&A (`qa.py`) and any other `call_llm_json` callers too.
+   - Fix: add an Ollama branch (`/api/chat`, with the timeout from Step 1b, and `num_ctx`/`format` from Step 1c).
+   - Change the final fallback so an unsupported engine **raises a clear error** ("<engine> can't run this feature") instead of silently returning an empty result.
+2. **Test mode covers every feature.** Check that `TestOfflineEngine` returns plausible **fake** results, in the right shape, for every feature above, so the whole app can be clicked through with no AI and no cost. Add what's missing.
+3. **Which engine can do what.**
+   - Add one small table in code: feature → supported engines.
+   - NLLB, LibreTranslate, DeepL and Google are **translation-only**. In every non-translation feature's engine picker, show them greyed out with the reason instead of letting them fail.
+4. **Labels.** Group the free options in every engine picker under **"🧪 Free — for testing"**, with these descriptions:
+
+   | Option | Label shown |
+   |---|---|
+   | Test mode (`test_offline`) | 🧪 **Test mode — fake output, no AI.** Checks the app works; never use for real subtitles. |
+   | Ollama | 🧪 **Free — local AI on your GPU.** Private and unlimited, but lower quality than paid engines. |
+   | Gemini (free-tier key) | 🧪 **Free — Google free tier.** Rate-limited (about 10 requests/minute on Flash). Google may use your text to improve its products, and people may read it. |
+   | NLLB | 🧪 **Free — offline, translation only.** Non-commercial licence. |
+   | LibreTranslate | 🧪 **Free — translation only.** Basic quality. |
+
+   - Gemini uses the same engine for free and paid keys. Add a **"My Gemini key is free-tier"** checkbox in Settings. When it's ticked, show the label and warning above, and **slow requests down automatically** to stay under the free limits, instead of hitting rate-limit errors.
+   - Paid engines keep their normal labels.
+5. **Mark what free engines produced.**
+   - Translation versions made with a free engine get `[testing: <engine>]` in their label.
+   - Lines produced by **Test mode** are marked. Exporting subtitles, a video or a package that still contains Test-mode lines shows a warning: "some lines are fake test output".
+   - Cost shows **$0.00 (free)** for these engines.
+
+**Exit:**
+- With a fake Ollama server and with Test mode, a test shows every `call_llm_json` feature returns a non-empty, correctly shaped result.
+- An unsupported engine for a feature raises a clear error, never an empty result.
+- Translation-only engines are disabled in non-translation pickers.
+- A test shows export warns when Test-mode lines are present.
+- A test shows free-tier Gemini pacing keeps to ≤10 requests per minute.
 
 ### Step 2 — R0: Permanent line IDs
 - Give `lines` a stable primary-key id that survives merges, edits and re-saves.
@@ -332,4 +369,5 @@ These are things that are broken now, or that break without warning.
 - Qwen3-ASR — [ForcedAligner zero-duration spans #197](https://github.com/QwenLM/Qwen3-ASR/issues/197)
 - Vocal separation — [Demucs repo (archived)](https://github.com/facebookresearch/demucs), [audio-separator](https://pypi.org/project/audio-separator/)
 - pyvideotrans — [FAQ](https://en.pyvideotrans.com/faq)
+- Gemini free tier — [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits), [free vs paid data use](https://ampm-aiops.com/en/guides/gemini-free-tier-data-tradeoff-2026/)
 - Bulk discounts — [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api), [DeepSeek off-peak pricing overview](https://devtk.ai/en/blog/deepseek-api-pricing-guide-2026/) (check DeepSeek's own pricing page for the current hours and rates). Claude Message Batches: 50% off, most batches within 1 hour and at most 24 hours, prompt caching supported (Anthropic API docs).
