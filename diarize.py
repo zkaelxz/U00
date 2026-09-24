@@ -22,9 +22,20 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None):
     covering who spoke when, e.g. "SPEAKER_00", "SPEAKER_01", ...
     """
     from pyannote.audio import Pipeline
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1", use_auth_token=hf_token
-    )
+    try:
+        # pyannote.audio 3.1+ renamed this kwarg from use_auth_token to
+        # token (following huggingface_hub's own rename) and newer
+        # releases reject use_auth_token outright with a TypeError rather
+        # than just deprecation-warning on it.
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1", token=hf_token
+        )
+    except TypeError:
+        # Older pyannote.audio installs (pre-3.1) don't accept `token`
+        # either -- fall back to the name they actually expect.
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1", use_auth_token=hf_token
+        )
     diarization = pipeline(audio_path, num_speakers=num_speakers)
 
     segments = []
