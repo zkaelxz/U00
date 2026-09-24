@@ -10,6 +10,8 @@ import os
 import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
+
 import translate_engines as te
 from core import Line
 
@@ -1269,11 +1271,52 @@ class TestCallLlmJson:
         result = te.call_llm_json(engine, "prompt", fallback="[]")
         assert result == "[]"
 
-    def test_ollama_engine_declines_without_crashing(self):
+    def test_ollama_engine_is_not_silently_skipped(self, monkeypatch):
+        """Regression test for the real Step 1d bug: OllamaEngine has no
+        .client and isn't GeminiEngine, so it used to fall straight
+        through to the bare fallback -- meaning flagging, consistency,
+        emotion detection, translation notes, speaker tagging and the
+        pacing rewrite all silently did nothing at all with Ollama."""
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"message": {"content": "real answer"},
+                        "prompt_eval_count": 12, "eval_count": 4}
+
+        def fake_post(url, json=None, timeout=None):
+            captured["url"] = url
+            captured["json"] = json
+            captured["timeout"] = timeout
+            return FakeResponse()
+        monkeypatch.setattr("requests.post", fake_post)
+
         engine = te.OllamaEngine()
-        assert not hasattr(engine, "client")
-        result = te.call_llm_json(engine, "prompt", fallback="{}")
-        assert result == "{}"
+        usage = {}
+        result = te.call_llm_json(engine, "prompt",
+                                   usage_cb=lambda inp, out: usage.update(input=inp, output=out))
+
+        assert result == "real answer"
+        assert usage == {"input": 12, "output": 4}
+        assert captured["url"] == f"{engine.base_url}/api/chat"
+        assert captured["json"]["format"] == "json"
+        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+        assert captured["timeout"] is not None
+
+    def test_an_engine_with_no_recognized_shape_raises_a_clear_error(self):
+        """DeepL/Google/NLLB/LibreTranslate (translation-only, no .client,
+        not Gemini/Ollama/test_offline) used to silently return the bare
+        fallback here too -- the same "looks like it worked, did
+        nothing" failure mode as the Ollama bug above, just for a
+        different set of engines. Now raises instead of pretending to
+        have produced a real (empty) result."""
+        class FakeTranslationOnlyEngine:
+            name = "google"
+
+        with pytest.raises(RuntimeError, match="google can't run this feature"):
+            te.call_llm_json(FakeTranslationOnlyEngine(), "prompt", fallback="[]")
 
     def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
         class FakeResponse:

@@ -449,7 +449,32 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
         except (KeyError, IndexError):
             return fallback
 
-    return fallback
+    if isinstance(engine, OllamaEngine):
+        import requests
+        resp = requests.post(f"{engine.base_url}/api/chat", json={
+            "model": engine.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "format": "json",
+            "options": {"num_ctx": _estimate_ollama_num_ctx(prompt, "")},
+        }, timeout=300)  # local models can be slow, especially CPU-only or larger ones
+        resp.raise_for_status()
+        data = resp.json()
+        if usage_cb:
+            usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
+        return data["message"]["content"].strip()
+
+    if isinstance(engine, TestOfflineEngine):
+        # fallback is already a valid, correctly-shaped "nothing found"
+        # result for every caller of this function (an empty list/object,
+        # or an empty string) -- exactly what a real engine's response
+        # collapses to today when parsing fails. Explicit here, not an
+        # accident of falling through with no client and not being
+        # Gemini/Ollama, so Test mode's own behavior can't silently
+        # change if a future engine is added above it.
+        return fallback
+
+    raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run this feature.")
 
 
 # ---------------------------------------------------------------------------
@@ -1145,6 +1170,33 @@ ENGINES = {
     "ollama": OllamaEngine,
     "libretranslate": LibreTranslateEngine,
     "nllb": NLLBEngine,
+}
+
+# Pure machine-translation engines: no instruction-following ability at
+# all, so they can only ever translate. Plugging one into any other
+# feature used to silently produce nothing (each feature's own
+# `supports_reference` guard already declines quietly; call_llm_json's
+# fallback used to do the same before Step 1d made it raise instead).
+TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
+
+# Every other engine (Claude, DeepSeek, Gemini, Ollama, and Test mode)
+# is a real LLM (or a stand-in for one) and can run every feature below,
+# via call_llm_json or its own translate_batch/dispatch.
+LLM_CAPABLE_ENGINES = set(ENGINES.keys()) - TRANSLATION_ONLY_ENGINES
+
+# One small table: feature -> which engines can actually run it. Kept
+# here (not inferred purely from TRANSLATION_ONLY_ENGINES) so a future
+# engine that supports translation but not, say, Q&A has somewhere to
+# say so explicitly instead of being silently assumed capable.
+FEATURE_SUPPORTED_ENGINES = {
+    "translate": set(ENGINES.keys()),
+    "flag_review": LLM_CAPABLE_ENGINES,
+    "consistency_check": LLM_CAPABLE_ENGINES,
+    "emotion_detect": LLM_CAPABLE_ENGINES,
+    "translation_notes": LLM_CAPABLE_ENGINES,
+    "speaker_tagging": LLM_CAPABLE_ENGINES,
+    "pacing_rewrite": LLM_CAPABLE_ENGINES,
+    "qa": LLM_CAPABLE_ENGINES,
 }
 
 ENGINE_NOTES = {

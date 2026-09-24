@@ -1446,6 +1446,19 @@ def render_workspace_tab():
                           "To try the pipeline for free first, choose `test_offline` above.")
             elif not _needs_key:
                 api_key = api_key or "local"
+
+        # DeepL/Google/NLLB/LibreTranslate are pure machine translation --
+        # no instruction-following ability at all, so picking one of them
+        # for any feature below used to silently produce nothing (each
+        # feature's own supports_reference guard declines quietly).
+        # call_llm_json now raises instead of pretending to have worked;
+        # this is the UI-level equivalent, disabling the button up front
+        # with a clear reason rather than surfacing that error mid-job.
+        _translation_only_engine = engine_choice in translate_engines.TRANSLATION_ONLY_ENGINES
+        _translation_only_message = (
+            f"{engine_choice} is translation-only and can't run this -- pick Claude, DeepSeek, "
+            "Gemini, Ollama, or Test mode above.")
+
         style_note = st.text_input("Optional style notes",
                                     value=st.session_state.get("settings_default_style_note", ""))
         locale_options = ["en-US", "en-GB", "en-AU"]
@@ -1594,7 +1607,7 @@ def render_workspace_tab():
             with st.spinner("Chunking novel text..."):
                 chunks = chunk_novel_text(novel_narration_text)
                 lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
-            if api_key:
+            if api_key and not _translation_only_engine:
                 with st.spinner("Tagging speakers with the translation LLM..."):
                     engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
                     known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
@@ -1609,8 +1622,12 @@ def render_workspace_tab():
                     for label in sorted(set(speakers)):
                         db.upsert_character(picked_id, label, character_name=label)
             else:
-                st.warning("No API key yet -- skipped speaker tagging (needs an LLM engine). "
-                           "All lines marked 'Narrator' for now; add a key and re-run to tag them.")
+                if _translation_only_engine:
+                    st.warning(f"{_translation_only_message} All lines marked 'Narrator' for "
+                               "now; switch engines above and re-run to tag them.")
+                else:
+                    st.warning("No API key yet -- skipped speaker tagging (needs an LLM engine). "
+                               "All lines marked 'Narrator' for now; add a key and re-run to tag them.")
                 for ln in lines:
                     ln.speaker = "Narrator"
                 db.upsert_character(picked_id, "Narrator", character_name="Narrator")
@@ -2190,8 +2207,11 @@ def render_workspace_tab():
                             _jump_to_line_button(picked_id, f["idx"], all_lines,
                                                   key=f"jump_pacing_{f['idx']}")
                     too_long_idxs = {f["idx"] for f in flags if f["issue"] == "too_long_for_slot"}
+                    if too_long_idxs and _translation_only_engine:
+                        st.caption(f"⚠️ {_translation_only_message}")
                     if too_long_idxs and api_key and st.button(
-                            "✂️ Auto-shorten overlong lines with LLM", disabled=_editing_locked):
+                            "✂️ Auto-shorten overlong lines with LLM",
+                            disabled=_editing_locked or _translation_only_engine):
                         engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
                         to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
                         translate_engines.rewrite_for_pacing_llm(
@@ -2216,7 +2236,9 @@ def render_workspace_tab():
                 )
                 _consistency_job_id = f"consistency_{picked_id}"
                 _cjob = background_jobs.get_status(_consistency_job_id)
-                if st.button("Check consistency") and api_key:
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
+                if st.button("Check consistency", disabled=_translation_only_engine) and api_key:
                     engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
                     _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
                                          speaker=l.speaker, dub_filename=l.dub_filename)
@@ -2263,7 +2285,9 @@ def render_workspace_tab():
                 )
                 _flag_job_id = f"flag_{picked_id}"
                 _fjob = background_jobs.get_status(_flag_job_id)
-                if st.button("Find lines to flag") and api_key:
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
+                if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
                     _conflict = background_jobs.other_line_writing_job(picked_id, "flag_")
                     if _conflict:
                         st.warning(f"Can't start flagging -- a {_conflict} job is already "
@@ -2388,13 +2412,15 @@ def render_workspace_tab():
                     "words are technically correct -- these are the registers most often flattened."
                 )
                 emap = db.load_emotions(picked_id)
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
                 ec1, ec2 = st.columns([1, 1])
                 use_cues = ec2.checkbox("Use audio delivery cues", value=(has_audio_pipeline),
                                          help="Uses pacing and pauses from the original timing as "
                                               "weak evidence for emotional register.")
                 _emotion_job_id = f"emotion_{picked_id}"
                 _ejob = background_jobs.get_status(_emotion_job_id)
-                if ec1.button("Detect emotional register") and api_key:
+                if ec1.button("Detect emotional register", disabled=_translation_only_engine) and api_key:
                     eng_e = translate_engines.get_engine(engine_choice, api_key, engine_model)
                     # A copy, not the live list -- same reasoning as the Translate
                     # button's _lines_copy: this runs in a background thread, and
@@ -2560,7 +2586,9 @@ def render_workspace_tab():
                 )
                 _notes_job_id = f"notes_{picked_id}"
                 _njob = background_jobs.get_status(_notes_job_id)
-                if st.button("Generate translation notes") and api_key:
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
+                if st.button("Generate translation notes", disabled=_translation_only_engine) and api_key:
                     engine_n = translate_engines.get_engine(engine_choice, api_key, engine_model)
                     _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
                                          speaker=l.speaker, dub_filename=l.dub_filename)
