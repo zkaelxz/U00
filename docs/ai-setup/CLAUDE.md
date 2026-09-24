@@ -47,13 +47,11 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   ignoring it or fixing it inline — fixing it would violate "keep changes
   minimal" and widen the diff the planning session has to review. The
   planning session decides whether it's worth its own step.
-- **Before starting a step, check the roadmap's §4 "Model recommendation
-  per step" table.** If the step you're about to start is listed there,
-  stop and ask the user to confirm they've switched this chat to Opus
-  before you write any code for it — then wait for that confirmation.
-  Every other step is fine on whatever model the chat is already on.
-  **This applies in both modes** — autonomous mode (above) relaxes the
-  review/merge gate, not this one.
+- **This session runs on Opus for the whole remaining project**, at the
+  user's explicit request (2026-09-24). Nothing to check per step — the
+  roadmap's §4 "Model recommendation per step" table is now informational
+  only, documenting which steps would have warranted asking for Opus
+  specifically if the run weren't already on it throughout.
 - **Re-verify before fixing.** The roadmap was written by reading the code
   at a point in time; re-read the files it names and confirm the problem
   still exists as described before changing anything. If the code has
