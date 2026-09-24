@@ -116,7 +116,8 @@ def render_discover_tab():
     bh_engine_choice = st.selectbox("Engine (for translation)",
                                      [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
                                      key="bh_engine")
-    bh_api_key = st.text_input("API key *(required for translated search)*", type="password", value=st.session_state.get(f"settings_{bh_engine_choice}", ""), key="bh_api_key")
+    bh_api_key = synced_api_key_input(
+        "API key *(required for translated search)*", bh_engine_choice, "bh_api_key")
     if st.button("Search baihehub") and bh_query:
         engine = translate_engines.get_engine(bh_engine_choice, bh_api_key) if bh_api_key else None
         zh_query = title_library.translate_query_to_zh(bh_query, engine) if engine else bh_query
@@ -150,9 +151,7 @@ def render_discover_tab():
     bulk_engine_choice = st.selectbox("Engine",
                                        [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
                                        key="bulk_engine")
-    bulk_api_key = st.text_input("API key *(required)*", type="password",
-                                  value=st.session_state.get(f"settings_{bulk_engine_choice}", ""),
-                                  key="bulk_api_key")
+    bulk_api_key = synced_api_key_input("API key *(required)*", bulk_engine_choice, "bulk_api_key")
 
     if st.button("🔍 Extract entries (review before saving)") and bulk_urls_text and bulk_api_key:
         urls = [u.strip() for u in bulk_urls_text.splitlines() if u.strip()]
@@ -234,7 +233,8 @@ def render_discover_tab():
     import_engine_choice = st.selectbox("Engine",
                                          [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
                                          key="import_engine")
-    import_api_key = st.text_input("API key *(required)*", type="password", value=st.session_state.get(f"settings_{import_engine_choice}", ""), key="import_api_key")
+    import_api_key = synced_api_key_input(
+        "API key *(required)*", import_engine_choice, "import_api_key")
     if st.button("Fetch & add to library") and import_url and import_api_key:
         engine = translate_engines.get_engine(import_engine_choice, import_api_key)
         with st.spinner("Fetching and extracting..."):
