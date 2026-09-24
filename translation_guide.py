@@ -357,6 +357,24 @@ def generate_translation_notes_llm(lines, engine, source_language: str = "zh",
     return all_notes
 
 
+def group_notes_by_line(notes) -> dict:
+    """notes: rows from db.list_translation_notes() (each has line_idx,
+    term, note). Returns {line_idx: [{"term", "note"}, ...]} -- the shape
+    core.lines_to_srt()/lines_to_bilingual_srt() take to inline notes
+    into exported subtitles, right on the line each one applies to.
+    Notes with no line_idx (not tied to a specific line) are dropped --
+    inlining them into the subtitle track has nowhere sensible to go;
+    they're still in the Markdown appendix and the in-app Reader.
+    """
+    grouped = {}
+    for n in notes:
+        idx = n.get("line_idx")
+        if idx is None:
+            continue
+        grouped.setdefault(idx, []).append({"term": n.get("term", ""), "note": n.get("note", "")})
+    return grouped
+
+
 def format_notes_as_markdown(notes, drama_title: str = "") -> str:
     """Renders translation notes as a readable appendix -- for export
     alongside subtitles, or as an afterword in an EPUB."""

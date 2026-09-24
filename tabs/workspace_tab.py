@@ -2399,12 +2399,28 @@ def render_workspace_tab():
                 st.error(f"⚠️ No source text on any line (0/{_total_lines}) — alignment may not "
                         f"have completed. Chinese/bilingual exports will be entirely blank.")
 
+            _existing_notes = db.list_translation_notes(picked_id)
+            _include_notes_inline = st.checkbox(
+                "Include translation notes inline (idioms, wordplay, meaningful names)",
+                value=False, disabled=not _existing_notes,
+                help="Appends each note (e.g. \"Qijutang: lit. 'Hall of Sitting Together', used "
+                     "as a joke\") in brackets on the subtitle line it's about -- for a note to "
+                     "reach someone watching the exported video, not just the in-app Reader. "
+                     "Generate notes first under Translation notes above."
+                     if _existing_notes else
+                     "No translation notes recorded yet -- generate some under Translation notes "
+                     "above (section 5) to enable this.")
+            _notes_by_idx = tguide.group_notes_by_line(_existing_notes) if _include_notes_inline else None
+
             c1, c2, c3 = st.columns(3)
-            c1.download_button("Download English .srt", lines_to_srt(st.session_state.lines, "en"),
+            c1.download_button("Download English .srt",
+                                lines_to_srt(st.session_state.lines, "en", notes_by_idx=_notes_by_idx),
                                 file_name="english.srt", disabled=(_en_filled == 0))
-            c2.download_button("Download Chinese .srt", lines_to_srt(st.session_state.lines, "zh"),
+            c2.download_button("Download Chinese .srt",
+                                lines_to_srt(st.session_state.lines, "zh", notes_by_idx=_notes_by_idx),
                                 file_name="chinese.srt", disabled=(_zh_filled == 0))
-            c3.download_button("Download Bilingual .srt", lines_to_bilingual_srt(st.session_state.lines),
+            c3.download_button("Download Bilingual .srt",
+                                lines_to_bilingual_srt(st.session_state.lines, notes_by_idx=_notes_by_idx),
                                 file_name="bilingual.srt", disabled=(_zh_filled == 0 and _en_filled == 0))
 
             if content_mode == "novel_narration":
@@ -2438,9 +2454,9 @@ def render_workspace_tab():
                     horizontal=False,
                 )
                 sub_language = st.selectbox("Which subtitles to export on video", ["English", "Bilingual", "Chinese"])
-                sub_text_map = {"English": lines_to_srt(st.session_state.lines, "en"),
-                                 "Bilingual": lines_to_bilingual_srt(st.session_state.lines),
-                                 "Chinese": lines_to_srt(st.session_state.lines, "zh")}
+                sub_text_map = {"English": lines_to_srt(st.session_state.lines, "en", notes_by_idx=_notes_by_idx),
+                                 "Bilingual": lines_to_bilingual_srt(st.session_state.lines, notes_by_idx=_notes_by_idx),
+                                 "Chinese": lines_to_srt(st.session_state.lines, "zh", notes_by_idx=_notes_by_idx)}
 
                 if st.button("🎬 Generate subtitled episode"):
                     import video_export
