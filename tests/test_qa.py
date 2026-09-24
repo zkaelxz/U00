@@ -70,6 +70,21 @@ class TestAskAboutDrama:
         result = qa.ask_about_drama("who is this?", [], {}, engine)
         assert result == "Gemini's answer."
 
+    def test_free_tier_gemini_is_throttled(self, monkeypatch):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        calls = []
+        monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
+
+        qa.ask_about_drama("who is this?", [], {}, engine)
+        assert calls == [1]
+
     def test_ollama_engine_is_not_silently_skipped(self, monkeypatch):
         captured = {}
 

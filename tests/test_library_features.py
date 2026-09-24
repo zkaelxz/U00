@@ -293,3 +293,52 @@ class TestResumeHandoff:
         isolated_db.save_progress(did, last_page=7, percent_complete=40.0)
         entry = isolated_db.list_continue_reading()[0]
         assert entry["last_page"] == 7
+
+
+class TestCostDashboardShowsFreeEngineUsage:
+    """Step 1d item 5: a drama translated with a free engine has real
+    usage logged but legitimately costs $0 -- the dashboard shows it
+    labelled "(free)" instead of the old behavior (filtering it out of
+    the table entirely because estimated_cost_usd wasn't > 0, making it
+    indistinguishable from a drama nothing had ever run on)."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _cost_df(self, at):
+        # render_library_tab() renders more than one st.dataframe (e.g. a
+        # drama listing further down) -- find the cost breakdown
+        # specifically by its distinctive "Est. cost" column rather than
+        # assuming it's the first one on the page.
+        for el in at.dataframe:
+            if "Est. cost" in el.value.columns:
+                return el.value
+        return None
+
+    def test_free_engine_usage_shows_zero_free_not_omitted(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Free Drama", translation_engine="test_offline")
+        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 100, 50, 0.0)
+        df = self._cost_df(self._run())
+        row = df[df["id"] == did].iloc[0]
+        assert row["Est. cost"] == "$0.00 (free)"
+
+    def test_paid_engine_usage_shows_a_real_dollar_amount(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Paid Drama", translation_engine="claude")
+        isolated_db.log_usage(did, "claude", "claude-sonnet-5", "translate", 1000, 500, 0.0055)
+        df = self._cost_df(self._run())
+        row = df[df["id"] == did].iloc[0]
+        assert row["Est. cost"] == "$0.01"
+
+    def test_a_drama_with_no_usage_at_all_is_not_in_the_table(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Untouched Drama")
+        at = self._run()
+        assert any("No usage logged yet." in c.value for c in at.caption)
+        assert self._cost_df(at) is None

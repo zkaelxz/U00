@@ -63,6 +63,7 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
         # into one prompt since generateContent's own multi-turn "contents"
         # format isn't worth the extra plumbing for this one caller.
         import requests
+        engine._throttle_for_free_tier()
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"

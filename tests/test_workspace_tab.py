@@ -768,6 +768,59 @@ def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch)
     _clear(job_id)
 
 
+class TestFreeEngineVersionLabelling:
+    """Step 1d item 5: a translation version made with a free engine (or
+    a free-tier Gemini key) is marked [testing: <engine>] in its label,
+    so switching between versions later shows which ones aren't real
+    translations at a glance."""
+
+    def _run(self, isolated_db, monkeypatch, job_id, engine, engine_choice):
+        _clear(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        lines = [Line(idx=0, start=0, end=1, zh="你好")]
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                             lambda lines, engine, **kwargs: (lines, []))
+        run_translate_job(job_id, did, lines, engine, {"id": did}, "", None, False, "en-US",
+                           None, "", engine_choice, "audio_drama")
+        return isolated_db.list_translation_versions(did)[0]
+
+    def test_test_offline_version_is_labelled(self, isolated_db, monkeypatch):
+        version = self._run(isolated_db, monkeypatch, "test_free_label_offline",
+                             translate_engines.TestOfflineEngine(), "test_offline")
+        assert version["label"].startswith("[testing: test_offline]")
+        _clear("test_free_label_offline")
+
+    def test_ollama_version_is_labelled(self, isolated_db, monkeypatch):
+        version = self._run(isolated_db, monkeypatch, "test_free_label_ollama",
+                             translate_engines.OllamaEngine(), "ollama")
+        assert version["label"].startswith("[testing: ollama]")
+        _clear("test_free_label_ollama")
+
+    def test_claude_version_is_not_labelled(self, isolated_db, monkeypatch):
+        version = self._run(isolated_db, monkeypatch, "test_free_label_claude",
+                             object(), "claude")
+        assert not version["label"].startswith("[testing:")
+        _clear("test_free_label_claude")
+
+    def test_paid_gemini_version_is_not_labelled(self, isolated_db, monkeypatch):
+        engine = translate_engines.GeminiEngine("fake-key", free_tier=False)
+        version = self._run(isolated_db, monkeypatch, "test_free_label_gemini_paid",
+                             engine, "gemini")
+        assert not version["label"].startswith("[testing:")
+        _clear("test_free_label_gemini_paid")
+
+    def test_free_tier_gemini_version_is_labelled(self, isolated_db, monkeypatch):
+        # gemini itself isn't in FREE_ENGINES -- this only labels because
+        # the engine instance was constructed with free_tier=True.
+        engine = translate_engines.GeminiEngine("fake-key", free_tier=True)
+        version = self._run(isolated_db, monkeypatch, "test_free_label_gemini_free",
+                             engine, "gemini")
+        assert version["label"].startswith("[testing: gemini]")
+        _clear("test_free_label_gemini_free")
+
+
 class TestLineEditingLockedDuringAJob:
     """UI-level regression coverage for a real race: other_line_writing_job()
     only stops translate/flag/fixflag jobs from clashing with EACH OTHER --
@@ -1014,3 +1067,50 @@ class TestTranslationOnlyEngineGatesLlmOnlyButtons:
         at = self._run(did)
         assert self._button(at, "Check consistency").disabled is False
         assert not any("Can't reach Ollama" in w.value for w in at.warning)
+
+
+class TestTestModeExportWarning:
+    """Step 1d item 5: exporting subtitles, a video, or a package that
+    still contains Test-mode lines warns instead of silently shipping
+    fake [TEST] placeholder text as if it were a real translation."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_export_warns_when_test_mode_lines_are_present(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="[TEST] hello")])
+        at = self._run(did)
+        assert any("Test mode" in w.value for w in at.warning)
+
+    def test_export_does_not_warn_for_a_real_engine(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama 2", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="claude")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello")])
+        at = self._run(did)
+        assert not any("Test mode" in w.value for w in at.warning)
+
+    def test_export_does_not_warn_when_test_mode_engine_has_no_translated_lines_yet(self, isolated_db):
+        # translation_engine could be a leftover from a previous run with
+        # nothing actually translated yet -- don't warn about fake lines
+        # that don't exist.
+        did = isolated_db.create_drama(title_en="Test Drama 3", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+        at = self._run(did)
+        assert not any("Test mode" in w.value for w in at.warning)

@@ -117,6 +117,44 @@ class TestAlreadySetValuesWin:
         assert st.session_state.get("settings_hf_token") == "first_value"
 
 
+class TestGeminiFreeTierCheckbox:
+    """Step 1d item 4: a "My Gemini key is free-tier" checkbox in
+    Settings, feeding translate_engines.engine_picker_label /
+    get_engine(free_tier=...) everywhere Gemini is picked."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.settings_tab import render_settings_sidebar
+            render_settings_sidebar()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _checkbox(self, at):
+        matches = [c for c in at.checkbox if c.label == "My Gemini key is free-tier"]
+        assert matches, "checkbox not found in the sidebar"
+        return matches[0]
+
+    def test_checkbox_defaults_to_off(self):
+        at = self._run()
+        assert self._checkbox(at).value is False
+        assert at.session_state.get("gemini_free_tier") is False
+
+    def test_ticking_it_sets_session_state(self):
+        at = self._run()
+        self._checkbox(at).set_value(True).run()
+        assert at.session_state.get("gemini_free_tier") is True
+
+    def test_stays_on_across_a_rerun(self):
+        at = self._run()
+        self._checkbox(at).set_value(True).run()
+        at.run(timeout=30)
+        assert self._checkbox(at).value is True
+
+
 class TestRepeatedCallsPickUpLateEdits:
     """The actual bug fix: editing .env while the app is running (no
     restart) must take effect on the next call, as long as the session
