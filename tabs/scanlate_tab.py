@@ -51,7 +51,7 @@ def render_scanlate_tab():
 
             sc_engine_choice = st.selectbox("Translation engine", list(translate_engines.ENGINES.keys()),
                                              key="sc_engine")
-            sc_api_key = st.text_input("API key", type="password", value=st.session_state.get(f"settings_{sc_engine_choice}", ""), key="sc_api_key")
+            sc_api_key = synced_api_key_input("API key", sc_engine_choice, "sc_api_key")
             sc_backend = st.radio(
                 "Bubble detection", ["cv", "ml"],
                 format_func=lambda b: "🆓 Free heuristic (OpenCV, works on clean white bubbles)"

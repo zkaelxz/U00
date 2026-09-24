@@ -252,7 +252,7 @@ def render_workspace_tab():
                     st.markdown(f"**[{s['name']}]({s['url']})** — {', '.join(s['content_types'])}")
             lookup_url = st.text_input("URL")
             lookup_engine = st.selectbox("Engine", [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference], key="lookup_engine")
-            lookup_key = st.text_input("API key for lookup", type="password", value=st.session_state.get(f"settings_{lookup_engine}", ""), key="lookup_key")
+            lookup_key = synced_api_key_input("API key for lookup", lookup_engine, "lookup_key")
             if st.button("Fetch & extract metadata") and lookup_url and lookup_key:
                 import metadata_lookup
                 with st.spinner("Fetching page and extracting metadata..."):
@@ -953,16 +953,8 @@ def render_workspace_tab():
                 "by character and dubbed with different voices (or cloned). Needs `pyannote.audio` "
                 "installed and a free Hugging Face token -- see README."
             )
-            hf_token = st.text_input("Hugging Face token (for diarization)", type="password",
-                                      value=st.session_state.get("settings_hf_token", ""),
-                                      key="workspace_hf_token_input")
-            # Mirrored into the same settings_hf_token key the sidebar and
-            # Diagnostics check -- without this, typing it here worked for
-            # diarization itself (the local `hf_token` var was still
-            # correct) but Diagnostics kept reporting "not set" forever,
-            # since it only ever looked at settings_hf_token specifically.
-            if hf_token:
-                st.session_state["settings_hf_token"] = hf_token
+            hf_token = synced_api_key_input(
+                "Hugging Face token (for diarization)", "hf_token", "workspace_hf_token_input")
             run_diarize = st.checkbox("Run speaker diarization during alignment",
                                        value=(content_mode == "streamer_vod"),
                                        disabled=not hf_token)
@@ -1193,19 +1185,11 @@ def render_workspace_tab():
                       "spending anything.")
             api_key = "offline"
         else:
-            api_key = st.text_input(
+            api_key = synced_api_key_input(
                 f"{engine_choice} API key" + (" *(required)*" if _needs_key else " (optional)"),
-                type="password",
-                value=st.session_state.get(f"settings_{engine_choice}", ""),
-                key=f"workspace_api_key_input_{engine_choice}",
+                engine_choice, f"workspace_api_key_input_{engine_choice}",
                 help="Claude keys come from console.anthropic.com and are billed separately "
                      "from any Claude.ai subscription.")
-            # Mirrored into settings_<engine> -- same reasoning as the HF
-            # token field above: without this, Diagnostics and the Settings
-            # sidebar never reflected a key typed directly here, even though
-            # it worked for this session's own API calls.
-            if api_key:
-                st.session_state[f"settings_{engine_choice}"] = api_key
             if _needs_key and not api_key:
                 st.caption("⚠️ Required — set it here or in the ⚙️ Settings sidebar. "
                           "To try the pipeline for free first, choose `test_offline` above.")
@@ -1679,9 +1663,7 @@ def render_workspace_tab():
             with st.expander("☁️ Or use ElevenLabs cloning instead (hosted, no GPU needed)", expanded=False):
                 st.caption("Paid API with a limited free tier. Simpler to get working than F5-TTS since "
                           "there's no local model to install -- worth trying first if F5-TTS gives you trouble.")
-                el_key = st.text_input("ElevenLabs API key", type="password",
-                                        value=st.session_state.get("settings_elevenlabs", ""),
-                                        key=f"el_key_{picked_id}")
+                el_key = synced_api_key_input("ElevenLabs API key", "elevenlabs", f"el_key_{picked_id}")
                 for c in characters:
                     if not c["ref_audio_filename"]:
                         continue

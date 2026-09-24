@@ -68,10 +68,9 @@ def render_live_tab():
         api_key = "offline"
         st.success("Dry-run mode: no API key, no network, no cost.")
     else:
-        api_key = st.text_input(
+        api_key = synced_api_key_input(
             f"{engine_choice} API key" + (" *(required)*" if needs_key else " (optional)"),
-            type="password", value=st.session_state.get(f"settings_{engine_choice}", ""),
-            key="live_api_key_input", disabled=is_running)
+            engine_choice, "live_api_key_input", disabled=is_running)
         api_key = api_key or ("local" if not needs_key else "")
 
     if not is_running:

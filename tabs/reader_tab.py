@@ -95,10 +95,9 @@ def render_reader_tab():
                          percent_complete=story_context.compute_percent_complete(_last_idx, len(rlines)))
 
     cache_key = f"reader_defs_{rdrama['id']}_{page}"
-    reader_api_key = st.text_input(
+    reader_api_key = synced_api_key_input(
         "API key for definitions on unrecognized words (optional for Chinese, "
-        "needed for Japanese/Korean)", type="password",
-        value=st.session_state.get("settings_claude", ""), key=f"reader_key_{rdrama['id']}")
+        "needed for Japanese/Korean)", "claude", f"reader_key_{rdrama['id']}")
 
     embed_audio = st.checkbox("Enable click-to-seek audio for this page (embeds a clip of this "
                               "page's audio span -- needs original audio, keep pages reasonably "
@@ -171,9 +170,7 @@ def render_reader_tab():
     st.subheader("🧠 Story tools")
     st.caption("Grounded strictly in this drama's own lines -- these won't invent plot, "
               "and recaps only cover what you've already reached.")
-    story_key = st.text_input("API key", type="password",
-                               value=st.session_state.get("settings_claude", ""),
-                               key=f"story_key_{rdrama['id']}")
+    story_key = synced_api_key_input("API key", "claude", f"story_key_{rdrama['id']}")
 
     stc1, stc2 = st.columns(2)
     with stc1:
@@ -425,8 +422,7 @@ def render_reader_tab():
     if qa_key not in st.session_state:
         st.session_state[qa_key] = []
 
-    qa_api_key = st.text_input("API key", type="password",
-                                value=st.session_state.get("settings_claude", ""), key=f"qa_key_{rdrama['id']}")
+    qa_api_key = synced_api_key_input("API key", "claude", f"qa_key_{rdrama['id']}")
     for msg in st.session_state[qa_key]:
         st.chat_message(msg["role"]).write(msg["content"])
 

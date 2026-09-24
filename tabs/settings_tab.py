@@ -7,7 +7,7 @@ Session-only: nothing here is written to disk. Each tab's own key
 field still works independently if you want to override it there.
 """
 import os
-from common import st
+from common import st, synced_api_key_input
 
 
 def _load_env_defaults(env_path: str = None):
@@ -149,11 +149,9 @@ def render_settings_sidebar():
 
         with st.expander("API keys & endpoints", expanded=False):
             for key, label in SETTINGS_KEYS.items():
-                session_key = f"settings_{key}"
                 is_url = key.endswith("_url")
-                st.session_state[session_key] = st.text_input(
-                    label, value=st.session_state.get(session_key, ""),
-                    type="default" if is_url else "password", key=f"settings_input_{key}")
+                synced_api_key_input(label, key, f"settings_input_{key}",
+                                      type="default" if is_url else "password")
 
 
 def get_default(key: str, fallback: str = "") -> str:

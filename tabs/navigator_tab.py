@@ -42,7 +42,7 @@ def render_navigator_tab():
     nav_engine_choice = st.selectbox(
         "Engine", [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
         key="nav_engine")
-    nav_api_key = st.text_input("API key *(required)*", type="password", value=st.session_state.get(f"settings_{nav_engine_choice}", ""), key="nav_api_key")
+    nav_api_key = synced_api_key_input("API key *(required)*", nav_engine_choice, "nav_api_key")
 
     _nav_missing = []
     if not nav_url:
