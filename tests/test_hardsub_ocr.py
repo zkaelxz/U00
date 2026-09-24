@@ -161,7 +161,7 @@ class TestExtractHardsubSubtitlesOrchestration:
         monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
 
         ocr_calls = []
-        def fake_ocr(path, region, lang, backend):
+        def fake_ocr(path, region, lang, backend, tesseract_cmd=None):
             ocr_calls.append((path, region, lang, backend))
             return {"f0.png": "hi", "f1.png": "hi", "f2.png": "bye"}[path]
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region", fake_ocr)
@@ -185,7 +185,8 @@ class TestExtractHardsubSubtitlesOrchestration:
 
         seen_regions = []
         monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
-                             lambda path, region, lang, backend: seen_regions.append(region) or "x")
+                             lambda path, region, lang, backend, tesseract_cmd=None:
+                             seen_regions.append(region) or "x")
 
         hardsub_ocr.extract_hardsub_subtitles("/fake/video.mp4", tmp_dir=str(tmp_path))
         assert seen_regions == [(0.75, 1.0)]

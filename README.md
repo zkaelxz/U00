@@ -504,6 +504,14 @@ the Tesseract binary with the matching language pack:
 - Ubuntu: `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`
 - Windows: [installer](https://github.com/UB-Mannheim/tesseract/wiki) — select the languages you need during setup
 
+**If OCR still fails with "tesseract is not installed or it's not in your
+PATH" after installing it**: on Windows, the installer doesn't always add
+itself to PATH. Rather than editing a system PATH variable by hand, set
+**Settings -> OCR -> Tesseract binary path** to the full path of
+`tesseract.exe` (typically `C:\Program Files\Tesseract-OCR\tesseract.exe`,
+or wherever you chose during setup) — leave it blank once OCR works, it's
+only needed for this one situation.
+
 Higher-accuracy alternative for Chinese specifically: PaddleOCR
 (`pip install paddleocr paddlepaddle`) — heavier install, downloads its
 own models on first use, but noticeably better on stylized fonts or

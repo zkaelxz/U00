@@ -125,7 +125,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
 
 
 def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backend,
-                         chinese_script="simplified"):
+                         chinese_script="simplified", tesseract_cmd=None):
     """
     Runs hardsub_ocr's sample-frames -> auto-detect-caption-band -> OCR ->
     dedupe pipeline in a background thread. Same reasoning as
@@ -140,7 +140,7 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     import hardsub_ocr
     cues = hardsub_ocr.extract_hardsub_subtitles(
         video_path, language=language, sample_interval=sample_interval,
-        ocr_backend=ocr_backend, chinese_script=chinese_script,
+        ocr_backend=ocr_backend, chinese_script=chinese_script, tesseract_cmd=tesseract_cmd,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
     if not cues:
@@ -664,7 +664,8 @@ def render_workspace_tab():
                     with st.spinner("Running OCR..."):
                         extracted = ocr_module.extract_text_from_images(
                             img_paths, backend=ocr_backend, source_language=source_language,
-                            chinese_script=chinese_script)
+                            chinese_script=chinese_script,
+                            tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None)
                     st.session_state[f"ocr_text_{picked_id}"] = extracted
                     st.success(f"Extracted {len(extracted):,} characters. Review below before using.")
 
@@ -1303,7 +1304,7 @@ def render_workspace_tab():
                     _transcribe_job_id, video_path, source_language,
                     st.session_state.get(f"hardsub_interval_{picked_id}", 1.0),
                     st.session_state.get(f"hardsub_ocr_backend_{picked_id}", "tesseract"),
-                    chinese_script)
+                    chinese_script, st.session_state.get("settings_tesseract_cmd") or None)
                 if started:
                     st.info("Reading captions from the video in the background -- it keeps running "
                             "even if you switch tabs or close this browser tab. Come back here any "

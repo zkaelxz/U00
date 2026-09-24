@@ -116,7 +116,7 @@ def detect_caption_band(frame_paths, sample_count: int = 12, band_frac: float = 
     return (best_start / height, (best_start + band_rows) / height)
 
 
-def _ocr_frame_region(path: str, region, lang: str, backend: str) -> str:
+def _ocr_frame_region(path: str, region, lang: str, backend: str, tesseract_cmd: str = None) -> str:
     img = cv2.imread(path)
     h, _w = img.shape[:2]
     y0, y1 = int(region[0] * h), int(region[1] * h)
@@ -127,7 +127,8 @@ def _ocr_frame_region(path: str, region, lang: str, backend: str) -> str:
         cv2.imwrite(crop_path, crop)
         if backend == "paddle":
             return ocr_module.extract_text_paddle(crop_path).strip()
-        return ocr_module.extract_text_tesseract(crop_path, lang=lang).strip()
+        return ocr_module.extract_text_tesseract(
+            crop_path, lang=lang, tesseract_cmd=tesseract_cmd).strip()
     finally:
         os.unlink(crop_path)
 
@@ -178,7 +179,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                sample_interval: float = 1.0,
                                ocr_backend: str = "tesseract",
                                chinese_script: str = "simplified",
-                               progress_cb=None, tmp_dir=None):
+                               progress_cb=None, tmp_dir=None, tesseract_cmd: str = None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
     sampled frame in that band, collapse the results into timed cues.
@@ -201,7 +202,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
         timed_texts = []
         total = len(frames)
         for i, (ts, path) in enumerate(frames):
-            text = _ocr_frame_region(path, band, lang, ocr_backend)
+            text = _ocr_frame_region(path, band, lang, ocr_backend, tesseract_cmd=tesseract_cmd)
             timed_texts.append((ts, text))
             if progress_cb:
                 progress_cb((i + 1) / total)

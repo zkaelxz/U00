@@ -84,6 +84,40 @@ class TestExtractTextTesseractUsesExplicitPSM:
         assert captured["config"] == "--psm 7"
 
 
+class TestExtractTextTesseractCustomBinaryPath:
+    """On Windows, the Tesseract installer doesn't always add itself to
+    PATH, and pytesseract has no way to tell that apart from Tesseract
+    genuinely not being installed -- both raise the same
+    TesseractNotFoundError. tesseract_cmd lets a person point at the
+    binary directly (Settings -> OCR) instead of editing a system PATH
+    variable by hand."""
+
+    def _blank_image(self, tmp_path):
+        from PIL import Image
+        path = tmp_path / "blank.png"
+        Image.new("L", (10, 10), color=255).save(path)
+        return str(path)
+
+    def test_sets_pytesseract_tesseract_cmd_when_given(self, monkeypatch, tmp_path):
+        import pytesseract
+        monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: "text")
+        monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract", raising=False)
+
+        ocr.extract_text_tesseract(self._blank_image(tmp_path),
+                                    tesseract_cmd=r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+
+        assert pytesseract.pytesseract.tesseract_cmd == r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+    def test_leaves_default_tesseract_cmd_alone_when_not_given(self, monkeypatch, tmp_path):
+        import pytesseract
+        monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: "text")
+        monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract", raising=False)
+
+        ocr.extract_text_tesseract(self._blank_image(tmp_path))
+
+        assert pytesseract.pytesseract.tesseract_cmd == "tesseract"
+
+
 class TestExtractTextPaddleUsesCurrentAPI:
     """Regression test for a real bug found via direct testing against an
     actually-installed paddleocr: `pip install paddleocr` today gives 3.x,
@@ -125,7 +159,7 @@ class TestExtractTextFromImagesUsesResolvedLang:
     def test_traditional_script_selects_chi_tra_backend(self, monkeypatch):
         captured = {}
 
-        def fake_tesseract(image_path, lang="chi_sim"):
+        def fake_tesseract(image_path, lang="chi_sim", tesseract_cmd=None):
             captured["lang"] = lang
             return "extracted text"
 
@@ -140,7 +174,7 @@ class TestExtractTextFromImagesUsesResolvedLang:
     def test_simplified_is_the_default(self, monkeypatch):
         captured = {}
 
-        def fake_tesseract(image_path, lang="chi_sim"):
+        def fake_tesseract(image_path, lang="chi_sim", tesseract_cmd=None):
             captured["lang"] = lang
             return "x"
 
