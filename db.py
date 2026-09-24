@@ -233,6 +233,28 @@ def init_db():
         UNIQUE(drama_id, line_idx, term)
     );
 
+    CREATE TABLE IF NOT EXISTS line_emotions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        line_idx INTEGER NOT NULL,
+        emotion TEXT,
+        intensity REAL,
+        note TEXT,
+        created_at TEXT,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+        UNIQUE(drama_id, line_idx)
+    );
+
+    CREATE TABLE IF NOT EXISTS consistency_issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        term TEXT,
+        variants TEXT,            -- JSON-encoded list of strings
+        note TEXT,
+        created_at TEXT,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS vocab_lookups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER,
@@ -901,6 +923,79 @@ def delete_translation_note(note_id: int):
     conn.execute("DELETE FROM translation_notes WHERE id = ?", (note_id,))
     conn.commit()
     conn.close()
+
+
+def save_consistency_issues(drama_id: int, issues):
+    """Replaces the drama's consistency-check results wholesale -- each
+    run is a fresh full check of the current translation, not something
+    to accumulate across runs the way translation notes do. Persisted so
+    an LLM call that already cost real money survives a page refresh
+    instead of only living in session state."""
+    conn = get_conn()
+    conn.execute("DELETE FROM consistency_issues WHERE drama_id = ?", (drama_id,))
+    now = datetime.datetime.utcnow().isoformat()
+    for issue in issues:
+        conn.execute("""
+            INSERT INTO consistency_issues (drama_id, term, variants, note, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (drama_id, issue.get("term", ""),
+              json.dumps(issue.get("variants", []), ensure_ascii=False),
+              issue.get("note", ""), now))
+    conn.commit()
+    conn.close()
+
+
+def load_consistency_issues(drama_id: int):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM consistency_issues WHERE drama_id = ?", (drama_id,)
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["variants"] = json.loads(d["variants"]) if d["variants"] else []
+        except (json.JSONDecodeError, TypeError):
+            d["variants"] = []
+        out.append(d)
+    return out
+
+
+def save_emotions(drama_id: int, emotion_map: dict):
+    """emotion_map: {line_idx: {"emotion", "intensity", "note"}}, the shape
+    emotion.detect_emotions() returns. Persisted so a whole-drama emotion
+    detection run (a real LLM batch job, same cost scale as translation)
+    survives a page refresh instead of vanishing with Streamlit's session
+    state -- previously the only place this result lived, so losing the
+    session meant re-running (and re-paying for) the whole thing."""
+    conn = get_conn()
+    now = datetime.datetime.utcnow().isoformat()
+    for line_idx, tag in emotion_map.items():
+        conn.execute("""
+            INSERT INTO line_emotions (drama_id, line_idx, emotion, intensity, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(drama_id, line_idx) DO UPDATE SET
+                emotion = excluded.emotion,
+                intensity = excluded.intensity,
+                note = excluded.note
+        """, (drama_id, int(line_idx), tag.get("emotion", "neutral"),
+              tag.get("intensity", 0.5), tag.get("note", ""), now))
+    conn.commit()
+    conn.close()
+
+
+def load_emotions(drama_id: int) -> dict:
+    """Returns the same {line_idx: {"emotion", "intensity", "note"}} shape
+    save_emotions() takes, so it drops straight back into
+    emotion.emotion_summary()/build_emotion_guidance() unchanged."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM line_emotions WHERE drama_id = ?", (drama_id,)
+    ).fetchall()
+    conn.close()
+    return {r["line_idx"]: {"emotion": r["emotion"], "intensity": r["intensity"],
+                             "note": r["note"] or ""} for r in rows}
 
 
 # ---------------------------------------------------------------------------

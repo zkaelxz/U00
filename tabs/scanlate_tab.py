@@ -119,7 +119,13 @@ def render_scanlate_tab():
                         prev_context = st.session_state.get(f"sc_context_{sc_drama['id']}", "")
                         try:
                             translations, new_context = scanlate.translate_page_with_context(
-                                texts, engine, sc_drama, previous_context=prev_context)
+                                texts, engine, sc_drama, previous_context=prev_context,
+                                usage_cb=lambda inp, out: db.log_usage(
+                                    sc_drama["id"], sc_engine_choice,
+                                    getattr(engine, "model", sc_engine_choice),
+                                    "scanlate_translate", inp, out,
+                                    translate_engines.estimate_cost(
+                                        getattr(engine, "model", ""), inp, out)))
                             st.session_state[f"sc_context_{sc_drama['id']}"] = new_context
                             for b, t in zip(boxes, translations):
                                 b["translated_text"] = t

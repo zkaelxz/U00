@@ -131,7 +131,7 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
-def run_emotion_job(job_id, lines, engine, use_audio_cues):
+def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choice):
     """
     Runs emotion.detect_emotions in a background thread, same reasoning as
     the jobs above: a full stream's worth of lines is enough LLM batches
@@ -139,15 +139,24 @@ def run_emotion_job(job_id, lines, engine, use_audio_cues):
     rest of the app for it. Unlike translation this has no db.save_lines
     step -- detect_emotions only returns a result, it doesn't mutate
     anything -- so the result is just handed back whole.
+
+    Persists to the database (db.save_emotions), not just the ephemeral
+    job-status dict -- this is a whole-drama LLM batch job, same scale as
+    translation itself, and losing its result to a page refresh (session
+    state doesn't survive one) meant re-running it and re-paying for it.
     """
     emap = emotion.detect_emotions(
         lines, engine, use_audio_cues=use_audio_cues,
         progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Reading tone... {frac * 100:.0f}%"))
+            job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
+        usage_cb=lambda inp, out: db.log_usage(
+            drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
+            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+    db.save_emotions(drama_id, emap)
     background_jobs.set_result(job_id, {"emotions": emap})
 
 
-def run_flag_job(job_id, drama_id, lines, engine):
+def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
     """
     Runs flag_uncertain_lines in a background thread -- same reasoning as
     the jobs above. Unlike emotion detection, the result IS persisted (via
@@ -158,9 +167,45 @@ def run_flag_job(job_id, drama_id, lines, engine):
     translate_engines.flag_uncertain_lines(
         lines, engine,
         progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"))
+            job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
+        usage_cb=lambda inp, out: db.log_usage(
+            drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
+            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
     db.save_lines(drama_id, lines)
     background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
+
+
+def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
+    """
+    Runs check_consistency_llm in a background thread. Previously this ran
+    synchronously (a blocking st.spinner), which meant it couldn't run
+    alongside anything else -- the whole app was stuck until it finished.
+    Backgrounding it, same as Review queue and Emotion detection, is what
+    actually lets it run at the same time as those instead of forcing them
+    to queue up one after another.
+    """
+    issues = translate_engines.check_consistency_llm(
+        lines, engine,
+        usage_cb=lambda inp, out: db.log_usage(
+            drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
+            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+    db.save_consistency_issues(drama_id, issues)
+    background_jobs.set_result(job_id, {"issue_count": len(issues)})
+
+
+def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, source_language):
+    """
+    Runs generate_translation_notes_llm in a background thread -- same
+    reasoning as run_consistency_job above.
+    """
+    found_notes = tguide.generate_translation_notes_llm(
+        lines, engine, source_language=source_language,
+        usage_cb=lambda inp, out: db.log_usage(
+            drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
+            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+    if found_notes:
+        db.save_translation_notes(drama_id, found_notes)
+    background_jobs.set_result(job_id, {"note_count": len(found_notes)})
 
 
 def render_workspace_tab():
@@ -690,8 +735,8 @@ def render_workspace_tab():
                     elif not gl_key:
                         st.warning("Set an API key in the ⚙️ Settings sidebar first.")
                     else:
-                        eng_gl = translate_engines.get_engine(
-                            drama.get("translation_engine") or "claude", gl_key)
+                        _gl_engine_name = drama.get("translation_engine") or "claude"
+                        eng_gl = translate_engines.get_engine(_gl_engine_name, gl_key)
                         # If both are supplied the original is the source and the
                         # existing translation shows the established rendering.
                         src_text = _orig_src if _orig_src.strip() else _novel_src
@@ -702,7 +747,12 @@ def render_workspace_tab():
                                 src_text, eng_gl, source_language=source_language,
                                 english_translation=en_text,
                                 known_terms=db.list_glossary_terms(_gl_series),
-                                progress_cb=lambda f: bar.progress(f, text=f"Reading... {f*100:.0f}%"))
+                                progress_cb=lambda f: bar.progress(f, text=f"Reading... {f*100:.0f}%"),
+                                usage_cb=lambda inp, out: db.log_usage(
+                                    picked_id, _gl_engine_name, getattr(eng_gl, "model", _gl_engine_name),
+                                    "glossary_from_novel", inp, out,
+                                    translate_engines.estimate_cost(
+                                        getattr(eng_gl, "model", ""), inp, out)))
                             bar.empty()
                             st.session_state[f"novel_glossary_{picked_id}"] = proposed_gl
                             st.success(f"Proposed {len(proposed_gl)} term(s). Review below.")
@@ -969,12 +1019,18 @@ def render_workspace_tab():
                     elif not _extract_key:
                         st.warning("Set an API key in the ⚙️ Settings sidebar first.")
                     else:
-                        engine_x = translate_engines.get_engine(
-                            drama.get("translation_engine") or "claude", _extract_key)
+                        _ext_engine_name = drama.get("translation_engine") or "claude"
+                        engine_x = translate_engines.get_engine(_ext_engine_name, _extract_key)
                         with st.spinner("Scanning for terms..."):
                             proposed = tguide.extract_terms_llm(
                                 source_lines, engine_x, source_language=source_language,
-                                known_terms=db.list_glossary_terms(sid))
+                                known_terms=db.list_glossary_terms(sid),
+                                usage_cb=lambda inp, out: db.log_usage(
+                                    picked_id, _ext_engine_name,
+                                    getattr(engine_x, "model", _ext_engine_name),
+                                    "extract_terms", inp, out,
+                                    translate_engines.estimate_cost(
+                                        getattr(engine_x, "model", ""), inp, out)))
                         st.session_state[f"proposed_terms_{picked_id}"] = proposed
                         st.success(f"Proposed {len(proposed)} term(s) for review.")
 
@@ -1252,7 +1308,12 @@ def render_workspace_tab():
                 with st.spinner("Tagging speakers with the translation LLM..."):
                     engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
                     known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
-                    speakers = translate_engines.tag_speakers_llm([ln.zh for ln in lines], engine, known_chars)
+                    speakers = translate_engines.tag_speakers_llm(
+                        [ln.zh for ln in lines], engine, known_chars,
+                        usage_cb=lambda inp, out: db.log_usage(
+                            picked_id, engine_choice, getattr(engine, "model", engine_choice),
+                            "tag_speakers", inp, out,
+                            translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
                     for ln, sp in zip(lines, speakers):
                         ln.speaker = sp
                     for label in sorted(set(speakers)):
@@ -1425,7 +1486,7 @@ def render_workspace_tab():
             _learned = ""
             if _prof and st.session_state.get("apply_style_profile", True):
                 _learned = adaptive_style.profile_to_prompt_block(_prof.get("profile", {}))
-            _emap = st.session_state.get(f"emotions_{picked_id}", {})
+            _emap = db.load_emotions(picked_id)
             _emotion_block = emotion.build_emotion_guidance(
                 _emap, [ln.idx for ln in st.session_state.lines]) if _emap else ""
             style_guidelines = tguide.build_style_guidelines(
@@ -1613,12 +1674,44 @@ def render_workspace_tab():
         st.divider()
         with st.expander("7. 📝 Review & edit", expanded=False):
 
+            # A background job further down (Review queue) can finish and save
+            # its flags to the database mid-render -- if that just happened,
+            # pick it up here BEFORE computing the flagged count below. Without
+            # this, "Show flagged lines only" showed a stale (often zero,
+            # permanently disabled) count for the one render where completion
+            # was first detected, since Streamlit doesn't re-render a widget
+            # emitted earlier in the same script run after later code changes
+            # session_state -- confirmed directly: the checkbox stayed
+            # disabled at "(0)" after a real "281 flagged" run until some
+            # unrelated click forced a second rerun.
+            _early_flag_job = background_jobs.get_status(f"flag_{picked_id}")
+            if _early_flag_job and _early_flag_job["status"] == "done":
+                st.session_state.lines = [
+                    Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
+                         en=r.get("en") or "", speaker=r.get("speaker"),
+                         dub_filename=r.get("dub_filename"), flag=r.get("flag"),
+                         flag_note=r.get("flag_note") or "")
+                    for r in db.load_lines(picked_id)]
+
             all_lines = st.session_state.lines
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
-            show_flagged_only = st.checkbox(
+            _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
+            fc1, fc2 = st.columns(2)
+            show_flagged_only = fc1.checkbox(
                 f"Show flagged lines only ({_n_flagged_total})",
                 value=False, disabled=not _n_flagged_total, key=f"flagged_only_{picked_id}")
-            visible_lines = [ln for ln in all_lines if ln.flag] if show_flagged_only else all_lines
+            show_untranslated_only = fc2.checkbox(
+                f"Show untranslated lines only ({_n_untranslated_total})",
+                value=False, disabled=not _n_untranslated_total,
+                key=f"untranslated_only_{picked_id}",
+                help="For finding the handful of blank lines Export subtitles warns about "
+                     "in a long drama, without scrolling through every page.")
+            if show_flagged_only:
+                visible_lines = [ln for ln in all_lines if ln.flag]
+            elif show_untranslated_only:
+                visible_lines = [ln for ln in all_lines if ln.zh.strip() and not ln.en.strip()]
+            else:
+                visible_lines = all_lines
 
             review_page_size = st.number_input("Lines per page", value=40, min_value=10, max_value=200,
                                                 step=10, key="review_page_size")
@@ -1729,7 +1822,13 @@ def render_workspace_tab():
                     if too_long_idxs and api_key and st.button("✂️ Auto-shorten overlong lines with LLM"):
                         engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
                         to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
-                        translate_engines.rewrite_for_pacing_llm(to_fix, engine)
+                        translate_engines.rewrite_for_pacing_llm(
+                            to_fix, engine,
+                            usage_cb=lambda inp, out: db.log_usage(
+                                picked_id, engine_choice, getattr(engine, "model", engine_choice),
+                                "pacing_shorten", inp, out,
+                                translate_engines.estimate_cost(
+                                    getattr(engine, "model", ""), inp, out)))
                         db.save_lines(picked_id, edited_rows)
                         st.session_state.lines = edited_rows
                         st.session_state[f"pacing_flags_{picked_id}"] = []
@@ -1739,18 +1838,46 @@ def render_workspace_tab():
             with st.expander("🔍 Check translation consistency (optional)"):
                 st.caption(
                     "Flags the same Chinese name/term translated differently in different lines "
-                    "(e.g. a character's name spelled two ways). Doesn't change anything by itself."
+                    "(e.g. a character's name spelled two ways). Doesn't change anything by itself. "
+                    "Runs in the background, same as Review queue and Emotion detection -- safe to "
+                    "run any of them at the same time."
                 )
+                _consistency_job_id = f"consistency_{picked_id}"
+                _cjob = background_jobs.get_status(_consistency_job_id)
                 if st.button("Check consistency") and api_key:
                     engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                    with st.spinner("Reviewing..."):
-                        issues = translate_engines.check_consistency_llm(edited_rows, engine)
-                    st.session_state[f"consistency_issues_{picked_id}"] = issues
-                    if issues:
-                        st.warning(f"{len(issues)} consistency issue(s) found.")
+                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                         speaker=l.speaker, dub_filename=l.dub_filename)
+                                   for l in edited_rows]
+                    started = background_jobs.start_job(
+                        _consistency_job_id, run_consistency_job,
+                        _consistency_job_id, picked_id, _lines_copy, engine, engine_choice)
+                    if started:
+                        st.info("Checking in the background -- safe to switch tabs or run another "
+                                "check while this runs.")
+                        st.rerun()
                     else:
-                        st.success("No consistency issues detected.")
-                issues = st.session_state.get(f"consistency_issues_{picked_id}", [])
+                        st.warning("Already checking for this drama.")
+
+                if _cjob:
+                    if _cjob["status"] == "running":
+                        st.progress(0.5, text="Checking...")
+                        if st.button("🔄 Refresh progress", key=f"refresh_cc_{picked_id}"):
+                            st.rerun()
+                    elif _cjob["status"] == "done":
+                        _count = (_cjob.get("result") or {}).get("issue_count", 0)
+                        if _count:
+                            st.warning(f"{_count} consistency issue(s) found.")
+                        else:
+                            st.success("No consistency issues detected.")
+                        background_jobs.clear_job(_consistency_job_id)
+                    elif _cjob["status"] == "error":
+                        st.error(f"Consistency check failed: {_cjob['error']}")
+                        with st.expander("Details"):
+                            st.code(_cjob.get("traceback", ""), language="text")
+                        background_jobs.clear_job(_consistency_job_id)
+
+                issues = db.load_consistency_issues(picked_id)
                 for issue in issues:
                     st.caption(f"**{issue.get('term')}**: {', '.join(issue.get('variants', []))} "
                               f"— {issue.get('note', '')}")
@@ -1771,7 +1898,8 @@ def render_workspace_tab():
                                          flag=l.flag, flag_note=l.flag_note)
                                    for l in edited_rows]
                     started = background_jobs.start_job(_flag_job_id, run_flag_job,
-                                                          _flag_job_id, picked_id, _lines_copy, engine_f)
+                                                          _flag_job_id, picked_id, _lines_copy, engine_f,
+                                                          engine_choice)
                     if started:
                         st.info("Checking in the background -- safe to switch tabs while this runs.")
                         st.rerun()
@@ -1814,7 +1942,7 @@ def render_workspace_tab():
                     "as sincerity, or suppressed anger read as calm, breaks a scene even when the "
                     "words are technically correct -- these are the registers most often flattened."
                 )
-                emap = st.session_state.get(f"emotions_{picked_id}", {})
+                emap = db.load_emotions(picked_id)
                 ec1, ec2 = st.columns([1, 1])
                 use_cues = ec2.checkbox("Use audio delivery cues", value=(has_audio_pipeline),
                                          help="Uses pacing and pauses from the original timing as "
@@ -1831,7 +1959,7 @@ def render_workspace_tab():
                                    for l in edited_rows]
                     started = background_jobs.start_job(
                         _emotion_job_id, run_emotion_job,
-                        _emotion_job_id, _lines_copy, eng_e, use_cues)
+                        _emotion_job_id, picked_id, _lines_copy, eng_e, use_cues, engine_choice)
                     if started:
                         st.info("Reading tone in the background -- safe to switch tabs while this runs.")
                         st.rerun()
@@ -1844,9 +1972,13 @@ def render_workspace_tab():
                         if st.button("🔄 Refresh progress", key=f"refresh_em_{picked_id}"):
                             st.rerun()
                     elif _ejob["status"] == "done":
-                        emap = (_ejob.get("result") or {}).get("emotions", {})
-                        st.session_state[f"emotions_{picked_id}"] = emap
+                        # Saved to the database inside run_emotion_job itself (see
+                        # its docstring for why) -- reload from there rather than
+                        # trusting the job's own ephemeral result dict, the same
+                        # "persisted state wins" pattern the flag job uses.
+                        emap = db.load_emotions(picked_id)
                         background_jobs.clear_job(_emotion_job_id)
+                        st.rerun()
                     elif _ejob["status"] == "error":
                         st.error(f"Emotion detection failed: {_ejob['error']}")
                         with st.expander("Details"):
@@ -1889,7 +2021,14 @@ def render_workspace_tab():
                     with st.spinner("Analyzing your edits..."):
                         result = adaptive_style.analyze_edit_patterns(
                             all_samples, eng_a,
-                            existing_profile=(existing_profile or {}).get("profile"))
+                            existing_profile=(existing_profile or {}).get("profile"),
+                            # drama_id=None: this analyzes edits across every drama
+                            # (or every drama in a series), not just this one.
+                            usage_cb=lambda inp, out: db.log_usage(
+                                None, engine_choice, getattr(eng_a, "model", engine_choice),
+                                "adaptive_style", inp, out,
+                                translate_engines.estimate_cost(
+                                    getattr(eng_a, "model", ""), inp, out)))
                     if result.get("preferences"):
                         db.save_style_profile(scope, result, sample_count=len(all_samples))
                         st.success(f"Learned {len(result['preferences'])} preference(s).")
@@ -1969,19 +2108,45 @@ def render_workspace_tab():
                     "Reviews the translation for things that lost something crossing languages -- "
                     "四字成语 and set phrases, puns, names whose characters carry meaning, literary "
                     "allusions, and honorifics whose nuance doesn't survive a direct rendering. "
-                    "Produces notes for readers; doesn't change any line."
+                    "Produces notes for readers; doesn't change any line. Runs in the background, "
+                    "same as Review queue and Emotion detection -- safe to run any of them at the "
+                    "same time."
                 )
+                _notes_job_id = f"notes_{picked_id}"
+                _njob = background_jobs.get_status(_notes_job_id)
                 if st.button("Generate translation notes") and api_key:
                     engine_n = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                    with st.spinner("Reviewing for idioms, wordplay, and allusions..."):
-                        found_notes = tguide.generate_translation_notes_llm(
-                            edited_rows, engine_n, source_language=source_language)
-                    if found_notes:
-                        db.save_translation_notes(picked_id, found_notes)
-                        st.success(f"Found {len(found_notes)} note(s).")
+                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                         speaker=l.speaker, dub_filename=l.dub_filename)
+                                   for l in edited_rows]
+                    started = background_jobs.start_job(
+                        _notes_job_id, run_translation_notes_job,
+                        _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
+                        source_language)
+                    if started:
+                        st.info("Reviewing in the background -- safe to switch tabs or run another "
+                                "check while this runs.")
+                        st.rerun()
                     else:
-                        st.info("Nothing flagged as needing a note.")
-                    st.rerun()
+                        st.warning("Already generating notes for this drama.")
+
+                if _njob:
+                    if _njob["status"] == "running":
+                        st.progress(0.5, text="Reviewing for idioms, wordplay, and allusions...")
+                        if st.button("🔄 Refresh progress", key=f"refresh_nt_{picked_id}"):
+                            st.rerun()
+                    elif _njob["status"] == "done":
+                        _count = (_njob.get("result") or {}).get("note_count", 0)
+                        if _count:
+                            st.success(f"Found {_count} note(s).")
+                        else:
+                            st.info("Nothing flagged as needing a note.")
+                        background_jobs.clear_job(_notes_job_id)
+                    elif _njob["status"] == "error":
+                        st.error(f"Note generation failed: {_njob['error']}")
+                        with st.expander("Details"):
+                            st.code(_njob.get("traceback", ""), language="text")
+                        background_jobs.clear_job(_notes_job_id)
 
                 existing_notes = db.list_translation_notes(picked_id)
                 if existing_notes:
