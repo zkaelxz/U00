@@ -289,6 +289,26 @@ class TestSeriesCharacters:
         [sc] = isolated_db.list_series_characters(sid)
         assert not sc["gender"]
 
+    def test_per_drama_pronouns_set_kept_and_cleared(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Standalone")
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Xiaoling", pronouns="they/them")
+        isolated_db.upsert_character(did, "SPEAKER_00", voice_actor="VA")  # pronouns=None: untouched
+        [c] = isolated_db.list_characters(did)
+        assert c["pronouns"] == "they/them"
+        isolated_db.upsert_character(did, "SPEAKER_00", pronouns="")
+        [c] = isolated_db.list_characters(did)
+        assert not c["pronouns"]
+
+    def test_linked_series_pronouns_come_back_with_the_drama_character(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan", gender="she/her")
+        [sc] = isolated_db.list_series_characters(sid)
+        did = isolated_db.create_drama(title_en="Ep 1", series_id=sid)
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Su Shan",
+                                      series_character_id=sc["id"])
+        [c] = isolated_db.list_characters_with_series_names(did)
+        assert c["series_pronouns"] == "she/her"
+
     def test_rename_updates_in_place(self, isolated_db):
         sid = isolated_db.get_or_create_series("Streamer A")
         isolated_db.upsert_series_character(sid, "Su Shan")

@@ -116,6 +116,49 @@ class TestCmdTranslateParity:
 
         assert seen["character_names"] == {}
 
+    def test_sends_the_same_pronoun_hints_and_speaker_labels_as_the_ui(self, isolated_db, monkeypatch):
+        """Step 1e: cmd_translate used to skip the pronoun hints block
+        entirely. Checked against the UI's own run_translate_job for the
+        same drama, not a restated expectation."""
+        import background_jobs
+        import translation_guide as tguide
+        from tabs.workspace_tab import run_translate_job
+
+        series_id = isolated_db.get_or_create_series("Test Series")
+        isolated_db.upsert_series_character(series_id, "Su Shan", gender="female")
+        did = isolated_db.create_drama(title_en="Test", series_id=series_id, status="aligned")
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Su Shan", pronouns="they/them")
+        isolated_db.upsert_character(did, "SPEAKER_01", character_name="Rin", pronouns="xe/xem")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", speaker="SPEAKER_00")])
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        seen = []
+        def fake_translate(lines, engine, **kwargs):
+            seen.append(kwargs)
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did))
+        job_id = "test_cli_ui_pronoun_parity"
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        run_translate_job(job_id, did, [Line(idx=0, start=0.0, end=1.0, zh="你好", speaker="SPEAKER_00")],
+                           object(), {"id": did}, "", None, False, "en-US", None, "", "claude",
+                           "audio_drama")
+        background_jobs._jobs.pop(job_id, None)
+        cli_kwargs, ui_kwargs = seen
+
+        assert cli_kwargs["character_names"] == ui_kwargs["character_names"] == {
+            "SPEAKER_00": "Su Shan (they/them)", "SPEAKER_01": "Rin (xe/xem)"}
+        # The same call the Workspace Translate button makes for its hints block.
+        ui_hints = tguide.build_character_gender_hints(
+            isolated_db.list_series_characters(series_id),
+            isolated_db.list_characters_with_series_names(did))
+        assert ui_hints and ui_hints in cli_kwargs["style_guidelines"]
+        assert "Su Shan: they/them" in cli_kwargs["style_guidelines"]
+        assert "Rin: xe/xem" in cli_kwargs["style_guidelines"]
+
     def test_flag_and_flag_note_survive_a_translate_run(self, isolated_db, monkeypatch):
         """save_cb below writes db.save_lines() on every batch -- if the
         Line reconstruction in cmd_translate dropped flag/flag_note, any
