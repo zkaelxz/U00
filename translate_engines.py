@@ -262,29 +262,56 @@ def _build_numbered_lines(ids: list, zh_lines: list, speaker_names: list = None)
     return "\n".join(out)
 
 
+def _extract_first_json_value(text: str):
+    """Finds and parses the first valid JSON object/array anywhere in
+    text, tolerating surrounding prose ("Here you go:\n{...}\nHope that
+    helps!") -- small local models wrap their JSON in commentary like
+    this often. Uses the real JSON decoder to find the end of the
+    value (via raw_decode), rather than a regex guessing at matching
+    brackets, so a brace/bracket character inside a string value can't
+    make it stop early or grab too much. Returns None if nothing in
+    the text parses as JSON."""
+    decoder = json.JSONDecoder()
+    for i, ch in enumerate(text):
+        if ch in "{[":
+            try:
+                value, _ = decoder.raw_decode(text, i)
+                return value
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
 def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     """
     Parses a response expected to be a JSON object mapping each line's
     id (as a string) to its translation, e.g. {"1": "Hello.", "2": "Hi."}.
     Returns {id_str: text} for whichever of expected_ids actually came
-    back -- a missing id just isn't a key here, it's the caller's job
-    (_request_translations_with_retry) to decide what to do about that,
-    not this function's.
+    back with an actual string translation -- a missing id (or one
+    whose value isn't a string, e.g. null or a nested list) just isn't
+    a key here, it's the caller's job (_request_translations_with_retry)
+    to decide what to do about that, not this function's.
 
     Tolerates a plain JSON array too (mapping array position to id
     positionally) for a model that ignores the object-shape instruction
-    -- graceful degradation, not the primary path.
+    -- graceful degradation, not the primary path. Only when the array's
+    length matches expected_ids exactly: a short or long array has no
+    reliable position-to-id mapping (["A", "C"] for ids [1, 2, 3] would
+    otherwise put line 3's translation on line 2's id), so those are
+    left for the retry path to re-request instead of guessed at here.
     """
     stripped = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     expected_str = {str(i) for i in expected_ids}
-    try:
-        data = json.loads(stripped)
-    except json.JSONDecodeError:
+    data = _extract_first_json_value(stripped)
+    if data is None:
         return {}
     if isinstance(data, dict):
-        return {str(k): v for k, v in data.items() if str(k) in expected_str}
+        return {str(k): v for k, v in data.items()
+                if str(k) in expected_str and isinstance(v, str)}
     if isinstance(data, list):
-        return {str(expected_ids[i]): v for i, v in enumerate(data) if i < len(expected_ids)}
+        if len(data) != len(expected_ids):
+            return {}
+        return {str(expected_ids[i]): v for i, v in enumerate(data) if isinstance(v, str)}
     return {}
 
 
@@ -689,23 +716,30 @@ def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int =
     labels = []
     for start in range(0, len(zh_chunks), batch_size):
         batch = zh_chunks[start:start + batch_size]
-        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(batch))
-        prompt = (
-            "For each numbered chunk of Chinese novel text below, identify who is "
-            "speaking. If it's dialogue attributed to a specific character, return "
-            "that character's name (romanized consistently). If it's narration/"
-            "description with no speaking character, return 'Narrator'. "
-            f"Known characters so far: {known}. Prefer reusing a known name over "
-            "inventing a new one when it's clearly the same person.\n\n"
-            "Return ONLY a JSON array of strings, one per chunk, in order. "
-            "No preamble, no markdown fences.\n\n" + numbered
-        )
-        # Reuse whichever engine's underlying client is available for a raw completion.
-        text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=usage_cb)
-        batch_labels = _parse_json_array(text, len(batch))
-        labels.extend(batch_labels)
-        if len(labels) < start + len(batch):
-            labels.extend(["Narrator"] * (start + len(batch) - len(labels)))
+
+        def call_model(numbered, known=known):
+            prompt = (
+                "For each numbered chunk of Chinese novel text below, identify who is "
+                "speaking. If it's dialogue attributed to a specific character, return "
+                "that character's name (romanized consistently). If it's narration/"
+                "description with no speaking character, return 'Narrator'. "
+                f"Known characters so far: {known}. Prefer reusing a known name over "
+                "inventing a new one when it's clearly the same person.\n\n"
+                'Return ONLY a JSON object mapping each number to its speaker label, e.g. '
+                '{"1": "Xiaoling", "2": "Narrator"}. Include EVERY number you were given, '
+                "and no numbers you weren't. No preamble, no markdown fences.\n\n" + numbered
+            )
+            # Reuse whichever engine's underlying client is available for a raw completion.
+            return call_llm_json(engine, prompt, max_tokens=2000, fallback="{}", usage_cb=usage_cb)
+
+        # Id-keyed, same reasoning/mechanism as translation's own fix: a
+        # plain positional array silently misassigns a chunk's label to
+        # the wrong chunk if the response comes back short, long, or
+        # reordered. Missing ids retry once, then default to "Narrator"
+        # (the safe fallback for novel narration) rather than staying
+        # blank.
+        batch_labels = _request_translations_with_retry(batch, None, call_model)
+        labels.extend(lbl if lbl.strip() else "Narrator" for lbl in batch_labels)
     return labels[:len(zh_chunks)]
 
 
@@ -741,18 +775,25 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
         return lines_to_fix
     for start in range(0, len(lines_to_fix), batch_size):
         batch = lines_to_fix[start:start + batch_size]
-        numbered = "\n".join(f"{i+1}. {ln.en}" for i, ln in enumerate(batch))
-        prompt = (
-            "These English subtitle lines need to be shortened so they can be spoken "
-            "naturally within their time slot. Rewrite each one more concisely -- cut "
-            "filler words, tighten phrasing -- while keeping the same meaning and tone. "
-            "Return ONLY a JSON array of strings, one per line, in order. No preamble, "
-            "no markdown fences.\n\n" + numbered
-        )
-        text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None, usage_cb=usage_cb)
-        if text is None:
-            continue
-        rewritten = _parse_json_array(text, len(batch))
+
+        def call_model(numbered):
+            prompt = (
+                "These English subtitle lines need to be shortened so they can be spoken "
+                "naturally within their time slot. Rewrite each one more concisely -- cut "
+                "filler words, tighten phrasing -- while keeping the same meaning and tone. "
+                'Return ONLY a JSON object mapping each number to its rewritten line, e.g. '
+                '{"1": "Shortened line.", "2": "Another one."}. Include EVERY number you '
+                "were given, and no numbers you weren't. No preamble, no markdown fences.\n\n"
+                + numbered
+            )
+            return call_llm_json(engine, prompt, max_tokens=2000, fallback="{}", usage_cb=usage_cb)
+
+        # Id-keyed for the same reason as translation itself: a plain
+        # positional array silently misassigns a rewrite to the wrong
+        # line if the response comes back short, long, or reordered.
+        # Missing ids retry once, then fall back to leaving that line's
+        # existing .en untouched rather than blanking it.
+        rewritten = _request_translations_with_retry([ln.en for ln in batch], None, call_model)
         for ln, new_text in zip(batch, rewritten):
             if new_text.strip():
                 ln.en = new_text.strip()
@@ -1131,9 +1172,20 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             preceding = lines[max(0, first_pos - context_window):first_pos]
             context["recent_context"] = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
         if context_window_ahead > 0:
-            last_pos = first_pos + len(batch) - 1
+            # batch[-1]'s own position, not first_pos + len(batch) - 1 --
+            # that assumed the batch is a contiguous slice of `lines`,
+            # which isn't true when force_retranslate=False and an
+            # already-translated line sits in the middle of what would
+            # otherwise be contiguous target lines: target_lines skips it,
+            # so the batch is shorter than the span it covers in `lines`.
+            # The stale arithmetic could land back inside the batch itself,
+            # showing the model a line as "upcoming" (don't translate this)
+            # while also asking it to translate that same line right now.
+            last_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[-1].idx)
+            batch_idxs = {ln.idx for ln in batch}
             upcoming = lines[last_pos + 1:last_pos + 1 + context_window_ahead]
-            context["upcoming_lines"] = [ln.zh for ln in upcoming if ln.zh.strip()]
+            context["upcoming_lines"] = [ln.zh for ln in upcoming
+                                         if ln.zh.strip() and ln.idx not in batch_idxs]
         context["speaker_labels"] = [character_names.get(ln.speaker) for ln in batch]
         try:
             translations = call_with_backoff(
