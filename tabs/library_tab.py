@@ -60,10 +60,19 @@ def render_library_tab():
 
     with st.expander("💰 Cost breakdown by drama"):
         by_drama = db.get_usage_by_drama()
-        spending = [d for d in by_drama if d["estimated_cost_usd"] > 0]
+        # call_count, not estimated_cost_usd > 0: a drama translated with a
+        # free engine (or a free-tier Gemini key) has real usage logged but
+        # legitimately costs $0 -- it belongs in this table labelled as
+        # free, not silently dropped as if nothing had run.
+        spending = [d for d in by_drama if d["call_count"] > 0]
         if spending:
             cost_df = pd.DataFrame(spending)[["id", "title_en", "title_zh", "input_tokens",
                                                 "output_tokens", "estimated_cost_usd"]]
+            cost_df["Est. cost"] = [
+                "$0.00 (free)" if d["estimated_cost_usd"] == 0 else f"${d['estimated_cost_usd']:.2f}"
+                for d in spending
+            ]
+            cost_df = cost_df.drop(columns=["estimated_cost_usd"])
             st.dataframe(cost_df, width='stretch', hide_index=True)
         else:
             st.caption("No usage logged yet.")

@@ -49,8 +49,11 @@ def render_scanlate_tab():
             page = page_labels[picked_page_label]
             page_path = os.path.join(sc_ddir, page["filename"])
 
-            sc_engine_choice = st.selectbox("Translation engine", list(translate_engines.ENGINES.keys()),
-                                             key="sc_engine")
+            _sc_gemini_free_tier = st.session_state.get("gemini_free_tier", False)
+            sc_engine_choice = st.selectbox(
+                "Translation engine", list(translate_engines.ENGINES.keys()),
+                format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _sc_gemini_free_tier)}",
+                key="sc_engine")
             sc_api_key = synced_api_key_input("API key", sc_engine_choice, "sc_api_key")
             sc_backend = st.radio(
                 "Bubble detection", ["cv", "ml"],
@@ -125,7 +128,9 @@ def render_scanlate_tab():
                         b["irregular"] = style.get("irregular")
                 if sc_api_key:
                     with st.spinner("Translating (with context from prior pages)..."):
-                        engine = translate_engines.get_engine(sc_engine_choice, sc_api_key)
+                        engine = translate_engines.get_engine(
+                            sc_engine_choice, sc_api_key,
+                            free_tier=sc_engine_choice == "gemini" and _sc_gemini_free_tier)
                         texts = [b["source_text"] for b in boxes]
                         prev_context = st.session_state.get(f"sc_context_{sc_drama['id']}", "")
                         try:
@@ -135,8 +140,7 @@ def render_scanlate_tab():
                                     sc_drama["id"], sc_engine_choice,
                                     getattr(engine, "model", sc_engine_choice),
                                     "scanlate_translate", inp, out,
-                                    translate_engines.estimate_cost(
-                                        getattr(engine, "model", ""), inp, out)))
+                                    translate_engines.estimate_cost_for_engine(engine, inp, out)))
                             st.session_state[f"sc_context_{sc_drama['id']}"] = new_context
                             for b, t in zip(boxes, translations):
                                 b["translated_text"] = t

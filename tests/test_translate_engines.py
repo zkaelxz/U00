@@ -808,6 +808,60 @@ class TestGeminiEngine:
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
 
 
+class TestGeminiFreeTierThrottle:
+    """Step 1d item 4: a free-tier Gemini key hard-errors past ~10
+    requests/minute rather than queuing, so GeminiEngine paces itself
+    client-side instead. Uses a fake monotonic clock so the test doesn't
+    actually take a minute to run -- only the *decision* to wait, and for
+    how long, is under test, not real wall-clock sleeping."""
+
+    def _fake_clock(self, monkeypatch):
+        state = {"now": 0.0, "slept": []}
+
+        def fake_monotonic():
+            return state["now"]
+
+        def fake_sleep(seconds):
+            state["slept"].append(seconds)
+            state["now"] += seconds
+
+        monkeypatch.setattr("time.monotonic", fake_monotonic)
+        monkeypatch.setattr("time.sleep", fake_sleep)
+        return state
+
+    def test_a_paid_key_is_never_throttled(self, monkeypatch):
+        state = self._fake_clock(monkeypatch)
+        engine = te.GeminiEngine("fake-key", free_tier=False)
+        for _ in range(30):
+            engine._throttle_for_free_tier()
+        assert state["slept"] == []
+
+    def test_free_tier_stays_at_or_under_the_per_minute_limit(self, monkeypatch):
+        state = self._fake_clock(monkeypatch)
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        for _ in range(25):
+            engine._throttle_for_free_tier()
+            state["now"] += 0.01  # each call takes negligible real time
+
+        # However long that took, no trailing 60s window (measured from any
+        # actual request) contains more than the limit.
+        times = sorted(engine._free_tier_request_times)
+        for t in times:
+            in_window = sum(1 for other in times if t - 60 < other <= t)
+            assert in_window <= te.GEMINI_FREE_TIER_MAX_PER_MINUTE, (
+                f"{in_window} requests fell within 60s of t={t:.2f} -- over the limit")
+
+    def test_the_11th_request_within_a_minute_waits(self, monkeypatch):
+        state = self._fake_clock(monkeypatch)
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        for _ in range(te.GEMINI_FREE_TIER_MAX_PER_MINUTE):
+            engine._throttle_for_free_tier()
+        assert state["slept"] == []  # first 10 in the same instant: no wait needed
+
+        engine._throttle_for_free_tier()
+        assert state["slept"] == [60.0]  # the 11th has to wait out the window
+
+
 class TestOllamaEngine:
     """Regression coverage for a real gap: Ollama's own default context
     window can be as small as 2-4k tokens, and a prompt longer than it
@@ -1169,6 +1223,88 @@ class TestNLLBEngine:
         assert "nllb" in te.ENGINE_NOTES
 
 
+class TestFreeEngineLabelling:
+    """Step 1d item 4: every free-to-use option is clearly labelled as
+    such (test_offline, ollama, nllb, libretranslate always; gemini only
+    when the per-session "free-tier key" setting is on), and paid
+    engines keep their normal descriptions."""
+
+    def test_free_engines_set_matches_the_roadmap_table(self):
+        assert te.FREE_ENGINES == {"test_offline", "ollama", "nllb", "libretranslate"}
+
+    def test_gemini_is_not_unconditionally_free(self):
+        # Gemini reuses one engine for free and paid keys -- whether a
+        # given key is free depends on a setting, not the engine itself.
+        assert "gemini" not in te.FREE_ENGINES
+
+    def test_every_free_engine_note_is_marked(self):
+        for name in te.FREE_ENGINES:
+            assert "🧪" in te.ENGINE_NOTES[name]
+            assert te.engine_picker_label(name) == te.ENGINE_NOTES[name]
+
+    def test_paid_engine_notes_are_unmarked(self):
+        for name in ("claude", "deepseek", "deepl", "google"):
+            assert "🧪" not in te.ENGINE_NOTES[name]
+
+    def test_gemini_label_is_plain_by_default(self):
+        assert te.engine_picker_label("gemini") == te.ENGINE_NOTES["gemini"]
+        assert "🧪" not in te.engine_picker_label("gemini", gemini_free_tier=False)
+
+    def test_gemini_label_switches_when_free_tier_is_on(self):
+        label = te.engine_picker_label("gemini", gemini_free_tier=True)
+        assert "🧪" in label
+        assert str(te.GEMINI_FREE_TIER_MAX_PER_MINUTE) in label
+
+    def test_free_tier_flag_never_changes_other_engines_labels(self):
+        for name in te.ENGINES:
+            if name == "gemini":
+                continue
+            assert te.engine_picker_label(name, gemini_free_tier=True) == te.ENGINE_NOTES[name]
+
+
+class TestGetEngineFreeTierPassthrough:
+    def test_free_tier_reaches_the_constructed_gemini_engine(self):
+        engine = te.get_engine("gemini", "fake-key", free_tier=True)
+        assert isinstance(engine, te.GeminiEngine)
+        assert engine.free_tier is True
+
+    def test_defaults_to_not_free_tier(self):
+        engine = te.get_engine("gemini", "fake-key")
+        assert engine.free_tier is False
+
+    def test_free_tier_kwarg_is_ignored_for_non_gemini_engines(self):
+        # Every other engine class's __init__ has no free_tier parameter --
+        # this must not raise a TypeError just because the caller always
+        # passes the kwarg.
+        engine = te.get_engine("test_offline", free_tier=True)
+        assert not hasattr(engine, "free_tier")
+
+    def test_free_tier_reaches_gemini_even_with_an_explicit_model(self):
+        engine = te.get_engine("gemini", "fake-key", "gemini-pro-latest", free_tier=True)
+        assert engine.model == "gemini-pro-latest"
+        assert engine.free_tier is True
+
+
+class TestEstimateCostForEngine:
+    """Step 1d item 5: cost shows $0 for a free-tier Gemini call, not the
+    paid per-token rate its model name would normally look up."""
+
+    def test_free_tier_gemini_is_zero_regardless_of_tokens(self):
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        assert te.estimate_cost_for_engine(engine, 1_000_000, 1_000_000) == 0.0
+
+    def test_paid_gemini_matches_plain_estimate_cost(self):
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=False)
+        expected = te.estimate_cost("gemini-flash-lite-latest", 1000, 500)
+        assert te.estimate_cost_for_engine(engine, 1000, 500) == expected
+
+    def test_an_engine_with_no_free_tier_attribute_falls_back_normally(self):
+        engine = te.ClaudeEngine.__new__(te.ClaudeEngine)  # no free_tier attr at all
+        engine.model = "claude-sonnet-5"
+        expected = te.estimate_cost("claude-sonnet-5", 1000, 500)
+        assert te.estimate_cost_for_engine(engine, 1000, 500) == expected
+
+
 class TestCallLlmJson:
     """call_llm_json() is the shared single-prompt call used by every
     non-translation LLM feature (emotion tagging, translation notes,
@@ -1264,6 +1400,24 @@ class TestCallLlmJson:
             usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
         assert result == "real answer"
         assert captured_usage == {"input": 15, "output": 3}
+
+    def test_free_tier_gemini_is_throttled_here_too(self, monkeypatch):
+        """call_llm_json's Gemini branch is a second, separate call site
+        from translate_batch -- confirms the free-tier throttle applies
+        there as well, not just to translation."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "answer"}]}}]}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        calls = []
+        monkeypatch.setattr(engine, "_throttle_for_free_tier", lambda: calls.append(1))
+
+        te.call_llm_json(engine, "prompt")
+        assert calls == [1]
 
     def test_test_offline_engine_declines_without_crashing(self):
         engine = te.TestOfflineEngine()
@@ -1483,6 +1637,23 @@ class TestTagSpeakersLlm:
             supports_reference = False
         labels = te.tag_speakers_llm(["a", "b"], PureMT())
         assert labels == ["Narrator", "Narrator"]
+
+    def test_ollama_engine_gets_real_labels_not_a_silent_all_narrator(self, monkeypatch):
+        """Step 1d exit condition: with a fake Ollama server, every
+        call_llm_json-backed feature returns a real, correctly shaped
+        result -- not the old silent fallback (which for this particular
+        feature happened to look like a plausible "Narrator" label,
+        making the bug easy to miss without a test like this one)."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"message": {"content": '{"1": "Xiaoling", "2": "Narrator"}'}}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.OllamaEngine()
+        labels = te.tag_speakers_llm(["你好", "那天下着雨。"], engine)
+        assert labels == ["Xiaoling", "Narrator"]
 
 
 class TestRewriteForPacingLlm:
