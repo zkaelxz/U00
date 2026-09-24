@@ -5,15 +5,17 @@ Default engine: edge-tts (Microsoft, free, no cloning -- picks from a
 fixed voice list). Assign a different TTS voice per character (via the
 `characters` table) for a multi-voice cast.
 
-VOICE CLONING (matching the original actors' actual voices) needs a
-heavier local model -- F5-TTS or CosyVoice, the same ones pyvideotrans
-uses. That's a much bigger local setup (GPU strongly recommended, model
-checkpoints, reference-audio extraction per character) and isn't wired
-up here. The `synthesize_line()` function below is the single place to
-swap in a cloning backend later: give it a reference audio clip for the
-character (e.g. a clean isolated line from the original track) and a
-compatible engine, and everything else -- timing, mixing, per-character
-routing -- stays the same.
+VOICE CLONING (matching the original actors' actual voices) IS wired up,
+via F5-TTS (local, GPU recommended -- see synthesize_line_cloned() and
+_get_f5tts_model() below) or ElevenLabs (hosted, no GPU needed -- see
+clone_voice_elevenlabs()/synthesize_line_elevenlabs()). Reference clips
+can be auto-extracted per speaker from the original audio
+(extract_reference_clips()) or set manually; build_dub_track() and
+build_narration_track() both take a character_clone_map and use
+whichever backend a character has configured, falling back to the plain
+TTS engine only for characters with no clone reference set. Wired into
+the UI at Workspace section 6 (extract/set reference clips) and section
+8 (dub generation itself).
 """
 
 import os
