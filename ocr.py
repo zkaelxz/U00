@@ -59,16 +59,28 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6)
 def extract_text_paddle(image_path: str) -> str:
     """Higher-accuracy alternative for Chinese text specifically.
     Requires: `pip install paddleocr paddlepaddle` (heavier install,
-    downloads its own detection/recognition models on first use)."""
+    downloads its own detection/recognition models on first use).
+
+    PaddleOCR rewrote its API in 3.x: PaddleOCR(...).ocr(path, cls=True)
+    returning [[(box, (text, confidence)), ...]] per page is gone --
+    `pip install paddleocr` installs 3.x today, and the old call raises
+    TypeError immediately (confirmed by direct testing). 3.x instead
+    exposes .predict(path), returning a list of result objects with a
+    rec_texts list. enable_mkldnn=False works around a separate, real
+    inference crash (NotImplementedError from the oneDNN backend on at
+    least one tested CPU) -- costs some speed, but avoids failing outright
+    on affected machines.
+    """
     from paddleocr import PaddleOCR
     global _paddle_instance
     if "_paddle_instance" not in globals():
-        globals()["_paddle_instance"] = PaddleOCR(use_angle_cls=True, lang="ch")
-    result = globals()["_paddle_instance"].ocr(image_path, cls=True)
+        globals()["_paddle_instance"] = PaddleOCR(
+            use_doc_orientation_classify=False, use_doc_unwarping=False,
+            use_textline_orientation=True, lang="ch", enable_mkldnn=False)
+    result = globals()["_paddle_instance"].predict(image_path)
     lines = []
     for page in result:
-        for _box, (text, _confidence) in page:
-            lines.append(text)
+        lines.extend(page.get("rec_texts", []))
     return "\n".join(lines)
 
 

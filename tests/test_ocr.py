@@ -12,6 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
+
 import ocr
 
 
@@ -80,6 +82,43 @@ class TestExtractTextTesseractUsesExplicitPSM:
         ocr.extract_text_tesseract(self._blank_image(tmp_path), psm=7)
 
         assert captured["config"] == "--psm 7"
+
+
+class TestExtractTextPaddleUsesCurrentAPI:
+    """Regression test for a real bug found via direct testing against an
+    actually-installed paddleocr: `pip install paddleocr` today gives 3.x,
+    which dropped use_angle_cls and the .ocr(path, cls=True) call entirely
+    (TypeError: PaddleOCR.predict() got an unexpected keyword argument
+    'cls') and changed the result shape from
+    [[(box, (text, confidence)), ...]] per page to a list of dict-like
+    result objects with a rec_texts list. Locks in the 3.x call shape so
+    this doesn't silently rot again the next time the package updates.
+    """
+    @pytest.fixture(autouse=True)
+    def reset_paddle_instance(self):
+        ocr.__dict__.pop("_paddle_instance", None)
+        yield
+        ocr.__dict__.pop("_paddle_instance", None)
+
+    def test_calls_predict_not_the_removed_ocr_cls_api(self, monkeypatch):
+        paddleocr = pytest.importorskip("paddleocr")  # optional, heavy dependency
+        captured = {}
+
+        class FakePaddleOCR:
+            def __init__(self, **kwargs):
+                captured["init_kwargs"] = kwargs
+
+            def predict(self, image_path):
+                captured["predict_path"] = image_path
+                return [{"rec_texts": ["你好", "世界"]}]
+
+        monkeypatch.setattr(paddleocr, "PaddleOCR", FakePaddleOCR)
+
+        result = ocr.extract_text_paddle("/fake/page.png")
+
+        assert result == "你好\n世界"
+        assert captured["predict_path"] == "/fake/page.png"
+        assert "use_angle_cls" not in captured["init_kwargs"]
 
 
 class TestExtractTextFromImagesUsesResolvedLang:
