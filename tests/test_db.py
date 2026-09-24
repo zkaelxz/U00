@@ -525,6 +525,26 @@ class TestPagesAndBubbles:
         page = isolated_db.get_page(pid)
         assert page["rendered_filename"] == "pages/typeset_0000.png"
 
+    def test_font_category_round_trips(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
+        isolated_db.save_bubbles(pid, [
+            {"x": 10, "y": 20, "w": 100, "h": 50, "source_text": "a", "translated_text": "b",
+             "font_size": 18, "skip": False, "font_category": "handwritten"}
+        ])
+        bubbles = isolated_db.load_bubbles(pid)
+        assert bubbles[0]["font_category"] == "handwritten"
+
+    def test_font_category_defaults_to_regular_when_omitted(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
+        isolated_db.save_bubbles(pid, [
+            {"x": 10, "y": 20, "w": 100, "h": 50, "source_text": "a", "translated_text": "b",
+             "font_size": 18, "skip": False}  # no font_category key at all
+        ])
+        bubbles = isolated_db.load_bubbles(pid)
+        assert bubbles[0]["font_category"] == "regular"
+
 
 class TestConnectionLeakRecovery:
     """Regression tests for a real bug: a statement raising between

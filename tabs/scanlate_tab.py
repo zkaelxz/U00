@@ -114,6 +114,15 @@ def render_scanlate_tab():
                             ).strip()
                         except Exception:
                             b["source_text"] = ""
+                        # Classical-CV style guess (stroke weight/irregularity,
+                        # not a trained font classifier -- see scanlate.py's
+                        # own docstring) so the render step doesn't default
+                        # every bubble on the page to the same font. Always
+                        # reviewable/overridable below before final render.
+                        style = scanlate.sample_text_style(page_path, b)
+                        b["font_category"] = style["suggested_style"]
+                        b["ink_ratio"] = style.get("ink_ratio")
+                        b["irregular"] = style.get("irregular")
                 if sc_api_key:
                     with st.spinner("Translating (with context from prior pages)..."):
                         engine = translate_engines.get_engine(sc_engine_choice, sc_api_key)
@@ -155,6 +164,7 @@ def render_scanlate_tab():
 
             bubbles = db.load_bubbles(page["id"])
             if bubbles:
+                import scanlate
                 st.subheader("Review & adjust bubbles")
                 edited_bubbles = []
                 for b in bubbles:
@@ -169,11 +179,25 @@ def render_scanlate_tab():
                         st.caption(f"Original: {b['source_text']}")
                         translated = st.text_area("Translated text", value=b["translated_text"],
                                                     height=60, key=f"btr_{b['id']}")
-                        skip = st.checkbox("Skip this bubble (don't render)", value=bool(b["skip"]),
-                                           key=f"bsk_{b['id']}")
+                        fc1, fc2 = st.columns([1, 2])
+                        skip = fc1.checkbox("Skip this bubble (don't render)", value=bool(b["skip"]),
+                                            key=f"bsk_{b['id']}")
+                        _cat_options = scanlate.FONT_CATEGORIES
+                        _cur_cat = b.get("font_category") or "regular"
+                        font_category = fc2.selectbox(
+                            "Font style", _cat_options,
+                            index=_cat_options.index(_cur_cat) if _cur_cat in _cat_options else 0,
+                            key=f"bfc_{b['id']}",
+                            help="Auto-detected from the original bubble's stroke weight/"
+                                 "irregularity (classical image analysis, not a trained font "
+                                 "classifier) -- override here if it guessed wrong. "
+                                 "\"handwritten\" only looks different if a custom font is set "
+                                 "for it below; there's no reliable brush-style font on a stock "
+                                 "system install.")
                         edited_bubbles.append({
                             "x": x, "y": y, "w": w, "h": h, "font_size": font_size,
                             "source_text": b["source_text"], "translated_text": translated, "skip": skip,
+                            "font_category": font_category,
                         })
 
                 with st.expander("➕ Add a bubble manually"):
@@ -185,7 +209,29 @@ def render_scanlate_tab():
                     mtext = st.text_input("Translated text", key="manual_text")
                     if st.button("Add bubble"):
                         edited_bubbles.append({"x": mx, "y": my, "w": mw, "h": mh, "font_size": 18,
-                                               "source_text": "", "translated_text": mtext, "skip": False})
+                                               "source_text": "", "translated_text": mtext, "skip": False,
+                                               "font_category": "regular"})
+
+                with st.expander("🔤 Custom fonts (optional)"):
+                    st.caption(
+                        "Upload a .ttf/.otf per style category to use instead of the system "
+                        "fallback fonts -- especially useful for \"handwritten\", which has no "
+                        "reliable brush/handwriting-style font on a stock install of any OS."
+                    )
+                    custom_fonts = {}
+                    fonts_dir = os.path.join(sc_ddir, "fonts")
+                    for cat in scanlate.FONT_CATEGORIES:
+                        existing_font = os.path.join(fonts_dir, f"{cat}.ttf")
+                        uploaded = st.file_uploader(f"{cat.capitalize()} font", type=["ttf", "otf"],
+                                                     key=f"font_upload_{cat}")
+                        if uploaded:
+                            os.makedirs(fonts_dir, exist_ok=True)
+                            with open(existing_font, "wb") as f:
+                                f.write(uploaded.getbuffer())
+                            st.success(f"Saved as the {cat} font for this drama.")
+                        if os.path.exists(existing_font):
+                            custom_fonts[cat] = existing_font
+                            st.caption(f"✅ Using uploaded {cat} font.")
 
                 if st.button("💾 Save bubble edits"):
                     db.save_bubbles(page["id"], edited_bubbles)
@@ -197,7 +243,8 @@ def render_scanlate_tab():
                     import scanlate
                     out_path = os.path.join(sc_ddir, "pages", f"typeset_{page['idx']:04d}.png")
                     try:
-                        _, skipped_blank = scanlate.process_page(page_path, edited_bubbles, out_path)
+                        _, skipped_blank = scanlate.process_page(page_path, edited_bubbles, out_path,
+                                                                   custom_fonts=custom_fonts)
                         db.update_page(page["id"], rendered_filename=os.path.join("pages", os.path.basename(out_path)))
                         if skipped_blank:
                             st.warning(
@@ -222,6 +269,15 @@ def render_scanlate_tab():
                             st.download_button("Download typeset page", f.read(),
                                                 file_name=os.path.basename(rendered_path))
 
+                style_report_path = os.path.join(sc_ddir, "pages", f"font_styles_{page['idx']:04d}.json")
+                scanlate.export_font_style_report(edited_bubbles, style_report_path)
+                with open(style_report_path, "r", encoding="utf-8") as f:
+                    st.download_button("📄 Export detected font styles (JSON)", f.read(),
+                                        file_name=os.path.basename(style_report_path),
+                                        help="Per-bubble box + font style, the same idea as "
+                                             "BalloonsTranslator's font-detection export -- a "
+                                             "reviewable record of what this page rendered with.")
+
         st.divider()
         st.subheader("📦 Bulk render all pages")
         st.caption("Renders every page that has saved bubbles and zips the result -- for a whole "
@@ -238,9 +294,15 @@ def render_scanlate_tab():
                 st.warning("No pages have saved bubbles yet -- detect/save at least one page first.")
             else:
                 import scanlate
+                _bulk_fonts_dir = os.path.join(sc_ddir, "fonts")
+                _bulk_custom_fonts = {
+                    cat: os.path.join(_bulk_fonts_dir, f"{cat}.ttf")
+                    for cat in scanlate.FONT_CATEGORIES
+                    if os.path.exists(os.path.join(_bulk_fonts_dir, f"{cat}.ttf"))
+                }
                 with st.spinner(f"Rendering {len(to_render)} page(s)..."):
                     zip_path, render_errors, blank_report = scanlate.bulk_render_pages(
-                        to_render, os.path.join(sc_ddir, "pages"))
+                        to_render, os.path.join(sc_ddir, "pages"), custom_fonts=_bulk_custom_fonts)
                 if render_errors:
                     st.warning(f"{len(render_errors)} page(s) failed to render: "
                               f"{[e['file'] for e in render_errors]}")
