@@ -51,6 +51,24 @@ Rules for every milestone:
 - Add mocked tests in the existing style: the `tests/conftest.py:isolated_db` fixture and fake model classes, with no GPU or real models in tests.
 - Do one milestone per feature branch off `baihe-subtitler`. The next milestone starts only once the current one meets its exit condition.
 - Keep changes minimal. Don't add abstractions the milestone doesn't need.
+- After a step is merged, the user runs its **manual check** from the table below on their own PC, with real models and real audio. Mocked tests can't catch problems that only show up with real models. Report anything that looks wrong back to the planning chat.
+
+**Manual checks (5–10 minutes each, on a short real episode):**
+
+| Step | What to try in the app |
+|---|---|
+| 1 | Translate a short episode that has named characters. Check that pronouns and honorifics match who's speaking, and that no line got another line's translation. |
+| 1b | Start Translate, then try "Find lines to flag" and editing a line. Both should be refused with a message. Make a database-only backup and a full backup, then open Diagnostics and check the log shows the job. |
+| 1c | Download a short YouTube clip. Run speaker detection. Translate with Ollama if you use it. Generate an edge-tts dub line. |
+| 2 | Add a note to a line, merge it with its neighbour, and check the note is still on the right line. |
+| 3 | Edit a few lines, then use "Compare with original" / "Restore original" on one of them. |
+| 4 | Change the number of speakers and press "Re-run speaker detection". Check the speakers change and the transcript text doesn't. |
+| 5 | Translate with Ollama and check it uses the 7B model. Run transcription then translation back-to-back with no out-of-memory error. |
+| 6 | Transcribe an episode that used to get repeated-phrase loops, and check timings stay in sync to the end. |
+| 7 | Translate one episode in "High quality" mode. Check the cost estimate shows first and the critiques appear as notes. |
+| 8 | Open a second episode of the same series. Check the voice suggestions are sensible and nothing is labelled until you confirm it. |
+| 9 | Set a low cost cap and check the job stops at it. Run one Bulk-mode translation and check results arrive on the right lines. |
+| 10 | Double-click the desktop shortcut. The app should open in its own window. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -117,10 +135,24 @@ These are things that are broken now, or that break without warning.
    - Microsoft periodically blocks edge-tts; the latest report is a 403 on the WebSocket handshake in January 2026. The fix is usually `pip install -U edge-tts`.
    - Catch this in `dub._edge_tts_synthesize` and show "Microsoft blocked the request — run `pip install -U edge-tts`".
    - When Piper is installed, offer it as an automatic offline fallback.
+5. **Automatic test run on every pull request (GitHub Actions).**
+   - Add `.github/workflows/tests.yml`. On every pull request into `baihe-subtitler`, and on every push to it, it should:
+     - set up Python 3.11;
+     - install `requirements-core.txt` and `pytest` (using the constraints file from item 6 once it exists);
+     - run `python run_tests.py`.
+   - Optional-library tests already skip cleanly (Step 1b), so the core install is enough. No GPU, models or network access to AI services are needed.
+   - The pull request page then shows a ✅/❌ next to the Merge button. **Don't merge a red ❌.**
+6. **Known-good versions (constraints file).**
+   - The requirements files only give minimum versions (`>=`), so a fresh install silently pulls in new major versions. That's how pyannote 4 broke diarization.
+   - Add `constraints.txt` with upper bounds on the major versions of packages known to have broken before, or that are likely to, e.g. `pyannote.audio<5`, `transformers<6`, `torch`/`torchaudio` capped at the next major, `streamlit<2`, `faster-whisper<2`. Keep `yt-dlp` and `edge-tts` **uncapped**: they must stay current to keep working.
+   - Install with `pip install -r requirements-core.txt -c constraints.txt`. The README, the CI workflow and Step 10's launcher all use this.
+   - Add `make_lock.bat`: it runs `pip freeze > constraints.lock.txt`, so the user can snapshot a setup that's working on their PC. When that file exists, it replaces `constraints.txt`, and the user commits it.
 
 **Exit:**
 - Mocked tests cover both pyannote output shapes, the Ollama request's `num_ctx` and `format` fields, and the edge-tts 403 message.
 - Diagnostics reports whether a JS runtime is present.
+- The CI workflow runs on the Step 1c pull request itself and passes.
+- `constraints.txt` exists, and the README install command uses it.
 
 ### Step 2 — R0: Permanent line IDs
 - Give `lines` a stable primary-key id that survives merges, edits and re-saves.
@@ -194,7 +226,7 @@ These are things that are broken now, or that break without warning.
 
 **Exit:** a test with fake embeddings produces the correct ranking, respects the threshold, and never assigns a name without confirmation.
 
-### Step 9 — Cost controls & bulk discounts *(needs Step 1's id-keyed output)*
+### Step 9 — Cost controls & bulk discounts *(needs Step 1's id-keyed output **and** Step 2's permanent line IDs)*
 1. **Spending cap per job.**
    - Before a job starts, estimate its cost from the line count and the average tokens per line (`translate_engines.estimate_cost`).
    - Show the estimate, and let the user set "stop if this job would cost more than $X". Also allow an optional monthly cap, checked against the existing `usage` log.
@@ -210,9 +242,13 @@ These are things that are broken now, or that break without warning.
    - **Gemini — Batch API:** 50% off, with a target turnaround of 24 hours. Context caching can be combined with it.
    - **DeepSeek — no batch API, but off-peak pricing:** about 50% cheaper outside its peak UTC hours. Add a "run in the next off-peak window" option that schedules the job.
    - How it works:
-     - Submit every batch at once, with `custom_id = "<drama_id>:<batch_index>"`.
-     - Save the batch id on the drama, so a restarted app can pick results up again.
-     - Poll in a background job, then apply results **by id, never by position**. Results come back in any order; Step 1's id-keyed JSON makes this safe.
+     - Submit every batch at once, with `custom_id = "<drama_id>:<batch_index>"`. Inside each request, number the lines by their **permanent line id** from Step 2, not their position.
+     - Save the batch id on the drama, together with each submitted line's id and a hash of its source text, so a restarted app can pick results up again.
+     - Poll in a background job, then apply results **by line id, never by position**. Results can arrive hours later and in any order.
+     - When applying a result:
+       - if a line was deleted or merged since submission, drop its result;
+       - if a line's source text changed since submission, don't apply its result; flag the line for review instead.
+     - While a bulk job is pending, line editing stays allowed, because the line-id and hash checks make it safe.
    - One trade-off to show in the UI: because every batch is submitted at the same time, the look-back context can only use *source* lines, not earlier translations. That's slightly less consistent than live mode. Optionally, add a second consistency pass (the consistency check, also batched) to make up for it.
 3. **Make prompt caching count** (all engines; no quality change).
    - The prompt should always start with the same stable part (system instructions → style guide → glossary → reference novel), with the changing lines after it. Then Claude's `cache_control`, Gemini's implicit caching and DeepSeek's automatic prefix caching all hit. Cache reads cost about 10% of the normal input price.
@@ -222,13 +258,14 @@ These are things that are broken now, or that break without warning.
 **Exit:**
 - A mocked test shows a job stops at the cap and keeps its finished lines.
 - A mocked batch client returning results out of order still assigns every translation to the right lines.
+- If a line is merged or edited between submission and results, its result is dropped or flagged, never applied to the wrong line.
 - A restarted app picks up a pending batch by its saved id.
 - A test shows the stable prompt part is byte-identical across batches of the same drama.
 
 ### Step 10 — One-click Windows launcher, own window & desktop shortcut *(convenience)*
 - Add a `start.bat` (plus an optional `start.ps1`) that:
   - creates or activates the venv on first run;
-  - installs `requirements-core.txt` if it's missing;
+  - installs `requirements-core.txt` if it's missing, using the known-good versions from Step 1c (`-c constraints.lock.txt` if it exists, else `-c constraints.txt`);
   - runs Diagnostics' dependency check and prints anything missing in plain words (ffmpeg, the JS runtime, CUDA);
   - starts `streamlit run app.py --server.headless true`, so no extra browser tab opens;
   - opens the app in its **own window**.
@@ -277,6 +314,7 @@ These are things that are broken now, or that break without warning.
 - **Status:**
   - Step 1 is merged into `baihe-subtitler` and was reviewed OK.
   - Step 1b (`step-1b-safety-fixes`) is reviewed; it's pending the edit-lock follow-up, then the pull request.
+- **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
   git fetch origin claude/baihe-subtitle-planning-95qyvq
