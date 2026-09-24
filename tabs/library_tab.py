@@ -144,22 +144,6 @@ def render_library_tab():
                 st.success(f"Deleted {len(selected_ids)} drama(s).")
                 st.rerun()
 
-        st.subheader("Open a drama")
-        options = {f"#{d['id']} — {d['title_en'] or d['title_zh']} ({d['status']})": d["id"] for d in dramas}
-
-        choice = st.selectbox("Select", list(options.keys()))
-        if st.button("Open in Workspace →"):
-            st.session_state.active_drama_id = options[choice]
-            st.session_state.lines = None
-            # Same Streamlit limitation as Resume above: st.tabs() can't be
-            # switched from Python, so this sets the drama active and says
-            # so plainly -- without this notice the click looks like it did
-            # nothing, since the visible tab never changes on its own.
-            st.session_state["nav_notice"] = (
-                f"**{choice}** is now the active drama — open the **🛠️ Workspace** "
-                f"tab above to work on it.")
-            st.rerun()
-
         st.subheader("Bulk export")
         exportable = [d for d in dramas if d["status"] in ("translated", "dubbed", "exported")]
         if exportable:

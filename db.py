@@ -370,6 +370,13 @@ def init_db():
         conn.execute("ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
     if "source_language" not in drama_cols:
         conn.execute("ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
+    if "chinese_script" not in drama_cols:
+        # Only meaningful when source_language == "zh": Whisper transcription
+        # and LLM translation don't care (they read/produce either script
+        # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
+        # jieba segmentation (built for Simplified, degrades on Traditional)
+        # both need to know which one they're looking at.
+        conn.execute("ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
     if "media_type" not in drama_cols:
         conn.execute("ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
     if "series_id" not in drama_cols:

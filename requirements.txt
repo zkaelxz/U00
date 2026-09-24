@@ -60,6 +60,11 @@ jieba>=0.42          # Chinese segmentation. Ships no prebuilt wheel -- if
                       # issue. Fix: pip install "setuptools<60" first, then
                       # retry installing jieba.
 pypinyin>=0.50        # Chinese pinyin
+opencc-python-reimplemented>=0.1  # Traditional<->Simplified conversion, used
+                      # only when a drama's Chinese script is set to
+                      # Traditional -- jieba's dictionary is Simplified-only,
+                      # this lets Reader segmentation still work well on
+                      # Traditional text (Taiwan, Hong Kong sources).
 sudachipy>=0.6        # Japanese segmentation (pure Python, no MeCab binary needed)
 sudachidict_core>=20240716  # Japanese dictionary data for sudachipy
 pykakasi>=2.3          # Japanese kanji -> hiragana readings (furigana)

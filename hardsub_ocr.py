@@ -177,6 +177,7 @@ def dedupe_into_cues(timed_texts, interval_sec: float, min_chars: int = 1):
 def extract_hardsub_subtitles(video_path: str, language: str = "zh",
                                sample_interval: float = 1.0,
                                ocr_backend: str = "tesseract",
+                               chinese_script: str = "simplified",
                                progress_cb=None, tmp_dir=None):
     """
     Full pipeline: sample frames, auto-detect the caption band, OCR each
@@ -187,7 +188,7 @@ def extract_hardsub_subtitles(video_path: str, language: str = "zh",
     transcript -- the rest of the app doesn't need to know the timing
     came from OCR instead of speech recognition.
     """
-    lang = ocr_module.TESSERACT_LANG.get(language, "chi_sim")
+    lang = ocr_module.resolve_tesseract_lang(language, chinese_script)
     with tempfile.TemporaryDirectory(dir=tmp_dir) as frame_dir:
         frames = extract_frames(video_path, frame_dir, interval_sec=sample_interval)
         if not frames:
