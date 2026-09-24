@@ -130,17 +130,19 @@ So every future session (in this repo, cloud or local) picks up the working rule
    - installs `requirements-core.txt` plus the light optional libraries whose tests would otherwise skip (`jieba`, `pypinyin`, `opencc-python-reimplemented`, `opencv-python-headless`, `pytesseract`, `numpy`, `pillow`) — heavy/GPU extras (torch, pyannote, whisper, f5-tts, paddleocr) are deliberately left out, since tests mock those;
    - uses `constraints.lock.txt`/`constraints.txt` once Step 1c adds them;
    - sets `PYTHONPATH` via `$CLAUDE_ENV_FILE`.
-3. Copy both from the planning branch:
+3. **A pull request template** (`.github/pull_request_template.md`), already drafted. Fixed sections — Roadmap step, What changed, Testing, Exit condition, Manual check (copied in from this doc's table), Anything uncertain — so every PR is reviewable in the same shape and the manual-check step doesn't get forgotten.
+4. Copy all three from the planning branch:
    ```
    git fetch origin claude/baihe-subtitle-planning-95qyvq
-   git checkout FETCH_HEAD -- docs/ai-setup/CLAUDE.md docs/ai-setup/.claude
+   git checkout FETCH_HEAD -- docs/ai-setup/CLAUDE.md docs/ai-setup/.claude docs/ai-setup/.github
    mv docs/ai-setup/CLAUDE.md .
    mv docs/ai-setup/.claude .
+   mv docs/ai-setup/.github .
    rmdir docs/ai-setup
    ```
-4. Run the hook once by hand (`CLAUDE_CODE_REMOTE=true ./.claude/hooks/session-start.sh`) and the full suite, to confirm it still works against the current `baihe-subtitler`.
+5. Run the hook once by hand (`CLAUDE_CODE_REMOTE=true ./.claude/hooks/session-start.sh`) and the full suite, to confirm it still works against the current `baihe-subtitler`.
 
-**Exit:** `CLAUDE.md` and `.claude/hooks/session-start.sh` exist at the repo root; a fresh remote session runs `python run_tests.py` successfully with no manual install step first (see the manual check below); a local run is unaffected (the hook exits immediately when `$CLAUDE_CODE_REMOTE` isn't set).
+**Exit:** `CLAUDE.md`, `.claude/hooks/session-start.sh`, and `.github/pull_request_template.md` exist at the repo root; a fresh remote session runs `python run_tests.py` successfully with no manual install step first (see the manual check below); a local run is unaffected (the hook exits immediately when `$CLAUDE_CODE_REMOTE` isn't set).
 
 ### Step 1c — Dependency fixes (from the known-issues research)
 These are things that are broken now, or that break without warning.
@@ -407,9 +409,25 @@ Changes:
   3. Once the planning chat approves it, the user says "create a PR for this step". Then open a pull request **into `baihe-subtitler`** with a short plain-English summary. **Don't merge it yourself.**
   4. The user merges it on GitHub.
   5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
-- **Status:**
-  - Step 1 is merged into `baihe-subtitler` and was reviewed OK.
-  - Step 1b (`step-1b-safety-fixes`) is reviewed and approved, including the edit lock. It's ready for its pull request.
+- **Status** (updated on every review — see §6 for how to keep this accurate; last checked against the real branch state on 2026-09-24):
+
+  | Step | Branch | Status |
+  |---|---|---|
+  | 1 — R5 translation fixes | `claude/r5-translation-fixes` | ✅ Merged (`baihe-subtitler` PR, includes the planning-review follow-up fixes) |
+  | 1b — Safety fixes | `step-1b-safety-fixes` | ✅ Merged (PR #2, includes the edit-lock follow-up) |
+  | 1c-pre — AI setup | *(files drafted on this branch, not yet copied in)* | Drafted, not started by the implementing session |
+  | 1c — Dependency fixes | — | Not started |
+  | 1d — Free testing engines | — | Not started |
+  | 1e — Character pronouns | — | Not started |
+  | 2 — R0 permanent line IDs | — | Not started |
+  | 3 — R1-lite original transcript | — | Not started |
+  | 4 — R2 speaker detection | — | Not started |
+  | 5 — R3-lite local-model defaults | — | Not started |
+  | 6 — Transcription quality | — | Not started |
+  | 7 — Reflect translation mode | — | Not started |
+  | 8 — Recurring-voice suggestions | — | Not started |
+  | 9 — Cost controls & bulk discounts | — | Not started |
+  | 10 — Windows launcher | — | Not started |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
@@ -419,7 +437,41 @@ Changes:
 
 ---
 
-## 5. Sources for Steps 1c and 6–9
+## 5. How each step gets reviewed
+
+So a review is consistent step to step, and survives a context reset or a
+different session picking up reviews later:
+
+1. **Never trust memory for branch/PR/merge state.** Before saying a step is
+   done, merged, or ready for review, `git fetch origin` and check the actual
+   branches — `git log --oneline <base>..<branch>` for what a branch adds,
+   `git merge-base --is-ancestor <branch> baihe-subtitler` for whether it's
+   merged. The status table in §4 is only accurate if every update comes from
+   this check, not from what was last said in chat.
+2. **Read the diff, not just the commit message.** The summary can be
+   accurate and still miss something the diff shows — check both.
+3. **Check the diff against this step's own exit condition**, line by line.
+4. **Check the diff against the "rules learned from real bugs" list** (in the
+   copy of `CLAUDE.md` from Step 1c-pre, once it exists) — id-keyed matching,
+   no keys in URLs/logs, HTTP timeouts, the line-writing job guard,
+   `db.save_lines` field carry-through, CLI/UI parity. These are exactly the
+   mistakes that have already slipped through once each.
+5. **Run the tests locally** against an archive of the branch — don't rely
+   solely on the implementing session's reported pass count.
+6. **Probe the specific fix, not just the general area**, when practical —
+   e.g. calling the changed function directly with the input that used to
+   break it. This caught real bugs in Steps 1 and 1b that reading the diff
+   alone didn't.
+7. **State findings as pass/fail against the exit condition**, not general
+   impressions — then either approve, or list exactly what needs fixing on
+   the same branch.
+8. Once a PR is merged, update the §4 status table (per rule 1) **and** the
+   roadmap's build order if the step turned up something that changes a
+   later step's scope.
+
+---
+
+## 6. Sources for Steps 1c and 6–9
 - yt-dlp — [External JS runtime now required](https://github.com/yt-dlp/yt-dlp/issues/15012), [EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
 - pyannote — [releases (4.0 breaking changes)](https://github.com/pyannote/pyannote-audio/releases), [community-1 model card](https://huggingface.co/pyannote/speaker-diarization-community-1), [community-1 blog](https://www.pyannote.ai/blog/community-1)
 - Ollama — [context length docs](https://docs.ollama.com/context-length), [silent truncation write-up](https://particula.tech/blog/ollama-num-ctx-silent-prompt-truncation)
