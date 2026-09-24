@@ -21,6 +21,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import hardsub_ocr
+import ocr as ocr_module
 
 
 def _make_frame(height=300, width=500, caption_rows=None, seed=0, caption_seed=None):
@@ -116,6 +117,93 @@ class TestDetectCaptionBand:
         assert hardsub_ocr.detect_caption_band([]) is None
         assert hardsub_ocr.detect_caption_band(["/only/one.png"]) is None
 
+    def test_pad_frac_widens_the_returned_band_beyond_the_raw_scoring_window(self, tmp_path):
+        """Regression coverage for a real reported failure: a two-line
+        caption taller than the band_frac scoring window got its second
+        line clipped out of every OCR crop, because the raw window only
+        has to overlap the true caption to score highest, not span all of
+        it. pad_frac expands the returned band afterward so a line just
+        outside the raw window still ends up inside the crop."""
+        height, width = 300, 500
+        caption_rows = (250, 280)  # 30px tall, band_frac=0.12 * 300 = 36px raw window
+        paths = []
+        import cv2
+        for i in range(15):
+            frame = _make_frame(height, width, caption_rows=caption_rows, seed=i)
+            p = str(tmp_path / f"f{i:03d}.png")
+            cv2.imwrite(p, frame)
+            paths.append(p)
+
+        unpadded = hardsub_ocr.detect_caption_band(paths, band_frac=0.12, pad_frac=0.0)
+        padded = hardsub_ocr.detect_caption_band(paths, band_frac=0.12, pad_frac=0.6)
+
+        raw_rows = (unpadded[1] - unpadded[0]) * height
+        padded_rows = (padded[1] - padded[0]) * height
+        assert padded_rows > raw_rows
+        assert padded[0] <= unpadded[0]
+        assert padded[1] >= unpadded[1]
+
+    def test_pad_frac_clamps_to_frame_bounds(self, tmp_path):
+        height, width = 300, 500
+        caption_rows = (0, 20)  # right at the top edge -- padding above would go negative
+        paths = []
+        import cv2
+        for i in range(15):
+            frame = _make_frame(height, width, caption_rows=caption_rows, seed=i)
+            p = str(tmp_path / f"f{i:03d}.png")
+            cv2.imwrite(p, frame)
+            paths.append(p)
+        band = hardsub_ocr.detect_caption_band(paths, band_frac=0.12, pad_frac=0.6)
+        assert band[0] >= 0.0
+        assert band[1] <= 1.0
+
+
+class TestUpscaleForOcr:
+    def test_a_short_crop_is_upscaled_to_the_minimum_height(self):
+        crop = np.zeros((40, 200, 3), dtype=np.uint8)
+        result = hardsub_ocr._upscale_for_ocr(crop, min_height=120)
+        assert result.shape[0] >= 120
+
+    def test_a_tall_crop_is_returned_unchanged(self):
+        crop = np.zeros((200, 500, 3), dtype=np.uint8)
+        result = hardsub_ocr._upscale_for_ocr(crop, min_height=120)
+        assert result.shape == crop.shape
+
+    def test_scale_is_capped_at_max_scale(self):
+        crop = np.zeros((10, 50, 3), dtype=np.uint8)
+        result = hardsub_ocr._upscale_for_ocr(crop, min_height=120, max_scale=3.0)
+        assert result.shape[0] == 30  # 10 * 3.0, not 10 * 12 to reach 120
+
+    def test_zero_height_crop_is_returned_unchanged_without_crashing(self):
+        crop = np.zeros((0, 50, 3), dtype=np.uint8)
+        result = hardsub_ocr._upscale_for_ocr(crop)
+        assert result.shape[0] == 0
+
+
+class TestOcrFrameRegionUpscales:
+    """Proves _ocr_frame_region actually applies the upscale to what gets
+    OCR'd, end to end through a real cropped/written PNG -- not just that
+    the helper function works in isolation."""
+
+    def test_a_short_caption_crop_is_upscaled_before_ocr(self, monkeypatch, tmp_path):
+        import cv2
+        frame = np.zeros((300, 500, 3), dtype=np.uint8)
+        frame_path = str(tmp_path / "frame.png")
+        cv2.imwrite(frame_path, frame)
+
+        seen_shapes = []
+        def fake_tesseract(image_path, lang="chi_sim", tesseract_cmd=None):
+            seen_shapes.append(cv2.imread(image_path).shape)
+            return "text"
+        monkeypatch.setattr(ocr_module, "extract_text_tesseract", fake_tesseract)
+
+        # region (0.9, 1.0) of a 300px-tall frame is a 30px-tall crop --
+        # well under the 120px floor, so it must come out upscaled (capped
+        # at the default max_scale of 3x, so 90px here, not the full 120).
+        hardsub_ocr._ocr_frame_region(frame_path, (0.9, 1.0), "chi_sim", "tesseract")
+
+        assert seen_shapes[0][0] == 90
+
 
 class TestDedupeIntoCues:
     def test_collapses_repeated_frames_into_one_cue(self):
@@ -147,6 +235,46 @@ class TestDedupeIntoCues:
         assert hardsub_ocr.dedupe_into_cues(timed, interval_sec=1.0) == []
 
 
+class TestDedupeIntoCuesStabilityFilter:
+    """min_consecutive_samples: regression coverage for a real known
+    limitation (see hardsub_ocr.py's module docstring) -- a single
+    misread frame, or one transition/fade frame, splitting one real
+    static caption into three cues instead of one."""
+
+    def test_a_single_frame_blip_is_absorbed_not_split_out(self):
+        timed = [(0.0, "hello"), (1.0, "hello"), (2.0, "hallo"), (3.0, "hello"),
+                 (4.0, "hello")]
+        cues = hardsub_ocr.dedupe_into_cues(timed, interval_sec=1.0, min_consecutive=2)
+        assert cues == [{"start": 0.0, "end": 5.0, "text": "hello"}]
+
+    def test_a_real_change_still_registers_once_it_repeats(self):
+        timed = [(0.0, "hello"), (1.0, "hello"), (2.0, "world"), (3.0, "world"),
+                 (4.0, "world")]
+        cues = hardsub_ocr.dedupe_into_cues(timed, interval_sec=1.0, min_consecutive=2)
+        # "world" starts at its FIRST appearance (t=2), not the confirmation
+        # frame (t=3) -- the filter shouldn't add latency to a real caption.
+        assert cues == [{"start": 0.0, "end": 2.0, "text": "hello"},
+                        {"start": 2.0, "end": 5.0, "text": "world"}]
+
+    def test_a_caption_sampled_only_once_is_dropped_as_indistinguishable_from_noise(self):
+        timed = [(0.0, "hello"), (1.0, "hello"), (2.0, "brief"), (3.0, "hello"),
+                 (4.0, "hello")]
+        cues = hardsub_ocr.dedupe_into_cues(timed, interval_sec=1.0, min_consecutive=2)
+        assert cues == [{"start": 0.0, "end": 5.0, "text": "hello"}]
+
+    def test_a_blank_frame_still_ends_a_cue_immediately_regardless_of_the_filter(self):
+        timed = [(0.0, "hi"), (1.0, "hi"), (2.0, ""), (3.0, "bye"), (4.0, "bye")]
+        cues = hardsub_ocr.dedupe_into_cues(timed, interval_sec=1.0, min_consecutive=2)
+        assert cues == [{"start": 0.0, "end": 2.0, "text": "hi"},
+                        {"start": 3.0, "end": 5.0, "text": "bye"}]
+
+    def test_default_min_consecutive_of_one_matches_the_old_behavior(self):
+        timed = [(0.0, "hello"), (1.0, "hello"), (2.0, "world")]
+        cues = hardsub_ocr.dedupe_into_cues(timed, interval_sec=1.0)
+        assert cues == [{"start": 0.0, "end": 2.0, "text": "hello"},
+                        {"start": 2.0, "end": 3.0, "text": "world"}]
+
+
 class TestExtractHardsubSubtitlesOrchestration:
     """ffmpeg frame extraction and the actual OCR call are mocked at their
     boundary -- neither ffmpeg nor tesseract is available in this
@@ -169,7 +297,8 @@ class TestExtractHardsubSubtitlesOrchestration:
         progress_seen = []
         result = hardsub_ocr.extract_hardsub_subtitles(
             "/fake/video.mp4", language="zh", sample_interval=1.0,
-            progress_cb=progress_seen.append, tmp_dir=str(tmp_path))
+            progress_cb=progress_seen.append, tmp_dir=str(tmp_path),
+            min_consecutive_samples=1)  # testing wiring/order, not the stability filter
 
         assert result == [
             {"start": 0.0, "end": 2.0, "text": "hi"},
@@ -200,3 +329,21 @@ class TestExtractHardsubSubtitlesOrchestration:
         result = hardsub_ocr.extract_hardsub_subtitles("/fake/video.mp4", tmp_dir=str(tmp_path))
         assert result == []
         assert called == []
+
+    def test_defaults_to_requiring_two_consecutive_samples(self, monkeypatch, tmp_path):
+        """A single-frame OCR blip on an otherwise-static caption is a real
+        confirmed failure mode (see hardsub_ocr.py's module docstring) --
+        the default pipeline call must actually use the stability filter,
+        not just have it available as an unused option."""
+        monkeypatch.setattr(hardsub_ocr, "extract_frames",
+                             lambda video_path, out_dir, interval_sec:
+                             [(0.0, "f0.png"), (1.0, "f1.png"), (2.0, "f2.png"), (3.0, "f3.png")])
+        monkeypatch.setattr(hardsub_ocr, "detect_caption_band", lambda paths, **k: (0.8, 1.0))
+        texts = {"f0.png": "hello", "f1.png": "hello", "f2.png": "glitch", "f3.png": "hello"}
+        monkeypatch.setattr(hardsub_ocr, "_ocr_frame_region",
+                             lambda path, region, lang, backend, tesseract_cmd=None: texts[path])
+
+        result = hardsub_ocr.extract_hardsub_subtitles(
+            "/fake/video.mp4", sample_interval=1.0, tmp_dir=str(tmp_path))
+
+        assert result == [{"start": 0.0, "end": 4.0, "text": "hello"}]
