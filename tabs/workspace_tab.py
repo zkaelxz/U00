@@ -13,6 +13,20 @@ def _format_media_type(m):
     return special.get(m, m.replace("_", " ").title())
 
 
+def _sanitize_filename(name: str, max_length: int = 80) -> str:
+    """Strips characters Windows/macOS/Linux all disallow in a filename
+    (a custom export name is free-typed text, not something to trust
+    verbatim), collapses whitespace to underscores, and caps the length
+    so a long drama title doesn't produce a path Windows itself refuses
+    to write. Returns "" for input that's empty after cleaning, so
+    callers can fall back to their own default rather than downloading
+    a file literally named "_"."""
+    name = (name or "").strip()
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
+    name = re.sub(r"\s+", "_", name).strip("_.")
+    return name[:max_length]
+
+
 def _jump_to_line_button(picked_id, line_idx, all_lines, key):
     """A button that lands on the right page of the Review & edit table
     for a specific line, instead of leaving a flagged-line list (pacing
@@ -224,6 +238,57 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, so
     if found_notes:
         db.save_translation_notes(drama_id, found_notes)
     background_jobs.set_result(job_id, {"note_count": len(found_notes)})
+
+
+def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
+                               source_language, engine, engine_choice):
+    """
+    Bulk version of the single-line 🔧 tools in Review & edit: for every
+    currently-flagged line, re-transcribes its own timing window from the
+    original audio (skipped if there's no audio -- novel-narration has
+    none to re-transcribe) and re-translates the result, clearing the
+    flag on whichever lines that actually changed something for. Uses
+    whatever Whisper model size and translation engine/model are
+    currently selected in Workspace (3. Recognition accuracy / 5.
+    Translation) -- the same ones "Transcribe" and "Translate all lines"
+    themselves would use, not a separate hidden choice.
+    """
+    flagged = [ln for ln in lines if ln.flag]
+    fixed_count = 0
+    for i, ln in enumerate(flagged):
+        if audio_path and os.path.exists(audio_path):
+            slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
+            try:
+                core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
+                segments = core_module.transcribe_for_timing(
+                    slice_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu)
+                new_zh = " ".join(s["text"] for s in segments).strip()
+                if new_zh:
+                    ln.zh = new_zh
+            finally:
+                if os.path.exists(slice_path):
+                    os.remove(slice_path)
+        if ln.zh.strip():
+            try:
+                translated = engine.translate_batch([ln.zh], {})[0]
+                if hasattr(engine, "last_usage"):
+                    db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
+                                 "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
+                                 engine.last_usage.get("output_tokens", 0),
+                                 translate_engines.estimate_cost(
+                                     getattr(engine, "model", ""),
+                                     engine.last_usage.get("input_tokens", 0),
+                                     engine.last_usage.get("output_tokens", 0)))
+                if translated.strip():
+                    ln.en = translated
+                    ln.flag, ln.flag_note = None, ""
+                    fixed_count += 1
+            except Exception:
+                pass  # leave the line flagged rather than lose the source fix silently
+        background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
+                                        f"Fixing flagged lines... {i + 1}/{len(flagged)}")
+    db.save_lines(drama_id, lines)
+    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged)})
 
 
 def render_workspace_tab():
@@ -2081,6 +2146,65 @@ def render_workspace_tab():
                 if _n_flagged:
                     st.caption(f"{_n_flagged} line(s) currently flagged.")
 
+                    st.markdown("**Fix flagged lines in bulk**")
+                    _fixflag_job_id = f"fixflag_{picked_id}"
+                    _ffjob = background_jobs.get_status(_fixflag_job_id)
+                    _fixflag_audio_path = (os.path.join(ddir, drama["audio_filename"])
+                                            if drama.get("audio_filename") else None)
+                    st.caption(
+                        f"Re-transcribes each flagged line's audio with the '{whisper_size}' "
+                        f"speech recognition model (set above in 3.) and re-translates it with "
+                        f"{engine_choice} / {engine_model or 'default model'} (set below in 5.) -- "
+                        "change either of those pickers first if you want this to use something "
+                        "else. Lines with no audio to re-transcribe (novel narration) are just "
+                        "re-translated. Clears the flag on any line this actually changes."
+                        if _fixflag_audio_path else
+                        f"Re-translates each flagged line with {engine_choice} / "
+                        f"{engine_model or 'default model'} (set below in 5.) -- change that "
+                        "picker first if you want a different engine or model. There's no audio "
+                        "on this drama to re-transcribe, so only re-translation runs. Clears the "
+                        "flag on any line this actually changes.")
+                    if st.button("🔁 Re-transcribe + re-translate flagged lines") and api_key:
+                        engine_ff = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                        _lines_copy_ff = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                                speaker=l.speaker, dub_filename=l.dub_filename,
+                                                flag=l.flag, flag_note=l.flag_note)
+                                          for l in edited_rows]
+                        started = background_jobs.start_job(
+                            _fixflag_job_id, run_fix_flagged_lines_job,
+                            _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
+                            whisper_size, st.session_state.get("use_gpu", False), source_language,
+                            engine_ff, engine_choice)
+                        if started:
+                            st.info("Fixing flagged lines in the background -- safe to switch tabs "
+                                    "while this runs.")
+                            st.rerun()
+                        else:
+                            st.warning("Already fixing flagged lines for this drama.")
+
+                    if _ffjob:
+                        if _ffjob["status"] == "running":
+                            st.progress(_ffjob["progress"], text=_ffjob.get("message") or "Fixing...")
+                            if st.button("🔄 Refresh progress", key=f"refresh_ff_{picked_id}"):
+                                st.rerun()
+                        elif _ffjob["status"] == "done":
+                            st.session_state.lines = [
+                                Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
+                                     en=r.get("en") or "", speaker=r.get("speaker"),
+                                     dub_filename=r.get("dub_filename"), flag=r.get("flag"),
+                                     flag_note=r.get("flag_note") or "")
+                                for r in db.load_lines(picked_id)]
+                            edited_rows = st.session_state.lines
+                            _ff_result = _ffjob.get("result") or {}
+                            st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
+                                      f"{_ff_result.get('total_flagged', 0)} flagged line(s).")
+                            background_jobs.clear_job(_fixflag_job_id)
+                        elif _ffjob["status"] == "error":
+                            st.error(f"Fixing flagged lines failed: {_ffjob['error']}")
+                            with st.expander("Details"):
+                                st.code(_ffjob.get("traceback", ""), language="text")
+                            background_jobs.clear_job(_fixflag_job_id)
+
             with st.expander("🎭 Emotional register (sarcasm, humour, anger)"):
                 st.caption(
                     "Tags each line's emotional charge so translation preserves it. Sarcasm read "
@@ -2469,16 +2593,24 @@ def render_workspace_tab():
                      "above (section 5) to enable this.")
             _notes_by_idx = tguide.group_notes_by_line(_existing_notes) if _include_notes_inline else None
 
+            _default_base_name = _sanitize_filename(drama.get("title_en") or drama.get("title_zh") or "export")
+            _base_name = st.text_input(
+                "Base filename (optional)", value="", placeholder=_default_base_name,
+                help="Used for every download below, e.g. \"my_title_english.srt\". Leave blank "
+                     "to use the drama's title.", key=f"export_base_name_{picked_id}")
+            _base_name = _sanitize_filename(_base_name) or _default_base_name
+
             c1, c2, c3 = st.columns(3)
             c1.download_button("Download English .srt",
                                 lines_to_srt(st.session_state.lines, "en", notes_by_idx=_notes_by_idx),
-                                file_name="english.srt", disabled=(_en_filled == 0))
+                                file_name=f"{_base_name}_english.srt", disabled=(_en_filled == 0))
             c2.download_button("Download Chinese .srt",
                                 lines_to_srt(st.session_state.lines, "zh", notes_by_idx=_notes_by_idx),
-                                file_name="chinese.srt", disabled=(_zh_filled == 0))
+                                file_name=f"{_base_name}_chinese.srt", disabled=(_zh_filled == 0))
             c3.download_button("Download Bilingual .srt",
                                 lines_to_bilingual_srt(st.session_state.lines, notes_by_idx=_notes_by_idx),
-                                file_name="bilingual.srt", disabled=(_zh_filled == 0 and _en_filled == 0))
+                                file_name=f"{_base_name}_bilingual.srt",
+                                disabled=(_zh_filled == 0 and _en_filled == 0))
 
             if content_mode == "novel_narration":
                 st.caption("Novel/narration content -- also export as an EPUB for reading in any e-reader app.")
@@ -2489,7 +2621,7 @@ def render_workspace_tab():
                         epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
                                              drama.get("author", ""), epub_path, field="en")
                         with open(epub_path, "rb") as f:
-                            st.download_button("Download .epub", f.read(), file_name="translated.epub")
+                            st.download_button("Download .epub", f.read(), file_name=f"{_base_name}.epub")
                     except Exception as e:
                         st.error(f"EPUB export failed: {e}. Check `pip install ebooklib`.")
 
@@ -2528,9 +2660,9 @@ def render_workspace_tab():
                                     out_path = os.path.splitext(out_path)[0] + ".mp4"
                                 video_export.mux_soft_subtitles(source_video_path, sub_text_map[sub_language], out_path)
                         st.success("Subtitled episode ready.")
+                        _dl_name = f"{_base_name}_subtitled{os.path.splitext(out_path)[1]}"
                         with open(out_path, "rb") as f:
-                            st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
-                                                file_name=os.path.basename(out_path))
+                            st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
                     except Exception as e:
                         st.error(f"Video export failed: {e}. Check that ffmpeg (with libass for hardsub) is installed.")
 
@@ -2549,9 +2681,9 @@ def render_workspace_tab():
                                     keep_original_at_db=-20.0 if keep_orig else None,
                                 )
                             st.success("Dubbed episode ready.")
+                            _dl_name = f"{_base_name}_dubbed{os.path.splitext(out_path)[1]}"
                             with open(out_path, "rb") as f:
-                                st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
-                                                    file_name=os.path.basename(out_path))
+                                st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
                         except Exception as e:
                             st.error(f"Video export failed: {e}")
 
