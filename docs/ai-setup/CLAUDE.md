@@ -26,6 +26,19 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 - **Keep changes minimal.** Only what the step's roadmap entry asks for —
   no extra refactors, no new features, no dependency upgrades beyond what
   the step names.
+- **Remove what your own change makes dead.** If the step's change leaves
+  behind an unused import, a function/variable nothing calls anymore, a
+  branch that can no longer be reached, or a helper that only existed for
+  the code you just replaced, delete it as part of the same commit — that's
+  cleanup of your own change, not an extra refactor, and it's still in
+  scope under "keep changes minimal" above.
+- **Flag pre-existing dead/redundant code you notice, don't silently fix
+  it.** If you spot unrelated dead code, duplicated logic, or an unused
+  dependency while reading files for this step, name it in the step's
+  finish-up summary (file/function, why it looks dead) instead of either
+  ignoring it or fixing it inline — fixing it would violate "keep changes
+  minimal" and widen the diff the planning session has to review. The
+  planning session decides whether it's worth its own step.
 - **Before starting a step, check the roadmap's §4 "Model recommendation
   per step" table.** If the step you're about to start is listed there,
   stop and ask the user to confirm they've switched this chat to Opus
