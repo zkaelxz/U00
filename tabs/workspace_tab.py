@@ -1978,6 +1978,18 @@ def render_workspace_tab():
                     for r in db.load_lines(picked_id)]
 
             all_lines = st.session_state.lines
+
+            # Translate/flag/fix-flagged jobs each save their own full copy
+            # of the drama's lines via db.save_lines() from a background
+            # thread. A manual edit saved from here at the same time races
+            # it -- whichever save lands last silently wins. Every control
+            # below that writes lines is disabled while one of those jobs
+            # is running for this drama.
+            _editing_locked = background_jobs.any_line_writing_job(picked_id)
+            if _editing_locked:
+                st.info("✋ Line editing is paused while translation is running, so your edits "
+                        "aren't overwritten. It unlocks when the job finishes.")
+
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
             fc1, fc2 = st.columns(2)
@@ -2011,7 +2023,7 @@ def render_workspace_tab():
                     fc1, fc2 = st.columns([5, 1])
                     fc1.warning(f"⚠️ **{translate_engines.FLAG_REASONS.get(ln.flag, ln.flag)}**"
                                + (f" — {ln.flag_note}" if ln.flag_note else ""))
-                    if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}"):
+                    if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}", disabled=_editing_locked):
                         ln.flag, ln.flag_note = None, ""
                         db.save_lines(picked_id, all_lines)
                         st.rerun()
@@ -2036,7 +2048,7 @@ def render_workspace_tab():
                     _improved = st.session_state.get(f"rv_improved_{ln.idx}")
                     if _improved:
                         st.success(_improved)
-                        if st.button("Use this", key=f"rvuseimproved_{ln.idx}"):
+                        if st.button("Use this", key=f"rvuseimproved_{ln.idx}", disabled=_editing_locked):
                             db.record_edit_sample(picked_id, zh, en, _improved)
                             for _r in all_lines:
                                 if _r.idx == ln.idx:
@@ -2064,7 +2076,7 @@ def render_workspace_tab():
                         if _retrans is not None:
                             if _retrans:
                                 st.success(_retrans)
-                                if st.button("Use this", key=f"rvuseretrans_{ln.idx}"):
+                                if st.button("Use this", key=f"rvuseretrans_{ln.idx}", disabled=_editing_locked):
                                     for _r in all_lines:
                                         if _r.idx == ln.idx:
                                             _r.zh = _retrans
@@ -2090,7 +2102,7 @@ def render_workspace_tab():
                 edited_rows[_idx_to_pos[ln.idx]] = ln
             st.session_state.lines = edited_rows
 
-            if st.button("💾 Save edits (this page)"):
+            if st.button("💾 Save edits (this page)", disabled=_editing_locked):
                 # Capture what you actually changed, so the style profile can learn
                 # from real edits rather than guesswork.
                 _prev = {r["idx"]: r.get("en") or "" for r in db.load_lines(picked_id)}
@@ -2156,7 +2168,8 @@ def render_workspace_tab():
                             _jump_to_line_button(picked_id, f["idx"], all_lines,
                                                   key=f"jump_pacing_{f['idx']}")
                     too_long_idxs = {f["idx"] for f in flags if f["issue"] == "too_long_for_slot"}
-                    if too_long_idxs and api_key and st.button("✂️ Auto-shorten overlong lines with LLM"):
+                    if too_long_idxs and api_key and st.button(
+                            "✂️ Auto-shorten overlong lines with LLM", disabled=_editing_locked):
                         engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
                         to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
                         translate_engines.rewrite_for_pacing_llm(
@@ -2476,7 +2489,8 @@ def render_workspace_tab():
                         active = " ✅ **active**" if v["is_active"] else ""
                         when = v["created_at"][:16].replace("T", " ") if v["created_at"] else "?"
                         vc1.caption(f"**{v['label']}**{active} — {v['model'] or v['engine']} · {when}")
-                        if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}"):
+                        if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}",
+                                                              disabled=_editing_locked):
                             full = db.get_translation_version(v["id"])
                             if full:
                                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
@@ -2606,7 +2620,7 @@ def render_workspace_tab():
                     st.info(f"{len(edited_rows)} lines -> {len(merged_preview)} lines after merging.")
                 merge_preview = st.session_state.get(f"merge_preview_{picked_id}")
                 if merge_preview:
-                    if st.button("✅ Apply merge"):
+                    if st.button("✅ Apply merge", disabled=_editing_locked):
                         db.save_line_history_snapshot(picked_id, edited_rows, "before merge")
                         db.save_lines(picked_id, merge_preview)
                         st.session_state.lines = merge_preview
@@ -2629,7 +2643,7 @@ def render_workspace_tab():
                         hc1, hc2 = st.columns([3, 1])
                         when = h["created_at"][:16].replace("T", " ") if h["created_at"] else "?"
                         hc1.caption(f"**{h['label']}** — {when}")
-                        if hc2.button("Restore", key=f"restore_{h['id']}"):
+                        if hc2.button("Restore", key=f"restore_{h['id']}", disabled=_editing_locked):
                             snapshot = db.get_line_history_snapshot(h["id"])
                             if snapshot:
                                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
