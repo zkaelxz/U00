@@ -323,6 +323,65 @@ class TestUsageTracking:
         assert summary["estimated_cost_usd"] == 0
 
 
+class TestConsistencyIssuesPersist:
+    """Regression coverage for a real bug: the consistency-check result
+    (a real LLM call) used to live only in st.session_state, so a page
+    refresh silently lost it -- meaning re-checking (and re-paying for
+    it) was the only way to see the same result again."""
+
+    def test_save_and_load(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_consistency_issues(did, [
+            {"term": "沈清疑", "variants": ["Shen Qingyi", "Shen Qing Yi"], "note": "spacing"},
+        ])
+        loaded = isolated_db.load_consistency_issues(did)
+        assert len(loaded) == 1
+        assert loaded[0]["term"] == "沈清疑"
+        assert loaded[0]["variants"] == ["Shen Qingyi", "Shen Qing Yi"]
+
+    def test_a_later_run_replaces_the_previous_one(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_consistency_issues(did, [{"term": "a", "variants": [], "note": ""}])
+        isolated_db.save_consistency_issues(did, [{"term": "b", "variants": [], "note": ""}])
+        loaded = isolated_db.load_consistency_issues(did)
+        assert [i["term"] for i in loaded] == ["b"]
+
+    def test_no_issues_saved_yet_returns_empty_list(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        assert isolated_db.load_consistency_issues(did) == []
+
+
+class TestEmotionsPersist:
+    """Regression coverage for a real bug: emotion detection (a
+    whole-drama LLM batch job, same cost scale as translation) had no
+    database persistence at all -- its result lived only in
+    st.session_state, so a page refresh lost it and it never fed back
+    into a later translation run either."""
+
+    def test_save_and_load(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_emotions(did, {
+            0: {"emotion": "sarcastic", "intensity": 0.9, "note": "mock praise"},
+            3: {"emotion": "sad", "intensity": 0.6, "note": ""},
+        })
+        loaded = isolated_db.load_emotions(did)
+        assert loaded[0]["emotion"] == "sarcastic"
+        assert loaded[0]["intensity"] == 0.9
+        assert loaded[3]["emotion"] == "sad"
+
+    def test_re_running_updates_existing_lines_rather_than_duplicating(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_emotions(did, {0: {"emotion": "angry", "intensity": 0.5, "note": ""}})
+        isolated_db.save_emotions(did, {0: {"emotion": "sad", "intensity": 0.7, "note": ""}})
+        loaded = isolated_db.load_emotions(did)
+        assert len(loaded) == 1
+        assert loaded[0]["emotion"] == "sad"
+
+    def test_no_emotions_saved_yet_returns_empty_dict(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        assert isolated_db.load_emotions(did) == {}
+
+
 class TestLibraryStatsAndSearch:
     def test_get_library_stats_counts_dramas(self, isolated_db):
         isolated_db.create_drama(title_en="A", status="translated")

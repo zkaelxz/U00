@@ -20,7 +20,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-from tabs.workspace_tab import run_transcribe_job, run_hardsub_ocr_job, run_flag_job
+from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
+                                 run_emotion_job, run_consistency_job, run_translation_notes_job)
 import core as core_module
 from core import Line
 
@@ -240,7 +241,7 @@ def test_flag_job_persists_flags_to_db(isolated_db):
              Line(idx=1, start=1, end=2, zh="你好", en="Hello.")]
     engine = FakeFlaggingEngine(flags_for={0: ("ambiguous_reference", "'she' unresolved")})
 
-    run_flag_job(job_id, did, lines, engine)
+    run_flag_job(job_id, did, lines, engine, "claude")
 
     loaded = isolated_db.load_lines(did)
     assert loaded[0]["flag"] == "ambiguous_reference"
@@ -259,7 +260,7 @@ def test_flag_job_progress_cb_is_wired(isolated_db):
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
 
-    run_flag_job(job_id, did, lines, FakeFlaggingEngine())
+    run_flag_job(job_id, did, lines, FakeFlaggingEngine(), "claude")
 
     status = background_jobs.get_status(job_id)
     assert status["progress"] == 1.0
@@ -274,9 +275,157 @@ def test_flag_job_with_nothing_flagged(isolated_db):
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
 
-    run_flag_job(job_id, did, lines, FakeFlaggingEngine())
+    run_flag_job(job_id, did, lines, FakeFlaggingEngine(), "claude")
 
     result = background_jobs.get_status(job_id)["result"]
     assert result == {"flagged_count": 0}
     assert isolated_db.load_lines(did)[0]["flag"] is None
+    _clear(job_id)
+
+
+class FakeFlaggingEngineWithUsage(FakeFlaggingEngine):
+    """Same fake, but with a response.usage -- regression coverage for a
+    real gap: none of the review-queue/emotion/consistency-check features
+    ever logged token usage anywhere, so the "Estimated spend" dashboard
+    number only ever reflected the main Translate job, not any of this."""
+    def create(self, model, max_tokens, messages):
+        resp = super().create(model, max_tokens, messages)
+        resp.usage = type("Usage", (), {"input_tokens": 30, "output_tokens": 12})()
+        return resp
+
+
+def test_flag_job_logs_usage_to_the_cost_dashboard(isolated_db):
+    job_id = "test_flag_usage"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+
+    run_flag_job(job_id, did, lines, FakeFlaggingEngineWithUsage(), "claude")
+
+    summary = isolated_db.get_usage_summary(did)
+    assert summary["input_tokens"] == 30
+    assert summary["output_tokens"] == 12
+    _clear(job_id)
+
+
+def test_emotion_job_persists_to_db_and_logs_usage(isolated_db):
+    job_id = "test_emotion_persist"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="她昨天来了", en="She came yesterday.")]
+
+    class FakeEmotionEngine:
+        supports_reference = True
+        model = "fake-model"
+
+        def __init__(self):
+            self.client = self
+            self.messages = self
+
+        def create(self, model, max_tokens, messages):
+            import json as _json
+            block = type("Block", (), {
+                "type": "text",
+                "text": _json.dumps([{"line_idx": 0, "emotion": "sad", "intensity": 0.8}]),
+            })()
+            usage = type("Usage", (), {"input_tokens": 50, "output_tokens": 20})()
+            return type("Resp", (), {"content": [block], "usage": usage})()
+
+    run_emotion_job(job_id, did, lines, FakeEmotionEngine(), False, "claude")
+
+    # Survives a fresh load from the database, not just the ephemeral job
+    # result -- this is the actual bug: it used to live in st.session_state
+    # only, which a page refresh wipes.
+    saved = isolated_db.load_emotions(did)
+    assert saved[0]["emotion"] == "sad"
+    assert saved[0]["intensity"] == 0.8
+
+    summary = isolated_db.get_usage_summary(did)
+    assert summary["input_tokens"] == 50
+    assert summary["output_tokens"] == 20
+    _clear(job_id)
+
+
+def test_consistency_job_persists_and_logs_usage(isolated_db):
+    """Regression coverage: consistency check used to run synchronously
+    (a blocking st.spinner), which meant it couldn't run alongside any
+    other check -- the whole app was stuck until it finished. Now it's a
+    background job like the others."""
+    job_id = "test_consistency_persist"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="沈清疑", en="Shen Qingyi"),
+             Line(idx=1, start=1, end=2, zh="沈清疑", en="Shen Qing Yi")]
+
+    class FakeConsistencyEngine:
+        supports_reference = True
+        model = "fake-model"
+
+        def __init__(self):
+            self.client = self
+            self.messages = self
+
+        def create(self, model, max_tokens, messages):
+            import json as _json
+            block = type("Block", (), {
+                "type": "text",
+                "text": _json.dumps([{"term": "沈清疑",
+                                       "variants": ["Shen Qingyi", "Shen Qing Yi"],
+                                       "note": "spacing"}]),
+            })()
+            usage = type("Usage", (), {"input_tokens": 15, "output_tokens": 6})()
+            return type("Resp", (), {"content": [block], "usage": usage})()
+
+    run_consistency_job(job_id, did, lines, FakeConsistencyEngine(), "claude")
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"issue_count": 1}
+    saved = isolated_db.load_consistency_issues(did)
+    assert saved[0]["term"] == "沈清疑"
+    summary = isolated_db.get_usage_summary(did)
+    assert summary["input_tokens"] == 15
+    _clear(job_id)
+
+
+def test_translation_notes_job_persists_and_logs_usage(isolated_db):
+    """Same fix as the consistency job above, for Generate translation notes."""
+    job_id = "test_notes_persist"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="画蛇添足", en="Gilding the lily")]
+
+    class FakeNotesEngine:
+        supports_reference = True
+        model = "fake-model"
+
+        def __init__(self):
+            self.client = self
+            self.messages = self
+
+        def create(self, model, max_tokens, messages):
+            import json as _json
+            block = type("Block", (), {
+                "type": "text",
+                "text": _json.dumps([{"line_idx": 0, "term": "画蛇添足", "note_type": "idiom",
+                                       "note": "Lit. 'drawing a snake and adding feet'."}]),
+            })()
+            usage = type("Usage", (), {"input_tokens": 25, "output_tokens": 10})()
+            return type("Resp", (), {"content": [block], "usage": usage})()
+
+    run_translation_notes_job(job_id, did, lines, FakeNotesEngine(), "claude", "zh")
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"note_count": 1}
+    saved = isolated_db.list_translation_notes(did)
+    assert saved[0]["term"] == "画蛇添足"
+    summary = isolated_db.get_usage_summary(did)
+    assert summary["input_tokens"] == 25
     _clear(job_id)
