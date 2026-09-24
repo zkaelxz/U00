@@ -806,6 +806,145 @@ class TestGeminiEngine:
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
 
 
+class TestOllamaEngine:
+    """Regression coverage for a real gap: Ollama's own default context
+    window can be as small as 2-4k tokens, and a prompt longer than it
+    gets silently TRUNCATED FROM THE START (system instructions/glossary/
+    reference novel) with no error at all. translate_batch now always
+    sends an explicit options.num_ctx sized from the actual prompt, with
+    a floor, plus a `format` JSON schema pairing with the id-keyed
+    parsing from Step 1."""
+
+    def _fake_response(self, captured, text='{"1": "Hello."}'):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"message": {"content": text}}
+
+        def fake_post(url, json=None, timeout=None):
+            captured["json"] = json
+            captured["timeout"] = timeout
+            return FakeResponse()
+        return fake_post
+
+    def test_sends_a_format_json_schema_for_structured_output(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {})
+        assert captured["json"]["format"] == te._OLLAMA_ID_KEYED_JSON_SCHEMA
+
+    def test_num_ctx_is_never_below_the_floor_for_a_short_prompt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {})
+        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+
+    def test_num_ctx_grows_with_a_much_longer_prompt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        long_glossary = [{"term_original": "x" * 200, "term_translation": "y"} for _ in range(200)]
+        engine.translate_batch(["你好"], {"glossary_terms": long_glossary})
+        assert captured["json"]["options"]["num_ctx"] > te.OLLAMA_MIN_NUM_CTX
+
+    def test_override_can_raise_num_ctx_above_the_estimate(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {"ollama_num_ctx_override": 100_000})
+        assert captured["json"]["options"]["num_ctx"] == 100_000
+
+    def test_override_below_the_estimate_is_not_used(self, monkeypatch):
+        """A manual override smaller than what the prompt actually needs
+        would silently reintroduce the exact truncation bug this exists
+        to prevent -- the larger of the two must always win."""
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {"ollama_num_ctx_override": 1})
+        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+
+    def test_request_has_a_timeout(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {})
+        assert captured["timeout"] is not None
+
+
+class TestOllamaReachability:
+    """Regression coverage for a real gap: Ollama is exempted from the
+    API-key check entirely (workspace_tab.py's _needs_key), with nothing
+    in its place -- clicking Translate against a stopped local server
+    used to start a background job that only failed once
+    translate_batch's own 300s timeout expired. check_ollama_reachable()
+    is a cheap up-front health check the UI uses to disable that button
+    instead."""
+
+    def setup_method(self):
+        te._ollama_reachability_cache.clear()
+
+    def _fake_get(self, ok=True, raises=None):
+        captured = {}
+
+        def fake_get(url, timeout=None):
+            captured["url"] = url
+            captured["timeout"] = timeout
+            if raises:
+                raise raises
+            return type("Resp", (), {"ok": ok})()
+        return fake_get, captured
+
+    def test_true_when_the_server_responds_ok(self, monkeypatch):
+        fake_get, captured = self._fake_get(ok=True)
+        monkeypatch.setattr("requests.get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert captured["url"] == "http://localhost:11434/api/tags"
+        assert captured["timeout"] is not None
+
+    def test_false_when_the_server_responds_with_an_error_status(self, monkeypatch):
+        fake_get, _ = self._fake_get(ok=False)
+        monkeypatch.setattr("requests.get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+
+    def test_false_when_the_connection_fails(self, monkeypatch):
+        fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
+        monkeypatch.setattr("requests.get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+
+    def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
+        fake_get, _ = self._fake_get(ok=True)
+        calls = {"n": 0}
+        def counting_get(url, timeout=None):
+            calls["n"] += 1
+            return fake_get(url, timeout=timeout)
+        monkeypatch.setattr("requests.get", counting_get)
+
+        te.check_ollama_reachable("http://localhost:11434")
+        te.check_ollama_reachable("http://localhost:11434")
+        te.check_ollama_reachable("http://localhost:11434")
+
+        assert calls["n"] == 1
+
+    def test_a_different_base_url_is_cached_separately(self, monkeypatch):
+        monkeypatch.setattr("requests.get", self._fake_get(ok=True)[0])
+        te.check_ollama_reachable("http://localhost:11434")
+        # A second, different URL must still be checked fresh, not
+        # short-circuited by the first URL's cache entry.
+        fake_get_down, _ = self._fake_get(ok=False)
+        monkeypatch.setattr("requests.get", fake_get_down)
+        assert te.check_ollama_reachable("http://otherhost:9999") is False
+
+    def test_trailing_slash_in_base_url_is_normalized(self, monkeypatch):
+        fake_get, captured = self._fake_get(ok=True)
+        monkeypatch.setattr("requests.get", fake_get)
+        te.check_ollama_reachable("http://localhost:11434/")
+        assert captured["url"] == "http://localhost:11434/api/tags"
+
+
 class TestDeepLEngine:
     """Regression coverage for a real bug: source_language was hardcoded
     to "ZH" regardless of the drama's actual source language, so a

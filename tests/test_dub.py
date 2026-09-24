@@ -78,6 +78,104 @@ def _install_fake_pydub(monkeypatch, clip_lengths=None):
     return ConfiguredFakeAudioSegment
 
 
+def _install_fake_edge_tts(monkeypatch, save_exception=None):
+    """Registers a fake edge_tts module -- real edge_tts isn't installed
+    in this sandbox (no network). Communicate(...).save(out_path) either
+    writes a placeholder file, or raises save_exception if one is given,
+    the same way a real blocked/failed request would."""
+    fake_module = types.ModuleType("edge_tts")
+
+    class FakeCommunicate:
+        def __init__(self, text, voice, rate="+0%"):
+            self.text, self.voice = text, voice
+
+        async def save(self, out_path):
+            if save_exception:
+                raise save_exception
+            with open(out_path, "w") as f:
+                f.write("fake-audio")
+
+    fake_module.Communicate = FakeCommunicate
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_module)
+
+
+class TestEdgeTTSBlockedErrorHandling:
+    """Regression coverage for a real, periodic Microsoft-side block:
+    edge-tts's WebSocket handshake gets rejected with a 403 (latest
+    reported January 2026). Before this, that surfaced as a raw,
+    unhelpful exception per failed line."""
+
+    def test_a_403_error_is_wrapped_with_a_clear_message(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception(
+            "server rejected WebSocket connection: HTTP 403"))
+        with pytest.raises(dub.EdgeTTSBlockedError, match="pip install -U edge-tts"):
+            dub.synthesize_line("hello", "en-US-AvaNeural", str(tmp_path / "out.wav"))
+
+    def test_a_non_403_error_passes_through_unwrapped(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch, save_exception=RuntimeError("network unreachable"))
+        with pytest.raises(RuntimeError, match="network unreachable"):
+            dub.synthesize_line("hello", "en-US-AvaNeural", str(tmp_path / "out.wav"))
+
+    def test_success_is_unaffected(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch)
+        out_path = str(tmp_path / "out.wav")
+        dub.synthesize_line("hello", "en-US-AvaNeural", out_path)
+        assert os.path.exists(out_path)
+
+
+class TestSynthesizeEdgeTTSWithPiperFallback:
+    """When Piper is installed, a blocked edge-tts request should fall
+    back to it automatically rather than losing the line -- an upstream
+    block outside anyone's control shouldn't need per-line manual
+    intervention when an offline alternative is already available."""
+
+    def test_falls_back_to_piper_when_installed(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
+        offline_calls = []
+        monkeypatch.setattr(
+            dub, "synthesize_line_offline",
+            lambda text, voice, out_path: offline_calls.append((text, voice, out_path))
+            or open(out_path, "w").close())
+
+        out_path = str(tmp_path / "out.wav")
+        dub._synthesize_edge_tts_with_piper_fallback(
+            "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
+
+        assert offline_calls == [("hello", dub.DEFAULT_OFFLINE_VOICE_POOL[0], out_path)]
+
+    def test_uses_the_speakers_configured_offline_voice_if_set(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
+        voices_used = []
+        monkeypatch.setattr(
+            dub, "synthesize_line_offline",
+            lambda text, voice, out_path: voices_used.append(voice) or open(out_path, "w").close())
+
+        out_path = str(tmp_path / "out.wav")
+        dub._synthesize_edge_tts_with_piper_fallback(
+            "hello", "en-US-AvaNeural", out_path,
+            {"SPEAKER_00": "en_GB-alba-medium"}, "SPEAKER_00")
+
+        assert voices_used == ["en_GB-alba-medium"]
+
+    def test_reraises_the_blocked_error_when_piper_is_not_installed(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        # piper genuinely isn't installed in this sandbox -- no mocking needed
+        # to exercise the real ImportError path.
+        out_path = str(tmp_path / "out.wav")
+        with pytest.raises(dub.EdgeTTSBlockedError):
+            dub._synthesize_edge_tts_with_piper_fallback(
+                "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
+
+    def test_a_non_blocked_error_propagates_without_trying_piper(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch, save_exception=RuntimeError("network down"))
+        out_path = str(tmp_path / "out.wav")
+        with pytest.raises(RuntimeError, match="network down"):
+            dub._synthesize_edge_tts_with_piper_fallback(
+                "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
+
+
 class TestAssignVoicesToCharacters:
     def test_round_robins_through_the_pool(self):
         result = dub.assign_voices_to_characters(["A", "B", "C"], voice_pool=["v1", "v2"])
@@ -217,7 +315,7 @@ class TestBuildNarrationTrack:
             str(tmp_path / "dub_clips" / "line_0001.wav"): 3000,
         })
         monkeypatch.setattr(dub, "synthesize_line",
-                             lambda text, voice, out_path: open(out_path, "w").close())
+                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
 
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First"),
                  Line(idx=1, start=0, end=0, zh="y", en="Second")]

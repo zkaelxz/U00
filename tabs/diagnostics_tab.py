@@ -295,17 +295,23 @@ def render_diagnostics_tab():
 
     # ---- Python & ffmpeg ----
     st.subheader("Core requirements")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     py = results["python"]
     c1.metric("Python", py["version"], "OK" if py["ok"] else "Needs 3.9+")
     ff = results["ffmpeg"]
     c2.metric("ffmpeg", "Found" if ff["found"] else "Missing")
     c3.metric("Library writable", "Yes" if results["library_writable"] else "No")
+    js_rt = results["js_runtime"]
+    c4.metric("JS runtime (YouTube)", js_rt["name"].title() if js_rt["found"] else "Missing")
     if not ff["found"]:
         st.error("ffmpeg not found on PATH -- most features (audio, video, dubbing) won't work "
                  "until it's installed. See README for install steps.")
     elif ff.get("version"):
         st.caption(ff["version"])
+    if not js_rt["found"]:
+        st.warning("No JavaScript runtime (Deno, Node, Bun or QuickJS) found on PATH -- "
+                   "YouTube downloads and Live capture may silently lose formats without one. "
+                   "Install Deno (https://deno.land) and run `pip install -U yt-dlp`.")
 
     # ---- File completeness ----
     st.subheader("Project files")

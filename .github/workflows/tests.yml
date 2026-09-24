@@ -1,0 +1,28 @@
+name: Tests
+
+# Runs the test suite against a core-only install: requirements-core.txt
+# plus pytest, nothing else. Optional-dependency tests (cv2/pytesseract/
+# jieba, etc.) already skip cleanly without their library installed
+# (Step 1b), so this is enough to catch a real regression without
+# needing GPUs, models, or network access to any AI service.
+on:
+  push:
+    branches: [baihe-subtitler]
+  pull_request:
+    branches: [baihe-subtitler]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements-core.txt pytest -c constraints.txt
+
+      - name: Run tests
+        run: python run_tests.py

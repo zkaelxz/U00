@@ -47,7 +47,8 @@ def _jump_to_line_button(picked_id, line_idx, all_lines, key):
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
-                       style_guidelines, engine_choice, style_preset, context_window=6):
+                       style_guidelines, engine_choice, style_preset, context_window=6,
+                       ollama_num_ctx_override=None):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -68,6 +69,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, character_names=character_names,
+        ollama_num_ctx_override=ollama_num_ctx_override,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Translating... {frac*100:.0f}%"),
         save_cb=lambda ls: db.save_lines(drama_id, ls),
@@ -1493,8 +1495,22 @@ def render_workspace_tab():
         if can_prep and _editing_locked:
             st.info(_editing_locked_message)
         run_prep = b1.button(prep_label, type="primary", disabled=not can_prep or _editing_locked)
+
+        # Ollama is exempted from the API-key check above, so with nothing
+        # in its place, clicking Translate against a stopped local server
+        # used to start a background job that only failed once
+        # translate_batch's own 300s request timeout expired. Checked here,
+        # before the button, rather than left to fail inside the job.
+        _ollama_unreachable = False
+        if engine_choice == "ollama":
+            _ollama_base_url = st.session_state.get("settings_ollama_url") or "http://localhost:11434"
+            if not translate_engines.check_ollama_reachable(_ollama_base_url):
+                _ollama_unreachable = True
+                st.warning(f"⚠️ Can't reach Ollama at `{_ollama_base_url}` — is it running?")
+
         run_translate = b2.button("🌐 Translate all lines",
-                                   disabled=st.session_state.lines is None or not api_key)
+                                   disabled=st.session_state.lines is None or not api_key
+                                            or _ollama_unreachable)
         force_retranslate = b2.checkbox(
             "Force re-translate everything (redoes lines that already have a "
             "translation too, not just what's missing)",
@@ -1812,7 +1828,8 @@ def render_workspace_tab():
                     _translate_job_id, run_translate_job,
                     _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
                     novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
-                    engine_choice, style_preset, context_window)
+                    engine_choice, style_preset, context_window,
+                    st.session_state.get("settings_ollama_num_ctx_override") or None)
                 if started:
                     st.info("Translation started in the background -- it keeps running even if you "
                             "switch tabs or close this one. Come back here any time to see progress; "

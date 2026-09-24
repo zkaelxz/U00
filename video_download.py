@@ -78,6 +78,13 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             progress_cb(0.9, "Download complete, extracting audio..." if audio_only
                         else "Download complete.")
 
+    # Since late 2025, YouTube downloads need an external JS runtime
+    # through yt-dlp's EJS system, or formats silently go missing. Deno
+    # is yt-dlp's own default; listing the others too means this still
+    # works if only one of them happens to be installed (see Diagnostics
+    # for which, if any, is on PATH).
+    js_runtimes = ["deno", "node", "bun", "quickjs"]
+
     if audio_only:
         ydl_opts = {
             "format": "bestaudio/best",
@@ -85,6 +92,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
             "progress_hooks": [_hook],
             "quiet": True, "no_warnings": True, "noplaylist": True,
+            "js_runtimes": js_runtimes,
         }
     else:
         ydl_opts = {
@@ -93,6 +101,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             "progress_hooks": [_hook],
             "quiet": True, "no_warnings": True, "noplaylist": True,
             "merge_output_format": "mp4",
+            "js_runtimes": js_runtimes,
         }
 
     try:
@@ -102,6 +111,15 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             if title_cb and info.get("title"):
                 title_cb(info["title"])
     except Exception as exc:
+        if "format" in str(exc).lower():
+            raise DownloadError(
+                f"Couldn't download from that URL.\n\n{type(exc).__name__}: {exc}\n\n"
+                "Missing formats on a YouTube URL usually means yt-dlp has no JavaScript "
+                "runtime to use (Deno, Node, Bun or QuickJS; check the Diagnostics tab). "
+                "Install Deno (https://deno.land) and run `pip install -U yt-dlp`. If you "
+                "already have one, the link may just be wrong/private/region-locked, or "
+                "the site isn't supported by yt-dlp."
+            ) from exc
         raise DownloadError(
             f"Couldn't download from that URL.\n\n{type(exc).__name__}: {exc}\n\n"
             "Common causes: the link is wrong/private/region-locked, the site isn't "
