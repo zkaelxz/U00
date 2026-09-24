@@ -57,6 +57,153 @@ def render_diagnostics_tab():
             st.rerun()
 
     st.divider()
+    st.subheader("🎯 Accuracy benchmark")
+    st.caption(
+        "Catches an 'improvement' that actually makes things worse. Register a real sample "
+        "of your own content once per type you use -- a short audio clip, a novel excerpt, a "
+        "manhua page -- optionally with the text you KNOW is correct, then re-run the same "
+        "cases any time a pipeline setting changes and compare scores instead of just hoping "
+        "it helped. A case with no reference text still gets timed and checked for errors, "
+        "just without a quality score."
+    )
+
+    _bm_stage_labels = {
+        "transcription": "🎙️ Speech recognition (audio drama / streamer VOD)",
+        "translation": "🌐 Translation (novel excerpt or any text)",
+        "ocr": "🔤 OCR (manhua/comic page or scanned novel page)",
+    }
+    _bm_content_types = {
+        "transcription": ["audio_drama", "streamer_vod"],
+        "translation": ["novel", "audio_drama", "streamer_vod", "manhua"],
+        "ocr": ["manhua", "novel"],
+    }
+
+    with st.expander("➕ Register a new case"):
+        bm_stage = st.selectbox("What does this test?", list(_bm_stage_labels.keys()),
+                                 format_func=lambda s: _bm_stage_labels[s], key="bm_new_stage")
+        bm_label = st.text_input("Label (so you can tell cases apart later)", key="bm_new_label")
+        bm_content_type = st.selectbox("Content type", _bm_content_types[bm_stage],
+                                        format_func=lambda m: m.replace("_", " ").title(),
+                                        key="bm_new_content_type")
+        bm_source_language = st.selectbox("Source language", ["zh", "ja", "ko"], key="bm_new_lang")
+
+        bm_source_text, bm_input_file = None, None
+        if bm_stage == "translation":
+            bm_source_text = st.text_area("Source text to translate", key="bm_new_source_text")
+            bm_reference_text = st.text_area("Known-correct translation (optional)",
+                                              key="bm_new_ref_text")
+        else:
+            file_types = ["wav", "mp3", "m4a", "flac", "mp4"] if bm_stage == "transcription" else ["png", "jpg", "jpeg"]
+            bm_input_file = st.file_uploader("Upload the sample file", type=file_types, key="bm_new_file")
+            ref_label = "transcript" if bm_stage == "transcription" else "OCR text"
+            bm_reference_text = st.text_area(f"Known-correct {ref_label} (optional)",
+                                              key="bm_new_ref_text_file")
+
+        if st.button("Add case", key="bm_add_case"):
+            if bm_stage != "translation" and not bm_input_file:
+                st.warning("Upload a file first.")
+            elif bm_stage == "translation" and not (bm_source_text or "").strip():
+                st.warning("Enter some source text first.")
+            elif not bm_label.strip():
+                st.warning("Give it a label.")
+            else:
+                bm_input_filename = None
+                if bm_input_file:
+                    os.makedirs(db.BENCHMARK_DIR, exist_ok=True)
+                    ext = os.path.splitext(bm_input_file.name)[1]
+                    bm_input_filename = f"case_{int(time.time())}{ext}"
+                    with open(os.path.join(db.BENCHMARK_DIR, bm_input_filename), "wb") as f:
+                        f.write(bm_input_file.getbuffer())
+                db.create_benchmark_case(
+                    bm_label.strip(), bm_stage, bm_content_type, source_language=bm_source_language,
+                    input_filename=bm_input_filename, source_text=bm_source_text,
+                    reference_text=(bm_reference_text or "").strip() or None)
+                st.success(f"Added '{bm_label}'.")
+                st.rerun()
+
+    bm_cases = db.list_benchmark_cases()
+    if not bm_cases:
+        st.caption("No cases registered yet -- add one above to start tracking accuracy over time.")
+    else:
+        bm_run_label = st.text_input(
+            "Label this run (optional -- e.g. \"after VAD threshold change\")", key="bm_run_label")
+        if st.button("▶️ Run all cases through the current pipeline", type="primary"):
+            import benchmark
+            skipped_stages = []
+            with st.spinner(f"Running {len(bm_cases)} case(s)..."):
+                for stage in ("transcription", "translation", "ocr"):
+                    stage_cases = [c for c in bm_cases if c["stage"] == stage]
+                    if not stage_cases:
+                        continue
+                    prepared = []
+                    for c in stage_cases:
+                        case_dict = dict(c)
+                        if c.get("input_filename"):
+                            case_dict["input_path"] = os.path.join(db.BENCHMARK_DIR, c["input_filename"])
+                        prepared.append(case_dict)
+
+                    kwargs = {}
+                    if stage == "translation":
+                        engine_choice = st.session_state.get("settings_default_engine", "claude")
+                        api_key = st.session_state.get(f"settings_{engine_choice}", "")
+                        needs_key = engine_choice not in ("ollama", "test_offline", "libretranslate", "nllb")
+                        if needs_key and not api_key:
+                            skipped_stages.append(
+                                f"translation (no API key set for '{engine_choice}' -- "
+                                f"set one in ⚙️ Settings, or change the default engine there)")
+                            continue
+                        kwargs["engine"] = translate_engines.get_engine(engine_choice, api_key or "local")
+                    elif stage == "transcription":
+                        kwargs["use_gpu"] = st.session_state.get("use_gpu", False)
+
+                    results = benchmark.run_suite(prepared, stage, **kwargs)
+                    for r in results:
+                        db.save_benchmark_run(r["case_id"], r, run_label=bm_run_label)
+            if skipped_stages:
+                st.warning("Skipped: " + "; ".join(skipped_stages))
+            st.success("Done.")
+            st.rerun()
+
+        st.markdown("**Cases & latest results**")
+        latest_runs = db.latest_benchmark_run_per_case()
+        for c in bm_cases:
+            history = db.list_benchmark_runs(c["id"])
+            with st.container(border=True):
+                hc1, hc2, hc3 = st.columns([3, 1, 1])
+                hc1.write(f"**{c['label']}** — {_bm_stage_labels[c['stage']]}")
+                latest = latest_runs.get(c["id"])
+                if not latest:
+                    hc2.caption("Not run yet")
+                elif latest.get("error"):
+                    hc2.error("Failed")
+                elif latest.get("score") is not None:
+                    hc2.metric("Score", f"{latest['score']:.0%}")
+                else:
+                    hc2.caption("No reference — unscored")
+                if hc3.button("🗑️ Remove", key=f"bm_del_{c['id']}"):
+                    db.delete_benchmark_case(c["id"])
+                    st.rerun()
+
+                if latest and latest.get("error"):
+                    st.code(latest["error"], language="text")
+                elif len(history) >= 2 and history[-1].get("score") is not None and history[-2].get("score") is not None:
+                    delta = history[-1]["score"] - history[-2]["score"]
+                    if delta < -0.05:
+                        st.warning(f"⚠️ Regression: score dropped {abs(delta):.0%} since the previous run "
+                                  f"({history[-2]['score']:.0%} → {history[-1]['score']:.0%}).")
+                    elif delta > 0.05:
+                        st.success(f"Improved {delta:.0%} since the previous run "
+                                  f"({history[-2]['score']:.0%} → {history[-1]['score']:.0%}).")
+                if history:
+                    with st.expander(f"Run history ({len(history)})"):
+                        for run in reversed(history):
+                            score_str = f"{run['score']:.0%}" if run.get("score") is not None else "unscored"
+                            st.caption(f"{run['created_at'][:19]} — {score_str} — "
+                                      f"{run['duration_seconds']:.1f}s"
+                                      + (f" — {run['run_label']}" if run.get("run_label") else "")
+                                      + (f" — ❌ {run['error']}" if run.get("error") else ""))
+
+    st.divider()
     st.subheader("☠️ Danger zone")
     with st.expander("Reset the entire library"):
         st.error(
