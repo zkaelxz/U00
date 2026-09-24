@@ -17,6 +17,16 @@ class TestDramaCRUD:
         assert drama["title_en"] == "Test Drama"
         assert drama["status"] == "not started"  # default
 
+    def test_source_url_persists(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Stream", title_zh="直播原名")
+        isolated_db.update_drama(did, source_url="https://youtube.com/watch?v=fake123")
+        drama = isolated_db.get_drama(did)
+        assert drama["source_url"] == "https://youtube.com/watch?v=fake123"
+        # title_en/title_zh double as translated/untranslated stream name --
+        # confirming both persist alongside source_url, not just one or the other.
+        assert drama["title_en"] == "Stream"
+        assert drama["title_zh"] == "直播原名"
+
     def test_create_sets_created_and_updated_at(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
         drama = isolated_db.get_drama(did)

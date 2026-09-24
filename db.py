@@ -389,6 +389,11 @@ def init_db():
                           ("cover_art_filename", "TEXT"), ("genre", "TEXT"),
                           ("publication_status", "TEXT"), ("chapter_count", "INTEGER"),
                           ("custom_tags", "TEXT"), ("personal_notes", "TEXT"),
+                          # The original URL a stream/VOD was downloaded from --
+                          # title_en/title_zh already double as translated/
+                          # untranslated stream name, this was the missing piece
+                          # (no dedicated "where did this come from" field existed).
+                          ("source_url", "TEXT"),
                           # Recognition/alignment pipeline choices -- previously only
                           # lived in Streamlit session_state, which resets on every
                           # app restart, so "I don't have a transcript" (and the
