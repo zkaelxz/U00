@@ -228,6 +228,7 @@ Changes:
 - Add one shared row→`Line` loader and use it in `cli.cmd_translate`, `cli.cmd_dub` and `workspace_tab`. This fixes `cmd_dub` dropping flags.
 - Switch R5's translation ids to the real line ids.
 - Make background jobs save only the fields they own (see Step 1b #1), then remove the short-term "one job at a time" block.
+- Also cover a background **transcription** job that finishes while a translate/flag job is running. Its completion handler replaces all lines on the page, which Step 1b doesn't lock; it's rare, but the same kind of race.
 
 **Exit:** after a merge, a note or flag that was attached to a line is still attached to the same line.
 
@@ -380,7 +381,7 @@ Changes:
   5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
 - **Status:**
   - Step 1 is merged into `baihe-subtitler` and was reviewed OK.
-  - Step 1b (`step-1b-safety-fixes`) is reviewed; it's pending the edit-lock follow-up, then the pull request.
+  - Step 1b (`step-1b-safety-fixes`) is reviewed and approved, including the edit lock. It's ready for its pull request.
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
