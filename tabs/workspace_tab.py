@@ -92,7 +92,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                         local_model_path, hf_token, initial_prompt, beam_size,
-                        min_silence_duration_ms):
+                        min_silence_duration_ms, vad_threshold=0.5):
     """
     Runs just the Whisper speech-recognition pass in a background thread,
     same reasoning as run_translate_job above: this is the step that
@@ -120,7 +120,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             audio_path, whisper_size, language=language, use_gpu=use_gpu,
             local_model_path=local_model_path, hf_token=hf_token,
             initial_prompt=initial_prompt, beam_size=beam_size,
-            min_silence_duration_ms=min_silence_duration_ms,
+            min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
             on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
             progress_cb=lambda frac: background_jobs.update_progress(
                 job_id, frac, f"Transcribing... {frac * 100:.0f}%"))
@@ -969,6 +969,16 @@ def render_workspace_tab():
                 st.caption(f"Set to {min_silence_ms}ms -- more, shorter lines than the default; "
                           f"re-run 'Check line coverage' below after aligning to see the effect.")
 
+            vad_threshold = st.slider(
+                "Speech detection sensitivity", 0.1, 0.9, 0.5, 0.05,
+                help="How confident the voice-activity detector must be that a stretch of audio "
+                     "is actually speech before keeping it (this IS Silero VAD -- faster-whisper "
+                     "uses it internally already, this just exposes its own sensitivity knob). "
+                     "Lower it (0.3-0.4) if quiet or distant dialogue is going missing entirely. "
+                     "Raise it (0.6-0.7) if a noisy or music-heavy source is producing phantom "
+                     "lines from non-speech. Same tradeoff shape as the setting above -- no value "
+                     "is strictly better for every source.")
+
             if not st.session_state.get("use_gpu"):
                 st.caption("💡 GPU is off. On your card, enabling it under Settings → Performance "
                           "makes large-v3 practical rather than painfully slow.")
@@ -1450,7 +1460,7 @@ def render_workspace_tab():
                     _transcribe_job_id, audio_path, whisper_size, source_language,
                     st.session_state.get("use_gpu", False), _local_model,
                     st.session_state.get("settings_hf_token", "") or None,
-                    initial_prompt, beam_size, min_silence_ms)
+                    initial_prompt, beam_size, min_silence_ms, vad_threshold)
                 if started:
                     st.info("Transcription started in the background -- it keeps running even if you "
                             "switch tabs or close this browser tab. Come back here any time to see "

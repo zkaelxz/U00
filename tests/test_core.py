@@ -345,6 +345,76 @@ class TestVadSensitivity:
         assert "min_silence_duration_ms" in params
         assert params["min_silence_duration_ms"].default == 2000
 
+    def test_transcribe_signature_accepts_vad_threshold(self):
+        import inspect
+        from core import transcribe_for_timing
+        params = inspect.signature(transcribe_for_timing).parameters
+        assert "vad_threshold" in params
+        assert params["vad_threshold"].default == 0.5
+
+    def test_vad_threshold_is_passed_through_to_silero(self, monkeypatch):
+        """faster-whisper's own vad.py is adapted directly from
+        snakers4/silero-vad -- its built-in VAD IS Silero, not a separate
+        technology to swap in. This locks in that vad_threshold actually
+        reaches Silero's own "threshold" parameter, not just that the
+        function accepts the argument."""
+        import sys, types
+        import core
+        core._whisper_model_cache.clear()
+
+        class FakeSegment:
+            def __init__(self, start, end, text):
+                self.start, self.end, self.text = start, end, text
+
+        captured = {}
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                captured.update(kwargs)
+                def gen():
+                    yield FakeSegment(0.0, 1.0, "hi")
+                return gen(), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        sys.modules["faster_whisper"] = fake_fw
+
+        core.transcribe_for_timing("/fake/audio.mp3", vad_threshold=0.7)
+
+        assert captured["vad_parameters"]["threshold"] == 0.7
+
+    def test_vad_threshold_defaults_to_point_five(self, monkeypatch):
+        import sys, types
+        import core
+        core._whisper_model_cache.clear()
+
+        class FakeSegment:
+            def __init__(self, start, end, text):
+                self.start, self.end, self.text = start, end, text
+
+        captured = {}
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                captured.update(kwargs)
+                def gen():
+                    yield FakeSegment(0.0, 1.0, "hi")
+                return gen(), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        sys.modules["faster_whisper"] = fake_fw
+
+        core.transcribe_for_timing("/fake/audio.mp3")
+
+        assert captured["vad_parameters"]["threshold"] == 0.5
+
 
 class TestLineCoverageDiagnosis:
     """Regression cover built directly from a real uploaded file: several
