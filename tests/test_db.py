@@ -546,6 +546,72 @@ class TestPagesAndBubbles:
         assert bubbles[0]["font_category"] == "regular"
 
 
+class TestBenchmarkCasesAndRuns:
+    def test_create_and_list_a_case(self, isolated_db):
+        case_id = isolated_db.create_benchmark_case(
+            "My test drama clip", "transcription", "audio_drama", source_language="zh",
+            input_filename="clip.wav", reference_text="你好世界")
+        cases = isolated_db.list_benchmark_cases()
+        assert len(cases) == 1
+        assert cases[0]["id"] == case_id
+        assert cases[0]["reference_text"] == "你好世界"
+
+    def test_list_cases_filters_by_stage(self, isolated_db):
+        isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        isolated_db.create_benchmark_case("b", "translation", "novel")
+        assert len(isolated_db.list_benchmark_cases(stage="transcription")) == 1
+        assert len(isolated_db.list_benchmark_cases(stage="translation")) == 1
+        assert len(isolated_db.list_benchmark_cases()) == 2
+
+    def test_delete_a_case(self, isolated_db):
+        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        isolated_db.delete_benchmark_case(case_id)
+        assert isolated_db.list_benchmark_cases() == []
+
+    def test_save_and_list_runs_for_a_case(self, isolated_db):
+        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        isolated_db.save_benchmark_run(case_id, {"output_text": "hi", "score": 0.9,
+                                                  "duration_seconds": 1.2, "error": None},
+                                        run_label="first try")
+        runs = isolated_db.list_benchmark_runs(case_id)
+        assert len(runs) == 1
+        assert runs[0]["score"] == 0.9
+        assert runs[0]["run_label"] == "first try"
+
+    def test_deleting_a_case_cascades_to_its_runs(self, isolated_db):
+        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        isolated_db.save_benchmark_run(case_id, {"output_text": "hi", "score": 0.9,
+                                                  "duration_seconds": 1.0, "error": None})
+        isolated_db.delete_benchmark_case(case_id)
+        assert isolated_db.list_benchmark_runs(case_id) == []
+
+    def test_latest_run_per_case_returns_only_the_most_recent(self, isolated_db):
+        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        isolated_db.save_benchmark_run(case_id, {"output_text": "old", "score": 0.5,
+                                                  "duration_seconds": 1.0, "error": None})
+        isolated_db.save_benchmark_run(case_id, {"output_text": "new", "score": 0.9,
+                                                  "duration_seconds": 1.0, "error": None})
+        latest = isolated_db.latest_benchmark_run_per_case()
+        assert latest[case_id]["output_text"] == "new"
+
+    def test_latest_run_per_case_filters_by_stage(self, isolated_db):
+        transcription_case = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
+        translation_case = isolated_db.create_benchmark_case("b", "translation", "novel")
+        isolated_db.save_benchmark_run(transcription_case, {"output_text": "x", "score": 0.5,
+                                                              "duration_seconds": 1.0, "error": None})
+        isolated_db.save_benchmark_run(translation_case, {"output_text": "y", "score": 0.5,
+                                                            "duration_seconds": 1.0, "error": None})
+        latest = isolated_db.latest_benchmark_run_per_case(stage="transcription")
+        assert set(latest.keys()) == {transcription_case}
+
+    def test_cost_defaults_to_zero_when_omitted(self, isolated_db):
+        case_id = isolated_db.create_benchmark_case("a", "translation", "novel")
+        isolated_db.save_benchmark_run(case_id, {"output_text": "x", "score": 1.0,
+                                                  "duration_seconds": 0.5, "error": None})
+        runs = isolated_db.list_benchmark_runs(case_id)
+        assert runs[0]["cost_usd"] == 0.0
+
+
 class TestConnectionLeakRecovery:
     """Regression tests for a real bug: a statement raising between
     get_conn() and conn.close() leaked the connection, and under WAL that

@@ -17,6 +17,7 @@ from typing import Optional, List
 LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
 DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
 DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
+BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
 
 os.makedirs(DRAMAS_DIR, exist_ok=True)
 
@@ -355,6 +356,31 @@ def init_db():
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS benchmark_cases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        label TEXT,
+        stage TEXT,              -- 'transcription', 'translation', 'ocr'
+        content_type TEXT,       -- 'audio_drama', 'streamer_vod', 'novel', 'manhua' -- descriptive only
+        source_language TEXT DEFAULT 'zh',
+        input_filename TEXT,     -- relative to the shared benchmark_cases/ dir; NULL for translation cases
+        source_text TEXT,        -- translation cases only: the text to translate
+        reference_text TEXT,     -- optional known-correct transcript/translation/OCR text
+        created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS benchmark_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        case_id INTEGER,
+        run_label TEXT,          -- freeform, e.g. "before VAD threshold change"
+        output_text TEXT,
+        score REAL,              -- 0.0-1.0, NULL if the case has no reference_text
+        duration_seconds REAL,
+        cost_usd REAL DEFAULT 0.0,
+        error TEXT,
+        created_at TEXT,
+        FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
     CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
     CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
@@ -369,6 +395,7 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_versions_drama ON translation_versions(drama_id);
     CREATE INDEX IF NOT EXISTS idx_wiki_drama ON wiki_entries(drama_id);
     CREATE INDEX IF NOT EXISTS idx_edits_drama ON edit_samples(drama_id);
+    CREATE INDEX IF NOT EXISTS idx_benchmark_runs_case ON benchmark_runs(case_id);
     """)
     # Lightweight migrations for DBs created before these columns existed
     existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
@@ -1574,6 +1601,90 @@ def search_lines_globally(query: str, limit: int = 100):
 
 
 init_db()
+
+
+# ---------------------------------------------------------------------------
+# Accuracy benchmark cases & runs -- see benchmark.py for what actually
+# runs a case; this is just the persistence for it, the same "lives in
+# the same backed-up sqlite file as everything else" reasoning as the
+# rest of this app.
+# ---------------------------------------------------------------------------
+
+def create_benchmark_case(label: str, stage: str, content_type: str, source_language: str = "zh",
+                           input_filename: str = None, source_text: str = None,
+                           reference_text: str = None) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO benchmark_cases (label, stage, content_type, source_language, "
+        "input_filename, source_text, reference_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (label, stage, content_type, source_language, input_filename, source_text, reference_text,
+         datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    case_id = cur.lastrowid
+    conn.close()
+    return case_id
+
+
+def list_benchmark_cases(stage: str = None):
+    """All cases, or only those for one stage ('transcription'/'translation'/'ocr')."""
+    conn = get_conn()
+    if stage:
+        rows = conn.execute(
+            "SELECT * FROM benchmark_cases WHERE stage = ? ORDER BY id", (stage,)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM benchmark_cases ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_benchmark_case(case_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM benchmark_cases WHERE id = ?", (case_id,))
+    conn.commit()
+    conn.close()
+
+
+def save_benchmark_run(case_id: int, result: dict, run_label: str = ""):
+    """result: one entry from benchmark.run_suite()'s own return list --
+    {"output_text", "score", "duration_seconds", "error", "cost_usd"}
+    (cost_usd only present for translation-stage results)."""
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO benchmark_runs (case_id, run_label, output_text, score, duration_seconds, "
+        "cost_usd, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (case_id, run_label, result.get("output_text", ""), result.get("score"),
+         result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
+         datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def list_benchmark_runs(case_id: int):
+    """A case's own run history, oldest first -- the last two entries are
+    what a "did this get better or worse" comparison reads."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM benchmark_runs WHERE case_id = ? ORDER BY id", (case_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def latest_benchmark_run_per_case(stage: str = None):
+    """The most recent run for every case (optionally scoped to one
+    stage) -- what a fresh "run everything" comparison is checked
+    against. Returns {case_id: run_dict}."""
+    conn = get_conn()
+    if stage:
+        rows = conn.execute(
+            "SELECT r.* FROM benchmark_runs r JOIN benchmark_cases c ON r.case_id = c.id "
+            "WHERE c.stage = ? ORDER BY r.id", (stage,)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM benchmark_runs ORDER BY id").fetchall()
+    conn.close()
+    latest = {}
+    for r in rows:
+        latest[r["case_id"]] = dict(r)  # later rows overwrite earlier ones -- id order
+    return latest
 
 
 # ---------------------------------------------------------------------------

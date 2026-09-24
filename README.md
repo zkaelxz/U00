@@ -1322,6 +1322,33 @@ Run this first whenever something isn't working. The same tab holds
 the "Reset everything" danger-zone button described in
 [Resetting for testing](#usage).
 
+### Accuracy benchmark
+
+Also in the 🩺 Diagnostics tab, above the danger zone: catches a
+pipeline "improvement" that actually makes things worse. `run_tests.py`
+proves the code does what it's supposed to against mocked libraries --
+it can't tell you whether a VAD-threshold change, a new translation
+engine, or an OCR backend swap actually helps on YOUR real content,
+since no real audio/image/text ships with the project.
+
+Register a case once per content type you actually use -- a short audio
+clip (speech recognition), a novel excerpt (translation), a manhua/
+scanned page (OCR) -- optionally pasting in the text you already KNOW is
+correct. Then, any time you change a setting and want to know if it
+actually helped, hit "Run all cases" and compare: a case with a
+reference gets a 0.0-100% similarity score (character-level, via the
+same difflib approach `align_transcript_to_timing()` already uses
+elsewhere in this app -- a proxy for accuracy, not a proper WER/BLEU
+score, so treat it as directional rather than exact); a case with no
+reference still gets timed and checked for errors as a smoke test. A
+score that drops more than 5 points since the previous run on the same
+case is flagged as a regression right there in the case's own row, not
+buried in a separate report you have to remember to check.
+
+Cases and their run history live in the same database as everything
+else in this app, so they persist across sessions and are easy to keep
+around long-term as your reference set.
+
 ## Code organization
 
 `app.py` is a thin orchestrator; each tab's actual UI logic lives in
