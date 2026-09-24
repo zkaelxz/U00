@@ -99,6 +99,33 @@ class TestAudioOnlyDownload:
         # loop), but the final progress_cb(1.0, "Done.") call must still fire.
         assert (1.0, "Done.") in progress_events
 
+    def test_title_cb_receives_the_fetched_title(self, tmp_path):
+        out_dir = str(tmp_path)
+        _install_fake_yt_dlp(extract_info_fn=lambda url: {
+            "id": "abc", "ext": "m4a", "title": "沈清疑的百合广播剧"})
+        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+
+        import video_download
+        importlib.reload(video_download)
+
+        titles = []
+        video_download.download("https://youtu.be/xyz", out_dir, audio_only=True,
+                                 title_cb=titles.append)
+        assert titles == ["沈清疑的百合广播剧"]
+
+    def test_title_cb_not_called_when_yt_dlp_has_no_title(self, tmp_path):
+        out_dir = str(tmp_path)
+        _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
+        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+
+        import video_download
+        importlib.reload(video_download)
+
+        titles = []
+        video_download.download("https://youtu.be/xyz", out_dir, audio_only=True,
+                                 title_cb=titles.append)
+        assert titles == []
+
     def test_missing_output_file_raises_download_error(self, tmp_path):
         out_dir = str(tmp_path)
         _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})

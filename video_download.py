@@ -26,7 +26,8 @@ class DownloadError(RuntimeError):
     clear message instead of yt-dlp's raw exception text."""
 
 
-def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None) -> str:
+def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
+             title_cb=None) -> str:
     """Downloads `url` into `out_dir` and returns the path to the
     resulting file.
 
@@ -44,6 +45,13 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None) 
     progress_cb: optional callable(fraction: float, message: str), same
     shape as the progress_cb used elsewhere in this project, so callers
     can plug it into the same st.progress() widgets.
+
+    title_cb: optional callable(title: str), invoked with yt-dlp's own
+    title for this URL (the video/stream title, e.g. a YouTube video's
+    title) once the download's metadata is available -- lets a caller
+    auto-fill a drama's title fields without a second network request
+    to re-fetch what this call already knows. Not invoked at all if
+    yt-dlp's response has no title (rare, but not guaranteed).
 
     Raises ImportError if yt-dlp isn't installed, or DownloadError (with
     the original exception chained) if the download/extraction itself
@@ -91,6 +99,8 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None) 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             final_path = ydl.prepare_filename(info)
+            if title_cb and info.get("title"):
+                title_cb(info["title"])
     except Exception as exc:
         raise DownloadError(
             f"Couldn't download from that URL.\n\n{type(exc).__name__}: {exc}\n\n"

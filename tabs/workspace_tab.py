@@ -13,6 +13,24 @@ def _format_media_type(m):
     return special.get(m, m.replace("_", " ").title())
 
 
+def _jump_to_line_button(picked_id, line_idx, all_lines, key):
+    """A button that lands on the right page of the Review & edit table
+    for a specific line, instead of leaving a flagged-line list (pacing
+    check, translation notes) as plain text with no way to act on it.
+    Turns off both "show only" filters so the page number lines up
+    against the full, unfiltered line list -- a line flagged as
+    too-long-for-slot isn't necessarily also flagged for review, so
+    leaving "Show flagged lines only" on could land on an empty page.
+    """
+    if st.button(f"↳ Jump to line {line_idx + 1} in Review & edit", key=key):
+        st.session_state[f"flagged_only_{picked_id}"] = False
+        st.session_state[f"untranslated_only_{picked_id}"] = False
+        page_size = st.session_state.get("review_page_size", 40)
+        position = next((i for i, ln in enumerate(all_lines) if ln.idx == line_idx), 0)
+        st.session_state["review_page"] = (position // page_size) + 1
+        st.rerun()
+
+
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6):
@@ -534,20 +552,31 @@ def render_workspace_tab():
                     status = st.empty()
                     try:
                         import video_download
+                        # Auto-fills the untranslated title from yt-dlp's own metadata
+                        # -- only when nothing's there yet, so it never overwrites a
+                        # title someone already typed or fixed by hand.
+                        _fetched_title = {}
                         downloaded_path = video_download.download(
                             dl_url.strip(), ddir, audio_only=dl_audio_only,
-                            progress_cb=lambda frac, msg: (progress_bar.progress(frac), status.caption(msg)))
+                            progress_cb=lambda frac, msg: (progress_bar.progress(frac), status.caption(msg)),
+                            title_cb=lambda t: _fetched_title.setdefault("title", t))
+                        _title_update = {}
+                        if _fetched_title.get("title") and not (drama.get("title_en") or drama.get("title_zh")):
+                            _title_update["title_zh"] = _fetched_title["title"]
                         if dl_audio_only:
                             db.update_drama(picked_id, audio_filename=os.path.basename(downloaded_path),
-                                             source_url=dl_url.strip())
+                                             source_url=dl_url.strip(), **_title_update)
                         else:
                             audio_out = os.path.join(ddir, "audio.wav")
                             with st.spinner("Extracting audio from downloaded video..."):
                                 core_module.extract_audio_from_video(downloaded_path, audio_out)
                             db.update_drama(picked_id, audio_filename="audio.wav",
                                              source_video_filename=os.path.basename(downloaded_path),
-                                             source_url=dl_url.strip())
-                        st.success("Downloaded.")
+                                             source_url=dl_url.strip(), **_title_update)
+                        st.success("Downloaded."
+                                   + (f" Title filled in from the source: \"{_title_update['title_zh']}\" "
+                                      "-- edit it below if you want to translate or adjust it."
+                                      if _title_update else ""))
                         st.rerun()
                     except ImportError as exc:
                         st.error(str(exc))
@@ -1817,7 +1846,11 @@ def render_workspace_tab():
                 flags = st.session_state.get(f"pacing_flags_{picked_id}", [])
                 if flags:
                     for f in flags:
-                        st.caption(f"Line #{f['idx']+1} ({f['issue']}): {f['detail']}")
+                        pc1, pc2 = st.columns([4, 1])
+                        pc1.caption(f"Line #{f['idx']+1} ({f['issue']}): {f['detail']}")
+                        with pc2:
+                            _jump_to_line_button(picked_id, f["idx"], all_lines,
+                                                  key=f"jump_pacing_{f['idx']}")
                     too_long_idxs = {f["idx"] for f in flags if f["issue"] == "too_long_for_slot"}
                     if too_long_idxs and api_key and st.button("✂️ Auto-shorten overlong lines with LLM"):
                         engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
@@ -2152,10 +2185,14 @@ def render_workspace_tab():
                 if existing_notes:
                     st.caption(f"{len(existing_notes)} note(s) recorded:")
                     for n in existing_notes:
-                        nc1, nc2 = st.columns([5, 1])
+                        nc1, nc2, nc3 = st.columns([4, 1.3, 0.5])
                         line_ref = f"Line {n['line_idx'] + 1}" if n.get("line_idx") is not None else "—"
                         nc1.caption(f"**{n['term']}** ({n['note_type']}, {line_ref}): {n['note']}")
-                        if nc2.button("🗑️", key=f"delnote_{n['id']}"):
+                        with nc2:
+                            if n.get("line_idx") is not None:
+                                _jump_to_line_button(picked_id, n["line_idx"], all_lines,
+                                                      key=f"jump_note_{n['id']}")
+                        if nc3.button("🗑️", key=f"delnote_{n['id']}"):
                             db.delete_translation_note(n["id"])
                             st.rerun()
 

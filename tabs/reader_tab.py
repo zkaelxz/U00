@@ -342,6 +342,50 @@ def render_reader_tab():
                     st.success("Applied.")
                     st.rerun()
 
+        if rdrama.get("audio_filename"):
+            with st.expander("🎙️ Re-transcribe this line"):
+                st.caption(
+                    "Re-runs Whisper on just this line's own timing window, for a line "
+                    "Whisper originally misheard -- cheaper and faster than re-transcribing "
+                    "the whole drama, since it's one short slice of audio instead of the "
+                    "whole file."
+                )
+                if st.button("Re-transcribe"):
+                    audio_path = os.path.join(rddir, rdrama["audio_filename"])
+                    if not os.path.exists(audio_path):
+                        st.error("Audio file not found on disk.")
+                    else:
+                        slice_path = os.path.join(rddir, "_retranscribe_slice.wav")
+                        with st.spinner("Re-transcribing this line..."):
+                            core_module.extract_audio_slice(audio_path, pl.start, pl.end, slice_path)
+                            try:
+                                segments = core_module.transcribe_for_timing(
+                                    slice_path, model_size=rdrama.get("whisper_size") or "medium",
+                                    language=rlang, use_gpu=st.session_state.get("use_gpu", False))
+                                retext = " ".join(s["text"] for s in segments).strip()
+                            finally:
+                                if os.path.exists(slice_path):
+                                    os.remove(slice_path)
+                        st.session_state[f"lt_retranscribed_{rdrama['id']}"] = retext
+                retext = st.session_state.get(f"lt_retranscribed_{rdrama['id']}")
+                if retext is not None:
+                    if retext:
+                        st.success(retext)
+                        if st.button("Apply to this line", key=f"apply_retranscribe_{pl.idx}"):
+                            for ln in rlines:
+                                if ln.idx == pl.idx:
+                                    ln.zh = retext
+                            db.save_lines(rdrama["id"], rlines)
+                            st.session_state[f"lt_retranscribed_{rdrama['id']}"] = None
+                            st.success("Applied. The English translation for this line is now "
+                                      "stale -- re-translate it (Workspace, or Improve this "
+                                      "line above) to match the corrected source text.")
+                            st.rerun()
+                    else:
+                        st.warning("Whisper found no speech in this line's timing window -- the "
+                                  "start/end times may need adjusting instead (Workspace -> "
+                                  "Review & edit).")
+
     # ---------------------------------------------------- Personal notes
     st.divider()
     st.subheader("🗒️ My notes")
