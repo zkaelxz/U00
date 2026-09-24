@@ -19,7 +19,7 @@ building a URL sequence from a pattern).
 
 import re
 import json
-from translate_engines import call_with_backoff
+from translate_engines import call_llm_json
 
 
 def paginate_urls(base_url_pattern: str, start_page: int = 1, end_page: int = 5) -> list:
@@ -55,18 +55,8 @@ def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
         'Return ONLY a JSON array: [{"title": "...", "author": "...", "has_audio_drama": true/false, '
         '"tags": "comma, separated"}]. No preamble, no markdown fences.\n\n' + snippet
     )
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        text = "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        text = resp.choices[0].message.content.strip()
-    else:
+    text = call_llm_json(engine, prompt, max_tokens=4000, fallback=None)
+    if text is None:
         return []
 
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()

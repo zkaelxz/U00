@@ -349,6 +349,128 @@ class TestGeminiEngine:
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
 
 
+class TestCallLlmJson:
+    """call_llm_json() is the shared single-prompt call used by every
+    non-translation LLM feature (emotion tagging, translation notes,
+    glossary extraction, story tools, line tools, Q&A, etc). Regression
+    coverage for two real bugs found by reading every one of its former
+    per-file duplicates: none of them handled GeminiEngine's shape at
+    all (no .client attribute -- it calls Gemini's REST endpoint
+    directly), so picking Gemini silently made these features return
+    nothing; and test_offline's .client is None by design, but the old
+    code's hasattr(engine, "client") check is True either way, so it
+    took the OpenAI-shaped branch and crashed on None.chat instead of
+    declining -- meaning the app's own "try it free" engine crashed the
+    moment you clicked most of these features.
+    """
+
+    def test_claude_shaped_engine_and_usage_cb(self):
+        captured_usage = {}
+
+        class FakeUsage:
+            input_tokens = 10
+            output_tokens = 5
+
+        class FakeResponse:
+            usage = FakeUsage()
+            content = [_FakeBlock('{"ok": true}')]
+
+        class FakeClaudeLike:
+            model = "fake-claude"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, model, max_tokens, messages):
+                return FakeResponse()
+
+        result = te.call_llm_json(
+            FakeClaudeLike(), "prompt",
+            usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
+        assert result == '{"ok": true}'
+        assert captured_usage == {"input": 10, "output": 5}
+
+    def test_openai_shaped_engine_and_usage_cb(self):
+        captured_usage = {}
+
+        class FakeUsage:
+            prompt_tokens = 20
+            completion_tokens = 7
+
+        class FakeChoice:
+            class message:
+                content = "[1, 2, 3]"
+
+        class FakeResponse:
+            usage = FakeUsage()
+            choices = [FakeChoice()]
+
+        class FakeOpenAiLike:
+            model = "fake-deepseek"
+
+            def __init__(self):
+                self.client = self
+                self.chat = self
+                self.completions = self
+
+            def create(self, model, messages):
+                return FakeResponse()
+
+        result = te.call_llm_json(
+            FakeOpenAiLike(), "prompt",
+            usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
+        assert result == "[1, 2, 3]"
+        assert captured_usage == {"input": 20, "output": 7}
+
+    def test_gemini_engine_is_not_silently_skipped(self, monkeypatch):
+        captured_usage = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "candidates": [{"content": {"parts": [{"text": "real answer"}]}}],
+                    "usageMetadata": {"promptTokenCount": 15, "candidatesTokenCount": 3},
+                }
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key")
+
+        result = te.call_llm_json(
+            engine, "prompt",
+            usage_cb=lambda inp, out: captured_usage.update(input=inp, output=out))
+        assert result == "real answer"
+        assert captured_usage == {"input": 15, "output": 3}
+
+    def test_test_offline_engine_declines_without_crashing(self):
+        engine = te.TestOfflineEngine()
+        assert engine.client is None  # by design
+        result = te.call_llm_json(engine, "prompt", fallback="[]")
+        assert result == "[]"
+
+    def test_ollama_engine_declines_without_crashing(self):
+        engine = te.OllamaEngine()
+        assert not hasattr(engine, "client")
+        result = te.call_llm_json(engine, "prompt", fallback="{}")
+        assert result == "{}"
+
+    def test_a_malformed_gemini_response_returns_fallback(self, monkeypatch):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"candidates": []}  # no content at all
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key")
+        result = te.call_llm_json(engine, "prompt", fallback="fallback-value")
+        assert result == "fallback-value"
+
+
 class TestCheckConsistencyLlm:
     def test_pure_mt_engine_returns_empty_list_not_crash(self):
         class PureMT:

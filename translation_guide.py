@@ -17,7 +17,7 @@ depend on context only a person reading the story can settle.
 
 import re
 import json
-from translate_engines import call_with_backoff, _parse_json_array
+from translate_engines import call_llm_json, _parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=Non
 # ---------------------------------------------------------------------------
 
 def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: int = 400,
-                       known_terms=None):
+                       known_terms=None, usage_cb=None):
     """
     Scans source text for recurring proper nouns and genre-specific terms
     that should be handled consistently, and proposes a category + policy
@@ -250,7 +250,7 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
         f"No preamble, no markdown fences.{known_block}\n\nText:\n{sample}"
     )
 
-    text = _call_llm(engine, prompt, max_tokens=4000)
+    text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb)
     entries = _parse_json_array(text, 0)
     if not isinstance(entries, list):
         return []
@@ -280,7 +280,7 @@ NOTE_TYPES = {
 
 
 def generate_translation_notes_llm(lines, engine, source_language: str = "zh",
-                                    batch_size: int = 40):
+                                    batch_size: int = 40, usage_cb=None):
     """
     Reviews translated lines for things that lost something in translation
     and are worth a translation note: idioms, puns, meaningful names,
@@ -315,7 +315,7 @@ def generate_translation_notes_llm(lines, engine, source_language: str = "zh",
             '"note_type": "...", "note": "..."}]. Empty array if nothing is worth noting. '
             "No preamble, no markdown fences.\n\n" + pairs
         )
-        text = _call_llm(engine, prompt, max_tokens=3000)
+        text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
         notes = _parse_json_array(text, 0)
         if isinstance(notes, list):
             for n in notes:
@@ -371,22 +371,6 @@ def apply_hard_term_substitutions(text: str, glossary_terms) -> str:
 
 # ---------------------------------------------------------------------------
 
-def _call_llm(engine, prompt: str, max_tokens: int = 2000) -> str:
-    """Shared LLM call handling both Anthropic-style and OpenAI-style clients."""
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        return resp.choices[0].message.content.strip()
-    return "[]"
-
-
 # ---------------------------------------------------------------------------
 # Glossary extraction from a novel
 # ---------------------------------------------------------------------------
@@ -415,7 +399,7 @@ def _sample_across_text(text: str, total_chars: int = 24000, chunks: int = 6):
 
 def extract_glossary_from_novel(novel_text: str, engine, source_language: str = "zh",
                                  english_translation: str = "", known_terms=None,
-                                 progress_cb=None):
+                                 progress_cb=None, usage_cb=None):
     """
     Builds a term glossary from a novel rather than from drama dialogue.
 
@@ -481,7 +465,7 @@ def extract_glossary_from_novel(novel_text: str, engine, source_language: str = 
             f"Excerpt:\n{sample}"
         )
 
-        text = _call_llm(engine, prompt, max_tokens=4000)
+        text = call_llm_json(engine, prompt, max_tokens=4000, fallback="[]", usage_cb=usage_cb)
         entries = _parse_json_array(text, 0)
         if isinstance(entries, list):
             for e in entries:
@@ -620,7 +604,7 @@ METADATA_FIELDS = {
 }
 
 
-def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh"):
+def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh", usage_cb=None):
     """
     Produces readable versions of the credits while leaving the originals
     untouched -- 一半山川 stays, and gains "Yiban Shanchuan" beside it.
@@ -660,7 +644,7 @@ def romanize_metadata(drama_meta: dict, engine, source_language: str = "zh"):
         + listing
     )
 
-    text = _call_llm(engine, prompt, max_tokens=800)
+    text = call_llm_json(engine, prompt, max_tokens=800, fallback="{}", usage_cb=usage_cb)
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         data = json.loads(text)

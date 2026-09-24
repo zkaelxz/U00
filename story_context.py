@@ -11,7 +11,7 @@ character summary is worse than "not covered in what's loaded".
 
 import re
 import json
-from translate_engines import call_with_backoff, _parse_json_array
+from translate_engines import call_llm_json, _parse_json_array
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ def who_is_character(character_name: str, lines, drama_meta: dict, engine,
         "Do not include plot developments that aren't in the excerpt -- the reader may not "
         "have gotten that far. Keep it to a short paragraph.\n\n" + excerpt
     )
-    return _call_llm(engine, prompt, max_tokens=800)
+    return call_llm_json(engine, prompt, max_tokens=800, fallback="")
 
 
 def build_relationship_map(lines, drama_meta: dict, engine, max_context_lines: int = 400):
@@ -104,7 +104,7 @@ def build_relationship_map(lines, drama_meta: dict, engine, max_context_lines: i
         '"relationships": [{"from": "...", "to": "...", "relation": "...", "note": "..."}]}. '
         "No preamble, no markdown fences.\n\n" + excerpt
     )
-    text = _call_llm(engine, prompt, max_tokens=2500)
+    text = call_llm_json(engine, prompt, max_tokens=2500, fallback="{}")
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         data = json.loads(text)
@@ -168,7 +168,7 @@ def summarize_section(lines, engine, section_label: str = "", spoiler_safe: bool
         "Cover the main developments and any shift in the relationship between the leads. "
         f"Two or three sentences.{spoiler_clause}\n\n" + excerpt
     )
-    return _call_llm(engine, prompt, max_tokens=600)
+    return call_llm_json(engine, prompt, max_tokens=600, fallback="")
 
 
 def explain_reference(phrase: str, lines, engine, source_language: str = "zh"):
@@ -187,21 +187,8 @@ def explain_reference(phrase: str, lines, engine, source_language: str = "zh"):
         "where it comes from. Keep it to a short paragraph -- informative, not a lecture.\n"
         + (f"\nHow it's used here:\n{context}" if context.strip() else "")
     )
-    return _call_llm(engine, prompt, max_tokens=700)
+    return call_llm_json(engine, prompt, max_tokens=700, fallback="")
 
 
 # ---------------------------------------------------------------------------
 
-def _call_llm(engine, prompt: str, max_tokens: int = 1000) -> str:
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        return resp.choices[0].message.content.strip()
-    return ""

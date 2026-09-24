@@ -17,12 +17,12 @@ future translation.
 
 import re
 import json
-from translate_engines import call_with_backoff
+from translate_engines import call_llm_json
 
 MIN_SAMPLES_TO_LEARN = 8
 
 
-def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None):
+def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None, usage_cb=None):
     """
     Looks at before/after pairs and extracts consistent preferences.
 
@@ -65,7 +65,7 @@ def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None):
         + prior + f"\n\nEdits:\n{pairs}"
     )
 
-    text = _call_llm(engine, prompt, max_tokens=1500)
+    text = call_llm_json(engine, prompt, max_tokens=1500, fallback="{}", usage_cb=usage_cb)
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         data = json.loads(text)
@@ -127,16 +127,3 @@ def summarize_edit_tendencies(edit_samples) -> dict:
     }
 
 
-def _call_llm(engine, prompt: str, max_tokens: int = 1500) -> str:
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        return resp.choices[0].message.content.strip()
-    return "{}"

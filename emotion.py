@@ -17,7 +17,7 @@ Two things happen here:
 
 import re
 import json
-from translate_engines import call_with_backoff
+from translate_engines import call_llm_json
 
 # Registers worth distinguishing because they change word choice in English.
 EMOTION_TAGS = {
@@ -53,7 +53,7 @@ EMOTION_TRANSLATION_GUIDANCE = {
 
 
 def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = False,
-                     progress_cb=None):
+                     progress_cb=None, usage_cb=None):
     """
     Tags each line with an emotional register and an intensity (0-1).
 
@@ -117,7 +117,7 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
             + "\n".join(rows)
         )
 
-        text = _call_llm(engine, prompt, max_tokens=3000)
+        text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
         if progress_cb:
             # Reported right after the call, before parsing -- a batch
             # whose response fails to parse below still counts as
@@ -214,16 +214,3 @@ def suggest_tts_delivery(emotion: str, intensity: float) -> dict:
     return base
 
 
-def _call_llm(engine, prompt: str, max_tokens: int = 2000) -> str:
-    if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-        resp = call_with_backoff(lambda: engine.client.messages.create(
-            model=engine.model, max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-        ))
-        return "".join(b.text for b in resp.content if b.type == "text").strip()
-    elif hasattr(engine, "client"):
-        resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-            model=engine.model, messages=[{"role": "user", "content": prompt}],
-        ))
-        return resp.choices[0].message.content.strip()
-    return "[]"

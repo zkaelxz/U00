@@ -195,6 +195,77 @@ def _parse_json_array(text: str, fallback_count: int):
     return lines[:fallback_count] if lines else [""] * fallback_count
 
 
+def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "[]",
+                   usage_cb=None) -> str:
+    """
+    Shared single-prompt LLM call for every feature that isn't a
+    translation batch: emotion tagging, translation notes, glossary
+    extraction, adaptive style analysis, story tools, the universe wiki,
+    line tools, Q&A, dictionary's LLM fallback, Scanlate's page
+    translation, metadata lookup, and bulk import.
+
+    Until this existed, each of those ~11 call sites carried its own
+    copy of this function, and every copy only handled two of this
+    app's three LLM call shapes: Claude's Messages API and an
+    OpenAI-compatible chat client (DeepSeek/etc.). GeminiEngine has
+    neither -- it calls Gemini's REST endpoint directly with `requests`
+    -- so picking Gemini as the engine made every one of these features
+    silently return nothing (an empty result, not an error) instead of
+    a real answer. Confirmed directly: `hasattr(engine, "client")` is
+    False for GeminiEngine, so every copy fell through to its "decline
+    quietly" branch. `test_offline` had a worse version of the same gap:
+    its `.client` attribute exists but is `None` (by design, so it can
+    "decline cleanly" per its own docstring), but `hasattr(engine,
+    "client")` is True either way, so the old code took the OpenAI-shaped
+    branch and crashed on `None.chat` instead of declining -- meaning the
+    app's own "try it for free first" onboarding path crashed the moment
+    you clicked most of these features.
+
+    usage_cb, if given, is called with (input_tokens, output_tokens)
+    after a successful call, the same shape already used by the main
+    Translate job's own usage_cb -- so a caller can log real spend here
+    too, instead of only translation ever reaching the cost dashboard.
+    """
+    client = getattr(engine, "client", None)
+    if client is not None and hasattr(client, "messages"):
+        resp = call_with_backoff(lambda: client.messages.create(
+            model=engine.model, max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        ))
+        if usage_cb and hasattr(resp, "usage"):
+            usage_cb(getattr(resp.usage, "input_tokens", 0),
+                     getattr(resp.usage, "output_tokens", 0))
+        return "".join(b.text for b in resp.content if b.type == "text").strip()
+
+    if client is not None:
+        resp = call_with_backoff(lambda: client.chat.completions.create(
+            model=engine.model, messages=[{"role": "user", "content": prompt}],
+        ))
+        if usage_cb and getattr(resp, "usage", None):
+            usage_cb(getattr(resp.usage, "prompt_tokens", 0),
+                     getattr(resp.usage, "completion_tokens", 0))
+        return resp.choices[0].message.content.strip()
+
+    if isinstance(engine, GeminiEngine):
+        import requests
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{engine.model}:generateContent")
+        resp = call_with_backoff(lambda: requests.post(
+            url, params={"key": engine.api_key},
+            json={"contents": [{"parts": [{"text": prompt}]}]}))
+        resp.raise_for_status()
+        data = resp.json()
+        usage = data.get("usageMetadata") or {}
+        if usage_cb:
+            usage_cb(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except (KeyError, IndexError):
+            return fallback
+
+    return fallback
+
+
 # ---------------------------------------------------------------------------
 # Claude (Anthropic)
 # ---------------------------------------------------------------------------
@@ -377,7 +448,7 @@ class GoogleEngine:
         return [t["translatedText"] for t in data["data"]["translations"]]
 
 
-def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int = 15):
+def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int = 15, usage_cb=None):
     """For novel narration mode (no audio, no diarization available):
     asks the translation engine to guess who's speaking each chunk --
     a character name, or 'Narrator' for descriptive prose. Works with
@@ -406,19 +477,7 @@ def tag_speakers_llm(zh_chunks, engine, known_characters=None, batch_size: int =
             "No preamble, no markdown fences.\n\n" + numbered
         )
         # Reuse whichever engine's underlying client is available for a raw completion.
-        if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-            resp = engine.client.messages.create(
-                model=engine.model, max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = "".join(b.text for b in resp.content if b.type == "text").strip()
-        elif hasattr(engine, "client"):
-            resp = engine.client.chat.completions.create(
-                model=engine.model, messages=[{"role": "user", "content": prompt}],
-            )
-            text = resp.choices[0].message.content.strip()
-        else:
-            text = "[]"
+        text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=usage_cb)
         batch_labels = _parse_json_array(text, len(batch))
         labels.extend(batch_labels)
         if len(labels) < start + len(batch):
@@ -449,7 +508,7 @@ def smart_segment_lines(en_lines, target_wpm: float = 160, min_seconds: float = 
     return flags
 
 
-def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15):
+def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=None):
     """For lines flagged as too long to say in their time slot: asks
     the LLM to rewrite them more concisely while preserving meaning,
     so the dub actually fits. Only touches .en; leaves .zh untouched.
@@ -466,18 +525,8 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15):
             "Return ONLY a JSON array of strings, one per line, in order. No preamble, "
             "no markdown fences.\n\n" + numbered
         )
-        if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-            resp = engine.client.messages.create(
-                model=engine.model, max_tokens=2000,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = "".join(b.text for b in resp.content if b.type == "text").strip()
-        elif hasattr(engine, "client"):
-            resp = engine.client.chat.completions.create(
-                model=engine.model, messages=[{"role": "user", "content": prompt}],
-            )
-            text = resp.choices[0].message.content.strip()
-        else:
+        text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None, usage_cb=usage_cb)
+        if text is None:
             continue
         rewritten = _parse_json_array(text, len(batch))
         for ln, new_text in zip(batch, rewritten):
@@ -486,7 +535,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15):
     return lines_to_fix
 
 
-def check_consistency_llm(lines, engine, batch_size: int = 60):
+def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
     """Reviews already-translated lines for consistency issues: the same
     Chinese term/name translated differently in different places. Works
     on the .zh/.en pairs already present -- doesn't call any external
@@ -519,18 +568,9 @@ def check_consistency_llm(lines, engine, batch_size: int = 60):
             "markdown fences.\n\n" + pairs
         )
         try:
-            if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-                resp = call_with_backoff(lambda: engine.client.messages.create(
-                    model=engine.model, max_tokens=2000,
-                    messages=[{"role": "user", "content": prompt}],
-                ))
-                text = "".join(b.text for b in resp.content if b.type == "text").strip()
-            elif hasattr(engine, "client"):
-                resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-                    model=engine.model, messages=[{"role": "user", "content": prompt}],
-                ))
-                text = resp.choices[0].message.content.strip()
-            else:
+            text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
+                                  usage_cb=usage_cb)
+            if text is None:
                 continue
         except Exception:
             continue  # a check failing shouldn't block anything -- just skip that batch
@@ -552,7 +592,7 @@ FLAG_REASONS = {
 }
 
 
-def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None):
+def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None):
     """
     Reviews already-translated lines and flags the ones worth a second
     look -- the review-queue idea: instead of scanning a whole multi-hour
@@ -588,19 +628,8 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None):
             "No preamble, no markdown fences.\n\n" + pairs
         )
         try:
-            if hasattr(engine, "client") and hasattr(engine.client, "messages"):
-                resp = call_with_backoff(lambda: engine.client.messages.create(
-                    model=engine.model, max_tokens=2000,
-                    messages=[{"role": "user", "content": prompt}],
-                ))
-                text = "".join(b.text for b in resp.content if b.type == "text").strip()
-            elif hasattr(engine, "client"):
-                resp = call_with_backoff(lambda: engine.client.chat.completions.create(
-                    model=engine.model, messages=[{"role": "user", "content": prompt}],
-                ))
-                text = resp.choices[0].message.content.strip()
-            else:
-                text = "[]"
+            text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
+                                  usage_cb=usage_cb)
         except Exception:
             text = "[]"  # a check failing shouldn't block anything -- just skip that batch
 
