@@ -56,6 +56,12 @@ jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
                          # then retry -- this is a real, reproducible
                          # incompatibility, not a network or typo issue.
 pypinyin>=0.50          # Chinese pinyin
+opencc-python-reimplemented>=0.1  # Traditional<->Simplified conversion for
+                        # segmentation only -- jieba's dictionary is
+                        # Simplified-only, this keeps Reader segmentation
+                        # working on Traditional Chinese sources (Taiwan,
+                        # Hong Kong). Only used when a drama's Chinese
+                        # script is set to Traditional.
 sudachipy>=0.6          # Japanese
 sudachidict_core>=20240716
 pykakasi>=2.3           # Japanese furigana

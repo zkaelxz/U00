@@ -15,8 +15,24 @@ Backends:
 
 import os
 
-# Tesseract language codes per source language
+# Tesseract language codes per source language. "zh" defaults to
+# Simplified -- see resolve_tesseract_lang() for the Traditional variant.
 TESSERACT_LANG = {"zh": "chi_sim", "ja": "jpn", "ko": "kor"}
+TESSERACT_LANG_ZH_TRADITIONAL = "chi_tra"
+
+
+def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplified") -> str:
+    """chinese_script only matters for "zh" -- ja/ko ignore it. Traditional
+    Chinese content (Taiwan, Hong Kong) needs Tesseract's chi_tra language
+    pack; running chi_sim against it OCRs badly since the two scripts share
+    only some characters.
+      Ubuntu: sudo apt install tesseract-ocr-chi-tra
+      macOS/Windows: the tesseract-lang / language-selection installer
+        already covers this -- select Chinese (Traditional) during setup.
+    """
+    if source_language == "zh" and chinese_script == "traditional":
+        return TESSERACT_LANG_ZH_TRADITIONAL
+    return TESSERACT_LANG.get(source_language, "chi_sim")
 
 
 def extract_text_tesseract(image_path: str, lang: str = "chi_sim") -> str:
@@ -64,7 +80,8 @@ def extract_text_manga_ocr(image_path: str) -> str:
 
 
 def extract_text_from_images(image_paths, backend: str = "tesseract",
-                              source_language: str = "zh") -> str:
+                              source_language: str = "zh",
+                              chinese_script: str = "simplified") -> str:
     """Runs OCR over multiple page images (e.g. a whole chapter's worth
     of screenshots) in order and joins them into one block of text,
     ready to feed into the novel-narration pipeline."""
@@ -73,7 +90,7 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     elif backend == "paddle":
         fn = extract_text_paddle
     else:
-        lang = TESSERACT_LANG.get(source_language, "chi_sim")
+        lang = resolve_tesseract_lang(source_language, chinese_script)
         fn = lambda p: extract_text_tesseract(p, lang=lang)
 
     chunks = []

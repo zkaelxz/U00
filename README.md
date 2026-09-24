@@ -258,6 +258,33 @@ Real limitations, not edge cases to eventually round out:
   too long and you can tolerate missing very short-lived captions.
 
 
+## Simplified vs Traditional Chinese (Taiwan, Hong Kong sources)
+
+For `source_language = zh`, a "Chinese script" toggle appears (Workspace →
+2. Content source) with two options: Simplified (Mainland) and Traditional
+(Taiwan, Hong Kong). What it actually affects:
+
+- **Whisper transcription and translation (Claude/DeepSeek/Gemini/etc.):
+  unaffected either way.** Whisper's `zh` language code doesn't distinguish
+  dialects, and every LLM translation engine reads Simplified or
+  Traditional input equally well -- Taiwanese Mandarin speech transcribes
+  and translates the same as Mainland Mandarin.
+- **OCR (page-scan novels, hardsub captions): this toggle picks Tesseract's
+  `chi_sim` vs `chi_tra` language pack.** Running Simplified OCR against
+  Traditional text (or vice versa) recognizes badly -- the two scripts
+  only share some characters. Install the matching Tesseract language
+  pack (`tesseract-ocr-chi-tra` on Ubuntu; the Windows/macOS installers'
+  language picker already covers this).
+- **Reader word segmentation**: jieba's dictionary is Simplified-only.
+  Traditional mode converts to Simplified with OpenCC (`pip install
+  opencc-python-reimplemented`) just to find word boundaries, then slices
+  the *original* Traditional text using those boundaries -- so the
+  segmented words you actually see are always in the source script, not
+  silently converted.
+
+Defaults to Simplified; only matters at all when source_language is `zh`.
+
+
 ## Speaker diarization (audio-drama mode)
 
 Needs `pip install pyannote.audio`, a free Hugging Face token

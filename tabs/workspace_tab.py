@@ -106,7 +106,8 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     })
 
 
-def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backend):
+def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backend,
+                         chinese_script="simplified"):
     """
     Runs hardsub_ocr's sample-frames -> auto-detect-caption-band -> OCR ->
     dedupe pipeline in a background thread. Same reasoning as
@@ -121,7 +122,7 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     import hardsub_ocr
     cues = hardsub_ocr.extract_hardsub_subtitles(
         video_path, language=language, sample_interval=sample_interval,
-        ocr_backend=ocr_backend,
+        ocr_backend=ocr_backend, chinese_script=chinese_script,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
     if not cues:
@@ -344,6 +345,23 @@ def render_workspace_tab():
         if source_language != drama.get("source_language"):
             db.update_drama(picked_id, source_language=source_language)
 
+        chinese_script = "simplified"
+        if source_language == "zh":
+            _script_options = ["simplified", "traditional"]
+            _saved_script = drama.get("chinese_script") or "simplified"
+            chinese_script = st.radio(
+                "Chinese script", _script_options,
+                index=_script_options.index(_saved_script) if _saved_script in _script_options else 0,
+                format_func=lambda s: "Simplified (Mainland)" if s == "simplified"
+                                       else "Traditional (Taiwan, Hong Kong)",
+                horizontal=True,
+                help="Whisper transcription and translation work the same either way -- this only "
+                     "affects OCR (picks Tesseract's chi_sim vs chi_tra language pack) and the "
+                     "Reader's word segmentation, both of which need to know which script they're "
+                     "looking at to work well.")
+            if chinese_script != drama.get("chinese_script"):
+                db.update_drama(picked_id, chinese_script=chinese_script)
+
         with st.expander(f"📕 Raw {source_language.upper()} novel (optional -- helps transcription)"):
             st.caption(
                 "Different from the reference translation below: this is the ORIGINAL-language "
@@ -561,7 +579,8 @@ def render_workspace_tab():
                         img_paths.append(p)
                     with st.spinner("Running OCR..."):
                         extracted = ocr_module.extract_text_from_images(
-                            img_paths, backend=ocr_backend, source_language=source_language)
+                            img_paths, backend=ocr_backend, source_language=source_language,
+                            chinese_script=chinese_script)
                     st.session_state[f"ocr_text_{picked_id}"] = extracted
                     st.success(f"Extracted {len(extracted):,} characters. Review below before using.")
 
@@ -1188,7 +1207,8 @@ def render_workspace_tab():
                     _transcribe_job_id, run_hardsub_ocr_job,
                     _transcribe_job_id, video_path, source_language,
                     st.session_state.get(f"hardsub_interval_{picked_id}", 1.0),
-                    st.session_state.get(f"hardsub_ocr_backend_{picked_id}", "tesseract"))
+                    st.session_state.get(f"hardsub_ocr_backend_{picked_id}", "tesseract"),
+                    chinese_script)
                 if started:
                     st.info("Reading captions from the video in the background -- it keeps running "
                             "even if you switch tabs or close this browser tab. Come back here any "

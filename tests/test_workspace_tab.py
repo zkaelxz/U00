@@ -163,7 +163,8 @@ def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
-    def fake_extract(video_path, language, sample_interval, ocr_backend, progress_cb=None):
+    def fake_extract(video_path, language, sample_interval, ocr_backend,
+                      chinese_script="simplified", progress_cb=None):
         progress_cb(0.4)
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 

@@ -38,6 +38,7 @@ def render_reader_tab():
         st.success(f"Resumed **{_banner}** at your saved position.")
     rdrama = options[picked_label]
     rlang = rdrama.get("source_language") or "zh"
+    rscript = rdrama.get("chinese_script") or "simplified"
 
     rows = db.load_lines(rdrama["id"])
     rlines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r["en"] or "",
@@ -108,7 +109,7 @@ def render_reader_tab():
         with st.spinner("Segmenting text..."):
             all_words = []
             for ln in page_lines:
-                for word, _reading in segment_module.segment_and_annotate(ln.zh, rlang):
+                for word, _reading in segment_module.segment_and_annotate(ln.zh, rlang, chinese_script=rscript):
                     if word.strip():
                         all_words.append(word)
         with st.spinner("Looking up definitions..."):
