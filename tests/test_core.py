@@ -11,6 +11,7 @@ from core import (
     Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt,
     split_user_transcript, align_transcript_to_timing,
     merge_adjacent_short_lines, chunk_novel_text,
+    filter_hallucinated_segments,
 )
 
 
@@ -414,6 +415,113 @@ class TestVadSensitivity:
         core.transcribe_for_timing("/fake/audio.mp3")
 
         assert captured["vad_parameters"]["threshold"] == 0.5
+
+
+class TestFilterHallucinatedSegments:
+    """Regression coverage for a real, well-documented Whisper failure
+    mode: looping a short phrase across many separate segments on silence
+    or background music. Each individual repeated segment can look
+    perfectly confident on its own (faster-whisper's own per-segment
+    compression_ratio/log_prob/no_speech thresholds don't catch it) --
+    it's the run of identical segments that's the actual tell."""
+
+    def _seg(self, start, end, text):
+        return {"start": start, "end": end, "text": text}
+
+    def test_a_short_run_is_left_untouched(self):
+        segments = [self._seg(0, 1, "hello"), self._seg(1, 2, "hello"),
+                    self._seg(2, 3, "world")]
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == segments
+
+    def test_a_long_run_is_collapsed_to_the_first_occurrence(self):
+        segments = ([self._seg(i, i + 1, "thanks for watching") for i in range(5)]
+                    + [self._seg(5, 6, "real dialogue")])
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == [self._seg(0, 1, "thanks for watching"),
+                           self._seg(5, 6, "real dialogue")]
+
+    def test_exactly_at_the_threshold_is_collapsed(self):
+        segments = [self._seg(i, i + 1, "x") for i in range(4)]
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == [self._seg(0, 1, "x")]
+
+    def test_one_below_the_threshold_is_untouched(self):
+        segments = [self._seg(i, i + 1, "x") for i in range(3)]
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == segments
+
+    def test_whitespace_differences_still_count_as_the_same_run(self):
+        segments = [self._seg(0, 1, "hi there"), self._seg(1, 2, "hi  there"),
+                    self._seg(2, 3, " hithere "), self._seg(3, 4, "hi there")]
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == [self._seg(0, 1, "hi there")]
+
+    def test_blank_segments_are_never_collapsed(self):
+        """A stretch of real silence correctly produces no text at all --
+        collapsing blanks would be pointless (there's nothing to dedupe)
+        and could accidentally hide a legitimate run of blank segments."""
+        segments = [self._seg(i, i + 1, "") for i in range(6)]
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == segments
+
+    def test_multiple_separate_runs_are_each_collapsed(self):
+        segments = ([self._seg(i, i + 1, "a") for i in range(4)]
+                    + [self._seg(4, 5, "real line")]
+                    + [self._seg(5 + i, 6 + i, "b") for i in range(5)])
+        result = filter_hallucinated_segments(segments, min_repeat_count=4)
+        assert result == [self._seg(0, 1, "a"), self._seg(4, 5, "real line"),
+                           self._seg(5, 6, "b")]
+
+    def test_empty_input_returns_empty(self):
+        assert filter_hallucinated_segments([]) == []
+
+    def test_default_threshold_is_four(self):
+        import inspect
+        params = inspect.signature(filter_hallucinated_segments).parameters
+        assert params["min_repeat_count"].default == 4
+
+
+class TestTranscribeForTimingHallucinationFilter:
+    def _stub_faster_whisper(self, texts):
+        import sys, types
+
+        class FakeSegment:
+            def __init__(self, start, end, text):
+                self.start, self.end, self.text = start, end, text
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                def gen():
+                    for i, t in enumerate(texts):
+                        yield FakeSegment(float(i), float(i + 1), t)
+                return gen(), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        sys.modules["faster_whisper"] = fake_fw
+
+    def test_hallucination_filter_is_applied_by_default(self):
+        import core
+        core._whisper_model_cache.clear()
+        self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
+
+        result = core.transcribe_for_timing("/fake/audio.mp3")
+
+        assert result == [{"start": 0.0, "end": 1.0, "text": "thanks for watching"},
+                           {"start": 5.0, "end": 6.0, "text": "real line"}]
+
+    def test_filter_can_be_disabled(self):
+        import core
+        core._whisper_model_cache.clear()
+        self._stub_faster_whisper(["thanks for watching"] * 5 + ["real line"])
+
+        result = core.transcribe_for_timing("/fake/audio.mp3", filter_hallucination_repeats=0)
+
+        assert len(result) == 6  # nothing collapsed
 
 
 class TestLineCoverageDiagnosis:

@@ -252,11 +252,63 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
     return "、".join(names[:max_terms]) + "。"
 
 
+def filter_hallucinated_segments(segments, min_repeat_count: int = 4):
+    """
+    Whisper is well known to loop a short phrase across MANY separate
+    segments when fed silence or background music -- often a training-
+    data artifact like a stock "please subscribe" phrase, or just a
+    single word repeated -- and this is a DIFFERENT failure mode from
+    what faster-whisper's own decoding thresholds (compression_ratio,
+    log_prob, no_speech -- already applied internally before this ever
+    sees the output) catch: each individual repeated segment can score
+    perfectly confident on its own, since the model isn't uncertain about
+    a phrase it's hallucinating with full conviction. It's the SEQUENCE
+    of many identical segments in a row that's the actual tell, not any
+    one segment's own score -- which is why this needs its own pass
+    working on the already-decoded segment list, not another decoding
+    parameter.
+
+    Collapses a run of `min_repeat_count` or more CONSECUTIVE segments
+    with identical (whitespace-normalized) text down to just the first
+    occurrence, on the assumption real speech repeated verbatim that many
+    times back-to-back AS SEPARATE SEGMENTS (not within one segment's own
+    text -- quick real repetition like "no no no no" almost always comes
+    back as one segment) is far less likely than a hallucination loop.
+
+    Trade-off, stated plainly: the rare genuine case of someone actually
+    repeating one short line several times, each landing as its own
+    segment, gets collapsed to a single line here. min_repeat_count
+    defaults conservatively high (4) to keep that risk low -- lower it if
+    loops are still getting through on your content, raise it if you've
+    actually hit the false-positive case.
+    """
+    if not segments:
+        return segments
+
+    def _norm(text):
+        return "".join((text or "").split())
+
+    out = []
+    i = 0
+    n = len(segments)
+    while i < n:
+        norm = _norm(segments[i]["text"])
+        j = i + 1
+        while j < n and norm != "" and _norm(segments[j]["text"]) == norm:
+            j += 1
+        if (j - i) >= min_repeat_count:
+            out.append(segments[i])
+        else:
+            out.extend(segments[i:j])
+        i = j
+    return out
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
-                           vad_threshold: float = 0.5,
+                           vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
                            on_gpu_fallback=None, progress_cb=None):
     """
     initial_prompt: proper nouns to prime recognition with -- see
@@ -295,6 +347,12 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     Same genuine tradeoff shape as min_silence_duration_ms -- there's no
     value that's strictly better for every source.
 
+    filter_hallucination_repeats: passed to filter_hallucinated_segments()
+    (see its own docstring) -- collapses a run of this many or more
+    consecutive segments with identical text, a well-known Whisper
+    failure mode on silence/music that its own per-segment decoding
+    thresholds don't catch. Set to 0 or None to disable entirely.
+
     on_gpu_fallback: optional callback invoked with the original exception
     if a requested GPU run fails at actual inference time and this
     transparently retries on CPU -- so the caller can tell the person
@@ -327,6 +385,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             result.append({"start": s.start, "end": s.end, "text": s.text.strip()})
             if progress_cb:
                 progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
+        if filter_hallucination_repeats:
+            result = filter_hallucinated_segments(result, filter_hallucination_repeats)
         return result
 
     try:
