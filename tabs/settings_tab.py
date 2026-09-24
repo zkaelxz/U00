@@ -148,10 +148,14 @@ def render_settings_sidebar():
                       "If transcription errors after enabling this, turn it back off.")
 
         with st.expander("Defaults for new dramas", expanded=False):
+            _default_engine_options = ["claude", "deepseek", "deepl", "google", "ollama",
+                                        "libretranslate", "nllb"]
             st.session_state["settings_default_engine"] = st.selectbox(
-                "Default translation engine", ["claude", "deepseek", "deepl", "google", "ollama", "libretranslate"],
-                index=["claude", "deepseek", "deepl", "google", "ollama", "libretranslate"].index(
-                    st.session_state.get("settings_default_engine", "claude")))
+                "Default translation engine", _default_engine_options,
+                index=_default_engine_options.index(
+                    st.session_state.get("settings_default_engine", "claude"))
+                    if st.session_state.get("settings_default_engine", "claude") in _default_engine_options
+                    else 0)
             st.session_state["settings_default_locale"] = st.selectbox(
                 "Default English variant", ["en-US", "en-GB", "en-AU"],
                 index=["en-US", "en-GB", "en-AU"].index(st.session_state.get("settings_default_locale", "en-US")))

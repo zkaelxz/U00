@@ -507,6 +507,96 @@ class TestGoogleEngine:
         assert captured["json"]["source"] == "ko"
 
 
+class TestNLLBEngine:
+    """NLLBEngine: fully local/offline MT via Meta's NLLB-200. transformers
+    is a real installed dependency in this environment, but downloading an
+    actual model isn't something a test suite should do -- transformers.pipeline
+    is faked at that boundary, the same way GeminiEngine's tests fake
+    requests.post rather than hitting a real API."""
+
+    def _install_fake_pipeline(self, monkeypatch):
+        import sys, types
+        captured = {}
+
+        class FakePipeline:
+            def __init__(self, task, model, src_lang, tgt_lang):
+                captured["task"] = task
+                captured["model"] = model
+                captured["src_lang"] = src_lang
+                captured["tgt_lang"] = tgt_lang
+
+            def __call__(self, texts):
+                return [{"translation_text": f"EN:{t}"} for t in texts]
+
+        fake_module = types.ModuleType("transformers")
+        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: FakePipeline(
+            task, model, src_lang, tgt_lang)
+        monkeypatch.setitem(sys.modules, "transformers", fake_module)
+        return captured
+
+    def setup_method(self):
+        te._nllb_pipeline_cache.clear()
+
+    def test_translates_and_defaults_to_chinese_simplified(self, monkeypatch):
+        captured = self._install_fake_pipeline(monkeypatch)
+        engine = te.NLLBEngine()
+        result = engine.translate_batch(["你好", "再见"], {})
+        assert result == ["EN:你好", "EN:再见"]
+        assert captured["src_lang"] == "zho_Hans"
+        assert captured["tgt_lang"] == "eng_Latn"
+        assert captured["model"] == "facebook/nllb-200-distilled-600M"
+
+    def test_japanese_source_language_maps_to_nllb_code(self, monkeypatch):
+        captured = self._install_fake_pipeline(monkeypatch)
+        engine = te.NLLBEngine()
+        engine.translate_batch(["こんにちは"], {"source_language": "ja"})
+        assert captured["src_lang"] == "jpn_Jpan"
+
+    def test_korean_source_language_maps_to_nllb_code(self, monkeypatch):
+        captured = self._install_fake_pipeline(monkeypatch)
+        engine = te.NLLBEngine()
+        engine.translate_batch(["안녕"], {"source_language": "ko"})
+        assert captured["src_lang"] == "kor_Hang"
+
+    def test_custom_model_size_is_used(self, monkeypatch):
+        captured = self._install_fake_pipeline(monkeypatch)
+        engine = te.NLLBEngine(model="facebook/nllb-200-distilled-1.3B")
+        engine.translate_batch(["你好"], {})
+        assert captured["model"] == "facebook/nllb-200-distilled-1.3B"
+
+    def test_needs_no_api_key(self):
+        # Must not raise/require anything -- api_key is accepted but unused.
+        engine = te.NLLBEngine(api_key=None)
+        assert engine.model_name == "facebook/nllb-200-distilled-600M"
+
+    def test_pipeline_is_cached_per_model_and_language(self, monkeypatch):
+        import sys, types
+        build_calls = []
+
+        class FakePipeline:
+            def __call__(self, texts):
+                return [{"translation_text": f"EN:{t}"} for t in texts]
+
+        def fake_pipeline_factory(task, model, src_lang, tgt_lang):
+            build_calls.append((model, src_lang))
+            return FakePipeline()
+
+        fake_module = types.ModuleType("transformers")
+        fake_module.pipeline = fake_pipeline_factory
+        monkeypatch.setitem(sys.modules, "transformers", fake_module)
+
+        engine = te.NLLBEngine()
+        engine.translate_batch(["a"], {"source_language": "zh"})
+        engine.translate_batch(["b"], {"source_language": "zh"})
+        engine.translate_batch(["c"], {"source_language": "ja"})
+
+        assert len(build_calls) == 2  # zh built once and reused; ja built separately
+
+    def test_is_registered_in_engines_and_notes(self):
+        assert te.ENGINES["nllb"] is te.NLLBEngine
+        assert "nllb" in te.ENGINE_NOTES
+
+
 class TestCallLlmJson:
     """call_llm_json() is the shared single-prompt call used by every
     non-translation LLM feature (emotion tagging, translation notes,

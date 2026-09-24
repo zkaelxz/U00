@@ -11,6 +11,10 @@ openai>=1.30          # for DeepSeek (OpenAI-compatible API)
 deepl>=1.18            # for DeepL
 requests>=2.31             # for Google Translate REST calls, metadata lookup, navigator
 beautifulsoup4>=4.12       # for metadata lookup and navigator page parsing
+transformers>=4.40         # for the local NLLB-200 engine (genuinely free,
+                            # fully offline MT, no API key -- see the "nllb"
+                            # engine in translate_engines.py)
+sentencepiece>=0.2          # tokenizer NLLB-200 needs
 
 # Speaker diarization:
 pyannote.audio>=3.1
