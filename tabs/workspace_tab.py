@@ -435,6 +435,17 @@ def render_workspace_tab():
     # need it, and each read it before that later definition ran.
     source_language = drama.get("source_language") or "zh"
 
+    # Translate/flag/fix-flagged jobs each save their own full copy of the
+    # drama's lines via db.save_lines() from a background thread. Any
+    # OTHER control that writes lines from the main thread at the same
+    # time races it -- whichever save lands last silently discards the
+    # other's work. Defined here, once, since it gates controls in
+    # several sections below (Transcribe & Align / Chunk & Tag Speakers,
+    # Review & edit, AI dub), not just one.
+    _editing_locked = background_jobs.any_line_writing_job(picked_id)
+    _editing_locked_message = ("✋ Line editing is paused while translation is running, so your "
+                                "edits aren't overwritten. It unlocks when the job finishes.")
+
     with st.expander("✏️ Edit metadata", expanded=False):
         c1, c2 = st.columns(2)
         title_en = c1.text_input("Title (English)", value=drama["title_en"] or "")
@@ -1479,7 +1490,9 @@ def render_workspace_tab():
                           f"fetch it from Hugging Face (a few hundred MB to ~3GB). Needs a working "
                           f"internet connection; it's cached afterwards.")
 
-        run_prep = b1.button(prep_label, type="primary", disabled=not can_prep)
+        if can_prep and _editing_locked:
+            st.info(_editing_locked_message)
+        run_prep = b1.button(prep_label, type="primary", disabled=not can_prep or _editing_locked)
         run_translate = b2.button("🌐 Translate all lines",
                                    disabled=st.session_state.lines is None or not api_key)
         force_retranslate = b2.checkbox(
@@ -1979,16 +1992,8 @@ def render_workspace_tab():
 
             all_lines = st.session_state.lines
 
-            # Translate/flag/fix-flagged jobs each save their own full copy
-            # of the drama's lines via db.save_lines() from a background
-            # thread. A manual edit saved from here at the same time races
-            # it -- whichever save lands last silently wins. Every control
-            # below that writes lines is disabled while one of those jobs
-            # is running for this drama.
-            _editing_locked = background_jobs.any_line_writing_job(picked_id)
             if _editing_locked:
-                st.info("✋ Line editing is paused while translation is running, so your edits "
-                        "aren't overwritten. It unlocks when the job finishes.")
+                st.info(_editing_locked_message)
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
@@ -2672,7 +2677,9 @@ def render_workspace_tab():
             )
             voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
             dub_button_label = "🎙️ Generate narration track" if content_mode == "novel_narration" else "🎙️ Generate dub track"
-            if st.button(dub_button_label):
+            if _editing_locked:
+                st.info(_editing_locked_message)
+            if st.button(dub_button_label, disabled=_editing_locked):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
                 clone_map = {}
