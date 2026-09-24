@@ -1312,8 +1312,16 @@ def render_workspace_tab():
         run_prep = b1.button(prep_label, type="primary", disabled=not can_prep)
         run_translate = b2.button("🌐 Translate all lines",
                                    disabled=st.session_state.lines is None or not api_key)
-        force_retranslate = b2.checkbox("Force re-translate everything (ignore already-translated lines)",
-                                         value=False, key="force_retranslate")
+        force_retranslate = b2.checkbox(
+            "Force re-translate everything (redoes lines that already have a "
+            "translation too, not just what's missing)",
+            value=False, key="force_retranslate",
+            help="Unchecked (default): Translate only skips lines that don't have a "
+                 "translation yet, leaving existing ones untouched -- the normal way to "
+                 "pick up where you left off. Checked: every line gets re-translated from "
+                 "scratch, overwriting anything already there -- use this after changing "
+                 "the engine, style, or glossary and wanting the whole drama redone "
+                 "consistently.")
 
         _transcribe_job_id = f"transcribe_{picked_id}"
         _tjob = background_jobs.get_status(_transcribe_job_id)
@@ -1815,7 +1823,7 @@ def render_workspace_tab():
                         ln.flag, ln.flag_note = None, ""
                         db.save_lines(picked_id, all_lines)
                         st.rerun()
-                cols = st.columns([1, 1, 1, 3, 3, 0.5])
+                cols = st.columns([1, 1, 1, 3, 3, 0.5, 0.5])
                 start = cols[0].number_input("start", value=round(ln.start, 2), step=0.1,
                                               label_visibility="collapsed", key=f"start_{ln.idx}")
                 end = cols[1].number_input("end", value=round(ln.end, 2), step=0.1,
@@ -1824,6 +1832,55 @@ def render_workspace_tab():
                 zh = cols[3].text_area("zh", value=ln.zh, height=68, label_visibility="collapsed", key=f"zh_{ln.idx}")
                 en = cols[4].text_area("en", value=ln.en, height=68, label_visibility="collapsed", key=f"en_{ln.idx}")
                 cols[5].write(f"#{ln.idx + 1}")
+                with cols[6].popover("🔧"):
+                    st.caption("Fix just this line -- cheaper and faster than redoing the "
+                              "whole drama for one mistake.")
+                    if api_key and st.button("✏️ Improve translation", key=f"rvimprove_{ln.idx}"):
+                        eng_imp = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                        with st.spinner("Rewriting..."):
+                            improved = line_tools.improve_line(zh, en, eng_imp,
+                                                                source_language=source_language)
+                        st.session_state[f"rv_improved_{ln.idx}"] = improved
+                    _improved = st.session_state.get(f"rv_improved_{ln.idx}")
+                    if _improved:
+                        st.success(_improved)
+                        if st.button("Use this", key=f"rvuseimproved_{ln.idx}"):
+                            db.record_edit_sample(picked_id, zh, en, _improved)
+                            for _r in all_lines:
+                                if _r.idx == ln.idx:
+                                    _r.en = _improved
+                            db.save_lines(picked_id, all_lines)
+                            st.session_state[f"rv_improved_{ln.idx}"] = None
+                            st.rerun()
+                    if has_audio_pipeline and drama.get("audio_filename"):
+                        if st.button("🎙️ Re-transcribe", key=f"rvretrans_{ln.idx}"):
+                            _audio_path = os.path.join(ddir, drama["audio_filename"])
+                            _slice_path = os.path.join(ddir, "_retranscribe_slice.wav")
+                            with st.spinner("Re-transcribing..."):
+                                core_module.extract_audio_slice(_audio_path, ln.start, ln.end, _slice_path)
+                                try:
+                                    _segs = core_module.transcribe_for_timing(
+                                        _slice_path, model_size=drama.get("whisper_size") or "medium",
+                                        language=source_language,
+                                        use_gpu=st.session_state.get("use_gpu", False))
+                                    st.session_state[f"rv_retrans_{ln.idx}"] = " ".join(
+                                        s["text"] for s in _segs).strip()
+                                finally:
+                                    if os.path.exists(_slice_path):
+                                        os.remove(_slice_path)
+                        _retrans = st.session_state.get(f"rv_retrans_{ln.idx}")
+                        if _retrans is not None:
+                            if _retrans:
+                                st.success(_retrans)
+                                if st.button("Use this", key=f"rvuseretrans_{ln.idx}"):
+                                    for _r in all_lines:
+                                        if _r.idx == ln.idx:
+                                            _r.zh = _retrans
+                                    db.save_lines(picked_id, all_lines)
+                                    st.session_state[f"rv_retrans_{ln.idx}"] = None
+                                    st.rerun()
+                            else:
+                                st.warning("No speech found in this line's timing window.")
                 # Editing a flagged line's translation is treated as addressing
                 # it -- clears automatically rather than needing a separate
                 # "mark reviewed" click on top of the fix itself. Merely

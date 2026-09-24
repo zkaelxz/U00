@@ -42,7 +42,8 @@ def render_reader_tab():
 
     rows = db.load_lines(rdrama["id"])
     rlines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r["en"] or "",
-                     speaker=r.get("speaker")) for r in rows]
+                     speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
+              for r in rows]
 
     rddir = db.drama_dir(rdrama["id"])
     media_path = None
@@ -277,11 +278,15 @@ def render_reader_tab():
     st.caption("Inspect or improve a single line -- why it was translated that way, other "
               "ways to render it, or a targeted rewrite if it reads awkwardly.")
     if page_lines:
-        line_opts = {f"Line {ln.idx + 1}: {ln.zh[:40]}": ln for ln in page_lines}
+        line_opts = {f"{'🚩 ' if ln.flag else ''}Line {ln.idx + 1}: {ln.zh[:40]}": ln
+                     for ln in page_lines}
         picked_line_label = st.selectbox("Line", list(line_opts.keys()), key=f"lt_{rdrama['id']}")
         pl = line_opts[picked_line_label]
         st.caption(f"**Source:** {pl.zh}")
         st.caption(f"**Translation:** {pl.en or '_(untranslated)_'}")
+        if pl.flag:
+            st.warning(f"🚩 Flagged: {translate_engines.FLAG_REASONS.get(pl.flag, pl.flag)}"
+                      + (f" — {pl.flag_note}" if pl.flag_note else ""))
 
         lt1, lt2, lt3, lt4 = st.columns(4)
         if lt1.button("Why this?") and story_key:
