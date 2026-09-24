@@ -372,13 +372,19 @@ def render_workspace_tab():
                         st.error(str(exc))
 
             st.markdown("**Transcript**")
+            _transcript_mode_options = ["have_transcript", "whisper"]
             transcript_mode = st.radio(
                 "Where does the transcript come from?",
-                ["have_transcript", "whisper"],
+                _transcript_mode_options,
+                index=_transcript_mode_options.index(drama.get("transcript_mode") or "have_transcript")
+                      if (drama.get("transcript_mode") or "have_transcript") in _transcript_mode_options
+                      else 0,
                 format_func=lambda m: ("I have the transcript (most accurate)"
                                         if m == "have_transcript" else
                                         "I don't have one -- let Whisper transcribe the audio"),
                 key=f"tmode_{picked_id}", horizontal=False)
+            if transcript_mode != drama.get("transcript_mode"):
+                db.update_drama(picked_id, transcript_mode=transcript_mode)
 
             if transcript_mode == "have_transcript":
                 st.caption("Paste the official or fan transcript. Using a real transcript is "
@@ -585,11 +591,17 @@ def render_workspace_tab():
                         tguide.glossary_to_csv(_current_gl),
                         file_name="glossary.csv")
 
+        _whisper_size_options = ["small", "medium", "large-v3"]
         whisper_size = st.selectbox(
-            "Speech recognition model", ["small", "medium", "large-v3"], index=1,
+            "Speech recognition model", _whisper_size_options,
+            index=_whisper_size_options.index(drama.get("whisper_size") or "medium")
+                  if (drama.get("whisper_size") or "medium") in _whisper_size_options else 1,
             disabled=content_mode == "novel_narration",
+            key=f"whisper_size_{picked_id}",
             help="large-v3 is markedly better on Chinese names and homophones. It's free, "
                  "just slower and ~3GB to download — and much faster with GPU enabled.")
+        if whisper_size != drama.get("whisper_size"):
+            db.update_drama(picked_id, whisper_size=whisper_size)
 
         with st.expander("🎯 Recognition accuracy (free — worth doing)"):
             st.caption(
@@ -645,13 +657,18 @@ def render_workspace_tab():
                 st.caption("💡 GPU is off. On your card, enabling it under Settings → Performance "
                           "makes large-v3 practical rather than painfully slow.")
 
+        _alignment_method_options = ["whisper_diff", "qwen3_forced_align"]
         alignment_method = st.selectbox(
             "Timing method (when you have a real transcript)",
-            ["whisper_diff", "qwen3_forced_align"],
+            _alignment_method_options,
+            index=_alignment_method_options.index(drama.get("alignment_method") or "whisper_diff")
+                  if (drama.get("alignment_method") or "whisper_diff") in _alignment_method_options
+                  else 0,
             format_func=lambda m: ("Whisper + character-diff (current default)"
                                     if m == "whisper_diff" else
                                     "Qwen3-ForcedAligner (experimental -- true forced alignment)"),
             disabled=content_mode == "novel_narration",
+            key=f"alignment_method_{picked_id}",
             help="The default runs Whisper for timing, then fuzzy-matches your real transcript "
                  "against Whisper's (often wrong) text character-by-character, guessing each "
                  "match's timestamp as an even split across its Whisper segment. Qwen3-ForcedAligner "
@@ -660,13 +677,19 @@ def render_workspace_tab():
                  "qwen-asr torch` and is unverified on this project's content. Only applies when "
                  "you supplied a real transcript above; Whisper's own text has nothing to align "
                  "against. Falls back to the default automatically if qwen-asr isn't installed.")
+        if alignment_method != drama.get("alignment_method"):
+            db.update_drama(picked_id, alignment_method=alignment_method)
 
+        _asr_backend_options = ["whisper", "qwen3_asr"]
         asr_backend_choice = st.selectbox(
             "Transcription model (when Whisper is doing the transcript, not just timing)",
-            ["whisper", "qwen3_asr"],
+            _asr_backend_options,
+            index=_asr_backend_options.index(drama.get("asr_backend_choice") or "whisper")
+                  if (drama.get("asr_backend_choice") or "whisper") in _asr_backend_options else 0,
             format_func=lambda m: ("Whisper (current default)" if m == "whisper" else
                                     "Qwen3-ASR (experimental -- purpose-built for zh/ja/ko)"),
             disabled=content_mode == "novel_narration",
+            key=f"asr_backend_choice_{picked_id}",
             help="Only applies when you picked 'let Whisper transcribe the audio' above -- if you "
                  "supplied a real transcript, this has no effect (nothing to transcribe). Public "
                  "benchmarks show Qwen3-ASR well ahead of Whisper on Mandarin, especially under "
@@ -675,6 +698,8 @@ def render_workspace_tab():
                  "of Whisper's segments individually (so it's slower than one Whisper pass), and "
                  "keeps Whisper's own segment timing either way -- only the transcribed text "
                  "changes. Falls back to Whisper automatically if qwen-asr isn't installed.")
+        if asr_backend_choice != drama.get("asr_backend_choice"):
+            db.update_drama(picked_id, asr_backend_choice=asr_backend_choice)
 
     with st.expander("4. 🎙️ Speaker diarization", expanded=False):
         if has_audio_pipeline:
@@ -699,458 +724,463 @@ def render_workspace_tab():
                        "(who's speaking each line) instead of audio diarization -- no audio to analyze.")
             hf_token, run_diarize, expected_speakers = None, False, 0
 
-    st.subheader("5. Translation")
+    with st.expander("5. 🌐 Translation", expanded=False):
 
-    if drama.get("last_translate_errors"):
-        try:
-            _persisted_errors = json.loads(drama["last_translate_errors"])
-        except (json.JSONDecodeError, TypeError):
-            _persisted_errors = []
-        if _persisted_errors:
-            _failed_nums = sorted({i + 1 for e in _persisted_errors for i in e.get("lines", [])})
-            st.warning(
-                f"⚠️ The last translation run had {len(_persisted_errors)} batch failure(s) -- "
-                f"line(s) {_failed_nums} are still untranslated. This is why some lines have "
-                f"no English text; it's not a display bug. Click **Translate all lines** below "
-                f"to retry just the missing ones (already-translated lines are skipped "
-                f"automatically, so this won't re-cost anything already done).")
-            if st.button("Dismiss this notice", key=f"dismiss_tr_err_{picked_id}"):
-                db.update_drama(picked_id, last_translate_errors=None)
-                st.rerun()
-
-    import translation_guide as tguide
-    _style_keys = list(tguide.STYLE_PRESETS.keys())
-    _default_style = "novel" if content_mode == "novel_narration" else "audio_drama"
-    style_preset = st.selectbox(
-        "Translation style", _style_keys, index=_style_keys.index(_default_style),
-        format_func=lambda k: tguide.STYLE_PRESETS[k]["label"],
-        help="Changes register and pacing guidance -- spoken dialogue reads very "
-             "differently from prose or bubble text.")
-    with st.expander("ℹ️ What this style asks the translator for"):
-        st.caption(tguide.STYLE_PRESETS[style_preset]["guidance"])
-    include_genre_notes = st.checkbox(
-        "Include baihe/GL genre guidance (pronoun clarity, kinship-term nuance, "
-        "don't soften romantic content)", value=True)
-    custom_guide_notes = st.text_area(
-        "Project-specific translation notes (optional)", height=68,
-        placeholder="e.g. this character always speaks formally; keep the narrator distant")
-
-    with st.expander("📖 Series glossary & term handling", expanded=False):
-        existing_series = db.list_series()
-        series_options = ["-- none --"] + [s["name"] for s in existing_series] + ["+ New series..."]
-        current_series_name = next((s["name"] for s in existing_series if s["id"] == drama.get("series_id")), "-- none --")
-        series_pick = st.selectbox("Series", series_options,
-                                    index=series_options.index(current_series_name) if current_series_name in series_options else 0)
-        if series_pick == "+ New series...":
-            new_series_name = st.text_input("New series name")
-            if new_series_name and st.button("Create & assign series"):
-                sid = db.get_or_create_series(new_series_name)
-                db.update_drama(picked_id, series_id=sid)
-                st.success(f"Assigned to series '{new_series_name}'.")
-                st.rerun()
-        elif series_pick != "-- none --":
-            sid = next(s["id"] for s in existing_series if s["name"] == series_pick)
-            if sid != drama.get("series_id"):
-                db.update_drama(picked_id, series_id=sid)
-                st.rerun()
-
-            st.markdown("**Auto-extract terms from the source text**")
-            st.caption("Scans for names, sects, titles, honorifics, and concepts needing "
-                      "consistent handling, and proposes a policy for each. Always review "
-                      "before adding -- these are judgment calls.")
-            _extract_key = st.session_state.get(f"settings_{drama.get('translation_engine') or 'claude'}", "")
-            if st.button("🔍 Extract terms"):
-                source_lines = [ln.zh for ln in (st.session_state.lines or [])]
-                if not source_lines:
-                    st.warning("No source lines yet -- align or chunk the text first.")
-                elif not _extract_key:
-                    st.warning("Set an API key in the ⚙️ Settings sidebar first.")
-                else:
-                    engine_x = translate_engines.get_engine(
-                        drama.get("translation_engine") or "claude", _extract_key)
-                    with st.spinner("Scanning for terms..."):
-                        proposed = tguide.extract_terms_llm(
-                            source_lines, engine_x, source_language=source_language,
-                            known_terms=db.list_glossary_terms(sid))
-                    st.session_state[f"proposed_terms_{picked_id}"] = proposed
-                    st.success(f"Proposed {len(proposed)} term(s) for review.")
-
-            proposed = st.session_state.get(f"proposed_terms_{picked_id}", [])
-            if proposed:
-                st.caption(f"Review {len(proposed)} proposed term(s):")
-                prop_df = pd.DataFrame(proposed)
-                prop_df.insert(0, "Add", True)
-                edited_prop = st.data_editor(
-                    prop_df, width='stretch', hide_index=True,
-                    key=f"prop_editor_{picked_id}")
-                if st.button("➕ Add selected terms to glossary"):
-                    added = 0
-                    for row in edited_prop[edited_prop["Add"]].to_dict("records"):
-                        db.upsert_glossary_term(
-                            sid, row.get("term", ""), row.get("suggested_translation", ""),
-                            notes=row.get("reason", ""), category=row.get("category"),
-                            policy=row.get("policy"))
-                        added += 1
-                    st.session_state[f"proposed_terms_{picked_id}"] = []
-                    st.success(f"Added {added} term(s).")
-                    st.rerun()
-
-            st.markdown("**Current glossary**")
-            terms = db.list_glossary_terms(sid)
-            if terms:
-                for t in terms:
-                    pol_label = tguide.TERM_POLICIES.get(t.get("policy") or "keep_pinyin", {}).get("label", "")
-                    lock = " 🔒" if t.get("enforce_exact") else ""
-                    st.caption(f"**{t['term_original']}** → {t['term_translation']}{lock} "
-                              f"_{pol_label}_" + (f" — {t['notes']}" if t.get("notes") else ""))
-            else:
-                st.caption("No terms yet.")
-
-            with st.form(f"add_glossary_{sid}", clear_on_submit=True):
-                gc1, gc2 = st.columns(2)
-                g_orig = gc1.text_input("Original term")
-                g_trans = gc2.text_input("Translation")
-                gc3, gc4 = st.columns(2)
-                g_cat = gc3.selectbox("Category", list(tguide.TERM_CATEGORIES.keys()),
-                                       format_func=lambda k: tguide.TERM_CATEGORIES[k])
-                g_pol = gc4.selectbox("Handling policy", list(tguide.TERM_POLICIES.keys()),
-                                       format_func=lambda k: f"{tguide.TERM_POLICIES[k]['label']} "
-                                                             f"({tguide.TERM_POLICIES[k]['example']})")
-                g_notes = st.text_input("Notes / known wrong variants (pipe-separated)",
-                                         help="For enforced terms, list variants to auto-correct, "
-                                              "e.g. Shen Qing Yi|Chen Qingyi")
-                g_enforce = st.checkbox("🔒 Enforce exactly (hard find-replace after translation)")
-                if st.form_submit_button("Add term") and g_orig and g_trans:
-                    db.upsert_glossary_term(sid, g_orig, g_trans, g_notes, g_cat, g_pol, g_enforce)
-                    st.success("Added.")
-                    st.rerun()
-
-
-    default_engine_list = list(translate_engines.ENGINES.keys())
-    saved_engine = drama.get("translation_engine") or st.session_state.get("settings_default_engine", "claude")
-    engine_choice = st.selectbox(
-        "Translation engine",
-        default_engine_list,
-        index=default_engine_list.index(saved_engine) if saved_engine in default_engine_list else 0,
-        format_func=lambda e: f"{e} — {translate_engines.ENGINE_NOTES[e]}",
-    )
-    engine_model = None
-    if engine_choice == "claude":
-        _model_keys = list(translate_engines.CLAUDE_MODELS.keys())
-        _saved_model = st.session_state.get(f"settings_claude_model", _model_keys[0])
-        engine_model = st.selectbox(
-            "Claude model", _model_keys,
-            index=_model_keys.index(_saved_model) if _saved_model in _model_keys else 0,
-            format_func=lambda m: translate_engines.CLAUDE_MODELS[m],
-            help="Anthropic updates this lineup periodically. If a model here starts "
-                 "erroring, check console.anthropic.com for what's currently available.")
-        st.session_state["settings_claude_model"] = engine_model
-
-    _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate")
-    if engine_choice == "test_offline":
-        st.success("Dry-run mode: no API key, no network, no cost. Produces obvious [TEST] "
-                  "placeholder text so you can confirm the pipeline works end to end before "
-                  "spending anything.")
-        api_key = "offline"
-    else:
-        api_key = st.text_input(
-            f"{engine_choice} API key" + (" *(required)*" if _needs_key else " (optional)"),
-            type="password",
-            value=st.session_state.get(f"settings_{engine_choice}", ""),
-            help="Claude keys come from console.anthropic.com and are billed separately "
-                 "from any Claude.ai subscription.")
-        if _needs_key and not api_key:
-            st.caption("⚠️ Required — set it here or in the ⚙️ Settings sidebar. "
-                      "To try the pipeline for free first, choose `test_offline` above.")
-        elif not _needs_key:
-            api_key = api_key or "local"
-    style_note = st.text_input("Optional style notes",
-                                value=st.session_state.get("settings_default_style_note", ""))
-    locale_options = ["en-US", "en-GB", "en-AU"]
-    default_locale = st.session_state.get("settings_default_locale", "en-US")
-    locale = st.selectbox("English variant", locale_options,
-                           index=locale_options.index(default_locale) if default_locale in locale_options else 0,
-                           format_func=lambda l: {"en-US": "American English", "en-GB": "British English",
-                                                   "en-AU": "Australian English"}[l])
-
-    b1, b2 = st.columns(2)
-    if has_audio_pipeline:
-        _has_audio = bool(audio_file or existing_audio)
-        _whisper_mode = st.session_state.get(f"tmode_{picked_id}") == "whisper"
-        _has_transcript = bool(transcript_text.strip()) or _whisper_mode
-        can_prep = _has_audio and _has_transcript
-        prep_label = "▶ Transcribe & Align" if not _whisper_mode else "▶ Transcribe with Whisper"
-
-        # A disabled button with no explanation is a dead end -- say what's missing.
-        if not can_prep:
-            _missing = []
-            if not _has_audio:
-                _missing.append("an audio or video file")
-            if not _has_transcript:
-                _missing.append("a transcript (paste one, or switch to Whisper above)")
-            st.info("Still needed before this can run: " + " and ".join(_missing) + ".")
-    else:
-        can_prep = bool(novel_narration_text.strip())
-        prep_label = "▶ Chunk & Tag Speakers"
-    if has_audio_pipeline and can_prep:
-        if not core_module.is_whisper_model_cached(whisper_size):
-            st.caption(f"ℹ️ The '{whisper_size}' model isn't downloaded yet — first run will "
-                      f"fetch it from Hugging Face (a few hundred MB to ~3GB). Needs a working "
-                      f"internet connection; it's cached afterwards.")
-
-    run_prep = b1.button(prep_label, type="primary", disabled=not can_prep)
-    run_translate = b2.button("🌐 Translate all lines",
-                               disabled=st.session_state.lines is None or not api_key)
-    force_retranslate = b2.checkbox("Force re-translate everything (ignore already-translated lines)",
-                                     value=False, key="force_retranslate")
-
-    if run_prep and has_audio_pipeline:
-        audio_path = existing_audio
-        if audio_file is not None:
-            ext = os.path.splitext(audio_file.name)[1]
-            saved_path = os.path.join(ddir, f"source{ext}")
-            with open(saved_path, "wb") as f:
-                f.write(audio_file.getbuffer())
-            if ext.lower() in (".mp4", ".mkv", ".mov", ".webm"):
-                audio_path = os.path.join(ddir, "audio.wav")
-                with st.spinner("Extracting audio from video..."):
-                    extract_audio_from_video(saved_path, audio_path)
-                db.update_drama(picked_id, audio_filename="audio.wav",
-                                 source_video_filename=f"source{ext}")
-            else:
-                audio_path = saved_path
-                db.update_drama(picked_id, audio_filename=f"source{ext}")
-
-        novel_reference = existing_novel_text
-        if novel_file is not None:
-            novel_reference = novel_file.read().decode("utf-8", errors="ignore")
-        elif novel_pasted.strip():
-            novel_reference = novel_pasted
-        if novel_reference:
-            with open(os.path.join(ddir, "novel_reference.txt"), "w", encoding="utf-8") as f:
-                f.write(novel_reference)
-            db.update_drama(picked_id, novel_reference_filename="novel_reference.txt")
-
-        with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
-            f.write(transcript_text)
-
-        _use_whisper_text = st.session_state.get(f"tmode_{picked_id}") == "whisper"
-        _local_model = st.session_state.get("settings_whisper_model_path", "").strip() or None
-        _gpu_fallback_msg = []
-        try:
-            with st.spinner("Running speech recognition..."):
-                segments = transcribe_for_timing(
-                    audio_path, whisper_size, language=source_language,
-                    use_gpu=st.session_state.get("use_gpu", False),
-                    local_model_path=_local_model,
-                    hf_token=st.session_state.get("settings_hf_token", "") or None,
-                    initial_prompt=initial_prompt, beam_size=beam_size,
-                    min_silence_duration_ms=min_silence_ms,
-                    on_gpu_fallback=lambda exc: _gpu_fallback_msg.append(str(exc)))
-            if _gpu_fallback_msg:
+        if drama.get("last_translate_errors"):
+            try:
+                _persisted_errors = json.loads(drama["last_translate_errors"])
+            except (json.JSONDecodeError, TypeError):
+                _persisted_errors = []
+            if _persisted_errors:
+                _failed_nums = sorted({i + 1 for e in _persisted_errors for i in e.get("lines", [])})
                 st.warning(
-                    "GPU was requested but failed at the actual transcription step, so this "
-                    "ran on CPU instead (slower, but it completed). This is a CUDA/driver "
-                    "problem on this machine, not something wrong with your audio.\n\n"
-                    f"Error: {_gpu_fallback_msg[0]}\n\n"
-                    "Common cause: PyTorch/ctranslate2 installed without CUDA support, or a "
-                    "CUDA toolkit version that doesn't match your driver. Turn GPU off in "
-                    "Settings → Performance if you'd rather not see this each time, or "
-                    "reinstall the CUDA-enabled build matching your driver version.")
-        except core_module.ModelDownloadError as exc:
-            st.error("Speech recognition model couldn't be downloaded.")
-            st.code(str(exc), language="text")
-            st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
-                      "Fix the connection and press the button again.")
-            st.stop()
+                    f"⚠️ The last translation run had {len(_persisted_errors)} batch failure(s) -- "
+                    f"line(s) {_failed_nums} are still untranslated. This is why some lines have "
+                    f"no English text; it's not a display bug. Click **Translate all lines** below "
+                    f"to retry just the missing ones (already-translated lines are skipped "
+                    f"automatically, so this won't re-cost anything already done).")
+                if st.button("Dismiss this notice", key=f"dismiss_tr_err_{picked_id}"):
+                    db.update_drama(picked_id, last_translate_errors=None)
+                    st.rerun()
 
-        if not segments:
-            st.error("Speech recognition returned nothing. Check the file actually contains "
-                     "audio, and that ffmpeg is installed (see the Diagnostics tab).")
-            st.stop()
+        # tguide is already available here via `from common import *` (common.py
+        # imports it at module level) -- a redundant local `import ... as tguide`
+        # used to sit here, which makes Python treat `tguide` as local to this
+        # entire function (imports are assignments), breaking the EARLIER use of
+        # `tguide` in the Romanize-credits handler above with an UnboundLocalError,
+        # since that use executes before this line does.
+        _style_keys = list(tguide.STYLE_PRESETS.keys())
+        _default_style = "novel" if content_mode == "novel_narration" else "audio_drama"
+        style_preset = st.selectbox(
+            "Translation style", _style_keys, index=_style_keys.index(_default_style),
+            format_func=lambda k: tguide.STYLE_PRESETS[k]["label"],
+            help="Changes register and pacing guidance -- spoken dialogue reads very "
+                 "differently from prose or bubble text.")
+        with st.expander("ℹ️ What this style asks the translator for"):
+            st.caption(tguide.STYLE_PRESETS[style_preset]["guidance"])
+        include_genre_notes = st.checkbox(
+            "Include baihe/GL genre guidance (pronoun clarity, kinship-term nuance, "
+            "don't soften romantic content)", value=True)
+        custom_guide_notes = st.text_area(
+            "Project-specific translation notes (optional)", height=68,
+            placeholder="e.g. this character always speaks formally; keep the narrator distant")
 
-        if _use_whisper_text:
-            # No supplied transcript: use a transcription model's own text.
-            # Segment TIMING always comes from Whisper's VAD (segments, above)
-            # -- asr_backend_choice only affects which model's TEXT fills
-            # those segments. See asr_backend.py's module docstring for why
-            # that split is deliberate.
-            if asr_backend_choice == "qwen3_asr":
-                try:
-                    import asr_backend
-                    segments = asr_backend.Qwen3ASRBackend().transcribe(
-                        audio_path, source_language, whisper_segments=segments,
-                        use_gpu=st.session_state.get("use_gpu", False))
-                except ImportError:
-                    st.warning("Qwen3-ASR needs `pip install qwen-asr torch` -- using Whisper's "
-                              "own transcription for this run.")
-                except core_module.ModelDownloadError as exc:
-                    st.warning(f"Qwen3-ASR couldn't be downloaded ({exc}) -- using Whisper's "
-                              "own transcription for this run.")
-            lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
-                     for i, seg in enumerate(segments) if seg["text"].strip()]
-            transcript_text = "\n".join(ln.zh for ln in lines)
-            st.warning("This transcript came from speech recognition, so expect errors on "
-                      "names and uncommon terms. Correct them in the review table below "
-                      "**before** translating -- mistakes here carry into the translation.")
-        else:
-            with st.spinner("Aligning transcript to timing..."):
-                user_lines = split_user_transcript(transcript_text)
-                if alignment_method == "qwen3_forced_align":
-                    try:
-                        import forced_align
-                        lines = forced_align.align_with_qwen3(
-                            audio_path, user_lines, segments, language=source_language,
-                            use_gpu=st.session_state.get("use_gpu", False))
-                    except ImportError:
-                        st.warning("Qwen3 forced alignment needs `pip install qwen-asr torch` -- "
-                                  "using the default character-alignment method for this run.")
-                        lines = align_transcript_to_timing(user_lines, segments)
-                    except core_module.ModelDownloadError as exc:
-                        st.warning(f"Qwen3-ForcedAligner couldn't be downloaded ({exc}) -- "
-                                  "using the default character-alignment method for this run.")
-                        lines = align_transcript_to_timing(user_lines, segments)
-                    except ValueError as exc:
-                        st.warning(f"Qwen3 forced alignment couldn't run ({exc}) -- using the "
-                                  "default character-alignment method for this run.")
-                        lines = align_transcript_to_timing(user_lines, segments)
+        with st.expander("📖 Series glossary & term handling", expanded=False):
+            existing_series = db.list_series()
+            series_options = ["-- none --"] + [s["name"] for s in existing_series] + ["+ New series..."]
+            current_series_name = next((s["name"] for s in existing_series if s["id"] == drama.get("series_id")), "-- none --")
+            series_pick = st.selectbox("Series", series_options,
+                                        index=series_options.index(current_series_name) if current_series_name in series_options else 0)
+            if series_pick == "+ New series...":
+                new_series_name = st.text_input("New series name")
+                if new_series_name and st.button("Create & assign series"):
+                    sid = db.get_or_create_series(new_series_name)
+                    db.update_drama(picked_id, series_id=sid)
+                    st.success(f"Assigned to series '{new_series_name}'.")
+                    st.rerun()
+            elif series_pick != "-- none --":
+                sid = next(s["id"] for s in existing_series if s["name"] == series_pick)
+                if sid != drama.get("series_id"):
+                    db.update_drama(picked_id, series_id=sid)
+                    st.rerun()
+
+                st.markdown("**Auto-extract terms from the source text**")
+                st.caption("Scans for names, sects, titles, honorifics, and concepts needing "
+                          "consistent handling, and proposes a policy for each. Always review "
+                          "before adding -- these are judgment calls.")
+                _extract_key = st.session_state.get(f"settings_{drama.get('translation_engine') or 'claude'}", "")
+                if st.button("🔍 Extract terms"):
+                    source_lines = [ln.zh for ln in (st.session_state.lines or [])]
+                    if not source_lines:
+                        st.warning("No source lines yet -- align or chunk the text first.")
+                    elif not _extract_key:
+                        st.warning("Set an API key in the ⚙️ Settings sidebar first.")
+                    else:
+                        engine_x = translate_engines.get_engine(
+                            drama.get("translation_engine") or "claude", _extract_key)
+                        with st.spinner("Scanning for terms..."):
+                            proposed = tguide.extract_terms_llm(
+                                source_lines, engine_x, source_language=source_language,
+                                known_terms=db.list_glossary_terms(sid))
+                        st.session_state[f"proposed_terms_{picked_id}"] = proposed
+                        st.success(f"Proposed {len(proposed)} term(s) for review.")
+
+                proposed = st.session_state.get(f"proposed_terms_{picked_id}", [])
+                if proposed:
+                    st.caption(f"Review {len(proposed)} proposed term(s):")
+                    prop_df = pd.DataFrame(proposed)
+                    prop_df.insert(0, "Add", True)
+                    edited_prop = st.data_editor(
+                        prop_df, width='stretch', hide_index=True,
+                        key=f"prop_editor_{picked_id}")
+                    if st.button("➕ Add selected terms to glossary"):
+                        added = 0
+                        for row in edited_prop[edited_prop["Add"]].to_dict("records"):
+                            db.upsert_glossary_term(
+                                sid, row.get("term", ""), row.get("suggested_translation", ""),
+                                notes=row.get("reason", ""), category=row.get("category"),
+                                policy=row.get("policy"))
+                            added += 1
+                        st.session_state[f"proposed_terms_{picked_id}"] = []
+                        st.success(f"Added {added} term(s).")
+                        st.rerun()
+
+                st.markdown("**Current glossary**")
+                terms = db.list_glossary_terms(sid)
+                if terms:
+                    for t in terms:
+                        pol_label = tguide.TERM_POLICIES.get(t.get("policy") or "keep_pinyin", {}).get("label", "")
+                        lock = " 🔒" if t.get("enforce_exact") else ""
+                        st.caption(f"**{t['term_original']}** → {t['term_translation']}{lock} "
+                                  f"_{pol_label}_" + (f" — {t['notes']}" if t.get("notes") else ""))
                 else:
-                    lines = align_transcript_to_timing(user_lines, segments)
+                    st.caption("No terms yet.")
 
-        speaker_segments = None
-        if run_diarize and hf_token:
-            with st.spinner("Running speaker diarization... (first run downloads the model)"):
-                try:
-                    import diarize
-                    speaker_segments = diarize.diarize(
-                        audio_path, hf_token, num_speakers=expected_speakers or None)
-                    diarize.label_lines_with_speakers(lines, speaker_segments)
-                    for label in sorted({ln.speaker for ln in lines if ln.speaker}):
-                        db.upsert_character(picked_id, label)
-                    st.session_state[f"speaker_segments_{picked_id}"] = speaker_segments
-                    st.success(f"Diarization found {len(set(ln.speaker for ln in lines if ln.speaker))} speaker(s).")
-                except Exception as e:
-                    st.warning(f"Diarization failed ({e}) -- alignment still saved without speaker "
-                              f"labels. Check your Hugging Face token and pyannote.audio install, "
-                              f"then re-run just diarization if you want it.")
+                with st.form(f"add_glossary_{sid}", clear_on_submit=True):
+                    gc1, gc2 = st.columns(2)
+                    g_orig = gc1.text_input("Original term")
+                    g_trans = gc2.text_input("Translation")
+                    gc3, gc4 = st.columns(2)
+                    g_cat = gc3.selectbox("Category", list(tguide.TERM_CATEGORIES.keys()),
+                                           format_func=lambda k: tguide.TERM_CATEGORIES[k])
+                    g_pol = gc4.selectbox("Handling policy", list(tguide.TERM_POLICIES.keys()),
+                                           format_func=lambda k: f"{tguide.TERM_POLICIES[k]['label']} "
+                                                                 f"({tguide.TERM_POLICIES[k]['example']})")
+                    g_notes = st.text_input("Notes / known wrong variants (pipe-separated)",
+                                             help="For enforced terms, list variants to auto-correct, "
+                                                  "e.g. Shen Qing Yi|Chen Qingyi")
+                    g_enforce = st.checkbox("🔒 Enforce exactly (hard find-replace after translation)")
+                    if st.form_submit_button("Add term") and g_orig and g_trans:
+                        db.upsert_glossary_term(sid, g_orig, g_trans, g_notes, g_cat, g_pol, g_enforce)
+                        st.success("Added.")
+                        st.rerun()
 
-        st.session_state.lines = lines
-        db.save_lines(picked_id, lines)
-        db.update_drama(picked_id, status="aligned")
-        st.success(f"Aligned {len(lines)} lines.")
 
-    elif run_prep and content_mode == "novel_narration":
-        with open(os.path.join(ddir, "novel_narration_source.txt"), "w", encoding="utf-8") as f:
-            f.write(novel_narration_text)
-        with st.spinner("Chunking novel text..."):
-            chunks = chunk_novel_text(novel_narration_text)
-            lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
-        if api_key:
-            with st.spinner("Tagging speakers with the translation LLM..."):
-                engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
-                speakers = translate_engines.tag_speakers_llm([ln.zh for ln in lines], engine, known_chars)
-                for ln, sp in zip(lines, speakers):
-                    ln.speaker = sp
-                for label in sorted(set(speakers)):
-                    db.upsert_character(picked_id, label, character_name=label)
+        default_engine_list = list(translate_engines.ENGINES.keys())
+        saved_engine = drama.get("translation_engine") or st.session_state.get("settings_default_engine", "claude")
+        engine_choice = st.selectbox(
+            "Translation engine",
+            default_engine_list,
+            index=default_engine_list.index(saved_engine) if saved_engine in default_engine_list else 0,
+            format_func=lambda e: f"{e} — {translate_engines.ENGINE_NOTES[e]}",
+        )
+        engine_model = None
+        if engine_choice == "claude":
+            _model_keys = list(translate_engines.CLAUDE_MODELS.keys())
+            _saved_model = st.session_state.get(f"settings_claude_model", _model_keys[0])
+            engine_model = st.selectbox(
+                "Claude model", _model_keys,
+                index=_model_keys.index(_saved_model) if _saved_model in _model_keys else 0,
+                format_func=lambda m: translate_engines.CLAUDE_MODELS[m],
+                help="Anthropic updates this lineup periodically. If a model here starts "
+                     "erroring, check console.anthropic.com for what's currently available.")
+            st.session_state["settings_claude_model"] = engine_model
+
+        _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate")
+        if engine_choice == "test_offline":
+            st.success("Dry-run mode: no API key, no network, no cost. Produces obvious [TEST] "
+                      "placeholder text so you can confirm the pipeline works end to end before "
+                      "spending anything.")
+            api_key = "offline"
         else:
-            st.warning("No API key yet -- skipped speaker tagging (needs an LLM engine). "
-                       "All lines marked 'Narrator' for now; add a key and re-run to tag them.")
-            for ln in lines:
-                ln.speaker = "Narrator"
-            db.upsert_character(picked_id, "Narrator", character_name="Narrator")
+            api_key = st.text_input(
+                f"{engine_choice} API key" + (" *(required)*" if _needs_key else " (optional)"),
+                type="password",
+                value=st.session_state.get(f"settings_{engine_choice}", ""),
+                help="Claude keys come from console.anthropic.com and are billed separately "
+                     "from any Claude.ai subscription.")
+            if _needs_key and not api_key:
+                st.caption("⚠️ Required — set it here or in the ⚙️ Settings sidebar. "
+                          "To try the pipeline for free first, choose `test_offline` above.")
+            elif not _needs_key:
+                api_key = api_key or "local"
+        style_note = st.text_input("Optional style notes",
+                                    value=st.session_state.get("settings_default_style_note", ""))
+        locale_options = ["en-US", "en-GB", "en-AU"]
+        default_locale = st.session_state.get("settings_default_locale", "en-US")
+        locale = st.selectbox("English variant", locale_options,
+                               index=locale_options.index(default_locale) if default_locale in locale_options else 0,
+                               format_func=lambda l: {"en-US": "American English", "en-GB": "British English",
+                                                       "en-AU": "Australian English"}[l])
 
-        st.session_state.lines = lines
-        db.save_lines(picked_id, lines)
-        db.update_drama(picked_id, status="aligned")
-        st.success(f"Prepared {len(lines)} narration chunks.")
-
-    if st.session_state.lines is None:
-        saved = db.load_lines(picked_id)
-        if saved:
-            st.session_state.lines = [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                             zh=r["zh"], en=r["en"] or "", speaker=r.get("speaker"),
-                                             dub_filename=r.get("dub_filename")) for r in saved]
-
-    _translate_job_id = f"translate_{picked_id}"
-    _job = background_jobs.get_status(_translate_job_id)
-
-    if run_translate and st.session_state.lines:
-        novel_reference = existing_novel_text
+        b1, b2 = st.columns(2)
         if has_audio_pipeline:
+            _has_audio = bool(audio_file or existing_audio)
+            _whisper_mode = st.session_state.get(f"tmode_{picked_id}") == "whisper"
+            _has_transcript = bool(transcript_text.strip()) or _whisper_mode
+            can_prep = _has_audio and _has_transcript
+            prep_label = "▶ Transcribe & Align" if not _whisper_mode else "▶ Transcribe with Whisper"
+
+            # A disabled button with no explanation is a dead end -- say what's missing.
+            if not can_prep:
+                _missing = []
+                if not _has_audio:
+                    _missing.append("an audio or video file")
+                if not _has_transcript:
+                    _missing.append("a transcript (paste one, or switch to Whisper above)")
+                st.info("Still needed before this can run: " + " and ".join(_missing) + ".")
+        else:
+            can_prep = bool(novel_narration_text.strip())
+            prep_label = "▶ Chunk & Tag Speakers"
+        if has_audio_pipeline and can_prep:
+            if not core_module.is_whisper_model_cached(whisper_size):
+                st.caption(f"ℹ️ The '{whisper_size}' model isn't downloaded yet — first run will "
+                          f"fetch it from Hugging Face (a few hundred MB to ~3GB). Needs a working "
+                          f"internet connection; it's cached afterwards.")
+
+        run_prep = b1.button(prep_label, type="primary", disabled=not can_prep)
+        run_translate = b2.button("🌐 Translate all lines",
+                                   disabled=st.session_state.lines is None or not api_key)
+        force_retranslate = b2.checkbox("Force re-translate everything (ignore already-translated lines)",
+                                         value=False, key="force_retranslate")
+
+        if run_prep and has_audio_pipeline:
+            audio_path = existing_audio
+            if audio_file is not None:
+                ext = os.path.splitext(audio_file.name)[1]
+                saved_path = os.path.join(ddir, f"source{ext}")
+                with open(saved_path, "wb") as f:
+                    f.write(audio_file.getbuffer())
+                if ext.lower() in (".mp4", ".mkv", ".mov", ".webm"):
+                    audio_path = os.path.join(ddir, "audio.wav")
+                    with st.spinner("Extracting audio from video..."):
+                        extract_audio_from_video(saved_path, audio_path)
+                    db.update_drama(picked_id, audio_filename="audio.wav",
+                                     source_video_filename=f"source{ext}")
+                else:
+                    audio_path = saved_path
+                    db.update_drama(picked_id, audio_filename=f"source{ext}")
+
+            novel_reference = existing_novel_text
             if novel_file is not None:
                 novel_reference = novel_file.read().decode("utf-8", errors="ignore")
             elif novel_pasted.strip():
                 novel_reference = novel_pasted
-        engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
-        if force_retranslate and any(ln.en for ln in st.session_state.lines):
-            db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                           "before force re-translate")
-        glossary_terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else None
-        _scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
-        _prof = db.get_style_profile(_scope)
-        _learned = ""
-        if _prof and st.session_state.get("apply_style_profile", True):
-            _learned = adaptive_style.profile_to_prompt_block(_prof.get("profile", {}))
-        _emap = st.session_state.get(f"emotions_{picked_id}", {})
-        _emotion_block = emotion.build_emotion_guidance(
-            _emap, [ln.idx for ln in st.session_state.lines]) if _emap else ""
-        style_guidelines = tguide.build_style_guidelines(
-            style_preset, glossary_terms=glossary_terms,
-            include_genre_notes=include_genre_notes,
-            custom_notes=(custom_guide_notes
-                           + ("\n\n" + _learned if _learned else "")
-                           + ("\n\n" + _emotion_block if _emotion_block else "")))
+            if novel_reference:
+                with open(os.path.join(ddir, "novel_reference.txt"), "w", encoding="utf-8") as f:
+                    f.write(novel_reference)
+                db.update_drama(picked_id, novel_reference_filename="novel_reference.txt")
 
-        # A copy, not the live list -- the background thread mutates its own
-        # lines and saves through the database; the main script reloads from
-        # there once the job is visible again, rather than two threads
-        # touching the same objects st.session_state also holds.
-        _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                             speaker=l.speaker, dub_filename=l.dub_filename)
-                       for l in st.session_state.lines]
+            with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
+                f.write(transcript_text)
 
-        started = background_jobs.start_job(
-            _translate_job_id, run_translate_job,
-            _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
-            novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
-            engine_choice, style_preset)
-        if started:
-            st.info("Translation started in the background -- it keeps running even if you "
-                    "switch tabs or close this one. Come back here any time to see progress; "
-                    "it'll pick up right where it is.")
-            st.rerun()
-        else:
-            st.warning("A translation is already running for this drama.")
+            _use_whisper_text = st.session_state.get(f"tmode_{picked_id}") == "whisper"
+            _local_model = st.session_state.get("settings_whisper_model_path", "").strip() or None
+            _gpu_fallback_msg = []
+            try:
+                with st.spinner("Running speech recognition..."):
+                    segments = transcribe_for_timing(
+                        audio_path, whisper_size, language=source_language,
+                        use_gpu=st.session_state.get("use_gpu", False),
+                        local_model_path=_local_model,
+                        hf_token=st.session_state.get("settings_hf_token", "") or None,
+                        initial_prompt=initial_prompt, beam_size=beam_size,
+                        min_silence_duration_ms=min_silence_ms,
+                        on_gpu_fallback=lambda exc: _gpu_fallback_msg.append(str(exc)))
+                if _gpu_fallback_msg:
+                    st.warning(
+                        "GPU was requested but failed at the actual transcription step, so this "
+                        "ran on CPU instead (slower, but it completed). This is a CUDA/driver "
+                        "problem on this machine, not something wrong with your audio.\n\n"
+                        f"Error: {_gpu_fallback_msg[0]}\n\n"
+                        "Common cause: PyTorch/ctranslate2 installed without CUDA support, or a "
+                        "CUDA toolkit version that doesn't match your driver. Turn GPU off in "
+                        "Settings → Performance if you'd rather not see this each time, or "
+                        "reinstall the CUDA-enabled build matching your driver version.")
+            except core_module.ModelDownloadError as exc:
+                st.error("Speech recognition model couldn't be downloaded.")
+                st.code(str(exc), language="text")
+                st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
+                          "Fix the connection and press the button again.")
+                st.stop()
 
-    if _job:
-        if _job["status"] == "running":
-            st.progress(_job["progress"], text=_job.get("message") or "Translating...")
-            st.caption("Running in the background -- safe to switch tabs, use other dramas, "
-                      "or close the browser tab. Come back and this will show current progress.")
-            if st.button("🔄 Refresh progress", key=f"refresh_tr_{picked_id}"):
-                st.rerun()
-        elif _job["status"] == "done":
-            st.session_state.lines = [
-                Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
-                     en=r.get("en") or "", speaker=r.get("speaker"),
-                     dub_filename=r.get("dub_filename"))
-                for r in db.load_lines(picked_id)]
-            _errors = (_job.get("result") or {}).get("errors", [])
-            if _errors:
-                failed_line_nums = [i + 1 for e in _errors for i in e["lines"]]
-                st.warning(f"Translated with {len(_errors)} batch failure(s) -- lines "
-                          f"{failed_line_nums} are still untranslated, but everything else was "
-                          f"saved. Click Translate again to retry just the missing lines.")
+            if not segments:
+                st.error("Speech recognition returned nothing. Check the file actually contains "
+                         "audio, and that ffmpeg is installed (see the Diagnostics tab).")
+                st.stop()
+
+            if _use_whisper_text:
+                # No supplied transcript: use a transcription model's own text.
+                # Segment TIMING always comes from Whisper's VAD (segments, above)
+                # -- asr_backend_choice only affects which model's TEXT fills
+                # those segments. See asr_backend.py's module docstring for why
+                # that split is deliberate.
+                if asr_backend_choice == "qwen3_asr":
+                    try:
+                        import asr_backend
+                        segments = asr_backend.Qwen3ASRBackend().transcribe(
+                            audio_path, source_language, whisper_segments=segments,
+                            use_gpu=st.session_state.get("use_gpu", False))
+                    except ImportError:
+                        st.warning("Qwen3-ASR needs `pip install qwen-asr torch` -- using Whisper's "
+                                  "own transcription for this run.")
+                    except core_module.ModelDownloadError as exc:
+                        st.warning(f"Qwen3-ASR couldn't be downloaded ({exc}) -- using Whisper's "
+                                  "own transcription for this run.")
+                lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
+                         for i, seg in enumerate(segments) if seg["text"].strip()]
+                transcript_text = "\n".join(ln.zh for ln in lines)
+                st.warning("This transcript came from speech recognition, so expect errors on "
+                          "names and uncommon terms. Correct them in the review table below "
+                          "**before** translating -- mistakes here carry into the translation.")
             else:
-                st.success("Translation complete.")
-            background_jobs.clear_job(_translate_job_id)
-        elif _job["status"] == "error":
-            st.error(f"Translation failed: {_job['error']}")
-            with st.expander("Details"):
-                st.code(_job.get("traceback", ""), language="text")
-            background_jobs.clear_job(_translate_job_id)
+                with st.spinner("Aligning transcript to timing..."):
+                    user_lines = split_user_transcript(transcript_text)
+                    if alignment_method == "qwen3_forced_align":
+                        try:
+                            import forced_align
+                            lines = forced_align.align_with_qwen3(
+                                audio_path, user_lines, segments, language=source_language,
+                                use_gpu=st.session_state.get("use_gpu", False))
+                        except ImportError:
+                            st.warning("Qwen3 forced alignment needs `pip install qwen-asr torch` -- "
+                                      "using the default character-alignment method for this run.")
+                            lines = align_transcript_to_timing(user_lines, segments)
+                        except core_module.ModelDownloadError as exc:
+                            st.warning(f"Qwen3-ForcedAligner couldn't be downloaded ({exc}) -- "
+                                      "using the default character-alignment method for this run.")
+                            lines = align_transcript_to_timing(user_lines, segments)
+                        except ValueError as exc:
+                            st.warning(f"Qwen3 forced alignment couldn't run ({exc}) -- using the "
+                                      "default character-alignment method for this run.")
+                            lines = align_transcript_to_timing(user_lines, segments)
+                    else:
+                        lines = align_transcript_to_timing(user_lines, segments)
+
+            speaker_segments = None
+            if run_diarize and hf_token:
+                with st.spinner("Running speaker diarization... (first run downloads the model)"):
+                    try:
+                        import diarize
+                        speaker_segments = diarize.diarize(
+                            audio_path, hf_token, num_speakers=expected_speakers or None)
+                        diarize.label_lines_with_speakers(lines, speaker_segments)
+                        for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+                            db.upsert_character(picked_id, label)
+                        st.session_state[f"speaker_segments_{picked_id}"] = speaker_segments
+                        st.success(f"Diarization found {len(set(ln.speaker for ln in lines if ln.speaker))} speaker(s).")
+                    except Exception as e:
+                        st.warning(f"Diarization failed ({e}) -- alignment still saved without speaker "
+                                  f"labels. Check your Hugging Face token and pyannote.audio install, "
+                                  f"then re-run just diarization if you want it.")
+
+            st.session_state.lines = lines
+            db.save_lines(picked_id, lines)
+            db.update_drama(picked_id, status="aligned")
+            st.success(f"Aligned {len(lines)} lines.")
+
+        elif run_prep and content_mode == "novel_narration":
+            with open(os.path.join(ddir, "novel_narration_source.txt"), "w", encoding="utf-8") as f:
+                f.write(novel_narration_text)
+            with st.spinner("Chunking novel text..."):
+                chunks = chunk_novel_text(novel_narration_text)
+                lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
+            if api_key:
+                with st.spinner("Tagging speakers with the translation LLM..."):
+                    engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
+                    speakers = translate_engines.tag_speakers_llm([ln.zh for ln in lines], engine, known_chars)
+                    for ln, sp in zip(lines, speakers):
+                        ln.speaker = sp
+                    for label in sorted(set(speakers)):
+                        db.upsert_character(picked_id, label, character_name=label)
+            else:
+                st.warning("No API key yet -- skipped speaker tagging (needs an LLM engine). "
+                           "All lines marked 'Narrator' for now; add a key and re-run to tag them.")
+                for ln in lines:
+                    ln.speaker = "Narrator"
+                db.upsert_character(picked_id, "Narrator", character_name="Narrator")
+
+            st.session_state.lines = lines
+            db.save_lines(picked_id, lines)
+            db.update_drama(picked_id, status="aligned")
+            st.success(f"Prepared {len(lines)} narration chunks.")
+
+        if st.session_state.lines is None:
+            saved = db.load_lines(picked_id)
+            if saved:
+                st.session_state.lines = [Line(idx=r["idx"], start=r["start"], end=r["end"],
+                                                 zh=r["zh"], en=r["en"] or "", speaker=r.get("speaker"),
+                                                 dub_filename=r.get("dub_filename")) for r in saved]
+
+        _translate_job_id = f"translate_{picked_id}"
+        _job = background_jobs.get_status(_translate_job_id)
+
+        if run_translate and st.session_state.lines:
+            novel_reference = existing_novel_text
+            if has_audio_pipeline:
+                if novel_file is not None:
+                    novel_reference = novel_file.read().decode("utf-8", errors="ignore")
+                elif novel_pasted.strip():
+                    novel_reference = novel_pasted
+            engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+            if force_retranslate and any(ln.en for ln in st.session_state.lines):
+                db.save_line_history_snapshot(picked_id, st.session_state.lines,
+                                               "before force re-translate")
+            glossary_terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else None
+            _scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
+            _prof = db.get_style_profile(_scope)
+            _learned = ""
+            if _prof and st.session_state.get("apply_style_profile", True):
+                _learned = adaptive_style.profile_to_prompt_block(_prof.get("profile", {}))
+            _emap = st.session_state.get(f"emotions_{picked_id}", {})
+            _emotion_block = emotion.build_emotion_guidance(
+                _emap, [ln.idx for ln in st.session_state.lines]) if _emap else ""
+            style_guidelines = tguide.build_style_guidelines(
+                style_preset, glossary_terms=glossary_terms,
+                include_genre_notes=include_genre_notes,
+                custom_notes=(custom_guide_notes
+                               + ("\n\n" + _learned if _learned else "")
+                               + ("\n\n" + _emotion_block if _emotion_block else "")))
+
+            # A copy, not the live list -- the background thread mutates its own
+            # lines and saves through the database; the main script reloads from
+            # there once the job is visible again, rather than two threads
+            # touching the same objects st.session_state also holds.
+            _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                 speaker=l.speaker, dub_filename=l.dub_filename)
+                           for l in st.session_state.lines]
+
+            started = background_jobs.start_job(
+                _translate_job_id, run_translate_job,
+                _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
+                novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
+                engine_choice, style_preset)
+            if started:
+                st.info("Translation started in the background -- it keeps running even if you "
+                        "switch tabs or close this one. Come back here any time to see progress; "
+                        "it'll pick up right where it is.")
+                st.rerun()
+            else:
+                st.warning("A translation is already running for this drama.")
+
+        if _job:
+            if _job["status"] == "running":
+                st.progress(_job["progress"], text=_job.get("message") or "Translating...")
+                st.caption("Running in the background -- safe to switch tabs, use other dramas, "
+                          "or close the browser tab. Come back and this will show current progress.")
+                if st.button("🔄 Refresh progress", key=f"refresh_tr_{picked_id}"):
+                    st.rerun()
+            elif _job["status"] == "done":
+                st.session_state.lines = [
+                    Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
+                         en=r.get("en") or "", speaker=r.get("speaker"),
+                         dub_filename=r.get("dub_filename"))
+                    for r in db.load_lines(picked_id)]
+                _errors = (_job.get("result") or {}).get("errors", [])
+                if _errors:
+                    failed_line_nums = [i + 1 for e in _errors for i in e["lines"]]
+                    st.warning(f"Translated with {len(_errors)} batch failure(s) -- lines "
+                              f"{failed_line_nums} are still untranslated, but everything else was "
+                              f"saved. Click Translate again to retry just the missing lines.")
+                else:
+                    st.success("Translation complete.")
+                background_jobs.clear_job(_translate_job_id)
+            elif _job["status"] == "error":
+                st.error(f"Translation failed: {_job['error']}")
+                with st.expander("Details"):
+                    st.code(_job.get("traceback", ""), language="text")
+                background_jobs.clear_job(_translate_job_id)
 
     # ---------------------------------------------------- Character naming
     characters = db.list_characters(picked_id)
@@ -1647,7 +1677,6 @@ def render_workspace_tab():
                     progress_bar.empty()
                     st.error(f"Generation failed: {e}. Check ffmpeg / edge-tts / piper-tts / f5-tts install (see README).")
 
-        st.subheader("9. Export subtitles")
         with st.expander("9. 💾 Export subtitles", expanded=False):
             _total_lines = len(st.session_state.lines)
             _zh_filled = sum(1 for ln in st.session_state.lines if ln.zh.strip())
