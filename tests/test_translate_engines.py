@@ -875,6 +875,76 @@ class TestOllamaEngine:
         assert captured["timeout"] is not None
 
 
+class TestOllamaReachability:
+    """Regression coverage for a real gap: Ollama is exempted from the
+    API-key check entirely (workspace_tab.py's _needs_key), with nothing
+    in its place -- clicking Translate against a stopped local server
+    used to start a background job that only failed once
+    translate_batch's own 300s timeout expired. check_ollama_reachable()
+    is a cheap up-front health check the UI uses to disable that button
+    instead."""
+
+    def setup_method(self):
+        te._ollama_reachability_cache.clear()
+
+    def _fake_get(self, ok=True, raises=None):
+        captured = {}
+
+        def fake_get(url, timeout=None):
+            captured["url"] = url
+            captured["timeout"] = timeout
+            if raises:
+                raise raises
+            return type("Resp", (), {"ok": ok})()
+        return fake_get, captured
+
+    def test_true_when_the_server_responds_ok(self, monkeypatch):
+        fake_get, captured = self._fake_get(ok=True)
+        monkeypatch.setattr("requests.get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is True
+        assert captured["url"] == "http://localhost:11434/api/tags"
+        assert captured["timeout"] is not None
+
+    def test_false_when_the_server_responds_with_an_error_status(self, monkeypatch):
+        fake_get, _ = self._fake_get(ok=False)
+        monkeypatch.setattr("requests.get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+
+    def test_false_when_the_connection_fails(self, monkeypatch):
+        fake_get, _ = self._fake_get(raises=ConnectionError("refused"))
+        monkeypatch.setattr("requests.get", fake_get)
+        assert te.check_ollama_reachable("http://localhost:11434") is False
+
+    def test_result_is_cached_briefly_not_rechecked_every_call(self, monkeypatch):
+        fake_get, _ = self._fake_get(ok=True)
+        calls = {"n": 0}
+        def counting_get(url, timeout=None):
+            calls["n"] += 1
+            return fake_get(url, timeout=timeout)
+        monkeypatch.setattr("requests.get", counting_get)
+
+        te.check_ollama_reachable("http://localhost:11434")
+        te.check_ollama_reachable("http://localhost:11434")
+        te.check_ollama_reachable("http://localhost:11434")
+
+        assert calls["n"] == 1
+
+    def test_a_different_base_url_is_cached_separately(self, monkeypatch):
+        monkeypatch.setattr("requests.get", self._fake_get(ok=True)[0])
+        te.check_ollama_reachable("http://localhost:11434")
+        # A second, different URL must still be checked fresh, not
+        # short-circuited by the first URL's cache entry.
+        fake_get_down, _ = self._fake_get(ok=False)
+        monkeypatch.setattr("requests.get", fake_get_down)
+        assert te.check_ollama_reachable("http://otherhost:9999") is False
+
+    def test_trailing_slash_in_base_url_is_normalized(self, monkeypatch):
+        fake_get, captured = self._fake_get(ok=True)
+        monkeypatch.setattr("requests.get", fake_get)
+        te.check_ollama_reachable("http://localhost:11434/")
+        assert captured["url"] == "http://localhost:11434/api/tags"
+
+
 class TestDeepLEngine:
     """Regression coverage for a real bug: source_language was hardcoded
     to "ZH" regardless of the drama's actual source language, so a

@@ -1068,6 +1068,37 @@ class OllamaEngine:
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
 
 
+# {base_url: (checked_at, reachable)} -- Ollama is exempted from the
+# API-key check entirely, so with nothing in its place, clicking
+# Translate against a stopped local server used to start a background
+# job that only failed once translate_batch's own 300s request timeout
+# expired. check_ollama_reachable() lets the UI disable that button
+# BEFORE starting the job instead. Cached briefly per base_url so a
+# Streamlit rerun (which happens on almost every interaction) doesn't
+# re-hit the health check every time.
+_ollama_reachability_cache = {}
+OLLAMA_REACHABILITY_CACHE_SECONDS = 5
+
+
+def check_ollama_reachable(base_url: str = "http://localhost:11434") -> bool:
+    """Cheap health check (GET /api/tags, 2.5s timeout) -- true only if
+    the server actually responds, not just that the URL is well-formed."""
+    import time
+    import requests
+    base_url = base_url.rstrip("/")
+    now = time.time()
+    cached = _ollama_reachability_cache.get(base_url)
+    if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
+        return cached[1]
+    try:
+        resp = requests.get(f"{base_url}/api/tags", timeout=2.5)
+        reachable = resp.ok
+    except Exception:
+        reachable = False
+    _ollama_reachability_cache[base_url] = (now, reachable)
+    return reachable
+
+
 class LibreTranslateEngine:
     """Talks to any LibreTranslate-compatible /translate endpoint.
 
