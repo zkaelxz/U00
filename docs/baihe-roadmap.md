@@ -77,7 +77,7 @@ Rules for every milestone:
 | 7 | Translate one episode in "High quality" mode. Check the cost estimate shows first and the critiques appear as notes. |
 | 8 | Open a second episode of the same series. Check the voice suggestions are sensible and nothing is labelled until you confirm it. |
 | 9 | Set a low cost cap and check the job stops at it. Run one Bulk-mode translation and check results arrive on the right lines. |
-| 9b | Start a long transcription and check the ETA appears and looks reasonable. Open the model-cache panel and delete one entry. Select 2–3 dramas in a series in Library and run bulk translate. |
+| 9b | Start a long transcription and check the ETA appears and looks reasonable. Open the model-cache panel and delete one entry. Select 2–3 dramas in a series in Library and run bulk translate. Set browser cookies in Settings and download a login-gated TikTok/Instagram/Bilibili clip. |
 | 10 | Double-click the desktop shortcut. The app should open in its own window. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
@@ -320,8 +320,12 @@ SRT already works everywhere, so this is additive, not a fix.
    - one colour per known character (from `characters`/`series_characters`), reusing Step 1e's character list, so each speaker is visually distinct without the user setting each one by hand;
    - a couple of starting **presets** the user can tune from, not a fixed look — e.g. "Clean" (today's plain default) and "Streamer clip" (bold, larger size, thick high-contrast outline — the common shape of Japanese clip-channel subtitles: legible over busy video/gameplay, not an exact copy of any one channel's style). Position/margin stay at sensible defaults, not exposed yet.
 3. **Long-cue handling**, shared by all three writers: split a cue over a configurable character-per-line limit (default per source language, e.g. tighter for CJK) at a sentence or clause boundary where one exists, otherwise at the nearest space; never mid-word.
-4. Add format choice (SRT/VTT/ASS) and the style controls above next to the existing export button, defaulting to SRT + "Clean" so nothing changes for anyone who doesn't touch the new controls.
-5. **Fix: expose hardsub (burned-in) styling, which already exists in the backend but is invisible in the UI.** `video_export.burn_subtitles` already accepts `font_size`/`font_color`/`outline_color`, but section 10's "Export full subtitled episode" calls it with no arguments (`workspace_tab.py` ~line 2819), so every hardsub export silently uses the same fixed look regardless of what's picked elsewhere. Two changes:
+   - Add a defensive overlap clamp right before writing any of the three formats: if line N's end is after line N+1's start (possible after a manual edit or merge, even though `core._lines_from_char_times` already guarantees non-overlap at alignment time), trim N's end back to N+1's start and flag the line for review rather than exporting an invalid cue.
+4. **Subtitle reading-speed (CPS) warning** *(idea from Whishper's editor and ZastTranslate's per-script CPS tables; genuinely missing — confirmed against the code, since the app's existing `chars_per_second` check in `core.diagnose_line_coverage` only flags mis-segmented ASR on the source side, never whether the translated text is readable in the time it's shown)*.
+   - Add a per-script CPS ceiling (looser for Latin scripts, tighter for CJK — a rough starting table is enough, not a precision model) and flag any line whose **translated** text exceeds it for its own duration, using the existing flag mechanism so it shows up in the review queue like any other flagged line.
+   - Surface the same check next to the style controls in this step's export panel, so a line that's fine to read in the app but too dense as a subtitle gets caught before export, not after.
+5. Add format choice (SRT/VTT/ASS) and the style controls above next to the existing export button, defaulting to SRT + "Clean" so nothing changes for anyone who doesn't touch the new controls.
+6. **Fix: expose hardsub (burned-in) styling, which already exists in the backend but is invisible in the UI.** `video_export.burn_subtitles` already accepts `font_size`/`font_color`/`outline_color`, but section 10's "Export full subtitled episode" calls it with no arguments (`workspace_tab.py` ~line 2819), so every hardsub export silently uses the same fixed look regardless of what's picked elsewhere. Two changes:
    - wire the same style controls from item 2 into that call;
    - when the chosen format is ASS, burn the `.ass` file directly (`ffmpeg -vf "subtitles=file.ass"`, no `force_style` needed — libass reads the per-speaker styles straight from the file) instead of building one flat `force_style` string, so hardsub gets per-speaker colours too, not just softsub.
 
@@ -331,6 +335,8 @@ SRT already works everywhere, so this is additive, not a fix.
 - SRT export is byte-identical to before this step.
 - A hardsub export using the "Streamer clip" preset visibly differs from one using "Clean" (checked by hand — burning video isn't something a unit test can judge).
 - A test shows burning an ASS file skips `force_style` entirely.
+- A test shows a manually-created overlap gets clamped and flagged, not exported as-is.
+- A test shows a translated line that's too dense to read in its duration gets flagged, and a normal-length line doesn't.
 
 ### Step 7 — Reflect translation mode *(new feature; needs Step 1)*
 - Add an optional "High quality" setting:
@@ -396,11 +402,13 @@ Three independent, additive gaps found while reviewing for efficiency and missin
 1. **Time estimate on long jobs.** `background_jobs` already tracks `started_at` and a `progress` fraction (`update_progress(job_id, frac, message)`); nothing currently uses them together. Add a simple ETA next to the existing progress bar: `elapsed = now - started_at`, `remaining ≈ elapsed * (1 - frac) / frac`, shown as "~N min remaining" once `frac` is past a small threshold (too noisy right at the start). Pure UI addition — no new job-tracking fields needed.
 2. **Downloaded-model disk management.** `storage.py` reports disk usage for the app's own `library/` folder, but Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in Hugging Face's own cache (`~/.cache/huggingface` by default) with no visibility or cleanup from inside the app. Across several ASR/TTS backends this can reach tens of GB. Add a small panel (Diagnostics, next to the existing dependency checks) that lists what's in the HF cache with each entry's size, and a delete button per entry — a thin wrapper over `huggingface_hub.scan_cache_dir()`, which already gives size-per-revision without reimplementing cache-format parsing.
 3. **Bulk "translate everything untranslated" across a series.** Library's existing bulk actions (`tabs/library_tab.py` ~line 127, `library_bulk_select`) cover status, delete and export, but not starting a job — translating multiple dramas still means opening each one individually. Add a bulk action that starts a `run_translate_job` per selected drama with no translation yet, each drama's own saved engine/glossary/style/locale settings (same as its own Workspace tab would use), queued one at a time rather than all at once (see Step 3's/Step 1c's GPU-load reasoning — avoid starting several GPU-touching jobs simultaneously). Respect the Step 1b line-writing job guard per drama; skip (don't queue) a drama that already has one running.
+4. **Cookie-based login for downloads, as a real setting, not just an error hint.** The app already isn't YouTube-locked — `video_download.py`'s own docstring says "YouTube and the many other sites yt-dlp supports," and yt-dlp itself supports Bilibili, TikTok and Instagram natively — but `--cookies-from-browser` is currently only *mentioned* inside a YouTube-specific error message (`live_translate.py`), not exposed as something the user can turn on. TikTok and Instagram in particular block plain unauthenticated requests far more aggressively than YouTube does. Add a Settings field (which browser to pull cookies from, or a cookies file path), pass it through to yt-dlp in both `video_download.py` and `live_translate.py`, and update the "no formats found" error and Diagnostics copy to mention it generally rather than only for YouTube. *(Idea prompted by comparing platform coverage against OpenCreator/302_video_translation — the download capability was already mostly there; this closes the practical reliability gap, not a missing extractor.)*
 
 **Exit:**
 - A test shows the ETA display appears once progress is non-trivial and disappears/holds sensibly at 0% and 100%.
 - A test shows the model-cache panel lists entries with sizes and that deleting one actually frees the space (using a fake cache dir, not the real HF cache).
 - A test shows the bulk translate action starts one job per eligible selected drama and skips any drama with a job already running, using each drama's own settings.
+- A test shows the cookies setting reaches yt-dlp's options in both `video_download.py` and `live_translate.py`.
 
 ### Step 10 — One-click Windows launcher, own window & desktop shortcut *(convenience)*
 - Add a `start.bat` (plus an optional `start.ps1`) that:
@@ -434,6 +442,7 @@ Three independent, additive gaps found while reviewing for efficiency and missin
 |---|---|---|
 | **R4** — standalone VAD, Qwen3-ASR independent of Whisper, word timestamps, resumable jobs | The biggest and riskiest change. Whisper already works, and nobody has shown Qwen3-ASR is better on this content. | Whisper transcripts are clearly poor, or long jobs keep failing partway through. |
 | **R7** — full-pipeline benchmark | A developer tool whose main use is deciding R4. | R4 is being reconsidered. |
+| **Live capture for Bilibili/TikTok Live**, beyond the download-only support Step 9b adds | `live_translate.py`'s live-stream chunking is YouTube (and Twitch) specific; each platform's live/HLS quirks differ enough that this is real, separate work, and the app's actual focus is VOD audio dramas, not live streaming. *(Surveyed while comparing against OpenCreator/302_video_translation/Synthalingua — none of them make this look like a small add either.)* | Live capture from one of these platforms is actually wanted, not just downloading an already-finished VOD (which Step 9b's cookie support already covers). |
 | **R1-full** — a general artifact and versioning system | R1-lite covers the need that matters (not losing the original). | Several stages need a history of versions. |
 | **R2 windowing** — diarizing long audio in windows | Only matters for streams several hours long. | Long VODs become a regular input. |
 | **R3-full** — a single-slot model manager | Only matters if the GPU runs out of memory. | Out-of-memory crashes occur. |
