@@ -129,7 +129,12 @@ def render_workspace_tab():
             st.session_state.active_drama_id = new_id
             st.session_state.lines = None
             st.rerun()
-        st.stop()
+        # A plain return, not st.stop() -- st.stop() halts the ENTIRE
+        # script (every tab after Workspace in app.py's render order,
+        # currently just Diagnostics), not only this function. That left
+        # the Diagnostics tab completely blank -- no error, just empty --
+        # any time no drama was active, which includes every fresh launch.
+        return
 
     drama = db.get_drama(picked_id)
     st.session_state.active_drama_id = picked_id
@@ -992,12 +997,15 @@ def render_workspace_tab():
                 st.code(str(exc), language="text")
                 st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
                           "Fix the connection and press the button again.")
-                st.stop()
+                # return, not st.stop() -- st.stop() would also cancel
+                # rendering every tab after Workspace (Diagnostics), which
+                # is exactly where this message points the user next.
+                return
 
             if not segments:
                 st.error("Speech recognition returned nothing. Check the file actually contains "
                          "audio, and that ffmpeg is installed (see the Diagnostics tab).")
-                st.stop()
+                return
 
             if _use_whisper_text:
                 # No supplied transcript: use a transcription model's own text.
