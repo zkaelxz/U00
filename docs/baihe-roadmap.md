@@ -1,8 +1,18 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT:** Step 1c-pre and Step 1c are both reviewed and approved —
-> create their pull requests and merge both into `baihe-subtitler`, then
-> start Step 1d off the updated branch.
+> **NEXT:** Step 1c-pre and Step 1c are both merged into `baihe-subtitler`
+> (confirmed via `git merge-base --is-ancestor`). Start Step 1d off the
+> current `baihe-subtitler` branch. Note: the `docs/ai-setup/CLAUDE.md`
+> copy Step 1c-pre brought in predates two rule additions made after that
+> merge — the Opus-confirmation-before-switching rule and the
+> dead/redundant-code cleanup rules — re-copy `docs/ai-setup/CLAUDE.md`
+> from the planning branch into `baihe-subtitler`'s root as part of
+> starting Step 1d, so the implementing session is working from the
+> current rules. Also: both `step-1c-pre-ai-setup` and
+> `step-1c-dependency-fixes` no longer exist on origin even though the
+> standing preference was to keep branches until the project finishes —
+> worth confirming with the user whether that was intentional or GitHub's
+> merge-UI default deleted them.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
 > memory, as of 2026-09-24. If this line is stale, the status table below
 > it is the source of truth.)*
@@ -614,8 +624,8 @@ Found while doing a full README+code pass on repos surfaced by a `github.com/top
   |---|---|---|---|
   | 1 — R5 translation fixes | `claude/r5-translation-fixes` (deleted post-merge) | ✅ Merged | ⏳ Pending |
   | 1b — Safety fixes | `step-1b-safety-fixes` (deleted post-merge) | ✅ Merged (PR #2) | ⏳ Pending |
-  | 1c-pre — AI setup | `step-1c-pre-ai-setup` | ✅ Reviewed & approved, PR pending | — |
-  | 1c — Dependency fixes | `step-1c-dependency-fixes` | ✅ Reviewed & approved, PR pending | — |
+  | 1c-pre — AI setup | `step-1c-pre-ai-setup` (deleted after merge) | ✅ Merged | ⏳ Pending |
+  | 1c — Dependency fixes | `step-1c-dependency-fixes` (deleted after merge) | ✅ Merged | ⏳ Pending |
   | 1d — Free testing engines | — | Not started | — |
   | 1e — Character pronouns | — | Not started | — |
   | 2 — R0 permanent line IDs | — | Not started | — |
