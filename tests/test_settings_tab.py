@@ -68,6 +68,25 @@ class TestLoadsFromEnvFile:
         _load_env_defaults(env_path)  # must not raise
         assert not st.session_state.get("settings_hf_token")
 
+    def test_a_utf8_bom_on_the_first_line_does_not_break_that_variable(self, tmp_path):
+        """Regression test for a real reported failure: a .env saved by
+        Notepad (the default editor a non-technical Windows user would
+        reach for) writes a UTF-8 byte-order-mark at the very start of
+        the file by default. Read as plain "utf-8", that BOM attaches
+        itself to the first key's name ("﻿HF_TOKEN" instead of
+        "HF_TOKEN"), so it silently never matches -- while a variable
+        placed on a LATER line in the same file works fine, which is
+        exactly what made this so confusing to diagnose from a bug
+        report alone (the fix must actually write the raw BOM bytes,
+        not go through _write_env()'s plain-text helper, which doesn't
+        add one)."""
+        env_path = str(tmp_path / ".env")
+        with open(env_path, "wb") as f:
+            f.write(b"\xef\xbb\xbf")  # UTF-8 BOM
+            f.write(b"HF_TOKEN=hf_abc123\n")
+        _load_env_defaults(env_path)
+        assert st.session_state.get("settings_hf_token") == "hf_abc123"
+
     def test_loads_gemini_key(self, tmp_path):
         env_path = _write_env(tmp_path / ".env", "GEMINI_API_KEY=g_abc123\n")
         _load_env_defaults(env_path)
