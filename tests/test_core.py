@@ -541,3 +541,98 @@ class TestGpuInferenceFailureFallback:
             assert False, "a genuine non-GPU error must still propagate, not be swallowed"
         except ValueError as e:
             assert "corrupt audio stream" in str(e)
+
+
+class TestTranscribeProgress:
+    """A 3+ hour file with only a spinner and no progress indication looks
+    stuck. faster-whisper's transcribe() returns segments lazily, so
+    progress_cb can report real fraction-complete as they arrive instead."""
+
+    class _FakeSegment:
+        def __init__(self, start, end, text):
+            self.start, self.end, self.text = start, end, text
+
+    class _FakeInfo:
+        def __init__(self, duration):
+            self.duration = duration
+
+    def _stub_faster_whisper(self, segments, info):
+        import sys, types
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                return iter(segments), info
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        sys.modules["faster_whisper"] = fake_fw
+
+    def test_progress_cb_reports_fraction_of_duration(self):
+        import core
+        segments = [self._FakeSegment(0.0, 30.0, "a"),
+                    self._FakeSegment(30.0, 90.0, "b"),
+                    self._FakeSegment(90.0, 120.0, "c")]
+        self._stub_faster_whisper(segments, self._FakeInfo(duration=120.0))
+        core._whisper_model_cache.clear()
+
+        seen = []
+        result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
+
+        assert len(result) == 3
+        assert seen == [0.25, 0.75, 1.0]
+
+    def test_progress_cb_is_optional(self):
+        import core
+        segments = [self._FakeSegment(0.0, 10.0, "a")]
+        self._stub_faster_whisper(segments, self._FakeInfo(duration=10.0))
+        core._whisper_model_cache.clear()
+
+        result = core.transcribe_for_timing("/fake/audio.mp3")
+        assert result == [{"start": 0.0, "end": 10.0, "text": "a"}]
+
+    def test_missing_duration_does_not_crash(self):
+        """info can legitimately be None (some callers/tests stub it that
+        way) or lack .duration -- progress just can't be estimated then."""
+        import core
+        segments = [self._FakeSegment(0.0, 10.0, "a")]
+        self._stub_faster_whisper(segments, info=None)
+        core._whisper_model_cache.clear()
+
+        seen = []
+        result = core.transcribe_for_timing("/fake/audio.mp3", progress_cb=seen.append)
+        assert result == [{"start": 0.0, "end": 10.0, "text": "a"}]
+        assert seen == [0.0]
+
+    def test_progress_cb_called_on_gpu_fallback_path_too(self):
+        import core
+        segments = [self._FakeSegment(0.0, 50.0, "a"), self._FakeSegment(50.0, 100.0, "b")]
+        info = self._FakeInfo(duration=100.0)
+
+        class FakeCudaModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                def gen():
+                    raise RuntimeError("CUDA out of memory")
+                    yield
+                return gen(), None
+
+        class FakeCpuModel:
+            def __init__(self, *a, **k):
+                pass
+            def transcribe(self, audio_path, **kwargs):
+                return iter(segments), info
+
+        import sys, types
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": (
+            FakeCudaModel() if device == "cuda" else FakeCpuModel())
+        sys.modules["faster_whisper"] = fake_fw
+        core._whisper_model_cache.clear()
+
+        seen = []
+        result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True, progress_cb=seen.append)
+        assert len(result) == 2
+        assert seen == [0.5, 1.0]
