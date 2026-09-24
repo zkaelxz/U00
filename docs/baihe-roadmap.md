@@ -1,18 +1,20 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT:** Step 1c-pre and Step 1c are both merged into `baihe-subtitler`
-> (confirmed via `git merge-base --is-ancestor`). Start Step 1d off the
-> current `baihe-subtitler` branch. Note: the `docs/ai-setup/CLAUDE.md`
-> copy Step 1c-pre brought in predates two rule additions made after that
-> merge — the Opus-confirmation-before-switching rule and the
-> dead/redundant-code cleanup rules — re-copy `docs/ai-setup/CLAUDE.md`
-> from the planning branch into `baihe-subtitler`'s root as part of
-> starting Step 1d, so the implementing session is working from the
-> current rules. Also: both `step-1c-pre-ai-setup` and
-> `step-1c-dependency-fixes` no longer exist on origin even though the
-> standing preference was to keep branches until the project finishes —
-> worth confirming with the user whether that was intentional or GitHub's
-> merge-UI default deleted them.
+> **NEXT:** Step 1d (`step-1d-free-testing-engines`) is reviewed and
+> approved — diff and all 5 exit conditions checked directly against the
+> real branch, not just the summary given. Create its PR and merge into
+> `baihe-subtitler`, then start Step 1e off the updated branch.
+> **Still outstanding, confirmed not done in Step 1d:** the root
+> `CLAUDE.md` on `baihe-subtitler` still predates the
+> Opus-confirmation-before-switching rule and the dead/redundant-code
+> cleanup rules (checked directly — `git show
+> origin/step-1d-free-testing-engines:CLAUDE.md` still lacks both). Have
+> the implementing session re-copy the current
+> `docs/ai-setup/CLAUDE.md` from this planning branch into
+> `baihe-subtitler`'s root before or as part of starting Step 1e, so it's
+> working from current rules. Also still open from last time: confirm
+> with the user whether `step-1c-pre-ai-setup`/`step-1c-dependency-fixes`
+> being gone from origin was intentional or GitHub's merge-UI default.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
 > memory, as of 2026-09-24. If this line is stale, the status table below
 > it is the source of truth.)*
@@ -651,7 +653,7 @@ Found by asking directly "anything else to improve — models, performance, GUI 
   | 1b — Safety fixes | `step-1b-safety-fixes` (deleted post-merge) | ✅ Merged (PR #2) | ⏳ Pending |
   | 1c-pre — AI setup | `step-1c-pre-ai-setup` (deleted after merge) | ✅ Merged | ⏳ Pending |
   | 1c — Dependency fixes | `step-1c-dependency-fixes` (deleted after merge) | ✅ Merged | ⏳ Pending |
-  | 1d — Free testing engines | — | Not started | — |
+  | 1d — Free testing engines | `step-1d-free-testing-engines` | ✅ Reviewed & approved, PR pending | ⏳ Pending |
   | 1e — Character pronouns | — | Not started | — |
   | 2 — R0 permanent line IDs | — | Not started | — |
   | 3 — R1-lite original transcript | — | Not started | — |
