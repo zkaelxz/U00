@@ -113,6 +113,33 @@ def call_with_backoff(fn, max_retries: int = 5, base_delay: float = 2.0, max_del
     raise last_exception
 
 
+# Matches a raw API key/token sitting in an error string -- a query
+# param ("...&key=AIzaSy..."), an Authorization header dump, or a
+# provider key by its own prefix (sk-... for Claude/OpenAI-compatible,
+# AIza... for Google). Belt-and-suspenders alongside sending keys as
+# headers rather than URL params: a raise_for_status() failure's message
+# includes the request URL, and that message is what gets stored on
+# dramas.last_translate_errors and shown in the UI.
+_SECRET_PATTERNS = [
+    re.compile(r'([?&]key=)[^&\s"\']+', re.IGNORECASE),
+    re.compile(r'(authorization["\']?\s*[:=]\s*["\']?(?:Bearer\s+)?)[A-Za-z0-9_\-\.]{10,}',
+               re.IGNORECASE),
+    re.compile(r'\bsk-[A-Za-z0-9_-]{10,}\b'),
+    re.compile(r'\bAIza[A-Za-z0-9_-]{10,}\b'),
+]
+
+
+def redact_secrets(text: str) -> str:
+    """Strips anything that looks like an API key or bearer token out of
+    an error string before it's shown in the UI, stored on the drama, or
+    written to the log file."""
+    if not text:
+        return text
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(lambda m: m.group(1) + "[REDACTED]" if m.groups() else "[REDACTED]", text)
+    return text
+
+
 # Reused from forced_align.py rather than duplicated -- both files need
 # the same "zh"/"ja"/"ko" -> full language name mapping.
 from forced_align import LANGUAGE_NAMES
@@ -410,8 +437,8 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
         resp = call_with_backoff(lambda: requests.post(
-            url, params={"key": engine.api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]}))
+            url, headers={"x-goog-api-key": engine.api_key},
+            json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=120))
         resp.raise_for_status()
         data = resp.json()
         usage = data.get("usageMetadata") or {}
@@ -554,10 +581,10 @@ class GeminiEngine:
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
         def call_model(numbered):
-            resp = requests.post(url, params={"key": self.api_key}, json={
+            resp = requests.post(url, headers={"x-goog-api-key": self.api_key}, json={
                 "systemInstruction": {"parts": [{"text": instructions}]},
                 "contents": [{"parts": [{"text": "Translate these lines:\n\n" + numbered}]}],
-            })
+            }, timeout=120)
             resp.raise_for_status()
             data = resp.json()
             usage = data.get("usageMetadata") or {}
@@ -618,10 +645,10 @@ class GoogleEngine:
         # unlike DeepL's differently-cased codes above. Hardcoding "zh"
         # here regardless of the actual source was the same real bug as
         # DeepLEngine's: a Japanese/Korean drama silently mistranslated.
-        resp = requests.post(url, params={"key": self.api_key}, json={
+        resp = requests.post(url, headers={"X-Goog-Api-Key": self.api_key}, json={
             "q": zh_lines, "source": context.get("source_language", "zh"),
             "target": "en", "format": "text",
-        })
+        }, timeout=60)
         resp.raise_for_status()
         data = resp.json()
         return [t["translatedText"] for t in data["data"]["translations"]]
@@ -993,7 +1020,7 @@ class OllamaEngine:
                     {"role": "user", "content": "Translate these lines:\n\n" + numbered},
                 ],
                 "stream": False,
-            })
+            }, timeout=300)  # local models can be slow, especially CPU-only or larger ones
             resp.raise_for_status()
             return resp.json()["message"]["content"].strip()
 
@@ -1202,7 +1229,11 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                 for ln, tr in zip(batch, translations):
                     ln.en = tr
         except Exception as e:
-            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch], "error": str(e)})
+            redacted = redact_secrets(str(e))
+            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
+                           "error": redacted})
+            import applog
+            applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
         if save_cb:
             save_cb(lines)
         if progress_cb:

@@ -5,8 +5,9 @@ handling, and the UI design primitives.
 import sys, os, tempfile, shutil
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
 import numpy as np
-import cv2
+cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 import emotion as em
 import scanlate
 import ui_theme as ui

@@ -234,21 +234,53 @@ def render_library_tab():
     bc1, bc2 = st.columns(2)
     with bc1:
         st.markdown("**Backup**")
-        if st.button("📦 Create backup .zip"):
-            import shutil
-            buf = io.BytesIO()
+        backups_dir = os.path.join(db.LIBRARY_DIR, "backups")
+
+        if st.button("🗄️ Database-only backup (fast, small)"):
+            import datetime
+            os.makedirs(backups_dir, exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            db_backup_path = os.path.join(backups_dir, f"library_{ts}.db")
+            db.snapshot_database(db_backup_path)
+            with open(db_backup_path, "rb") as f:
+                st.session_state["db_backup_bytes"] = f.read()
+            st.session_state["db_backup_name"] = f"library_{ts}.db"
+            st.success(f"Database snapshot saved to {db_backup_path}")
+        if st.session_state.get("db_backup_bytes"):
+            st.download_button("Download database backup", st.session_state["db_backup_bytes"],
+                                file_name=st.session_state["db_backup_name"])
+
+        if st.button("📦 Create full backup .zip (database + media)"):
+            import datetime
+            import tempfile
+            os.makedirs(backups_dir, exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            zip_path = os.path.join(backups_dir, f"baihe_library_backup_{ts}.zip")
             library_dir = db.LIBRARY_DIR
-            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for root, _dirs, files in os.walk(library_dir):
-                    for fname in files:
-                        full_path = os.path.join(root, fname)
-                        arcname = os.path.relpath(full_path, library_dir)
-                        zf.write(full_path, arcname)
-            st.session_state["backup_buf"] = buf.getvalue()
-            st.success(f"Backup ready ({len(st.session_state['backup_buf']) / 1_000_000:.1f} MB).")
-        if st.session_state.get("backup_buf"):
-            st.download_button("Download backup.zip", st.session_state["backup_buf"],
-                                file_name="baihe_library_backup.zip")
+            skip_paths = {db.DB_PATH, db.DB_PATH + "-wal", db.DB_PATH + "-shm"}
+            # Written straight to disk, one file at a time, rather than built
+            # up in an in-memory BytesIO -- a multi-GB library (with video)
+            # zipped entirely into memory, then kept a second time via
+            # getvalue() and a third via session_state, could exhaust RAM.
+            with tempfile.TemporaryDirectory() as tmpdir:
+                db_snapshot_path = os.path.join(tmpdir, "library.db")
+                db.snapshot_database(db_snapshot_path)
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for root, dirs, files in os.walk(library_dir, topdown=True):
+                        if root == library_dir:
+                            dirs[:] = [d for d in dirs if d != "backups"]
+                        for fname in files:
+                            full_path = os.path.join(root, fname)
+                            if full_path in skip_paths:
+                                continue
+                            arcname = os.path.relpath(full_path, library_dir)
+                            zf.write(full_path, arcname)
+                    # A consistent snapshot of the database (see above),
+                    # not the live library.db file, which under WAL mode
+                    # can be missing writes still sitting in library.db-wal.
+                    zf.write(db_snapshot_path, "library.db")
+            st.success(f"Backup saved to {zip_path} "
+                       f"({os.path.getsize(zip_path) / 1_000_000:.1f} MB).")
 
     with bc2:
         st.markdown("**Restore**")

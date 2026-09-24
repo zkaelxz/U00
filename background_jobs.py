@@ -58,6 +58,10 @@ def start_job(job_id: str, target, *args, **kwargs) -> bool:
         }
 
     def runner():
+        import applog
+        from translate_engines import redact_secrets
+        logger = applog.get_logger()
+        logger.info(f"job {job_id} started")
         try:
             target(*args, **kwargs)
             with _lock:
@@ -65,13 +69,17 @@ def start_job(job_id: str, target, *args, **kwargs) -> bool:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
+            logger.info(f"job {job_id} finished")
         except Exception as exc:
+            error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
+            tb = redact_secrets(traceback.format_exc())
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "error"
-                    _jobs[job_id]["error"] = f"{type(exc).__name__}: {exc}"
-                    _jobs[job_id]["traceback"] = traceback.format_exc()
+                    _jobs[job_id]["error"] = error_msg
+                    _jobs[job_id]["traceback"] = tb
                     _jobs[job_id]["finished_at"] = time.time()
+            logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
 
     threading.Thread(target=runner, daemon=True, name=f"job:{job_id}").start()
     return True
@@ -108,6 +116,51 @@ def is_running(job_id: str) -> bool:
     with _lock:
         job = _jobs.get(job_id)
         return bool(job and job["status"] == "running")
+
+
+# Translate, flag, and fix-flagged-lines jobs (job ids "translate_<drama_id>",
+# "flag_<drama_id>", "fixflag_<drama_id>") each save their own full copy of
+# a drama's lines through db.save_lines(), which deletes and re-inserts
+# every line. Since they can run concurrently, whichever one saves last
+# silently wins and undoes whatever the other one wrote -- e.g. starting
+# "Find lines to flag" mid-translation wipes the translations done so far.
+# Short-term guard until Step 2 makes each job write only the fields it
+# owns (translation writes `en`; flagging writes `flag`/`flag_note`).
+LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_")
+
+
+def other_line_writing_job(drama_id, exclude_prefix: str):
+    """Returns the short name ("translate", "flag", or "fixflag") of a
+    line-writing job currently running for this drama under a DIFFERENT
+    prefix than exclude_prefix, or None if none is running. Call this
+    before starting a new line-writing job for the drama; a same-type
+    duplicate is already refused by start_job()'s own job_id dedup."""
+    with _lock:
+        for prefix in LINE_WRITING_JOB_PREFIXES:
+            if prefix == exclude_prefix:
+                continue
+            job = _jobs.get(f"{prefix}{drama_id}")
+            if job and job["status"] == "running":
+                return prefix.rstrip("_")
+    return None
+
+
+def any_line_writing_job(drama_id) -> bool:
+    """True if a translate/flag/fix-flagged-lines job is currently
+    running for this drama. other_line_writing_job() above only stops
+    these three jobs from clashing with EACH OTHER -- a person's own
+    manual edit (the line editor's save, merge lines, a per-line fix,
+    undo/restore) still races one of them the same way: whichever
+    saves last through db.save_lines() silently wins. workspace_tab.py
+    uses this to lock every control that saves lines on the main
+    thread while one of these jobs is running for the drama being
+    viewed."""
+    with _lock:
+        for prefix in LINE_WRITING_JOB_PREFIXES:
+            job = _jobs.get(f"{prefix}{drama_id}")
+            if job and job["status"] == "running":
+                return True
+    return False
 
 
 def request_cancel(job_id: str):

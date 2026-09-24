@@ -15,6 +15,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
+pytest.importorskip("jieba")  # requirements-optional.txt, not core --
+                               # skip cleanly without it rather than error
+                               # when segment.py lazily imports it
+
 import segment
 
 

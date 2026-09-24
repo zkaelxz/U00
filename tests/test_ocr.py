@@ -56,7 +56,7 @@ class TestExtractTextTesseractUsesExplicitPSM:
         return str(path)
 
     def test_default_psm_is_six(self, monkeypatch, tmp_path):
-        import pytesseract
+        pytesseract = pytest.importorskip("pytesseract")
         captured = {}
 
         def fake_image_to_string(image, lang=None, config=None):
@@ -71,7 +71,7 @@ class TestExtractTextTesseractUsesExplicitPSM:
         assert captured["config"] == "--psm 6"
 
     def test_psm_can_be_overridden(self, monkeypatch, tmp_path):
-        import pytesseract
+        pytesseract = pytest.importorskip("pytesseract")
         captured = {}
 
         def fake_image_to_string(image, lang=None, config=None):
@@ -99,7 +99,7 @@ class TestExtractTextTesseractCustomBinaryPath:
         return str(path)
 
     def test_sets_pytesseract_tesseract_cmd_when_given(self, monkeypatch, tmp_path):
-        import pytesseract
+        pytesseract = pytest.importorskip("pytesseract")
         monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: "text")
         monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract", raising=False)
 
@@ -109,7 +109,7 @@ class TestExtractTextTesseractCustomBinaryPath:
         assert pytesseract.pytesseract.tesseract_cmd == r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
     def test_leaves_default_tesseract_cmd_alone_when_not_given(self, monkeypatch, tmp_path):
-        import pytesseract
+        pytesseract = pytest.importorskip("pytesseract")
         monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: "text")
         monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract", raising=False)
 

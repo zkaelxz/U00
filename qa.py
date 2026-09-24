@@ -68,9 +68,9 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
         resp = call_with_backoff(lambda: requests.post(
-            url, params={"key": engine.api_key},
+            url, headers={"x-goog-api-key": engine.api_key},
             json={"systemInstruction": {"parts": [{"text": system_prompt}]},
-                  "contents": [{"parts": [{"text": history_text}]}]}))
+                  "contents": [{"parts": [{"text": history_text}]}]}, timeout=120))
         resp.raise_for_status()
         try:
             return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()

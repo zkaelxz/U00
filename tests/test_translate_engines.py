@@ -641,6 +641,58 @@ class TestTranslationLengthMismatchSafety:
         assert result[2].en == "EN:l2" and result[3].en == "EN:l3"  # second batch: correct
 
 
+class TestRedactSecrets:
+    """A raise_for_status() failure's message includes the request URL --
+    if a key was ever put there (or shows up in an Authorization header
+    dump), that message is what gets stored on dramas.last_translate_errors
+    and shown in the UI. redact_secrets() is the safety net for that,
+    on top of sending keys as headers rather than URL params in the
+    first place."""
+
+    def test_redacts_a_key_query_param(self):
+        text = ("400 Client Error: Bad Request for url: "
+                "https://generativelanguage.googleapis.com/v1beta/models/x:"
+                "generateContent?key=AIzaSyFAKESECRETVALUE12345")
+        assert "AIzaSyFAKESECRETVALUE12345" not in te.redact_secrets(text)
+
+    def test_redacts_a_bare_google_key_anywhere_in_the_text(self):
+        text = "something failed near AIzaSyFAKESECRETVALUE12345 during the request"
+        assert "AIzaSyFAKESECRETVALUE12345" not in te.redact_secrets(text)
+
+    def test_redacts_an_sk_style_key(self):
+        text = "Incorrect API key provided: sk-abcdefghijklmnopqrstuvwxyz"
+        assert "sk-abcdefghijklmnopqrstuvwxyz" not in te.redact_secrets(text)
+
+    def test_redacts_an_authorization_header_dump(self):
+        text = "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234 -- request failed"
+        assert "sk-abcdefghijklmnopqrstuvwxyz1234" not in te.redact_secrets(text)
+
+    def test_leaves_ordinary_error_text_unchanged(self):
+        text = "429 Too Many Requests -- rate limited, retry later"
+        assert te.redact_secrets(text) == text
+
+    def test_handles_empty_and_none(self):
+        assert te.redact_secrets("") == ""
+        assert te.redact_secrets(None) is None
+
+
+class TestTranslateLinesWithEngineRedactsBatchErrors:
+    def test_a_failing_batch_stores_a_redacted_error_not_the_raw_one(self):
+        lines = [Line(idx=0, start=0, end=1, zh="l0")]
+
+        class LeakyEngine:
+            def translate_batch(self, zh_lines, context):
+                raise RuntimeError(
+                    "400 Client Error: Bad Request for url: https://generativelanguage."
+                    "googleapis.com/v1beta/models/x:generateContent?key=AIzaSyFAKEKEY999")
+
+        _, errors = te.translate_lines_with_engine(lines, LeakyEngine(), {}, batch_size=1)
+
+        assert len(errors) == 1
+        assert "AIzaSyFAKEKEY999" not in errors[0]["error"]
+        assert "400 Client Error" in errors[0]["error"]  # the rest of the message survives
+
+
 class TestGeminiEngine:
     def test_translate_batch_parses_response_and_records_usage(self, monkeypatch):
         captured = {}
@@ -655,9 +707,9 @@ class TestGeminiEngine:
                     "usageMetadata": {"promptTokenCount": 42, "candidatesTokenCount": 8},
                 }
 
-        def fake_post(url, params=None, json=None):
+        def fake_post(url, headers=None, json=None, timeout=None):
             captured["url"] = url
-            captured["params"] = params
+            captured["headers"] = headers
             captured["json"] = json
             return FakeResponse()
 
@@ -668,7 +720,11 @@ class TestGeminiEngine:
         assert result == ["Hello.", "Goodbye."]
         assert engine.last_usage == {"input_tokens": 42, "output_tokens": 8}
         assert "gemini-flash-lite-latest" in captured["url"]
-        assert captured["params"] == {"key": "fake-key"}
+        # Key goes in a header, never the URL/query string -- a
+        # raise_for_status() failure's message includes the URL, and that
+        # message can end up stored/shown; a key in params would leak.
+        assert captured["headers"] == {"x-goog-api-key": "fake-key"}
+        assert "key=" not in captured["url"]
         assert "systemInstruction" in captured["json"]
 
     def test_recent_context_reaches_the_system_instruction(self, monkeypatch):
@@ -680,7 +736,7 @@ class TestGeminiEngine:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
 
-        def fake_post(url, params=None, json=None):
+        def fake_post(url, headers=None, json=None, timeout=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -700,7 +756,7 @@ class TestGeminiEngine:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
 
-        def fake_post(url, params=None, json=None):
+        def fake_post(url, headers=None, json=None, timeout=None):
             captured["json"] = json
             return FakeResponse()
 
@@ -723,7 +779,7 @@ class TestGeminiEngine:
             def json(self):
                 return {"candidates": [{"content": {"parts": [{"text": self._text}]}}]}
 
-        def fake_post(url, params=None, json=None):
+        def fake_post(url, headers=None, json=None, timeout=None):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 return FakeResponse('{"1": "First."}')  # line 2 missing
@@ -835,8 +891,9 @@ class TestGoogleEngine:
             def json(self):
                 return {"data": {"translations": [{"translatedText": "EN:你好"}]}}
 
-        def fake_post(url, params=None, json=None):
+        def fake_post(url, headers=None, json=None, timeout=None):
             captured["json"] = json
+            captured["headers"] = headers
             return FakeResponse()
 
         monkeypatch.setattr("requests.post", fake_post)
@@ -844,6 +901,9 @@ class TestGoogleEngine:
         result = engine.translate_batch(["你好"], {})
         assert result == ["EN:你好"]
         assert captured["json"]["source"] == "zh"
+        # Key goes in a header, never the URL/query string -- see the
+        # matching Gemini test above for why.
+        assert captured["headers"] == {"X-Goog-Api-Key": "fake-key"}
 
     def test_japanese_source_language_reaches_google(self, monkeypatch):
         captured = {}
@@ -855,7 +915,8 @@ class TestGoogleEngine:
                 return {"data": {"translations": [{"translatedText": "EN:x"}]}}
 
         monkeypatch.setattr("requests.post",
-                             lambda url, params=None, json=None: captured.update(json=json) or FakeResponse())
+                             lambda url, headers=None, json=None, timeout=None:
+                                 captured.update(json=json) or FakeResponse())
         engine = te.GoogleEngine("fake-key")
         engine.translate_batch(["x"], {"source_language": "ja"})
         assert captured["json"]["source"] == "ja"
@@ -870,7 +931,8 @@ class TestGoogleEngine:
                 return {"data": {"translations": [{"translatedText": "EN:x"}]}}
 
         monkeypatch.setattr("requests.post",
-                             lambda url, params=None, json=None: captured.update(json=json) or FakeResponse())
+                             lambda url, headers=None, json=None, timeout=None:
+                                 captured.update(json=json) or FakeResponse())
         engine = te.GoogleEngine("fake-key")
         engine.translate_batch(["x"], {"source_language": "ko"})
         assert captured["json"]["source"] == "ko"
