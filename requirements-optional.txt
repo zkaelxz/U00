@@ -35,6 +35,12 @@ qwen-asr>=0.1          # recommends a clean Python 3.12 env. On Python
 f5-tts>=0.9             # local, GPU recommended
 elevenlabs>=1.0         # hosted, no GPU needed
 
+# --- vocal separation before transcription (audio_preprocess.py) ---
+# Strips background music from a music-bed source (audio dramas,
+# livestreams) before Whisper sees it. Downloads its own model (~80MB
+# for the default htdemucs) on first use.
+demucs>=4.0
+
 # --- offline TTS ---
 piper-tts>=1.2
 

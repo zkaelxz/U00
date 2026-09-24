@@ -92,7 +92,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                         local_model_path, hf_token, initial_prompt, beam_size,
-                        min_silence_duration_ms, vad_threshold=0.5):
+                        min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False):
     """
     Runs just the Whisper speech-recognition pass in a background thread,
     same reasoning as run_translate_job above: this is the step that
@@ -105,6 +105,17 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     paths, which can't run from a thread (Streamlit widgets/session_state
     aren't thread-safe to write from here).
 
+    separate_vocals_first: runs audio_preprocess.separate_vocals() on
+    audio_path before transcribing, writing the vocals-only result
+    alongside the original audio (as "vocals.wav" in the same folder) and
+    transcribing THAT instead -- for content with a music bed under the
+    dialogue, which Whisper otherwise has to fight through. Adds real
+    processing time (a full Demucs pass over the whole file); a missing
+    Demucs install or a separation failure is recorded the same way as a
+    Whisper model-download failure below, not raised, since it's an
+    expected/common outcome (an optional dependency the person hasn't
+    installed) rather than a bug.
+
     Model-download failure and "no audio detected" are expected, common
     outcomes here (a flaky connection, a silent/corrupt file), not bugs --
     both are recorded via a "failed_reason" on the result instead of
@@ -114,6 +125,16 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     run_translate_job -- background_jobs.start_job's own runner catches
     that and reports it as a job error.
     """
+    if separate_vocals_first:
+        import audio_preprocess
+        background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
+        vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
+        try:
+            audio_path = audio_preprocess.separate_vocals(audio_path, vocals_path)
+        except audio_preprocess.VocalSeparationError as exc:
+            background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
+            return
+
     gpu_fallback_msg = []
     try:
         segments = transcribe_for_timing(
@@ -979,6 +1000,18 @@ def render_workspace_tab():
                      "lines from non-speech. Same tradeoff shape as the setting above -- no value "
                      "is strictly better for every source.")
 
+            separate_vocals_first = st.checkbox(
+                "🎵 Remove background music before transcribing (slower)",
+                value=False,
+                help="Runs Demucs (a real music-source-separation model, not a generic noise "
+                     "filter) over the whole file first and transcribes only its vocals stem -- "
+                     "for a music bed under the dialogue that's confusing Whisper (phantom "
+                     "lines from lyrics, or real dialogue getting missed under the mix). Adds a "
+                     "full extra pass over the audio (roughly as long as transcription itself), "
+                     "and downloads its own model (~80MB) on first use. Skip this for already-"
+                     "clean dialogue -- there's nothing for it to separate out, so it only costs "
+                     "time. Needs `pip install demucs`.")
+
             if not st.session_state.get("use_gpu"):
                 st.caption("💡 GPU is off. On your card, enabling it under Settings → Performance "
                           "makes large-v3 practical rather than painfully slow.")
@@ -1468,7 +1501,7 @@ def render_workspace_tab():
                     _transcribe_job_id, audio_path, whisper_size, source_language,
                     st.session_state.get("use_gpu", False), _local_model,
                     st.session_state.get("settings_hf_token", "") or None,
-                    initial_prompt, beam_size, min_silence_ms, vad_threshold)
+                    initial_prompt, beam_size, min_silence_ms, vad_threshold, separate_vocals_first)
                 if started:
                     st.info("Transcription started in the background -- it keeps running even if you "
                             "switch tabs or close this browser tab. Come back here any time to see "
@@ -1529,6 +1562,13 @@ def render_workspace_tab():
                 elif _tresult.get("failed_reason") == "empty":
                     st.error("Speech recognition returned nothing. Check the file actually contains "
                              "audio, and that ffmpeg is installed (see the Diagnostics tab).")
+                elif _tresult.get("failed_reason") == "vocal_separation":
+                    st.error("Removing background music failed before transcription could even start.")
+                    st.code(_tresult.get("detail", ""), language="text")
+                    st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
+                              "Turn off \"Remove background music\" above to transcribe the original "
+                              "audio instead, or fix the reported issue (often a missing "
+                              "`pip install demucs`) and press the button again.")
                 else:
                     segments = _tresult["segments"]
                     audio_path = existing_audio

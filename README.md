@@ -611,6 +611,23 @@ sensitivity** slider (default 2000ms) -- lower it to 500-1000ms if this
 is happening. There's no universally correct value: too low starts
 splitting mid-sentence on normal pauses instead.
 
+**Quiet dialogue missing, or noise/music producing phantom lines**:
+Workspace -> Recognition accuracy also has a **speech detection
+sensitivity** slider (Silero VAD's own threshold -- faster-whisper's
+built-in VAD IS Silero, not a separate technology, this just exposes its
+sensitivity knob). Lower it (0.3-0.4) if quiet/distant dialogue is being
+cut as silence; raise it (0.6-0.7) if a noisy or music-heavy source is
+producing lines from non-speech.
+
+**A music bed under the dialogue is confusing Whisper**: the same
+section has a **"Remove background music before transcribing"**
+checkbox. It runs [Demucs](https://github.com/facebookresearch/demucs)
+(a real source-separation model, not a generic noise filter) over the
+whole file first and transcribes only its vocals stem. Adds a full
+extra pass over the audio (roughly as long as transcription itself) and
+needs `pip install demucs` -- skip it for already-clean dialogue, since
+there's nothing for it to separate out.
+
 **Finding where this happened**: Workspace -> Review & edit ->
 **Check line coverage**, run after aligning, before translating. Flags
 suspiciously long lines relative to their text length, large silent

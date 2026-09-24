@@ -88,6 +88,83 @@ def test_progress_cb_is_wired_to_update_progress(monkeypatch):
     _clear(job_id)
 
 
+def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeypatch, tmp_path):
+    job_id = "test_transcribe_vocal_sep"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    audio_path = str(tmp_path / "audio.wav")
+
+    import audio_preprocess
+    seen = {}
+
+    def fake_separate(in_path, out_path, model="htdemucs"):
+        seen["in_path"] = in_path
+        seen["out_path"] = out_path
+        return out_path
+    monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+
+    def fake_transcribe(path, *a, **k):
+        seen["transcribed_path"] = path
+        return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+
+    run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
+                        separate_vocals_first=True)
+
+    assert seen["in_path"] == audio_path
+    assert seen["out_path"] == str(tmp_path / "vocals.wav")
+    assert seen["transcribed_path"] == str(tmp_path / "vocals.wav")
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["segments"] == [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    _clear(job_id)
+
+
+def test_vocal_separation_off_by_default_transcribes_the_original_audio(monkeypatch):
+    job_id = "test_transcribe_vocal_sep_off"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    seen = {}
+
+    def fake_transcribe(path, *a, **k):
+        seen["transcribed_path"] = path
+        return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
+
+    assert seen["transcribed_path"] == "/fake/audio.wav"
+    _clear(job_id)
+
+
+def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
+    job_id = "test_transcribe_vocal_sep_fail"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    audio_path = str(tmp_path / "audio.wav")
+
+    import audio_preprocess
+
+    def fake_separate(in_path, out_path, model="htdemucs"):
+        raise audio_preprocess.VocalSeparationError("Vocal separation needs Demucs: pip install demucs")
+    monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+
+    called = []
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: called.append(1))
+
+    run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
+                        separate_vocals_first=True)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["failed_reason"] == "vocal_separation"
+    assert "pip install demucs" in result["detail"]
+    assert called == []  # transcription must never run on a failed separation
+    _clear(job_id)
+
+
 def test_model_download_failure_is_recorded_not_raised(monkeypatch):
     job_id = "test_transcribe_download_fail"
     _clear(job_id)
