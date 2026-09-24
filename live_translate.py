@@ -77,16 +77,39 @@ def resolve_stream_url(url: str) -> str:
     except ImportError as exc:
         raise ImportError("Live capture needs yt-dlp: pip install yt-dlp") from exc
 
-    ydl_opts = {"format": "bestaudio/best", "quiet": True, "no_warnings": True}
+    def _try(fmt):
+        with yt_dlp.YoutubeDL({"format": fmt, "quiet": True, "no_warnings": True}) as ydl:
+            return ydl.extract_info(url, download=False)
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _try("bestaudio/best")
     except Exception as exc:
-        raise LiveCaptureError(
-            f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
-            "Common causes: the link is wrong/private/region-locked, the stream "
-            "hasn't started yet, or it's already ended."
-        ) from exc
+        # "No video formats found" specifically means yt-dlp's extractor
+        # came back with an empty format list for this URL at all -- not
+        # that bestaudio was unavailable (the /best fallback would have
+        # caught that). Retrying with a plainer format string sometimes
+        # recovers it, since some live manifests only expose combined
+        # audio+video formats and reject an audio-first format spec
+        # outright rather than falling through.
+        if "no video formats found" in str(exc).lower():
+            try:
+                info = _try("best")
+            except Exception:
+                raise LiveCaptureError(
+                    f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
+                    "\"No video formats found\" usually means one of: the video "
+                    "isn't actually live right now (this only works on a "
+                    "currently-broadcasting stream, not a regular finished video or "
+                    "short), yt-dlp is out of date for a recent YouTube change "
+                    "(`pip install -U yt-dlp`), or the content needs sign-in/is "
+                    "region-locked. Confirm the stream is live in a browser first."
+                ) from exc
+        else:
+            raise LiveCaptureError(
+                f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
+                "Common causes: the link is wrong/private/region-locked, the stream "
+                "hasn't started yet, or it's already ended."
+            ) from exc
 
     stream_url = info.get("url")
     if not stream_url:

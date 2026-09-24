@@ -188,6 +188,44 @@ class TestSeriesAndGlossary:
         terms_via_d1 = isolated_db.list_glossary_terms(d1["series_id"])
         assert len(terms_via_d1) == 1
 
+    def test_delete_glossary_term(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Series A")
+        isolated_db.upsert_glossary_term(sid, "拾", "Shi")
+        term_id = isolated_db.list_glossary_terms(sid)[0]["id"]
+        isolated_db.delete_glossary_term(term_id)
+        assert isolated_db.list_glossary_terms(sid) == []
+
+    def test_update_glossary_term_can_rename_the_original_text(self, isolated_db):
+        """update_glossary_term() is keyed on the row's own id, unlike
+        upsert_glossary_term() (keyed on term_original) -- this is what
+        lets a typo in the original term itself be fixed without
+        creating a second, orphaned row."""
+        sid = isolated_db.get_or_create_series("Series A")
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi", category="person_name",
+                                          policy="keep_pinyin")
+        term_id = isolated_db.list_glossary_terms(sid)[0]["id"]
+
+        isolated_db.update_glossary_term(term_id, "沈清疑", "Shen Qing-yi", notes="hyphenated form",
+                                          category="person_name", policy="keep_pinyin",
+                                          enforce_exact=True)
+
+        terms = isolated_db.list_glossary_terms(sid)
+        assert len(terms) == 1
+        assert terms[0]["term_translation"] == "Shen Qing-yi"
+        assert terms[0]["notes"] == "hyphenated form"
+        assert terms[0]["enforce_exact"] == 1
+
+    def test_update_glossary_term_does_not_create_a_duplicate_row(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Series A")
+        isolated_db.upsert_glossary_term(sid, "typo term", "Translation")
+        term_id = isolated_db.list_glossary_terms(sid)[0]["id"]
+
+        isolated_db.update_glossary_term(term_id, "corrected term", "Translation")
+
+        terms = isolated_db.list_glossary_terms(sid)
+        assert len(terms) == 1
+        assert terms[0]["term_original"] == "corrected term"
+
 
 class TestSeriesCharacters:
     """A streamer's persistent cast (or a book series' recurring
