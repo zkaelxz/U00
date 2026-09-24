@@ -64,6 +64,36 @@ class TestDetectBubblesCv:
             scanlate.detect_bubbles_cv("/nonexistent/path/does_not_exist.png")
 
 
+class TestInsetBoxForOcr:
+    """Regression coverage for a real bug found via direct testing: OCRing
+    a detected bubble box exactly as drawn -- border included -- can make
+    Tesseract return nothing at all (confirmed directly: an ellipse-shaped
+    bubble's outline read as an enclosing shape it couldn't segment past,
+    going from a correct '你好世界' with a few pixels trimmed off each
+    side to an empty string with none trimmed at all)."""
+
+    def test_shrinks_a_typical_box_on_all_sides(self):
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        inset = scanlate.inset_box_for_ocr(box)
+        assert inset["x"] > box["x"]
+        assert inset["y"] > box["y"]
+        assert inset["x"] + inset["w"] < box["x"] + box["w"]
+        assert inset["y"] + inset["h"] < box["y"] + box["h"]
+
+    def test_never_collapses_a_small_box_to_zero_or_negative_size(self):
+        box = {"x": 10, "y": 10, "w": 6, "h": 6}
+        inset = scanlate.inset_box_for_ocr(box)
+        assert inset["w"] > 0
+        assert inset["h"] > 0
+
+    def test_inset_is_capped_so_a_huge_box_still_loses_only_a_border(self):
+        box = {"x": 0, "y": 0, "w": 2000, "h": 2000}
+        inset = scanlate.inset_box_for_ocr(box)
+        # Losing a fixed max, not a fraction, of a very large box.
+        assert box["w"] - inset["w"] <= 30
+        assert box["h"] - inset["h"] <= 30
+
+
 class TestInpaintRegion:
     def test_inpaint_produces_valid_image(self, synthetic_page, temp_dir):
         box = {"x": 100, "y": 80, "w": 300, "h": 140}

@@ -36,7 +36,12 @@ piper-tts>=1.2
 
 # --- OCR ---
 pytesseract>=0.3        # also needs the Tesseract binary + language packs
-# paddleocr>=2.7        # better Chinese accuracy, heavier
+# paddleocr>=2.7        # better Chinese accuracy, heavier. `pip install
+                         # paddleocr` today installs 3.x, which changed its
+                         # API from what a lot of older tutorials show
+                         # (use_angle_cls, .ocr(path, cls=True)) -- ocr.py's
+                         # extract_text_paddle() already targets the current
+                         # 3.x API, so just installing the package is enough.
 # paddlepaddle>=2.6     # NOTE: as of this writing, PaddlePaddle only publishes
                          # wheels for Python 3.8-3.12. On 3.13/3.14 you'll get
                          # "No matching distribution found" -- not a network or

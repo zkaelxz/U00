@@ -111,6 +111,34 @@ def detect_bubbles_cv(image_path: str, min_area_frac: float = 0.0015,
     return boxes
 
 
+def inset_box_for_ocr(box: dict, frac: float = 0.10, min_inset: int = 4, max_inset: int = 15) -> dict:
+    """
+    Shrinks a detected bubble box slightly before it's cropped for OCR.
+
+    Found by direct testing: OCRing the box exactly as detected -- border
+    included -- can make Tesseract return nothing at all, or a few stray
+    characters instead of the real text, because the bubble's own outline
+    reads as a large enclosing shape it can't segment past. Trimming a
+    small margin off each side keeps the outline out of the crop for the
+    common case (straight or gently-curved bubble edges); an unusually
+    round bubble can still leave some curve in the corners, since this is
+    a plain rectangular inset, not a shape-aware mask -- OCR text is
+    already meant to be checked/edited before it's used, same as any
+    other auto-detected box or translation in this pipeline.
+    """
+    inset_x = max(min_inset, min(int(box["w"] * frac), max_inset))
+    inset_y = max(min_inset, min(int(box["h"] * frac), max_inset))
+    # Never inset past the box's own center -- a box smaller than 2x the
+    # inset would otherwise collapse to zero or negative size.
+    inset_x = min(inset_x, box["w"] // 2 - 1) if box["w"] > 2 else 0
+    inset_y = min(inset_y, box["h"] // 2 - 1) if box["h"] > 2 else 0
+    inset_x, inset_y = max(inset_x, 0), max(inset_y, 0)
+    return {
+        "x": box["x"] + inset_x, "y": box["y"] + inset_y,
+        "w": box["w"] - 2 * inset_x, "h": box["h"] - 2 * inset_y,
+    }
+
+
 def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str = None):
     """
     Real trained bubble/text detector, as an upgrade over
