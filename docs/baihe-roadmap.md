@@ -472,7 +472,6 @@ Three independent, additive gaps found while reviewing for efficiency and missin
   | 9b — Job ETAs, model disk management, bulk series translate | — | Not started | — |
   | 10 — Windows launcher | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
-- **Branch cleanup:** turn on **Settings → General → Pull Requests → "Automatically delete head branches"** on the repo (a one-time GitHub setting, not something either chat can set — no tool here has repo-admin access). Every future merged branch then deletes itself; nobody needs manual delete access.
 - To read this doc from the implementing chat:
   ```
   git fetch origin claude/baihe-subtitle-planning-95qyvq
