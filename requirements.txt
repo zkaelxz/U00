@@ -31,6 +31,11 @@ yt-dlp>=2024.1
 edge-tts>=6.1
 pydub>=0.25
 
+# Vocal separation before transcription (optional -- strips background
+# music from a music-bed source before Whisper sees it, see
+# audio_preprocess.py). Downloads its own model (~80MB) on first use.
+demucs>=4.0
+
 # Voice cloning (optional, heavier -- needs GPU strongly recommended):
 f5-tts>=0.9
 
