@@ -253,7 +253,13 @@ These are things that are broken now, or that break without warning.
 ## 4. Working agreement between the two chats
 
 - **Planning chat:** branch `claude/baihe-subtitle-planning-95qyvq`, docs only. Roadmap changes go here.
-- **Implementing chat:** one feature branch per step off `baihe-subtitler`. Report back which step is done and anything that changed the plan.
+- **Implementing chat:** follows this pull request flow for every step.
+  1. Build the step on its own branch off the latest `baihe-subtitler`. Push it, report which step is done and anything that changed the plan, then **stop**.
+  2. The user asks the planning chat to "check Step X", and it reviews the branch against this roadmap. Put any fixes on the **same branch**.
+  3. Once the planning chat approves it, the user says "create a PR for this step". Then open a pull request **into `baihe-subtitler`** with a short plain-English summary. **Don't merge it yourself.**
+  4. The user merges it on GitHub.
+  5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
+- **Status:** Step 1 (`claude/r5-translation-fixes`) is **not ready to merge**. Its 4 review fixes are pending.
 - To read this doc from the implementing chat:
   ```
   git fetch origin claude/baihe-subtitle-planning-95qyvq
