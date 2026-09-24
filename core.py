@@ -256,6 +256,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
+                           vad_threshold: float = 0.5,
                            on_gpu_fallback=None, progress_cb=None):
     """
     initial_prompt: proper nouns to prime recognition with -- see
@@ -265,6 +266,13 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     beam_size: higher searches more alternatives before committing.
     5 is faster-whisper's default; 8-10 is measurably better on difficult
     audio at a real speed cost.
+
+    The voice-activity detector faster-whisper runs before transcription
+    IS Silero VAD (faster_whisper/vad.py is adapted directly from
+    snakers4/silero-vad) -- not a separate technology worth swapping in,
+    confirmed by reading faster-whisper's own source. What's actually
+    missing is exposing more of Silero's own tunable parameters, which
+    only min_silence_duration_ms was until this was added:
 
     min_silence_duration_ms: the voice-activity detector's default (2000ms)
     merges any two stretches of speech separated by LESS than 2 seconds of
@@ -276,6 +284,16 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     this (500-1000ms) splits those apart at real pauses instead. Too low
     and it starts splitting mid-sentence on natural speech pauses, so this
     is a genuine tradeoff, not a strictly-better default.
+
+    vad_threshold: Silero's own speech-probability cutoff (0.0-1.0,
+    default 0.5) -- how confident it must be that a stretch of audio is
+    speech before keeping it. Lower (0.3-0.4) catches quiet/mumbled
+    dialogue or a distant speaker that the default cuts as silence, at
+    the cost of more background noise/music misclassified as speech.
+    Higher (0.6-0.7) is the fix for the opposite failure: a noisy or
+    music-heavy source getting non-speech transcribed as phantom lines.
+    Same genuine tradeoff shape as min_silence_duration_ms -- there's no
+    value that's strictly better for every source.
 
     on_gpu_fallback: optional callback invoked with the original exception
     if a requested GPU run fails at actual inference time and this
@@ -296,7 +314,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                                 hf_token=hf_token)
     kwargs = {
         "language": language, "vad_filter": True, "beam_size": beam_size,
-        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms},
+        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
+                            "threshold": vad_threshold},
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
