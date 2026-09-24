@@ -7,7 +7,9 @@ Status: agreed plan (**shortened version**). This doc is written in the
 - Target design: [`phase1-architecture.md`](phase1-architecture.md).
 - Audited code: branch `baihe-subtitler` at commit `7af8453`. Every `file:function` reference below is on that branch.
 
-**Build order:** R5 → safety fixes (Step 1b) → R0 → R1-lite → R2 → R3-lite. Milestones R4, R6 and R7 are deferred (see §3).
+**Build order:**
+- Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → R0 → R1-lite → R2 → R3-lite.
+- Steps 6–8: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8). Milestones R4, R6 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -78,6 +80,34 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
 - A test shows a failed Gemini request's stored error contains no key.
 - Every HTTP call has a timeout (a test or static check).
 
+### Step 1c — Dependency fixes (from the known-issues research)
+These are things that are broken now, or that break without warning.
+
+1. **yt-dlp needs a JavaScript runtime for YouTube.**
+   - Since late 2025, YouTube downloads need an external JS runtime through yt-dlp's EJS system. Deno is the default; Node, Bun and QuickJS also work. Without one, formats go missing.
+   - This is likely the real cause behind the "try alternate player clients" workaround in `live_translate.py`.
+   - Add a Diagnostics check for `deno` (or another supported runtime) on PATH, with install instructions.
+   - Pass `js_runtimes` in the yt-dlp options in `video_download.py` and `live_translate.py`.
+   - When formats are missing, show an error that suggests installing Deno and running `pip install -U yt-dlp`.
+2. **pyannote.audio 4 compatibility.**
+   - In 4.x, `pipeline(audio)` returns a `DiarizeOutput` dataclass instead of an `Annotation`, so `diarize.diarize`'s `diarization.itertracks(...)` breaks. `requirements.txt` allows 4.x (`>=3.1`).
+   - Handle both result types: `ann = getattr(out, "speaker_diarization", out)`.
+   - pyannote 4 needs **Python 3.10+** and reads audio with ffmpeg through torchcodec. Update the README, which currently says 3.9+.
+   - Add a mocked test covering both output shapes.
+3. **Ollama silently truncates long prompts.**
+   - Ollama's default context window can be as small as 2–4k tokens, and when a prompt is longer it drops the *start* of the prompt with no error. `OllamaEngine` puts the system instructions, glossary and reference novel at the start and sets no `num_ctx`.
+   - Pass `options.num_ctx`, sized from the estimated prompt length, with a floor of at least 16k and a Settings field to override it.
+   - Warn when the estimated prompt is bigger than the limit.
+   - Use Ollama's `format` parameter with a JSON schema for structured replies. This pairs with Step 1's id-keyed JSON.
+4. **edge-tts 403 errors.**
+   - Microsoft periodically blocks edge-tts; the latest report is a 403 on the WebSocket handshake in January 2026. The fix is usually `pip install -U edge-tts`.
+   - Catch this in `dub._edge_tts_synthesize` and show "Microsoft blocked the request — run `pip install -U edge-tts`".
+   - When Piper is installed, offer it as an automatic offline fallback.
+
+**Exit:**
+- Mocked tests cover both pyannote output shapes, the Ollama request's `num_ctx` and `format` fields, and the edge-tts 403 message.
+- Diagnostics reports whether a JS runtime is present.
+
 ### Step 2 — R0: Permanent line IDs
 - Give `lines` a stable primary-key id that survives merges, edits and re-saves.
 - Replace delete-all in `db.save_lines` with an upsert/diff by id. Also fix its double `conn.close()`.
@@ -111,6 +141,45 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
 
 **Exit:** the Ollama default is 7B with a timeout, and a test shows the model caches are empty after a stage completes.
 
+### Step 6 — Transcription quality
+1. **Whisper settings** (`core.transcribe_for_timing`).
+   - Default to `condition_on_previous_text=False`, and add `no_repeat_ngram_size=3` and a mild `repetition_penalty` (about 1.1). This prevents repeated-phrase loops at the source.
+   - Keep `filter_hallucinated_segments` as a backstop.
+   - Add `large-v3-turbo` as a model choice. It's much faster, but reported weaker on Japanese and Korean, so label it that way and keep `large-v3`/`medium` as the default for ja/ko.
+   - Add an opt-in "fast mode" using faster-whisper's `BatchedInferencePipeline`, which is roughly 4× faster.
+2. **Qwen3-ForcedAligner reliability** (`forced_align`).
+   - The known issues are zero-duration word spans (Qwen3-ASR #197) and timing that drifts out of sync after about 30 s on longer inputs.
+   - Lower the chunk target in `_bucket_into_chunks` from about 280 s to about 60 s.
+   - Detect zero-duration or non-increasing timings. For those lines, fall back to the diff alignment (`core.align_transcript_to_timing`) and flag them for review.
+3. **Vocal separation** (`audio_preprocess`).
+   - Demucs's original repo is archived and no longer maintained.
+   - Add an optional `audio-separator` backend using a Mel-Band RoFormer vocal model, which gives cleaner vocals on content with background music.
+   - Keep Demucs as the fallback.
+
+**Exit:** mocked tests cover the new Whisper kwargs, the smaller chunk size, the zero-duration fallback and separator backend selection.
+
+### Step 7 — Reflect translation mode *(new feature; needs Step 1)*
+- Add an optional "High quality" setting:
+  1. translate the batch;
+  2. the same engine critiques its own translation, covering accuracy, pronouns and gender, glossary use, tone and register;
+  3. it rewrites using the critique.
+- It works through the same engine interface for every LLM engine: Claude, Gemini, DeepSeek and Ollama.
+- It costs about 3× as much, so show the estimated cost (`translate_engines.estimate_cost`) before the user starts it.
+- Every step keeps the id-keyed JSON from Step 1.
+- Save the critique as translation notes, so the reasons for changes can be reviewed.
+- The idea comes from pyvideotrans's three-step "reflection" translation.
+
+**Exit:** a mocked engine test shows 3 calls per batch, with ids kept at every step, and critiques stored as notes.
+
+### Step 8 — Recurring-voice suggestions *(new feature, experimental; needs Step 4)*
+- With pyannote 4, `DiarizeOutput.speaker_embeddings` gives one voice fingerprint per detected speaker. Save them with the diarization turns.
+- Keep an averaged fingerprint for each series character in `series_characters`.
+- On a new episode, suggest "SPEAKER_01 sounds like <name> (similarity 0.82)" by cosine similarity, above a threshold you can adjust.
+- **The user always confirms each match; nothing is labelled automatically.**
+- This matches Phase 1 §3.4: the feature is experimental, and nobody has shown it works reliably across different recordings.
+
+**Exit:** a test with fake embeddings produces the correct ranking, respects the threshold, and never assigns a name without confirmation.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -136,3 +205,15 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
   git fetch origin claude/baihe-subtitle-planning-95qyvq
   git show FETCH_HEAD:docs/baihe-roadmap.md
   ```
+
+---
+
+## 5. Sources for Steps 1c and 6–8
+- yt-dlp — [External JS runtime now required](https://github.com/yt-dlp/yt-dlp/issues/15012), [EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
+- pyannote — [releases (4.0 breaking changes)](https://github.com/pyannote/pyannote-audio/releases), [community-1 model card](https://huggingface.co/pyannote/speaker-diarization-community-1), [community-1 blog](https://www.pyannote.ai/blog/community-1)
+- Ollama — [context length docs](https://docs.ollama.com/context-length), [silent truncation write-up](https://particula.tech/blog/ollama-num-ctx-silent-prompt-truncation)
+- edge-tts — [403 handshake issue #458](https://github.com/rany2/edge-tts/issues/458)
+- faster-whisper — [repo (BatchedInferencePipeline)](https://github.com/SYSTRAN/faster-whisper), [repetition issue #987](https://github.com/SYSTRAN/faster-whisper/issues/987), [turbo discussion](https://github.com/openai/whisper/discussions/2363)
+- Qwen3-ASR — [ForcedAligner zero-duration spans #197](https://github.com/QwenLM/Qwen3-ASR/issues/197)
+- Vocal separation — [Demucs repo (archived)](https://github.com/facebookresearch/demucs), [audio-separator](https://pypi.org/project/audio-separator/)
+- pyvideotrans — [FAQ](https://en.pyvideotrans.com/faq)
