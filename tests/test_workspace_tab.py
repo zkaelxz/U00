@@ -16,6 +16,7 @@ pattern for the burned-in-caption OCR path.
 """
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -752,3 +753,137 @@ def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch)
 
     assert seen["character_names"] == {}
     _clear(job_id)
+
+
+class TestLineEditingLockedDuringAJob:
+    """UI-level regression coverage for a real race: other_line_writing_job()
+    only stops translate/flag/fixflag jobs from clashing with EACH OTHER --
+    a person's own manual edit (save, merge, per-line fix, undo/restore)
+    still races a running one of those jobs the same way, since both go
+    through db.save_lines()'s delete-and-reinsert. any_line_writing_job()
+    is the guard the Review & edit controls now check, via the
+    `disabled=` on each button. Runs the real Streamlit script through
+    AppTest rather than calling a function directly, since `disabled` is
+    a rendering property with nothing smaller to test it at."""
+
+    def _drama_with_a_line(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_save_edits_is_disabled_while_translate_is_running(self, isolated_db):
+        did = self._drama_with_a_line(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.start_job(job_id, lambda: time.sleep(5))
+        try:
+            at = self._run(did)
+            assert self._button(at, "💾 Save edits (this page)").disabled is True
+            assert any("paused while translation is running" in i.value for i in at.info)
+        finally:
+            _clear(job_id)
+
+    def test_save_edits_is_enabled_with_no_job_running(self, isolated_db):
+        did = self._drama_with_a_line(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "💾 Save edits (this page)").disabled is False
+        assert not any("paused while translation is running" in i.value for i in at.info)
+
+    def test_apply_merge_is_disabled_while_a_flag_job_is_running(self, isolated_db):
+        """A different job type (flag, not translate) still locks editing --
+        the guard checks all three line-writing job prefixes, not just the
+        one it happens to share a name with."""
+        did = self._drama_with_a_line(isolated_db)
+        job_id = f"flag_{did}"
+        background_jobs.start_job(job_id, lambda: time.sleep(5))
+        try:
+            at = self._run(did)
+            self._button(at, "Preview merge").click()
+            at.run(timeout=30)
+            assert self._button(at, "✅ Apply merge").disabled is True
+        finally:
+            _clear(job_id)
+
+    def test_apply_merge_is_enabled_with_no_job_running(self, isolated_db):
+        did = self._drama_with_a_line(isolated_db)
+        at = self._run(did)
+        self._button(at, "Preview merge").click()
+        at.run(timeout=30)
+        assert self._button(at, "✅ Apply merge").disabled is False
+
+    def test_generate_dub_track_is_disabled_while_translate_is_running(self, isolated_db):
+        """Section 8's Generate button saves st.session_state.lines
+        (possibly stale) after building the dub track -- the same race
+        as the Review & edit controls."""
+        did = self._drama_with_a_line(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.start_job(job_id, lambda: time.sleep(5))
+        try:
+            at = self._run(did)
+            assert self._button(at, "🎙️ Generate dub track").disabled is True
+        finally:
+            _clear(job_id)
+
+    def test_generate_dub_track_is_enabled_with_no_job_running(self, isolated_db):
+        did = self._drama_with_a_line(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🎙️ Generate dub track").disabled is False
+
+    def _novel_narration_drama(self, isolated_db):
+        """content_mode=novel_narration needs no audio/transcript for its
+        prep button to be enabled -- just non-empty narration text, which
+        the text_area below defaults to from session_state."""
+        did = isolated_db.create_drama(title_en="Narration Drama", media_type="novel",
+                                        content_mode="novel_narration", status="not started")
+        return did
+
+    def test_chunk_and_tag_speakers_is_disabled_while_translate_is_running(self, isolated_db):
+        """Section 2's prep button (Transcribe & Align / Chunk & Tag
+        Speakers, same button, label depends on content mode) starts the
+        pipeline whose completion later saves every line -- races the
+        same way if a translate/flag/fixflag job is already running."""
+        did = self._novel_narration_drama(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.start_job(job_id, lambda: time.sleep(5))
+        try:
+            at = self._run_with_narration_text(did, "有一天，天气很好。")
+            assert self._button(at, "▶ Chunk & Tag Speakers").disabled is True
+        finally:
+            _clear(job_id)
+
+    def test_chunk_and_tag_speakers_is_enabled_with_no_job_running(self, isolated_db):
+        did = self._novel_narration_drama(isolated_db)
+        at = self._run_with_narration_text(did, "有一天，天气很好。")
+        assert self._button(at, "▶ Chunk & Tag Speakers").disabled is False
+
+    def _run_with_narration_text(self, did, text):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"ocr_text_{did}"] = text
+        at.run(timeout=30)
+        return at

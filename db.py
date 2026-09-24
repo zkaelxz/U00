@@ -86,6 +86,25 @@ def get_conn():
     return conn
 
 
+def snapshot_database(dest_path: str):
+    """Writes a consistent point-in-time copy of the database to dest_path
+    using SQLite's own backup API, rather than copying library.db as a
+    plain file. The database runs in WAL mode (see get_conn above), so a
+    recent write can still be sitting in library.db-wal rather than in
+    library.db itself -- a plain file copy of just library.db can miss it
+    or land mid-write. Connection.backup() reads a transactionally
+    consistent snapshot regardless of what's in the WAL file."""
+    conn = get_conn()
+    try:
+        dest_conn = sqlite3.connect(dest_path)
+        try:
+            conn.backup(dest_conn)
+        finally:
+            dest_conn.close()
+    finally:
+        conn.close()
+
+
 def init_db():
     conn = get_conn()
     conn.executescript("""
