@@ -76,7 +76,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translate",
-            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)),
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
     )
 
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
@@ -86,8 +86,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                 ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
         db.save_lines(drama_id, lines)
 
+    _version_label = f"{engine_choice} · {style_preset}"
+    if (engine_choice in translate_engines.FREE_ENGINES
+            or getattr(engine, "free_tier", False)):
+        _version_label = f"[testing: {engine_choice}] {_version_label}"
     db.save_translation_version(
-        drama_id, lines, label=f"{engine_choice} · {style_preset}",
+        drama_id, lines, label=_version_label,
         engine=engine_choice, model=getattr(engine, "model", ""), make_active=True)
     # Persisted, not just handed to the ephemeral job-status dict: if the app
     # restarts or the completion rerun is missed, the record of what failed
@@ -240,7 +244,7 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
             job_id, frac, f"Reading tone... {frac * 100:.0f}%"),
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
-            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     db.save_emotions(drama_id, emap)
     background_jobs.set_result(job_id, {"emotions": emap})
 
@@ -259,7 +263,7 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
             job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"),
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
-            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     db.save_lines(drama_id, lines)
     background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
 
@@ -277,7 +281,7 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
         lines, engine,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
-            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     db.save_consistency_issues(drama_id, issues)
     background_jobs.set_result(job_id, {"issue_count": len(issues)})
 
@@ -291,7 +295,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, so
         lines, engine, source_language=source_language,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
-            inp, out, translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     if found_notes:
         db.save_translation_notes(drama_id, found_notes)
     background_jobs.set_result(job_id, {"note_count": len(found_notes)})
@@ -332,8 +336,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                     db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
                                  "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
                                  engine.last_usage.get("output_tokens", 0),
-                                 translate_engines.estimate_cost(
-                                     getattr(engine, "model", ""),
+                                 translate_engines.estimate_cost_for_engine(
+                                     engine,
                                      engine.last_usage.get("input_tokens", 0),
                                      engine.last_usage.get("output_tokens", 0)))
                 if translated.strip():
@@ -349,6 +353,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
 
 
 def render_workspace_tab():
+    _gemini_free_tier = st.session_state.get("gemini_free_tier", False)
     st.subheader("1. Choose a drama")
     all_dramas = db.list_dramas()
     options = {"➕ New drama": None}
@@ -905,7 +910,9 @@ def render_workspace_tab():
                         st.warning("Set an API key in the ⚙️ Settings sidebar first.")
                     else:
                         _gl_engine_name = drama.get("translation_engine") or "claude"
-                        eng_gl = translate_engines.get_engine(_gl_engine_name, gl_key)
+                        eng_gl = translate_engines.get_engine(
+                            _gl_engine_name, gl_key,
+                            free_tier=_gl_engine_name == "gemini" and _gemini_free_tier)
                         # If both are supplied the original is the source and the
                         # existing translation shows the established rendering.
                         src_text = _orig_src if _orig_src.strip() else _novel_src
@@ -920,8 +927,7 @@ def render_workspace_tab():
                                 usage_cb=lambda inp, out: db.log_usage(
                                     picked_id, _gl_engine_name, getattr(eng_gl, "model", _gl_engine_name),
                                     "glossary_from_novel", inp, out,
-                                    translate_engines.estimate_cost(
-                                        getattr(eng_gl, "model", ""), inp, out)))
+                                    translate_engines.estimate_cost_for_engine(eng_gl, inp, out)))
                             bar.empty()
                             st.session_state[f"novel_glossary_{picked_id}"] = proposed_gl
                             st.success(f"Proposed {len(proposed_gl)} term(s). Review below.")
@@ -1226,7 +1232,9 @@ def render_workspace_tab():
                         st.warning("Set an API key in the ⚙️ Settings sidebar first.")
                     else:
                         _ext_engine_name = drama.get("translation_engine") or "claude"
-                        engine_x = translate_engines.get_engine(_ext_engine_name, _extract_key)
+                        engine_x = translate_engines.get_engine(
+                            _ext_engine_name, _extract_key,
+                            free_tier=_ext_engine_name == "gemini" and _gemini_free_tier)
                         with st.spinner("Scanning for terms..."):
                             proposed = tguide.extract_terms_llm(
                                 source_lines, engine_x, source_language=source_language,
@@ -1235,8 +1243,7 @@ def render_workspace_tab():
                                     picked_id, _ext_engine_name,
                                     getattr(engine_x, "model", _ext_engine_name),
                                     "extract_terms", inp, out,
-                                    translate_engines.estimate_cost(
-                                        getattr(engine_x, "model", ""), inp, out)))
+                                    translate_engines.estimate_cost_for_engine(engine_x, inp, out)))
                         st.session_state[f"proposed_terms_{picked_id}"] = proposed
                         st.success(f"Proposed {len(proposed)} term(s) for review.")
 
@@ -1396,7 +1403,7 @@ def render_workspace_tab():
             "Translation engine",
             default_engine_list,
             index=default_engine_list.index(saved_engine) if saved_engine in default_engine_list else 0,
-            format_func=lambda e: f"{e} — {translate_engines.ENGINE_NOTES[e]}",
+            format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _gemini_free_tier)}",
         )
         engine_model = None
         if engine_choice == "claude":
@@ -1446,6 +1453,19 @@ def render_workspace_tab():
                           "To try the pipeline for free first, choose `test_offline` above.")
             elif not _needs_key:
                 api_key = api_key or "local"
+
+        # DeepL/Google/NLLB/LibreTranslate are pure machine translation --
+        # no instruction-following ability at all, so picking one of them
+        # for any feature below used to silently produce nothing (each
+        # feature's own supports_reference guard declines quietly).
+        # call_llm_json now raises instead of pretending to have worked;
+        # this is the UI-level equivalent, disabling the button up front
+        # with a clear reason rather than surfacing that error mid-job.
+        _translation_only_engine = engine_choice in translate_engines.TRANSLATION_ONLY_ENGINES
+        _translation_only_message = (
+            f"{engine_choice} is translation-only and can't run this -- pick Claude, DeepSeek, "
+            "Gemini, Ollama, or Test mode above.")
+
         style_note = st.text_input("Optional style notes",
                                     value=st.session_state.get("settings_default_style_note", ""))
         locale_options = ["en-US", "en-GB", "en-AU"]
@@ -1594,23 +1614,29 @@ def render_workspace_tab():
             with st.spinner("Chunking novel text..."):
                 chunks = chunk_novel_text(novel_narration_text)
                 lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
-            if api_key:
+            if api_key and not _translation_only_engine:
                 with st.spinner("Tagging speakers with the translation LLM..."):
-                    engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    engine = translate_engines.get_engine(
+                        engine_choice, api_key, engine_model,
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
                     known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
                     speakers = translate_engines.tag_speakers_llm(
                         [ln.zh for ln in lines], engine, known_chars,
                         usage_cb=lambda inp, out: db.log_usage(
                             picked_id, engine_choice, getattr(engine, "model", engine_choice),
                             "tag_speakers", inp, out,
-                            translate_engines.estimate_cost(getattr(engine, "model", ""), inp, out)))
+                            translate_engines.estimate_cost_for_engine(engine, inp, out)))
                     for ln, sp in zip(lines, speakers):
                         ln.speaker = sp
                     for label in sorted(set(speakers)):
                         db.upsert_character(picked_id, label, character_name=label)
             else:
-                st.warning("No API key yet -- skipped speaker tagging (needs an LLM engine). "
-                           "All lines marked 'Narrator' for now; add a key and re-run to tag them.")
+                if _translation_only_engine:
+                    st.warning(f"{_translation_only_message} All lines marked 'Narrator' for "
+                               "now; switch engines above and re-run to tag them.")
+                else:
+                    st.warning("No API key yet -- skipped speaker tagging (needs an LLM engine). "
+                               "All lines marked 'Narrator' for now; add a key and re-run to tag them.")
                 for ln in lines:
                     ln.speaker = "Narrator"
                 db.upsert_character(picked_id, "Narrator", character_name="Narrator")
@@ -1781,7 +1807,9 @@ def render_workspace_tab():
                     novel_reference = novel_file.read().decode("utf-8", errors="ignore")
                 elif novel_pasted.strip():
                     novel_reference = novel_pasted
-            engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+            engine = translate_engines.get_engine(
+                engine_choice, api_key, engine_model,
+                free_tier=engine_choice == "gemini" and _gemini_free_tier)
             if force_retranslate and any(ln.en for ln in st.session_state.lines):
                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
                                                "before force re-translate")
@@ -2062,7 +2090,9 @@ def render_workspace_tab():
                     st.caption("Fix just this line -- cheaper and faster than redoing the "
                               "whole drama for one mistake.")
                     if api_key and st.button("✏️ Improve translation", key=f"rvimprove_{ln.idx}"):
-                        eng_imp = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                        eng_imp = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
                         with st.spinner("Rewriting..."):
                             improved = line_tools.improve_line(zh, en, eng_imp,
                                                                 source_language=source_language)
@@ -2190,17 +2220,21 @@ def render_workspace_tab():
                             _jump_to_line_button(picked_id, f["idx"], all_lines,
                                                   key=f"jump_pacing_{f['idx']}")
                     too_long_idxs = {f["idx"] for f in flags if f["issue"] == "too_long_for_slot"}
+                    if too_long_idxs and _translation_only_engine:
+                        st.caption(f"⚠️ {_translation_only_message}")
                     if too_long_idxs and api_key and st.button(
-                            "✂️ Auto-shorten overlong lines with LLM", disabled=_editing_locked):
-                        engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                            "✂️ Auto-shorten overlong lines with LLM",
+                            disabled=_editing_locked or _translation_only_engine):
+                        engine = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
                         to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
                         translate_engines.rewrite_for_pacing_llm(
                             to_fix, engine,
                             usage_cb=lambda inp, out: db.log_usage(
                                 picked_id, engine_choice, getattr(engine, "model", engine_choice),
                                 "pacing_shorten", inp, out,
-                                translate_engines.estimate_cost(
-                                    getattr(engine, "model", ""), inp, out)))
+                                translate_engines.estimate_cost_for_engine(engine, inp, out)))
                         db.save_lines(picked_id, edited_rows)
                         st.session_state.lines = edited_rows
                         st.session_state[f"pacing_flags_{picked_id}"] = []
@@ -2216,8 +2250,12 @@ def render_workspace_tab():
                 )
                 _consistency_job_id = f"consistency_{picked_id}"
                 _cjob = background_jobs.get_status(_consistency_job_id)
-                if st.button("Check consistency") and api_key:
-                    engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
+                if st.button("Check consistency", disabled=_translation_only_engine) and api_key:
+                    engine = translate_engines.get_engine(
+                        engine_choice, api_key, engine_model,
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
                     _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
                                          speaker=l.speaker, dub_filename=l.dub_filename)
                                    for l in edited_rows]
@@ -2263,7 +2301,9 @@ def render_workspace_tab():
                 )
                 _flag_job_id = f"flag_{picked_id}"
                 _fjob = background_jobs.get_status(_flag_job_id)
-                if st.button("Find lines to flag") and api_key:
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
+                if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
                     _conflict = background_jobs.other_line_writing_job(picked_id, "flag_")
                     if _conflict:
                         st.warning(f"Can't start flagging -- a {_conflict} job is already "
@@ -2271,7 +2311,9 @@ def render_workspace_tab():
                                    "at the same time would let one silently overwrite the "
                                    "other. Wait for it to finish.")
                     else:
-                        engine_f = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                        engine_f = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
                         _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
                                              speaker=l.speaker, dub_filename=l.dub_filename,
                                              flag=l.flag, flag_note=l.flag_note)
@@ -2341,7 +2383,9 @@ def render_workspace_tab():
                                        "running at the same time would let one silently "
                                        "overwrite the other. Wait for it to finish.")
                         else:
-                            engine_ff = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                            engine_ff = translate_engines.get_engine(
+                                engine_choice, api_key, engine_model,
+                                free_tier=engine_choice == "gemini" and _gemini_free_tier)
                             _lines_copy_ff = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
                                                     speaker=l.speaker, dub_filename=l.dub_filename,
                                                     flag=l.flag, flag_note=l.flag_note)
@@ -2388,14 +2432,18 @@ def render_workspace_tab():
                     "words are technically correct -- these are the registers most often flattened."
                 )
                 emap = db.load_emotions(picked_id)
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
                 ec1, ec2 = st.columns([1, 1])
                 use_cues = ec2.checkbox("Use audio delivery cues", value=(has_audio_pipeline),
                                          help="Uses pacing and pauses from the original timing as "
                                               "weak evidence for emotional register.")
                 _emotion_job_id = f"emotion_{picked_id}"
                 _ejob = background_jobs.get_status(_emotion_job_id)
-                if ec1.button("Detect emotional register") and api_key:
-                    eng_e = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                if ec1.button("Detect emotional register", disabled=_translation_only_engine) and api_key:
+                    eng_e = translate_engines.get_engine(
+                        engine_choice, api_key, engine_model,
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
                     # A copy, not the live list -- same reasoning as the Translate
                     # button's _lines_copy: this runs in a background thread, and
                     # edited_rows is tied to the review table's current widget state.
@@ -2461,7 +2509,9 @@ def render_workspace_tab():
                 scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
                 existing_profile = db.get_style_profile(scope)
                 if st.button("🧠 Learn my style from these edits") and api_key:
-                    eng_a = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    eng_a = translate_engines.get_engine(
+                        engine_choice, api_key, engine_model,
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
                     all_samples = db.list_edit_samples()
                     with st.spinner("Analyzing your edits..."):
                         result = adaptive_style.analyze_edit_patterns(
@@ -2472,8 +2522,7 @@ def render_workspace_tab():
                             usage_cb=lambda inp, out: db.log_usage(
                                 None, engine_choice, getattr(eng_a, "model", engine_choice),
                                 "adaptive_style", inp, out,
-                                translate_engines.estimate_cost(
-                                    getattr(eng_a, "model", ""), inp, out)))
+                                translate_engines.estimate_cost_for_engine(eng_a, inp, out)))
                     if result.get("preferences"):
                         db.save_style_profile(scope, result, sample_count=len(all_samples))
                         st.success(f"Learned {len(result['preferences'])} preference(s).")
@@ -2560,8 +2609,12 @@ def render_workspace_tab():
                 )
                 _notes_job_id = f"notes_{picked_id}"
                 _njob = background_jobs.get_status(_notes_job_id)
-                if st.button("Generate translation notes") and api_key:
-                    engine_n = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                if _translation_only_engine:
+                    st.caption(f"⚠️ {_translation_only_message}")
+                if st.button("Generate translation notes", disabled=_translation_only_engine) and api_key:
+                    engine_n = translate_engines.get_engine(
+                        engine_choice, api_key, engine_model,
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
                     _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
                                          speaker=l.speaker, dub_filename=l.dub_filename)
                                    for l in edited_rows]
@@ -2743,6 +2796,17 @@ def render_workspace_tab():
             _zh_filled = sum(1 for ln in st.session_state.lines if ln.zh.strip())
             _en_filled = sum(1 for ln in st.session_state.lines if ln.en.strip())
 
+            # drama["translation_engine"] is whichever engine most recently
+            # produced this drama's current lines (set alongside them in
+            # run_translate_job) -- not a per-line record, but the same
+            # signal the rest of the app already uses as "this drama's
+            # engine" (e.g. the picker's own default above).
+            _test_mode_output = drama.get("translation_engine") == "test_offline" and _en_filled > 0
+            if _test_mode_output:
+                st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder text, "
+                          "not a real translation. Don't ship these subtitles; re-translate with a "
+                          "real engine first.")
+
             # A timed-but-textless .srt is technically valid and gives no error --
             # it just looks broken when you open it. Say so before the download
             # happens rather than after someone's confused by an empty file.
@@ -2813,6 +2877,10 @@ def render_workspace_tab():
         if source_video_path:
             with st.expander("10. 🎬 Export full subtitled episode", expanded=False):
                 st.caption("Uses the original video you uploaded + your reviewed English subtitles.")
+                if _test_mode_output:
+                    st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder "
+                              "text, not a real translation. Don't ship this video; re-translate "
+                              "with a real engine first.")
                 sub_style = st.radio(
                     "Subtitle style",
                     ["hardsub", "softsub"],
@@ -2874,6 +2942,10 @@ def render_workspace_tab():
                 "single zip. For archiving a finished drama or handing it off, without exporting "
                 "your whole library."
             )
+            if _test_mode_output:
+                st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder text, "
+                          "not a real translation. Don't ship this package; re-translate with a "
+                          "real engine first.")
             if st.button("Build export package"):
                 import export_package
                 try:

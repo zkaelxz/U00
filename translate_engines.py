@@ -434,6 +434,7 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
 
     if isinstance(engine, GeminiEngine):
         import requests
+        engine._throttle_for_free_tier()
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{engine.model}:generateContent")
         resp = call_with_backoff(lambda: requests.post(
@@ -449,7 +450,32 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
         except (KeyError, IndexError):
             return fallback
 
-    return fallback
+    if isinstance(engine, OllamaEngine):
+        import requests
+        resp = requests.post(f"{engine.base_url}/api/chat", json={
+            "model": engine.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "format": "json",
+            "options": {"num_ctx": _estimate_ollama_num_ctx(prompt, "")},
+        }, timeout=300)  # local models can be slow, especially CPU-only or larger ones
+        resp.raise_for_status()
+        data = resp.json()
+        if usage_cb:
+            usage_cb(data.get("prompt_eval_count", 0), data.get("eval_count", 0))
+        return data["message"]["content"].strip()
+
+    if isinstance(engine, TestOfflineEngine):
+        # fallback is already a valid, correctly-shaped "nothing found"
+        # result for every caller of this function (an empty list/object,
+        # or an empty string) -- exactly what a real engine's response
+        # collapses to today when parsing fails. Explicit here, not an
+        # accident of falling through with no client and not being
+        # Gemini/Ollama, so Test mode's own behavior can't silently
+        # change if a future engine is added above it.
+        return fallback
+
+    raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run this feature.")
 
 
 # ---------------------------------------------------------------------------
@@ -557,10 +583,31 @@ class GeminiEngine:
     name = "gemini"
     supports_reference = True
 
-    def __init__(self, api_key: str, model: str = "gemini-flash-lite-latest"):
+    def __init__(self, api_key: str, model: str = "gemini-flash-lite-latest",
+                 free_tier: bool = False):
         self.api_key = api_key
         self.model = model
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        # Free-tier Gemini keys hard-error past ~10 requests/minute rather
+        # than queuing -- self-pacing client-side is cheaper than handling
+        # 429s. Paid keys have no such limit, so this only applies here.
+        self.free_tier = free_tier
+        self._free_tier_request_times = []
+
+    def _throttle_for_free_tier(self):
+        if not self.free_tier:
+            return
+        now = time.monotonic()
+        self._free_tier_request_times = [
+            t for t in self._free_tier_request_times if now - t < 60]
+        if len(self._free_tier_request_times) >= GEMINI_FREE_TIER_MAX_PER_MINUTE:
+            wait = 60 - (now - self._free_tier_request_times[0])
+            if wait > 0:
+                time.sleep(wait)
+            now = time.monotonic()
+            self._free_tier_request_times = [
+                t for t in self._free_tier_request_times if now - t < 60]
+        self._free_tier_request_times.append(now)
 
     def translate_batch(self, zh_lines, context: dict):
         import requests
@@ -581,6 +628,7 @@ class GeminiEngine:
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
 
         def call_model(numbered):
+            self._throttle_for_free_tier()
             resp = requests.post(url, headers={"x-goog-api-key": self.api_key}, json={
                 "systemInstruction": {"parts": [{"text": instructions}]},
                 "contents": [{"parts": [{"text": "Translate these lines:\n\n" + numbered}]}],
@@ -1136,35 +1184,108 @@ class LibreTranslateEngine:
 
 
 ENGINES = {
-    "test_offline": TestOfflineEngine,
+    # Paid/normal engines first, then the free-for-testing ones grouped
+    # together at the end (see FREE_ENGINES/engine_picker_label below) --
+    # st.selectbox has no real optgroup support, so keeping them
+    # contiguous in iteration order is the closest every picker built
+    # from ENGINES.keys() can get to a visually grouped list.
     "claude": ClaudeEngine,
     "deepseek": DeepSeekEngine,
     "gemini": GeminiEngine,
     "deepl": DeepLEngine,
     "google": GoogleEngine,
+    "test_offline": TestOfflineEngine,
     "ollama": OllamaEngine,
-    "libretranslate": LibreTranslateEngine,
     "nllb": NLLBEngine,
+    "libretranslate": LibreTranslateEngine,
 }
 
+# Pure machine-translation engines: no instruction-following ability at
+# all, so they can only ever translate. Plugging one into any other
+# feature used to silently produce nothing (each feature's own
+# `supports_reference` guard already declines quietly; call_llm_json's
+# fallback used to do the same before Step 1d made it raise instead).
+TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
+
+# Every other engine (Claude, DeepSeek, Gemini, Ollama, and Test mode)
+# is a real LLM (or a stand-in for one) and can run every feature below,
+# via call_llm_json or its own translate_batch/dispatch.
+LLM_CAPABLE_ENGINES = set(ENGINES.keys()) - TRANSLATION_ONLY_ENGINES
+
+# One small table: feature -> which engines can actually run it. Kept
+# here (not inferred purely from TRANSLATION_ONLY_ENGINES) so a future
+# engine that supports translation but not, say, Q&A has somewhere to
+# say so explicitly instead of being silently assumed capable.
+FEATURE_SUPPORTED_ENGINES = {
+    "translate": set(ENGINES.keys()),
+    "flag_review": LLM_CAPABLE_ENGINES,
+    "consistency_check": LLM_CAPABLE_ENGINES,
+    "emotion_detect": LLM_CAPABLE_ENGINES,
+    "translation_notes": LLM_CAPABLE_ENGINES,
+    "speaker_tagging": LLM_CAPABLE_ENGINES,
+    "pacing_rewrite": LLM_CAPABLE_ENGINES,
+    "qa": LLM_CAPABLE_ENGINES,
+}
+
+# Engines that are free to use every time, no conditions attached.
+# Gemini isn't here -- it uses the same engine/API for free and paid
+# keys, so whether a given run is "free" depends on the per-session
+# "My Gemini key is free-tier" setting (settings_tab.py), not on which
+# engine was picked. See engine_picker_label / estimate_cost_for_engine.
+FREE_ENGINES = {"test_offline", "ollama", "nllb", "libretranslate"}
+
+GEMINI_FREE_TIER_MAX_PER_MINUTE = 10
+
 ENGINE_NOTES = {
-    "test_offline": "FREE dry run -- no API key, no network, no cost. Produces obvious [TEST] placeholder text so you can verify the whole pipeline works before spending anything. Not a real translation.",
     "claude": "Best for tone/character voice, supports novel reference + prompt caching.",
     "deepseek": "Far and away the cheapest capable option -- roughly 5-10 cents per drama on V4 Flash, and its prompt caching makes the repeated glossary/style block nearly free. Strong on Chinese, supports novel reference. OpenAI-compatible API.",
     "gemini": "Cheap and strong on Chinese/Japanese, close to DeepSeek pricing on Flash-Lite. Supports novel reference. Google model naming/pricing changes often -- double check GEMINI_MODELS if a run starts failing.",
     "deepl": "Fast, natural phrasing, but no reference-novel awareness -- pure MT.",
     "google": "Broadest language coverage, cheapest at scale, no reference-novel awareness.",
-    "ollama": "Runs models locally via Ollama. No per-token billing, but quality depends on your hardware -- a usable model needs meaningful RAM/VRAM. Supports novel reference.",
-    "libretranslate": "Self-hosted LibreTranslate or LTEngine. No per-word cost once running, but you host it: LibreTranslate needs ~8GB RAM for full language support, and LTEngine's best model wants a 24GB GPU. The hosted libretranslate.com API is PAID. Pure MT, no reference-novel awareness.",
-    "nllb": "Genuinely free, fully offline, no API key ever -- runs Meta's NLLB-200 locally. A real translation (unlike test_offline), but noticeably rougher on idiom/tone than Claude/DeepSeek/Gemini since it's pure MT with no instruction-following. Downloads a model (2.4-5.2GB) on first use. No reference-novel awareness.",
+    "test_offline": "🧪 Free — for testing: fake output, no AI. Checks the app works; never use for real subtitles.",
+    "ollama": "🧪 Free — for testing: local AI on your GPU. Private and unlimited, but lower quality than paid engines.",
+    "nllb": "🧪 Free — for testing: offline, translation only. Non-commercial licence.",
+    "libretranslate": "🧪 Free — for testing: translation only. Basic quality.",
 }
 
+# Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
+# free-tier" checkbox (Settings) is ticked -- Gemini itself isn't in
+# FREE_ENGINES since this only applies conditionally. See
+# engine_picker_label, the one place that decides which note to show.
+GEMINI_FREE_TIER_NOTE = (
+    "🧪 Free — for testing: Google free tier. Rate-limited (about "
+    f"{GEMINI_FREE_TIER_MAX_PER_MINUTE} requests/minute on Flash). Google may use your "
+    "text to improve its products, and people may read it."
+)
 
-def get_engine(engine_name: str, api_key: str = None, model: str = None):
+
+def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str:
+    """The descriptive text an engine picker shows next to `engine_name`
+    (format_func's job in every st.selectbox built from ENGINES.keys()).
+    A plain lookup except for Gemini, whose free-vs-paid status isn't a
+    property of the engine itself but of the per-session "My Gemini key
+    is free-tier" setting."""
+    if engine_name == "gemini" and gemini_free_tier:
+        return GEMINI_FREE_TIER_NOTE
+    return ENGINE_NOTES[engine_name]
+
+
+def get_engine(engine_name: str, api_key: str = None, model: str = None,
+               free_tier: bool = False):
     cls = ENGINES[engine_name]
+    kwargs = {"free_tier": free_tier} if engine_name == "gemini" else {}
     if model:
-        return cls(api_key, model)
-    return cls(api_key)
+        return cls(api_key, model, **kwargs)
+    return cls(api_key, **kwargs)
+
+
+def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int) -> float:
+    """Same as estimate_cost, but $0 for a Gemini engine running under its
+    free tier -- PRICING_PER_MILLION_TOKENS prices the paid tier, which
+    doesn't apply once free_tier is set on the engine instance."""
+    if getattr(engine, "free_tier", False):
+        return 0.0
+    return estimate_cost(getattr(engine, "model", ""), input_tokens, output_tokens)
 
 
 def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,

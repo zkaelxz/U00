@@ -1566,13 +1566,16 @@ def get_usage_summary(drama_id: int = None):
 
 
 def get_usage_by_drama():
-    """Per-drama cost breakdown, joined with drama titles, for the dashboard."""
+    """Per-drama cost breakdown, joined with drama titles, for the dashboard.
+    Includes translation_engine so the dashboard can show "$0.00 (free)"
+    for a free engine instead of a bare, ambiguous-looking $0.00."""
     conn = get_conn()
     rows = conn.execute("""
-        SELECT d.id, d.title_en, d.title_zh,
+        SELECT d.id, d.title_en, d.title_zh, d.translation_engine,
                COALESCE(SUM(u.input_tokens),0) as input_tokens,
                COALESCE(SUM(u.output_tokens),0) as output_tokens,
-               COALESCE(SUM(u.estimated_cost_usd),0) as estimated_cost_usd
+               COALESCE(SUM(u.estimated_cost_usd),0) as estimated_cost_usd,
+               COUNT(u.id) as call_count
         FROM dramas d LEFT JOIN usage_log u ON u.drama_id = d.id
         GROUP BY d.id ORDER BY estimated_cost_usd DESC
     """).fetchall()

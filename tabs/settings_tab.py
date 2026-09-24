@@ -8,6 +8,7 @@ field still works independently if you want to override it there.
 """
 import os
 from common import st, synced_api_key_input
+import translate_engines
 
 
 def _load_env_defaults(env_path: str = None):
@@ -167,6 +168,16 @@ def render_settings_sidebar():
                 is_url = key.endswith("_url")
                 synced_api_key_input(label, key, f"settings_input_{key}",
                                       type="default" if is_url else "password")
+                if key == "gemini":
+                    st.session_state["gemini_free_tier"] = st.checkbox(
+                        "My Gemini key is free-tier",
+                        value=st.session_state.get("gemini_free_tier", False),
+                        help="Free-tier Gemini keys are rate-limited (about "
+                             f"{translate_engines.GEMINI_FREE_TIER_MAX_PER_MINUTE} requests/minute "
+                             "on Flash) and Google may use the text you send to improve its "
+                             "products. Ticking this labels Gemini as free everywhere it's picked, "
+                             "and paces requests automatically to stay under the limit instead of "
+                             "hitting rate-limit errors.")
             st.session_state["settings_ollama_num_ctx_override"] = st.number_input(
                 "Ollama context window override (num_ctx, optional)",
                 min_value=0, step=1024,

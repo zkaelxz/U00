@@ -391,6 +391,28 @@ class TestUsageTracking:
         assert summary["estimated_cost_usd"] == 0
 
 
+class TestUsageByDrama:
+    """get_usage_by_drama backs the Library dashboard's cost breakdown --
+    Step 1d added translation_engine and call_count to it so the
+    dashboard can show a free engine's real (zero-cost) usage instead of
+    filtering it out as if nothing had run (the old filter was
+    estimated_cost_usd > 0, which drops free engines entirely)."""
+
+    def test_includes_translation_engine_and_call_count(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", translation_engine="test_offline")
+        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 100, 50, 0.0)
+        isolated_db.log_usage(did, "test_offline", "test_offline", "translate", 200, 100, 0.0)
+        row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
+        assert row["translation_engine"] == "test_offline"
+        assert row["call_count"] == 2
+        assert row["estimated_cost_usd"] == 0.0
+
+    def test_a_drama_with_no_usage_has_zero_call_count(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
+        assert row["call_count"] == 0
+
+
 class TestConsistencyIssuesPersist:
     """Regression coverage for a real bug: the consistency-check result
     (a real LLM call) used to live only in st.session_state, so a page
