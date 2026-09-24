@@ -173,24 +173,85 @@ a reliable gender signal to translate literally.
 """
 
 
-def build_character_gender_hints(series_characters) -> str:
-    """series_characters: rows from db.list_series_characters() (each may
-    carry a `gender` column: "female" | "male" | "" | None). Returns a
-    block naming every character with a gender actually set, so the
-    translator resolves that character's pronouns from the assignment
+PRONOUN_PRESETS = ["she/her", "he/him", "they/them"]
+
+_LEGACY_PRONOUNS = {"female": "she/her", "male": "he/him"}
+
+
+def normalize_pronouns(value) -> str:
+    """Pronoun text as stored (series_characters.gender or
+    characters.pronouns) -> the text shown to the translator. Maps the
+    legacy "female"/"male" values; anything else (a preset or a custom
+    value like "xe/xem") passes through stripped. "" for unset."""
+    value = (value or "").strip()
+    return _LEGACY_PRONOUNS.get(value.lower(), value)
+
+
+def _drama_character_pronouns(c, series_by_name) -> str:
+    """A per-drama `characters` row's effective pronouns: its own value,
+    else its linked series character's (series_pronouns, from
+    db.list_characters_with_series_names), else a same-named series
+    character's."""
+    own = normalize_pronouns(c.get("pronouns"))
+    if own:
+        return own
+    linked = normalize_pronouns(c.get("series_pronouns"))
+    if linked:
+        return linked
+    return series_by_name.get((c.get("character_name") or "").strip().casefold(), "")
+
+
+def _series_pronouns_by_name(series_characters) -> dict:
+    return {(sc.get("character_name") or "").strip().casefold(): normalize_pronouns(sc.get("gender"))
+            for sc in (series_characters or []) if normalize_pronouns(sc.get("gender"))}
+
+
+def build_character_gender_hints(series_characters, drama_characters=None) -> str:
+    """series_characters: rows from db.list_series_characters() (pronoun
+    text in their `gender` column). drama_characters: rows from
+    db.list_characters_with_series_names() (pronoun text in `pronouns`),
+    so a drama with no series still gets hints. Merged by name, with the
+    per-drama value winning. Returns a block naming every character with
+    pronouns set, so the translator resolves them from the assignment
     rather than from Mandarin's homophone-ambiguous 他/她/它. Empty
-    string if nobody has a gender assigned -- callers should skip adding
-    this block entirely rather than inject an empty header.
+    string if nobody has pronouns set -- callers should skip adding this
+    block entirely rather than inject an empty header.
     """
-    labeled = [c for c in series_characters if c.get("gender") in ("female", "male")]
-    if not labeled:
+    series_by_name = _series_pronouns_by_name(series_characters)
+    merged = {}
+    for sc in series_characters or []:
+        p = normalize_pronouns(sc.get("gender"))
+        if p:
+            merged[sc["character_name"].strip().casefold()] = (sc["character_name"].strip(), p)
+    for c in drama_characters or []:
+        name = (c.get("character_name") or "").strip()
+        p = _drama_character_pronouns(c, series_by_name)
+        if name and p:
+            merged[name.casefold()] = (name, p)
+    if not merged:
         return ""
-    lines = ["KNOWN CHARACTER GENDERS (resolve this character's pronouns "
+    lines = ["KNOWN CHARACTER PRONOUNS (resolve this character's pronouns "
              "accordingly, overriding any other default):"]
-    for c in labeled:
-        pronoun = "she/her" if c["gender"] == "female" else "he/him"
-        lines.append(f"  {c['character_name']}: {pronoun}")
+    for name, p in merged.values():
+        lines.append(f"  {name}: {p}")
     return "\n".join(lines)
+
+
+def build_speaker_labels(drama_characters, series_characters=None) -> dict:
+    """{speaker_label: shown name} for translate_lines_with_engine's
+    character_names, e.g. {"SPEAKER_00": "Xiaoling (she/her)"} -- so the
+    translator sees the pronouns on the exact line ("[Xiaoling (she/her)]
+    你好"), not only in the separate hints block. Characters with no name
+    are left out (a raw diarization label isn't a name)."""
+    series_by_name = _series_pronouns_by_name(series_characters)
+    labels = {}
+    for c in drama_characters or []:
+        name = (c.get("character_name") or "").strip()
+        if not name:
+            continue
+        p = _drama_character_pronouns(c, series_by_name)
+        labels[c["speaker_label"]] = f"{name} ({p})" if p else name
+    return labels
 
 
 def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=None,

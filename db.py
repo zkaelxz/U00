@@ -487,6 +487,11 @@ def init_db():
         # so renaming/updating the series-level character (once) reflects
         # everywhere it's been assigned, instead of needing a per-drama edit.
         conn.execute("ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
+    if "pronouns" not in char_cols:
+        # Per-drama pronoun text ("she/her", "they/them", "xe/xem", ...) --
+        # lets a drama with no series set pronouns at all, and overrides
+        # the linked series character's value when both are set.
+        conn.execute("ALTER TABLE characters ADD COLUMN pronouns TEXT")
     gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
     if "category" not in gloss_cols:
         conn.execute("ALTER TABLE glossary_terms ADD COLUMN category TEXT")
@@ -679,13 +684,17 @@ def load_lines(drama_id: int):
 def upsert_character(drama_id: int, speaker_label: str, character_name: str = None,
                       voice_actor: str = None, tts_voice: str = None,
                       ref_audio_filename: str = None, ref_text: str = None,
-                      elevenlabs_voice_id: str = None, series_character_id: int = None):
+                      elevenlabs_voice_id: str = None, series_character_id: int = None,
+                      pronouns: str = None):
+    """pronouns: None leaves an existing value untouched; "" clears it."""
     conn = get_conn()
     conn.execute("""
         INSERT INTO characters (drama_id, speaker_label, character_name, voice_actor, tts_voice,
-                                 ref_audio_filename, ref_text, elevenlabs_voice_id, series_character_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 ref_audio_filename, ref_text, elevenlabs_voice_id, series_character_id,
+                                 pronouns)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(drama_id, speaker_label) DO UPDATE SET
+            pronouns = COALESCE(excluded.pronouns, characters.pronouns),
             character_name = COALESCE(excluded.character_name, characters.character_name),
             voice_actor = COALESCE(excluded.voice_actor, characters.voice_actor),
             tts_voice = COALESCE(excluded.tts_voice, characters.tts_voice),
@@ -694,7 +703,7 @@ def upsert_character(drama_id: int, speaker_label: str, character_name: str = No
             elevenlabs_voice_id = COALESCE(excluded.elevenlabs_voice_id, characters.elevenlabs_voice_id),
             series_character_id = COALESCE(excluded.series_character_id, characters.series_character_id)
     """, (drama_id, speaker_label, character_name, voice_actor, tts_voice, ref_audio_filename, ref_text,
-          elevenlabs_voice_id, series_character_id))
+          elevenlabs_voice_id, series_character_id, pronouns))
     conn.commit()
     conn.close()
 
@@ -719,7 +728,11 @@ def upsert_series_character(series_id: int, character_name: str, aliases: str = 
     (series_id, character_name) -- renaming isn't done through this
     function (it would create a new row); use rename_series_character.
 
-    gender: "female" | "male" | "" | None. Feeds translation as a fixed
+    gender: the character's pronoun text ("she/her", "they/them", a custom
+    value like "xe/xem"), or "" / None. Legacy rows may still hold
+    "female"/"male" -- translation_guide.normalize_pronouns maps those.
+    Named `gender` only because the column predates free-text pronouns.
+    Feeds translation as a fixed
     pronoun hint for this character -- Mandarin's spoken 他/她/它 are
     homophones, so the character Whisper happens to transcribe for a
     pronoun isn't a reliable gender signal, and misgendering a NAMED
@@ -784,7 +797,8 @@ def list_characters_with_series_names(drama_id: int):
     into `characters` at the time it was first assigned."""
     conn = get_conn()
     rows = conn.execute("""
-        SELECT c.*, sc.character_name AS series_character_name
+        SELECT c.*, sc.character_name AS series_character_name,
+               sc.gender AS series_pronouns
         FROM characters c
         LEFT JOIN series_characters sc ON sc.id = c.series_character_id
         WHERE c.drama_id = ?

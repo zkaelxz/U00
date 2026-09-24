@@ -770,6 +770,31 @@ class TestGeminiEngine:
         assert "[Xiaoling] 你好" in user_text
         assert result == ["Hi."]
 
+    def test_pronouns_in_the_speaker_label_reach_the_exact_line(self, monkeypatch):
+        """Step 1e: translate_lines_with_engine's character_names values
+        now carry pronouns (see translation_guide.build_speaker_labels),
+        so the translator sees them on the line itself."""
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
+        te.translate_lines_with_engine(
+            lines, te.GeminiEngine("fake-key"), drama_meta={},
+            character_names={"SPEAKER_00": "Xiaoling (they/them)"})
+
+        user_text = captured["json"]["contents"][0]["parts"][0]["text"]
+        assert "[Xiaoling (they/them)] 你好" in user_text
+
     def test_a_response_missing_one_id_is_retried_before_giving_up(self, monkeypatch):
         call_count = {"n": 0}
 

@@ -768,6 +768,30 @@ def test_translate_job_omits_speakers_with_no_name_set(isolated_db, monkeypatch)
     _clear(job_id)
 
 
+def test_translate_job_sends_a_standalone_dramas_per_drama_pronouns(isolated_db, monkeypatch):
+    """Step 1e: a drama with no series had no way to set pronouns at all;
+    they now live on the per-drama characters row and reach the prompt."""
+    job_id = "test_translate_standalone_pronouns"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Standalone")
+    isolated_db.upsert_character(did, "SPEAKER_00", character_name="Xiaoling", pronouns="they/them")
+    lines = [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")]
+
+    seen = {}
+    def fake_translate(lines, engine, **kwargs):
+        seen["character_names"] = kwargs.get("character_names")
+        return lines, []
+    monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+    run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                       None, "", "claude", "audio_drama")
+
+    assert seen["character_names"] == {"SPEAKER_00": "Xiaoling (they/them)"}
+    _clear(job_id)
+
+
 class TestFreeEngineVersionLabelling:
     """Step 1d item 5: a translation version made with a free engine (or
     a free-tier Gemini key) is marked [testing: <engine>] in its label,
@@ -1114,3 +1138,52 @@ class TestTestModeExportWarning:
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
         at = self._run(did)
         assert not any("Test mode" in w.value for w in at.warning)
+
+
+class TestPerDramaPronounPicker:
+    """Step 1e: section 6 has a Pronouns field per character, so a drama
+    with no series can set pronouns, and a series drama can override its
+    series default for this drama only."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _picker(self, at, label):
+        matches = [s for s in at.selectbox if s.label == label]
+        assert matches, f"selectbox {label!r} not found"
+        return matches[0]
+
+    def test_standalone_drama_can_set_they_them(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Standalone", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned")
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Xiaoling")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")])
+        at = self._run(did)
+        self._picker(at, "Pronouns (Xiaoling)").set_value("they/them").run(timeout=30)
+        [c] = isolated_db.list_characters(did)
+        assert c["pronouns"] == "they/them"
+
+    def test_series_value_is_shown_as_the_default_without_being_copied(self, isolated_db):
+        sid = isolated_db.get_or_create_series("S")
+        isolated_db.upsert_series_character(sid, "Su Shan", gender="female")
+        [sc] = isolated_db.list_series_characters(sid)
+        did = isolated_db.create_drama(title_en="Ep 1", series_id=sid, media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned")
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Su Shan",
+                                      series_character_id=sc["id"])
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", speaker="SPEAKER_00")])
+        at = self._run(did)
+        assert self._picker(at, "Pronouns (Su Shan)").value == "she/her"
+        [c] = isolated_db.list_characters(did)
+        assert not c["pronouns"]  # still following the series value, not a frozen copy
