@@ -85,6 +85,16 @@ class TestCharacters:
         chars = isolated_db.list_characters(did)
         assert chars[0]["elevenlabs_voice_id"] == "abc123"
 
+    def test_series_character_id_persists(self, isolated_db):
+        sid = isolated_db.get_or_create_series("A Streamer")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        did = isolated_db.create_drama(title_en="Test", series_id=sid)
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Su Shan",
+                                      series_character_id=sc["id"])
+        chars = isolated_db.list_characters(did)
+        assert chars[0]["series_character_id"] == sc["id"]
+
 
 class TestLinesSaveLoad:
     def test_save_and_load_roundtrip(self, isolated_db):
@@ -143,6 +153,99 @@ class TestSeriesAndGlossary:
         assert d1["series_id"] == d2["series_id"]
         terms_via_d1 = isolated_db.list_glossary_terms(d1["series_id"])
         assert len(terms_via_d1) == 1
+
+
+class TestSeriesCharacters:
+    """A streamer's persistent cast (or a book series' recurring
+    characters) -- independent of any one drama's diarization labels,
+    which aren't stable across dramas. See the series_characters table
+    comment in db.py's init_db()."""
+
+    def test_upsert_creates_new(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan", aliases="SuSu",
+                                             notes="calm, dry sarcasm")
+        chars = isolated_db.list_series_characters(sid)
+        assert len(chars) == 1
+        assert chars[0]["character_name"] == "Su Shan"
+        assert chars[0]["aliases"] == "SuSu"
+        assert chars[0]["notes"] == "calm, dry sarcasm"
+
+    def test_upsert_same_name_updates_not_duplicates(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan", notes="v1")
+        isolated_db.upsert_series_character(sid, "Su Shan", notes="v2")
+        chars = isolated_db.list_series_characters(sid)
+        assert len(chars) == 1
+        assert chars[0]["notes"] == "v2"
+
+    def test_same_name_in_different_series_are_independent(self, isolated_db):
+        sid1 = isolated_db.get_or_create_series("Streamer A")
+        sid2 = isolated_db.get_or_create_series("Streamer B")
+        isolated_db.upsert_series_character(sid1, "Guest", notes="A's guest")
+        isolated_db.upsert_series_character(sid2, "Guest", notes="B's guest")
+        assert isolated_db.list_series_characters(sid1)[0]["notes"] == "A's guest"
+        assert isolated_db.list_series_characters(sid2)[0]["notes"] == "B's guest"
+
+    def test_rename_updates_in_place(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        isolated_db.rename_series_character(sc["id"], "Su Shan (corrected)")
+        chars = isolated_db.list_series_characters(sid)
+        assert len(chars) == 1
+        assert chars[0]["character_name"] == "Su Shan (corrected)"
+
+    def test_rename_propagates_to_linked_drama_characters(self, isolated_db):
+        """The whole point: fix the name once at the series level, and
+        every drama that assigned this character shows the correction --
+        no per-drama edit needed."""
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        did1 = isolated_db.create_drama(title_en="Stream 1", series_id=sid)
+        did2 = isolated_db.create_drama(title_en="Stream 2", series_id=sid)
+        isolated_db.upsert_character(did1, "SPEAKER_00", character_name="Su Shan",
+                                      series_character_id=sc["id"])
+        isolated_db.upsert_character(did2, "SPEAKER_02", character_name="Su Shan",
+                                      series_character_id=sc["id"])
+
+        isolated_db.rename_series_character(sc["id"], "Su Shan (corrected)")
+
+        c1 = isolated_db.list_characters_with_series_names(did1)
+        c2 = isolated_db.list_characters_with_series_names(did2)
+        assert c1[0]["character_name"] == "Su Shan (corrected)"
+        assert c2[0]["character_name"] == "Su Shan (corrected)"
+
+    def test_unlinked_character_name_is_unaffected_by_rename(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        did = isolated_db.create_drama(title_en="Stream 1", series_id=sid)
+        # A different character in the same drama, never linked to sc.
+        isolated_db.upsert_character(did, "SPEAKER_01", character_name="Guest")
+        isolated_db.rename_series_character(sc["id"], "Su Shan (corrected)")
+        chars = isolated_db.list_characters_with_series_names(did)
+        assert chars[0]["character_name"] == "Guest"
+
+    def test_delete_unlinks_but_keeps_the_drama_characters_own_name(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        did = isolated_db.create_drama(title_en="Stream 1", series_id=sid)
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Su Shan",
+                                      series_character_id=sc["id"])
+
+        isolated_db.delete_series_character(sc["id"])
+
+        assert isolated_db.list_series_characters(sid) == []
+        chars = isolated_db.list_characters(did)
+        assert chars[0]["character_name"] == "Su Shan"  # kept its own copy
+        assert chars[0]["series_character_id"] is None   # link cleared
+
+    def test_list_is_empty_for_a_series_with_no_characters_yet(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Fresh Streamer")
+        assert isolated_db.list_series_characters(sid) == []
 
 
 class TestVocabLookups:
