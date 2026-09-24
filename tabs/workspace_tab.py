@@ -57,6 +57,54 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     background_jobs.set_result(job_id, {"errors": errors})
 
 
+def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
+                        local_model_path, hf_token, initial_prompt, beam_size,
+                        min_silence_duration_ms):
+    """
+    Runs just the Whisper speech-recognition pass in a background thread,
+    same reasoning as run_translate_job above: this is the step that
+    dominates wall-clock time on a long-form file (3+ hours), so it's the
+    one worth reporting progress on and not blocking the rest of the app
+    for. The Qwen3-ASR text override, alignment, and diarization that can
+    follow it stay synchronous, run from render_workspace_tab once this
+    job's result is picked up on a later rerun -- those touch a lot of
+    individual st.warning/st.success branches for their various fallback
+    paths, which can't run from a thread (Streamlit widgets/session_state
+    aren't thread-safe to write from here).
+
+    Model-download failure and "no audio detected" are expected, common
+    outcomes here (a flaky connection, a silent/corrupt file), not bugs --
+    both are recorded via a "failed_reason" on the result instead of
+    raising, so the main script can show the same specific, actionable
+    messages it always has instead of a generic error+traceback. Anything
+    else that goes wrong is a real bug and is left to raise, same as
+    run_translate_job -- background_jobs.start_job's own runner catches
+    that and reports it as a job error.
+    """
+    gpu_fallback_msg = []
+    try:
+        segments = transcribe_for_timing(
+            audio_path, whisper_size, language=language, use_gpu=use_gpu,
+            local_model_path=local_model_path, hf_token=hf_token,
+            initial_prompt=initial_prompt, beam_size=beam_size,
+            min_silence_duration_ms=min_silence_duration_ms,
+            on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Transcribing... {frac * 100:.0f}%"))
+    except core_module.ModelDownloadError as exc:
+        background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
+        return
+
+    if not segments:
+        background_jobs.set_result(job_id, {"failed_reason": "empty"})
+        return
+
+    background_jobs.set_result(job_id, {
+        "segments": segments,
+        "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
+    })
+
+
 def render_workspace_tab():
     st.subheader("1. Choose a drama")
     all_dramas = db.list_dramas()
@@ -939,6 +987,9 @@ def render_workspace_tab():
         force_retranslate = b2.checkbox("Force re-translate everything (ignore already-translated lines)",
                                          value=False, key="force_retranslate")
 
+        _transcribe_job_id = f"transcribe_{picked_id}"
+        _tjob = background_jobs.get_status(_transcribe_job_id)
+
         if run_prep and has_audio_pipeline:
             audio_path = existing_audio
             if audio_file is not None:
@@ -969,113 +1020,20 @@ def render_workspace_tab():
             with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
                 f.write(transcript_text)
 
-            _use_whisper_text = st.session_state.get(f"tmode_{picked_id}") == "whisper"
             _local_model = st.session_state.get("settings_whisper_model_path", "").strip() or None
-            _gpu_fallback_msg = []
-            try:
-                with st.spinner("Running speech recognition..."):
-                    segments = transcribe_for_timing(
-                        audio_path, whisper_size, language=source_language,
-                        use_gpu=st.session_state.get("use_gpu", False),
-                        local_model_path=_local_model,
-                        hf_token=st.session_state.get("settings_hf_token", "") or None,
-                        initial_prompt=initial_prompt, beam_size=beam_size,
-                        min_silence_duration_ms=min_silence_ms,
-                        on_gpu_fallback=lambda exc: _gpu_fallback_msg.append(str(exc)))
-                if _gpu_fallback_msg:
-                    st.warning(
-                        "GPU was requested but failed at the actual transcription step, so this "
-                        "ran on CPU instead (slower, but it completed). This is a CUDA/driver "
-                        "problem on this machine, not something wrong with your audio.\n\n"
-                        f"Error: {_gpu_fallback_msg[0]}\n\n"
-                        "Common cause: PyTorch/ctranslate2 installed without CUDA support, or a "
-                        "CUDA toolkit version that doesn't match your driver. Turn GPU off in "
-                        "Settings → Performance if you'd rather not see this each time, or "
-                        "reinstall the CUDA-enabled build matching your driver version.")
-            except core_module.ModelDownloadError as exc:
-                st.error("Speech recognition model couldn't be downloaded.")
-                st.code(str(exc), language="text")
-                st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
-                          "Fix the connection and press the button again.")
-                # return, not st.stop() -- st.stop() would also cancel
-                # rendering every tab after Workspace (Diagnostics), which
-                # is exactly where this message points the user next.
-                return
-
-            if not segments:
-                st.error("Speech recognition returned nothing. Check the file actually contains "
-                         "audio, and that ffmpeg is installed (see the Diagnostics tab).")
-                return
-
-            if _use_whisper_text:
-                # No supplied transcript: use a transcription model's own text.
-                # Segment TIMING always comes from Whisper's VAD (segments, above)
-                # -- asr_backend_choice only affects which model's TEXT fills
-                # those segments. See asr_backend.py's module docstring for why
-                # that split is deliberate.
-                if asr_backend_choice == "qwen3_asr":
-                    try:
-                        import asr_backend
-                        segments = asr_backend.Qwen3ASRBackend().transcribe(
-                            audio_path, source_language, whisper_segments=segments,
-                            use_gpu=st.session_state.get("use_gpu", False))
-                    except ImportError:
-                        st.warning("Qwen3-ASR needs `pip install qwen-asr torch` -- using Whisper's "
-                                  "own transcription for this run.")
-                    except core_module.ModelDownloadError as exc:
-                        st.warning(f"Qwen3-ASR couldn't be downloaded ({exc}) -- using Whisper's "
-                                  "own transcription for this run.")
-                lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
-                         for i, seg in enumerate(segments) if seg["text"].strip()]
-                transcript_text = "\n".join(ln.zh for ln in lines)
-                st.warning("This transcript came from speech recognition, so expect errors on "
-                          "names and uncommon terms. Correct them in the review table below "
-                          "**before** translating -- mistakes here carry into the translation.")
+            started = background_jobs.start_job(
+                _transcribe_job_id, run_transcribe_job,
+                _transcribe_job_id, audio_path, whisper_size, source_language,
+                st.session_state.get("use_gpu", False), _local_model,
+                st.session_state.get("settings_hf_token", "") or None,
+                initial_prompt, beam_size, min_silence_ms)
+            if started:
+                st.info("Transcription started in the background -- it keeps running even if you "
+                        "switch tabs or close this browser tab. Come back here any time to see "
+                        "progress; it'll pick up right where it is.")
+                st.rerun()
             else:
-                with st.spinner("Aligning transcript to timing..."):
-                    user_lines = split_user_transcript(transcript_text)
-                    if alignment_method == "qwen3_forced_align":
-                        try:
-                            import forced_align
-                            lines = forced_align.align_with_qwen3(
-                                audio_path, user_lines, segments, language=source_language,
-                                use_gpu=st.session_state.get("use_gpu", False))
-                        except ImportError:
-                            st.warning("Qwen3 forced alignment needs `pip install qwen-asr torch` -- "
-                                      "using the default character-alignment method for this run.")
-                            lines = align_transcript_to_timing(user_lines, segments)
-                        except core_module.ModelDownloadError as exc:
-                            st.warning(f"Qwen3-ForcedAligner couldn't be downloaded ({exc}) -- "
-                                      "using the default character-alignment method for this run.")
-                            lines = align_transcript_to_timing(user_lines, segments)
-                        except ValueError as exc:
-                            st.warning(f"Qwen3 forced alignment couldn't run ({exc}) -- using the "
-                                      "default character-alignment method for this run.")
-                            lines = align_transcript_to_timing(user_lines, segments)
-                    else:
-                        lines = align_transcript_to_timing(user_lines, segments)
-
-            speaker_segments = None
-            if run_diarize and hf_token:
-                with st.spinner("Running speaker diarization... (first run downloads the model)"):
-                    try:
-                        import diarize
-                        speaker_segments = diarize.diarize(
-                            audio_path, hf_token, num_speakers=expected_speakers or None)
-                        diarize.label_lines_with_speakers(lines, speaker_segments)
-                        for label in sorted({ln.speaker for ln in lines if ln.speaker}):
-                            db.upsert_character(picked_id, label)
-                        st.session_state[f"speaker_segments_{picked_id}"] = speaker_segments
-                        st.success(f"Diarization found {len(set(ln.speaker for ln in lines if ln.speaker))} speaker(s).")
-                    except Exception as e:
-                        st.warning(f"Diarization failed ({e}) -- alignment still saved without speaker "
-                                  f"labels. Check your Hugging Face token and pyannote.audio install, "
-                                  f"then re-run just diarization if you want it.")
-
-            st.session_state.lines = lines
-            db.save_lines(picked_id, lines)
-            db.update_drama(picked_id, status="aligned")
-            st.success(f"Aligned {len(lines)} lines.")
+                st.warning("A transcription is already running for this drama.")
 
         elif run_prep and content_mode == "novel_narration":
             with open(os.path.join(ddir, "novel_narration_source.txt"), "w", encoding="utf-8") as f:
@@ -1103,6 +1061,117 @@ def render_workspace_tab():
             db.save_lines(picked_id, lines)
             db.update_drama(picked_id, status="aligned")
             st.success(f"Prepared {len(lines)} narration chunks.")
+
+        # Not gated on run_prep -- this has to keep checking on every rerun
+        # while the job above is still going, not just the one where the
+        # button was clicked.
+        if _tjob:
+            if _tjob["status"] == "running":
+                st.progress(_tjob["progress"], text=_tjob.get("message") or "Transcribing...")
+                st.caption("Running in the background -- safe to switch tabs, use other dramas, "
+                          "or close the browser tab. Come back and this will show current progress.")
+                if st.button("🔄 Refresh progress", key=f"refresh_tc_{picked_id}"):
+                    st.rerun()
+            elif _tjob["status"] == "done":
+                _tresult = _tjob.get("result") or {}
+                if _tresult.get("failed_reason") == "model_download":
+                    st.error("Speech recognition model couldn't be downloaded.")
+                    st.code(_tresult.get("detail", ""), language="text")
+                    st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
+                              "Fix the connection and press the button again.")
+                elif _tresult.get("failed_reason") == "empty":
+                    st.error("Speech recognition returned nothing. Check the file actually contains "
+                             "audio, and that ffmpeg is installed (see the Diagnostics tab).")
+                else:
+                    segments = _tresult["segments"]
+                    audio_path = existing_audio
+                    if _tresult.get("gpu_fallback"):
+                        st.warning(
+                            "GPU was requested but failed at the actual transcription step, so this "
+                            "ran on CPU instead (slower, but it completed). This is a CUDA/driver "
+                            "problem on this machine, not something wrong with your audio.\n\n"
+                            f"Error: {_tresult['gpu_fallback']}\n\n"
+                            "Common cause: PyTorch/ctranslate2 installed without CUDA support, or a "
+                            "CUDA toolkit version that doesn't match your driver. Turn GPU off in "
+                            "Settings → Performance if you'd rather not see this each time, or "
+                            "reinstall the CUDA-enabled build matching your driver version.")
+
+                    _use_whisper_text = st.session_state.get(f"tmode_{picked_id}") == "whisper"
+                    if _use_whisper_text:
+                        # No supplied transcript: use a transcription model's own text.
+                        # Segment TIMING always comes from Whisper's VAD (segments, above)
+                        # -- asr_backend_choice only affects which model's TEXT fills
+                        # those segments. See asr_backend.py's module docstring for why
+                        # that split is deliberate.
+                        if asr_backend_choice == "qwen3_asr":
+                            try:
+                                import asr_backend
+                                segments = asr_backend.Qwen3ASRBackend().transcribe(
+                                    audio_path, source_language, whisper_segments=segments,
+                                    use_gpu=st.session_state.get("use_gpu", False))
+                            except ImportError:
+                                st.warning("Qwen3-ASR needs `pip install qwen-asr torch` -- using Whisper's "
+                                          "own transcription for this run.")
+                            except core_module.ModelDownloadError as exc:
+                                st.warning(f"Qwen3-ASR couldn't be downloaded ({exc}) -- using Whisper's "
+                                          "own transcription for this run.")
+                        lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
+                                 for i, seg in enumerate(segments) if seg["text"].strip()]
+                        transcript_text = "\n".join(ln.zh for ln in lines)
+                        st.warning("This transcript came from speech recognition, so expect errors on "
+                                  "names and uncommon terms. Correct them in the review table below "
+                                  "**before** translating -- mistakes here carry into the translation.")
+                    else:
+                        with st.spinner("Aligning transcript to timing..."):
+                            user_lines = split_user_transcript(transcript_text)
+                            if alignment_method == "qwen3_forced_align":
+                                try:
+                                    import forced_align
+                                    lines = forced_align.align_with_qwen3(
+                                        audio_path, user_lines, segments, language=source_language,
+                                        use_gpu=st.session_state.get("use_gpu", False))
+                                except ImportError:
+                                    st.warning("Qwen3 forced alignment needs `pip install qwen-asr torch` -- "
+                                              "using the default character-alignment method for this run.")
+                                    lines = align_transcript_to_timing(user_lines, segments)
+                                except core_module.ModelDownloadError as exc:
+                                    st.warning(f"Qwen3-ForcedAligner couldn't be downloaded ({exc}) -- "
+                                              "using the default character-alignment method for this run.")
+                                    lines = align_transcript_to_timing(user_lines, segments)
+                                except ValueError as exc:
+                                    st.warning(f"Qwen3 forced alignment couldn't run ({exc}) -- using the "
+                                              "default character-alignment method for this run.")
+                                    lines = align_transcript_to_timing(user_lines, segments)
+                            else:
+                                lines = align_transcript_to_timing(user_lines, segments)
+
+                    speaker_segments = None
+                    if run_diarize and hf_token:
+                        with st.spinner("Running speaker diarization... (first run downloads the model)"):
+                            try:
+                                import diarize
+                                speaker_segments = diarize.diarize(
+                                    audio_path, hf_token, num_speakers=expected_speakers or None)
+                                diarize.label_lines_with_speakers(lines, speaker_segments)
+                                for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+                                    db.upsert_character(picked_id, label)
+                                st.session_state[f"speaker_segments_{picked_id}"] = speaker_segments
+                                st.success(f"Diarization found {len(set(ln.speaker for ln in lines if ln.speaker))} speaker(s).")
+                            except Exception as e:
+                                st.warning(f"Diarization failed ({e}) -- alignment still saved without speaker "
+                                          f"labels. Check your Hugging Face token and pyannote.audio install, "
+                                          f"then re-run just diarization if you want it.")
+
+                    st.session_state.lines = lines
+                    db.save_lines(picked_id, lines)
+                    db.update_drama(picked_id, status="aligned")
+                    st.success(f"Aligned {len(lines)} lines.")
+                background_jobs.clear_job(_transcribe_job_id)
+            elif _tjob["status"] == "error":
+                st.error(f"Transcription failed: {_tjob['error']}")
+                with st.expander("Details"):
+                    st.code(_tjob.get("traceback", ""), language="text")
+                background_jobs.clear_job(_transcribe_job_id)
 
         if st.session_state.lines is None:
             saved = db.load_lines(picked_id)

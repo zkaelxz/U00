@@ -238,7 +238,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            use_gpu: bool = False, local_model_path: str = None,
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
-                           on_gpu_fallback=None):
+                           on_gpu_fallback=None, progress_cb=None):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -264,6 +264,15 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     transparently retries on CPU -- so the caller can tell the person
     their GPU didn't actually get used, since CPU is meaningfully slower
     and silently downgrading without saying so would be confusing.
+
+    progress_cb: optional callback invoked with a 0.0-1.0 fraction as
+    segments come in. faster-whisper's `transcribe()` returns a lazy
+    generator -- it doesn't process the whole file up front -- so this can
+    report real progress instead of a spinner that never moves, which is
+    the difference between a stuck-looking app and a working one on a
+    multi-hour file. Progress is estimated from how far into the audio the
+    latest segment ends (`info.duration` is faster-whisper's own total
+    length estimate); silently reports nothing if that's unavailable.
     """
     model = load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
@@ -274,9 +283,18 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
 
+    def _collect(segments, info):
+        duration = getattr(info, "duration", None) or 0
+        result = []
+        for s in segments:
+            result.append({"start": s.start, "end": s.end, "text": s.text.strip()})
+            if progress_cb:
+                progress_cb(min(s.end / duration, 1.0) if duration else 0.0)
+        return result
+
     try:
         segments, _info = model.transcribe(audio_path, **kwargs)
-        return [{"start": s.start, "end": s.end, "text": s.text.strip()} for s in segments]
+        return _collect(segments, _info)
     except Exception as exc:
         # ctranslate2 defers CUDA init until this exact point -- a broken
         # or missing CUDA install (mismatched toolkit version, a missing
@@ -290,7 +308,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             cpu_model = load_whisper_model(model_size, use_gpu=False,
                                             local_model_path=local_model_path, hf_token=hf_token)
             segments, _info = cpu_model.transcribe(audio_path, **kwargs)
-            return [{"start": s.start, "end": s.end, "text": s.text.strip()} for s in segments]
+            return _collect(segments, _info)
         raise
 
 
