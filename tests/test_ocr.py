@@ -35,6 +35,53 @@ class TestResolveTesseractLang:
         assert ocr.resolve_tesseract_lang("xx") == "chi_sim"
 
 
+class TestExtractTextTesseractUsesExplicitPSM:
+    """Regression test for a real bug found via direct testing: with no
+    explicit config=, pytesseract.image_to_string() falls back to
+    Tesseract's own default page-segmentation mode (PSM 3, "fully
+    automatic page segmentation"), which is tuned for a whole scanned
+    page -- not a small, pre-cropped single region like a hardsub caption
+    band or a page-scan chunk. Confirmed by direct testing that PSM 3 can
+    garble short single-line CJK text that PSM 6 ("single uniform block
+    of text") reads correctly. Locks in that the explicit PSM is actually
+    sent to Tesseract, and can still be overridden by a caller that knows
+    better (e.g. PSM 7 for a caption region known to be a single line).
+    """
+    def _blank_image(self, tmp_path):
+        from PIL import Image
+        path = tmp_path / "blank.png"
+        Image.new("L", (10, 10), color=255).save(path)
+        return str(path)
+
+    def test_default_psm_is_six(self, monkeypatch, tmp_path):
+        import pytesseract
+        captured = {}
+
+        def fake_image_to_string(image, lang=None, config=None):
+            captured["lang"] = lang
+            captured["config"] = config
+            return "text"
+
+        monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
+        ocr.extract_text_tesseract(self._blank_image(tmp_path), lang="jpn")
+
+        assert captured["lang"] == "jpn"
+        assert captured["config"] == "--psm 6"
+
+    def test_psm_can_be_overridden(self, monkeypatch, tmp_path):
+        import pytesseract
+        captured = {}
+
+        def fake_image_to_string(image, lang=None, config=None):
+            captured["config"] = config
+            return "text"
+
+        monkeypatch.setattr(pytesseract, "image_to_string", fake_image_to_string)
+        ocr.extract_text_tesseract(self._blank_image(tmp_path), psm=7)
+
+        assert captured["config"] == "--psm 7"
+
+
 class TestExtractTextFromImagesUsesResolvedLang:
     def test_traditional_script_selects_chi_tra_backend(self, monkeypatch):
         captured = {}
