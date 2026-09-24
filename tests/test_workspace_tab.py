@@ -828,3 +828,62 @@ class TestLineEditingLockedDuringAJob:
         self._button(at, "Preview merge").click()
         at.run(timeout=30)
         assert self._button(at, "✅ Apply merge").disabled is False
+
+    def test_generate_dub_track_is_disabled_while_translate_is_running(self, isolated_db):
+        """Section 8's Generate button saves st.session_state.lines
+        (possibly stale) after building the dub track -- the same race
+        as the Review & edit controls."""
+        did = self._drama_with_a_line(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.start_job(job_id, lambda: time.sleep(5))
+        try:
+            at = self._run(did)
+            assert self._button(at, "🎙️ Generate dub track").disabled is True
+        finally:
+            _clear(job_id)
+
+    def test_generate_dub_track_is_enabled_with_no_job_running(self, isolated_db):
+        did = self._drama_with_a_line(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🎙️ Generate dub track").disabled is False
+
+    def _novel_narration_drama(self, isolated_db):
+        """content_mode=novel_narration needs no audio/transcript for its
+        prep button to be enabled -- just non-empty narration text, which
+        the text_area below defaults to from session_state."""
+        did = isolated_db.create_drama(title_en="Narration Drama", media_type="novel",
+                                        content_mode="novel_narration", status="not started")
+        return did
+
+    def test_chunk_and_tag_speakers_is_disabled_while_translate_is_running(self, isolated_db):
+        """Section 2's prep button (Transcribe & Align / Chunk & Tag
+        Speakers, same button, label depends on content mode) starts the
+        pipeline whose completion later saves every line -- races the
+        same way if a translate/flag/fixflag job is already running."""
+        did = self._novel_narration_drama(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.start_job(job_id, lambda: time.sleep(5))
+        try:
+            at = self._run_with_narration_text(did, "有一天，天气很好。")
+            assert self._button(at, "▶ Chunk & Tag Speakers").disabled is True
+        finally:
+            _clear(job_id)
+
+    def test_chunk_and_tag_speakers_is_enabled_with_no_job_running(self, isolated_db):
+        did = self._novel_narration_drama(isolated_db)
+        at = self._run_with_narration_text(did, "有一天，天气很好。")
+        assert self._button(at, "▶ Chunk & Tag Speakers").disabled is False
+
+    def _run_with_narration_text(self, did, text):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"ocr_text_{did}"] = text
+        at.run(timeout=30)
+        return at
