@@ -68,7 +68,8 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
 1. **Concurrent jobs overwrite each other.**
    - The problem: `run_translate_job`, `run_flag_job` and `run_fix_flagged_lines_job` (`tabs/workspace_tab.py`) each get their own copy of the lines and save all of them through `db.save_lines`, which deletes and re-inserts every line. Since commit `8997242` these jobs can run at the same time, so the last job to save wins. Starting "Find lines to flag" during a translation wipes the translations done so far, and the translation's next batch wipes the flags.
    - Short-term fix: refuse to start a line-writing job (translate, flag, fix-flagged) while another one is running for the same drama, and show a clear message saying why.
-   - Proper fix (land it in Step 2): each job writes only the fields it owns — translation writes `en`; flagging writes `flag`/`flag_note`.
+   - Also lock the user's own edits (added after review): while a translate/flag/fixflag job is running for a drama, disable that drama's controls that save lines from the page itself. That covers the line editor's save, merge lines, per-line re-transcribe/fix, bulk line tools and undo/restore. Show one short message saying editing unlocks when the job finishes.
+   - Proper fix (land it in Step 2): each job writes only the fields it owns — translation writes `en`; flagging writes `flag`/`flag_note`. Step 2 then removes both the job guard and the edit lock.
 2. **API keys leak into errors.**
    - The problem: the Gemini calls (`translate_engines.py` around lines 253 and 456, and `qa.py`) and Google Translate (around line 391) put the key in the URL (`params={"key": ...}`). A `raise_for_status()` failure then includes the full URL, key included, in the error message. That message is shown in the UI and stored in `dramas.last_translate_errors`.
    - Fix: send the key in a header (`x-goog-api-key` for Gemini; Google Translate v2 accepts `X-Goog-Api-Key` as well), and redact anything that looks like a key or token from error strings before they're shown or stored.
@@ -87,6 +88,7 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
 
 **Exit:**
 - A test shows a second line-writing job is refused while one is running.
+- A test shows the manual save/merge controls are disabled while a line-writing job is running.
 - A test shows a failed Gemini request's stored error contains no key.
 - Every HTTP call has a timeout (a test or static check).
 - A test shows the backup's database snapshot includes a write made just before the backup, and that the backup is written to disk.
@@ -259,7 +261,9 @@ These are things that are broken now, or that break without warning.
   3. Once the planning chat approves it, the user says "create a PR for this step". Then open a pull request **into `baihe-subtitler`** with a short plain-English summary. **Don't merge it yourself.**
   4. The user merges it on GitHub.
   5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
-- **Status:** Step 1 (`claude/r5-translation-fixes`) is **not ready to merge**. Its 4 review fixes are pending.
+- **Status:**
+  - Step 1 is merged into `baihe-subtitler` and was reviewed OK.
+  - Step 1b (`step-1b-safety-fixes`) is reviewed; it's pending the edit-lock follow-up, then the pull request.
 - To read this doc from the implementing chat:
   ```
   git fetch origin claude/baihe-subtitle-planning-95qyvq
