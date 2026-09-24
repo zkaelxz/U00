@@ -870,6 +870,35 @@ for review before applying. Local statistics (shortened / expanded /
 rephrased counts, average word delta) are shown immediately with no API
 call. Scoped per series where one is assigned, otherwise global.
 
+## Streamer archives (persistent characters across a series)
+
+A "series" isn't only for a book's numbered volumes — assign every stream
+from the same streamer to one series (Workspace → 5. Translation → Series
+glossary & term handling → Series) and its glossary, style profile, *and*
+now named characters all persist across every stream, not just one.
+
+Named characters are the piece that's genuinely new: a per-drama
+`characters` row is keyed to that ONE drama's own diarization labels
+(`SPEAKER_00`, `SPEAKER_01`, …), which aren't stable across separate
+recordings — `SPEAKER_00` in one stream isn't necessarily the same person
+as `SPEAKER_00` in the next. So "Su Shan" needs to exist as her own
+series-level record, independent of any single drama's speaker labels.
+Once she's added (in the same "Series glossary" expander, or the moment
+you type a new name in section 6 and check "Remember this as a known
+character"), every later stream in that series shows her in a dropdown in
+section 6 ("Name your characters") — pick her instead of retyping and
+re-spelling her name each time. Renaming her once (same expander) updates
+every drama she's linked to; nothing needs a per-drama edit for a name
+correction.
+
+Deliberately NOT automatic: typing a name into section 6 does not, by
+itself, add it to the series. That's an opt-in checkbox, not a background
+behavior — auto-saving every typed name (including a mid-typo one) would
+clutter a streamer's cast list with one-off junk. The dropdown-and-pick
+step for an ALREADY-known character is the hands-off part; deciding a
+NEW person is worth remembering permanently is the one moment that stays
+a deliberate choice.
+
 ## Line tools
 
 Per-line operations in the Reader, for polishing rather than batch work:

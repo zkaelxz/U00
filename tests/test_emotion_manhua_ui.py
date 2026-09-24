@@ -63,6 +63,60 @@ class TestEmotionSummary:
         assert em.detect_emotions([Line(idx=0, start=0, end=1, zh="a")], PureMT()) == {}
 
 
+class _FakeTextBlock:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class FakeClaudeLikeEngine:
+    """A Claude-shaped fake (client.messages.create), matching what
+    _call_llm dispatches on -- returns one tag per line in the batch, all
+    'neutral', regardless of prompt content."""
+    supports_reference = True
+    model = "fake-model"
+
+    def __init__(self):
+        self.client = self
+        self.messages = self  # so hasattr(engine.client, "messages") is True
+        self.call_count = 0
+
+    def create(self, model, max_tokens, messages):
+        self.call_count += 1
+        prompt = messages[0]["content"]
+        import re as _re
+        idxs = [int(m) for m in _re.findall(r"\[(\d+)\]", prompt)]
+        tagged = [{"line_idx": i, "emotion": "neutral", "intensity": 0.5} for i in idxs]
+        import json as _json
+        return type("Resp", (), {"content": [_FakeTextBlock(_json.dumps(tagged))]})()
+
+
+class TestDetectEmotionsProgress:
+    def test_progress_cb_called_once_per_batch(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(10)]
+        seen = []
+        em.detect_emotions(lines, FakeClaudeLikeEngine(), batch_size=3, progress_cb=seen.append)
+        # 10 lines at batch_size=3 -> 4 batches (3,3,3,1)
+        assert seen == [0.25, 0.5, 0.75, 1.0]
+
+    def test_progress_cb_is_optional(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(3)]
+        result = em.detect_emotions(lines, FakeClaudeLikeEngine(), batch_size=10)
+        assert len(result) == 3
+
+    def test_progress_still_advances_when_a_batch_fails_to_parse(self):
+        class BrokenEngine(FakeClaudeLikeEngine):
+            def create(self, model, max_tokens, messages):
+                self.call_count += 1
+                return type("Resp", (), {"content": [_FakeTextBlock("not valid json")]})()
+
+        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(6)]
+        seen = []
+        result = em.detect_emotions(lines, BrokenEngine(), batch_size=3, progress_cb=seen.append)
+        assert seen == [0.5, 1.0]  # both batches counted as attempted
+        assert result == {}  # neither batch's garbage response parsed
+
+
 class TestTtsDelivery:
     def test_strong_emotion_adjusts_delivery(self):
         assert em.suggest_tts_delivery("angry", 0.9)["rate"] != "+0%"

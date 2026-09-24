@@ -189,6 +189,25 @@ def init_db():
         created_at TEXT
     );
 
+    -- Named characters that persist across every drama in a series --
+    -- distinct from the per-drama `characters` row, whose speaker_label
+    -- comes from that ONE drama's own diarization run and isn't stable
+    -- across dramas (SPEAKER_00 in one recording isn't necessarily the
+    -- same person as SPEAKER_00 in another). This is what makes a
+    -- "streamer archive" series useful: once "Su Shan" exists here, every
+    -- later stream from the same streamer can pick her from a list
+    -- instead of retyping and re-spelling her name each time.
+    CREATE TABLE IF NOT EXISTS series_characters (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        series_id INTEGER NOT NULL,
+        character_name TEXT NOT NULL,
+        aliases TEXT,             -- pipe-separated nicknames/alternate spellings
+        notes TEXT,               -- speaking style, relationships, anything worth remembering
+        created_at TEXT,
+        FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+        UNIQUE(series_id, character_name)
+    );
+
     CREATE TABLE IF NOT EXISTS glossary_terms (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         series_id INTEGER NOT NULL,
@@ -320,6 +339,7 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_bubbles_page ON bubbles(page_id);
     CREATE INDEX IF NOT EXISTS idx_known_titles_lang ON known_titles(language);
     CREATE INDEX IF NOT EXISTS idx_glossary_series ON glossary_terms(series_id);
+    CREATE INDEX IF NOT EXISTS idx_series_characters_series ON series_characters(series_id);
     CREATE INDEX IF NOT EXISTS idx_vocab_drama ON vocab_lookups(drama_id);
     CREATE INDEX IF NOT EXISTS idx_usage_drama ON usage_log(drama_id);
     CREATE INDEX IF NOT EXISTS idx_history_drama ON line_history(drama_id);
@@ -370,6 +390,11 @@ def init_db():
         conn.execute("ALTER TABLE characters ADD COLUMN ref_text TEXT")
     if "elevenlabs_voice_id" not in char_cols:
         conn.execute("ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
+    if "series_character_id" not in char_cols:
+        # Links this drama's speaker to a persistent series_characters row,
+        # so renaming/updating the series-level character (once) reflects
+        # everywhere it's been assigned, instead of needing a per-drama edit.
+        conn.execute("ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
     gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
     if "category" not in gloss_cols:
         conn.execute("ALTER TABLE glossary_terms ADD COLUMN category TEXT")
@@ -542,21 +567,22 @@ def load_lines(drama_id: int):
 def upsert_character(drama_id: int, speaker_label: str, character_name: str = None,
                       voice_actor: str = None, tts_voice: str = None,
                       ref_audio_filename: str = None, ref_text: str = None,
-                      elevenlabs_voice_id: str = None):
+                      elevenlabs_voice_id: str = None, series_character_id: int = None):
     conn = get_conn()
     conn.execute("""
         INSERT INTO characters (drama_id, speaker_label, character_name, voice_actor, tts_voice,
-                                 ref_audio_filename, ref_text, elevenlabs_voice_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                 ref_audio_filename, ref_text, elevenlabs_voice_id, series_character_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(drama_id, speaker_label) DO UPDATE SET
             character_name = COALESCE(excluded.character_name, characters.character_name),
             voice_actor = COALESCE(excluded.voice_actor, characters.voice_actor),
             tts_voice = COALESCE(excluded.tts_voice, characters.tts_voice),
             ref_audio_filename = COALESCE(excluded.ref_audio_filename, characters.ref_audio_filename),
             ref_text = COALESCE(excluded.ref_text, characters.ref_text),
-            elevenlabs_voice_id = COALESCE(excluded.elevenlabs_voice_id, characters.elevenlabs_voice_id)
+            elevenlabs_voice_id = COALESCE(excluded.elevenlabs_voice_id, characters.elevenlabs_voice_id),
+            series_character_id = COALESCE(excluded.series_character_id, characters.series_character_id)
     """, (drama_id, speaker_label, character_name, voice_actor, tts_voice, ref_audio_filename, ref_text,
-          elevenlabs_voice_id))
+          elevenlabs_voice_id, series_character_id))
     conn.commit()
     conn.close()
 
@@ -566,6 +592,88 @@ def list_characters(drama_id: int):
     rows = conn.execute("SELECT * FROM characters WHERE drama_id = ? ORDER BY speaker_label", (drama_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Series-level characters -- persist across every drama in a series (a
+# streamer's whole archive, or a book series), independent of any one
+# drama's own diarization labels. See the series_characters table comment
+# in init_db() for why this has to be a separate concept from `characters`.
+# ---------------------------------------------------------------------------
+
+def upsert_series_character(series_id: int, character_name: str, aliases: str = "",
+                             notes: str = ""):
+    """Creates or updates a named character for a series. Matching is on
+    (series_id, character_name) -- renaming isn't done through this
+    function (it would create a new row); use rename_series_character."""
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO series_characters (series_id, character_name, aliases, notes, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(series_id, character_name) DO UPDATE SET
+            aliases = excluded.aliases,
+            notes = excluded.notes
+    """, (series_id, character_name, aliases, notes, datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def rename_series_character(series_character_id: int, new_name: str):
+    """Renaming updates the one series_characters row -- every drama's
+    `characters` row linked to it via series_character_id picks up the
+    new name automatically next time it's displayed (see
+    list_characters_with_series_names), rather than needing a per-drama
+    edit for a name correction that should apply everywhere."""
+    conn = get_conn()
+    conn.execute("UPDATE series_characters SET character_name = ? WHERE id = ?",
+                 (new_name, series_character_id))
+    conn.commit()
+    conn.close()
+
+
+def list_series_characters(series_id: int):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM series_characters WHERE series_id = ? ORDER BY character_name",
+        (series_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_series_character(series_character_id: int):
+    """Only removes the series-level record. Any drama's `characters` row
+    still pointing at it keeps its own character_name (already copied in
+    at assignment time) -- it just stops being linked for future rename
+    propagation, rather than losing the name it already had."""
+    conn = get_conn()
+    conn.execute("UPDATE characters SET series_character_id = NULL WHERE series_character_id = ?",
+                 (series_character_id,))
+    conn.execute("DELETE FROM series_characters WHERE id = ?", (series_character_id,))
+    conn.commit()
+    conn.close()
+
+
+def list_characters_with_series_names(drama_id: int):
+    """Like list_characters, but a character linked to a series_characters
+    row shows that row's current character_name (so a series-level rename
+    reflects here immediately) instead of the possibly-stale name copied
+    into `characters` at the time it was first assigned."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT c.*, sc.character_name AS series_character_name
+        FROM characters c
+        LEFT JOIN series_characters sc ON sc.id = c.series_character_id
+        WHERE c.drama_id = ?
+        ORDER BY c.speaker_label
+    """, (drama_id,)).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        if d.get("series_character_name"):
+            d["character_name"] = d["series_character_name"]
+        result.append(d)
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -130,6 +130,22 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
+def run_emotion_job(job_id, lines, engine, use_audio_cues):
+    """
+    Runs emotion.detect_emotions in a background thread, same reasoning as
+    the jobs above: a full stream's worth of lines is enough LLM batches
+    that a static spinner looks stuck, and there's no reason to freeze the
+    rest of the app for it. Unlike translation this has no db.save_lines
+    step -- detect_emotions only returns a result, it doesn't mutate
+    anything -- so the result is just handed back whole.
+    """
+    emap = emotion.detect_emotions(
+        lines, engine, use_audio_cues=use_audio_cues,
+        progress_cb=lambda frac: background_jobs.update_progress(
+            job_id, frac, f"Reading tone... {frac * 100:.0f}%"))
+    background_jobs.set_result(job_id, {"emotions": emap})
+
+
 def render_workspace_tab():
     st.subheader("1. Choose a drama")
     all_dramas = db.list_dramas()
@@ -959,6 +975,46 @@ def render_workspace_tab():
                         st.success("Added.")
                         st.rerun()
 
+                st.markdown("**Known characters in this series**")
+                st.caption("A recurring cast (a streamer's regulars, or a book series' main "
+                          "characters) that persists across every drama in this series -- once "
+                          "someone's added here, section 6 below lets you pick them by name for "
+                          "any drama instead of retyping and re-spelling it each time.")
+                series_chars = db.list_series_characters(sid)
+                if series_chars:
+                    for sc in series_chars:
+                        with st.container(border=True):
+                            scc1, scc2 = st.columns([3, 1])
+                            new_sc_name = scc1.text_input(
+                                "name", value=sc["character_name"], label_visibility="collapsed",
+                                key=f"scname_{sc['id']}")
+                            if scc2.button("🗑️ Remove", key=f"scdel_{sc['id']}"):
+                                db.delete_series_character(sc["id"])
+                                st.rerun()
+                            if new_sc_name and new_sc_name != sc["character_name"]:
+                                # A rename, not a delete-and-recreate -- every drama's
+                                # characters row already linked to this id (see section 6)
+                                # picks up the corrected name automatically.
+                                db.rename_series_character(sc["id"], new_sc_name)
+                                st.rerun()
+                            sc_notes = st.text_input(
+                                "Nicknames, speaking style, relationships (optional)",
+                                value=sc["notes"] or "", key=f"scnotes_{sc['id']}",
+                                label_visibility="collapsed",
+                                placeholder="Nicknames, speaking style, relationships (optional)")
+                            if sc_notes != (sc["notes"] or ""):
+                                db.upsert_series_character(sid, sc["character_name"],
+                                                            aliases=sc["aliases"] or "", notes=sc_notes)
+                else:
+                    st.caption("None yet -- add someone below, or link an existing per-drama "
+                              "character to a new series character in section 6.")
+                with st.form(f"add_series_char_{sid}", clear_on_submit=True):
+                    new_char_name = st.text_input("Add a known character")
+                    if st.form_submit_button("Add") and new_char_name:
+                        db.upsert_series_character(sid, new_char_name)
+                        st.success(f"Added '{new_char_name}'.")
+                        st.rerun()
+
 
         default_engine_list = list(translate_engines.ENGINES.keys())
         saved_engine = drama.get("translation_engine") or st.session_state.get("settings_default_engine", "claude")
@@ -1362,7 +1418,7 @@ def render_workspace_tab():
                 background_jobs.clear_job(_translate_job_id)
 
     # ---------------------------------------------------- Character naming
-    characters = db.list_characters(picked_id)
+    characters = db.list_characters_with_series_names(picked_id)
     if characters:
         st.divider()
         with st.expander("6. 🎭 Name your characters & set up voice cloning", expanded=False):
@@ -1385,8 +1441,29 @@ def render_workspace_tab():
                     st.success(f"Extracted {len(clips)} reference clip(s).")
                     st.rerun()
 
+            _series_chars = db.list_series_characters(drama["series_id"]) if drama.get("series_id") else []
+
             for c in characters:
                 with st.container(border=True):
+                    if _series_chars:
+                        # Hands-off path: pick a person who's already known in this
+                        # series (a streamer's regulars, a book series' cast) instead
+                        # of retyping and re-spelling their name for every new drama.
+                        _known_options = ["-- type a new name below --"] + [sc["character_name"] for sc in _series_chars]
+                        _current = next((sc["character_name"] for sc in _series_chars
+                                          if sc["id"] == c.get("series_character_id")), _known_options[0])
+                        picked_known = st.selectbox(
+                            f"Known characters in this series ({c['speaker_label']})", _known_options,
+                            index=_known_options.index(_current) if _current in _known_options else 0,
+                            key=f"cknown_{c['speaker_label']}")
+                        if picked_known != "-- type a new name below --":
+                            _sc = next(sc for sc in _series_chars if sc["character_name"] == picked_known)
+                            if c.get("series_character_id") != _sc["id"]:
+                                db.upsert_character(picked_id, c["speaker_label"],
+                                                     character_name=_sc["character_name"],
+                                                     series_character_id=_sc["id"])
+                                st.rerun()
+
                     cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
                     cc1.write(c["speaker_label"])
                     name = cc2.text_input("name", value=c["character_name"] or "",
@@ -1401,6 +1478,20 @@ def render_workspace_tab():
                     if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
                         db.upsert_character(picked_id, c["speaker_label"], character_name=name,
                                              voice_actor=va, tts_voice=voice)
+                    if (drama.get("series_id") and name.strip()
+                            and name.strip() not in [sc["character_name"] for sc in _series_chars]):
+                        # Deliberately opt-in, not automatic on every keystroke --
+                        # auto-saving every typed name (including mid-typo) would
+                        # clutter the series' cast list with one-off junk. This is
+                        # the one moment a person decides "yes, remember them".
+                        if st.checkbox(f"💾 Remember '{name.strip()}' as a known character in this series",
+                                       key=f"cremember_{c['speaker_label']}"):
+                            db.upsert_series_character(drama["series_id"], name.strip())
+                            _sc = next(sc for sc in db.list_series_characters(drama["series_id"])
+                                       if sc["character_name"] == name.strip())
+                            db.upsert_character(picked_id, c["speaker_label"], series_character_id=_sc["id"])
+                            st.success(f"'{name.strip()}' will be pickable for every future drama in this series.")
+                            st.rerun()
 
                     rc1, rc2 = st.columns([1, 2])
                     if c["ref_audio_filename"]:
@@ -1581,12 +1672,39 @@ def render_workspace_tab():
                 use_cues = ec2.checkbox("Use audio delivery cues", value=(has_audio_pipeline),
                                          help="Uses pacing and pauses from the original timing as "
                                               "weak evidence for emotional register.")
+                _emotion_job_id = f"emotion_{picked_id}"
+                _ejob = background_jobs.get_status(_emotion_job_id)
                 if ec1.button("Detect emotional register") and api_key:
                     eng_e = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                    with st.spinner("Reading tone..."):
-                        emap = emotion.detect_emotions(edited_rows, eng_e, use_audio_cues=use_cues)
-                    st.session_state[f"emotions_{picked_id}"] = emap
-                    st.rerun()
+                    # A copy, not the live list -- same reasoning as the Translate
+                    # button's _lines_copy: this runs in a background thread, and
+                    # edited_rows is tied to the review table's current widget state.
+                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                         speaker=l.speaker, dub_filename=l.dub_filename)
+                                   for l in edited_rows]
+                    started = background_jobs.start_job(
+                        _emotion_job_id, run_emotion_job,
+                        _emotion_job_id, _lines_copy, eng_e, use_cues)
+                    if started:
+                        st.info("Reading tone in the background -- safe to switch tabs while this runs.")
+                        st.rerun()
+                    else:
+                        st.warning("Already detecting emotional register for this drama.")
+
+                if _ejob:
+                    if _ejob["status"] == "running":
+                        st.progress(_ejob["progress"], text=_ejob.get("message") or "Reading tone...")
+                        if st.button("🔄 Refresh progress", key=f"refresh_em_{picked_id}"):
+                            st.rerun()
+                    elif _ejob["status"] == "done":
+                        emap = (_ejob.get("result") or {}).get("emotions", {})
+                        st.session_state[f"emotions_{picked_id}"] = emap
+                        background_jobs.clear_job(_emotion_job_id)
+                    elif _ejob["status"] == "error":
+                        st.error(f"Emotion detection failed: {_ejob['error']}")
+                        with st.expander("Details"):
+                            st.code(_ejob.get("traceback", ""), language="text")
+                        background_jobs.clear_job(_emotion_job_id)
 
                 if emap:
                     summ = emotion.emotion_summary(emap)
