@@ -576,6 +576,17 @@ Re-reviewed the dubbing code in projects already surveyed, filtered specifically
   3. Once the planning chat approves it, the user says "create a PR for this step". Then open a pull request **into `baihe-subtitler`** with a short plain-English summary. **Don't merge it yourself.**
   4. The user merges it on GitHub.
   5. Start the next step only after the previous one is merged, branching off the updated `baihe-subtitler`.
+  6. **Before starting one of the steps in the table below, stop and ask the user to confirm they've switched to Opus for this chat, then wait for that confirmation before writing any code for the step.** Every other step uses whatever model the chat is already on — no need to ask.
+- **Model recommendation per step.** Everything not listed here is fine on Sonnet — these are the steps with either a schema/data migration touching every existing project, correctness that depends on getting an edge case right rather than following a clear spec, or several interacting moving parts in one step:
+
+  | Step | Why it needs the extra care |
+  |---|---|
+  | 2 — R0 permanent line IDs | A schema migration that runs against every existing project's real data, plus the new backup/resumability guardrail — getting this wrong is hard to walk back cleanly. |
+  | 6c — Meaning-based re-segmentation | Changes line boundaries directly, and the guardrail added this session (detect exactly which lines' boundaries changed, clear only those, warn first) is the kind of edge-case-heavy logic that's easy to get almost right. |
+  | 9 — Cost controls & bulk discounts | Batch results can come back hours later and must be matched by id with a source-text hash check, with correct handling for a line that was merged, deleted or edited in between — several ways to subtly misassign a result if any check is skipped. |
+  | 11b — Novel narration TTS quality | Has grown into the step with the most interacting parts: four TTS backends with different capabilities (only one does voice design, only one does emotion), parallelized generation with a per-backend single-threaded exception, and the emotion→delivery mapping — a lot of places for one backend's quirk to leak into another's behaviour. |
+
+  Everything else — including Step 11's model-swap fix, Step 10's uninstaller — is normal-risk, well-specified work; Sonnet has already handled comparable steps (1, 1b, 1c) correctly.
 - **Status** (updated on every review — see §5 for how to keep this accurate; last checked against the real branch state on 2026-09-24). **Manual check** tracks the user's own real-model check from §2's table, separately from merge status — a step can be merged with its manual check still pending. It moves to ✅ only when the user says "manual check passed for Step X"; the planning chat doesn't infer it.
 
   | Step | Branch | Merged | Manual check |

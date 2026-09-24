@@ -26,6 +26,11 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 - **Keep changes minimal.** Only what the step's roadmap entry asks for —
   no extra refactors, no new features, no dependency upgrades beyond what
   the step names.
+- **Before starting a step, check the roadmap's §4 "Model recommendation
+  per step" table.** If the step you're about to start is listed there,
+  stop and ask the user to confirm they've switched this chat to Opus
+  before you write any code for it — then wait for that confirmation.
+  Every other step is fine on whatever model the chat is already on.
 - **Re-verify before fixing.** The roadmap was written by reading the code
   at a point in time; re-read the files it names and confirm the problem
   still exists as described before changing anything. If the code has
