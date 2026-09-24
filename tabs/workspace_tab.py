@@ -146,6 +146,22 @@ def run_emotion_job(job_id, lines, engine, use_audio_cues):
     background_jobs.set_result(job_id, {"emotions": emap})
 
 
+def run_flag_job(job_id, drama_id, lines, engine):
+    """
+    Runs flag_uncertain_lines in a background thread -- same reasoning as
+    the jobs above. Unlike emotion detection, the result IS persisted (via
+    db.save_lines): the whole point of a review queue is coming back to it
+    later, potentially after closing the app, not just within this
+    session.
+    """
+    translate_engines.flag_uncertain_lines(
+        lines, engine,
+        progress_cb=lambda frac: background_jobs.update_progress(
+            job_id, frac, f"Checking for lines that need a second look... {frac * 100:.0f}%"))
+    db.save_lines(drama_id, lines)
+    background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
+
+
 def render_workspace_tab():
     st.subheader("1. Choose a drama")
     all_dramas = db.list_dramas()
@@ -1336,7 +1352,8 @@ def render_workspace_tab():
             if saved:
                 st.session_state.lines = [Line(idx=r["idx"], start=r["start"], end=r["end"],
                                                  zh=r["zh"], en=r["en"] or "", speaker=r.get("speaker"),
-                                                 dub_filename=r.get("dub_filename")) for r in saved]
+                                                 dub_filename=r.get("dub_filename"), flag=r.get("flag"),
+                                                 flag_note=r.get("flag_note") or "") for r in saved]
 
         _translate_job_id = f"translate_{picked_id}"
         _job = background_jobs.get_status(_translate_job_id)
@@ -1371,9 +1388,14 @@ def render_workspace_tab():
             # A copy, not the live list -- the background thread mutates its own
             # lines and saves through the database; the main script reloads from
             # there once the job is visible again, rather than two threads
-            # touching the same objects st.session_state also holds.
+            # touching the same objects st.session_state also holds. Carries
+            # flag/flag_note through explicitly: run_translate_job's save_cb
+            # calls db.save_lines() on this exact list on every batch, including
+            # for lines this run never touches -- dropping those fields here
+            # would silently wipe every flag in the drama on every translate run.
             _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                 speaker=l.speaker, dub_filename=l.dub_filename)
+                                 speaker=l.speaker, dub_filename=l.dub_filename,
+                                 flag=l.flag, flag_note=l.flag_note)
                            for l in st.session_state.lines]
 
             started = background_jobs.start_job(
@@ -1400,7 +1422,8 @@ def render_workspace_tab():
                 st.session_state.lines = [
                     Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
                          en=r.get("en") or "", speaker=r.get("speaker"),
-                         dub_filename=r.get("dub_filename"))
+                         dub_filename=r.get("dub_filename"), flag=r.get("flag"),
+                         flag_note=r.get("flag_note") or "")
                     for r in db.load_lines(picked_id)]
                 _errors = (_job.get("result") or {}).get("errors", [])
                 if _errors:
@@ -1541,16 +1564,30 @@ def render_workspace_tab():
         with st.expander("7. 📝 Review & edit", expanded=False):
 
             all_lines = st.session_state.lines
+            _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
+            show_flagged_only = st.checkbox(
+                f"Show flagged lines only ({_n_flagged_total})",
+                value=False, disabled=not _n_flagged_total, key=f"flagged_only_{picked_id}")
+            visible_lines = [ln for ln in all_lines if ln.flag] if show_flagged_only else all_lines
+
             review_page_size = st.number_input("Lines per page", value=40, min_value=10, max_value=200,
                                                 step=10, key="review_page_size")
-            n_review_pages = max(1, (len(all_lines) + review_page_size - 1) // review_page_size)
+            n_review_pages = max(1, (len(visible_lines) + review_page_size - 1) // review_page_size)
             review_page = st.number_input(f"Page (1-{n_review_pages})", value=1, min_value=1,
                                            max_value=n_review_pages, step=1, key="review_page")
             page_start = (review_page - 1) * review_page_size
-            page_slice = all_lines[page_start: page_start + review_page_size]
+            page_slice = visible_lines[page_start: page_start + review_page_size]
 
             edited_page_rows = []
             for ln in page_slice:
+                if ln.flag:
+                    fc1, fc2 = st.columns([5, 1])
+                    fc1.warning(f"⚠️ **{translate_engines.FLAG_REASONS.get(ln.flag, ln.flag)}**"
+                               + (f" — {ln.flag_note}" if ln.flag_note else ""))
+                    if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}"):
+                        ln.flag, ln.flag_note = None, ""
+                        db.save_lines(picked_id, all_lines)
+                        st.rerun()
                 cols = st.columns([1, 1, 1, 3, 3, 0.5])
                 start = cols[0].number_input("start", value=round(ln.start, 2), step=0.1,
                                               label_visibility="collapsed", key=f"start_{ln.idx}")
@@ -1560,14 +1597,21 @@ def render_workspace_tab():
                 zh = cols[3].text_area("zh", value=ln.zh, height=68, label_visibility="collapsed", key=f"zh_{ln.idx}")
                 en = cols[4].text_area("en", value=ln.en, height=68, label_visibility="collapsed", key=f"en_{ln.idx}")
                 cols[5].write(f"#{ln.idx + 1}")
+                # Editing a flagged line's translation is treated as addressing
+                # it -- clears automatically rather than needing a separate
+                # "mark reviewed" click on top of the fix itself. Merely
+                # looking at it (no change) leaves the flag in place.
+                _still_flag, _still_note = (ln.flag, ln.flag_note) if en.strip() == ln.en.strip() else (None, "")
                 edited_page_rows.append(Line(idx=ln.idx, start=start, end=end, zh=zh, en=en,
-                                              speaker=ln.speaker, dub_filename=ln.dub_filename))
+                                              speaker=ln.speaker, dub_filename=ln.dub_filename,
+                                              flag=_still_flag, flag_note=_still_note))
 
             # Splice the edited page back into the full list -- lines outside
             # this page stay untouched rather than being re-rendered/re-edited.
             edited_rows = list(all_lines)
-            for i, ln in enumerate(edited_page_rows):
-                edited_rows[page_start + i] = ln
+            _idx_to_pos = {ln.idx: i for i, ln in enumerate(edited_rows)}
+            for ln in edited_page_rows:
+                edited_rows[_idx_to_pos[ln.idx]] = ln
             st.session_state.lines = edited_rows
 
             if st.button("💾 Save edits (this page)"):
@@ -1660,6 +1704,59 @@ def render_workspace_tab():
                 for issue in issues:
                     st.caption(f"**{issue.get('term')}**: {', '.join(issue.get('variants', []))} "
                               f"— {issue.get('note', '')}")
+
+            with st.expander("⚠️ Review queue (flag lines that need a second look)"):
+                st.caption(
+                    "Instead of scanning a whole multi-hour transcript, flag just the handful of "
+                    "lines worth a second look -- a possible mistranslation, an unresolved pronoun, "
+                    "an uncertain name, slang that may not have translated well. Most lines get no "
+                    "flag at all; this doesn't change anything by itself."
+                )
+                _flag_job_id = f"flag_{picked_id}"
+                _fjob = background_jobs.get_status(_flag_job_id)
+                if st.button("Find lines to flag") and api_key:
+                    engine_f = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
+                                         speaker=l.speaker, dub_filename=l.dub_filename,
+                                         flag=l.flag, flag_note=l.flag_note)
+                                   for l in edited_rows]
+                    started = background_jobs.start_job(_flag_job_id, run_flag_job,
+                                                          _flag_job_id, picked_id, _lines_copy, engine_f)
+                    if started:
+                        st.info("Checking in the background -- safe to switch tabs while this runs.")
+                        st.rerun()
+                    else:
+                        st.warning("Already checking for this drama.")
+
+                if _fjob:
+                    if _fjob["status"] == "running":
+                        st.progress(_fjob["progress"], text=_fjob.get("message") or "Checking...")
+                        if st.button("🔄 Refresh progress", key=f"refresh_fl_{picked_id}"):
+                            st.rerun()
+                    elif _fjob["status"] == "done":
+                        _count = (_fjob.get("result") or {}).get("flagged_count", 0)
+                        st.session_state.lines = [
+                            Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
+                                 en=r.get("en") or "", speaker=r.get("speaker"),
+                                 dub_filename=r.get("dub_filename"), flag=r.get("flag"),
+                                 flag_note=r.get("flag_note") or "")
+                            for r in db.load_lines(picked_id)]
+                        edited_rows = st.session_state.lines
+                        if _count:
+                            st.warning(f"{_count} line(s) flagged -- see the review table below, or "
+                                      "turn on \"Show flagged lines only\" to jump straight to them.")
+                        else:
+                            st.success("Nothing flagged.")
+                        background_jobs.clear_job(_flag_job_id)
+                    elif _fjob["status"] == "error":
+                        st.error(f"Flagging failed: {_fjob['error']}")
+                        with st.expander("Details"):
+                            st.code(_fjob.get("traceback", ""), language="text")
+                        background_jobs.clear_job(_flag_job_id)
+
+                _n_flagged = sum(1 for ln in edited_rows if ln.flag)
+                if _n_flagged:
+                    st.caption(f"{_n_flagged} line(s) currently flagged.")
 
             with st.expander("🎭 Emotional register (sarcasm, humour, anger)"):
                 st.caption(

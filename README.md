@@ -899,6 +899,31 @@ step for an ALREADY-known character is the hands-off part; deciding a
 NEW person is worth remembering permanently is the one moment that stays
 a deliberate choice.
 
+## Review queue (flag lines that need a second look)
+
+For a multi-hour transcript, reading every line to catch the handful with
+real problems doesn't scale. "🔍 Find lines to flag" (Workspace → 7.
+Review & edit → Review queue) asks the translation engine to review its
+own already-translated lines and flag only the ones worth a second look:
+a possible mistranslation, an unresolved pronoun/reference, an uncertain
+name, or slang/idiom that may not have translated cleanly. Most lines get
+no flag at all — over-flagging defeats the point, since you can't tell a
+real issue from noise in a long list of them.
+
+Runs in the background with a progress bar (same as Transcribe/Emotion),
+persists to the database (so it survives closing the app, not just this
+session), and adds a "Show flagged lines only" toggle above the review
+table to jump straight to what needs attention instead of paging through
+everything. A flag clears automatically once you actually edit that
+line's translation — no separate "mark reviewed" click on top of the fix
+itself — or dismiss it directly if it turns out fine as written.
+
+Deliberately scoped to what's assessable from text alone. "Speaker
+uncertain" and "audio unclear"/"overlapping speech" would need real
+diarization-confidence or audio evidence this codebase doesn't expose
+yet — worth adding later if diarization confidence scores become
+available, not guessed at now.
+
 ## Line tools
 
 Per-line operations in the Reader, for polishing rather than batch work:

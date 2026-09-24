@@ -198,7 +198,12 @@ def cmd_translate(args):
         if not rows:
             print(f"#{d['id']} skipped: no aligned lines yet.")
             return
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "")
+        # flag/flag_note carried through explicitly: save_cb below calls
+        # db.save_lines() on this exact list on every batch, including for
+        # lines this run doesn't touch -- dropping those fields here would
+        # silently wipe every review-queue flag in the drama on every run.
+        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
+                      speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
                  for r in rows]
         novel_reference = _load_novel_reference(d)
         print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"

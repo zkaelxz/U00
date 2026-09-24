@@ -540,6 +540,89 @@ def check_consistency_llm(lines, engine, batch_size: int = 60):
     return issues
 
 
+# Kept intentionally to what's actually assessable from the text alone --
+# "speaker uncertain" and "overlapping speech"/"audio unclear" would need
+# real diarization-confidence or audio evidence this codebase doesn't
+# expose yet (see diarize.py), not something worth guessing at from text.
+FLAG_REASONS = {
+    "uncertain_translation": "Possible mistranslation or awkward phrasing worth a second look",
+    "ambiguous_reference": "A pronoun or reference ('she', 'that place') that isn't clearly resolved",
+    "name_uncertain": "A name or term that might be misspelled or inconsistently romanized",
+    "slang_idiom": "Slang or an idiom that may not have translated well",
+}
+
+
+def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None):
+    """
+    Reviews already-translated lines and flags the ones worth a second
+    look -- the review-queue idea: instead of scanning a whole multi-hour
+    transcript line by line, review just the handful the model itself
+    wasn't confident about. Doesn't touch the translation itself, just
+    annotates .flag/.flag_note on the Line objects it's given (mutated in
+    place, same convention as translate_lines_with_engine).
+
+    Only meaningful with an LLM-capable engine; pure-MT engines (DeepL,
+    Google) can't reason about their own confidence and are left
+    untouched -- every line's .flag stays whatever it already was.
+    """
+    if not getattr(engine, "supports_reference", False):
+        return lines
+    translated = [ln for ln in lines if ln.en.strip()]
+    if not translated:
+        return lines
+
+    reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
+    n_batches = (len(translated) + batch_size - 1) // batch_size
+
+    for bi, start in enumerate(range(0, len(translated), batch_size)):
+        batch = translated[start:start + batch_size]
+        pairs = "\n".join(f"[{ln.idx}] {ln.zh} -> {ln.en}" for ln in batch)
+        prompt = (
+            "Below are Chinese source lines paired with their English translations. Flag ONLY "
+            "the lines that genuinely need a second look -- most lines need none at all, and "
+            "over-flagging defeats the point (the person reviewing this can't tell a real issue "
+            "from noise). Reasons worth flagging:\n\n"
+            f"{reasons_desc}\n\n"
+            'Return ONLY a JSON array: [{"line_idx": 0, "reason": "uncertain_translation", '
+            '"note": "brief reason"}]. Empty array if nothing needs flagging (the common case). '
+            "No preamble, no markdown fences.\n\n" + pairs
+        )
+        try:
+            if hasattr(engine, "client") and hasattr(engine.client, "messages"):
+                resp = call_with_backoff(lambda: engine.client.messages.create(
+                    model=engine.model, max_tokens=2000,
+                    messages=[{"role": "user", "content": prompt}],
+                ))
+                text = "".join(b.text for b in resp.content if b.type == "text").strip()
+            elif hasattr(engine, "client"):
+                resp = call_with_backoff(lambda: engine.client.chat.completions.create(
+                    model=engine.model, messages=[{"role": "user", "content": prompt}],
+                ))
+                text = resp.choices[0].message.content.strip()
+            else:
+                text = "[]"
+        except Exception:
+            text = "[]"  # a check failing shouldn't block anything -- just skip that batch
+
+        if progress_cb:
+            progress_cb((bi + 1) / n_batches)
+
+        flagged = _parse_json_array(text, 0)
+        if not isinstance(flagged, list):
+            continue
+        by_idx = {ln.idx: ln for ln in batch}
+        for f in flagged:
+            if not isinstance(f, dict) or f.get("line_idx") is None:
+                continue
+            ln = by_idx.get(int(f["line_idx"]))
+            if ln is None:
+                continue
+            reason = f.get("reason") if f.get("reason") in FLAG_REASONS else "uncertain_translation"
+            ln.flag = reason
+            ln.flag_note = f.get("note", "")
+    return lines
+
+
 class TestOfflineEngine:
     """A no-cost, no-network engine for verifying the pipeline works.
 

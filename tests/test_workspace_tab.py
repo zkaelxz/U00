@@ -20,8 +20,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs
-from tabs.workspace_tab import run_transcribe_job, run_hardsub_ocr_job
+from tabs.workspace_tab import run_transcribe_job, run_hardsub_ocr_job, run_flag_job
 import core as core_module
+from core import Line
 
 
 def _clear(job_id):
@@ -207,4 +208,74 @@ def test_hardsub_ocr_unexpected_exception_still_propagates(monkeypatch):
         assert False, "unexpected exceptions must propagate"
     except RuntimeError as e:
         assert "ffmpeg not found" in str(e)
+    _clear(job_id)
+
+
+class FakeFlaggingEngine:
+    supports_reference = True
+    model = "fake-model"
+
+    def __init__(self, flags_for=None):
+        self.client = self
+        self.messages = self
+        self.flags_for = flags_for or {}
+
+    def create(self, model, max_tokens, messages):
+        import re, json
+        idxs = [int(m) for m in re.findall(r"\[(\d+)\]", messages[0]["content"])]
+        out = [{"line_idx": i, "reason": r, "note": n}
+               for i in idxs if i in self.flags_for for r, n in [self.flags_for[i]]]
+        block = type("Block", (), {"type": "text", "text": json.dumps(out)})()
+        return type("Resp", (), {"content": [block]})()
+
+
+def test_flag_job_persists_flags_to_db(isolated_db):
+    job_id = "test_flag_persist"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="她昨天来了", en="She came yesterday."),
+             Line(idx=1, start=1, end=2, zh="你好", en="Hello.")]
+    engine = FakeFlaggingEngine(flags_for={0: ("ambiguous_reference", "'she' unresolved")})
+
+    run_flag_job(job_id, did, lines, engine)
+
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["flag"] == "ambiguous_reference"
+    assert loaded[0]["flag_note"] == "'she' unresolved"
+    assert loaded[1]["flag"] is None
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"flagged_count": 1}
+    _clear(job_id)
+
+
+def test_flag_job_progress_cb_is_wired(isolated_db):
+    job_id = "test_flag_progress"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+
+    run_flag_job(job_id, did, lines, FakeFlaggingEngine())
+
+    status = background_jobs.get_status(job_id)
+    assert status["progress"] == 1.0
+    _clear(job_id)
+
+
+def test_flag_job_with_nothing_flagged(isolated_db):
+    job_id = "test_flag_nothing"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+
+    run_flag_job(job_id, did, lines, FakeFlaggingEngine())
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"flagged_count": 0}
+    assert isolated_db.load_lines(did)[0]["flag"] is None
     _clear(job_id)

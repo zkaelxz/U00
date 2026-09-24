@@ -123,6 +123,30 @@ class TestLinesSaveLoad:
         loaded = isolated_db.load_lines(did)
         assert loaded[0]["dub_filename"] == "clip_0.wav"
 
+    def test_flag_and_flag_note_persist(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        ln = Line(idx=0, start=0, end=1, zh="a", en="b",
+                  flag="ambiguous_reference", flag_note="'her' unresolved")
+        isolated_db.save_lines(did, [ln])
+        loaded = isolated_db.load_lines(did)
+        assert loaded[0]["flag"] == "ambiguous_reference"
+        assert loaded[0]["flag_note"] == "'her' unresolved"
+
+    def test_unflagged_line_has_no_flag(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="b")])
+        loaded = isolated_db.load_lines(did)
+        assert loaded[0]["flag"] is None
+
+    def test_resaving_clears_a_previously_set_flag(self, isolated_db):
+        """A line whose flag was dismissed (or cleared by editing) and
+        re-saved shouldn't have the old flag reappear."""
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="b", flag="name_uncertain")])
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a", en="b", flag=None)])
+        loaded = isolated_db.load_lines(did)
+        assert loaded[0]["flag"] is None
+
 
 class TestSeriesAndGlossary:
     def test_get_or_create_is_idempotent(self, isolated_db):
