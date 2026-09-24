@@ -253,24 +253,34 @@ def render_workspace_tab():
                     os.remove(_existing_raw_path)
                     st.rerun()
 
+        content_mode_options = ["audio_drama", "streamer_vod", "novel_narration"]
         content_mode = st.radio(
             "What are you working from?",
-            ["audio_drama", "novel_narration"],
-            index=0 if (drama.get("content_mode") or "audio_drama") == "audio_drama" else 1,
-            format_func=lambda m: "🎧 Audio drama (I have the audio, + transcript)"
-                         if m == "audio_drama" else
-                         "📖 Novel only (no audio -- generate a full AI narration)",
+            content_mode_options,
+            index=content_mode_options.index(drama.get("content_mode") or "audio_drama")
+                  if (drama.get("content_mode") or "audio_drama") in content_mode_options else 0,
+            format_func=lambda m: {
+                "audio_drama": "🎧 Audio drama (I have the audio, + transcript)",
+                "streamer_vod": "🎥 Streamer/VOD (long-form, multiple speakers, no transcript)",
+                "novel_narration": "📖 Novel only (no audio -- generate a full AI narration)",
+            }[m],
             horizontal=False,
         )
         if content_mode != drama.get("content_mode"):
             db.update_drama(picked_id, content_mode=content_mode)
+
+        # Streamer/VOD is audio-bearing just like audio_drama -- everything
+        # gated on "does this drama have real audio to run through Whisper/
+        # diarization/translation" applies to both; only novel_narration
+        # (no audio at all) is excluded.
+        has_audio_pipeline = content_mode in ("audio_drama", "streamer_vod")
 
         audio_file = None
         transcript_text = ""
         novel_narration_text = ""
         existing_audio = None
 
-        if content_mode == "audio_drama":
+        if has_audio_pipeline:
             if drama["audio_filename"]:
                 p = os.path.join(ddir, drama["audio_filename"])
                 if os.path.exists(p):
@@ -633,7 +643,7 @@ def render_workspace_tab():
                  "changes. Falls back to Whisper automatically if qwen-asr isn't installed.")
 
     with st.expander("4. 🎙️ Speaker diarization", expanded=False):
-        if content_mode == "audio_drama":
+        if has_audio_pipeline:
             st.caption(
                 "Distinguishes different voices/characters in the audio, so lines can be grouped "
                 "by character and dubbed with different voices (or cloned). Needs `pyannote.audio` "
@@ -641,12 +651,19 @@ def render_workspace_tab():
             )
             hf_token = st.text_input("Hugging Face token (for diarization)", type="password",
                                       value=st.session_state.get("settings_hf_token", ""))
-            run_diarize = st.checkbox("Run speaker diarization during alignment", value=False,
+            run_diarize = st.checkbox("Run speaker diarization during alignment",
+                                       value=(content_mode == "streamer_vod"),
                                        disabled=not hf_token)
+            expected_speakers = st.number_input(
+                "Expected number of speakers (0 = auto-detect)", min_value=0, max_value=20,
+                value=0, disabled=not run_diarize,
+                help="Telling the diarizer how many speakers to expect is usually more reliable "
+                     "than auto-detection, especially on long or noisy audio -- particularly "
+                     "relevant for Streamer/VOD content with several people talking.")
         else:
             st.caption("For novel narration, speaker attribution is done by the translation LLM "
                        "(who's speaking each line) instead of audio diarization -- no audio to analyze.")
-            hf_token, run_diarize = None, False
+            hf_token, run_diarize, expected_speakers = None, False, 0
 
     st.subheader("5. Translation")
 
@@ -823,7 +840,7 @@ def render_workspace_tab():
                                                    "en-AU": "Australian English"}[l])
 
     b1, b2 = st.columns(2)
-    if content_mode == "audio_drama":
+    if has_audio_pipeline:
         _has_audio = bool(audio_file or existing_audio)
         _whisper_mode = st.session_state.get(f"tmode_{picked_id}") == "whisper"
         _has_transcript = bool(transcript_text.strip()) or _whisper_mode
@@ -841,7 +858,7 @@ def render_workspace_tab():
     else:
         can_prep = bool(novel_narration_text.strip())
         prep_label = "▶ Chunk & Tag Speakers"
-    if content_mode == "audio_drama" and can_prep:
+    if has_audio_pipeline and can_prep:
         if not core_module.is_whisper_model_cached(whisper_size):
             st.caption(f"ℹ️ The '{whisper_size}' model isn't downloaded yet — first run will "
                       f"fetch it from Hugging Face (a few hundred MB to ~3GB). Needs a working "
@@ -853,7 +870,7 @@ def render_workspace_tab():
     force_retranslate = b2.checkbox("Force re-translate everything (ignore already-translated lines)",
                                      value=False, key="force_retranslate")
 
-    if run_prep and content_mode == "audio_drama":
+    if run_prep and has_audio_pipeline:
         audio_path = existing_audio
         if audio_file is not None:
             ext = os.path.splitext(audio_file.name)[1]
@@ -971,7 +988,8 @@ def render_workspace_tab():
             with st.spinner("Running speaker diarization... (first run downloads the model)"):
                 try:
                     import diarize
-                    speaker_segments = diarize.diarize(audio_path, hf_token)
+                    speaker_segments = diarize.diarize(
+                        audio_path, hf_token, num_speakers=expected_speakers or None)
                     diarize.label_lines_with_speakers(lines, speaker_segments)
                     for label in sorted({ln.speaker for ln in lines if ln.speaker}):
                         db.upsert_character(picked_id, label)
@@ -1026,7 +1044,7 @@ def render_workspace_tab():
 
     if run_translate and st.session_state.lines:
         novel_reference = existing_novel_text
-        if content_mode == "audio_drama":
+        if has_audio_pipeline:
             if novel_file is not None:
                 novel_reference = novel_file.read().decode("utf-8", errors="ignore")
             elif novel_pasted.strip():
@@ -1108,7 +1126,7 @@ def render_workspace_tab():
             st.caption("Map speaker labels to character names, and optionally attach a reference "
                        "voice clip per character for cloning (instead of the free TTS pool).")
             speaker_segments = st.session_state.get(f"speaker_segments_{picked_id}")
-            can_auto_extract = content_mode == "audio_drama" and speaker_segments is not None
+            can_auto_extract = has_audio_pipeline and speaker_segments is not None
 
             if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
                 audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
@@ -1317,7 +1335,7 @@ def render_workspace_tab():
                 )
                 emap = st.session_state.get(f"emotions_{picked_id}", {})
                 ec1, ec2 = st.columns([1, 1])
-                use_cues = ec2.checkbox("Use audio delivery cues", value=(content_mode == "audio_drama"),
+                use_cues = ec2.checkbox("Use audio delivery cues", value=(has_audio_pipeline),
                                          help="Uses pacing and pauses from the original timing as "
                                               "weak evidence for emotional register.")
                 if ec1.button("Detect emotional register") and api_key:

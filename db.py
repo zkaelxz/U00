@@ -93,7 +93,7 @@ def init_db():
         voice_actors TEXT,      -- comma-separated
         summary TEXT,
         status TEXT DEFAULT 'not started',   -- not started / aligned / translated / dubbed / exported
-        content_mode TEXT DEFAULT 'audio_drama',  -- 'audio_drama' or 'novel_narration'
+        content_mode TEXT DEFAULT 'audio_drama',  -- 'audio_drama', 'streamer_vod', or 'novel_narration'
         source_language TEXT DEFAULT 'zh',        -- 'zh', 'ja', or 'ko'
         media_type TEXT DEFAULT 'audio_drama',    -- 'audio_drama', 'video_drama', 'novel',
                                                    -- 'manhwa', 'manga', 'manhua', 'asmr', 'other'
