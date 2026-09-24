@@ -20,6 +20,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                            # requirements-media.txt, not core -- skip
+                            # cleanly without it rather than fail collection
 import hardsub_ocr
 import ocr as ocr_module
 

@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TABS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tabs")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _find_use_before_def(node):
@@ -435,4 +436,56 @@ class TestUndefinedNameCheckerItself:
         tree = ast.parse(src)
         problems = _find_undefined_bases(tree.body[0], available={"items"})
         assert problems == []
+
+
+def _find_requests_calls_missing_timeout(path):
+    """Every requests.post()/requests.get() call in `path` that has no
+    `timeout=` keyword. A hung server on one of these leaves a background
+    job stuck at "running" forever -- a real, shipped gap this checks for
+    directly rather than trusting every call site to remember it."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    problems = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("post", "get")
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "requests"):
+            if not any(kw.arg == "timeout" for kw in node.keywords):
+                problems.append(node.lineno)
+    return problems
+
+
+class TestHttpCallsHaveTimeouts:
+    """Regression coverage for a real gap: translate_engines.py's Gemini,
+    Google, and Ollama calls, and qa.py's Gemini call, had no timeout=
+    at all. Without one, a server that stops responding mid-request
+    leaves the job stuck at "running" with no way to notice."""
+
+    def test_translate_engines(self):
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "translate_engines.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
+    def test_qa(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "qa.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
+
+class TestTimeoutCheckerItself:
+    def test_catches_a_call_with_no_timeout(self, tmp_path):
+        src = "import requests\nrequests.post(url, json={})\n"
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_requests_calls_missing_timeout(str(p)) == [2]
+
+    def test_does_not_flag_a_call_with_timeout(self, tmp_path):
+        src = "import requests\nrequests.post(url, json={}, timeout=30)\n"
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_requests_calls_missing_timeout(str(p)) == []
+
+    def test_ignores_unrelated_get_post_calls(self, tmp_path):
+        src = "session.get(url)\nsome_dict.get('key')\n"
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_requests_calls_missing_timeout(str(p)) == []
 
