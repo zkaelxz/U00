@@ -9,7 +9,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → R0 → R1-lite → R2 → R3-lite.
-- Steps 6–8: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8). Milestones R4, R6 and R7 are deferred (see §3).
+- Steps 6–10: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4, R6 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -74,11 +74,23 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
    - Fix: send the key in a header (`x-goog-api-key` for Gemini; Google Translate v2 accepts `X-Goog-Api-Key` as well), and redact anything that looks like a key or token from error strings before they're shown or stored.
 3. **Requests with no time limit.** Add `timeout=` to every `requests.post`/`requests.get` in `translate_engines.py` and `qa.py`: Gemini, Google, Ollama and Q&A. Without one, a server that stops responding leaves the job stuck at "running" forever.
 4. *(Minor)* Tests that hard-import optional libraries (`jieba`, `pytesseract`, `cv2`) should use `pytest.importorskip`, so a core-only install gives a clean test run.
+5. **Safe backups** (`tabs/library_tab.py`, "Create backup .zip").
+   - The problem: the backup zips the whole library, videos included, into an in-memory `BytesIO`, then keeps extra copies of it (`getvalue()`, `session_state`, `download_button`). A few-GB library can exhaust RAM. It also copies `library.db` as a plain file while the database is open in WAL mode, so recent changes still sitting in `library.db-wal` can be missing, or the copy can be inconsistent.
+   - Snapshot the database with SQLite's backup API (`sqlite3.Connection.backup`) into a temp file, and zip that instead of the live file.
+   - Stream the zip to a file on disk (e.g. `library/backups/<timestamp>.zip`) instead of memory, and tell the user where it is.
+   - Add a quick **"Database only"** backup option: the database is small, and it's the part that can't be re-downloaded. Keep the full backup (with media) as a separate option.
+6. **Log file.**
+   - The problem: the app has no logging at all (no `logging` usage anywhere). Background-job failures leave only whatever was shown on screen.
+   - Configure a `RotatingFileHandler` once at startup, writing to `library/logs/app.log`.
+   - Log job start, finish and failure (with the traceback) in `background_jobs`, plus every external API error, after the key redaction from item 2.
+   - Diagnostics shows the last ~50 log lines and has a "copy log" button.
 
 **Exit:**
 - A test shows a second line-writing job is refused while one is running.
 - A test shows a failed Gemini request's stored error contains no key.
 - Every HTTP call has a timeout (a test or static check).
+- A test shows the backup's database snapshot includes a write made just before the backup, and that the backup is written to disk.
+- A test shows a failing background job writes its traceback to the log file.
 
 ### Step 1c — Dependency fixes (from the known-issues research)
 These are things that are broken now, or that break without warning.
@@ -180,6 +192,48 @@ These are things that are broken now, or that break without warning.
 
 **Exit:** a test with fake embeddings produces the correct ranking, respects the threshold, and never assigns a name without confirmation.
 
+### Step 9 — Cost controls & bulk discounts *(needs Step 1's id-keyed output)*
+1. **Spending cap per job.**
+   - Before a job starts, estimate its cost from the line count and the average tokens per line (`translate_engines.estimate_cost`).
+   - Show the estimate, and let the user set "stop if this job would cost more than $X". Also allow an optional monthly cap, checked against the existing `usage` log.
+   - While the job runs, add up the actual cost after each batch and stop cleanly (keeping finished work) once the cap is reached.
+2. **"Bulk (cheaper, slower)" mode for work nobody is waiting on.**
+   - Applies to full-drama translation, the review-queue flagging, consistency checks, emotion detection, translation notes and reflect mode (Step 7).
+   - Does **not** apply to Q&A, single-line fixes, Live translation or the Site Navigator, where someone is waiting.
+   - **Claude — Message Batches API** (`client.messages.batches.create`):
+     - 50% off all tokens.
+     - Most batches finish within an hour; the maximum is 24 hours.
+     - Up to 100,000 requests or 256 MB per batch; results are kept for 29 days.
+     - Prompt caching works inside batches too.
+   - **Gemini — Batch API:** 50% off, with a target turnaround of 24 hours. Context caching can be combined with it.
+   - **DeepSeek — no batch API, but off-peak pricing:** about 50% cheaper outside its peak UTC hours. Add a "run in the next off-peak window" option that schedules the job.
+   - How it works:
+     - Submit every batch at once, with `custom_id = "<drama_id>:<batch_index>"`.
+     - Save the batch id on the drama, so a restarted app can pick results up again.
+     - Poll in a background job, then apply results **by id, never by position**. Results come back in any order; Step 1's id-keyed JSON makes this safe.
+   - One trade-off to show in the UI: because every batch is submitted at the same time, the look-back context can only use *source* lines, not earlier translations. That's slightly less consistent than live mode. Optionally, add a second consistency pass (the consistency check, also batched) to make up for it.
+3. **Make prompt caching count** (all engines; no quality change).
+   - The prompt should always start with the same stable part (system instructions → style guide → glossary → reference novel), with the changing lines after it. Then Claude's `cache_control`, Gemini's implicit caching and DeepSeek's automatic prefix caching all hit. Cache reads cost about 10% of the normal input price.
+   - Check this from each response's usage (`cache_read_input_tokens` on Claude), and show the cache-hit share next to the cost in the usage view.
+   - Nothing that changes between requests (timestamps, batch numbers) may go in the stable part.
+
+**Exit:**
+- A mocked test shows a job stops at the cap and keeps its finished lines.
+- A mocked batch client returning results out of order still assigns every translation to the right lines.
+- A restarted app picks up a pending batch by its saved id.
+- A test shows the stable prompt part is byte-identical across batches of the same drama.
+
+### Step 10 — One-click Windows launcher *(convenience)*
+- Add a `start.bat` (plus an optional `start.ps1`) that:
+  - creates or activates the venv on first run;
+  - installs `requirements-core.txt` if it's missing;
+  - runs Diagnostics' dependency check and prints anything missing in plain words (ffmpeg, the JS runtime, CUDA);
+  - starts `streamlit run app.py` and opens the browser.
+- It's safe to run twice: if the app is already running on the port, it just opens the browser.
+- Add a short "Double-click `start.bat`" section at the top of the README's Installation section.
+
+**Exit:** on a clean Windows machine with Python and ffmpeg installed, double-clicking `start.bat` gets the app open in the browser with no typed commands. Check this by hand; it can't be unit-tested.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -208,7 +262,7 @@ These are things that are broken now, or that break without warning.
 
 ---
 
-## 5. Sources for Steps 1c and 6–8
+## 5. Sources for Steps 1c and 6–9
 - yt-dlp — [External JS runtime now required](https://github.com/yt-dlp/yt-dlp/issues/15012), [EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
 - pyannote — [releases (4.0 breaking changes)](https://github.com/pyannote/pyannote-audio/releases), [community-1 model card](https://huggingface.co/pyannote/speaker-diarization-community-1), [community-1 blog](https://www.pyannote.ai/blog/community-1)
 - Ollama — [context length docs](https://docs.ollama.com/context-length), [silent truncation write-up](https://particula.tech/blog/ollama-num-ctx-silent-prompt-truncation)
@@ -217,3 +271,4 @@ These are things that are broken now, or that break without warning.
 - Qwen3-ASR — [ForcedAligner zero-duration spans #197](https://github.com/QwenLM/Qwen3-ASR/issues/197)
 - Vocal separation — [Demucs repo (archived)](https://github.com/facebookresearch/demucs), [audio-separator](https://pypi.org/project/audio-separator/)
 - pyvideotrans — [FAQ](https://en.pyvideotrans.com/faq)
+- Bulk discounts — [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api), [DeepSeek off-peak pricing overview](https://devtk.ai/en/blog/deepseek-api-pricing-guide-2026/) (check DeepSeek's own pricing page for the current hours and rates). Claude Message Batches: 50% off, most batches within 1 hour and at most 24 hours, prompt caching supported (Anthropic API docs).
