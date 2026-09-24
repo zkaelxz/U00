@@ -443,6 +443,16 @@ def init_db():
         conn.execute("ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
     if "enforce_exact" not in gloss_cols:
         conn.execute("ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
+    sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
+    if "gender" not in sc_cols:
+        # Feeds translation as a fixed pronoun hint for this character
+        # (e.g. "Su Shan: she/her") -- Mandarin's spoken 他/她/它 are
+        # homophones, so Whisper's transcribed character for a pronoun is
+        # not a reliable gender signal on its own, and misgendering a
+        # named character is a much more visible error than an ambiguous
+        # unnamed one. NULL/"" means unset -- no hint is added for that
+        # character, distinct from "unspecified" as a deliberate choice.
+        conn.execute("ALTER TABLE series_characters ADD COLUMN gender TEXT")
     conn.commit()
     conn.close()
 
@@ -645,18 +655,30 @@ def list_characters(drama_id: int):
 # ---------------------------------------------------------------------------
 
 def upsert_series_character(series_id: int, character_name: str, aliases: str = "",
-                             notes: str = ""):
+                             notes: str = "", gender: str = None):
     """Creates or updates a named character for a series. Matching is on
     (series_id, character_name) -- renaming isn't done through this
-    function (it would create a new row); use rename_series_character."""
+    function (it would create a new row); use rename_series_character.
+
+    gender: "female" | "male" | "" | None. Feeds translation as a fixed
+    pronoun hint for this character -- Mandarin's spoken 他/她/它 are
+    homophones, so the character Whisper happens to transcribe for a
+    pronoun isn't a reliable gender signal, and misgendering a NAMED
+    character reads as a much more obvious error than an ambiguous
+    unnamed one. None leaves an existing gender value untouched (so
+    re-running "remember this character" from a different tab doesn't
+    silently clear a gender set earlier); pass "" explicitly to clear it.
+    """
     conn = get_conn()
     conn.execute("""
-        INSERT INTO series_characters (series_id, character_name, aliases, notes, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO series_characters (series_id, character_name, aliases, notes, gender, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(series_id, character_name) DO UPDATE SET
             aliases = excluded.aliases,
-            notes = excluded.notes
-    """, (series_id, character_name, aliases, notes, datetime.datetime.utcnow().isoformat()))
+            notes = excluded.notes,
+            gender = COALESCE(?, series_characters.gender)
+    """, (series_id, character_name, aliases, notes, gender,
+          datetime.datetime.utcnow().isoformat(), gender))
     conn.commit()
     conn.close()
 

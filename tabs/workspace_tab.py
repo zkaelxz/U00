@@ -1006,6 +1006,15 @@ def render_workspace_tab():
         include_genre_notes = st.checkbox(
             "Include baihe/GL genre guidance (pronoun clarity, kinship-term nuance, "
             "don't soften romantic content)", value=True)
+        st.session_state[f"default_female_pronouns_{picked_id}"] = st.checkbox(
+            "Default ambiguous pronouns to she/her",
+            value=st.session_state.get(f"default_female_pronouns_{picked_id}", False),
+            help="Spoken Mandarin doesn't distinguish 他/她/它 (all pronounced \"tā\"), so "
+                 "Whisper's transcribed character for a pronoun isn't a reliable gender signal "
+                 "-- for an all/mostly-female cast, this tells the translator to default an "
+                 "ambiguous reference to female instead of guessing from that character. A "
+                 "specific character's gender (set below, or under 6. Name your characters) "
+                 "always wins over this default.")
         custom_guide_notes = st.text_area(
             "Project-specific translation notes (optional)", height=68,
             placeholder="e.g. this character always speaks formally; keep the narrator distant")
@@ -1179,9 +1188,22 @@ def render_workspace_tab():
                                 value=sc["notes"] or "", key=f"scnotes_{sc['id']}",
                                 label_visibility="collapsed",
                                 placeholder="Nicknames, speaking style, relationships (optional)")
-                            if sc_notes != (sc["notes"] or ""):
+                            _gender_opts = ["", "female", "male"]
+                            _cur_gender = sc.get("gender") or ""
+                            sc_gender = st.selectbox(
+                                "Pronouns", _gender_opts,
+                                index=_gender_opts.index(_cur_gender) if _cur_gender in _gender_opts else 0,
+                                format_func=lambda g: {"": "Unspecified (use the default)",
+                                                        "female": "she/her", "male": "he/him"}[g],
+                                key=f"scgender_{sc['id']}",
+                                help="Fixes this character's pronouns in translation, overriding "
+                                     "both Whisper's transcribed 他/她/它 (unreliable -- they're "
+                                     "homophones in speech) and the \"default to she/her\" toggle "
+                                     "above.")
+                            if sc_notes != (sc["notes"] or "") or sc_gender != _cur_gender:
                                 db.upsert_series_character(sid, sc["character_name"],
-                                                            aliases=sc["aliases"] or "", notes=sc_notes)
+                                                            aliases=sc["aliases"] or "", notes=sc_notes,
+                                                            gender=sc_gender)
                 else:
                     st.caption("None yet -- add someone below, or link an existing per-drama "
                               "character to a new series character in section 6.")
@@ -1549,12 +1571,16 @@ def render_workspace_tab():
             _emap = db.load_emotions(picked_id)
             _emotion_block = emotion.build_emotion_guidance(
                 _emap, [ln.idx for ln in st.session_state.lines]) if _emap else ""
+            _gender_block = (tguide.build_character_gender_hints(db.list_series_characters(drama["series_id"]))
+                              if drama.get("series_id") else "")
             style_guidelines = tguide.build_style_guidelines(
                 style_preset, glossary_terms=glossary_terms,
                 include_genre_notes=include_genre_notes,
+                default_female_pronouns=st.session_state.get(f"default_female_pronouns_{picked_id}", False),
                 custom_notes=(custom_guide_notes
                                + ("\n\n" + _learned if _learned else "")
-                               + ("\n\n" + _emotion_block if _emotion_block else "")))
+                               + ("\n\n" + _emotion_block if _emotion_block else "")
+                               + ("\n\n" + _gender_block if _gender_block else "")))
 
             # A copy, not the live list -- the background thread mutates its own
             # lines and saves through the database; the main script reloads from
