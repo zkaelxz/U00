@@ -164,19 +164,15 @@ class TestResolveStreamUrl:
         with pytest.raises(lt.LiveCaptureError, match="direct stream URL"):
             lt.resolve_stream_url("https://example.com/live")
 
-    def test_no_video_formats_gives_a_specific_actionable_message(self, monkeypatch):
-        """Regression test for a real reported failure: yt-dlp raising
-        "No video formats found!" for a URL that's a real, valid live
-        stream page -- the generic "link is wrong/private/region-locked"
-        message didn't help there. Also confirms the fallback to a plain
-        "best" format is actually attempted before giving up."""
+    def _install_fake_yt_dlp_with_attempt_log(self, monkeypatch, extract_info_fn):
         import types
         fake_module = types.ModuleType("yt_dlp")
         attempts = []
 
         class FakeYDL:
             def __init__(self, opts):
-                attempts.append(opts["format"])
+                client = (opts.get("extractor_args", {}).get("youtube", {}).get("player_client") or [None])[0]
+                attempts.append((opts["format"], client))
 
             def __enter__(self):
                 return self
@@ -185,41 +181,75 @@ class TestResolveStreamUrl:
                 return False
 
             def extract_info(self, url, download=False):
-                raise RuntimeError("No video formats found!")
+                return extract_info_fn(attempts[-1])
 
         fake_module.YoutubeDL = FakeYDL
         monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+        return attempts
 
-        with pytest.raises(lt.LiveCaptureError, match="isn't actually live right now"):
+    def test_no_video_formats_gives_a_specific_actionable_message_after_exhausting_all_attempts(
+            self, monkeypatch):
+        """Regression test for a real reported failure: yt-dlp raising
+        "No video formats found!" for a URL confirmed to be a real, live
+        stream, on a confirmed-current yt-dlp version -- ruling out the
+        generic "link is wrong/private/region-locked" and version-skew
+        explanations. This is YouTube's proof-of-origin token requirement,
+        worked around by trying alternate player clients; the message
+        after all of them fail should say so, not repeat the generic one."""
+        def always_fail(_last_attempt):
+            raise RuntimeError("No video formats found!")
+
+        attempts = self._install_fake_yt_dlp_with_attempt_log(monkeypatch, always_fail)
+
+        with pytest.raises(lt.LiveCaptureError, match="proof-of-origin token"):
             lt.resolve_stream_url("https://example.com/live")
-        assert attempts == ["bestaudio/best", "best"]
+
+        # bestaudio/best, then best, then best with each fallback client.
+        assert attempts == (
+            [("bestaudio/best", None), ("best", None)]
+            + [("best", c) for c in lt._YOUTUBE_CLIENT_FALLBACKS]
+        )
 
     def test_no_video_formats_recovers_via_the_best_fallback(self, monkeypatch):
-        import types
-        fake_module = types.ModuleType("yt_dlp")
-        attempts = []
+        def fail_only_on_bestaudio(last_attempt):
+            if last_attempt[0] == "bestaudio/best":
+                raise RuntimeError("No video formats found!")
+            return {"url": "https://cdn.example.com/live.m3u8"}
 
-        class FakeYDL:
-            def __init__(self, opts):
-                attempts.append(opts["format"])
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
-            def extract_info(self, url, download=False):
-                if attempts[-1] == "bestaudio/best":
-                    raise RuntimeError("No video formats found!")
-                return {"url": "https://cdn.example.com/live.m3u8"}
-
-        fake_module.YoutubeDL = FakeYDL
-        monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+        attempts = self._install_fake_yt_dlp_with_attempt_log(monkeypatch, fail_only_on_bestaudio)
 
         result = lt.resolve_stream_url("https://example.com/live")
+
         assert result == "https://cdn.example.com/live.m3u8"
-        assert attempts == ["bestaudio/best", "best"]
+        assert attempts == [("bestaudio/best", None), ("best", None)]
+
+    def test_recovers_via_a_player_client_fallback(self, monkeypatch):
+        """The actual real-world case this was built for: default and
+        plain "best" both fail, but requesting through an alternate
+        player client (here, the second one tried) succeeds."""
+        def succeed_on_second_client(last_attempt):
+            if last_attempt == ("best", lt._YOUTUBE_CLIENT_FALLBACKS[1]):
+                return {"url": "https://cdn.example.com/live.m3u8"}
+            raise RuntimeError("No video formats found!")
+
+        attempts = self._install_fake_yt_dlp_with_attempt_log(monkeypatch, succeed_on_second_client)
+
+        result = lt.resolve_stream_url("https://example.com/live")
+
+        assert result == "https://cdn.example.com/live.m3u8"
+        assert attempts[-1] == ("best", lt._YOUTUBE_CLIENT_FALLBACKS[1])
+
+    def test_a_non_format_error_fails_fast_without_trying_every_client(self, monkeypatch):
+        """A private/deleted video fails identically on every attempt --
+        looping through every player client would just waste time."""
+        def always_private(_last_attempt):
+            raise RuntimeError("Private video")
+
+        attempts = self._install_fake_yt_dlp_with_attempt_log(monkeypatch, always_private)
+
+        with pytest.raises(lt.LiveCaptureError, match="Common causes"):
+            lt.resolve_stream_url("https://example.com/live")
+        assert len(attempts) == 1
 
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
