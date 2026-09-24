@@ -164,6 +164,63 @@ class TestResolveStreamUrl:
         with pytest.raises(lt.LiveCaptureError, match="direct stream URL"):
             lt.resolve_stream_url("https://example.com/live")
 
+    def test_no_video_formats_gives_a_specific_actionable_message(self, monkeypatch):
+        """Regression test for a real reported failure: yt-dlp raising
+        "No video formats found!" for a URL that's a real, valid live
+        stream page -- the generic "link is wrong/private/region-locked"
+        message didn't help there. Also confirms the fallback to a plain
+        "best" format is actually attempted before giving up."""
+        import types
+        fake_module = types.ModuleType("yt_dlp")
+        attempts = []
+
+        class FakeYDL:
+            def __init__(self, opts):
+                attempts.append(opts["format"])
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                raise RuntimeError("No video formats found!")
+
+        fake_module.YoutubeDL = FakeYDL
+        monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+
+        with pytest.raises(lt.LiveCaptureError, match="isn't actually live right now"):
+            lt.resolve_stream_url("https://example.com/live")
+        assert attempts == ["bestaudio/best", "best"]
+
+    def test_no_video_formats_recovers_via_the_best_fallback(self, monkeypatch):
+        import types
+        fake_module = types.ModuleType("yt_dlp")
+        attempts = []
+
+        class FakeYDL:
+            def __init__(self, opts):
+                attempts.append(opts["format"])
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                if attempts[-1] == "bestaudio/best":
+                    raise RuntimeError("No video formats found!")
+                return {"url": "https://cdn.example.com/live.m3u8"}
+
+        fake_module.YoutubeDL = FakeYDL
+        monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+
+        result = lt.resolve_stream_url("https://example.com/live")
+        assert result == "https://cdn.example.com/live.m3u8"
+        assert attempts == ["bestaudio/best", "best"]
+
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
 class TestRealCaptureEndToEnd:

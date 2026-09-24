@@ -1326,6 +1326,24 @@ def delete_glossary_term(term_id: int):
     conn.close()
 
 
+def update_glossary_term(term_id: int, term_original: str, term_translation: str,
+                          notes: str = "", category: str = None, policy: str = None,
+                          enforce_exact: bool = False):
+    """Updates an existing glossary term by its own id -- unlike
+    upsert_glossary_term (keyed on term_original, for the extract-and-add
+    flow), this lets a term's original text itself be corrected without
+    orphaning the old row as a stale duplicate entry."""
+    conn = get_conn()
+    conn.execute("""
+        UPDATE glossary_terms
+        SET term_original = ?, term_translation = ?, notes = ?, category = ?,
+            policy = ?, enforce_exact = ?
+        WHERE id = ?
+    """, (term_original, term_translation, notes, category, policy, int(enforce_exact), term_id))
+    conn.commit()
+    conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Line history / undo -- snapshots taken before risky bulk operations
 # (force re-translate, merge) so you can roll back to a previous version

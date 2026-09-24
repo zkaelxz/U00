@@ -1080,10 +1080,56 @@ def render_workspace_tab():
                 terms = db.list_glossary_terms(sid)
                 if terms:
                     for t in terms:
+                        _editing_key = f"editing_glossary_{t['id']}"
                         pol_label = tguide.TERM_POLICIES.get(t.get("policy") or "keep_pinyin", {}).get("label", "")
                         lock = " 🔒" if t.get("enforce_exact") else ""
-                        st.caption(f"**{t['term_original']}** → {t['term_translation']}{lock} "
-                                  f"_{pol_label}_" + (f" — {t['notes']}" if t.get("notes") else ""))
+                        gtc1, gtc2, gtc3 = st.columns([6, 0.6, 0.6])
+                        gtc1.caption(f"**{t['term_original']}** → {t['term_translation']}{lock} "
+                                    f"_{pol_label}_" + (f" — {t['notes']}" if t.get("notes") else ""))
+                        if gtc2.button("✏️", key=f"editglo_btn_{t['id']}"):
+                            st.session_state[_editing_key] = not st.session_state.get(_editing_key, False)
+                        if gtc3.button("🗑️", key=f"delglo_{t['id']}"):
+                            db.delete_glossary_term(t["id"])
+                            st.rerun()
+
+                        if st.session_state.get(_editing_key):
+                            with st.container(border=True):
+                                egc1, egc2 = st.columns(2)
+                                e_orig = egc1.text_input("Original term", value=t["term_original"],
+                                                          key=f"eglo_orig_{t['id']}")
+                                e_trans = egc2.text_input("Translation", value=t["term_translation"],
+                                                           key=f"eglo_trans_{t['id']}")
+                                egc3, egc4 = st.columns(2)
+                                _cat_keys = list(tguide.TERM_CATEGORIES.keys())
+                                _cur_cat = t.get("category") or "other"
+                                e_cat = egc3.selectbox(
+                                    "Category", _cat_keys,
+                                    index=_cat_keys.index(_cur_cat) if _cur_cat in _cat_keys else 0,
+                                    format_func=lambda k: tguide.TERM_CATEGORIES[k],
+                                    key=f"eglo_cat_{t['id']}")
+                                _pol_keys = list(tguide.TERM_POLICIES.keys())
+                                _cur_pol = t.get("policy") or "keep_pinyin"
+                                e_pol = egc4.selectbox(
+                                    "Handling policy", _pol_keys,
+                                    index=_pol_keys.index(_cur_pol) if _cur_pol in _pol_keys else 0,
+                                    format_func=lambda k: tguide.TERM_POLICIES[k]["label"],
+                                    key=f"eglo_pol_{t['id']}")
+                                e_notes = st.text_input("Notes / known wrong variants",
+                                                         value=t.get("notes") or "",
+                                                         key=f"eglo_notes_{t['id']}")
+                                e_enforce = st.checkbox("🔒 Enforce exactly",
+                                                         value=bool(t.get("enforce_exact")),
+                                                         key=f"eglo_enforce_{t['id']}")
+                                esc1, esc2 = st.columns(2)
+                                if esc1.button("💾 Save", key=f"eglo_save_{t['id']}"):
+                                    db.update_glossary_term(
+                                        t["id"], e_orig, e_trans, e_notes, e_cat, e_pol, e_enforce)
+                                    st.session_state[_editing_key] = False
+                                    st.success("Saved.")
+                                    st.rerun()
+                                if esc2.button("Cancel", key=f"eglo_cancel_{t['id']}"):
+                                    st.session_state[_editing_key] = False
+                                    st.rerun()
                 else:
                     st.caption("No terms yet.")
 
