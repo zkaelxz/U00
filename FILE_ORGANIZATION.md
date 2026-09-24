@@ -40,7 +40,7 @@ baihe-subtitler/
 │   ├── settings_tab.py           sidebar: API keys, appearance, defaults
 │   └── diagnostics_tab.py        "check my setup"
 │
-├── tests/                     ← 285 tests. Run: python run_tests.py
+├── tests/                     ← 860+ tests. Run: python run_tests.py
 │   ├── __init__.py
 │   ├── conftest.py               fixtures (isolated temp database)
 │   ├── test_core.py

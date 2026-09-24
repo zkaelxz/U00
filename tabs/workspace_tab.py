@@ -57,11 +57,17 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     that on its next rerun rather than this function updating any UI
     directly, which it structurally cannot do from here.
     """
+    # {speaker_label: character_name}, named characters only -- a line
+    # whose speaker has no name set is shown to the translator with no
+    # name at all (see translate_lines_with_engine's own docstring),
+    # never the raw diarization label, which isn't a name.
+    character_names = {c["speaker_label"]: c["character_name"]
+                        for c in db.list_characters(drama_id) if c.get("character_name")}
     _, errors = translate_engines.translate_lines_with_engine(
         lines, engine, drama_meta=drama_meta, style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
-        context_window=context_window,
+        context_window=context_window, character_names=character_names,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Translating... {frac*100:.0f}%"),
         save_cb=lambda ls: db.save_lines(drama_id, ls),

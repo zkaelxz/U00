@@ -36,6 +36,7 @@ from core import (
     chunk_novel_text, extract_audio_from_video,
 )
 import translate_engines
+import translation_guide as tguide
 import dub as dub_module
 
 
@@ -206,11 +207,22 @@ def cmd_translate(args):
                       speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
                  for r in rows]
         novel_reference = _load_novel_reference(d)
+        # UI parity: without these, a CLI-run translation skipped the
+        # series glossary, craft/style guidelines, and locale entirely --
+        # a real, confirmed gap between what the Workspace Translate
+        # button sends and what this command sent for the same drama.
+        glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else None
+        style_guidelines = tguide.build_style_guidelines(
+            style_preset=args.style_preset, glossary_terms=glossary_terms)
+        character_names = {c["speaker_label"]: c["character_name"]
+                            for c in db.list_characters(d["id"]) if c.get("character_name")}
         print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d, style_note=args.style_note or "",
             novel_reference=novel_reference, force_retranslate=args.force,
+            locale=args.locale, glossary_terms=glossary_terms,
+            style_guidelines=style_guidelines, character_names=character_names,
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines),
         )
@@ -232,10 +244,13 @@ def cmd_dub(args):
         if not rows or not any(r.get("en") for r in rows):
             print(f"#{d['id']} skipped: not translated yet.")
             return
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "")
+        # flag/flag_note carried through explicitly, same reasoning as
+        # cmd_translate above -- db.save_lines() below on this exact list
+        # would otherwise silently wipe every review-queue flag in the
+        # drama on every dub run. A real, confirmed gap this replaces.
+        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
+                      speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
                  for r in rows]
-        for ln, r in zip(lines, rows):
-            ln.speaker = r.get("speaker")
         ddir = db.drama_dir(d["id"])
 
         chars = db.list_characters(d["id"])
@@ -306,6 +321,11 @@ def main():
     p_translate.add_argument("--api-key", required=True)
     p_translate.add_argument("--model", default=None)
     p_translate.add_argument("--style-note", default=None)
+    p_translate.add_argument("--style-preset", default="audio_drama",
+                              choices=list(tguide.STYLE_PRESETS),
+                              help="Matches the Workspace tab's own style-guidance preset -- "
+                                   "affects phrasing/pacing guidance, not language or content.")
+    p_translate.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.set_defaults(func=cmd_translate)
@@ -323,6 +343,15 @@ def main():
     p_run.add_argument("--api-key", required=True)
     p_run.add_argument("--model", default=None)
     p_run.add_argument("--style-note", default=None)
+    # cmd_run calls cmd_translate(args) directly, reusing this same
+    # Namespace -- it needs everything cmd_translate itself does (--status,
+    # --force, --style-preset, --locale), a real pre-existing gap this
+    # surfaced: cmd_run has always raised AttributeError the moment it
+    # reached cmd_translate, since these were never defined here.
+    p_run.add_argument("--status", default=None)
+    p_run.add_argument("--style-preset", default="audio_drama", choices=list(tguide.STYLE_PRESETS))
+    p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_run.add_argument("--force", action="store_true")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")

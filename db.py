@@ -27,10 +27,15 @@ def configure_library_dir(path: str):
     test suite to point at a temp directory instead of the real
     library, so tests never touch your actual data. Not something
     you'd normally call yourself."""
-    global LIBRARY_DIR, DRAMAS_DIR, DB_PATH
+    global LIBRARY_DIR, DRAMAS_DIR, DB_PATH, BENCHMARK_DIR
     LIBRARY_DIR = path
     DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
     DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
+    # BENCHMARK_DIR used to be left pointed at the real library even under
+    # test isolation -- a real gap: any test that exercised the benchmark
+    # case file-upload path (Diagnostics tab) would have silently written
+    # into the actual production library folder instead of the temp one.
+    BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
     os.makedirs(DRAMAS_DIR, exist_ok=True)
 
 

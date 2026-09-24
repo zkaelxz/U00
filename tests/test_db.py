@@ -547,6 +547,15 @@ class TestPagesAndBubbles:
 
 
 class TestBenchmarkCasesAndRuns:
+    def test_configure_library_dir_redirects_benchmark_dir_too(self, isolated_db):
+        """Regression test for a real gap: configure_library_dir (what
+        test isolation itself relies on) never redirected BENCHMARK_DIR,
+        so any test exercising the benchmark case file-upload path would
+        have silently written into the real production library instead
+        of the isolated temp one."""
+        assert isolated_db.BENCHMARK_DIR.startswith(isolated_db.LIBRARY_DIR)
+        assert isolated_db.BENCHMARK_DIR == os.path.join(isolated_db.LIBRARY_DIR, "benchmark_cases")
+
     def test_create_and_list_a_case(self, isolated_db):
         case_id = isolated_db.create_benchmark_case(
             "My test drama clip", "transcription", "audio_drama", source_language="zh",
