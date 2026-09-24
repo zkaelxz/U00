@@ -8,7 +8,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 - Audited code: branch `baihe-subtitler` at commit `7af8453`. Every `file:function` reference below is on that branch.
 
 **Build order:**
-- Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
+- Steps 1–5: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
 - Steps 6–10: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4, R6 and R7 are deferred (see §3).
 
 ## Decisions already made
@@ -59,6 +59,7 @@ Rules for every milestone:
 |---|---|
 | 1 | Translate a short episode that has named characters. Check that pronouns and honorifics match who's speaking, and that no line got another line's translation. |
 | 1b | Start Translate, then try "Find lines to flag" and editing a line. Both should be refused with a message. Make a database-only backup and a full backup, then open Diagnostics and check the log shows the job. |
+| 1c-pre | Start a fresh cloud session on `baihe-subtitler` after this merges. Confirm it runs `python run_tests.py` with no manual install step first. |
 | 1c | Download a short YouTube clip. Run speaker detection. Translate with Ollama if you use it. Generate an edge-tts dub line. |
 | 1d | Using only the 🧪 Free engines (Test mode, then Ollama or Gemini free tier), run every AI button once: translate, flag, consistency, emotion, notes, Q&A. Each should produce a result or a clear "not supported by this engine" message, never a silent empty result. Export a subtitle made with Test mode and check the warning appears. |
 | 1e | In a drama **without** a series, set a character's pronouns in section 6 and translate. Then set pronouns right in the glossary area's "People & pronouns" when adding someone new. Check the translation uses them, including they/them. |
@@ -113,6 +114,33 @@ Do these right after Step 1 and before Step 2. They're small, and they protect e
 - Every HTTP call has a timeout (a test or static check).
 - A test shows the backup's database snapshot includes a write made just before the backup, and that the backup is written to disk.
 - A test shows a failing background job writes its traceback to the log file.
+
+### Step 1c-pre — AI setup: CLAUDE.md and a session-start hook
+So every future session (in this repo, cloud or local) picks up the working rules and doesn't waste its first minutes reinstalling dependencies. Files are drafted on the planning branch and copied in here.
+
+1. **`CLAUDE.md`** at the repo root. Claude Code reads this automatically at the start of every session in this repo. Contents (already drafted — copy from the planning branch, adjust only if something in it is now wrong):
+   - how to read the roadmap and which step means what;
+   - the one-step-one-branch / minimal-diff / re-verify-before-fixing working rules;
+   - the pull request rule (only on explicit "create a PR for this step", never self-merge);
+   - how to run and write tests (mocked only, `isolated_db`, `importorskip` for optional libs);
+   - the running list of "rules learned from real bugs" (id-keyed matching, no keys in URLs/logs, HTTP timeouts, the line-writing job guard, `db.save_lines` field carry-through, CLI/UI parity) so these don't get reintroduced;
+   - a short map of where things are (`tabs/workspace_tab.py` is large — read only the relevant section; `translate_engines.py`, `background_jobs.py`, `db.py`).
+2. **A SessionStart hook** (`.claude/hooks/session-start.sh` + `.claude/settings.json`), already drafted and verified against this repo (873 passed, 2 skipped, ~40s):
+   - runs only in a remote/cloud session (`$CLAUDE_CODE_REMOTE`), a no-op locally;
+   - installs `requirements-core.txt` plus the light optional libraries whose tests would otherwise skip (`jieba`, `pypinyin`, `opencc-python-reimplemented`, `opencv-python-headless`, `pytesseract`, `numpy`, `pillow`) — heavy/GPU extras (torch, pyannote, whisper, f5-tts, paddleocr) are deliberately left out, since tests mock those;
+   - uses `constraints.lock.txt`/`constraints.txt` once Step 1c adds them;
+   - sets `PYTHONPATH` via `$CLAUDE_ENV_FILE`.
+3. Copy both from the planning branch:
+   ```
+   git fetch origin claude/baihe-subtitle-planning-95qyvq
+   git checkout FETCH_HEAD -- docs/ai-setup/CLAUDE.md docs/ai-setup/.claude
+   mv docs/ai-setup/CLAUDE.md .
+   mv docs/ai-setup/.claude .
+   rmdir docs/ai-setup
+   ```
+4. Run the hook once by hand (`CLAUDE_CODE_REMOTE=true ./.claude/hooks/session-start.sh`) and the full suite, to confirm it still works against the current `baihe-subtitler`.
+
+**Exit:** `CLAUDE.md` and `.claude/hooks/session-start.sh` exist at the repo root; a fresh remote session runs `python run_tests.py` successfully with no manual install step first (see the manual check below); a local run is unaffected (the hook exits immediately when `$CLAUDE_CODE_REMOTE` isn't set).
 
 ### Step 1c — Dependency fixes (from the known-issues research)
 These are things that are broken now, or that break without warning.
