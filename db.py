@@ -1302,13 +1302,19 @@ init_db()
 
 def reset_library():
     """
-    Deletes the database and every drama's files, then reinitializes an
-    empty schema. Irreversible -- callers must get explicit confirmation
-    before calling this; nothing here asks again.
+    Deletes the database, every drama's files, and the cached CC-CEDICT
+    dictionary, then reinitializes an empty schema. Irreversible --
+    callers must get explicit confirmation before calling this; nothing
+    here asks again.
 
     Closes any connections this process still holds open first (WAL mode
     leaves -wal/-shm files that must go too, or a stale one can confuse
     the next connection).
+
+    cedict.txt re-downloads automatically the next time it's needed (see
+    dictionary.py's _ensure_cedict()) -- it's a generic reference file,
+    not drama data, but "reset everything" should mean everything
+    downloaded, not just the per-drama folders.
     """
     import shutil
 
@@ -1319,5 +1325,8 @@ def reset_library():
             os.remove(p)
     if os.path.isdir(DRAMAS_DIR):
         shutil.rmtree(DRAMAS_DIR)
+    cedict_path = os.path.join(LIBRARY_DIR, "cedict.txt")
+    if os.path.exists(cedict_path):
+        os.remove(cedict_path)
     os.makedirs(DRAMAS_DIR, exist_ok=True)
     init_db()

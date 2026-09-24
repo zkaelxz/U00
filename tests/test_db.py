@@ -337,3 +337,17 @@ class TestFullLibraryReset:
     def test_reset_on_an_already_empty_library_does_not_crash(self, isolated_db):
         isolated_db.reset_library()  # nothing to wipe
         assert isolated_db.list_dramas() == []
+
+    def test_wipes_the_cached_cedict_dictionary_too(self, isolated_db):
+        cedict_path = os.path.join(isolated_db.LIBRARY_DIR, "cedict.txt")
+        with open(cedict_path, "w", encoding="utf-8") as f:
+            f.write("fake cedict data")
+
+        isolated_db.reset_library()
+
+        assert not os.path.exists(cedict_path)
+
+    def test_reset_without_a_cedict_file_present_does_not_crash(self, isolated_db):
+        cedict_path = os.path.join(isolated_db.LIBRARY_DIR, "cedict.txt")
+        assert not os.path.exists(cedict_path)
+        isolated_db.reset_library()  # must not raise just because there's nothing to remove

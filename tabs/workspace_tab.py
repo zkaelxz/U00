@@ -3,6 +3,15 @@ tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.
 """
 from common import *
 
+MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
+                       "asmr", "streamer_vod", "other"]
+
+
+def _format_media_type(m):
+    # .title() alone mangles acronyms (ASMR -> Asmr, streamer_vod -> Streamer Vod).
+    special = {"asmr": "ASMR", "streamer_vod": "Streamer VOD"}
+    return special.get(m, m.replace("_", " ").title())
+
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
@@ -110,9 +119,8 @@ def render_workspace_tab():
         director = c1.text_input("Director", value=prefill.get("director", ""))
         voice_actors = c2.text_input("Voice actors (comma-separated)", value=prefill.get("voice_actors", ""))
         summary = st.text_area("Summary", value=prefill.get("summary", ""), height=100)
-        media_type = st.selectbox("Content type",
-                                   ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua", "asmr", "other"],
-                                   format_func=lambda m: m.replace("_", " ").title())
+        media_type = st.selectbox("Content type", MEDIA_TYPE_OPTIONS,
+                                   format_func=_format_media_type)
         if st.button("Create drama"):
             new_id = db.create_drama(title_en=title_en, title_zh=title_zh, author=author,
                                       studio=studio, director=director,
@@ -142,10 +150,11 @@ def render_workspace_tab():
         director = c1.text_input("Director", value=drama["director"] or "")
         voice_actors = c2.text_input("Voice actors (comma-separated)", value=drama["voice_actors"] or "")
         summary = st.text_area("Summary", value=drama["summary"] or "", height=100)
-        media_type_options = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua", "asmr", "other"]
-        media_type = c1.selectbox("Content type", media_type_options,
-                                   index=media_type_options.index(drama.get("media_type") or "audio_drama"),
-                                   format_func=lambda m: m.replace("_", " ").title())
+        media_type = c1.selectbox(
+            "Content type", MEDIA_TYPE_OPTIONS,
+            index=MEDIA_TYPE_OPTIONS.index(drama.get("media_type") or "audio_drama")
+                  if (drama.get("media_type") or "audio_drama") in MEDIA_TYPE_OPTIONS else 0,
+            format_func=_format_media_type)
         genre = c2.text_input("Genre", value=drama.get("genre") or "",
                                placeholder="historical, modern, fantasy...")
         status_opts = ["unknown", "ongoing", "completed", "hiatus"]
@@ -268,6 +277,14 @@ def render_workspace_tab():
         )
         if content_mode != drama.get("content_mode"):
             db.update_drama(picked_id, content_mode=content_mode)
+            # Reflect the choice in the library-facing "Content type" field too --
+            # only for streamer_vod, which has no other way to be represented
+            # there. audio_drama/novel_narration aren't force-synced since
+            # Content type already draws finer distinctions under them (e.g.
+            # media_type=asmr with content_mode=audio_drama is a valid,
+            # deliberate combination that shouldn't be silently overwritten).
+            if content_mode == "streamer_vod" and drama.get("media_type") != "streamer_vod":
+                db.update_drama(picked_id, media_type="streamer_vod")
 
         # Streamer/VOD is audio-bearing just like audio_drama -- everything
         # gated on "does this drama have real audio to run through Whisper/
