@@ -98,8 +98,13 @@ def render_scanlate_tab():
                     for b in boxes:
                         crop_path = os.path.join(sc_ddir, "_bubble_crop.png")
                         from PIL import Image as PILImage
+                        # Inset slightly before cropping -- OCRing the box's own
+                        # border can make Tesseract return nothing at all or a
+                        # few stray characters instead of the real text.
+                        ocr_box = scanlate.inset_box_for_ocr(b)
                         PILImage.open(page_path).crop(
-                            (b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"])
+                            (ocr_box["x"], ocr_box["y"],
+                             ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"])
                         ).save(crop_path)
                         backend = "manga_ocr" if sc_lang == "ja" else "tesseract"
                         try:
