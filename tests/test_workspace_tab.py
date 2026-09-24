@@ -955,4 +955,62 @@ class TestOllamaReachabilityGatesTranslateButton:
         did = self._drama_with_ollama_engine(isolated_db)
         at = self._run(did)
         assert self._button(at, "🌐 Translate all lines").disabled is False
+
+
+class TestTranslationOnlyEngineGatesLlmOnlyButtons:
+    """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
+    features (consistency check, flagging, emotion detection, notes,
+    speaker tagging) -- calling call_llm_json with one of them now raises
+    instead of silently returning a fallback, so those buttons must be
+    disabled up front rather than let a click guarantee a crash."""
+
+    def _drama_with_translation_only_engine(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="deepl")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_check_consistency_is_disabled_for_a_translation_only_engine(self, isolated_db):
+        did = self._drama_with_translation_only_engine(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "Check consistency").disabled is True
+        assert any("translation-only" in c.value for c in at.caption)
+
+    def test_find_lines_to_flag_is_disabled_for_a_translation_only_engine(self, isolated_db):
+        did = self._drama_with_translation_only_engine(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "Find lines to flag").disabled is True
+
+    def test_generate_translation_notes_is_disabled_for_a_translation_only_engine(self, isolated_db):
+        did = self._drama_with_translation_only_engine(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "Generate translation notes").disabled is True
+
+    def test_check_consistency_is_enabled_for_an_llm_capable_engine(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama 2", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="claude")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        at = self._run(did)
+        assert self._button(at, "Check consistency").disabled is False
         assert not any("Can't reach Ollama" in w.value for w in at.warning)
