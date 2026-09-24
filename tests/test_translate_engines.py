@@ -806,6 +806,75 @@ class TestGeminiEngine:
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
 
 
+class TestOllamaEngine:
+    """Regression coverage for a real gap: Ollama's own default context
+    window can be as small as 2-4k tokens, and a prompt longer than it
+    gets silently TRUNCATED FROM THE START (system instructions/glossary/
+    reference novel) with no error at all. translate_batch now always
+    sends an explicit options.num_ctx sized from the actual prompt, with
+    a floor, plus a `format` JSON schema pairing with the id-keyed
+    parsing from Step 1."""
+
+    def _fake_response(self, captured, text='{"1": "Hello."}'):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"message": {"content": text}}
+
+        def fake_post(url, json=None, timeout=None):
+            captured["json"] = json
+            captured["timeout"] = timeout
+            return FakeResponse()
+        return fake_post
+
+    def test_sends_a_format_json_schema_for_structured_output(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {})
+        assert captured["json"]["format"] == te._OLLAMA_ID_KEYED_JSON_SCHEMA
+
+    def test_num_ctx_is_never_below_the_floor_for_a_short_prompt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {})
+        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+
+    def test_num_ctx_grows_with_a_much_longer_prompt(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        long_glossary = [{"term_original": "x" * 200, "term_translation": "y"} for _ in range(200)]
+        engine.translate_batch(["你好"], {"glossary_terms": long_glossary})
+        assert captured["json"]["options"]["num_ctx"] > te.OLLAMA_MIN_NUM_CTX
+
+    def test_override_can_raise_num_ctx_above_the_estimate(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {"ollama_num_ctx_override": 100_000})
+        assert captured["json"]["options"]["num_ctx"] == 100_000
+
+    def test_override_below_the_estimate_is_not_used(self, monkeypatch):
+        """A manual override smaller than what the prompt actually needs
+        would silently reintroduce the exact truncation bug this exists
+        to prevent -- the larger of the two must always win."""
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {"ollama_num_ctx_override": 1})
+        assert captured["json"]["options"]["num_ctx"] >= te.OLLAMA_MIN_NUM_CTX
+
+    def test_request_has_a_timeout(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr("requests.post", self._fake_response(captured))
+        engine = te.OllamaEngine()
+        engine.translate_batch(["你好"], {})
+        assert captured["timeout"] is not None
+
+
 class TestDeepLEngine:
     """Regression coverage for a real bug: source_language was hardcoded
     to "ZH" regardless of the drama's actual source language, so a

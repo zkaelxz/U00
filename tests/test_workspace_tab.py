@@ -20,6 +20,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import pytest
 import background_jobs
 import db
 import translate_engines
@@ -304,6 +305,9 @@ def test_hardsub_ocr_success_stores_segments(monkeypatch):
                                       "error": None, "cancel_requested": False, "result": None}
 
     fake_cues = [{"start": 0.0, "end": 2.0, "text": "你好"}]
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: fake_cues)
 
@@ -326,6 +330,9 @@ def test_hardsub_ocr_progress_cb_is_wired(monkeypatch):
         progress_cb(0.4)
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
 
@@ -343,6 +350,9 @@ def test_hardsub_ocr_empty_cues_is_recorded_not_raised(monkeypatch):
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: [])
 
@@ -357,6 +367,9 @@ def test_hardsub_ocr_unexpected_exception_still_propagates(monkeypatch):
     job_id = "test_hardsub_unexpected"
     _clear(job_id)
 
+    pytest.importorskip("cv2")  # hardsub_ocr.py imports cv2 at module level;
+                                # requirements-media.txt, not core -- skip
+                                # cleanly without it rather than fail collection
     import hardsub_ocr
     def fake_extract(*a, **k):
         raise RuntimeError("ffmpeg not found")

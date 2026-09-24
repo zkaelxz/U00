@@ -25,10 +25,25 @@ class _FakeDiarizationResult:
             yield type("Turn", (), {"start": start, "end": end})(), None, speaker
 
 
-def _stub_pyannote(accepted_kwarg, turns):
+class _FakeDiarizeOutput4x:
+    """Mimics pyannote.audio 4.x's DiarizeOutput dataclass: pipeline(audio)
+    returns this wrapper instead of an Annotation directly, with the
+    actual Annotation-like result on .speaker_diarization. Calling
+    .itertracks() on THIS object (as 3.x code would, unchanged) raises
+    AttributeError, which is exactly the real reported break."""
+    def __init__(self, annotation):
+        self.speaker_diarization = annotation
+
+
+def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False):
     """Builds a fake pyannote.audio module whose Pipeline.from_pretrained
     only accepts one specific auth kwarg name -- raising TypeError for
-    the other, the same way a real version-mismatched install would."""
+    the other, the same way a real version-mismatched install would.
+
+    wrap_4x_output: when True, the fake pipeline's call returns a
+    _FakeDiarizeOutput4x wrapping the result (pyannote.audio 4.x's
+    actual return shape) instead of the Annotation-like result directly
+    (3.x's shape)."""
     import types
 
     calls = {"kwarg_used": None}
@@ -41,7 +56,11 @@ def _stub_pyannote(accepted_kwarg, turns):
                 raise TypeError(
                     f"Pipeline.from_pretrained() got an unexpected keyword argument '{bad}'")
             calls["kwarg_used"] = accepted_kwarg
-            return lambda audio_path, num_speakers=None: _FakeDiarizationResult(turns)
+
+            def _call(audio_path, num_speakers=None):
+                result = _FakeDiarizationResult(turns)
+                return _FakeDiarizeOutput4x(result) if wrap_4x_output else result
+            return _call
 
     fake_module = types.ModuleType("pyannote.audio")
     fake_module.Pipeline = FakePipeline
@@ -77,6 +96,30 @@ class TestDiarizeTokenKwargCompatibility:
         # the fake pipeline accepts and ignores it, same as the real one
         # would use it as a hint.
         result = diarize.diarize("/fake/audio.wav", "hf_xxx", num_speakers=2)
+        assert result == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+
+
+class TestDiarizePyannote4CompatibleOutputShape:
+    """Regression coverage for a real breaking change: pyannote.audio 4.x's
+    pipeline(audio) call returns a DiarizeOutput dataclass instead of an
+    Annotation, so the old code's diarization.itertracks(...) broke with
+    an AttributeError (DiarizeOutput has no itertracks). diarize() now
+    unwraps .speaker_diarization when present, falling through to the
+    result itself when it isn't (3.x's shape)."""
+
+    def test_handles_the_4x_diarizeoutput_wrapper_shape(self):
+        calls = _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00"),
+                                                (1.0, 2.0, "SPEAKER_01")],
+                               wrap_4x_output=True)
+        result = diarize.diarize("/fake/audio.wav", "hf_xxx")
+        assert calls["kwarg_used"] == "token"
+        assert result == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"},
+                           {"start": 1.0, "end": 2.0, "speaker": "SPEAKER_01"}]
+
+    def test_still_handles_the_3x_plain_annotation_shape(self):
+        """Same call, unwrapped result -- must keep working unchanged."""
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
+        result = diarize.diarize("/fake/audio.wav", "hf_xxx")
         assert result == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
 
 

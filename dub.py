@@ -28,10 +28,29 @@ DEFAULT_VOICE_POOL = [
 ]
 
 
+class EdgeTTSBlockedError(RuntimeError):
+    """Raised when Microsoft rejects an edge-tts request with a 403 on
+    the WebSocket handshake -- a known, periodic block (latest reported
+    January 2026), not something wrong with the text or voice. Usually
+    fixed by `pip install -U edge-tts`; build_dub_track/build_narration_track
+    fall back to Piper automatically when it's installed rather than
+    losing the line."""
+
+
 async def _edge_tts_synthesize(text: str, voice: str, out_path: str, rate: str = "+0%"):
     import edge_tts
     communicate = edge_tts.Communicate(text, voice, rate=rate)
-    await communicate.save(out_path)
+    try:
+        await communicate.save(out_path)
+    except Exception as e:
+        # String match rather than a specific exception class: edge-tts
+        # wraps the underlying websockets error, and which exact class
+        # that is has changed across edge-tts/websockets versions. "403"
+        # is the one thing that's stayed constant in every report of this.
+        if "403" in str(e):
+            raise EdgeTTSBlockedError(
+                "Microsoft blocked the request -- run `pip install -U edge-tts`") from e
+        raise
 
 
 def synthesize_line(text: str, voice: str, out_path: str, rate: str = "+0%"):
@@ -64,6 +83,24 @@ def synthesize_line_offline(text: str, voice: str, out_path: str):
     with open(out_path, "wb") as f:
         pv.synthesize(text, f)
     return out_path
+
+
+def _synthesize_edge_tts_with_piper_fallback(text: str, voice: str, out_path: str,
+                                              character_voice_map: dict, speaker, rate: str = "+0%"):
+    """Tries edge-tts; if Microsoft blocks the request (EdgeTTSBlockedError),
+    falls back to Piper automatically when it's installed, rather than
+    leaving the line silent over an upstream block outside anyone's
+    control. Re-raises the original error if Piper isn't available, so
+    the line is still recorded as failed the normal way."""
+    try:
+        synthesize_line(text, voice, out_path, rate=rate)
+    except EdgeTTSBlockedError as blocked:
+        try:
+            import piper  # noqa: F401 -- just checking it's installed
+        except ImportError:
+            raise blocked
+        offline_voice = character_voice_map.get(speaker, DEFAULT_OFFLINE_VOICE_POOL[0])
+        synthesize_line_offline(text, offline_voice, out_path)
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +278,8 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
             else:
                 voice = character_voice_map.get(ln.speaker, default_voice)
                 rate = _speed_rate_for_line(ln.en, ln.end - ln.start)
-                call_with_backoff(lambda: synthesize_line(ln.en, voice, clip_path, rate=rate))
+                call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
+                    ln.en, voice, clip_path, character_voice_map, ln.speaker, rate=rate))
         except Exception as e:
             errors.append({"line_idx": ln.idx, "error": str(e)})
             if progress_cb:
@@ -303,7 +341,8 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
                     call_with_backoff(lambda: synthesize_line_offline(ln.en, voice, clip_path))
                 else:
                     voice = character_voice_map.get(ln.speaker, default_voice)
-                    call_with_backoff(lambda: synthesize_line(ln.en, voice, clip_path))
+                    call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
+                        ln.en, voice, clip_path, character_voice_map, ln.speaker))
             except Exception as e:
                 errors.append({"line_idx": ln.idx, "error": str(e)})
                 ln.start = cursor_ms / 1000.0

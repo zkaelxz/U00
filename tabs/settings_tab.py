@@ -167,6 +167,15 @@ def render_settings_sidebar():
                 is_url = key.endswith("_url")
                 synced_api_key_input(label, key, f"settings_input_{key}",
                                       type="default" if is_url else "password")
+            st.session_state["settings_ollama_num_ctx_override"] = st.number_input(
+                "Ollama context window override (num_ctx, optional)",
+                min_value=0, step=1024,
+                value=st.session_state.get("settings_ollama_num_ctx_override", 0) or 0,
+                help="Leave at 0 to size this automatically from the actual prompt each "
+                     "time (recommended). Ollama's own default context window can be as "
+                     "small as 2-4k tokens and silently truncates a longer prompt with no "
+                     "error -- a value set here can only raise the window above the "
+                     "automatic estimate, never below it, so it can't reintroduce that bug.")
 
 
 def get_default(key: str, fallback: str = "") -> str:
