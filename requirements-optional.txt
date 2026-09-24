@@ -46,7 +46,15 @@ pytesseract>=0.3        # also needs the Tesseract binary + language packs
 # manga-ocr>=0.1        # Japanese manga speech bubbles
 
 # --- reader: segmentation, pinyin, furigana ---
-jieba>=0.42             # Chinese
+jieba>=0.42             # Chinese. Ships no prebuilt wheel -- pip must build
+                         # its legacy setup.py from source, which fails on
+                         # modern setuptools with "AttributeError:
+                         # install_layout" (confirmed directly: setuptools
+                         # 60+ removed the attribute jieba's build script
+                         # reads). If `pip install jieba` fails with that
+                         # error, run `pip install "setuptools<60"` first,
+                         # then retry -- this is a real, reproducible
+                         # incompatibility, not a network or typo issue.
 pypinyin>=0.50          # Chinese pinyin
 sudachipy>=0.6          # Japanese
 sudachidict_core>=20240716

@@ -20,7 +20,7 @@ def render_library_tab():
         media_line = " · ".join(f"{k}: {v}" for k, v in stats["by_media_type"].items())
         st.caption(f"By type — {media_line}")
 
-    _notice = st.session_state.pop("resume_notice", None)
+    _notice = st.session_state.pop("nav_notice", None)
     if _notice:
         st.info(_notice, icon="▶️")
 
@@ -45,7 +45,7 @@ def render_library_tab():
                     # Streamlit's st.tabs has no API for switching tabs from
                     # Python, so this can only set the destination and say so
                     # plainly rather than pretending to navigate.
-                    st.session_state["resume_notice"] = (
+                    st.session_state["nav_notice"] = (
                         f"**{d['title_en'] or d['title_zh']}** is queued at page "
                         f"{d.get('last_page') or 1} — open the **📖 Read & Watch** tab above "
                         f"to pick up where you left off.")
@@ -151,6 +151,13 @@ def render_library_tab():
         if st.button("Open in Workspace →"):
             st.session_state.active_drama_id = options[choice]
             st.session_state.lines = None
+            # Same Streamlit limitation as Resume above: st.tabs() can't be
+            # switched from Python, so this sets the drama active and says
+            # so plainly -- without this notice the click looks like it did
+            # nothing, since the visible tab never changes on its own.
+            st.session_state["nav_notice"] = (
+                f"**{choice}** is now the active drama — open the **🛠️ Workspace** "
+                f"tab above to work on it.")
             st.rerun()
 
         st.subheader("Bulk export")

@@ -52,7 +52,13 @@ huggingface_hub>=0.20
 genanki>=0.13
 
 # Interactive Reader: word segmentation + pinyin/furigana + definitions (optional):
-jieba>=0.42          # Chinese segmentation
+jieba>=0.42          # Chinese segmentation. Ships no prebuilt wheel -- if
+                      # `pip install jieba` fails with "AttributeError:
+                      # install_layout", that's jieba's legacy setup.py
+                      # hitting modern setuptools (60+ dropped that
+                      # attribute) -- confirmed directly, not a network
+                      # issue. Fix: pip install "setuptools<60" first, then
+                      # retry installing jieba.
 pypinyin>=0.50        # Chinese pinyin
 sudachipy>=0.6        # Japanese segmentation (pure Python, no MeCab binary needed)
 sudachidict_core>=20240716  # Japanese dictionary data for sudachipy
