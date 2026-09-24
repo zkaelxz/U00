@@ -104,6 +104,36 @@ class TestProcessChunk:
         assert len(cues) == 1
         assert "translation failed" in cues[0]["translated"]
 
+    def test_context_prompt_reaches_whisper_as_initial_prompt(self, monkeypatch, tmp_path):
+        """Regression coverage for a real, previously-documented gap: each
+        chunk used to be transcribed with no knowledge of what was just
+        said in the previous one, so a sentence split across a chunk
+        boundary had nothing to anchor its second half to."""
+        import core
+        captured = {}
+
+        def fake_transcribe(path, **kw):
+            captured["initial_prompt"] = kw.get("initial_prompt")
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(core, "transcribe_for_timing", fake_transcribe)
+
+        chunk_path = tmp_path / "chunk_00001.wav"
+        chunk_path.write_bytes(b"x")
+        lt.process_chunk(str(chunk_path), 1, 20, "zh", "medium", engine=None,
+                          context_prompt="previous chunk's tail")
+
+        assert captured["initial_prompt"] == "previous chunk's tail"
+
+    def test_context_prompt_defaults_to_empty(self, monkeypatch, tmp_path):
+        import core
+        captured = {}
+        monkeypatch.setattr(core, "transcribe_for_timing",
+                             lambda path, **kw: captured.update(kw) or [])
+        chunk_path = tmp_path / "chunk_00000.wav"
+        chunk_path.write_bytes(b"x")
+        lt.process_chunk(str(chunk_path), 0, 20, "zh", "medium", engine=None)
+        assert captured["initial_prompt"] == ""
+
 
 class TestStopCapture:
     def test_terminates_a_running_process(self):
@@ -282,3 +312,61 @@ class TestRealCaptureEndToEnd:
             assert len(seen) >= 2, "expected ffmpeg to have completed several chunks by now"
         finally:
             lt.stop_capture(proc)
+
+
+class TestRunLiveJobContextCarrying:
+    """run_live_job itself, with resolve_stream_url/capture/chunk-listing
+    all mocked at their boundary -- this proves the ORCHESTRATION actually
+    threads one chunk's own transcribed tail into the next chunk's call,
+    which is what process_chunk's own tests can't show on their own (they
+    only prove a single call reacts correctly to a context_prompt handed
+    to it)."""
+
+    def test_each_chunks_own_tail_is_carried_into_the_next_chunks_call(self, monkeypatch, job_id="test_live_carry"):
+        import background_jobs
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url: "http://fake-stream")
+
+        class FakeProc:
+            def poll(self):
+                return None  # never looks "ended" on its own -- cancel ends the loop
+
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
+
+        # First call (last_completed=-1) hands back chunk 0; second call
+        # (last_completed=0) hands back chunk 1; after that, nothing --
+        # matching list_completed_chunks' own real incremental contract.
+        def fake_list_completed(out_dir, last_completed):
+            if last_completed == -1:
+                return [(0, "chunk_00000.wav")]
+            if last_completed == 0:
+                return [(1, "chunk_00001.wav")]
+            return []
+        monkeypatch.setattr(lt, "list_completed_chunks", fake_list_completed)
+
+        seen_prompts = []
+
+        def fake_process_chunk(path, idx, segment_seconds, source_language, whisper_size,
+                                engine, use_gpu=False, context_prompt=""):
+            seen_prompts.append(context_prompt)
+            return [{"start": 0.0, "end": 1.0, "text": f"text from chunk {idx}",
+                     "translated": f"translated {idx}"}]
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+
+        # Ends the loop once both chunks have been processed -- there's no
+        # real stream here to naturally run dry.
+        def fake_is_cancel_requested(jid):
+            return len(seen_prompts) >= 2
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", fake_is_cancel_requested)
+
+        lt.run_live_job(job_id, "http://example.com/live", "/fake/out", 20,
+                         "zh", "medium", engine=None, poll_interval=0.01)
+
+        assert seen_prompts[0] == ""  # no previous chunk yet
+        assert seen_prompts[1] == "text from chunk 0"  # chunk 0's own tail
+        background_jobs.clear_job(job_id)
+

@@ -38,10 +38,17 @@ Known limitations, stated plainly rather than glossed over:
     on some platforms. If capture silently stops producing new chunks
     on a long-running stream, stop and restart the job to re-resolve a
     fresh URL.
-  - Whisper's initial_prompt name-priming (used elsewhere in this app)
-    is NOT carried between chunks here, since chunks are processed as
-    independent short clips -- proper-noun accuracy is a bit worse than
-    a normal aligned transcription of the same content.
+  - Each chunk's own transcribed tail IS now carried into the next
+    chunk's Whisper call as initial_prompt (see process_chunk), which
+    directly helps a sentence split across a chunk boundary -- but this
+    is still each chunk's OWN audio transcribed independently, not a
+    normal single-pass aligned transcription: the previous chunk's
+    actual audio is never re-heard, only a text hint of what was said,
+    and a name that never appeared in a prior chunk gets no priming
+    benefit at all (unlike the whole-file initial_prompt name list used
+    elsewhere in this app, built from the drama's known character names
+    up front). Proper-noun accuracy is still a bit worse than a normal
+    aligned transcription of the same content.
   - Built and verified with a real ffmpeg segment-capture pipeline
     against a local looping source (proving the capture -> chunk-
     detection -> transcribe -> translate loop genuinely works end to
@@ -192,18 +199,40 @@ def list_completed_chunks(out_dir: str, last_completed_index: int):
     return [(i, os.path.join(out_dir, f"chunk_{i:05d}.wav")) for i in completed]
 
 
+# Whisper's initial_prompt has a real, hard limit (roughly the last 224
+# tokens) -- capping what's carried forward here to a generous but bounded
+# tail keeps every chunk's prompt cheap to build, not because a longer
+# value would break anything, since Whisper itself only ever uses the end
+# of whatever's passed.
+_CONTEXT_CARRY_CHARS = 200
+
+
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
-                   source_language: str, whisper_size: str, engine, use_gpu: bool = False):
+                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
+                   context_prompt: str = ""):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
     different chunks share one continuous timeline instead of each
     chunk restarting at zero.
+
+    context_prompt: the tail end of the PREVIOUS chunk's own transcribed
+    text, passed through as Whisper's initial_prompt for this chunk. Each
+    chunk is still transcribed independently (see the module docstring's
+    latency tradeoff) -- this doesn't give Whisper the previous chunk's
+    actual audio, only a hint of what was just said -- but it's a real,
+    direct fix for the specific failure this module's own docstring used
+    to call out as a known, unaddressed gap: a sentence split across a
+    chunk boundary has nothing to anchor its second half to without this,
+    the same way a name primed via initial_prompt elsewhere in this app
+    measurably helps recognition. Empty for the very first chunk, since
+    there's no previous chunk yet.
     """
     import core
 
     segments = core.transcribe_for_timing(
-        chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu)
+        chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
+        initial_prompt=context_prompt)
     offset = chunk_index * segment_seconds
     cues = []
     for seg in segments:
@@ -242,6 +271,7 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
 
     all_cues = []
     last_completed = -1
+    context_prompt = ""
     try:
         while True:
             if background_jobs.is_cancel_requested(job_id):
@@ -254,9 +284,17 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
             for idx, path in list_completed_chunks(out_dir, last_completed):
                 background_jobs.update_progress(job_id, 0.0, f"Processing chunk {idx}...")
                 try:
-                    all_cues.extend(process_chunk(
+                    new_cues = process_chunk(
                         path, idx, segment_seconds, source_language, whisper_size,
-                        engine, use_gpu=use_gpu))
+                        engine, use_gpu=use_gpu, context_prompt=context_prompt)
+                    all_cues.extend(new_cues)
+                    if new_cues:
+                        # Carries this chunk's own tail into the NEXT chunk's
+                        # transcription -- see process_chunk's docstring.
+                        # Independent of the last chunk's translation, so a
+                        # translation failure never breaks this.
+                        joined = " ".join(c["text"] for c in new_cues)
+                        context_prompt = joined[-_CONTEXT_CARRY_CHARS:]
                     background_jobs.set_result(job_id, list(all_cues))
                 finally:
                     last_completed = idx
