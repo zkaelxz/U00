@@ -14,7 +14,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
-- Steps 6–10: transcription quality (6) → export formats (6b) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate (9b) → Windows launcher (10). Milestones R4 and R7 are deferred (see §3).
+- Steps 6–10: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -74,10 +74,14 @@ Rules for every milestone:
 | 5 | Translate with Ollama and check it uses the 7B model. Run transcription then translation back-to-back with no out-of-memory error. |
 | 6 | Transcribe an episode that used to get repeated-phrase loops, and check timings stay in sync to the end. |
 | 6b | Export the same episode as SRT, VTT and ASS. Check all three play correctly in your usual player, and ASS shows different speakers in different colours. |
+| 6c | Turn on re-segmentation for one drama and check line boundaries land at real sentence/clause breaks, not mid-thought, and timing still lines up. |
+| 6d | Export a short clip vertically and check it's genuinely 9:16 with legible burned subtitles. |
 | 7 | Translate one episode in "High quality" mode. Check the cost estimate shows first and the critiques appear as notes. |
+| 7b | Run glossary auto-extraction on a drama and check the proposed terms make sense for who's actually in the story (not just generic terms). |
 | 8 | Open a second episode of the same series. Check the voice suggestions are sensible and nothing is labelled until you confirm it. |
 | 9 | Set a low cost cap and check the job stops at it. Run one Bulk-mode translation and check results arrive on the right lines. |
-| 9b | Start a long transcription and check the ETA appears and looks reasonable. Open the model-cache panel and delete one entry. Select 2–3 dramas in a series in Library and run bulk translate. Set browser cookies in Settings and download a login-gated TikTok/Instagram/Bilibili clip. |
+| 9b | Start a long transcription and check the ETA appears and looks reasonable. Open the model-cache panel and delete one entry. Select 2–3 dramas in a series in Library and run bulk translate. Set browser cookies in Settings and download a login-gated TikTok/Instagram/Bilibili clip. Use "Copy diagnostics for support" and check no path/username shows up. |
+| 9c | Save a preset from one drama, apply it to a new one, and check every captured field is still editable afterward. |
 | 10 | Double-click the desktop shortcut. The app should open in its own window. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
@@ -338,18 +342,42 @@ SRT already works everywhere, so this is additive, not a fix.
 - A test shows a manually-created overlap gets clamped and flagged, not exported as-is.
 - A test shows a translated line that's too dense to read in its duration gets flagged, and a normal-length line doesn't.
 
+### Step 6c — Meaning-based subtitle re-segmentation *(idea from VideoLingo)*
+A different, upstream problem from Step 6b's export-time character wrapping. Today's line boundaries come entirely from Whisper's VAD (silence gaps) — a line can end mid-sentence just because the speaker paused, or run two separate thoughts together because they didn't. VideoLingo re-splits the *transcript itself* by meaning before translation, using a documented five-pass structure: four rule/NLP-based passes plus one LLM pass. Adopting the concept, not the code:
+1. Rule-based passes reusing what's already in `segment.py` (jieba/sudachipy/kiwipiepy tokenization, already per-language): split on hard sentence-ending punctuation first, then on strong conjunctions/clause boundaries, then merge fragments below a minimum length back into their neighbour.
+2. One LLM pass over what's left, only for lines still awkwardly long or short after the rule-based passes — asks it to mark meaning-boundary split points, not to rewrite or translate anything.
+3. Re-run alignment (Step 2/3's existing timing-reconstruction path) against the new boundaries so start/end times still line up.
+4. Optional per drama, off by default — this changes line boundaries, which is a bigger structural change than Step 6b's export-time wrapping, so it needs to be something the user opts into per drama, not silently different from today's output.
+
+**Exit:** a mocked test shows a run-on ASR segment gets split at a genuine clause boundary (not mid-word, not arbitrarily by length), and a normal segment passes through unchanged; timing stays continuous across a split.
+
+### Step 6d — Vertical/shorts export *(idea from OpenCreator's "Portrait Render" and ZastTranslate's "Viral Shorts Studio")*
+Directly relevant to the "clip streamer" look you asked about earlier — that culture is built around vertical/shorts format specifically, not just subtitle styling.
+1. Given a drama (or a selected time range within one), render a 9:16 vertical version: centre-crop by default, with a manual crop-position adjustment per drama rather than trying to auto-detect a face/subject.
+2. Burn subtitles using Step 6b's ASS styling (so the "Streamer clip" preset and per-speaker colours carry over), sized and positioned for the vertical frame.
+3. Export as its own video file alongside the existing horizontal export — this is additive, not a replacement for the existing "Export full subtitled episode" step.
+
+**Exit:** a vertical export of a short clip plays correctly, is genuinely 9:16, and its burned subtitles are legible without manual repositioning.
+
 ### Step 7 — Reflect translation mode *(new feature; needs Step 1)*
-- Add an optional "High quality" setting:
-  1. translate the batch;
-  2. the same engine critiques its own translation, covering accuracy, pronouns and gender, glossary use, tone and register;
-  3. it rewrites using the critique.
+- Add an optional "High quality" setting, following the specific three-pass structure both pyvideotrans and VideoLingo converge on independently — **faithfulness → reflection → expressiveness** — rather than a generic "translate then improve" loop:
+  1. **Faithfulness pass:** translate the batch preserving exact meaning, not yet polished for how it reads.
+  2. **Reflection pass:** the same engine critiques *that specific translation* — where it's technically correct but reads unnaturally, plus accuracy, pronouns/gender, glossary use, tone and register.
+  3. **Expressiveness pass:** rewrite using the reflection, now optimizing for how it reads as a subtitle, not just correctness.
 - It works through the same engine interface for every LLM engine: Claude, Gemini, DeepSeek and Ollama.
 - It costs about 3× as much, so show the estimated cost (`translate_engines.estimate_cost`) before the user starts it.
-- Every step keeps the id-keyed JSON from Step 1.
-- Save the critique as translation notes, so the reasons for changes can be reviewed.
-- The idea comes from pyvideotrans's three-step "reflection" translation.
+- Every pass keeps the id-keyed JSON from Step 1.
+- Save the reflection critique as translation notes, so the reasons for the final wording can be reviewed.
 
-**Exit:** a mocked engine test shows 3 calls per batch, with ids kept at every step, and critiques stored as notes.
+**Exit:** a mocked engine test shows 3 calls per batch, with ids kept at every pass, and the reflection critique stored as notes.
+
+### Step 7b — Content-summary-first glossary extraction *(idea from VideoLingo)*
+`translation_guide.extract_terms_llm` already exists and works — confirmed it extracts terms straight from raw source excerpts, chunk by chunk, with no story-level context beyond "already in the glossary." VideoLingo's approach does one extra pass first: summarize what the content is actually about (genre, setting, cast, relationships), then extract terms *using that summary as context*. For baihe/GL content specifically, this should meaningfully help with recurring nicknames, ship names, and honorific patterns that only make sense once the model knows who's who.
+1. Add a short LLM summary pass over a sample of the drama's lines (a few hundred, same sampling `extract_terms_llm` already does) that produces a 2–4 sentence synopsis: setting, main relationships, tone.
+2. Pass that summary into every chunk's term-extraction prompt, alongside the existing "already in glossary" block.
+3. Cache the summary per drama (store it, don't regenerate per chunk) so it's one extra call, not one per chunk.
+
+**Exit:** a mocked test shows the summary is generated once per run and reaches every chunk's extraction prompt; existing `extract_terms_llm` tests still pass.
 
 ### Step 8 — Recurring-voice suggestions *(new feature, experimental; needs Step 4)*
 - With pyannote 4, `DiarizeOutput.speaker_embeddings` gives one voice fingerprint per detected speaker. Save them with the diarization turns.
@@ -401,6 +429,7 @@ Three independent, additive gaps found while reviewing for efficiency and missin
 
 1. **Time estimate on long jobs.** `background_jobs` already tracks `started_at` and a `progress` fraction (`update_progress(job_id, frac, message)`); nothing currently uses them together. Add a simple ETA next to the existing progress bar: `elapsed = now - started_at`, `remaining ≈ elapsed * (1 - frac) / frac`, shown as "~N min remaining" once `frac` is past a small threshold (too noisy right at the start). Pure UI addition — no new job-tracking fields needed.
 2. **Downloaded-model disk management.** `storage.py` reports disk usage for the app's own `library/` folder, but Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in Hugging Face's own cache (`~/.cache/huggingface` by default) with no visibility or cleanup from inside the app. Across several ASR/TTS backends this can reach tens of GB. Add a small panel (Diagnostics, next to the existing dependency checks) that lists what's in the HF cache with each entry's size, and a delete button per entry — a thin wrapper over `huggingface_hub.scan_cache_dir()`, which already gives size-per-revision without reimplementing cache-format parsing.
+   - Same Diagnostics screen, same PR: add a **"Copy diagnostics for support"** button that runs the existing key/token redaction (`translate_engines.redact_secrets`, Step 1b) plus a pass that also strips local file paths and the OS username from the output *(idea from OpenCreator's "redacted diagnostics" — Step 1b already redacts keys from stored errors, but nothing currently redacts what a "copy for support" action would show, and a raw library path can leak the machine's username)*.
 3. **Bulk "translate everything untranslated" across a series.** Library's existing bulk actions (`tabs/library_tab.py` ~line 127, `library_bulk_select`) cover status, delete and export, but not starting a job — translating multiple dramas still means opening each one individually. Add a bulk action that starts a `run_translate_job` per selected drama with no translation yet, each drama's own saved engine/glossary/style/locale settings (same as its own Workspace tab would use), queued one at a time rather than all at once (see Step 3's/Step 1c's GPU-load reasoning — avoid starting several GPU-touching jobs simultaneously). Respect the Step 1b line-writing job guard per drama; skip (don't queue) a drama that already has one running.
 4. **Cookie-based login for downloads, as a real setting, not just an error hint.** The app already isn't YouTube-locked — `video_download.py`'s own docstring says "YouTube and the many other sites yt-dlp supports," and yt-dlp itself supports Bilibili, TikTok and Instagram natively — but `--cookies-from-browser` is currently only *mentioned* inside a YouTube-specific error message (`live_translate.py`), not exposed as something the user can turn on. TikTok and Instagram in particular block plain unauthenticated requests far more aggressively than YouTube does. Add a Settings field (which browser to pull cookies from, or a cookies file path), pass it through to yt-dlp in both `video_download.py` and `live_translate.py`, and update the "no formats found" error and Diagnostics copy to mention it generally rather than only for YouTube. *(Idea prompted by comparing platform coverage against OpenCreator/302_video_translation — the download capability was already mostly there; this closes the practical reliability gap, not a missing extractor.)*
 
@@ -409,6 +438,15 @@ Three independent, additive gaps found while reviewing for efficiency and missin
 - A test shows the model-cache panel lists entries with sizes and that deleting one actually frees the space (using a fake cache dir, not the real HF cache).
 - A test shows the bulk translate action starts one job per eligible selected drama and skips any drama with a job already running, using each drama's own settings.
 - A test shows the cookies setting reaches yt-dlp's options in both `video_download.py` and `live_translate.py`.
+- A test shows the "copy diagnostics" output contains no file path or username, even when the raw diagnostics do.
+
+### Step 9c — Drama/project presets *(idea from OpenCreator's "creation templates")*
+Library's own framing is managing "dozens of titles," but every new drama starts from scratch: engine, model, style preset, locale, content-type defaults all get re-picked by hand each time. A template captures a full Workspace configuration — engine/model choice, style preset, locale, default speaker-gender-default setting, glossary scope — as a named, reusable preset.
+1. **"Save as preset"** in Workspace, from the current drama's settings.
+2. **"Apply preset"** when creating a new drama (or on an existing one), which fills in the same fields, still editable afterward — never silently locks anything.
+3. Store presets at the library level (not per-series), so one preset works across unrelated series/projects.
+
+**Exit:** a test shows applying a preset to a new drama sets all its captured fields, and none of them are frozen against later manual changes.
 
 ### Step 10 — One-click Windows launcher, own window & desktop shortcut *(convenience)*
 - Add a `start.bat` (plus an optional `start.ps1`) that:
@@ -475,10 +513,14 @@ Three independent, additive gaps found while reviewing for efficiency and missin
   | 5 — R3-lite local-model defaults | — | Not started | — |
   | 6 — Transcription quality | — | Not started | — |
   | 6b — Export formats (VTT/ASS) | — | Not started | — |
+  | 6c — Meaning-based re-segmentation | — | Not started | — |
+  | 6d — Vertical/shorts export | — | Not started | — |
   | 7 — Reflect translation mode | — | Not started | — |
+  | 7b — Content-summary glossary extraction | — | Not started | — |
   | 8 — Recurring-voice suggestions | — | Not started | — |
   | 9 — Cost controls & bulk discounts | — | Not started | — |
   | 9b — Job ETAs, model disk management, bulk series translate | — | Not started | — |
+  | 9c — Drama/project presets | — | Not started | — |
   | 10 — Windows launcher | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
@@ -523,7 +565,7 @@ different session picking up reviews later:
 
 ---
 
-## 6. Sources for Steps 1c and 6–9
+## 6. Sources for Steps 1c and 6–9c
 - yt-dlp — [External JS runtime now required](https://github.com/yt-dlp/yt-dlp/issues/15012), [EJS wiki](https://github.com/yt-dlp/yt-dlp/wiki/EJS)
 - pyannote — [releases (4.0 breaking changes)](https://github.com/pyannote/pyannote-audio/releases), [community-1 model card](https://huggingface.co/pyannote/speaker-diarization-community-1), [community-1 blog](https://www.pyannote.ai/blog/community-1)
 - Ollama — [context length docs](https://docs.ollama.com/context-length), [silent truncation write-up](https://particula.tech/blog/ollama-num-ctx-silent-prompt-truncation)
@@ -534,3 +576,4 @@ different session picking up reviews later:
 - pyvideotrans — [FAQ](https://en.pyvideotrans.com/faq)
 - Gemini free tier — [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits), [free vs paid data use](https://ampm-aiops.com/en/guides/gemini-free-tier-data-tradeoff-2026/)
 - Bulk discounts — [Gemini Batch API](https://ai.google.dev/gemini-api/docs/batch-api), [DeepSeek off-peak pricing overview](https://devtk.ai/en/blog/deepseek-api-pricing-guide-2026/) (check DeepSeek's own pricing page for the current hours and rates). Claude Message Batches: 50% off, most batches within 1 hour and at most 24 hours, prompt caching supported (Anthropic API docs).
+- Comparable-project survey (Steps 6c, 6d, 7's three-pass structure, 7b, and 9b/9c's diagnostics-redaction and presets items) — [VideoLingo](https://github.com/Huanshere/VideoLingo) ([README](https://github.com/Huanshere/VideoLingo/blob/main/README.md), [docs](https://docs.videolingo.io/en-US)), [OpenCreator/KrillinAI](https://github.com/krillinai/OpenCreator). Also checked, no new gaps found beyond what's already in this doc: [Whishper](https://github.com/pluja/whishper) (AGPL-3.0), [VideoTranscriber](https://github.com/DataAnts-AI/VideoTranscriber), [Live-YT-Translator](https://github.com/petergpt/Live-YT-Translator), [Echoly](https://github.com/sonpiaz/echoly), [302_video_translation](https://github.com/302ai/302_video_translation) (AGPL-3.0), [ZastTranslate](https://github.com/zast57/ZastTranslate), [Synthalingua](https://github.com/cyberofficial/Synthalingua) (AGPL-3.0). Ideas only — no code copied from any of these; three are AGPL-3.0, which would force this app's whole codebase open if their code were reused.
