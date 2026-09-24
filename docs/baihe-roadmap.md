@@ -8,7 +8,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 - Audited code: branch `baihe-subtitler` at commit `7af8453`. Every `file:function` reference below is on that branch.
 
 **Build order:**
-- Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → free testing engines (1d) → R0 → R1-lite → R2 → R3-lite.
+- Steps 1–5: R5 → safety fixes (1b) → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
 - Steps 6–10: transcription quality (6) → reflect translation mode (7) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → Windows launcher (10). Milestones R4, R6 and R7 are deferred (see §3).
 
 ## Decisions already made
@@ -61,6 +61,7 @@ Rules for every milestone:
 | 1b | Start Translate, then try "Find lines to flag" and editing a line. Both should be refused with a message. Make a database-only backup and a full backup, then open Diagnostics and check the log shows the job. |
 | 1c | Download a short YouTube clip. Run speaker detection. Translate with Ollama if you use it. Generate an edge-tts dub line. |
 | 1d | Using only the 🧪 Free engines (Test mode, then Ollama or Gemini free tier), run every AI button once: translate, flag, consistency, emotion, notes, Q&A. Each should produce a result or a clear "not supported by this engine" message, never a silent empty result. Export a subtitle made with Test mode and check the warning appears. |
+| 1e | In a drama **without** a series, set a character's pronouns in section 6 and translate. Then set pronouns right in the glossary area's "People & pronouns" when adding someone new. Check the translation uses them, including they/them. |
 | 2 | Add a note to a line, merge it with its neighbour, and check the note is still on the right line. |
 | 3 | Edit a few lines, then use "Compare with original" / "Restore original" on one of them. |
 | 4 | Change the number of speakers and press "Re-run speaker detection". Check the speakers change and the transcript text doesn't. |
@@ -190,6 +191,35 @@ The goal: every AI feature can be tried for free before spending money on a paid
 - Translation-only engines are disabled in non-translation pickers.
 - A test shows export warns when Test-mode lines are present.
 - A test shows free-tier Gemini pacing keeps to ≤10 requests per minute.
+
+### Step 1e — Character pronouns you can actually find and use
+The problem, reported by the user and confirmed in the code on `baihe-subtitler`:
+- Pronouns can only be set in **Workspace → 3 → "Known characters in this series"**, on a character's card *after* it has been added. `series_characters.gender`, the selectbox at `workspace_tab.py` around line 1355.
+- The "Add a known character" form only asks for a name.
+- A drama **without a series** has no way to set pronouns at all: `build_character_gender_hints` only reads `db.list_series_characters(drama["series_id"])`.
+- The help text on "Default ambiguous pronouns to she/her" (around line 1178) says gender can also be set "under 6. Name your characters", but section 6 has no such control.
+- Only `female`/`male` are supported. There's no they/them or custom option.
+- `cli.cmd_translate` never adds the gender hints block, so CLI translations ignore pronouns (a UI parity gap).
+
+Changes:
+1. **Pronoun options:** she/her, he/him, they/them, plus **Custom…** (free text, e.g. "xe/xem"). Store the value as the pronoun text itself (e.g. "they/them"); keep existing `female`/`male` values working by mapping them.
+2. **Set it where you'd look:**
+   - Add a Pronouns field to the "Add a known character" form.
+   - Rename that area **"People & pronouns"** (inside the glossary section) so it's easy to spot.
+   - Add a Pronouns field to **section 6's per-drama characters**, so standalone dramas work too. Store it on the per-drama `characters` row, with the linked series character's value used as the default.
+3. **Use it everywhere:**
+   - `build_character_gender_hints` merges series and per-drama characters, with the per-drama value winning.
+   - Step 1's speaker prefix includes the pronouns, e.g. `[Xiaoling (she/her)] 你好`, so the translator sees them on the exact line.
+   - `cli.cmd_translate` sends the same block as the UI.
+4. **Fix the section 5 help text** so it points to the real places.
+
+**Exit:**
+- Tests show:
+  - a standalone drama's per-drama pronouns reach the prompt;
+  - they/them and custom values reach it;
+  - the per-drama value overrides the series value;
+  - old `female`/`male` rows still produce she/her and he/him;
+  - the CLI sends the same hints as the UI.
 
 ### Step 2 — R0: Permanent line IDs
 - Give `lines` a stable primary-key id that survives merges, edits and re-saves.
