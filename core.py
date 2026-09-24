@@ -18,6 +18,8 @@ class Line:
     en: str = ""
     speaker: str = None
     dub_filename: str = None
+    flag: str = None       # a key from translate_engines.FLAG_REASONS, or None
+    flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
 
 
 def fmt_ts(seconds: float) -> str:

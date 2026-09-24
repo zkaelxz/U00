@@ -354,6 +354,13 @@ def init_db():
         conn.execute("ALTER TABLE lines ADD COLUMN speaker TEXT")
     if "dub_filename" not in existing_cols:
         conn.execute("ALTER TABLE lines ADD COLUMN dub_filename TEXT")
+    if "flag" not in existing_cols:
+        # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
+        # -- the review queue for a long file, so a person doesn't have to
+        # scan every line to find the handful worth a second look.
+        conn.execute("ALTER TABLE lines ADD COLUMN flag TEXT")
+    if "flag_note" not in existing_cols:
+        conn.execute("ALTER TABLE lines ADD COLUMN flag_note TEXT")
     drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
     if "translation_engine" not in drama_cols:
         conn.execute("ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
@@ -536,10 +543,11 @@ def save_lines(drama_id: int, lines):
         conn.execute("BEGIN")
         conn.execute("DELETE FROM lines WHERE drama_id = ?", (drama_id,))
         conn.executemany(
-            "INSERT INTO lines (drama_id, idx, start, end, zh, en, speaker, dub_filename) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO lines (drama_id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(drama_id, ln.idx, ln.start, ln.end, ln.zh, ln.en,
-              getattr(ln, "speaker", None), getattr(ln, "dub_filename", None)) for ln in lines]
+              getattr(ln, "speaker", None), getattr(ln, "dub_filename", None),
+              getattr(ln, "flag", None), getattr(ln, "flag_note", "")) for ln in lines]
         )
         conn.commit()
     except Exception:
@@ -553,7 +561,8 @@ def save_lines(drama_id: int, lines):
 def load_lines(drama_id: int):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT idx, start, end, zh, en, speaker, dub_filename FROM lines WHERE drama_id = ? ORDER BY idx",
+        "SELECT idx, start, end, zh, en, speaker, dub_filename, flag, flag_note "
+        "FROM lines WHERE drama_id = ? ORDER BY idx",
         (drama_id,)
     ).fetchall()
     conn.close()

@@ -365,6 +365,93 @@ class TestCheckConsistencyLlm:
         assert result == []
 
 
+class _FakeBlock:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class FakeFlaggingEngine:
+    """Claude-shaped fake, matching what flag_uncertain_lines dispatches
+    on. flags_for maps a line_idx to a (reason, note) tuple to flag; every
+    other line in the batch is left unflagged, mirroring how a real model
+    should behave (most lines need no flag at all)."""
+    supports_reference = True
+    model = "fake-model"
+
+    def __init__(self, flags_for=None):
+        self.client = self
+        self.messages = self
+        self.flags_for = flags_for or {}
+        self.call_count = 0
+
+    def create(self, model, max_tokens, messages):
+        self.call_count += 1
+        import re as _re, json as _json
+        prompt = messages[0]["content"]
+        idxs = [int(m) for m in _re.findall(r"\[(\d+)\]", prompt)]
+        out = []
+        for i in idxs:
+            if i in self.flags_for:
+                reason, note = self.flags_for[i]
+                out.append({"line_idx": i, "reason": reason, "note": note})
+        return type("Resp", (), {"content": [_FakeBlock(_json.dumps(out))]})()
+
+
+class TestFlagUncertainLines:
+    def test_pure_mt_engine_leaves_lines_unflagged(self):
+        class PureMT:
+            supports_reference = False
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+        te.flag_uncertain_lines(lines, PureMT())
+        assert lines[0].flag is None
+
+    def test_no_translated_lines_is_a_noop(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="")]
+        engine = FakeFlaggingEngine(flags_for={0: ("uncertain_translation", "x")})
+        te.flag_uncertain_lines(lines, engine)
+        assert lines[0].flag is None
+        assert engine.call_count == 0
+
+    def test_flags_only_the_lines_the_model_names(self):
+        lines = [Line(idx=0, start=0, end=1, zh="她昨天来了", en="She came yesterday."),
+                 Line(idx=1, start=1, end=2, zh="你好", en="Hello.")]
+        engine = FakeFlaggingEngine(flags_for={0: ("ambiguous_reference", "'她' unresolved")})
+        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        assert lines[0].flag == "ambiguous_reference"
+        assert lines[0].flag_note == "'她' unresolved"
+        assert lines[1].flag is None  # not named by the model -- stays clean
+
+    def test_unknown_reason_falls_back_to_uncertain_translation(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+        engine = FakeFlaggingEngine(flags_for={0: ("made_up_reason_xyz", "note")})
+        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        assert lines[0].flag == "uncertain_translation"
+
+    def test_progress_cb_called_once_per_batch(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", en=f"L{i}") for i in range(10)]
+        seen = []
+        te.flag_uncertain_lines(lines, FakeFlaggingEngine(), batch_size=3, progress_cb=seen.append)
+        assert seen == [0.25, 0.5, 0.75, 1.0]
+
+    def test_engine_failure_on_one_batch_does_not_raise(self):
+        class BrokenEngine(FakeFlaggingEngine):
+            def create(self, model, max_tokens, messages):
+                raise RuntimeError("simulated API failure")
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+        # Must not raise -- a flagging pass failing shouldn't block the rest
+        # of the review workflow, same reasoning as check_consistency_llm.
+        te.flag_uncertain_lines(lines, BrokenEngine())
+        assert lines[0].flag is None
+
+    def test_already_flagged_line_can_be_reflagged_on_a_later_run(self):
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b", flag="name_uncertain", flag_note="old")]
+        engine = FakeFlaggingEngine(flags_for={0: ("slang_idiom", "new note")})
+        te.flag_uncertain_lines(lines, engine, batch_size=10)
+        assert lines[0].flag == "slang_idiom"
+        assert lines[0].flag_note == "new note"
+
+
 class TestOfflineTestEngine:
     """The free dry-run engine exists so the pipeline can be validated with
     no API key, no network, and no spend. These guard that promise."""
