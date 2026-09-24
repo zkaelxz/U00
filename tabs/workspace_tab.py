@@ -15,7 +15,7 @@ def _format_media_type(m):
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
-                       style_guidelines, engine_choice, style_preset):
+                       style_guidelines, engine_choice, style_preset, context_window=6):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -29,6 +29,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         lines, engine, drama_meta=drama_meta, style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
+        context_window=context_window,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Translating... {frac*100:.0f}%"),
         save_cb=lambda ls: db.save_lines(drama_id, ls),
@@ -978,6 +979,17 @@ def render_workspace_tab():
                 help="Anthropic updates this lineup periodically. If a model here starts "
                      "erroring, check console.anthropic.com for what's currently available.")
             st.session_state["settings_claude_model"] = engine_model
+        elif engine_choice == "gemini":
+            _model_keys = list(translate_engines.GEMINI_MODELS.keys())
+            _saved_model = st.session_state.get(f"settings_gemini_model", _model_keys[0])
+            engine_model = st.selectbox(
+                "Gemini model", _model_keys,
+                index=_model_keys.index(_saved_model) if _saved_model in _model_keys else 0,
+                format_func=lambda m: translate_engines.GEMINI_MODELS[m],
+                help="Google updates this lineup periodically. If a model here starts "
+                     "erroring, check ai.google.dev/gemini-api/docs/models for what's "
+                     "currently available.")
+            st.session_state["settings_gemini_model"] = engine_model
 
         _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate")
         if engine_choice == "test_offline":
@@ -1005,6 +1017,12 @@ def render_workspace_tab():
                                index=locale_options.index(default_locale) if default_locale in locale_options else 0,
                                format_func=lambda l: {"en-US": "American English", "en-GB": "British English",
                                                        "en-AU": "Australian English"}[l])
+        context_window = st.slider(
+            "Context lines shown from before each batch", 0, 20, 6,
+            help="Shows the model how the immediately preceding lines were already "
+                 "translated, so a pronoun or someone referred to only by relation "
+                 "('her', 'that guy') has something to resolve against instead of "
+                 "being guessed fresh every batch. 0 turns this off.")
 
         b1, b2 = st.columns(2)
         if has_audio_pipeline:
@@ -1306,7 +1324,7 @@ def render_workspace_tab():
                 _translate_job_id, run_translate_job,
                 _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
                 novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
-                engine_choice, style_preset)
+                engine_choice, style_preset, context_window)
             if started:
                 st.info("Translation started in the background -- it keeps running even if you "
                         "switch tabs or close this one. Come back here any time to see progress; "

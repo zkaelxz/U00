@@ -198,11 +198,155 @@ class TestEstimateCost:
     def test_zero_tokens_zero_cost(self):
         assert te.estimate_cost("claude-sonnet-5", 0, 0) == 0.0
 
+    def test_gemini_models_have_pricing(self):
+        for model in te.GEMINI_MODELS:
+            cost = te.estimate_cost(model, 1_000_000, 1_000_000)
+            assert cost > 0, f"{model} should have real pricing, not silently cost $0"
+
     def test_cost_scales_with_token_count(self):
         small = te.estimate_cost("claude-sonnet-5", 1000, 500)
         large = te.estimate_cost("claude-sonnet-5", 10000, 5000)
         assert large > small
         assert abs(large - small * 10) < 0.0001  # linear scaling
+
+
+class TestRecentContextInPrompt:
+    def test_recent_context_included_when_provided(self):
+        instructions, _ = te.build_llm_instructions(
+            "", {}, None, recent_context=[("她昨天来了", "She came yesterday.")])
+        assert "她昨天来了 -> She came yesterday." in instructions
+        assert "continuity" in instructions.lower()
+
+    def test_no_recent_context_omits_section(self):
+        instructions, _ = te.build_llm_instructions("", {}, None, recent_context=None)
+        assert "continuity" not in instructions.lower()
+
+    def test_empty_list_also_omits_section(self):
+        instructions, _ = te.build_llm_instructions("", {}, None, recent_context=[])
+        assert "continuity" not in instructions.lower()
+
+
+class ContextCapturingEngine:
+    """Records the `context` dict it was called with on every batch, so
+    tests can inspect exactly what recent_context looked like at each
+    point in a multi-batch run."""
+    supports_reference = True
+    name = "context_capture"
+
+    def __init__(self):
+        self.calls = []
+
+    def translate_batch(self, zh_lines, context):
+        self.calls.append({"zh_lines": list(zh_lines),
+                            "recent_context": list(context.get("recent_context") or [])})
+        return [f"EN:{z}" for z in zh_lines]
+
+
+class TestContextWindow:
+    def test_first_batch_has_no_recent_context(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=6)
+        assert engine.calls[0]["recent_context"] == []
+
+    def test_later_batch_sees_earlier_translated_lines_as_context(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=6)
+        # Second batch (l2, l3) should see the first batch's translations as context.
+        assert engine.calls[1]["recent_context"] == [("l0", "EN:l0"), ("l1", "EN:l1")]
+
+    def test_context_window_caps_how_far_back_it_looks(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(6)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=1)
+        # Third batch (l4, l5) should only see the single immediately-preceding line.
+        assert engine.calls[2]["recent_context"] == [("l3", "EN:l3")]
+
+    def test_zero_disables_context_entirely(self):
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}") for i in range(4)]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, context_window=0)
+        assert all(call["recent_context"] == [] for call in engine.calls)
+
+    def test_already_translated_lines_before_the_run_are_used_as_context_too(self):
+        lines = [Line(idx=0, start=0, end=1, zh="l0", en="Pre-existing translation."),
+                 Line(idx=1, start=0, end=1, zh="l1")]
+        engine = ContextCapturingEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, context_window=6)
+        assert engine.calls[0]["recent_context"] == [("l0", "Pre-existing translation.")]
+
+    def test_existing_mock_engine_tests_unaffected_by_new_default(self):
+        """context_window now defaults to 6 -- confirms that doesn't break
+        an engine that ignores the context dict's extra keys entirely."""
+        lines = [Line(idx=i, start=0, end=1, zh=f"line{i}") for i in range(5)]
+        result, errors = te.translate_lines_with_engine(lines, MockEngine(), {}, batch_size=2)
+        assert errors == []
+        assert all(ln.en for ln in result)
+
+
+class TestGeminiEngine:
+    def test_translate_batch_parses_response_and_records_usage(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {
+                    "candidates": [{"content": {"parts": [
+                        {"text": '["Hello.", "Goodbye."]'}]}}],
+                    "usageMetadata": {"promptTokenCount": 42, "candidatesTokenCount": 8},
+                }
+
+        def fake_post(url, params=None, json=None):
+            captured["url"] = url
+            captured["params"] = params
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest")
+        result = engine.translate_batch(["你好", "再见"], {})
+
+        assert result == ["Hello.", "Goodbye."]
+        assert engine.last_usage == {"input_tokens": 42, "output_tokens": 8}
+        assert "gemini-flash-lite-latest" in captured["url"]
+        assert captured["params"] == {"key": "fake-key"}
+        assert "systemInstruction" in captured["json"]
+
+    def test_recent_context_reaches_the_system_instruction(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
+
+        def fake_post(url, params=None, json=None):
+            captured["json"] = json
+            return FakeResponse()
+
+        monkeypatch.setattr("requests.post", fake_post)
+        engine = te.GeminiEngine("fake-key")
+        engine.translate_batch(["x"], {"recent_context": [("她来了", "She came.")]})
+
+        sys_text = captured["json"]["systemInstruction"]["parts"][0]["text"]
+        assert "她来了 -> She came." in sys_text
+
+    def test_missing_usage_metadata_does_not_crash(self, monkeypatch):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "[]"}]}}]}
+                # No usageMetadata key at all.
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key")
+        engine.translate_batch(["x"], {})
+        assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
 
 
 class TestCheckConsistencyLlm:
