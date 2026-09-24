@@ -453,6 +453,14 @@ def init_db():
         # unnamed one. NULL/"" means unset -- no hint is added for that
         # character, distinct from "unspecified" as a deliberate choice.
         conn.execute("ALTER TABLE series_characters ADD COLUMN gender TEXT")
+    bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
+    if "font_category" not in bubble_cols:
+        # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
+        # auto-filled from sample_text_style()'s classical-CV stroke-weight/
+        # irregularity analysis at detection time, editable per bubble
+        # before render -- see scanlate.py's own docstring for why this
+        # isn't a trained font-classifier model.
+        conn.execute("ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
     conn.commit()
     conn.close()
 
@@ -781,17 +789,19 @@ def get_page(page_id: int):
 
 
 def save_bubbles(page_id: int, bubbles):
-    """bubbles: list of dicts with x,y,w,h,source_text,translated_text,font_size,skip.
+    """bubbles: list of dicts with x,y,w,h,source_text,translated_text,font_size,skip,
+    font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset).
     Replaces all bubbles for this page."""
     conn = get_conn()
     try:
         conn.execute("BEGIN")
         conn.execute("DELETE FROM bubbles WHERE page_id = ?", (page_id,))
         conn.executemany(
-            "INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, font_size, skip) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, "
+            "font_size, skip, font_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(page_id, i, b["x"], b["y"], b["w"], b["h"], b.get("source_text", ""),
-              b.get("translated_text", ""), b.get("font_size", 18), int(b.get("skip", False)))
+              b.get("translated_text", ""), b.get("font_size", 18), int(b.get("skip", False)),
+              b.get("font_category") or "regular")
              for i, b in enumerate(bubbles)]
         )
         conn.commit()

@@ -272,33 +272,84 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     return img
 
 
-def _find_font(font_path: str = None):
-    if font_path and os.path.exists(font_path):
-        return font_path
-    # Common system font fallbacks; Pillow's default bitmap font is a
-    # last resort and looks poor at large sizes.
-    candidates = [
+# One of these three, matching sample_text_style()'s "suggested_style"
+# output exactly -- a bubble's auto-detected (or manually overridden)
+# font_category is one of these, letting the renderer pick a face that
+# roughly matches the original lettering's weight/character instead of
+# using the same font for every bubble on a page.
+FONT_CATEGORIES = ["regular", "bold", "handwritten"]
+
+# Common system font fallbacks per category, tried in order. "handwritten"
+# has NO reliable brush/handwriting-style font on a stock install of any
+# OS -- unlike regular/bold, there's no universal system font that looks
+# handwritten, so it degrades to a regular font unless a custom one is
+# supplied via `custom_fonts`. That's a real, honest limitation, not a
+# bug: matching decorative/brush lettering needs either a real font file
+# (upload one -- see the Scanlate tab) or a trained font-classifier model
+# like BalloonsTranslator's YuzuMarker.FontDetection, neither of which
+# this ships with by default.
+_SYSTEM_FONT_CANDIDATES = {
+    "bold": [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
         "C:\\Windows\\Fonts\\arialbd.ttf",
-    ]
-    for c in candidates:
+    ],
+    "regular": [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+    ],
+    "handwritten": [
+        "C:\\Windows\\Fonts\\comic.ttf",  # Comic Sans MS -- present on most Windows installs
+        "/System/Library/Fonts/Supplemental/Bradley Hand Bold.ttf",
+    ],
+}
+
+
+def _find_font(font_path: str = None, category: str = "regular", custom_fonts: dict = None):
+    """
+    Resolution order: an explicit font_path always wins (a per-bubble
+    manual override); then a custom font file uploaded for this
+    category (custom_fonts: {category: path}, see the Scanlate tab's
+    font upload); then this category's own system-font fallbacks; then
+    "regular"'s fallbacks if the category itself has none installed
+    (relevant mainly for "handwritten" -- see FONT_CATEGORIES' own note);
+    None (Pillow's own last-resort bitmap font) if nothing at all is found.
+    """
+    if font_path and os.path.exists(font_path):
+        return font_path
+    custom_fonts = custom_fonts or {}
+    custom = custom_fonts.get(category)
+    if custom and os.path.exists(custom):
+        return custom
+    for c in _SYSTEM_FONT_CANDIDATES.get(category, []):
         if os.path.exists(c):
             return c
+    if category != "regular":
+        for c in _SYSTEM_FONT_CANDIDATES.get("regular", []):
+            if os.path.exists(c):
+                return c
     return None
 
 
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
-                        font_path: str = None, fill=(0, 0, 0), align="center"):
+                        font_path: str = None, font_category: str = "regular",
+                        custom_fonts: dict = None, fill=(0, 0, 0), align="center"):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     Auto-shrinks font_size until the wrapped text fits the box height;
     word-wraps to fit box width. Horizontal text layout only -- no
     vertical CJK rendering (that's koharu's specialty, not replicated
     here).
+
+    font_path: an explicit per-bubble override (always wins). Otherwise
+    font_category (one of FONT_CATEGORIES, normally auto-filled from
+    sample_text_style()'s detection at bubble-detection time) picks
+    between a bold/regular/handwritten face via _find_font() -- see that
+    function for the full resolution order and custom_fonts.
     """
     draw = ImageDraw.Draw(image)
-    resolved_font_path = _find_font(font_path)
+    resolved_font_path = _find_font(font_path, category=font_category, custom_fonts=custom_fonts)
     size = font_size
 
     def wrap_and_measure(sz):
@@ -379,7 +430,8 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     return translations, new_context
 
 
-def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None):
+def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
+                       custom_fonts: dict = None):
     """
     pages_with_bubbles: list of (image_path, bubbles, out_filename) tuples.
     Renders every page and zips the results -- matches Torii's "download
@@ -398,7 +450,8 @@ def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = N
     for image_path, bubbles, out_filename in pages_with_bubbles:
         out_path = os_module.path.join(out_dir, out_filename)
         try:
-            _, skipped_blank = process_page(image_path, bubbles, out_path, font_path=font_path)
+            _, skipped_blank = process_page(image_path, bubbles, out_path, font_path=font_path,
+                                             custom_fonts=custom_fonts)
             rendered_paths.append(out_path)
             if skipped_blank:
                 blank_text_report[out_filename] = len(skipped_blank)
@@ -412,7 +465,8 @@ def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = N
     return zip_path, errors, blank_text_report
 
 
-def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None):
+def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None,
+                  custom_fonts: dict = None):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -452,7 +506,9 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
         if not has_real_text(b):
             continue
         render_text_in_box(pil_img, b, b["translated_text"],
-                            font_size=b.get("font_size", 18), font_path=font_path)
+                            font_size=b.get("font_size", 18), font_path=font_path,
+                            font_category=b.get("font_category") or "regular",
+                            custom_fonts=custom_fonts)
     pil_img.save(out_path)
     if os.path.exists(working_path):
         os.remove(working_path)
@@ -665,21 +721,27 @@ def sample_text_style(image_path: str, box) -> dict:
     Samples a text region to guess whether it needs a decorative face --
     handwritten/brush lettering versus standard print.
 
-    Doesn't identify the actual typeface; it estimates stroke weight and
-    irregularity so the renderer can pick a closer-matching font instead
-    of defaulting everything to the same bold sans.
+    Doesn't identify the actual typeface (that needs a trained classifier,
+    like BalloonsTranslator's YuzuMarker.FontDetection model -- a real,
+    heavier alternative not implemented here); it estimates stroke weight
+    and irregularity via classical CV so the renderer can pick a closer-
+    matching font CATEGORY instead of defaulting every bubble on a page
+    to the same bold sans. "suggested_style" is one of FONT_CATEGORIES
+    and is what the Scanlate tab auto-fills each bubble's font_category
+    with at detection time -- reviewable/overridable per bubble before
+    render, same hybrid-workflow pattern as bubble detection itself.
     """
     import cv2
     import numpy as np
 
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        return {"weight": "regular", "irregular": False}
+        return {"weight": "regular", "irregular": False, "suggested_style": "regular"}
     h, w = img.shape[:2]
     x, y = max(0, box["x"]), max(0, box["y"])
     bw, bh = min(box["w"], w - x), min(box["h"], h - y)
     if bw <= 0 or bh <= 0:
-        return {"weight": "regular", "irregular": False}
+        return {"weight": "regular", "irregular": False, "suggested_style": "regular"}
 
     roi = img[y:y + bh, x:x + bw]
     _, binary = cv2.threshold(roi, 128, 255, cv2.THRESH_BINARY_INV)
@@ -697,3 +759,25 @@ def sample_text_style(image_path: str, box) -> dict:
         "suggested_style": ("handwritten" if irregular else
                             ("bold" if ink_ratio > 0.22 else "regular")),
     }
+
+
+def export_font_style_report(bubbles: list, out_path: str) -> str:
+    """
+    Dumps each bubble's box + detected/current font_category (and the
+    raw style-sample fields, when present) to a JSON file -- a reviewable,
+    reusable record of the style decisions this page was rendered with,
+    the same idea as BalloonsTranslator's font-detection-to-JSON export
+    (there, meant for handing off to Photoshop for external relettering;
+    here, meant for reviewing what got auto-detected, or reusing the same
+    choices on a re-render after editing translated text).
+    """
+    import json
+    report = [{
+        "x": b["x"], "y": b["y"], "w": b["w"], "h": b["h"],
+        "font_category": b.get("font_category") or "regular",
+        "ink_ratio": b.get("ink_ratio"),
+        "irregular": b.get("irregular"),
+    } for b in bubbles]
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    return out_path

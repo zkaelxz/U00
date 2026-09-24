@@ -133,6 +133,143 @@ class TestRenderTextInBox:
         # should not raise -- font auto-shrink should handle it gracefully
         scanlate.render_text_in_box(img, small_box, long_text, font_size=24)
 
+    def test_font_category_resolves_to_a_different_real_font_than_regular(self, synthetic_page):
+        # Uses the real bold/regular DejaVu system fonts if present -- proves
+        # font_category actually changes which font file gets loaded, not
+        # just that the parameter is accepted.
+        if not os.path.exists("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+            pytest.skip("DejaVu fonts not present on this system")
+        from PIL import Image
+        img = Image.open(synthetic_page).convert("RGB")
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        bold_path = scanlate._find_font(category="bold")
+        regular_path = scanlate._find_font(category="regular")
+        assert bold_path != regular_path
+        # Both categories render without error.
+        scanlate.render_text_in_box(img.copy(), box, "Hi", font_category="bold")
+        scanlate.render_text_in_box(img.copy(), box, "Hi", font_category="regular")
+
+    def test_custom_font_is_actually_used_for_rendering(self, synthetic_page):
+        from PIL import Image
+        img = Image.open(synthetic_page).convert("RGB")
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        real_font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        if not os.path.exists(real_font):
+            pytest.skip("DejaVu fonts not present on this system")
+        # Doesn't raise, and the custom font (not a system fallback) is
+        # what actually gets resolved for this render.
+        scanlate.render_text_in_box(img, box, "Hi", font_category="handwritten",
+                                     custom_fonts={"handwritten": real_font})
+        assert scanlate._find_font(category="handwritten",
+                                    custom_fonts={"handwritten": real_font}) == real_font
+
+
+class TestFindFont:
+    def test_explicit_font_path_always_wins(self, tmp_path):
+        real_font = tmp_path / "custom.ttf"
+        real_font.write_bytes(b"fake ttf bytes")
+        result = scanlate._find_font(str(real_font), category="handwritten",
+                                      custom_fonts={"handwritten": "/nonexistent/other.ttf"})
+        assert result == str(real_font)
+
+    def test_a_nonexistent_explicit_path_falls_through_to_the_rest(self, tmp_path):
+        custom = tmp_path / "custom_bold.ttf"
+        custom.write_bytes(b"fake")
+        result = scanlate._find_font("/nonexistent/explicit.ttf", category="bold",
+                                      custom_fonts={"bold": str(custom)})
+        assert result == str(custom)
+
+    def test_custom_font_for_the_category_is_used_before_system_fallbacks(self, tmp_path):
+        custom = tmp_path / "my_handwriting.ttf"
+        custom.write_bytes(b"fake")
+        result = scanlate._find_font(category="handwritten", custom_fonts={"handwritten": str(custom)})
+        assert result == str(custom)
+
+    def test_custom_font_for_a_different_category_is_ignored(self, tmp_path):
+        custom = tmp_path / "my_bold.ttf"
+        custom.write_bytes(b"fake")
+        # A handwritten custom font must not leak into a "bold" lookup.
+        result = scanlate._find_font(category="bold", custom_fonts={"handwritten": str(custom)})
+        assert result != str(custom)
+
+    def test_unknown_category_falls_back_to_regular_system_fonts(self):
+        # Doesn't crash on a category with no dedicated candidates list.
+        result = scanlate._find_font(category="not_a_real_category")
+        assert result is None or os.path.exists(result)
+
+    def test_categories_constant_matches_sample_text_style_output(self):
+        assert set(scanlate.FONT_CATEGORIES) == {"regular", "bold", "handwritten"}
+
+
+class TestSampleTextStyle:
+    def test_always_includes_suggested_style_even_on_early_return(self, tmp_path):
+        # Regression test: the two early-return paths (unreadable image,
+        # degenerate box) used to omit "suggested_style" entirely, so a
+        # caller doing result["suggested_style"] could KeyError depending
+        # on which path was hit -- .get() masked this rather than fixing it.
+        missing_path = str(tmp_path / "does_not_exist.png")
+        result = scanlate.sample_text_style(missing_path, {"x": 0, "y": 0, "w": 10, "h": 10})
+        assert result["suggested_style"] == "regular"
+
+    def test_degenerate_box_also_includes_suggested_style(self, synthetic_page):
+        result = scanlate.sample_text_style(synthetic_page, {"x": 0, "y": 0, "w": 0, "h": 0})
+        assert result["suggested_style"] == "regular"
+
+    def test_a_dense_bold_looking_region_is_flagged_bold(self, temp_dir):
+        img = np.full((100, 100), 255, dtype=np.uint8)
+        # A large, uniformly dark filled block -- high, consistent ink
+        # ratio, the signature this function reads as "bold".
+        cv2.rectangle(img, (10, 10), (90, 90), 0, -1)
+        path = os.path.join(temp_dir, "bold.png")
+        cv2.imwrite(path, img)
+        result = scanlate.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
+        assert result["suggested_style"] == "bold"
+
+    def test_a_light_sparse_region_is_flagged_regular(self, temp_dir):
+        img = np.full((100, 100), 255, dtype=np.uint8)
+        cv2.rectangle(img, (45, 45), (55, 55), 0, -1)  # tiny mark, low ink ratio
+        path = os.path.join(temp_dir, "regular.png")
+        cv2.imwrite(path, img)
+        result = scanlate.sample_text_style(path, {"x": 0, "y": 0, "w": 100, "h": 100})
+        assert result["suggested_style"] == "regular"
+
+
+class TestExportFontStyleReport:
+    def test_writes_a_json_file_with_one_entry_per_bubble(self, tmp_path):
+        bubbles = [
+            {"x": 10, "y": 20, "w": 100, "h": 50, "font_category": "bold",
+             "ink_ratio": 0.3, "irregular": False},
+            {"x": 200, "y": 20, "w": 100, "h": 50, "font_category": "handwritten",
+             "ink_ratio": 0.4, "irregular": True},
+        ]
+        out_path = str(tmp_path / "styles.json")
+        result = scanlate.export_font_style_report(bubbles, out_path)
+
+        assert result == out_path
+        import json
+        with open(out_path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert len(data) == 2
+        assert data[0]["font_category"] == "bold"
+        assert data[1]["font_category"] == "handwritten"
+
+    def test_missing_font_category_defaults_to_regular_in_the_report(self, tmp_path):
+        bubbles = [{"x": 0, "y": 0, "w": 10, "h": 10}]
+        out_path = str(tmp_path / "styles.json")
+        scanlate.export_font_style_report(bubbles, out_path)
+
+        import json
+        with open(out_path, encoding="utf-8") as f:
+            data = json.load(f)
+        assert data[0]["font_category"] == "regular"
+
+    def test_empty_bubbles_list_writes_an_empty_array(self, tmp_path):
+        out_path = str(tmp_path / "styles.json")
+        scanlate.export_font_style_report([], out_path)
+        import json
+        with open(out_path, encoding="utf-8") as f:
+            assert json.load(f) == []
+
 
 class TestProcessPage:
     # process_page returns (out_path, skipped_blank) -- skipped_blank lists
@@ -178,6 +315,26 @@ class TestProcessPage:
         out_path = os.path.join(temp_dir, "final.png")
         scanlate.process_page(synthetic_page, bubbles, out_path)
         assert not os.path.exists(out_path + ".tmp.png")  # working file cleaned up
+
+    def test_per_bubble_font_category_and_custom_fonts_are_threaded_through(self, synthetic_page, temp_dir):
+        bubbles = [{"x": 100, "y": 80, "w": 300, "h": 140, "translated_text": "Hello",
+                    "font_size": 16, "skip": False, "font_category": "handwritten"}]
+        out_path = os.path.join(temp_dir, "final_style.png")
+        custom_fonts = {"handwritten": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"}
+        # Must not raise even though "handwritten" has no reliable system
+        # fallback of its own -- the custom font (or the regular fallback,
+        # if no custom one were given) covers that.
+        result, skipped_blank = scanlate.process_page(synthetic_page, bubbles, out_path,
+                                                        custom_fonts=custom_fonts)
+        assert os.path.exists(result)
+        assert skipped_blank == []
+
+    def test_missing_font_category_defaults_to_regular(self, synthetic_page, temp_dir):
+        bubbles = [{"x": 100, "y": 80, "w": 300, "h": 140, "translated_text": "Hello",
+                    "font_size": 16, "skip": False}]  # no font_category key at all
+        out_path = os.path.join(temp_dir, "final_default.png")
+        result, skipped_blank = scanlate.process_page(synthetic_page, bubbles, out_path)
+        assert os.path.exists(result)
 
 
 class TestTranslatePageWithContext:
