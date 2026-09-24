@@ -13,8 +13,16 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 
 ## How to work
 
-- **One step, one branch, off the latest `baihe-subtitler`.** Don't start
-  the next step until the current one is reviewed and merged.
+- **One step, one branch, off the latest `baihe-subtitler`.**
+- **Check the roadmap's §4 "Working agreement" for which mode you're in.**
+  Steps 1e–10 are **autonomous mode** (as of 2026-09-24, at the user's
+  request): build, test, open the PR, and **merge it yourself**, then
+  start the next step immediately off the updated branch — no stop to
+  wait for review or a merge go-ahead. Step 11 onward goes back to the
+  original **gated mode**: stop after pushing and wait for "create a PR
+  for this step." If the roadmap's own working-agreement section
+  disagrees with this summary, the roadmap is the source of truth — it
+  may have changed since this file was last copied in.
 - **Branch name:** `step-<id>-<short-name>`, where `<id>` is the roadmap's
   own step id exactly as it appears there (`1b`, `1c-pre`, `6b`, `9b`, ...)
   and `<short-name>` is a few lowercase hyphenated words describing the
@@ -26,19 +34,46 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 - **Keep changes minimal.** Only what the step's roadmap entry asks for —
   no extra refactors, no new features, no dependency upgrades beyond what
   the step names.
+- **Remove what your own change makes dead.** If the step's change leaves
+  behind an unused import, a function/variable nothing calls anymore, a
+  branch that can no longer be reached, or a helper that only existed for
+  the code you just replaced, delete it as part of the same commit — that's
+  cleanup of your own change, not an extra refactor, and it's still in
+  scope under "keep changes minimal" above.
+- **Flag pre-existing dead/redundant code you notice, don't silently fix
+  it.** If you spot unrelated dead code, duplicated logic, or an unused
+  dependency while reading files for this step, name it in the step's
+  finish-up summary (file/function, why it looks dead) instead of either
+  ignoring it or fixing it inline — fixing it would violate "keep changes
+  minimal" and widen the diff the planning session has to review. The
+  planning session decides whether it's worth its own step.
+- **This session runs on Opus for the whole remaining project**, at the
+  user's explicit request (2026-09-24). Nothing to check per step — the
+  roadmap's §4 "Model recommendation per step" table is now informational
+  only, documenting which steps would have warranted asking for Opus
+  specifically if the run weren't already on it throughout.
 - **Re-verify before fixing.** The roadmap was written by reading the code
   at a point in time; re-read the files it names and confirm the problem
   still exists as described before changing anything. If the code has
   moved on or the roadmap is wrong, say so instead of forcing a fix that
   no longer applies.
-- **When you finish a step:** run the full suite (`python run_tests.py`),
-  push the branch, and give a short plain-English summary — what changed,
-  what the user will notice in the app, anything you're unsure about —
-  then **stop**. Don't create a pull request yet.
-- **Pull requests:** only when the user explicitly says "create a PR for
-  this step" (that means the planning session has already reviewed and
-  approved the branch). Open it into `baihe-subtitler`. Don't merge it
-  yourself.
+- **When you finish a step, in autonomous mode (Steps 1e–10):** run the
+  full suite (`python run_tests.py`), open a pull request into
+  `baihe-subtitler` with a short plain-English summary (what changed,
+  what the user will notice, anything you're unsure about), **merge it
+  yourself**, then start the next step off the updated branch. Post the
+  summary either way, but don't wait for a reply before continuing. If a
+  step's own exit conditions genuinely can't be met, or something looks
+  wrong, stop and say so instead of merging around it — autonomous mode
+  means no one else is checking, so this is the one place to be careful
+  rather than fast.
+- **When you finish a step, in gated mode (Step 11 onward):** run the full
+  suite, push the branch, give the same summary, then **stop**. Don't
+  create a pull request yet.
+- **Pull requests in gated mode:** only when the user explicitly says
+  "create a PR for this step" (that means the planning session has
+  already reviewed and approved the branch). Open it into
+  `baihe-subtitler`. Don't merge it yourself.
 
 ## Tests
 
