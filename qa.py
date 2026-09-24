@@ -6,7 +6,7 @@ for proofing continuity and catching context you might have missed --
 not a general chatbot, it only knows what's in the lines you give it.
 """
 
-from translate_engines import call_with_backoff, GeminiEngine
+from translate_engines import call_with_backoff, GeminiEngine, OllamaEngine, _estimate_ollama_num_ctx
 
 
 def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: int = 300,
@@ -63,6 +63,7 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
         # into one prompt since generateContent's own multi-turn "contents"
         # format isn't worth the extra plumbing for this one caller.
         import requests
+        engine._throttle_for_free_tier()
         history_text = "\n\n".join(
             f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
@@ -76,4 +77,22 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
             return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError):
             return "This engine doesn't support chat-style Q&A."
+    if isinstance(engine, OllamaEngine):
+        # Same reasoning as Gemini above: no .client, so it fell through
+        # to the generic decline message and Q&A silently didn't work
+        # with Ollama at all.
+        import requests
+        history_text = "\n\n".join(
+            f"{'You' if m['role'] == 'user' else 'Assistant'}: {m['content']}" for m in messages)
+        resp = call_with_backoff(lambda: requests.post(f"{engine.base_url}/api/chat", json={
+            "model": engine.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": history_text},
+            ],
+            "stream": False,
+            "options": {"num_ctx": _estimate_ollama_num_ctx(system_prompt, history_text)},
+        }, timeout=300))
+        resp.raise_for_status()
+        return resp.json()["message"]["content"].strip()
     return "This engine doesn't support chat-style Q&A."

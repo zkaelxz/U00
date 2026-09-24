@@ -112,14 +112,20 @@ def render_discover_tab():
         "into the manual box — no dependencies, always works.")
     st.caption("English queries are translated to Chinese first, since baihehub is a "
               "Chinese-language database. All of this needs a working internet connection.")
+    _discover_gemini_free_tier = st.session_state.get("gemini_free_tier", False)
     bh_query = st.text_input("Search query", key="bh_query")
-    bh_engine_choice = st.selectbox("Engine (for translation)",
-                                     [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
-                                     key="bh_engine")
+    bh_engine_choice = st.selectbox(
+        "Engine (for translation)",
+        [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
+        format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _discover_gemini_free_tier)}",
+        key="bh_engine")
     bh_api_key = synced_api_key_input(
         "API key *(required for translated search)*", bh_engine_choice, "bh_api_key")
     if st.button("Search baihehub") and bh_query:
-        engine = translate_engines.get_engine(bh_engine_choice, bh_api_key) if bh_api_key else None
+        engine = translate_engines.get_engine(
+            bh_engine_choice, bh_api_key,
+            free_tier=bh_engine_choice == "gemini" and _discover_gemini_free_tier
+        ) if bh_api_key else None
         zh_query = title_library.translate_query_to_zh(bh_query, engine) if engine else bh_query
         st.caption(f"Searching for: {zh_query}")
         found = title_library.search_baihehub(zh_query)
@@ -148,14 +154,17 @@ def render_discover_tab():
         key="bulk_urls")
     bulk_source_name = st.text_input("Source label (for your own reference)", value="jjwxc_baihe_tag",
                                       key="bulk_source_name")
-    bulk_engine_choice = st.selectbox("Engine",
-                                       [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
-                                       key="bulk_engine")
+    bulk_engine_choice = st.selectbox(
+        "Engine",
+        [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
+        format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _discover_gemini_free_tier)}",
+        key="bulk_engine")
     bulk_api_key = synced_api_key_input("API key *(required)*", bulk_engine_choice, "bulk_api_key")
+    _bulk_free_tier = bulk_engine_choice == "gemini" and _discover_gemini_free_tier
 
     if st.button("🔍 Extract entries (review before saving)") and bulk_urls_text and bulk_api_key:
         urls = [u.strip() for u in bulk_urls_text.splitlines() if u.strip()]
-        engine = translate_engines.get_engine(bulk_engine_choice, bulk_api_key)
+        engine = translate_engines.get_engine(bulk_engine_choice, bulk_api_key, free_tier=_bulk_free_tier)
         progress_bar = st.progress(0.0, text="Extracting...")
         entries, statuses = bulk_import.bulk_extract(
             urls, engine, source_name=bulk_source_name,
@@ -182,7 +191,8 @@ def render_discover_tab():
                 "(see the Diagnostics tab).")
             pasted_listing = st.text_area("Pasted listing text", height=200, key="manual_bulk_paste")
             if st.button("Extract from pasted text") and pasted_listing.strip() and bulk_api_key:
-                engine_p = translate_engines.get_engine(bulk_engine_choice, bulk_api_key)
+                engine_p = translate_engines.get_engine(
+                    bulk_engine_choice, bulk_api_key, free_tier=_bulk_free_tier)
                 with st.spinner("Extracting..."):
                     manual_entries = bulk_import.extract_listing_from_text(
                         pasted_listing, engine_p, source_name=bulk_source_name)
@@ -230,13 +240,17 @@ def render_discover_tab():
     st.subheader("Import a title from a URL")
     import_url = st.text_input("Listing page URL *(required)*", key="import_url",
                                 placeholder="https://baihehub.com/audio-dramas/...")
-    import_engine_choice = st.selectbox("Engine",
-                                         [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
-                                         key="import_engine")
+    import_engine_choice = st.selectbox(
+        "Engine",
+        [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
+        format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _discover_gemini_free_tier)}",
+        key="import_engine")
     import_api_key = synced_api_key_input(
         "API key *(required)*", import_engine_choice, "import_api_key")
     if st.button("Fetch & add to library") and import_url and import_api_key:
-        engine = translate_engines.get_engine(import_engine_choice, import_api_key)
+        engine = translate_engines.get_engine(
+            import_engine_choice, import_api_key,
+            free_tier=import_engine_choice == "gemini" and _discover_gemini_free_tier)
         with st.spinner("Fetching and extracting..."):
             found, status = title_library.import_title_from_url(import_url, engine)
         if not status["ok"]:

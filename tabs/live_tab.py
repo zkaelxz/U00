@@ -57,10 +57,11 @@ def render_live_tab():
 
     engine_list = list(translate_engines.ENGINES.keys())
     saved_engine = st.session_state.get("settings_default_engine", "claude")
+    _live_gemini_free_tier = st.session_state.get("gemini_free_tier", False)
     engine_choice = st.selectbox(
         "Translation engine", engine_list,
         index=engine_list.index(saved_engine) if saved_engine in engine_list else 0,
-        format_func=lambda e: f"{e} — {translate_engines.ENGINE_NOTES[e]}",
+        format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _live_gemini_free_tier)}",
         key="live_engine_choice", disabled=is_running)
 
     needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate")
@@ -76,7 +77,9 @@ def render_live_tab():
     if not is_running:
         if st.button("▶️ Start", type="primary",
                       disabled=not url.strip() or (needs_key and not api_key)):
-            engine = translate_engines.get_engine(engine_choice, api_key)
+            engine = translate_engines.get_engine(
+                engine_choice, api_key,
+                free_tier=engine_choice == "gemini" and _live_gemini_free_tier)
             out_dir = os.path.join(tempfile.gettempdir(), "baihe_live_capture")
             started = background_jobs.start_job(
                 _JOB_ID, live_translate.run_live_job,

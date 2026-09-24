@@ -325,14 +325,12 @@ class TestModelSelection:
         for model in te.CLAUDE_MODELS:
             assert model in te.PRICING_PER_MILLION_TOKENS
 
-    def test_get_engine_threads_a_chosen_model_through(self):
-        import sys, types
+    def test_get_engine_threads_a_chosen_model_through(self, monkeypatch):
+        import types
+        import translate_engines as te
         fake = types.ModuleType("anthropic")
         fake.Anthropic = lambda api_key: types.SimpleNamespace(api_key=api_key)
-        sys.modules["anthropic"] = fake
-        import importlib
-        import translate_engines as te
-        importlib.reload(te)
+        monkeypatch.setitem(sys.modules, "anthropic", fake)
         for model in te.CLAUDE_MODELS:
             eng = te.get_engine("claude", "fake-key", model)
             assert eng.model == model
