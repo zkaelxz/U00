@@ -35,17 +35,25 @@ def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplifi
     return TESSERACT_LANG.get(source_language, "chi_sim")
 
 
-def extract_text_tesseract(image_path: str, lang: str = "chi_sim") -> str:
+def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6) -> str:
     """Requires: `pip install pytesseract pillow` + the Tesseract binary
     itself installed system-wide, with the matching language pack.
       macOS:   brew install tesseract tesseract-lang
       Ubuntu:  sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor
       Windows: https://github.com/UB-Mannheim/tesseract/wiki (select
                the languages you need during install)
+
+    psm=6 ("single uniform block of text") is set explicitly rather than
+    left at Tesseract's own default (PSM 3, "fully automatic page
+    segmentation"): confirmed by direct testing that PSM 3 can silently
+    drop the last character of a short, single-line CJK image -- exactly
+    the shape of a cropped hardsub caption band, and not rare enough on
+    novel/manga page scans either to leave on the default.
     """
     import pytesseract
     from PIL import Image
-    return pytesseract.image_to_string(Image.open(image_path), lang=lang)
+    return pytesseract.image_to_string(Image.open(image_path), lang=lang,
+                                        config=f"--psm {psm}")
 
 
 def extract_text_paddle(image_path: str) -> str:
