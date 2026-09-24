@@ -1104,539 +1104,539 @@ def render_workspace_tab():
     characters = db.list_characters(picked_id)
     if characters:
         st.divider()
-        st.subheader("6. Name your characters & set up voice cloning")
-        st.caption("Map speaker labels to character names, and optionally attach a reference "
-                   "voice clip per character for cloning (instead of the free TTS pool).")
-        speaker_segments = st.session_state.get(f"speaker_segments_{picked_id}")
-        can_auto_extract = content_mode == "audio_drama" and speaker_segments is not None
+        with st.expander("6. 🎭 Name your characters & set up voice cloning", expanded=False):
+            st.caption("Map speaker labels to character names, and optionally attach a reference "
+                       "voice clip per character for cloning (instead of the free TTS pool).")
+            speaker_segments = st.session_state.get(f"speaker_segments_{picked_id}")
+            can_auto_extract = content_mode == "audio_drama" and speaker_segments is not None
 
-        if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
-            audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
-            if audio_path and os.path.exists(audio_path):
-                import diarize as _diarize
-                clips = dub_module.extract_reference_clips(audio_path, st.session_state.lines, speaker_segments, ddir)
-                for label, info in clips.items():
-                    matching_zh = next((ln.zh for ln in st.session_state.lines
-                                         if ln.speaker == label and info["start"] <= ln.start <= info["end"] + 1), "")
-                    db.upsert_character(picked_id, label,
-                                         ref_audio_filename=os.path.relpath(info["path"], ddir),
-                                         ref_text=matching_zh)
-                st.success(f"Extracted {len(clips)} reference clip(s).")
-                st.rerun()
-
-        for c in characters:
-            with st.container(border=True):
-                cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
-                cc1.write(c["speaker_label"])
-                name = cc2.text_input("name", value=c["character_name"] or "",
-                                       label_visibility="collapsed", key=f"cname_{c['speaker_label']}")
-                va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
-                                     placeholder="voice actor", label_visibility="collapsed",
-                                     key=f"cva_{c['speaker_label']}")
-                voice = cc4.selectbox("tts voice (fallback)", dub_module.DEFAULT_VOICE_POOL,
-                                       index=dub_module.DEFAULT_VOICE_POOL.index(c["tts_voice"])
-                                       if c["tts_voice"] in dub_module.DEFAULT_VOICE_POOL else 0,
-                                       label_visibility="collapsed", key=f"cvoice_{c['speaker_label']}")
-                if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
-                    db.upsert_character(picked_id, c["speaker_label"], character_name=name,
-                                         voice_actor=va, tts_voice=voice)
-
-                rc1, rc2 = st.columns([1, 2])
-                if c["ref_audio_filename"]:
-                    rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
-                else:
-                    rc1.caption("No clone reference set")
-                ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
-                                                type=["wav", "mp3", "m4a"], key=f"refup_{c['speaker_label']}",
-                                                label_visibility="collapsed")
-                ref_text_input = st.text_input(
-                    f"What's said in that clip (original language, for {name or c['speaker_label']})",
-                    value=c["ref_text"] or "", key=f"reftext_{c['speaker_label']}")
-                if ref_upload is not None:
-                    ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
-                    with open(os.path.join(ddir, ref_filename), "wb") as f:
-                        f.write(ref_upload.getbuffer())
-                    db.upsert_character(picked_id, c["speaker_label"], ref_audio_filename=ref_filename)
-                if ref_text_input != (c["ref_text"] or ""):
-                    db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
-
-        with st.expander("☁️ Or use ElevenLabs cloning instead (hosted, no GPU needed)", expanded=False):
-            st.caption("Paid API with a limited free tier. Simpler to get working than F5-TTS since "
-                      "there's no local model to install -- worth trying first if F5-TTS gives you trouble.")
-            el_key = st.text_input("ElevenLabs API key", type="password",
-                                    value=st.session_state.get("settings_elevenlabs", ""),
-                                    key=f"el_key_{picked_id}")
-            for c in characters:
-                if not c["ref_audio_filename"]:
-                    continue
-                ec1, ec2 = st.columns([2, 1])
-                label = c['character_name'] or c['speaker_label']
-                if c.get("elevenlabs_voice_id"):
-                    ec1.caption(f"{label} — ✅ cloned (voice ID: {c['elevenlabs_voice_id']})")
-                else:
-                    ec1.caption(label)
-                if ec2.button(f"Clone via ElevenLabs", key=f"elclone_{c['speaker_label']}", disabled=not el_key):
-                    voice_id = dub_module.clone_voice_elevenlabs(
-                        el_key, c["character_name"] or c["speaker_label"],
-                        os.path.join(ddir, c["ref_audio_filename"]))
-                    db.upsert_character(picked_id, c["speaker_label"], elevenlabs_voice_id=voice_id)
-                    st.success(f"Cloned and saved. Voice ID: {voice_id}")
+            if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
+                audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
+                if audio_path and os.path.exists(audio_path):
+                    import diarize as _diarize
+                    clips = dub_module.extract_reference_clips(audio_path, st.session_state.lines, speaker_segments, ddir)
+                    for label, info in clips.items():
+                        matching_zh = next((ln.zh for ln in st.session_state.lines
+                                             if ln.speaker == label and info["start"] <= ln.start <= info["end"] + 1), "")
+                        db.upsert_character(picked_id, label,
+                                             ref_audio_filename=os.path.relpath(info["path"], ddir),
+                                             ref_text=matching_zh)
+                    st.success(f"Extracted {len(clips)} reference clip(s).")
                     st.rerun()
+
+            for c in characters:
+                with st.container(border=True):
+                    cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
+                    cc1.write(c["speaker_label"])
+                    name = cc2.text_input("name", value=c["character_name"] or "",
+                                           label_visibility="collapsed", key=f"cname_{c['speaker_label']}")
+                    va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
+                                         placeholder="voice actor", label_visibility="collapsed",
+                                         key=f"cva_{c['speaker_label']}")
+                    voice = cc4.selectbox("tts voice (fallback)", dub_module.DEFAULT_VOICE_POOL,
+                                           index=dub_module.DEFAULT_VOICE_POOL.index(c["tts_voice"])
+                                           if c["tts_voice"] in dub_module.DEFAULT_VOICE_POOL else 0,
+                                           label_visibility="collapsed", key=f"cvoice_{c['speaker_label']}")
+                    if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
+                        db.upsert_character(picked_id, c["speaker_label"], character_name=name,
+                                             voice_actor=va, tts_voice=voice)
+
+                    rc1, rc2 = st.columns([1, 2])
+                    if c["ref_audio_filename"]:
+                        rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
+                    else:
+                        rc1.caption("No clone reference set")
+                    ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
+                                                    type=["wav", "mp3", "m4a"], key=f"refup_{c['speaker_label']}",
+                                                    label_visibility="collapsed")
+                    ref_text_input = st.text_input(
+                        f"What's said in that clip (original language, for {name or c['speaker_label']})",
+                        value=c["ref_text"] or "", key=f"reftext_{c['speaker_label']}")
+                    if ref_upload is not None:
+                        ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
+                        with open(os.path.join(ddir, ref_filename), "wb") as f:
+                            f.write(ref_upload.getbuffer())
+                        db.upsert_character(picked_id, c["speaker_label"], ref_audio_filename=ref_filename)
+                    if ref_text_input != (c["ref_text"] or ""):
+                        db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
+
+            with st.expander("☁️ Or use ElevenLabs cloning instead (hosted, no GPU needed)", expanded=False):
+                st.caption("Paid API with a limited free tier. Simpler to get working than F5-TTS since "
+                          "there's no local model to install -- worth trying first if F5-TTS gives you trouble.")
+                el_key = st.text_input("ElevenLabs API key", type="password",
+                                        value=st.session_state.get("settings_elevenlabs", ""),
+                                        key=f"el_key_{picked_id}")
+                for c in characters:
+                    if not c["ref_audio_filename"]:
+                        continue
+                    ec1, ec2 = st.columns([2, 1])
+                    label = c['character_name'] or c['speaker_label']
+                    if c.get("elevenlabs_voice_id"):
+                        ec1.caption(f"{label} — ✅ cloned (voice ID: {c['elevenlabs_voice_id']})")
+                    else:
+                        ec1.caption(label)
+                    if ec2.button(f"Clone via ElevenLabs", key=f"elclone_{c['speaker_label']}", disabled=not el_key):
+                        voice_id = dub_module.clone_voice_elevenlabs(
+                            el_key, c["character_name"] or c["speaker_label"],
+                            os.path.join(ddir, c["ref_audio_filename"]))
+                        db.upsert_character(picked_id, c["speaker_label"], elevenlabs_voice_id=voice_id)
+                        st.success(f"Cloned and saved. Voice ID: {voice_id}")
+                        st.rerun()
 
     # ---------------------------------------------------- Review & edit
     if st.session_state.lines:
         st.divider()
-        st.subheader("7. Review & edit")
+        with st.expander("7. 📝 Review & edit", expanded=False):
 
-        all_lines = st.session_state.lines
-        review_page_size = st.number_input("Lines per page", value=40, min_value=10, max_value=200,
-                                            step=10, key="review_page_size")
-        n_review_pages = max(1, (len(all_lines) + review_page_size - 1) // review_page_size)
-        review_page = st.number_input(f"Page (1-{n_review_pages})", value=1, min_value=1,
-                                       max_value=n_review_pages, step=1, key="review_page")
-        page_start = (review_page - 1) * review_page_size
-        page_slice = all_lines[page_start: page_start + review_page_size]
+            all_lines = st.session_state.lines
+            review_page_size = st.number_input("Lines per page", value=40, min_value=10, max_value=200,
+                                                step=10, key="review_page_size")
+            n_review_pages = max(1, (len(all_lines) + review_page_size - 1) // review_page_size)
+            review_page = st.number_input(f"Page (1-{n_review_pages})", value=1, min_value=1,
+                                           max_value=n_review_pages, step=1, key="review_page")
+            page_start = (review_page - 1) * review_page_size
+            page_slice = all_lines[page_start: page_start + review_page_size]
 
-        edited_page_rows = []
-        for ln in page_slice:
-            cols = st.columns([1, 1, 1, 3, 3, 0.5])
-            start = cols[0].number_input("start", value=round(ln.start, 2), step=0.1,
-                                          label_visibility="collapsed", key=f"start_{ln.idx}")
-            end = cols[1].number_input("end", value=round(ln.end, 2), step=0.1,
-                                        label_visibility="collapsed", key=f"end_{ln.idx}")
-            cols[2].caption(ln.speaker or "—")
-            zh = cols[3].text_area("zh", value=ln.zh, height=68, label_visibility="collapsed", key=f"zh_{ln.idx}")
-            en = cols[4].text_area("en", value=ln.en, height=68, label_visibility="collapsed", key=f"en_{ln.idx}")
-            cols[5].write(f"#{ln.idx + 1}")
-            edited_page_rows.append(Line(idx=ln.idx, start=start, end=end, zh=zh, en=en,
-                                          speaker=ln.speaker, dub_filename=ln.dub_filename))
+            edited_page_rows = []
+            for ln in page_slice:
+                cols = st.columns([1, 1, 1, 3, 3, 0.5])
+                start = cols[0].number_input("start", value=round(ln.start, 2), step=0.1,
+                                              label_visibility="collapsed", key=f"start_{ln.idx}")
+                end = cols[1].number_input("end", value=round(ln.end, 2), step=0.1,
+                                            label_visibility="collapsed", key=f"end_{ln.idx}")
+                cols[2].caption(ln.speaker or "—")
+                zh = cols[3].text_area("zh", value=ln.zh, height=68, label_visibility="collapsed", key=f"zh_{ln.idx}")
+                en = cols[4].text_area("en", value=ln.en, height=68, label_visibility="collapsed", key=f"en_{ln.idx}")
+                cols[5].write(f"#{ln.idx + 1}")
+                edited_page_rows.append(Line(idx=ln.idx, start=start, end=end, zh=zh, en=en,
+                                              speaker=ln.speaker, dub_filename=ln.dub_filename))
 
-        # Splice the edited page back into the full list -- lines outside
-        # this page stay untouched rather than being re-rendered/re-edited.
-        edited_rows = list(all_lines)
-        for i, ln in enumerate(edited_page_rows):
-            edited_rows[page_start + i] = ln
-        st.session_state.lines = edited_rows
+            # Splice the edited page back into the full list -- lines outside
+            # this page stay untouched rather than being re-rendered/re-edited.
+            edited_rows = list(all_lines)
+            for i, ln in enumerate(edited_page_rows):
+                edited_rows[page_start + i] = ln
+            st.session_state.lines = edited_rows
 
-        if st.button("💾 Save edits (this page)"):
-            # Capture what you actually changed, so the style profile can learn
-            # from real edits rather than guesswork.
-            _prev = {r["idx"]: r.get("en") or "" for r in db.load_lines(picked_id)}
-            for ln in edited_page_rows:
-                before = _prev.get(ln.idx, "")
-                if before and ln.en and before.strip() != ln.en.strip():
-                    db.record_edit_sample(picked_id, ln.zh, before, ln.en)
-            db.save_lines(picked_id, edited_rows)
-            st.success("Saved.")
+            if st.button("💾 Save edits (this page)"):
+                # Capture what you actually changed, so the style profile can learn
+                # from real edits rather than guesswork.
+                _prev = {r["idx"]: r.get("en") or "" for r in db.load_lines(picked_id)}
+                for ln in edited_page_rows:
+                    before = _prev.get(ln.idx, "")
+                    if before and ln.en and before.strip() != ln.en.strip():
+                        db.record_edit_sample(picked_id, ln.zh, before, ln.en)
+                db.save_lines(picked_id, edited_rows)
+                st.success("Saved.")
 
-        with st.expander("🔍 Check line coverage (do this before translating)"):
-            st.caption(
-                "Scans for the patterns that usually mean real dialogue got missed or merged "
-                "during transcription -- worth running before spending on translation, since "
-                "fixing timing after is free and fixing it after translating means re-doing "
-                "the translation too."
-            )
-            if st.button("Run coverage check"):
-                st.session_state[f"coverage_report_{picked_id}"] = core_module.diagnose_line_coverage(
-                    edited_rows)
-            report = st.session_state.get(f"coverage_report_{picked_id}")
-            if report:
-                cc1, cc2, cc3, cc4 = st.columns(4)
-                cc1.metric("Long/merged lines", len(report["long_lines"]))
-                cc2.metric("Large silent gaps", len(report["large_gaps"]))
-                cc3.metric("No source text", len(report["blank_zh"]))
-                cc4.metric("Untranslated", len(report["blank_en"]))
-
-                if report["long_lines"]:
-                    st.markdown("**Suspiciously long lines** (likely several merged into one -- "
-                              "lower the speech-splitting sensitivity above and re-align to fix)")
-                    for l in report["long_lines"][:15]:
-                        st.caption(f"Line {l['idx']+1} ({fmt_ts(l['start'])}–{fmt_ts(l['end'])}): "
-                                  f"{l['note']} — \"{l['zh'][:40]}\"")
-                if report["large_gaps"]:
-                    st.markdown("**Large silent gaps** (real silence, or quiet dialogue the "
-                              "detector missed -- worth a quick listen)")
-                    for g in report["large_gaps"][:15]:
-                        st.caption(f"{g['gap_seconds']:.1f}s gap between line {g['after_idx']+1} "
-                                  f"and {g['before_idx']+1} ({fmt_ts(g['gap_start'])}–"
-                                  f"{fmt_ts(g['gap_end'])})")
-                if not report["long_lines"] and not report["large_gaps"]:
-                    st.success("No obvious coverage problems found.")
-
-        with st.expander("⏱️ Check dubbing pacing (optional)"):
-            st.caption(
-                "Flags lines that are too long to say naturally within their time slot, "
-                "or oddly short relative to it. Doesn't change anything by itself."
-            )
-            if st.button("Check pacing"):
-                flags = translate_engines.smart_segment_lines(edited_rows)
-                if flags:
-                    st.session_state[f"pacing_flags_{picked_id}"] = flags
-                    st.warning(f"{len(flags)} line(s) flagged.")
-                else:
-                    st.success("No pacing issues detected.")
-            flags = st.session_state.get(f"pacing_flags_{picked_id}", [])
-            if flags:
-                for f in flags:
-                    st.caption(f"Line #{f['idx']+1} ({f['issue']}): {f['detail']}")
-                too_long_idxs = {f["idx"] for f in flags if f["issue"] == "too_long_for_slot"}
-                if too_long_idxs and api_key and st.button("✂️ Auto-shorten overlong lines with LLM"):
-                    engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                    to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
-                    translate_engines.rewrite_for_pacing_llm(to_fix, engine)
-                    db.save_lines(picked_id, edited_rows)
-                    st.session_state.lines = edited_rows
-                    st.session_state[f"pacing_flags_{picked_id}"] = []
-                    st.success(f"Shortened {len(to_fix)} line(s). Review below.")
-                    st.rerun()
-
-        with st.expander("🔍 Check translation consistency (optional)"):
-            st.caption(
-                "Flags the same Chinese name/term translated differently in different lines "
-                "(e.g. a character's name spelled two ways). Doesn't change anything by itself."
-            )
-            if st.button("Check consistency") and api_key:
-                engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                with st.spinner("Reviewing..."):
-                    issues = translate_engines.check_consistency_llm(edited_rows, engine)
-                st.session_state[f"consistency_issues_{picked_id}"] = issues
-                if issues:
-                    st.warning(f"{len(issues)} consistency issue(s) found.")
-                else:
-                    st.success("No consistency issues detected.")
-            issues = st.session_state.get(f"consistency_issues_{picked_id}", [])
-            for issue in issues:
-                st.caption(f"**{issue.get('term')}**: {', '.join(issue.get('variants', []))} "
-                          f"— {issue.get('note', '')}")
-
-        with st.expander("🎭 Emotional register (sarcasm, humour, anger)"):
-            st.caption(
-                "Tags each line's emotional charge so translation preserves it. Sarcasm read "
-                "as sincerity, or suppressed anger read as calm, breaks a scene even when the "
-                "words are technically correct -- these are the registers most often flattened."
-            )
-            emap = st.session_state.get(f"emotions_{picked_id}", {})
-            ec1, ec2 = st.columns([1, 1])
-            use_cues = ec2.checkbox("Use audio delivery cues", value=(content_mode == "audio_drama"),
-                                     help="Uses pacing and pauses from the original timing as "
-                                          "weak evidence for emotional register.")
-            if ec1.button("Detect emotional register") and api_key:
-                eng_e = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                with st.spinner("Reading tone..."):
-                    emap = emotion.detect_emotions(edited_rows, eng_e, use_audio_cues=use_cues)
-                st.session_state[f"emotions_{picked_id}"] = emap
-                st.rerun()
-
-            if emap:
-                summ = emotion.emotion_summary(emap)
-                sc1, sc2 = st.columns(2)
-                sc1.metric("Lines tagged", summ["total"])
-                sc2.metric("High-risk register", summ["high_risk"],
-                            help="Sarcasm, dry humour, suppressed anger, flirtation, evasion -- "
-                                 "the registers most likely to be lost in translation.")
-                st.caption(" · ".join(f"{k}: {v}" for k, v in
-                                       sorted(summ["by_emotion"].items(), key=lambda x: -x[1])))
-                st.caption("These tags are applied automatically on the next translation run.")
-
-        with st.expander("🎯 Adaptive style (learns from your edits)"):
-            st.caption(
-                "Every line you rewrite is recorded. Once enough accumulate, they're analyzed "
-                "for consistent patterns and folded into future translation prompts. "
-                "Conservative by design -- it only reports preferences it can see repeatedly."
-            )
-            samples = db.list_edit_samples(picked_id)
-            tend = adaptive_style.summarize_edit_tendencies(samples)
-            if tend["total"]:
-                tc1, tc2, tc3, tc4 = st.columns(4)
-                tc1.metric("Edits recorded", tend["total"])
-                tc2.metric("Shortened", tend["shortened"])
-                tc3.metric("Expanded", tend["expanded"])
-                tc4.metric("Avg word change", f"{tend['avg_word_delta']:+.1f}")
-            else:
-                st.caption("No edits recorded yet -- rewrite some lines above and save.")
-
-            scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
-            existing_profile = db.get_style_profile(scope)
-            if st.button("🧠 Learn my style from these edits") and api_key:
-                eng_a = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                all_samples = db.list_edit_samples()
-                with st.spinner("Analyzing your edits..."):
-                    result = adaptive_style.analyze_edit_patterns(
-                        all_samples, eng_a,
-                        existing_profile=(existing_profile or {}).get("profile"))
-                if result.get("preferences"):
-                    db.save_style_profile(scope, result, sample_count=len(all_samples))
-                    st.success(f"Learned {len(result['preferences'])} preference(s).")
-                    st.rerun()
-                else:
-                    st.info(result.get("summary", "No clear patterns found yet."))
-
-            if existing_profile and existing_profile["profile"].get("preferences"):
-                pr = existing_profile["profile"]
-                st.caption(f"**Learned profile** (confidence: {pr.get('confidence','?')}, "
-                          f"from {existing_profile['sample_count']} edits)")
-                if pr.get("summary"):
-                    st.caption(f"_{pr['summary']}_")
-                for p_ in pr["preferences"]:
-                    st.caption(f"• {p_}")
-                st.session_state["apply_style_profile"] = st.checkbox(
-                    "Apply this profile to future translations",
-                    value=st.session_state.get("apply_style_profile", True))
-                if st.button("Reset learned style"):
-                    db.save_style_profile(scope, {"preferences": []}, 0)
-                    st.rerun()
-
-        with st.expander("🔀 Translation versions (compare models)"):
-            st.caption(
-                "Every translation run is saved as a version, so re-translating with a "
-                "different model never destroys the previous attempt. Compare them "
-                "side-by-side and activate whichever reads better."
-            )
-            versions = db.list_translation_versions(picked_id)
-            if not versions:
-                st.caption("No saved versions yet -- run a translation first.")
-            else:
-                for v in versions:
-                    vc1, vc2, vc3 = st.columns([3, 1, 1])
-                    active = " ✅ **active**" if v["is_active"] else ""
-                    when = v["created_at"][:16].replace("T", " ") if v["created_at"] else "?"
-                    vc1.caption(f"**{v['label']}**{active} — {v['model'] or v['engine']} · {when}")
-                    if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}"):
-                        full = db.get_translation_version(v["id"])
-                        if full:
-                            db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                                           "before switching version")
-                            restored = [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                              zh=r["zh"], en=r["en"], speaker=r.get("speaker"))
-                                        for r in full["lines"]]
-                            db.save_lines(picked_id, restored)
-                            db.set_active_translation_version(picked_id, v["id"])
-                            st.session_state.lines = restored
-                            st.success(f"Activated '{v['label']}'.")
-                            st.rerun()
-                    if vc3.button("🗑️", key=f"delv_{v['id']}"):
-                        db.delete_translation_version(v["id"])
-                        st.rerun()
-
-                if len(versions) >= 2:
-                    st.markdown("**Compare two versions**")
-                    vlabels = {f"{v['label']} ({v['created_at'][:10]})": v["id"] for v in versions}
-                    cc1, cc2 = st.columns(2)
-                    left = cc1.selectbox("Left", list(vlabels.keys()), index=0, key="cmp_left")
-                    right = cc2.selectbox("Right", list(vlabels.keys()),
-                                           index=min(1, len(vlabels) - 1), key="cmp_right")
-                    if st.button("Show differences"):
-                        lv = db.get_translation_version(vlabels[left])
-                        rv = db.get_translation_version(vlabels[right])
-                        rmap = {r["idx"]: r["en"] for r in rv["lines"]}
-                        diffs = [(r["idx"], r["zh"], r["en"], rmap.get(r["idx"], ""))
-                                 for r in lv["lines"] if rmap.get(r["idx"], "") != r["en"]]
-                        st.caption(f"{len(diffs)} line(s) differ out of {len(lv['lines'])}.")
-                        for idx, zh, l_en, r_en in diffs[:60]:
-                            st.markdown(f"**Line {idx+1}** · {zh}")
-                            dc1, dc2 = st.columns(2)
-                            dc1.info(l_en or "_(empty)_")
-                            dc2.warning(r_en or "_(empty)_")
-
-        with st.expander("📝 Translation notes (idioms, wordplay, meaningful names)"):
-            st.caption(
-                "Reviews the translation for things that lost something crossing languages -- "
-                "四字成语 and set phrases, puns, names whose characters carry meaning, literary "
-                "allusions, and honorifics whose nuance doesn't survive a direct rendering. "
-                "Produces notes for readers; doesn't change any line."
-            )
-            if st.button("Generate translation notes") and api_key:
-                engine_n = translate_engines.get_engine(engine_choice, api_key, engine_model)
-                with st.spinner("Reviewing for idioms, wordplay, and allusions..."):
-                    found_notes = tguide.generate_translation_notes_llm(
-                        edited_rows, engine_n, source_language=source_language)
-                if found_notes:
-                    db.save_translation_notes(picked_id, found_notes)
-                    st.success(f"Found {len(found_notes)} note(s).")
-                else:
-                    st.info("Nothing flagged as needing a note.")
-                st.rerun()
-
-            existing_notes = db.list_translation_notes(picked_id)
-            if existing_notes:
-                st.caption(f"{len(existing_notes)} note(s) recorded:")
-                for n in existing_notes:
-                    nc1, nc2 = st.columns([5, 1])
-                    line_ref = f"Line {n['line_idx'] + 1}" if n.get("line_idx") is not None else "—"
-                    nc1.caption(f"**{n['term']}** ({n['note_type']}, {line_ref}): {n['note']}")
-                    if nc2.button("🗑️", key=f"delnote_{n['id']}"):
-                        db.delete_translation_note(n["id"])
-                        st.rerun()
-
-                notes_md = tguide.format_notes_as_markdown(
-                    existing_notes, drama["title_en"] or drama["title_zh"] or "")
-                st.download_button("📄 Download notes as Markdown", notes_md,
-                                    file_name="translation_notes.md")
-
-                with st.form(f"add_note_{picked_id}", clear_on_submit=True):
-                    st.caption("Add your own note:")
-                    anc1, anc2 = st.columns(2)
-                    an_term = anc1.text_input("Term / phrase")
-                    an_type = anc2.selectbox("Type", list(tguide.NOTE_TYPES.keys()),
-                                              format_func=lambda k: tguide.NOTE_TYPES[k])
-                    an_line = st.number_input("Line number (1-based)", value=1, min_value=1)
-                    an_text = st.text_area("Note", height=68)
-                    if st.form_submit_button("Add note") and an_term and an_text:
-                        db.save_translation_notes(picked_id, [{
-                            "line_idx": an_line - 1, "term": an_term,
-                            "note_type": an_type, "note": an_text}])
-                        st.success("Added.")
-                        st.rerun()
-
-        with st.expander("🔗 Merge short adjacent lines (optional)"):
-            st.caption(
-                "Combines consecutive short lines from the same speaker into one natural "
-                "subtitle, when they're close enough in time that the split was probably just "
-                "an artifact of the source transcript's line breaks. This changes your line "
-                "count -- review the result before saving."
-            )
-            if st.button("Preview merge"):
-                merged_preview = merge_adjacent_short_lines(list(edited_rows))
-                st.session_state[f"merge_preview_{picked_id}"] = merged_preview
-                st.info(f"{len(edited_rows)} lines -> {len(merged_preview)} lines after merging.")
-            merge_preview = st.session_state.get(f"merge_preview_{picked_id}")
-            if merge_preview:
-                if st.button("✅ Apply merge"):
-                    db.save_line_history_snapshot(picked_id, edited_rows, "before merge")
-                    db.save_lines(picked_id, merge_preview)
-                    st.session_state.lines = merge_preview
-                    st.session_state[f"merge_preview_{picked_id}"] = None
-                    st.success("Merged and saved. (Previous version saved to history -- "
-                              "see 'Version history' below if you want it back.)")
-                    st.rerun()
-
-        with st.expander("🕓 Version history / undo"):
-            st.caption(
-                "Snapshots are taken automatically before operations that discard work "
-                "(force re-translate, merge). Restoring replaces the current lines with the "
-                "saved version -- and takes its own snapshot first, so you can undo the undo."
-            )
-            history = db.list_line_history(picked_id)
-            if not history:
-                st.caption("No snapshots yet for this drama.")
-            else:
-                for h in history:
-                    hc1, hc2 = st.columns([3, 1])
-                    when = h["created_at"][:16].replace("T", " ") if h["created_at"] else "?"
-                    hc1.caption(f"**{h['label']}** — {when}")
-                    if hc2.button("Restore", key=f"restore_{h['id']}"):
-                        snapshot = db.get_line_history_snapshot(h["id"])
-                        if snapshot:
-                            db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                                           "before restore")
-                            restored = [Line(**s) for s in snapshot]
-                            db.save_lines(picked_id, restored)
-                            st.session_state.lines = restored
-                            st.success(f"Restored '{h['label']}'.")
-                            st.rerun()
-                        else:
-                            st.error("That snapshot could not be read.")
-
-        st.subheader("8. AI dub / narration")
-        st.caption(
-            "Uses each character's cloning reference clip if set, otherwise falls back to "
-            "the TTS engine chosen below. Voice cloning needs `f5-tts` installed locally. "
-            "Requires ffmpeg on PATH."
-        )
-        tts_engine = st.radio(
-            "Fallback TTS engine (used where no clone reference is set)",
-            ["edge_tts", "offline"],
-            format_func=lambda e: "🌐 edge-tts (free, online, more natural)"
-                         if e == "edge_tts" else
-                         "📴 Offline / Piper (fully local, no internet, lower quality)",
-            horizontal=False,
-        )
-        voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
-        dub_button_label = "🎙️ Generate narration track" if content_mode == "novel_narration" else "🎙️ Generate dub track"
-        if st.button(dub_button_label):
-            chars = db.list_characters(picked_id)
-            voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
-            clone_map = {}
-            el_key_for_dub = st.session_state.get(f"el_key_{picked_id}", "") or st.session_state.get("settings_elevenlabs", "")
-            for c in chars:
-                if c.get("elevenlabs_voice_id"):
-                    clone_map[c["speaker_label"]] = {
-                        "engine": "elevenlabs", "voice_id": c["elevenlabs_voice_id"],
-                        "api_key": el_key_for_dub,
-                    }
-                elif c["ref_audio_filename"]:
-                    clone_map[c["speaker_label"]] = {
-                        "ref_audio": os.path.join(ddir, c["ref_audio_filename"]),
-                        "ref_text": c["ref_text"] or "",
-                    }
-            progress_bar = st.progress(0.0, text="Generating...")
-            try:
-                build_fn = dub_module.build_narration_track if content_mode == "novel_narration" else dub_module.build_dub_track
-                out_path, dub_errors = build_fn(
-                    st.session_state.lines, ddir, voice_map, character_clone_map=clone_map,
-                    tts_engine=tts_engine,
-                    progress_cb=lambda frac: progress_bar.progress(frac, text=f"Generating... {frac*100:.0f}%"),
+            with st.expander("🔍 Check line coverage (do this before translating)"):
+                st.caption(
+                    "Scans for the patterns that usually mean real dialogue got missed or merged "
+                    "during transcription -- worth running before spending on translation, since "
+                    "fixing timing after is free and fixing it after translating means re-doing "
+                    "the translation too."
                 )
-                progress_bar.empty()
-                db.save_lines(picked_id, st.session_state.lines)
-                db.update_drama(picked_id, status="dubbed")
-                if dub_errors:
-                    failed_nums = [e["line_idx"] + 1 for e in dub_errors]
-                    st.warning(f"Generated with {len(dub_errors)} line failure(s) -- lines "
-                              f"{failed_nums} are silent in the track. Already-generated clips were "
-                              f"kept; click Generate again to retry just the missing ones.")
+                if st.button("Run coverage check"):
+                    st.session_state[f"coverage_report_{picked_id}"] = core_module.diagnose_line_coverage(
+                        edited_rows)
+                report = st.session_state.get(f"coverage_report_{picked_id}")
+                if report:
+                    cc1, cc2, cc3, cc4 = st.columns(4)
+                    cc1.metric("Long/merged lines", len(report["long_lines"]))
+                    cc2.metric("Large silent gaps", len(report["large_gaps"]))
+                    cc3.metric("No source text", len(report["blank_zh"]))
+                    cc4.metric("Untranslated", len(report["blank_en"]))
+
+                    if report["long_lines"]:
+                        st.markdown("**Suspiciously long lines** (likely several merged into one -- "
+                                  "lower the speech-splitting sensitivity above and re-align to fix)")
+                        for l in report["long_lines"][:15]:
+                            st.caption(f"Line {l['idx']+1} ({fmt_ts(l['start'])}–{fmt_ts(l['end'])}): "
+                                      f"{l['note']} — \"{l['zh'][:40]}\"")
+                    if report["large_gaps"]:
+                        st.markdown("**Large silent gaps** (real silence, or quiet dialogue the "
+                                  "detector missed -- worth a quick listen)")
+                        for g in report["large_gaps"][:15]:
+                            st.caption(f"{g['gap_seconds']:.1f}s gap between line {g['after_idx']+1} "
+                                      f"and {g['before_idx']+1} ({fmt_ts(g['gap_start'])}–"
+                                      f"{fmt_ts(g['gap_end'])})")
+                    if not report["long_lines"] and not report["large_gaps"]:
+                        st.success("No obvious coverage problems found.")
+
+            with st.expander("⏱️ Check dubbing pacing (optional)"):
+                st.caption(
+                    "Flags lines that are too long to say naturally within their time slot, "
+                    "or oddly short relative to it. Doesn't change anything by itself."
+                )
+                if st.button("Check pacing"):
+                    flags = translate_engines.smart_segment_lines(edited_rows)
+                    if flags:
+                        st.session_state[f"pacing_flags_{picked_id}"] = flags
+                        st.warning(f"{len(flags)} line(s) flagged.")
+                    else:
+                        st.success("No pacing issues detected.")
+                flags = st.session_state.get(f"pacing_flags_{picked_id}", [])
+                if flags:
+                    for f in flags:
+                        st.caption(f"Line #{f['idx']+1} ({f['issue']}): {f['detail']}")
+                    too_long_idxs = {f["idx"] for f in flags if f["issue"] == "too_long_for_slot"}
+                    if too_long_idxs and api_key and st.button("✂️ Auto-shorten overlong lines with LLM"):
+                        engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                        to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
+                        translate_engines.rewrite_for_pacing_llm(to_fix, engine)
+                        db.save_lines(picked_id, edited_rows)
+                        st.session_state.lines = edited_rows
+                        st.session_state[f"pacing_flags_{picked_id}"] = []
+                        st.success(f"Shortened {len(to_fix)} line(s). Review below.")
+                        st.rerun()
+
+            with st.expander("🔍 Check translation consistency (optional)"):
+                st.caption(
+                    "Flags the same Chinese name/term translated differently in different lines "
+                    "(e.g. a character's name spelled two ways). Doesn't change anything by itself."
+                )
+                if st.button("Check consistency") and api_key:
+                    engine = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    with st.spinner("Reviewing..."):
+                        issues = translate_engines.check_consistency_llm(edited_rows, engine)
+                    st.session_state[f"consistency_issues_{picked_id}"] = issues
+                    if issues:
+                        st.warning(f"{len(issues)} consistency issue(s) found.")
+                    else:
+                        st.success("No consistency issues detected.")
+                issues = st.session_state.get(f"consistency_issues_{picked_id}", [])
+                for issue in issues:
+                    st.caption(f"**{issue.get('term')}**: {', '.join(issue.get('variants', []))} "
+                              f"— {issue.get('note', '')}")
+
+            with st.expander("🎭 Emotional register (sarcasm, humour, anger)"):
+                st.caption(
+                    "Tags each line's emotional charge so translation preserves it. Sarcasm read "
+                    "as sincerity, or suppressed anger read as calm, breaks a scene even when the "
+                    "words are technically correct -- these are the registers most often flattened."
+                )
+                emap = st.session_state.get(f"emotions_{picked_id}", {})
+                ec1, ec2 = st.columns([1, 1])
+                use_cues = ec2.checkbox("Use audio delivery cues", value=(content_mode == "audio_drama"),
+                                         help="Uses pacing and pauses from the original timing as "
+                                              "weak evidence for emotional register.")
+                if ec1.button("Detect emotional register") and api_key:
+                    eng_e = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    with st.spinner("Reading tone..."):
+                        emap = emotion.detect_emotions(edited_rows, eng_e, use_audio_cues=use_cues)
+                    st.session_state[f"emotions_{picked_id}"] = emap
+                    st.rerun()
+
+                if emap:
+                    summ = emotion.emotion_summary(emap)
+                    sc1, sc2 = st.columns(2)
+                    sc1.metric("Lines tagged", summ["total"])
+                    sc2.metric("High-risk register", summ["high_risk"],
+                                help="Sarcasm, dry humour, suppressed anger, flirtation, evasion -- "
+                                     "the registers most likely to be lost in translation.")
+                    st.caption(" · ".join(f"{k}: {v}" for k, v in
+                                           sorted(summ["by_emotion"].items(), key=lambda x: -x[1])))
+                    st.caption("These tags are applied automatically on the next translation run.")
+
+            with st.expander("🎯 Adaptive style (learns from your edits)"):
+                st.caption(
+                    "Every line you rewrite is recorded. Once enough accumulate, they're analyzed "
+                    "for consistent patterns and folded into future translation prompts. "
+                    "Conservative by design -- it only reports preferences it can see repeatedly."
+                )
+                samples = db.list_edit_samples(picked_id)
+                tend = adaptive_style.summarize_edit_tendencies(samples)
+                if tend["total"]:
+                    tc1, tc2, tc3, tc4 = st.columns(4)
+                    tc1.metric("Edits recorded", tend["total"])
+                    tc2.metric("Shortened", tend["shortened"])
+                    tc3.metric("Expanded", tend["expanded"])
+                    tc4.metric("Avg word change", f"{tend['avg_word_delta']:+.1f}")
                 else:
-                    st.success("Track generated." + (" Line timings updated to match narration audio -- "
-                               "re-download the .srt below to stay in sync." if content_mode == "novel_narration" else ""))
-                with open(out_path, "rb") as f:
-                    st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
-                                        file_name=os.path.basename(out_path))
-            except Exception as e:
-                progress_bar.empty()
-                st.error(f"Generation failed: {e}. Check ffmpeg / edge-tts / piper-tts / f5-tts install (see README).")
+                    st.caption("No edits recorded yet -- rewrite some lines above and save.")
+
+                scope = f"series:{drama['series_id']}" if drama.get("series_id") else "global"
+                existing_profile = db.get_style_profile(scope)
+                if st.button("🧠 Learn my style from these edits") and api_key:
+                    eng_a = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    all_samples = db.list_edit_samples()
+                    with st.spinner("Analyzing your edits..."):
+                        result = adaptive_style.analyze_edit_patterns(
+                            all_samples, eng_a,
+                            existing_profile=(existing_profile or {}).get("profile"))
+                    if result.get("preferences"):
+                        db.save_style_profile(scope, result, sample_count=len(all_samples))
+                        st.success(f"Learned {len(result['preferences'])} preference(s).")
+                        st.rerun()
+                    else:
+                        st.info(result.get("summary", "No clear patterns found yet."))
+
+                if existing_profile and existing_profile["profile"].get("preferences"):
+                    pr = existing_profile["profile"]
+                    st.caption(f"**Learned profile** (confidence: {pr.get('confidence','?')}, "
+                              f"from {existing_profile['sample_count']} edits)")
+                    if pr.get("summary"):
+                        st.caption(f"_{pr['summary']}_")
+                    for p_ in pr["preferences"]:
+                        st.caption(f"• {p_}")
+                    st.session_state["apply_style_profile"] = st.checkbox(
+                        "Apply this profile to future translations",
+                        value=st.session_state.get("apply_style_profile", True))
+                    if st.button("Reset learned style"):
+                        db.save_style_profile(scope, {"preferences": []}, 0)
+                        st.rerun()
+
+            with st.expander("🔀 Translation versions (compare models)"):
+                st.caption(
+                    "Every translation run is saved as a version, so re-translating with a "
+                    "different model never destroys the previous attempt. Compare them "
+                    "side-by-side and activate whichever reads better."
+                )
+                versions = db.list_translation_versions(picked_id)
+                if not versions:
+                    st.caption("No saved versions yet -- run a translation first.")
+                else:
+                    for v in versions:
+                        vc1, vc2, vc3 = st.columns([3, 1, 1])
+                        active = " ✅ **active**" if v["is_active"] else ""
+                        when = v["created_at"][:16].replace("T", " ") if v["created_at"] else "?"
+                        vc1.caption(f"**{v['label']}**{active} — {v['model'] or v['engine']} · {when}")
+                        if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}"):
+                            full = db.get_translation_version(v["id"])
+                            if full:
+                                db.save_line_history_snapshot(picked_id, st.session_state.lines,
+                                                               "before switching version")
+                                restored = [Line(idx=r["idx"], start=r["start"], end=r["end"],
+                                                  zh=r["zh"], en=r["en"], speaker=r.get("speaker"))
+                                            for r in full["lines"]]
+                                db.save_lines(picked_id, restored)
+                                db.set_active_translation_version(picked_id, v["id"])
+                                st.session_state.lines = restored
+                                st.success(f"Activated '{v['label']}'.")
+                                st.rerun()
+                        if vc3.button("🗑️", key=f"delv_{v['id']}"):
+                            db.delete_translation_version(v["id"])
+                            st.rerun()
+
+                    if len(versions) >= 2:
+                        st.markdown("**Compare two versions**")
+                        vlabels = {f"{v['label']} ({v['created_at'][:10]})": v["id"] for v in versions}
+                        cc1, cc2 = st.columns(2)
+                        left = cc1.selectbox("Left", list(vlabels.keys()), index=0, key="cmp_left")
+                        right = cc2.selectbox("Right", list(vlabels.keys()),
+                                               index=min(1, len(vlabels) - 1), key="cmp_right")
+                        if st.button("Show differences"):
+                            lv = db.get_translation_version(vlabels[left])
+                            rv = db.get_translation_version(vlabels[right])
+                            rmap = {r["idx"]: r["en"] for r in rv["lines"]}
+                            diffs = [(r["idx"], r["zh"], r["en"], rmap.get(r["idx"], ""))
+                                     for r in lv["lines"] if rmap.get(r["idx"], "") != r["en"]]
+                            st.caption(f"{len(diffs)} line(s) differ out of {len(lv['lines'])}.")
+                            for idx, zh, l_en, r_en in diffs[:60]:
+                                st.markdown(f"**Line {idx+1}** · {zh}")
+                                dc1, dc2 = st.columns(2)
+                                dc1.info(l_en or "_(empty)_")
+                                dc2.warning(r_en or "_(empty)_")
+
+            with st.expander("📝 Translation notes (idioms, wordplay, meaningful names)"):
+                st.caption(
+                    "Reviews the translation for things that lost something crossing languages -- "
+                    "四字成语 and set phrases, puns, names whose characters carry meaning, literary "
+                    "allusions, and honorifics whose nuance doesn't survive a direct rendering. "
+                    "Produces notes for readers; doesn't change any line."
+                )
+                if st.button("Generate translation notes") and api_key:
+                    engine_n = translate_engines.get_engine(engine_choice, api_key, engine_model)
+                    with st.spinner("Reviewing for idioms, wordplay, and allusions..."):
+                        found_notes = tguide.generate_translation_notes_llm(
+                            edited_rows, engine_n, source_language=source_language)
+                    if found_notes:
+                        db.save_translation_notes(picked_id, found_notes)
+                        st.success(f"Found {len(found_notes)} note(s).")
+                    else:
+                        st.info("Nothing flagged as needing a note.")
+                    st.rerun()
+
+                existing_notes = db.list_translation_notes(picked_id)
+                if existing_notes:
+                    st.caption(f"{len(existing_notes)} note(s) recorded:")
+                    for n in existing_notes:
+                        nc1, nc2 = st.columns([5, 1])
+                        line_ref = f"Line {n['line_idx'] + 1}" if n.get("line_idx") is not None else "—"
+                        nc1.caption(f"**{n['term']}** ({n['note_type']}, {line_ref}): {n['note']}")
+                        if nc2.button("🗑️", key=f"delnote_{n['id']}"):
+                            db.delete_translation_note(n["id"])
+                            st.rerun()
+
+                    notes_md = tguide.format_notes_as_markdown(
+                        existing_notes, drama["title_en"] or drama["title_zh"] or "")
+                    st.download_button("📄 Download notes as Markdown", notes_md,
+                                        file_name="translation_notes.md")
+
+                    with st.form(f"add_note_{picked_id}", clear_on_submit=True):
+                        st.caption("Add your own note:")
+                        anc1, anc2 = st.columns(2)
+                        an_term = anc1.text_input("Term / phrase")
+                        an_type = anc2.selectbox("Type", list(tguide.NOTE_TYPES.keys()),
+                                                  format_func=lambda k: tguide.NOTE_TYPES[k])
+                        an_line = st.number_input("Line number (1-based)", value=1, min_value=1)
+                        an_text = st.text_area("Note", height=68)
+                        if st.form_submit_button("Add note") and an_term and an_text:
+                            db.save_translation_notes(picked_id, [{
+                                "line_idx": an_line - 1, "term": an_term,
+                                "note_type": an_type, "note": an_text}])
+                            st.success("Added.")
+                            st.rerun()
+
+            with st.expander("🔗 Merge short adjacent lines (optional)"):
+                st.caption(
+                    "Combines consecutive short lines from the same speaker into one natural "
+                    "subtitle, when they're close enough in time that the split was probably just "
+                    "an artifact of the source transcript's line breaks. This changes your line "
+                    "count -- review the result before saving."
+                )
+                if st.button("Preview merge"):
+                    merged_preview = merge_adjacent_short_lines(list(edited_rows))
+                    st.session_state[f"merge_preview_{picked_id}"] = merged_preview
+                    st.info(f"{len(edited_rows)} lines -> {len(merged_preview)} lines after merging.")
+                merge_preview = st.session_state.get(f"merge_preview_{picked_id}")
+                if merge_preview:
+                    if st.button("✅ Apply merge"):
+                        db.save_line_history_snapshot(picked_id, edited_rows, "before merge")
+                        db.save_lines(picked_id, merge_preview)
+                        st.session_state.lines = merge_preview
+                        st.session_state[f"merge_preview_{picked_id}"] = None
+                        st.success("Merged and saved. (Previous version saved to history -- "
+                                  "see 'Version history' below if you want it back.)")
+                        st.rerun()
+
+            with st.expander("🕓 Version history / undo"):
+                st.caption(
+                    "Snapshots are taken automatically before operations that discard work "
+                    "(force re-translate, merge). Restoring replaces the current lines with the "
+                    "saved version -- and takes its own snapshot first, so you can undo the undo."
+                )
+                history = db.list_line_history(picked_id)
+                if not history:
+                    st.caption("No snapshots yet for this drama.")
+                else:
+                    for h in history:
+                        hc1, hc2 = st.columns([3, 1])
+                        when = h["created_at"][:16].replace("T", " ") if h["created_at"] else "?"
+                        hc1.caption(f"**{h['label']}** — {when}")
+                        if hc2.button("Restore", key=f"restore_{h['id']}"):
+                            snapshot = db.get_line_history_snapshot(h["id"])
+                            if snapshot:
+                                db.save_line_history_snapshot(picked_id, st.session_state.lines,
+                                                               "before restore")
+                                restored = [Line(**s) for s in snapshot]
+                                db.save_lines(picked_id, restored)
+                                st.session_state.lines = restored
+                                st.success(f"Restored '{h['label']}'.")
+                                st.rerun()
+                            else:
+                                st.error("That snapshot could not be read.")
+
+        with st.expander("8. 🎙️ AI dub / narration", expanded=False):
+            st.caption(
+                "Uses each character's cloning reference clip if set, otherwise falls back to "
+                "the TTS engine chosen below. Voice cloning needs `f5-tts` installed locally. "
+                "Requires ffmpeg on PATH."
+            )
+            tts_engine = st.radio(
+                "Fallback TTS engine (used where no clone reference is set)",
+                ["edge_tts", "offline"],
+                format_func=lambda e: "🌐 edge-tts (free, online, more natural)"
+                             if e == "edge_tts" else
+                             "📴 Offline / Piper (fully local, no internet, lower quality)",
+                horizontal=False,
+            )
+            voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
+            dub_button_label = "🎙️ Generate narration track" if content_mode == "novel_narration" else "🎙️ Generate dub track"
+            if st.button(dub_button_label):
+                chars = db.list_characters(picked_id)
+                voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
+                clone_map = {}
+                el_key_for_dub = st.session_state.get(f"el_key_{picked_id}", "") or st.session_state.get("settings_elevenlabs", "")
+                for c in chars:
+                    if c.get("elevenlabs_voice_id"):
+                        clone_map[c["speaker_label"]] = {
+                            "engine": "elevenlabs", "voice_id": c["elevenlabs_voice_id"],
+                            "api_key": el_key_for_dub,
+                        }
+                    elif c["ref_audio_filename"]:
+                        clone_map[c["speaker_label"]] = {
+                            "ref_audio": os.path.join(ddir, c["ref_audio_filename"]),
+                            "ref_text": c["ref_text"] or "",
+                        }
+                progress_bar = st.progress(0.0, text="Generating...")
+                try:
+                    build_fn = dub_module.build_narration_track if content_mode == "novel_narration" else dub_module.build_dub_track
+                    out_path, dub_errors = build_fn(
+                        st.session_state.lines, ddir, voice_map, character_clone_map=clone_map,
+                        tts_engine=tts_engine,
+                        progress_cb=lambda frac: progress_bar.progress(frac, text=f"Generating... {frac*100:.0f}%"),
+                    )
+                    progress_bar.empty()
+                    db.save_lines(picked_id, st.session_state.lines)
+                    db.update_drama(picked_id, status="dubbed")
+                    if dub_errors:
+                        failed_nums = [e["line_idx"] + 1 for e in dub_errors]
+                        st.warning(f"Generated with {len(dub_errors)} line failure(s) -- lines "
+                                  f"{failed_nums} are silent in the track. Already-generated clips were "
+                                  f"kept; click Generate again to retry just the missing ones.")
+                    else:
+                        st.success("Track generated." + (" Line timings updated to match narration audio -- "
+                                   "re-download the .srt below to stay in sync." if content_mode == "novel_narration" else ""))
+                    with open(out_path, "rb") as f:
+                        st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
+                                            file_name=os.path.basename(out_path))
+                except Exception as e:
+                    progress_bar.empty()
+                    st.error(f"Generation failed: {e}. Check ffmpeg / edge-tts / piper-tts / f5-tts install (see README).")
 
         st.subheader("9. Export subtitles")
+        with st.expander("9. 💾 Export subtitles", expanded=False):
+            _total_lines = len(st.session_state.lines)
+            _zh_filled = sum(1 for ln in st.session_state.lines if ln.zh.strip())
+            _en_filled = sum(1 for ln in st.session_state.lines if ln.en.strip())
 
-        _total_lines = len(st.session_state.lines)
-        _zh_filled = sum(1 for ln in st.session_state.lines if ln.zh.strip())
-        _en_filled = sum(1 for ln in st.session_state.lines if ln.en.strip())
+            # A timed-but-textless .srt is technically valid and gives no error --
+            # it just looks broken when you open it. Say so before the download
+            # happens rather than after someone's confused by an empty file.
+            if _en_filled == 0:
+                st.warning(f"⚠️ No lines are translated yet (0/{_total_lines}). The English and "
+                          f"bilingual exports below will have correct timing but blank text. "
+                          f"Run **Translate all lines** above first — or use the free "
+                          f"`test_offline` engine to check the export pipeline without spending "
+                          f"anything.")
+            elif _en_filled < _total_lines:
+                st.caption(f"ℹ️ {_total_lines - _en_filled} of {_total_lines} lines aren't "
+                          f"translated yet — those will export with blank English text.")
+            if _zh_filled == 0:
+                st.error(f"⚠️ No source text on any line (0/{_total_lines}) — alignment may not "
+                        f"have completed. Chinese/bilingual exports will be entirely blank.")
 
-        # A timed-but-textless .srt is technically valid and gives no error --
-        # it just looks broken when you open it. Say so before the download
-        # happens rather than after someone's confused by an empty file.
-        if _en_filled == 0:
-            st.warning(f"⚠️ No lines are translated yet (0/{_total_lines}). The English and "
-                      f"bilingual exports below will have correct timing but blank text. "
-                      f"Run **Translate all lines** above first — or use the free "
-                      f"`test_offline` engine to check the export pipeline without spending "
-                      f"anything.")
-        elif _en_filled < _total_lines:
-            st.caption(f"ℹ️ {_total_lines - _en_filled} of {_total_lines} lines aren't "
-                      f"translated yet — those will export with blank English text.")
-        if _zh_filled == 0:
-            st.error(f"⚠️ No source text on any line (0/{_total_lines}) — alignment may not "
-                    f"have completed. Chinese/bilingual exports will be entirely blank.")
+            c1, c2, c3 = st.columns(3)
+            c1.download_button("Download English .srt", lines_to_srt(st.session_state.lines, "en"),
+                                file_name="english.srt", disabled=(_en_filled == 0))
+            c2.download_button("Download Chinese .srt", lines_to_srt(st.session_state.lines, "zh"),
+                                file_name="chinese.srt", disabled=(_zh_filled == 0))
+            c3.download_button("Download Bilingual .srt", lines_to_bilingual_srt(st.session_state.lines),
+                                file_name="bilingual.srt", disabled=(_zh_filled == 0 and _en_filled == 0))
 
-        c1, c2, c3 = st.columns(3)
-        c1.download_button("Download English .srt", lines_to_srt(st.session_state.lines, "en"),
-                            file_name="english.srt", disabled=(_en_filled == 0))
-        c2.download_button("Download Chinese .srt", lines_to_srt(st.session_state.lines, "zh"),
-                            file_name="chinese.srt", disabled=(_zh_filled == 0))
-        c3.download_button("Download Bilingual .srt", lines_to_bilingual_srt(st.session_state.lines),
-                            file_name="bilingual.srt", disabled=(_zh_filled == 0 and _en_filled == 0))
-
-        if content_mode == "novel_narration":
-            st.caption("Novel/narration content -- also export as an EPUB for reading in any e-reader app.")
-            if st.button("📚 Generate EPUB"):
-                import epub_io
-                try:
-                    epub_path = os.path.join(ddir, "translated.epub")
-                    epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
-                                         drama.get("author", ""), epub_path, field="en")
-                    with open(epub_path, "rb") as f:
-                        st.download_button("Download .epub", f.read(), file_name="translated.epub")
-                except Exception as e:
-                    st.error(f"EPUB export failed: {e}. Check `pip install ebooklib`.")
+            if content_mode == "novel_narration":
+                st.caption("Novel/narration content -- also export as an EPUB for reading in any e-reader app.")
+                if st.button("📚 Generate EPUB"):
+                    import epub_io
+                    try:
+                        epub_path = os.path.join(ddir, "translated.epub")
+                        epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
+                                             drama.get("author", ""), epub_path, field="en")
+                        with open(epub_path, "rb") as f:
+                            st.download_button("Download .epub", f.read(), file_name="translated.epub")
+                    except Exception as e:
+                        st.error(f"EPUB export failed: {e}. Check `pip install ebooklib`.")
 
         source_video_path = None
         if drama.get("source_video_filename"):
@@ -1645,85 +1645,85 @@ def render_workspace_tab():
                 source_video_path = p
 
         if source_video_path:
-            st.subheader("10. Export full subtitled episode")
-            st.caption("Uses the original video you uploaded + your reviewed English subtitles.")
-            sub_style = st.radio(
-                "Subtitle style",
-                ["hardsub", "softsub"],
-                format_func=lambda s: "🔥 Burn-in (always visible, plays everywhere)"
-                             if s == "hardsub" else
-                             "🎚️ Soft subtitles (toggleable track, needs a compatible player)",
-                horizontal=False,
-            )
-            sub_language = st.selectbox("Which subtitles to export on video", ["English", "Bilingual", "Chinese"])
-            sub_text_map = {"English": lines_to_srt(st.session_state.lines, "en"),
-                             "Bilingual": lines_to_bilingual_srt(st.session_state.lines),
-                             "Chinese": lines_to_srt(st.session_state.lines, "zh")}
+            with st.expander("10. 🎬 Export full subtitled episode", expanded=False):
+                st.caption("Uses the original video you uploaded + your reviewed English subtitles.")
+                sub_style = st.radio(
+                    "Subtitle style",
+                    ["hardsub", "softsub"],
+                    format_func=lambda s: "🔥 Burn-in (always visible, plays everywhere)"
+                                 if s == "hardsub" else
+                                 "🎚️ Soft subtitles (toggleable track, needs a compatible player)",
+                    horizontal=False,
+                )
+                sub_language = st.selectbox("Which subtitles to export on video", ["English", "Bilingual", "Chinese"])
+                sub_text_map = {"English": lines_to_srt(st.session_state.lines, "en"),
+                                 "Bilingual": lines_to_bilingual_srt(st.session_state.lines),
+                                 "Chinese": lines_to_srt(st.session_state.lines, "zh")}
 
-            if st.button("🎬 Generate subtitled episode"):
-                import video_export
-                out_ext = os.path.splitext(source_video_path)[1]
-                out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
-                try:
-                    with st.spinner("Rendering subtitled video... this can take a while for long episodes."):
-                        if sub_style == "hardsub":
-                            video_export.burn_subtitles(source_video_path, sub_text_map[sub_language], out_path)
-                        else:
-                            if out_ext.lower() not in (".mp4", ".mkv"):
-                                out_path = os.path.splitext(out_path)[0] + ".mp4"
-                            video_export.mux_soft_subtitles(source_video_path, sub_text_map[sub_language], out_path)
-                    st.success("Subtitled episode ready.")
-                    with open(out_path, "rb") as f:
-                        st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
-                                            file_name=os.path.basename(out_path))
-                except Exception as e:
-                    st.error(f"Video export failed: {e}. Check that ffmpeg (with libass for hardsub) is installed.")
-
-            dub_track_path = os.path.join(ddir, "dub_track.wav")
-            if os.path.exists(dub_track_path):
-                st.caption("An AI dub track exists for this drama -- you can also replace/mix the video's "
-                          "audio with it below.")
-                keep_orig = st.checkbox("Mix original audio in quietly underneath (instead of full replace)")
-                if st.button("🔊 Export video with dub audio"):
+                if st.button("🎬 Generate subtitled episode"):
                     import video_export
-                    out_path = os.path.join(ddir, f"dubbed_episode{os.path.splitext(source_video_path)[1]}")
+                    out_ext = os.path.splitext(source_video_path)[1]
+                    out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
                     try:
-                        with st.spinner("Rendering dubbed video..."):
-                            video_export.replace_audio_with_dub(
-                                source_video_path, dub_track_path, out_path,
-                                keep_original_at_db=-20.0 if keep_orig else None,
-                            )
-                        st.success("Dubbed episode ready.")
+                        with st.spinner("Rendering subtitled video... this can take a while for long episodes."):
+                            if sub_style == "hardsub":
+                                video_export.burn_subtitles(source_video_path, sub_text_map[sub_language], out_path)
+                            else:
+                                if out_ext.lower() not in (".mp4", ".mkv"):
+                                    out_path = os.path.splitext(out_path)[0] + ".mp4"
+                                video_export.mux_soft_subtitles(source_video_path, sub_text_map[sub_language], out_path)
+                        st.success("Subtitled episode ready.")
                         with open(out_path, "rb") as f:
                             st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
                                                 file_name=os.path.basename(out_path))
                     except Exception as e:
-                        st.error(f"Video export failed: {e}")
+                        st.error(f"Video export failed: {e}. Check that ffmpeg (with libass for hardsub) is installed.")
+
+                dub_track_path = os.path.join(ddir, "dub_track.wav")
+                if os.path.exists(dub_track_path):
+                    st.caption("An AI dub track exists for this drama -- you can also replace/mix the video's "
+                              "audio with it below.")
+                    keep_orig = st.checkbox("Mix original audio in quietly underneath (instead of full replace)")
+                    if st.button("🔊 Export video with dub audio"):
+                        import video_export
+                        out_path = os.path.join(ddir, f"dubbed_episode{os.path.splitext(source_video_path)[1]}")
+                        try:
+                            with st.spinner("Rendering dubbed video..."):
+                                video_export.replace_audio_with_dub(
+                                    source_video_path, dub_track_path, out_path,
+                                    keep_original_at_db=-20.0 if keep_orig else None,
+                                )
+                            st.success("Dubbed episode ready.")
+                            with open(out_path, "rb") as f:
+                                st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
+                                                    file_name=os.path.basename(out_path))
+                        except Exception as e:
+                            st.error(f"Video export failed: {e}")
 
         st.divider()
-        st.subheader("📦 Export this drama as a package")
-        st.caption(
-            "Bundles everything for this one title -- metadata, all subtitle formats, the "
-            "original audio/video, any dub/narration track, and the reference novel -- into a "
-            "single zip. For archiving a finished drama or handing it off, without exporting "
-            "your whole library."
-        )
-        if st.button("Build export package"):
-            import export_package
-            try:
-                pkg_path = os.path.join(ddir, "export_package.zip")
-                with st.spinner("Building package..."):
-                    _, manifest = export_package.build_drama_export_package(
-                        db, picked_id, pkg_path, lines_to_srt, lines_to_bilingual_srt, Line)
-                st.success(f"Package built with {len(manifest)} item(s).")
-                for m in manifest:
-                    st.caption(f"• {m}")
-                with open(pkg_path, "rb") as f:
-                    safe_title = re.sub(r"[^\w\- ]", "", drama["title_en"] or drama["title_zh"] or str(picked_id))
-                    st.download_button("Download package .zip", f.read(),
-                                        file_name=f"{safe_title}_package.zip")
-            except Exception as e:
-                st.error(f"Package build failed: {e}")
+        with st.expander("📦 Export this drama as a package", expanded=False):
+            st.caption(
+                "Bundles everything for this one title -- metadata, all subtitle formats, the "
+                "original audio/video, any dub/narration track, and the reference novel -- into a "
+                "single zip. For archiving a finished drama or handing it off, without exporting "
+                "your whole library."
+            )
+            if st.button("Build export package"):
+                import export_package
+                try:
+                    pkg_path = os.path.join(ddir, "export_package.zip")
+                    with st.spinner("Building package..."):
+                        _, manifest = export_package.build_drama_export_package(
+                            db, picked_id, pkg_path, lines_to_srt, lines_to_bilingual_srt, Line)
+                    st.success(f"Package built with {len(manifest)} item(s).")
+                    for m in manifest:
+                        st.caption(f"• {m}")
+                    with open(pkg_path, "rb") as f:
+                        safe_title = re.sub(r"[^\w\- ]", "", drama["title_en"] or drama["title_zh"] or str(picked_id))
+                        st.download_button("Download package .zip", f.read(),
+                                            file_name=f"{safe_title}_package.zip")
+                except Exception as e:
+                    st.error(f"Package build failed: {e}")
 
         if st.button("Mark as exported"):
             db.update_drama(picked_id, status="exported")
