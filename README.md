@@ -628,6 +628,23 @@ extra pass over the audio (roughly as long as transcription itself) and
 needs `pip install demucs` -- skip it for already-clean dialogue, since
 there's nothing for it to separate out.
 
+**A merged line is still one oversized block after all the above**:
+Workspace -> Recognition accuracy has a **"Split long merged lines
+using word-level alignment"** checkbox, marked experimental. Instead of
+trusting Whisper's own segment cuts (which only know where a whole
+merged span starts and ends, not where the real pauses are inside it),
+it re-aligns that line's own text against its own audio via Meta's
+[MMS](https://github.com/facebookresearch/fairseq/tree/main/examples/mms)
+forced-alignment model to find its actual internal pauses, then splits
+it back into multiple correctly-timed lines at those pauses. This can
+only re-time text Whisper already transcribed -- it can't recover
+content Whisper genuinely missed. Off by default and not verified
+against real speech in development (a comparable aligner has a known,
+documented failure on some Japanese text) -- a missing dependency or an
+alignment problem on a specific line never costs the transcript itself,
+it just leaves that line's original timing in place. Needs
+`pip install torchaudio uroman` (first use downloads a ~1.1GB model).
+
 **Finding where this happened**: Workspace -> Review & edit ->
 **Check line coverage**, run after aligning, before translating. Flags
 suspiciously long lines relative to their text length, large silent

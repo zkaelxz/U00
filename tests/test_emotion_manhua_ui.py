@@ -275,57 +275,62 @@ class TestReaderFollowAlong:
     page itself -- Streamlit can't observe an <audio> element's position.
     These check the generated markup carries what the JS needs."""
 
-    def _stub_segment(self):
-        import sys, types
-        seg = types.ModuleType("segment")
-        seg.segment_and_annotate = lambda text, lang: [(text, "pinyin")]
-        sys.modules["segment"] = seg
+    def _stub_segment(self, monkeypatch):
+        # Patches the real segment module's function (reverted automatically
+        # by the monkeypatch fixture after each test) rather than replacing
+        # sys.modules["segment"] wholesale -- that used to leak a fake,
+        # incomplete module into every OTHER test file that imports segment
+        # for the rest of the pytest session, since a raw sys.modules
+        # assignment isn't undone by anything.
+        import segment
+        monkeypatch.setattr(segment, "segment_and_annotate",
+                             lambda text, lang, chinese_script="simplified": [(text, "pinyin")])
 
     def _lines(self, start=0.0):
         from core import Line
         return [Line(idx=i, start=start + i * 3, end=start + i * 3 + 3,
                      zh=f"第{i}句", en=f"line {i}") for i in range(4)]
 
-    def test_rows_carry_timing_data(self):
+    def test_rows_carry_timing_data(self, monkeypatch):
         import reader
-        self._stub_segment()
+        self._stub_segment(monkeypatch)
         html = reader.build_reader_html(self._lines(), "zh", {})
         assert 'data-start=' in html and 'data-end=' in html
 
-    def test_no_follow_bar_without_audio(self):
+    def test_no_follow_bar_without_audio(self, monkeypatch):
         import reader
-        self._stub_segment()
+        self._stub_segment(monkeypatch)
         html = reader.build_reader_html(self._lines(), "zh", {})
         assert '<div id="followbar"' not in html
 
-    def test_follow_bar_and_listener_present_with_audio(self):
+    def test_follow_bar_and_listener_present_with_audio(self, monkeypatch):
         import reader
-        self._stub_segment()
+        self._stub_segment(monkeypatch)
         html = reader.build_reader_html(self._lines(), "zh", {},
                                          audio_data_uri="data:audio/mp3;base64,AAA")
         assert '<div id="followbar"' in html
         assert "timeupdate" in html
         assert "scrollIntoView" in html
 
-    def test_offset_is_zero_for_the_first_page(self):
+    def test_offset_is_zero_for_the_first_page(self, monkeypatch):
         import reader
-        self._stub_segment()
+        self._stub_segment(monkeypatch)
         html = reader.build_reader_html(self._lines(0.0), "zh", {},
                                          audio_data_uri="data:audio/mp3;base64,AAA")
         assert "PAGE_START_OFFSET = 0.0" in html
 
-    def test_offset_matches_a_mid_drama_page(self):
+    def test_offset_matches_a_mid_drama_page(self, monkeypatch):
         # The embedded clip covers only this page, so its t=0 is the page's
         # first line -- absolute timestamps need that offset added back.
         import reader
-        self._stub_segment()
+        self._stub_segment(monkeypatch)
         html = reader.build_reader_html(self._lines(600.0), "zh", {},
                                          audio_data_uri="data:audio/mp3;base64,AAA")
         assert "PAGE_START_OFFSET = 600.0" in html
 
-    def test_active_line_styling_in_every_theme(self):
+    def test_active_line_styling_in_every_theme(self, monkeypatch):
         import reader
-        self._stub_segment()
+        self._stub_segment(monkeypatch)
         for theme in ("light", "sepia", "dark"):
             html = reader.build_reader_html(self._lines(), "zh", {}, theme=theme,
                                              audio_data_uri="data:audio/mp3;base64,A")

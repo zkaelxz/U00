@@ -45,7 +45,7 @@ def test_success_stores_segments_and_no_gpu_fallback(monkeypatch):
     run_transcribe_job(job_id, "/fake.wav", "medium", "zh", False, None, None, "", 5, 2000)
 
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"segments": fake_segments, "gpu_fallback": None}
+    assert result == {"segments": fake_segments, "gpu_fallback": None, "word_align_error": None}
     _clear(job_id)
 
 
@@ -162,6 +162,81 @@ def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
     assert result["failed_reason"] == "vocal_separation"
     assert "pip install demucs" in result["detail"]
     assert called == []  # transcription must never run on a failed separation
+    _clear(job_id)
+
+
+def test_realign_long_segments_runs_after_transcription(monkeypatch):
+    job_id = "test_transcribe_realign"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: [{"start": 0.0, "end": 20.0, "text": "long merged line"}])
+
+    import word_align
+    seen = {}
+
+    def fake_realign(segments, audio_path, language, chinese_script="simplified"):
+        seen["segments"] = segments
+        seen["audio_path"] = audio_path
+        seen["language"] = language
+        seen["chinese_script"] = chinese_script
+        return [{"start": 0.0, "end": 10.0, "text": "split one"},
+                {"start": 10.0, "end": 20.0, "text": "split two"}]
+    monkeypatch.setattr(word_align, "realign_oversized_segments", fake_realign)
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
+                        realign_long_segments=True, chinese_script="traditional")
+
+    assert seen["audio_path"] == "/fake/audio.wav"
+    assert seen["language"] == "zh"
+    assert seen["chinese_script"] == "traditional"
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["segments"] == [{"start": 0.0, "end": 10.0, "text": "split one"},
+                                   {"start": 10.0, "end": 20.0, "text": "split two"}]
+    assert result["word_align_error"] is None
+    _clear(job_id)
+
+
+def test_realign_off_by_default_leaves_segments_unchanged(monkeypatch):
+    job_id = "test_transcribe_realign_off"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: fake_segments)
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["segments"] == fake_segments
+    assert result["word_align_error"] is None
+    _clear(job_id)
+
+
+def test_realign_missing_dependency_keeps_the_transcript_and_reports_the_issue(monkeypatch):
+    """A missing torchaudio/uroman install must never cost the already-
+    completed transcription (the expensive part) -- only the optional
+    realignment step is affected."""
+    job_id = "test_transcribe_realign_missing_dep"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: fake_segments)
+
+    import word_align
+
+    def fake_realign(*a, **k):
+        raise word_align.WordAlignError("Word-level realignment needs: pip install torchaudio uroman")
+    monkeypatch.setattr(word_align, "realign_oversized_segments", fake_realign)
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
+                        realign_long_segments=True)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["segments"] == fake_segments  # the transcript itself survives intact
+    assert "pip install torchaudio uroman" in result["word_align_error"]
     _clear(job_id)
 
 

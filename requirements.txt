@@ -36,6 +36,13 @@ pydub>=0.25
 # audio_preprocess.py). Downloads its own model (~80MB) on first use.
 demucs>=4.0
 
+# Word-level forced alignment (optional, EXPERIMENTAL -- splits an
+# oversized VAD-merged transcript line back into multiple correctly-
+# timed lines via Meta's MMS model, see word_align.py). Downloads its
+# own model (~1.1GB) on first use.
+torchaudio>=2.0
+uroman>=1.2
+
 # Voice cloning (optional, heavier -- needs GPU strongly recommended):
 f5-tts>=0.9
 

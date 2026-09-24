@@ -92,7 +92,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                         local_model_path, hf_token, initial_prompt, beam_size,
-                        min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False):
+                        min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False,
+                        realign_long_segments=False, chinese_script="simplified"):
     """
     Runs just the Whisper speech-recognition pass in a background thread,
     same reasoning as run_translate_job above: this is the step that
@@ -115,6 +116,17 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     Whisper model-download failure below, not raised, since it's an
     expected/common outcome (an optional dependency the person hasn't
     installed) rather than a bug.
+
+    realign_long_segments: EXPERIMENTAL, off by default -- runs
+    word_align.realign_oversized_segments() on the transcript afterward,
+    splitting any oversized VAD-merged segment back into multiple
+    correctly-timed lines using real word-level alignment (see
+    word_align.py's own docstring for why MMS, and the real documented
+    CJK failure mode it fails soft against). A missing torchaudio/uroman
+    install is recorded the same way as a missing Demucs install above;
+    a per-line alignment problem is NOT surfaced here at all, since
+    word_align.py already degrades those individually and silently back
+    to their original timing rather than raising.
 
     Model-download failure and "no audio detected" are expected, common
     outcomes here (a flaky connection, a silent/corrupt file), not bugs --
@@ -153,9 +165,25 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
         return
 
+    word_align_error = None
+    if realign_long_segments:
+        import word_align
+        background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
+        try:
+            segments = word_align.realign_oversized_segments(
+                segments, audio_path, language, chinese_script=chinese_script)
+        except word_align.WordAlignError as exc:
+            # A missing dependency here must never cost the transcription
+            # itself (the expensive part, already done) -- proceed with
+            # the unmodified segments and just report the issue, the same
+            # "never lose already-done work over an optional add-on
+            # failing" rule this app follows everywhere else.
+            word_align_error = str(exc)
+
     background_jobs.set_result(job_id, {
         "segments": segments,
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
+        "word_align_error": word_align_error,
     })
 
 
@@ -1012,6 +1040,20 @@ def render_workspace_tab():
                      "clean dialogue -- there's nothing for it to separate out, so it only costs "
                      "time. Needs `pip install demucs`.")
 
+            realign_long_segments = st.checkbox(
+                "🧪 Split long merged lines using word-level alignment (experimental)",
+                value=False,
+                help="For a line that's still one oversized block after tuning the sensitivity "
+                     "sliders above (the VAD-merge problem -- one 'line' spanning several minutes "
+                     "with only its first sentence's text) -- re-aligns that line's own text "
+                     "against its own audio to find its REAL internal pauses and splits it back "
+                     "into multiple correctly-timed lines. Can't recover text Whisper didn't "
+                     "already transcribe, only re-time what's already there. Not verified against "
+                     "real speech in development -- if a line looks wrong afterward, turn this "
+                     "off and re-transcribe; nothing about your audio or existing settings is "
+                     "affected either way. Needs `pip install torchaudio uroman` (first use also "
+                     "downloads a ~1.1GB model).")
+
             if not st.session_state.get("use_gpu"):
                 st.caption("💡 GPU is off. On your card, enabling it under Settings → Performance "
                           "makes large-v3 practical rather than painfully slow.")
@@ -1501,7 +1543,8 @@ def render_workspace_tab():
                     _transcribe_job_id, audio_path, whisper_size, source_language,
                     st.session_state.get("use_gpu", False), _local_model,
                     st.session_state.get("settings_hf_token", "") or None,
-                    initial_prompt, beam_size, min_silence_ms, vad_threshold, separate_vocals_first)
+                    initial_prompt, beam_size, min_silence_ms, vad_threshold, separate_vocals_first,
+                    realign_long_segments, chinese_script)
                 if started:
                     st.info("Transcription started in the background -- it keeps running even if you "
                             "switch tabs or close this browser tab. Come back here any time to see "
@@ -1582,6 +1625,14 @@ def render_workspace_tab():
                             "CUDA toolkit version that doesn't match your driver. Turn GPU off in "
                             "Settings → Performance if you'd rather not see this each time, or "
                             "reinstall the CUDA-enabled build matching your driver version.")
+                    if _tresult.get("word_align_error"):
+                        st.warning(
+                            "Transcription completed normally, but \"Split long merged lines\" "
+                            "couldn't run, so long merged lines weren't split this time.\n\n"
+                            f"Error: {_tresult['word_align_error']}\n\n"
+                            "Often a missing `pip install torchaudio uroman`. Nothing was lost -- "
+                            "your transcript below is exactly as complete as it would be with this "
+                            "experimental setting off.")
 
                     _result_tmode = st.session_state.get(f"tmode_{picked_id}")
                     if _result_tmode == "hardsub_ocr":

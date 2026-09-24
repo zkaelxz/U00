@@ -41,6 +41,13 @@ elevenlabs>=1.0         # hosted, no GPU needed
 # for the default htdemucs) on first use.
 demucs>=4.0
 
+# --- word-level forced alignment (word_align.py), EXPERIMENTAL ---
+# Splits an oversized VAD-merged transcript line back into multiple
+# correctly-timed lines using Meta's MMS forced-alignment model.
+# Downloads its own model (~1.1GB) on first use.
+torchaudio>=2.0
+uroman>=1.2
+
 # --- offline TTS ---
 piper-tts>=1.2
 
