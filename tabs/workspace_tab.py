@@ -685,10 +685,16 @@ def render_workspace_tab():
                           "caption). Experimental: auto-detection can miss unusual caption "
                           "placement/styling, and only reads ONE caption region even if the video "
                           "has captions in two places at once (e.g. a header AND a bottom caption).")
+                _hardsub_backend_options = ["tesseract", "paddle"] if source_language == "zh" else ["tesseract"]
                 ocr_backend_choice = st.selectbox(
-                    "OCR engine", ["tesseract", "paddle"] if source_language == "zh" else ["tesseract"],
+                    "OCR engine", _hardsub_backend_options,
+                    index=(1 if source_language == "zh" else 0),
                     format_func=lambda b: "Tesseract (general-purpose)" if b == "tesseract"
                                             else "PaddleOCR (higher accuracy for Chinese, heavier install)",
+                    help="Defaults to PaddleOCR for Chinese -- confirmed more accurate on stylized/"
+                         "small hardsub captions than Tesseract, at the cost of a heavier install "
+                         "(`pip install paddleocr paddlepaddle`). Switch to Tesseract if PaddleOCR "
+                         "isn't installed and you'd rather not install it.",
                     key=f"hardsub_ocr_backend_{picked_id}")
                 sample_interval = st.slider(
                     "Sample every N seconds", 0.5, 3.0, 1.0, step=0.5,
