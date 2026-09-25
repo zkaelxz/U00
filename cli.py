@@ -37,7 +37,7 @@ import traceback
 import db
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
-    chunk_novel_text, extract_audio_from_video, lines_from_rows,
+    chunk_novel_text, extract_audio_from_video, lines_from_rows, release_gpu_models,
 )
 import translate_engines
 import translation_guide as tguide
@@ -190,8 +190,11 @@ def cmd_diarize(args):
             print(f"#{d['id']} skipped: no lines yet (transcribe first).")
             return
         print(f"#{d['id']} detecting speakers...")
-        turns, model = diarize.diarize(audio_path, hf_token, num_speakers=args.num_speakers or None,
-                                       return_model=True)
+        try:
+            turns, model = diarize.diarize(audio_path, hf_token, num_speakers=args.num_speakers or None,
+                                           return_model=True)
+        finally:
+            release_gpu_models()
         diarize.save_turns(ddir, turns, num_speakers=args.num_speakers or None, model=model)
         result = diarize.merge_speakers(lines, turns, overwrite_manual=args.overwrite_manual)
         for label in sorted({ln.speaker for ln in lines if ln.speaker}):
@@ -224,6 +227,7 @@ def cmd_align(args):
         segments = transcribe_for_timing(audio_path, args.whisper_size, language=d.get("source_language") or "zh")
         user_lines = split_user_transcript(transcript_text)
         lines = align_transcript_to_timing(user_lines, segments)
+        release_gpu_models()
         db.save_lines(d["id"], lines)
         # Same untouched-output record the Workspace transcription writes.
         raw_transcript.write_raw_transcript(

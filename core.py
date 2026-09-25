@@ -136,6 +136,32 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 _whisper_model_cache = {}
 
 
+def release_gpu_models():
+    """Call after a GPU stage (transcription, alignment, diarization)
+    finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models
+    and hands CUDA's cached memory back, so the next stage -- or a local
+    translation model in Ollama, or TTS -- isn't fighting leftovers for
+    the same VRAM. The next run of a stage reloads its model (seconds, from
+    disk). Only touches modules that are already loaded, so it never
+    imports torch or a model library just to clear it."""
+    import gc
+    import sys
+    _whisper_model_cache.clear()
+    for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
+                                    ("forced_align", "_aligner_model_cache")):
+        module = sys.modules.get(module_name)
+        if module is not None:
+            getattr(module, cache_name).clear()
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is not None:
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass  # a broken CUDA install must not fail the stage that just succeeded
+
+
 class ModelDownloadError(RuntimeError):
     """Raised when a model can't be fetched, so callers can show a useful
     explanation instead of a Hugging Face stack trace."""
