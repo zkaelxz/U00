@@ -369,6 +369,31 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
     return out_path, errors
 
 
+def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default_voice,
+                                  character_clone_map, tts_engine, is_narration, result_queue):
+    """Step 4e: entry point for running build_dub_track()/build_narration_track()
+    in its own OS process via background_jobs.start_process_job(), so
+    Cancel can actually stop it. Confirmed safe to hard-stop: each line's
+    clip is written to its own file one at a time, and both functions
+    already reuse (rather than re-synthesize) any clip that exists from
+    a prior partial run -- a kill mid-run loses at most the one clip
+    that was mid-synthesis, which the next run regenerates on its own.
+
+    Puts back the (mutated) lines -- both functions set .dub_filename
+    per line, and build_narration_track also rewrites .start/.end to the
+    clip's actual timing -- since the caller needs those values, not
+    just out_path/errors. Must stay a plain, top-level, picklable
+    function; lines are plain Line dataclasses, already picklable."""
+    try:
+        build_fn = build_narration_track if is_narration else build_dub_track
+        out_path, errors = build_fn(
+            lines, drama_dir, character_voice_map, default_voice=default_voice,
+            character_clone_map=character_clone_map, tts_engine=tts_engine)
+        result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, str(exc)))
+
+
 def mux_dub_with_video_or_audio(original_media_path: str, dub_track_path: str, out_path: str,
                                  original_volume_db: float = -100.0):
     """

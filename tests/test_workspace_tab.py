@@ -25,6 +25,8 @@ import pytest
 import background_jobs
 import db
 import diarize
+import dub as dub_module
+import resegment
 import translate_engines
 from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
@@ -2211,6 +2213,287 @@ class TestSpeakerDetectionRealMidRunStop:
         lines = db.load_line_objects(did)
         assert lines[0].speaker == "SPEAKER_00"
         assert background_jobs.get_status(job_id) is None  # cleared once applied
+
+
+class TestDubGenerationRealMidRunStop:
+    """Step 4e: dub/narration generation now runs as a real OS subprocess
+    (background_jobs.start_process_job), not a blocking gpu_slot() call
+    inside the button handler -- so it's non-blocking, and Cancel can
+    actually terminate the underlying work. Confirmed safe to hard-stop:
+    each line's clip writes to its own file, and a re-run already reuses
+    or regenerates any partial clip from a prior run. multiprocessing.
+    Process itself is faked throughout, matching test_background_jobs.py's
+    and TestSpeakerDetectionRealMidRunStop's own convention -- no real OS
+    process is ever spawned -- but the real _jobs dict, watcher thread,
+    and lock all run for real."""
+
+    def _drama_with_a_line(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _fake_process_factory(self, monkeypatch, run_target_on_start=False, alive_forever=False):
+        instances = []
+
+        class _FakeProcess:
+            def __init__(self, target, args, daemon=True):
+                self._target, self._args = target, args
+                self._alive = True
+                self.terminated = False
+                self.exitcode = None
+
+            def start(self):
+                if run_target_on_start:
+                    self._target(*self._args)
+                    self._alive = False
+                    self.exitcode = 0
+                elif not alive_forever:
+                    self._alive = False
+                    self.exitcode = 1
+
+            def is_alive(self):
+                return self._alive
+
+            def terminate(self):
+                self.terminated = True
+                self._alive = False
+
+            def join(self, timeout=None):
+                pass
+
+        def factory(target, args, daemon=True):
+            proc = _FakeProcess(target, args, daemon=daemon)
+            instances.append(proc)
+            return proc
+
+        monkeypatch.setattr(background_jobs.multiprocessing, "Process", factory)
+        return instances
+
+    def _wait_past(self, job_id, status_to_leave, timeout=2.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            status = background_jobs.get_status(job_id)
+            if status is None or status["status"] != status_to_leave:
+                return status
+            time.sleep(0.02)
+        return background_jobs.get_status(job_id)
+
+    def test_clicking_the_button_starts_a_real_background_job_not_a_blocking_call(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_a_line(isolated_db)
+        self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"dub_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎙️ Generate dub track"]
+        assert buttons
+        buttons[0].click().run(timeout=30)
+
+        status = background_jobs.get_status(job_id)
+        assert status is not None
+        assert status["status"] in ("running", "queued")
+        # See TestSpeakerDetectionRealMidRunStop for why this cleanup is
+        # needed with alive_forever=True (a lingering watcher thread can
+        # otherwise touch a later test's same-named job_id).
+        if status["status"] == "running":
+            background_jobs.request_cancel(job_id)
+            self._wait_past(job_id, "running")
+        background_jobs.clear_job(job_id)
+
+    def test_cancel_button_appears_while_running_and_actually_requests_a_stop(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_a_line(isolated_db)
+        instances = self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"dub_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs.start_process_job(
+            job_id, dub_module.build_track_subprocess_worker,
+            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False),
+            gpu_touching=False)
+
+        at = self._run(did)
+        cancel_buttons = [b for b in at.button if b.key == f"cancel_dub_{did}"]
+        assert cancel_buttons, "Cancel button should show while the job is running"
+        cancel_buttons[0].click().run(timeout=30)
+
+        deadline = time.time() + 2
+        while time.time() < deadline and not instances[0].terminated:
+            time.sleep(0.02)
+        assert instances[0].terminated is True, "Cancel must call the real Process.terminate()"
+        status = background_jobs.get_status(job_id)
+        assert status is None or status["status"] == "cancelled"
+        if status is not None:
+            background_jobs.clear_job(job_id)
+
+    def test_done_job_result_is_applied_via_field_scoped_save(self, isolated_db, monkeypatch):
+        """Confirms the async path saves only dub_filename (never the
+        whole line list) -- the new risk Step 4e introduces by letting
+        the user edit lines while dubbing runs in the background, unlike
+        the old synchronous call which made that impossible."""
+        did = self._drama_with_a_line(isolated_db)
+        self._fake_process_factory(monkeypatch, run_target_on_start=True)
+        ddir = isolated_db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        out_path = os.path.join(ddir, "dub_track.wav")
+        with open(out_path, "wb") as f:
+            f.write(b"x")
+
+        def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
+                        is_narration, result_queue):
+            lines[0].dub_filename = "dub_clips/line_0000.wav"
+            result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
+        monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)
+
+        job_id = f"dub_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎙️ Generate dub track"]
+        buttons[0].click().run(timeout=30)
+
+        lines = db.load_line_objects(did)
+        assert lines[0].dub_filename == "dub_clips/line_0000.wav"
+        assert db.get_drama(did)["status"] == "dubbed"
+        assert background_jobs.get_status(job_id) is None  # cleared once applied
+
+
+class TestResegmentationRealMidRunStop:
+    """Step 4e: the local-Ollama LLM re-segmentation pass now runs as a
+    real OS subprocess for the same reason as dub generation above --
+    rule-only and cloud-engine resegmentation stay synchronous (never
+    GPU-touching). Confirmed the lowest-risk of the three Step 4e cases:
+    resegment_lines is pure in-memory computation, nothing written until a
+    separate "Apply" step the caller triggers afterward."""
+
+    def _drama_with_a_line(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="ollama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好" * 20, en="")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"reseg_use_llm_{did}"] = True
+        at.session_state["settings_ollama_url"] = "http://fake-ollama:11434"
+        at.run(timeout=30)
+        return at
+
+    def _fake_process_factory(self, monkeypatch, run_target_on_start=False, alive_forever=False):
+        instances = []
+
+        class _FakeProcess:
+            def __init__(self, target, args, daemon=True):
+                self._target, self._args = target, args
+                self._alive = True
+                self.terminated = False
+                self.exitcode = None
+
+            def start(self):
+                if run_target_on_start:
+                    self._target(*self._args)
+                    self._alive = False
+                    self.exitcode = 0
+                elif not alive_forever:
+                    self._alive = False
+                    self.exitcode = 1
+
+            def is_alive(self):
+                return self._alive
+
+            def terminate(self):
+                self.terminated = True
+                self._alive = False
+
+            def join(self, timeout=None):
+                pass
+
+        def factory(target, args, daemon=True):
+            proc = _FakeProcess(target, args, daemon=daemon)
+            instances.append(proc)
+            return proc
+
+        monkeypatch.setattr(background_jobs.multiprocessing, "Process", factory)
+        return instances
+
+    def test_cancel_button_appears_while_running_and_actually_requests_a_stop(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_a_line(isolated_db)
+        instances = self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"resegment_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs.start_process_job(
+            job_id, resegment.resegment_subprocess_worker,
+            args=([], "zh", None, None, "simplified"), gpu_touching=True)
+
+        at = self._run(did)
+        cancel_buttons = [b for b in at.button if b.key == f"cancel_reseg_{did}"]
+        assert cancel_buttons, "Cancel button should show while the job is running"
+        cancel_buttons[0].click().run(timeout=30)
+
+        deadline = time.time() + 2
+        while time.time() < deadline and not instances[0].terminated:
+            time.sleep(0.02)
+        assert instances[0].terminated is True, "Cancel must call the real Process.terminate()"
+        status = background_jobs.get_status(job_id)
+        assert status is None or status["status"] == "cancelled"
+        if status is not None:
+            background_jobs.clear_job(job_id)
+
+    def test_done_job_result_is_applied_as_a_preview_not_saved_directly(
+            self, isolated_db, monkeypatch):
+        """Re-segmentation's result is only ever a preview -- confirms the
+        async path populates the same session_state preview key a direct
+        resegment_lines() call used to, without touching the database."""
+        did = self._drama_with_a_line(isolated_db)
+        self._fake_process_factory(monkeypatch, run_target_on_start=True)
+        before = db.load_line_objects(did)
+
+        def fake_worker(lines, language, engine, segments, chinese_script, result_queue):
+            new_lines = [Line(idx=0, start=0.0, end=0.5, zh="你好" * 10),
+                        Line(idx=1, start=0.5, end=1.0, zh="你好" * 10)]
+            result_queue.put(("ok", {
+                "lines": new_lines,
+                "changed": [(before[0].id, 0, before[0].zh, ["你好" * 10, "你好" * 10])],
+                "usage_calls": [],
+            }))
+        monkeypatch.setattr(resegment, "resegment_subprocess_worker", fake_worker)
+
+        job_id = f"resegment_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.key == f"reseg_preview_btn_{did}"]
+        assert buttons
+        buttons[0].click().run(timeout=30)
+
+        assert db.load_line_objects(did)[0].zh == before[0].zh  # nothing saved yet
+        assert background_jobs.get_status(job_id) is None  # cleared once applied
+        reseg_state = at.session_state[f"reseg_preview_{did}"]
+        assert len(reseg_state["lines"]) == 2
 
 
 class TestVerticalShortsExport:

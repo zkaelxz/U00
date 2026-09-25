@@ -1,7 +1,6 @@
 """
 tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.py.
 """
-import contextlib
 import dataclasses
 
 from common import *
@@ -3742,7 +3741,11 @@ def render_workspace_tab():
                          "can't alter what a line says. One short request per line that still "
                          "needs it (retried up to 3 times on an unusable answer).")
                 _reseg_key = f"reseg_preview_{picked_id}"
-                if st.button("Preview re-segmentation", key=f"reseg_preview_btn_{picked_id}"):
+                _reseg_job_id = f"resegment_{picked_id}"
+                _reseg_job = background_jobs.get_status(_reseg_job_id)
+                _reseg_job_active = bool(_reseg_job and _reseg_job["status"] in ("running", "queued"))
+                if st.button("Preview re-segmentation", key=f"reseg_preview_btn_{picked_id}",
+                             disabled=_reseg_job_active):
                     _reseg_engine = None
                     if _reseg_use_llm and _reseg_llm_ok:
                         _reseg_engine = translate_engines.get_engine(
@@ -3750,10 +3753,20 @@ def render_workspace_tab():
                             free_tier=engine_choice == "gemini" and _gemini_free_tier,
                             base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     _raw = raw_transcript.load_latest(ddir)
-                    with st.spinner("Finding meaningful split points..."):
-                        with background_jobs.gpu_slot(f"Re-segmenting ({_drama_label(drama)})") \
-                                if _reseg_engine is not None and engine_choice == "ollama" \
-                                else contextlib.nullcontext():
+                    # Only the local-Ollama LLM pass is GPU-touching (and worth a
+                    # real mid-run stop for) -- rule-only and cloud-engine runs
+                    # stay synchronous, same as before Step 4e.
+                    if _reseg_engine is not None and engine_choice == "ollama":
+                        background_jobs.start_process_job(
+                            _reseg_job_id, resegment.resegment_subprocess_worker,
+                            args=(_copy_lines(edited_rows), source_language, _reseg_engine,
+                                  (_raw or {}).get("segments"), chinese_script),
+                            gpu_touching=True, description=f"Re-segmenting ({_drama_label(drama)})")
+                        st.info("Finding meaningful split points in the background -- come back "
+                                "here for the preview once it's done, or Cancel below.")
+                        st.rerun()
+                    else:
+                        with st.spinner("Finding meaningful split points..."):
                             _new_lines, _changed = resegment.resegment_lines(
                                 _copy_lines(edited_rows), source_language, engine=_reseg_engine,
                                 segments=(_raw or {}).get("segments"), chinese_script=chinese_script,
@@ -3762,10 +3775,44 @@ def render_workspace_tab():
                                     getattr(_reseg_engine, "model", engine_choice), "resegment",
                                     inp, out, translate_engines.estimate_cost_for_engine(
                                         _reseg_engine, inp, out)))
-                    st.session_state[_reseg_key] = {
-                        "lines": _new_lines,
-                        "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in _changed],
-                    }
+                        st.session_state[_reseg_key] = {
+                            "lines": _new_lines,
+                            "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in _changed],
+                        }
+                if _reseg_job:
+                    if _reseg_job["status"] == "queued":
+                        st.info(_reseg_job.get("message") or "Waiting for the GPU...")
+                    elif _reseg_job["status"] == "running":
+                        st.info("Finding meaningful split points in the background -- safe to "
+                                "switch tabs. Cancel below genuinely stops it.")
+                        rgc1, rgc2 = st.columns(2)
+                        if rgc1.button("🔄 Refresh progress", key=f"refresh_reseg_{picked_id}"):
+                            st.rerun()
+                        if rgc2.button("✖ Cancel", key=f"cancel_reseg_{picked_id}"):
+                            background_jobs.request_cancel(_reseg_job_id)
+                            st.rerun()
+                    elif _reseg_job["status"] == "cancelled":
+                        st.warning("Re-segmentation preview was stopped. Nothing was changed.")
+                        background_jobs.clear_job(_reseg_job_id)
+                    elif _reseg_job["status"] == "error":
+                        st.error(f"Re-segmentation failed ({_reseg_job['error']}).")
+                        background_jobs.clear_job(_reseg_job_id)
+                    elif _reseg_job["status"] == "done":
+                        _reseg_result = _reseg_job.get("result") or {}
+                        _cost_engine = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                        for _inp, _out in _reseg_result.get("usage_calls", []):
+                            db.log_usage(picked_id, engine_choice,
+                                        getattr(_cost_engine, "model", engine_choice), "resegment",
+                                        _inp, _out, translate_engines.estimate_cost_for_engine(
+                                            _cost_engine, _inp, _out))
+                        st.session_state[_reseg_key] = {
+                            "lines": _reseg_result.get("lines"),
+                            "changed": _reseg_result.get("changed"),
+                        }
+                        background_jobs.clear_job(_reseg_job_id)
                 _reseg = st.session_state.get(_reseg_key)
                 if _reseg is not None:
                     if not _reseg["changed"]:
@@ -3863,7 +3910,10 @@ def render_workspace_tab():
             )
             voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
             dub_button_label = "🎙️ Generate narration track" if content_mode == "novel_narration" else "🎙️ Generate dub track"
-            if st.button(dub_button_label):
+            _dub_job_id = f"dub_{picked_id}"
+            _dub_job = background_jobs.get_status(_dub_job_id)
+            _dub_job_active = bool(_dub_job and _dub_job["status"] in ("running", "queued"))
+            if st.button(dub_button_label, disabled=_dub_job_active):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
                 clone_map = {}
@@ -3879,24 +3929,50 @@ def render_workspace_tab():
                             "ref_audio": os.path.join(ddir, c["ref_audio_filename"]),
                             "ref_text": c["ref_text"] or "",
                         }
-                progress_bar = st.progress(0.0, text="Generating...")
                 # F5-TTS (voice cloning without an ElevenLabs voice_id) is the
                 # only locally-run, GPU-touching path here -- edge_tts is a free
                 # online service and "offline" fallback TTS is CPU-only, so
                 # this only takes a GPU slot when it's actually needed.
                 _uses_f5tts = any("engine" not in v for v in clone_map.values())
-                try:
-                    build_fn = dub_module.build_narration_track if content_mode == "novel_narration" else dub_module.build_dub_track
-                    with background_jobs.gpu_slot(f"Dub generation ({_drama_label(drama)})") \
-                            if _uses_f5tts else contextlib.nullcontext():
-                        out_path, dub_errors = build_fn(
-                            st.session_state.lines, ddir, voice_map, character_clone_map=clone_map,
-                            tts_engine=tts_engine,
-                            progress_cb=lambda frac: progress_bar.progress(frac, text=f"Generating... {frac*100:.0f}%"),
-                        )
-                    progress_bar.empty()
-                    db.save_lines(picked_id, st.session_state.lines)
+                background_jobs.start_process_job(
+                    _dub_job_id, dub_module.build_track_subprocess_worker,
+                    args=(_copy_lines(st.session_state.lines), ddir, voice_map, "en-US-AvaNeural",
+                          clone_map, tts_engine, content_mode == "novel_narration"),
+                    gpu_touching=_uses_f5tts, description=f"Dub generation ({_drama_label(drama)})")
+                st.info("Generating in the background -- come back here for progress or to "
+                        "Cancel. Safe to switch tabs or use other dramas meanwhile.")
+                st.rerun()
+
+            if _dub_job:
+                if _dub_job["status"] == "queued":
+                    st.info(_dub_job.get("message") or "Waiting for the GPU...")
+                elif _dub_job["status"] == "running":
+                    st.info("Generating... (no live progress while this runs as its own "
+                            "process, but Cancel below genuinely stops it)")
+                    dc1, dc2 = st.columns(2)
+                    if dc1.button("🔄 Refresh progress", key=f"refresh_dub_{picked_id}"):
+                        st.rerun()
+                    if dc2.button("✖ Cancel", key=f"cancel_dub_{picked_id}"):
+                        background_jobs.request_cancel(_dub_job_id)
+                        st.rerun()
+                    st.caption("Cancelling keeps whatever line clips already finished writing -- "
+                              "the next run reuses them instead of starting over.")
+                elif _dub_job["status"] == "cancelled":
+                    st.warning("Generation was stopped. Already-generated clips were kept -- "
+                              "click Generate again to pick up where it left off.")
+                    background_jobs.clear_job(_dub_job_id)
+                elif _dub_job["status"] == "error":
+                    st.error(f"Generation failed: {_dub_job['error']}. Check ffmpeg / edge-tts / "
+                             "piper-tts / f5-tts install (see README).")
+                    background_jobs.clear_job(_dub_job_id)
+                elif _dub_job["status"] == "done":
+                    _dub_result = _dub_job.get("result") or {}
+                    _dub_fields = (("dub_filename", "start", "end") if content_mode == "novel_narration"
+                                  else ("dub_filename",))
+                    db.save_lines(picked_id, _dub_result["lines"], fields=_dub_fields)
+                    st.session_state.lines = db.load_line_objects(picked_id)
                     db.update_drama(picked_id, status="dubbed")
+                    dub_errors = _dub_result.get("errors") or []
                     if dub_errors:
                         failed_nums = [e["line_idx"] + 1 for e in dub_errors]
                         st.warning(f"Generated with {len(dub_errors)} line failure(s) -- lines "
@@ -3905,12 +3981,12 @@ def render_workspace_tab():
                     else:
                         st.success("Track generated." + (" Line timings updated to match narration audio -- "
                                    "re-download the .srt below to stay in sync." if content_mode == "novel_narration" else ""))
-                    with open(out_path, "rb") as f:
-                        st.download_button(f"Download {os.path.basename(out_path)}", f.read(),
-                                            file_name=os.path.basename(out_path))
-                except Exception as e:
-                    progress_bar.empty()
-                    st.error(f"Generation failed: {e}. Check ffmpeg / edge-tts / piper-tts / f5-tts install (see README).")
+                    _dub_out_path = _dub_result["out_path"]
+                    with open(_dub_out_path, "rb") as f:
+                        st.download_button(f"Download {os.path.basename(_dub_out_path)}", f.read(),
+                                            file_name=os.path.basename(_dub_out_path),
+                                            key=f"dub_download_{picked_id}")
+                    background_jobs.clear_job(_dub_job_id)
 
         with st.expander("9. 💾 Export subtitles", expanded=False):
             _total_lines = len(st.session_state.lines)

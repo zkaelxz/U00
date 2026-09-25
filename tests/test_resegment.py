@@ -10,6 +10,7 @@ changed.
 """
 import json
 import os
+import queue
 import sys
 
 import pytest
@@ -272,3 +273,77 @@ class TestSavingOnlyClearsChangedLines:
         notes = isolated_db.list_translation_notes(did)
         assert [(n["term"], n["line_idx"]) for n in notes] == [("你好", 0)]
         assert isolated_db.load_emotions(did) == {}
+
+
+class TestResegmentSubprocessWorker:
+    """Step 4e: resegment_subprocess_worker() is the entry point
+    background_jobs.start_process_job() runs in its own OS process for
+    the local-Ollama LLM pass, so a real mid-run Cancel can terminate it.
+    Confirmed the lowest-risk of the three Step 4e cases to hard-stop:
+    resegment_lines is a pure in-memory computation with no DB/file write
+    of its own -- its result only ever reaches the caller as a preview.
+    Tested here as a plain function call against the same fakes used
+    elsewhere in this file -- background_jobs.py's own tests cover the
+    actual multiprocessing.Process/cancel machinery."""
+
+    def test_matches_a_direct_resegment_lines_call_on_success(self):
+        # resegment_subprocess_worker doesn't expose boundaries_fn (the
+        # real UI call site never overrides it either) -- so both calls
+        # here go through the real word_boundaries(), which needs jieba.
+        pytest.importorskip("jieba")
+        ln = Line(idx=0, start=0.0, end=8.0, zh=TestLlmPass.LONG, id=1)
+
+        direct_new_lines, direct_changed = rs.resegment_lines(
+            [ln], "zh", engine=ScriptedEngine([_marked("我" * 20, "你" * 20)]))
+
+        result_queue = queue.Queue()
+        rs.resegment_subprocess_worker(
+            [ln], "zh", ScriptedEngine([_marked("我" * 20, "你" * 20)]), None, "simplified",
+            result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome[0] == "ok"
+        assert [l.zh for l in outcome[1]["lines"]] == [l.zh for l in direct_new_lines]
+        assert outcome[1]["changed"] == [(c.id, c.idx, c.zh, pieces) for c, pieces in direct_changed]
+
+    def test_usage_calls_are_collected_for_the_caller_to_log(self):
+        class FakeUsage:
+            input_tokens = 10
+            output_tokens = 5
+
+        class FakeResponse:
+            usage = FakeUsage()
+            content = [_Block(_marked("我" * 20, "你" * 20))]
+
+        class FakeClaudeLike:
+            model = "fake-claude"
+            supports_reference = True
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, model, max_tokens, messages):
+                return FakeResponse()
+
+        ln = Line(idx=0, start=0.0, end=8.0, zh=TestLlmPass.LONG)
+        result_queue = queue.Queue()
+        rs.resegment_subprocess_worker(
+            [ln], "zh", FakeClaudeLike(), None, "simplified", result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome[0] == "ok"
+        assert outcome[1]["usage_calls"] == [(10, 5)]
+
+    def test_reports_an_exception_instead_of_raising(self):
+        def _boom(*a, **k):
+            raise RuntimeError("resegment exploded")
+
+        ln = Line(idx=0, start=0.0, end=8.0, zh=TestLlmPass.LONG)
+        result_queue = queue.Queue()
+        import unittest.mock
+        with unittest.mock.patch.object(rs, "resegment_lines", _boom):
+            rs.resegment_subprocess_worker([ln], "zh", None, None, "simplified", result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome == ("error", "RuntimeError", "resegment exploded")
