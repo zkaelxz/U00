@@ -2904,6 +2904,40 @@ def render_workspace_tab():
                     if ref_text_input != (c["ref_text"] or ""):
                         db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
 
+                    _engine_options = list(dub_module.CLONE_ENGINES)
+                    _stored_engine = c.get("clone_engine") or dub_module.DEFAULT_CLONE_ENGINE
+                    ve1, ve2 = st.columns([1, 1])
+                    picked_engine = ve1.selectbox(
+                        f"Voice engine ({name or c['speaker_label']})", _engine_options,
+                        index=_engine_options.index(_stored_engine) if _stored_engine in _engine_options else 0,
+                        format_func=lambda e: dub_module.CLONE_ENGINES[e],
+                        key=f"cengine_{c['speaker_label']}",
+                        help="Which local engine clones this character's reference clip. Chatterbox "
+                             "also works with no clip (its own built-in voice).")
+                    if picked_engine != _stored_engine:
+                        db.upsert_character(picked_id, c["speaker_label"], clone_engine=picked_engine)
+                    design_input = ve2.text_input(
+                        f"Or describe a voice ({name or c['speaker_label']}, no clip needed)",
+                        value=c.get("voice_design") or "", placeholder="female, low pitch, british accent",
+                        key=f"cdesign_{c['speaker_label']}",
+                        help="OmniVoice voice design: gender, age, pitch, whisper, English accent, "
+                             "comma-separated. Used only while no reference clip is set -- a clip "
+                             "always wins.")
+                    if design_input != (c.get("voice_design") or ""):
+                        db.upsert_character(picked_id, c["speaker_label"], voice_design=design_input)
+                    if picked_engine == "chatterbox":
+                        st.caption("Chatterbox voices each line with the emotion detected for it (run "
+                                   "emotion detection first). Everything it generates carries Resemble "
+                                   "AI's imperceptible PerTh audio watermark.")
+                    elif picked_engine == "tada":
+                        st.caption("TADA's code is MIT-licensed, but its model weights are under Meta's "
+                                   "Llama 3.2 Community License -- downloading them needs a Hugging Face "
+                                   "account that has accepted that license (`huggingface-cli login`).")
+                    elif picked_engine == "gpt_sovits":
+                        st.caption("GPT-SoVITS runs as its own local server: start `python api_v2.py` in "
+                                   "your GPT-SoVITS folder first. Set its address under Settings -> "
+                                   "API keys & endpoints if it isn't the default.")
+
             with st.expander("☁️ Or use ElevenLabs cloning instead (hosted, no GPU needed)", expanded=False):
                 st.caption("Paid API with a limited free tier. Simpler to get working than F5-TTS since "
                           "there's no local model to install -- worth trying first if F5-TTS gives you trouble.")
@@ -3954,9 +3988,10 @@ def render_workspace_tab():
 
         with st.expander("8. 🎙️ AI dub / narration", expanded=False):
             st.caption(
-                "Uses each character's cloning reference clip if set, otherwise falls back to "
-                "the TTS engine chosen below. Voice cloning needs `f5-tts` installed locally. "
-                "Requires ffmpeg on PATH."
+                "Uses each character's voice from section 6 (a cloned clip, a described voice, or "
+                "Chatterbox), otherwise falls back to the TTS engine chosen below. Each character's "
+                "engine needs installing once (`f5-tts`, `omnivoice`, `chatterbox-tts`, `hume-tada`), "
+                "or GPT-SoVITS's own server running. Requires ffmpeg on PATH."
             )
             tts_engine = st.radio(
                 "Fallback TTS engine (used where no clone reference is set)",
@@ -3974,29 +4009,22 @@ def render_workspace_tab():
             if st.button(dub_button_label, disabled=_dub_job_active):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
-                clone_map = {}
                 el_key_for_dub = st.session_state.get(f"el_key_{picked_id}", "") or st.session_state.get("settings_elevenlabs", "")
-                for c in chars:
-                    if c.get("elevenlabs_voice_id"):
-                        clone_map[c["speaker_label"]] = {
-                            "engine": "elevenlabs", "voice_id": c["elevenlabs_voice_id"],
-                            "api_key": el_key_for_dub,
-                        }
-                    elif c["ref_audio_filename"]:
-                        clone_map[c["speaker_label"]] = {
-                            "ref_audio": os.path.join(ddir, c["ref_audio_filename"]),
-                            "ref_text": c["ref_text"] or "",
-                        }
-                # F5-TTS (voice cloning without an ElevenLabs voice_id) is the
-                # only locally-run, GPU-touching path here -- edge_tts is a free
-                # online service and "offline" fallback TTS is CPU-only, so
+                clone_map = dub_module.clone_map_from_characters(
+                    chars, ddir, elevenlabs_key=el_key_for_dub,
+                    gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
+                    ref_language=drama.get("source_language") or "zh")
+                # Only the local voice engines (F5-TTS, OmniVoice, GPT-SoVITS,
+                # Chatterbox, TADA) touch the GPU -- edge_tts and ElevenLabs are
+                # online services and "offline" fallback TTS is CPU-only, so
                 # this only takes a GPU slot when it's actually needed.
-                _uses_f5tts = any("engine" not in v for v in clone_map.values())
                 background_jobs.start_process_job(
                     _dub_job_id, dub_module.build_track_subprocess_worker,
                     args=(_copy_lines(st.session_state.lines), ddir, voice_map, "en-US-AvaNeural",
-                          clone_map, tts_engine, content_mode == "novel_narration"),
-                    gpu_touching=_uses_f5tts, description=f"Dub generation ({_drama_label(drama)})")
+                          clone_map, tts_engine, content_mode == "novel_narration",
+                          db.load_emotions(picked_id)),
+                    gpu_touching=dub_module.clone_map_uses_local_model(clone_map),
+                    description=f"Dub generation ({_drama_label(drama)})")
                 st.info("Generating in the background -- come back here for progress or to "
                         "Cancel. Safe to switch tabs or use other dramas meanwhile.")
                 st.rerun()
@@ -4021,7 +4049,7 @@ def render_workspace_tab():
                     background_jobs.clear_job(_dub_job_id)
                 elif _dub_job["status"] == "error":
                     st.error(f"Generation failed: {_dub_job['error']}. Check ffmpeg / edge-tts / "
-                             "piper-tts / f5-tts install (see README).")
+                             "piper-tts and each character's voice engine install (see README).")
                     background_jobs.clear_job(_dub_job_id)
                 elif _dub_job["status"] == "done":
                     _dub_result = _dub_job.get("result") or {}
@@ -4198,6 +4226,21 @@ def render_workspace_tab():
                             st.download_button("Download .epub", f.read(), file_name=f"{_base_name}.epub")
                     except Exception as e:
                         st.error(f"EPUB export failed: {e}. Check `pip install ebooklib`.")
+
+                _narration_wav = os.path.join(ddir, "narration_track.wav")
+                if st.button("🎧 Generate audiobook (.m4b)", disabled=not os.path.exists(_narration_wav),
+                             help="The narration track as an audiobook with chapter markers -- the "
+                                  "novel's own chapter headings, or its paragraphs if it has none. "
+                                  "Generate the narration (section 8) first. Needs ffmpeg."):
+                    try:
+                        with st.spinner("Encoding audiobook..."):
+                            m4b_path = dub_module.export_narration_m4b(
+                                st.session_state.lines, ddir,
+                                title=drama["title_en"] or drama["title_zh"] or None)
+                        with open(m4b_path, "rb") as f:
+                            st.download_button("Download .m4b", f.read(), file_name=f"{_base_name}.m4b")
+                    except Exception as e:
+                        st.error(f"Audiobook export failed: {e}. Check ffmpeg is on PATH.")
 
         source_video_path = None
         if drama.get("source_video_filename"):

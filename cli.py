@@ -331,30 +331,31 @@ def cmd_dub(args):
 
         chars = db.list_characters(d["id"])
         voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
-        clone_map = {}
-        for c in chars:
-            if c.get("elevenlabs_voice_id"):
-                clone_map[c["speaker_label"]] = {
-                    "engine": "elevenlabs", "voice_id": c["elevenlabs_voice_id"],
-                    "api_key": args.elevenlabs_key or "",
-                }
-            elif c.get("ref_audio_filename"):
-                clone_map[c["speaker_label"]] = {
-                    "ref_audio": os.path.join(ddir, c["ref_audio_filename"]),
-                    "ref_text": c.get("ref_text") or "",
-                }
+        clone_map = dub_module.clone_map_from_characters(
+            chars, ddir, elevenlabs_key=args.elevenlabs_key or "",
+            gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
+            ref_language=d.get("source_language") or "zh")
         speakers = sorted({ln.speaker for ln in lines if ln.speaker})
         if speakers and not voice_map:
             voice_map = dub_module.assign_voices_to_characters(speakers)
 
-        build_fn = dub_module.build_narration_track if d.get("content_mode") == "novel_narration" else dub_module.build_dub_track
-        print(f"#{d['id']} generating {'narration' if d.get('content_mode') == 'novel_narration' else 'dub'} track...")
+        is_narration = d.get("content_mode") == "novel_narration"
+        build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
         out_path, dub_errors = build_fn(
             lines, ddir, voice_map, character_clone_map=clone_map,
+            emotion_map=db.load_emotions(d["id"]),
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
         )
-        db.save_lines(d["id"], lines, fields=("dub_filename",))
+        # Narration rewrites every line's timing to match its audio -- same
+        # fields the Workspace tab saves after narration.
+        db.save_lines(d["id"], lines,
+                      fields=("dub_filename", "start", "end") if is_narration else ("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
+        if is_narration and getattr(args, "m4b", False):
+            m4b_path = dub_module.export_narration_m4b(
+                lines, ddir, title=d.get("title_en") or d.get("title_zh"))
+            print(f"\n#{d['id']} audiobook: {m4b_path}")
         if dub_errors:
             print(f"\n#{d['id']} track: {out_path} ({len(dub_errors)} line(s) silent due to "
                   f"synthesis failures -- re-run to retry just those; already-generated clips are reused.)")
@@ -440,6 +441,11 @@ def main():
     p_dub.add_argument("--id", type=int, default=None)
     p_dub.add_argument("--elevenlabs-key", default=None,
                         help="Required only for characters cloned via ElevenLabs")
+    p_dub.add_argument("--gpt-sovits-url", default=None,
+                       help="GPT-SoVITS server for characters using it "
+                            f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")
+    p_dub.add_argument("--m4b", action="store_true",
+                       help="For novel narration: also export an M4B audiobook with chapter markers")
     p_dub.set_defaults(func=cmd_dub)
 
     p_run = sub.add_parser("run")

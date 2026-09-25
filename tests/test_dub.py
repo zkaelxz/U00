@@ -318,8 +318,10 @@ class TestBuildNarrationTrack:
         monkeypatch.setattr(dub, "synthesize_line",
                              lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
 
-        lines = [Line(idx=0, start=0, end=0, zh="x", en="First"),
-                 Line(idx=1, start=0, end=0, zh="y", en="Second")]
+        # Different speakers, so each line is its own TTS call (same-speaker
+        # lines would share one -- see TestNarrationTTSUnits).
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="First", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="y", en="Second", speaker="B")]
         dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
 
         assert lines[0].start == 0.0
@@ -403,7 +405,7 @@ class TestBuildTrackSubprocessWorker:
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
             worker_lines, str(tmp_path), {"A": "en-US-AvaNeural"}, "en-US-AvaNeural",
-            {}, "edge_tts", False, result_queue)
+            {}, "edge_tts", False, {}, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
@@ -420,7 +422,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, result_queue)
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, {}, result_queue)
         outcome = result_queue.get_nowait()
 
         # only build_narration_track rewrites .start/.end onto the lines
@@ -437,7 +439,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, result_queue)
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "boom")

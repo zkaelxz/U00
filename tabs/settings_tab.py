@@ -68,6 +68,7 @@ def _load_env_defaults(env_path: str = None):
         "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
         "ollama_url": ("BAIHE_OLLAMA_URL",),
         "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
+        "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
         "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
     }.items():
         if st.session_state.get(f"settings_{settings_key}"):
@@ -86,6 +87,7 @@ SETTINGS_KEYS = {
     "google": "Google Translate API key",
     "ollama_url": "Ollama base URL",
     "libretranslate_url": "LibreTranslate/LTEngine base URL",
+    "gpt_sovits_url": "GPT-SoVITS server URL (voice cloning; default http://127.0.0.1:9880)",
     "elevenlabs": "ElevenLabs API key",
     "hf_token": "Hugging Face token (diarization)",
 }

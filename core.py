@@ -572,6 +572,29 @@ def chunk_novel_text(raw_text: str, max_chars: int = 200):
     return chunks
 
 
+def novel_paragraph_ends(lines, source_text: str):
+    """Set of line idx whose line ends a paragraph of `source_text` -- the
+    novel text the lines were chunked from (chunk_novel_text only ever
+    splits a paragraph into pieces that join back into it). None when the
+    lines no longer match the source (edited, merged or re-split since),
+    rather than a guess that would put breaks in the wrong places."""
+    paragraphs = [re.sub(r"\s+", "", p) for p in re.split(r"\n+", source_text or "") if p.strip()]
+    ends, buf, p = set(), "", 0
+    for ln in lines:
+        piece = re.sub(r"\s+", "", ln.zh or "")
+        if not piece:
+            continue
+        if p >= len(paragraphs):
+            return None
+        buf += piece
+        if buf == paragraphs[p]:
+            ends.add(ln.idx)
+            buf, p = "", p + 1
+        elif not paragraphs[p].startswith(buf):
+            return None
+    return ends if p == len(paragraphs) and not buf else None
+
+
 def extract_audio_from_video(video_path: str, out_path: str):
     """Pulls the audio track out of a video file via ffmpeg, so the
     same timing/alignment pipeline can run on it as on audio-only files."""
