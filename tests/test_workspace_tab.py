@@ -1166,6 +1166,109 @@ class TestRetranscribeUseThisRefreshesTheZhBox:
         assert at.session_state.lines[0].zh == "新的文本"
 
 
+class TestRenumberingClearsStaleLineWidgets:
+    """Step 6d: Review & edit's per-line boxes are keyed by position
+    (zh_<idx>, start_<idx>, ...). "Apply merge" and Version history's
+    "Restore" renumber the lines but used to leave those boxes behind, so
+    the next rerun read them back over whichever line now sat at each
+    position: the page showed the pre-merge layout, the next "Save edits"
+    wrote a merged-away line's text over a different line, and the export
+    panel's overlap check wrote spurious timing flags to the database from
+    the stale start/end values. Re-segmentation (Step 6c) already cleared
+    them; merge and restore now do too."""
+
+    ORIGINAL = [("你", 0.0, 0.5), ("好", 0.6, 1.0), ("今天天气不错", 5.0, 8.0)]
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=i, start=s, end=e, zh=zh, en="")
+                                      for i, (zh, s, e) in enumerate(self.ORIGINAL)])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _click(self, at, label=None, key=None):
+        matches = [b for b in at.button if (key and b.key == key) or (label and b.label == label)]
+        assert matches, f"button {label or key!r} not found on the page"
+        matches[0].click()
+        at.run(timeout=30)
+
+    def _assert_page_matches_db_even_after_saving(self, at, did, expected):
+        at.run(timeout=30)
+        assert [l.zh for l in at.session_state.lines] == expected
+        self._click(at, label="💾 Save edits (this page)")  # resubmit whatever the boxes hold
+        after = db.load_line_objects(did)
+        assert [l.zh for l in after] == expected
+        assert [l.flag for l in after] == [None] * len(expected)
+
+    def test_apply_merge(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._click(at, label="Preview merge")
+        self._click(at, label="✅ Apply merge")
+        self._assert_page_matches_db_even_after_saving(at, did, ["你好", "今天天气不错"])
+
+    def test_restore(self, isolated_db):
+        did = self._drama(isolated_db)
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "three lines")
+        merged = isolated_db.load_line_objects(did)
+        merged[0].zh, merged[0].end = "你好", 1.0
+        merged[2].idx = 1
+        isolated_db.save_lines(did, [merged[0], merged[2]])
+        at = self._run(did)
+        snap = [h for h in isolated_db.list_line_history(did) if h["label"] == "three lines"][0]
+        self._click(at, key=f"restore_{snap['id']}")
+        self._assert_page_matches_db_even_after_saving(at, did, ["你", "好", "今天天气不错"])
+
+
+class TestImproveTranslationUseThisRefreshesTheEnBox:
+    """Step 6d: the English-box twin of Step 5b's re-transcribe fix --
+    accepting an improved translation updated the line and the database,
+    but the en_<idx> box kept its old text and was read back over the
+    accepted translation on the next rerun."""
+
+    def test_accepted_improvement_survives_a_rerun(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "improve_line", lambda *a, **k: "A much better line.")
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi there.")])
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        [b for b in at.button if b.key == "rvimprove_0"][0].click()
+        at.run(timeout=30)
+        [b for b in at.button if b.key == "rvuseimproved_0"][0].click()
+        at.run(timeout=30)
+        at.run(timeout=30)
+
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["A much better line."]
+        assert at.session_state.lines[0].en == "A much better line."
+        assert isolated_db.load_lines(did)[0]["en"] == "A much better line."
+
+
 class TestRawNovelToggleGatedByContentMode:
     """Step 5b item 6: the raw-novel uploader used to render unconditionally,
     above the content_mode radio, for every content mode including

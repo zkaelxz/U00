@@ -2445,6 +2445,10 @@ def render_workspace_tab():
                                     _r.en = _improved
                             db.save_lines(picked_id, all_lines)
                             st.session_state[f"rv_improved_{ln.idx}"] = None
+                            # Same reason as re-transcribe's zh_<idx> pop below: the
+                            # en box would otherwise read its old text back over the
+                            # just-accepted translation on the next rerun.
+                            st.session_state.pop(f"en_{ln.idx}", None)
                             st.rerun()
                     if has_audio_pipeline and drama.get("audio_filename"):
                         if st.button("🎙️ Re-transcribe", key=f"rvretrans_{ln.idx}"):
@@ -3117,6 +3121,7 @@ def render_workspace_tab():
                         db.save_lines(picked_id, merge_preview)
                         st.session_state.lines = merge_preview
                         st.session_state[f"merge_preview_{picked_id}"] = None
+                        _clear_line_widget_state()
                         st.success("Merged and saved. (Previous version saved to history -- "
                                   "see 'Version history' below if you want it back.)")
                         st.rerun()
@@ -3241,6 +3246,7 @@ def render_workspace_tab():
                                     [Line(**s) for s in snapshot], st.session_state.lines)
                                 db.save_lines(picked_id, restored)
                                 st.session_state.lines = restored
+                                _clear_line_widget_state()
                                 st.success(f"Restored '{h['label']}'.")
                                 st.rerun()
                             else:
