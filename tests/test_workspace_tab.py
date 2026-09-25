@@ -2999,6 +2999,52 @@ class TestResegmentGuardrail:
         assert self._button(at, f"reseg_apply_{did}").disabled is False
 
 
+class TestSpeechSplittingSensitivityDefaultAndPersistence:
+    """Step 6g: the "Speech-splitting sensitivity" slider's default was
+    lowered from 2000ms to 300ms at the user's own tested request (fixes
+    a real complaint: subtitles staying on screen through silence when
+    nothing else was being said), and the value now persists per drama
+    (it was a plain local variable before, reset on every visit) --
+    same st.session_state[f"..._{picked_id}"] pattern Step 4f already
+    established for "Expected number of speakers"."""
+
+    def _new_drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="not started")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _slider(self, at, did):
+        [box] = [s for s in at.slider if s.label.startswith("Speech-splitting sensitivity")]
+        return box
+
+    def test_a_fresh_drama_defaults_to_300ms_not_2000ms(self, isolated_db):
+        did = self._new_drama(isolated_db)
+        at = self._run(did)
+        assert self._slider(at, did).value == 300
+
+    def test_manually_changing_it_survives_a_rerun_rather_than_snapping_back(self, isolated_db):
+        did = self._new_drama(isolated_db)
+        at = self._run(did)
+        assert self._slider(at, did).value == 300
+        self._slider(at, did).set_value(1500).run(timeout=30)
+        assert self._slider(at, did).value == 1500
+
+
 class TestResegmentationStaleSnapshotSafety:
     """Step 6f: real, confirmed data corruption -- Apply re-segmentation
     could leave duplicate/orphaned rows because Preview computed its
