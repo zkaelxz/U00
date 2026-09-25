@@ -942,6 +942,15 @@ FLAG_REASONS = {
     "slang_idiom": "Slang or an idiom that may not have translated well",
 }
 
+# Flags the app sets itself (not offered to the LLM as a reason to pick).
+SYSTEM_FLAG_REASONS = {
+    "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
+}
+
+
+def flag_reason_label(flag: str) -> str:
+    return FLAG_REASONS.get(flag) or SYSTEM_FLAG_REASONS.get(flag) or flag
+
 
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None):
     """

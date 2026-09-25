@@ -630,11 +630,14 @@ producing lines from non-speech.
 
 **A music bed under the dialogue is confusing Whisper**: the same
 section has a **"Remove background music before transcribing"**
-checkbox. It runs [Demucs](https://github.com/facebookresearch/demucs)
-(a real source-separation model, not a generic noise filter) over the
-whole file first and transcribes only its vocals stem. Adds a full
-extra pass over the audio (roughly as long as transcription itself) and
-needs `pip install demucs` -- skip it for already-clean dialogue, since
+checkbox. It runs a real source-separation model (not a generic noise
+filter) over the whole file first and transcribes only its vocals: a
+Mel-Band RoFormer vocal model via
+[audio-separator](https://github.com/nomadkaraoke/python-audio-separator)
+(`pip install audio-separator`, preferred -- cleaner vocals), falling back
+to [Demucs](https://github.com/facebookresearch/demucs) (`pip install
+demucs`). Adds a full extra pass over the audio (roughly as long as
+transcription itself) -- skip it for already-clean dialogue, since
 there's nothing for it to separate out.
 
 **A merged line is still one oversized block after all the above**:
