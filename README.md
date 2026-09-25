@@ -141,9 +141,8 @@ just prefer the command line on Windows too.
 ### Prerequisites
 
 Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
-diarization -- it also reads audio through ffmpeg via torchcodec) and
-`ffmpeg` **with libass support** (needed for burning subtitles into
-video). Most standard `ffmpeg` builds already include it.
+diarization) and `ffmpeg` **with libass support** (needed for burning
+subtitles into video). Most standard `ffmpeg` builds already include it.
 
 ```bash
 # macOS
