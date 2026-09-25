@@ -236,6 +236,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             # failing" rule this app follows everywhere else.
             word_align_error = str(exc)
 
+    core_module.release_gpu_models()  # transcription stage done
     background_jobs.set_result(job_id, {
         "segments": segments,
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
@@ -411,6 +412,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 pass  # leave the line flagged rather than lose the source fix silently
         background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
                                         f"Fixing flagged lines... {i + 1}/{len(flagged)}")
+    if audio_path and os.path.exists(audio_path):
+        core_module.release_gpu_models()  # re-transcription stage done
     db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged)})
 
@@ -450,6 +453,8 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
             except Exception as e:
                 st.error(f"Speaker detection failed ({e}). Check your Hugging Face token and "
                          "pyannote.audio install. Nothing was changed.")
+            finally:
+                core_module.release_gpu_models()
         if turns is not None:
             diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model)
             st.session_state[f"speaker_segments_{picked_id}"] = turns
@@ -1544,6 +1549,17 @@ def render_workspace_tab():
                      "erroring, check ai.google.dev/gemini-api/docs/models for what's "
                      "currently available.")
             st.session_state["settings_gemini_model"] = engine_model
+        elif engine_choice == "ollama":
+            _model_keys = list(translate_engines.OLLAMA_MODELS.keys())
+            _saved_model = st.session_state.get("settings_ollama_model", _model_keys[0])
+            engine_model = st.selectbox(
+                "Ollama model", _model_keys,
+                index=_model_keys.index(_saved_model) if _saved_model in _model_keys else 0,
+                format_func=lambda m: translate_engines.OLLAMA_MODELS[m],
+                help="Pull it first: `ollama pull <name>`. 8B is the practical default on an "
+                     "8 GB GPU; 14B is a bit better but spills onto the CPU there and runs "
+                     "much slower.")
+            st.session_state["settings_ollama_model"] = engine_model
         elif engine_choice == "nllb":
             _model_keys = list(translate_engines.NLLB_MODELS.keys())
             engine_model = st.selectbox(
@@ -1877,6 +1893,7 @@ def render_workspace_tab():
                             else:
                                 lines = align_transcript_to_timing(user_lines, segments)
 
+                    core_module.release_gpu_models()  # text/alignment stage done
                     speaker_segments = None
                     if run_diarize and hf_token:
                         with st.spinner("Running speaker diarization... (first run downloads the model)"):
@@ -1896,6 +1913,8 @@ def render_workspace_tab():
                                 st.warning(f"Diarization failed ({e}) -- alignment still saved without speaker "
                                           f"labels. Check your Hugging Face token and pyannote.audio install, "
                                           f"then re-run just diarization if you want it.")
+                            finally:
+                                core_module.release_gpu_models()  # diarization stage done
 
                     st.session_state.lines = lines
                     # A brand-new set of lines: a translate/flag job still

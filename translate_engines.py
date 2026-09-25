@@ -1066,17 +1066,30 @@ def _estimate_ollama_num_ctx(system_text: str, numbered: str, floor: int = OLLAM
 _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type": "string"}}
 
 
+# Local Ollama models offered in the picker. qwen3:8b is the default: it
+# beat qwen2.5:7b on translation benchmarks at the same size (see the
+# roadmap's Step 5 / model registry). 14B is opt-in -- its quantized weights
+# don't fit cleanly alongside everything else in 8 GB of VRAM, so Ollama
+# offloads part of it to the CPU and it runs much slower there.
+OLLAMA_DEFAULT_MODEL = "qwen3:8b"
+OLLAMA_MODELS = {
+    "qwen3:8b": "Qwen3 8B -- recommended default, fits a typical 8 GB GPU",
+    "qwen2.5:14b": "Qwen2.5 14B -- may not fit in 8 GB; expect CPU offload (much slower)",
+}
+
+
 class OllamaEngine:
     """Fully local/offline translation via Ollama (https://ollama.com) --
     no API key, no internet needed once you've pulled a model. Quality
     depends heavily on which model you run locally; a capable general
-    model (e.g. qwen2.5, llama3.1) handles Chinese->English reasonably,
+    model (e.g. qwen3, llama3.1) handles Chinese->English reasonably,
     but won't match Claude/DeepSeek on tone/nuance. Good for cost-free
     bulk drafts you'll hand-polish, or for offline-only environments."""
     name = "ollama"
     supports_reference = True
 
-    def __init__(self, api_key: str = None, model: str = "qwen2.5:14b", base_url: str = "http://localhost:11434"):
+    def __init__(self, api_key: str = None, model: str = OLLAMA_DEFAULT_MODEL,
+                 base_url: str = "http://localhost:11434"):
         # api_key is unused (kept for a consistent engine constructor signature)
         self.model = model
         self.base_url = base_url.rstrip("/")
