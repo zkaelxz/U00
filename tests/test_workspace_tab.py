@@ -1416,6 +1416,9 @@ class _FakeBulkProvider:
     def build_request(self, key, context, numbered):
         return {"custom_id": key, "numbered": numbered}
 
+    def build_prompt_request(self, key, prompt, max_tokens=3000):
+        return {"custom_id": key, "prompt": prompt}
+
     def submit(self, requests_):
         self.submitted = requests_
         return "fake_batch_1"
@@ -1506,19 +1509,33 @@ class TestBulkModeUI:
         assert job["status"] == "submitted" and job["provider_batch_id"] == "fake_batch_1"
         assert any("Submitted 3 line(s)" in m.value for m in at.success)
 
-    def test_reflect_mode_turns_bulk_off(self, isolated_db, provider, monkeypatch):
-        captured = {}
+    def test_bulk_and_reflect_together_submits_the_faithfulness_stage(self, isolated_db, provider,
+                                                                      monkeypatch):
+        """Step 9d item 3: Bulk mode and Reflect mode are no longer
+        mutually exclusive -- together they submit stage 1 (faithfulness)
+        of the three-stage Bulk Reflect pipeline, not a live job."""
+        started = []
         monkeypatch.setattr(background_jobs, "start_job",
-                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+                            lambda job_id, *a, **kw: started.append(job_id) or True)
         did = self._drama(isolated_db)
         at = self._run(did)
         [c for c in at.checkbox if c.key == f"bulk_mode_{did}"][0].set_value(True).run()
         [c for c in at.checkbox if c.key == f"reflect_mode_{did}"][0].set_value(True).run()
-        assert any("Bulk mode is off while Reflect mode is on" in i.value for i in at.info)
+        assert any("Bulk Reflect" in c.value for c in at.caption)
         [b for b in at.button if b.label == "🌐 Translate all lines"][0].click()
         at.run(timeout=30)
-        assert provider.submitted is None
-        assert captured.get("reflect") is True
+        assert provider.submitted and len(provider.submitted) == 1
+        assert not any(j.startswith("translate_") for j in started)
+        [job] = db.list_bulk_jobs(did)
+        assert job["kind"] == "reflect" and job["stage"] == "faithful"
+        assert any("faithfulness pass" in m.value for m in at.success)
+
+    def test_bulk_reflect_is_unavailable_for_deepseek(self, isolated_db, provider):
+        did = self._drama(isolated_db, engine="deepseek")
+        at = self._run(did)
+        [c for c in at.checkbox if c.key == f"bulk_mode_{did}"][0].set_value(True).run()
+        [c for c in at.checkbox if c.key == f"reflect_mode_{did}"][0].set_value(True).run()
+        assert any("needs Claude or Gemini's own batch API" in i.value for i in at.info)
 
     def test_panel_lists_a_pending_batch(self, isolated_db, provider):
         did = self._drama(isolated_db)

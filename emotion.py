@@ -52,6 +52,86 @@ EMOTION_TRANSLATION_GUIDANCE = {
 }
 
 
+def build_emotion_prompt(batch: list, use_audio_cues: bool = False,
+                         id_fn=lambda ln: ln.idx) -> str:
+    """The emotion-tagging prompt for one batch, each line numbered by
+    id_fn(ln) (position by default, matching detect_emotions' own
+    results dict). bulk_translate.py's bulk submission (Step 9d) passes
+    id_fn=lambda ln: ln.id -- see build_flag_prompt's docstring for why a
+    permanent id matters once results can come back hours later."""
+    tags_desc = "\n".join(f"  - {k}: {v}" for k, v in EMOTION_TAGS.items())
+    rows = []
+    for i, ln in enumerate(batch):
+        row = f"[{id_fn(ln)}] ({ln.speaker or '?'}) {ln.zh}"
+        if ln.en:
+            row += f" → {ln.en}"
+        if use_audio_cues:
+            dur = ln.end - ln.start
+            chars = max(len(ln.zh), 1)
+            pace = dur / chars
+            prev = batch[i - 1] if i > 0 else None
+            gap = (ln.start - prev.end) if prev else 0
+            cues = []
+            if pace > 0.35:
+                cues.append("delivered slowly")
+            elif pace < 0.12:
+                cues.append("delivered quickly")
+            if gap > 1.5:
+                cues.append(f"{gap:.1f}s pause before")
+            if cues:
+                row += f"  [delivery: {', '.join(cues)}]"
+        rows.append(row)
+
+    return (
+        "Tag the emotional register of each line of dialogue below.\n\n"
+        f"Available tags:\n{tags_desc}\n\n"
+        "Pick the single tag that best fits. Pay particular attention to sarcasm, "
+        "suppressed anger, and flirtation -- these are the registers most often lost "
+        "in translation, because the literal words say something different from what's "
+        "meant. Give an intensity from 0.0 to 1.0.\n\n"
+        + ("Delivery hints in brackets come from the original audio's timing -- treat "
+           "them as weak supporting evidence, not proof.\n\n" if use_audio_cues else "")
+        + 'Return ONLY a JSON array: [{"line_idx": 0, "emotion": "...", "intensity": 0.0, '
+        '"note": "brief reason, only if non-obvious"}]. No preamble, no markdown fences.\n\n'
+        + "\n".join(rows)
+    )
+
+
+def parse_emotion_tags(text: str) -> dict:
+    """Parses one batch's response from build_emotion_prompt into
+    {id: {"emotion", "intensity", "note"}}, keyed by whatever id the
+    prompt embedded (a line's position or its permanent id -- this
+    function doesn't care which, it just echoes back what the model
+    returned). Shared by detect_emotions (live) and bulk_translate.py's
+    bulk submission (Step 9d)."""
+    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
+    try:
+        tagged = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(tagged, list):
+        return {}
+    results = {}
+    for t in tagged:
+        if not isinstance(t, dict) or t.get("line_idx") is None:
+            continue
+        emo = t.get("emotion") if t.get("emotion") in EMOTION_TAGS else "neutral"
+        try:
+            intensity = float(t.get("intensity", 0.5))
+        except (TypeError, ValueError):
+            intensity = 0.5
+        try:
+            key = int(t["line_idx"])
+        except (TypeError, ValueError):
+            continue
+        results[key] = {
+            "emotion": emo,
+            "intensity": max(0.0, min(1.0, intensity)),
+            "note": t.get("note", ""),
+        }
+    return results
+
+
 def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = False,
                      progress_cb=None, usage_cb=None):
     """
@@ -75,47 +155,12 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
     if not scoped:
         return {}
 
-    tags_desc = "\n".join(f"  - {k}: {v}" for k, v in EMOTION_TAGS.items())
     results = {}
     n_batches = (len(scoped) + batch_size - 1) // batch_size
 
     for bi, start in enumerate(range(0, len(scoped), batch_size)):
         batch = scoped[start:start + batch_size]
-        rows = []
-        for i, ln in enumerate(batch):
-            row = f"[{ln.idx}] ({ln.speaker or '?'}) {ln.zh}"
-            if ln.en:
-                row += f" → {ln.en}"
-            if use_audio_cues:
-                dur = ln.end - ln.start
-                chars = max(len(ln.zh), 1)
-                pace = dur / chars
-                prev = batch[i - 1] if i > 0 else None
-                gap = (ln.start - prev.end) if prev else 0
-                cues = []
-                if pace > 0.35:
-                    cues.append("delivered slowly")
-                elif pace < 0.12:
-                    cues.append("delivered quickly")
-                if gap > 1.5:
-                    cues.append(f"{gap:.1f}s pause before")
-                if cues:
-                    row += f"  [delivery: {', '.join(cues)}]"
-            rows.append(row)
-
-        prompt = (
-            "Tag the emotional register of each line of dialogue below.\n\n"
-            f"Available tags:\n{tags_desc}\n\n"
-            "Pick the single tag that best fits. Pay particular attention to sarcasm, "
-            "suppressed anger, and flirtation -- these are the registers most often lost "
-            "in translation, because the literal words say something different from what's "
-            "meant. Give an intensity from 0.0 to 1.0.\n\n"
-            + ("Delivery hints in brackets come from the original audio's timing -- treat "
-               "them as weak supporting evidence, not proof.\n\n" if use_audio_cues else "")
-            + 'Return ONLY a JSON array: [{"line_idx": 0, "emotion": "...", "intensity": 0.0, '
-            '"note": "brief reason, only if non-obvious"}]. No preamble, no markdown fences.\n\n'
-            + "\n".join(rows)
-        )
+        prompt = build_emotion_prompt(batch, use_audio_cues=use_audio_cues)
 
         text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
         if progress_cb:
@@ -124,26 +169,7 @@ def detect_emotions(lines, engine, batch_size: int = 40, use_audio_cues: bool = 
             # attempted, so progress keeps moving instead of stalling on
             # one bad batch out of many.
             progress_cb((bi + 1) / n_batches)
-        text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-        try:
-            tagged = json.loads(text)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(tagged, list):
-            continue
-        for t in tagged:
-            if not isinstance(t, dict) or t.get("line_idx") is None:
-                continue
-            emo = t.get("emotion") if t.get("emotion") in EMOTION_TAGS else "neutral"
-            try:
-                intensity = float(t.get("intensity", 0.5))
-            except (TypeError, ValueError):
-                intensity = 0.5
-            results[int(t["line_idx"])] = {
-                "emotion": emo,
-                "intensity": max(0.0, min(1.0, intensity)),
-                "note": t.get("note", ""),
-            }
+        results.update(parse_emotion_tags(text))
     return results
 
 

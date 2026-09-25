@@ -981,6 +981,28 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
     return lines_to_fix
 
 
+def build_consistency_prompt(batch: list) -> str:
+    """The consistency-check prompt for one window of already-translated
+    lines. Position-based (1., 2., ...), not id-keyed -- an issue names a
+    TERM ("a character's name spelled two ways"), never a specific line,
+    so there's no per-line id for the model to echo back here. Shared by
+    check_consistency_llm (live) and bulk_translate.py's bulk submission
+    (Step 9d) -- both send byte-for-byte the same prompt for the same
+    window of lines."""
+    pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
+    return (
+        "Below are Chinese source lines paired with their English translations, from the "
+        "same drama. Look for CONSISTENCY issues: the same Chinese name, term, or recurring "
+        "phrase translated differently in different lines (e.g. a character's name spelled "
+        "two ways, or a recurring term like a nickname/title rendered inconsistently). "
+        "Ignore normal translation variation for ordinary sentences -- only flag terms that "
+        "should clearly stay fixed (names, titles, recurring phrases) but don't.\n\n"
+        'Return ONLY a JSON array of objects: [{"term": "...", "variants": ["...", "..."], '
+        '"note": "brief description"}]. Empty array if nothing found. No preamble, no '
+        "markdown fences.\n\n" + pairs
+    )
+
+
 def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
     """Reviews already-translated lines for consistency issues: the same
     Chinese term/name translated differently in different places. Works
@@ -1001,18 +1023,7 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
     issues = []
     for start in range(0, len(translated), batch_size):
         batch = translated[start:start + batch_size]
-        pairs = "\n".join(f"{i+1}. {ln.zh} -> {ln.en}" for i, ln in enumerate(batch))
-        prompt = (
-            "Below are Chinese source lines paired with their English translations, from the "
-            "same drama. Look for CONSISTENCY issues: the same Chinese name, term, or recurring "
-            "phrase translated differently in different lines (e.g. a character's name spelled "
-            "two ways, or a recurring term like a nickname/title rendered inconsistently). "
-            "Ignore normal translation variation for ordinary sentences -- only flag terms that "
-            "should clearly stay fixed (names, titles, recurring phrases) but don't.\n\n"
-            'Return ONLY a JSON array of objects: [{"term": "...", "variants": ["...", "..."], '
-            '"note": "brief description"}]. Empty array if nothing found. No preamble, no '
-            "markdown fences.\n\n" + pairs
-        )
+        prompt = build_consistency_prompt(batch)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
                                   usage_cb=usage_cb)
@@ -1051,6 +1062,28 @@ def flag_reason_label(flag: str) -> str:
     return FLAG_REASONS.get(flag) or SYSTEM_FLAG_REASONS.get(flag) or flag
 
 
+def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
+    """The review-queue prompt for one batch of already-translated lines,
+    each numbered by id_fn(ln) (its position by default, matching what
+    flag_uncertain_lines' own by_idx lookup expects back). bulk_translate.py's
+    bulk submission (Step 9d) passes id_fn=lambda ln: ln.id instead --
+    results can come back hours later, by which point a position-based id
+    could point at an entirely different line if the drama was edited in
+    the meantime, where the permanent line id can't."""
+    reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
+    pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} -> {ln.en}" for ln in batch)
+    return (
+        "Below are Chinese source lines paired with their English translations. Flag ONLY "
+        "the lines that genuinely need a second look -- most lines need none at all, and "
+        "over-flagging defeats the point (the person reviewing this can't tell a real issue "
+        "from noise). Reasons worth flagging:\n\n"
+        f"{reasons_desc}\n\n"
+        'Return ONLY a JSON array: [{"line_idx": 0, "reason": "uncertain_translation", '
+        '"note": "brief reason"}]. Empty array if nothing needs flagging (the common case). '
+        "No preamble, no markdown fences.\n\n" + pairs
+    )
+
+
 def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None):
     """
     Reviews already-translated lines and flags the ones worth a second
@@ -1070,22 +1103,11 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     if not translated:
         return lines
 
-    reasons_desc = "\n".join(f"  - {k}: {v}" for k, v in FLAG_REASONS.items())
     n_batches = (len(translated) + batch_size - 1) // batch_size
 
     for bi, start in enumerate(range(0, len(translated), batch_size)):
         batch = translated[start:start + batch_size]
-        pairs = "\n".join(f"[{ln.idx}] {ln.zh} -> {ln.en}" for ln in batch)
-        prompt = (
-            "Below are Chinese source lines paired with their English translations. Flag ONLY "
-            "the lines that genuinely need a second look -- most lines need none at all, and "
-            "over-flagging defeats the point (the person reviewing this can't tell a real issue "
-            "from noise). Reasons worth flagging:\n\n"
-            f"{reasons_desc}\n\n"
-            'Return ONLY a JSON array: [{"line_idx": 0, "reason": "uncertain_translation", '
-            '"note": "brief reason"}]. Empty array if nothing needs flagging (the common case). '
-            "No preamble, no markdown fences.\n\n" + pairs
-        )
+        prompt = build_flag_prompt(batch)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]",
                                   usage_cb=usage_cb)
@@ -1454,6 +1476,78 @@ def resolve_cost_cap(job_cap_usd=None, monthly_cap_usd=None, month_spend_usd: fl
     return (min(caps) if caps else None), None
 
 
+def build_reflect_faithful_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
+                                  speaker_by_id: dict = None) -> str:
+    """Reflect mode's pass 1 (faithfulness) prompt for one batch of ids.
+    Shared by reflect_translate_batch (live, in-process) and
+    bulk_translate.py's Reflect pipeline (Step 9d) -- both build
+    byte-for-byte the same prompt for the same ids/lines."""
+    numbered = _build_numbered_lines(
+        ids, [zh_by_id[i] for i in ids],
+        [speaker_by_id.get(i) for i in ids] if speaker_by_id else None)
+    return (
+        f"{instructions}\n\n"
+        "This is the FAITHFULNESS pass of a multi-stage translation: translate each line "
+        "below preserving its exact literal meaning, grammar and information -- word choice "
+        "and register still matter, but don't optimize yet for how naturally it reads as a "
+        "subtitle; a later pass polishes that. Keep names and glossary terms consistent as "
+        "instructed above.\n\n"
+        'Return ONLY a JSON object mapping each line number to its translation, e.g. '
+        '{"1": "...", "2": "..."}. No preamble, no markdown fences.\n\n'
+        + batch_ctx +
+        f"Lines:\n{numbered}"
+    )
+
+
+def build_reflect_reflection_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
+                                    draft_by_id: dict) -> str:
+    """Reflect mode's pass 2 (reflection/critique) prompt -- see
+    build_reflect_faithful_prompt's docstring. draft_by_id: pass 1's own
+    saved output for each id (never empty here -- the caller only
+    includes ids that got an actual faithfulness draft)."""
+    pairs = "\n".join(f"{i}. {zh_by_id[i]} -> {draft_by_id[i]}" for i in ids)
+    return (
+        f"{instructions}\n\n"
+        "This is the REFLECTION pass: for each numbered line below (source -> a literal "
+        "draft translation), critique that SPECIFIC draft -- where it's technically correct "
+        "but reads unnaturally as a subtitle, plus accuracy, pronoun/gender choices, glossary "
+        "use, tone and register. One or two plain sentences per line. Skip a line's key "
+        "entirely if the draft is already good -- don't invent a critique to fill space.\n\n"
+        'Return ONLY a JSON object mapping each line number to its critique, e.g. '
+        '{"1": "..."}. Omit a key entirely for a line that needs no critique. No preamble, '
+        "no markdown fences.\n\n"
+        + batch_ctx +
+        f"Lines:\n{pairs}"
+    )
+
+
+def build_reflect_expressive_prompt(instructions: str, batch_ctx: str, ids: list, zh_by_id: dict,
+                                    draft_by_id: dict, critique_by_id: dict) -> str:
+    """Reflect mode's pass 3 (expressiveness/rewrite) prompt -- see
+    build_reflect_faithful_prompt's docstring. critique_by_id: pass 2's
+    own saved output; an id with none (the draft was already judged
+    good) just gets no "Critique:" line, same as the live path."""
+    parts = []
+    for i in ids:
+        entry = f"{i}. Source: {zh_by_id[i]}\n   Draft: {draft_by_id[i]}"
+        critique = critique_by_id.get(i)
+        if critique:
+            entry += f"\n   Critique: {critique}"
+        parts.append(entry)
+    return (
+        f"{instructions}\n\n"
+        "This is the EXPRESSIVENESS pass: rewrite each line's draft translation using its "
+        "critique (where one is given) so it reads naturally as a subtitle -- fluent, "
+        "well-paced, in-register -- while keeping the source's exact meaning. A line with no "
+        "critique is probably already close; still return your best final wording for every "
+        "line.\n\n"
+        'Return ONLY a JSON object mapping each line number to its final translation, e.g. '
+        '{"1": "..."}. No preamble, no markdown fences.\n\n'
+        + batch_ctx +
+        "Lines:\n" + "\n".join(parts)
+    )
+
+
 def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1):
     """
     Step 7's "High quality" Reflect mode: three separate LLM passes for
@@ -1519,40 +1613,16 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb)
 
     def build_faithful_batch(batch_ids):
-        numbered = _build_numbered_lines(
-            batch_ids, [zh_lines[pos[i]] for i in batch_ids],
-            [speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
-        return (
-            f"{instructions}\n\n"
-            "This is the FAITHFULNESS pass of a multi-stage translation: translate each line "
-            "below preserving its exact literal meaning, grammar and information -- word choice "
-            "and register still matter, but don't optimize yet for how naturally it reads as a "
-            "subtitle; a later pass polishes that. Keep names and glossary terms consistent as "
-            "instructed above.\n\n"
-            'Return ONLY a JSON object mapping each line number to its translation, e.g. '
-            '{"1": "...", "2": "..."}. No preamble, no markdown fences.\n\n'
-            + batch_ctx +
-            f"Lines:\n{numbered}"
-        )
+        return build_reflect_faithful_prompt(
+            instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids},
+            {i: speaker_names[pos[i]] for i in batch_ids} if speaker_names else None)
 
     direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
     direct = {i: direct_map.get(str(i), "") for i in ids}
 
     def build_reflection_batch(batch_ids):
-        pairs = "\n".join(f"{i}. {zh_lines[pos[i]]} -> {direct[i]}" for i in batch_ids)
-        return (
-            f"{instructions}\n\n"
-            "This is the REFLECTION pass: for each numbered line below (source -> a literal "
-            "draft translation), critique that SPECIFIC draft -- where it's technically correct "
-            "but reads unnaturally as a subtitle, plus accuracy, pronoun/gender choices, glossary "
-            "use, tone and register. One or two plain sentences per line. Skip a line's key "
-            "entirely if the draft is already good -- don't invent a critique to fill space.\n\n"
-            'Return ONLY a JSON object mapping each line number to its critique, e.g. '
-            '{"1": "..."}. Omit a key entirely for a line that needs no critique. No preamble, '
-            "no markdown fences.\n\n"
-            + batch_ctx +
-            f"Lines:\n{pairs}"
-        )
+        return build_reflect_reflection_prompt(
+            instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct)
 
     # Only ids with an actual faithfulness draft go on to reflection/
     # expressiveness -- there's nothing sensible to critique or rewrite
@@ -1569,25 +1639,9 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
                    if has_draft_ids else {})
 
     def build_expressive_batch(batch_ids):
-        parts = []
-        for i in batch_ids:
-            entry = f"{i}. Source: {zh_lines[pos[i]]}\n   Draft: {direct[i]}"
-            critique = critique_map.get(str(i))
-            if critique:
-                entry += f"\n   Critique: {critique}"
-            parts.append(entry)
-        return (
-            f"{instructions}\n\n"
-            "This is the EXPRESSIVENESS pass: rewrite each line's draft translation using its "
-            "critique (where one is given) so it reads naturally as a subtitle -- fluent, "
-            "well-paced, in-register -- while keeping the source's exact meaning. A line with no "
-            "critique is probably already close; still return your best final wording for every "
-            "line.\n\n"
-            'Return ONLY a JSON object mapping each line number to its final translation, e.g. '
-            '{"1": "..."}. No preamble, no markdown fences.\n\n'
-            + batch_ctx +
-            "Lines:\n" + "\n".join(parts)
-        )
+        return build_reflect_expressive_prompt(
+            instructions, batch_ctx, batch_ids, {i: zh_lines[pos[i]] for i in batch_ids}, direct,
+            {i: critique_map.get(str(i)) for i in batch_ids})
 
     final_map = (_id_keyed_batch_request(has_draft_ids, build_expressive_batch, call, max_retries)
                 if has_draft_ids else {})
