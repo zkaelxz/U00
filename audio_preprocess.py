@@ -43,7 +43,12 @@ SEPARATION_BACKENDS = {
 # Kimberley Jensen's Mel-Band RoFormer vocal model, as named in
 # audio-separator's own model registry (models.json).
 MEL_ROFORMER_VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
-_MODEL_DIR = os.path.join(os.path.expanduser("~"), ".cache", "audio-separator-models")
+# BAIHE_AUDIO_SEP_MODEL_DIR: set by portable.py's activate_portable_mode()
+# under Step 10's portable mode, so a copied app folder's downloaded
+# separator model comes with it -- audio-separator itself has no env var
+# of its own for this, unlike huggingface_hub's HF_HOME.
+_MODEL_DIR = os.environ.get("BAIHE_AUDIO_SEP_MODEL_DIR") or os.path.join(
+    os.path.expanduser("~"), ".cache", "audio-separator-models")
 
 
 class VocalSeparationError(RuntimeError):

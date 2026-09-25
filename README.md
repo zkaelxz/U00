@@ -120,6 +120,24 @@ URL you have the right to download from, only.
 
 ## Installation
 
+### Windows: one-click setup
+
+If you're on Windows and don't want to type any commands, double-click
+**`start.bat`** (or the "Baihe Subtitler" desktop shortcut, once you've
+run `make_shortcut.bat` once to create it). It creates the virtual
+environment and installs dependencies the first time, checks that
+ffmpeg/a JS runtime/CUDA are set up and tells you plainly if any of them
+aren't, then opens the app in its own window (Edge's app mode, falling
+back to Chrome or your default browser). Running it again just reopens
+the window if the app's already running. `uninstall.bat` removes the
+shortcut and virtual environment, and asks separately (defaulting to
+**no**) before it will touch your library. See "Portable mode" below if
+you want to run the whole app from a USB stick or move it between
+machines.
+
+Everything below this also works the same way on macOS/Linux, or if you
+just prefer the command line on Windows too.
+
 ### Prerequisites
 
 Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
@@ -156,6 +174,34 @@ diarization before) — it doesn't install anything by itself. If you've
 run `make_lock.bat` and have a `constraints.lock.txt`, use that instead
 (`-c constraints.lock.txt`) to reproduce your own known-working setup
 exactly.
+
+### Portable mode
+
+`library/` — every drama, translation, audio/video file and backup — was
+always saved relative to this app's own folder, not some fixed OS
+location, so copying the folder already carried your data with it. What
+wasn't portable is the models Whisper/pyannote/F5-TTS/the audio
+separator download on first use: by default those go to your OS's own
+shared cache (`~/.cache/huggingface`, etc.) outside this folder, the
+same as they would for any other tool using them.
+
+**Portable mode** redirects those into a `model_cache/` folder inside
+this one, so the whole app folder — library and downloaded models
+together — can be copied to a USB stick or a different PC and just work
+there. Turn it on either way:
+
+- Run `start.bat --portable` (or `.\start.ps1 -Portable`), or
+- Create an empty file named `PORTABLE` next to `app.py` — the simplest
+  way to make it "part of the folder" so a copy keeps the setting.
+
+**The real limit, stated plainly**: this moves *the app and its data*,
+not *the need for Python and system tools to already be present*. The
+machine you copy it to still needs its own Python install (matching
+[Prerequisites](#prerequisites) above) and `ffmpeg` on PATH — portable
+mode doesn't bundle either. A genuinely no-install single-file build
+would need to bundle a full Python interpreter plus every ML dependency
+this app can use, multi-gigabytes either way, so that isn't what this
+does.
 
 ## Usage
 

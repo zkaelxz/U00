@@ -12,6 +12,13 @@ For 50-100+ dramas, see cli.py for headless/unattended batch runs.
 Run with:  streamlit run app.py
 """
 
+# Must run before any other import in this file, or the one below it --
+# huggingface_hub/torch each read their own cache-location environment
+# variable once, at their own first import, not on every call. See
+# portable.py's own docstring for what this does and when it's a no-op.
+import portable
+portable.activate_portable_mode()
+
 from common import st
 import ui_theme
 

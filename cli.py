@@ -29,6 +29,11 @@ Examples:
   python cli.py list
 """
 
+# Must run before any other import in this file -- see portable.py's own
+# docstring (app.py does the same, as the literal first thing it does).
+import portable
+portable.activate_portable_mode()
+
 import argparse
 import os
 import sys
