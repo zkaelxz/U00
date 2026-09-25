@@ -296,6 +296,180 @@ class TestResolveStreamUrl:
             lt.resolve_stream_url("https://example.com/live")
         assert len(attempts) == 1
 
+    def test_cookies_browser_reaches_yt_dlp_opts(self, monkeypatch):
+        opts_log = []
+        self._install_fake_yt_dlp_with_attempt_log(
+            monkeypatch, lambda _last: {"id": "abc", "url": "https://cdn.example/stream.m3u8"},
+            opts_log=opts_log)
+
+        lt.resolve_stream_url("https://example.com/live", cookies_browser="chrome")
+
+        assert opts_log[0]["cookiesfrombrowser"] == ("chrome",)
+
+    def test_cookies_file_reaches_yt_dlp_opts(self, monkeypatch):
+        opts_log = []
+        self._install_fake_yt_dlp_with_attempt_log(
+            monkeypatch, lambda _last: {"id": "abc", "url": "https://cdn.example/stream.m3u8"},
+            opts_log=opts_log)
+
+        lt.resolve_stream_url("https://example.com/live", cookies_file="/tmp/cookies.txt")
+
+        assert opts_log[0]["cookiefile"] == "/tmp/cookies.txt"
+
+    def test_no_cookies_means_no_cookie_keys(self, monkeypatch):
+        opts_log = []
+        self._install_fake_yt_dlp_with_attempt_log(
+            monkeypatch, lambda _last: {"id": "abc", "url": "https://cdn.example/stream.m3u8"},
+            opts_log=opts_log)
+
+        lt.resolve_stream_url("https://example.com/live")
+
+        assert "cookiesfrombrowser" not in opts_log[0]
+        assert "cookiefile" not in opts_log[0]
+
+
+class TestGenerationHelpers:
+    def test_starts_at_zero_and_increments(self):
+        job_id = "test_gen_helpers"
+        lt._generations.pop(job_id, None)
+        assert lt.current_generation(job_id) == 0
+        assert lt.bump_generation(job_id) == 1
+        assert lt.current_generation(job_id) == 1
+        assert lt.bump_generation(job_id) == 2
+
+    def test_independent_per_job_id(self):
+        lt._generations.pop("job_a", None)
+        lt._generations.pop("job_b", None)
+        lt.bump_generation("job_a")
+        assert lt.current_generation("job_a") == 1
+        assert lt.current_generation("job_b") == 0
+
+
+class TestStaleChunkGuard:
+    """Step 9b.5 exit condition: a chunk result that finishes after a
+    generation bump is discarded, and one that finishes before the bump
+    is applied."""
+
+    def _setup(self, monkeypatch, job_id, chunks):
+        import background_jobs
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
+
+        class FakeProc:
+            def poll(self):
+                return None
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
+
+        remaining = list(chunks)
+
+        def fake_list_completed(out_dir, last_completed):
+            if remaining:
+                return [remaining.pop(0)]
+            return []
+        monkeypatch.setattr(lt, "list_completed_chunks", fake_list_completed)
+        return background_jobs
+
+    def test_a_chunk_that_finishes_before_the_bump_is_applied(self, monkeypatch):
+        job_id = "test_stale_before"
+        background_jobs = self._setup(monkeypatch, job_id, [(0, "chunk_00000.wav")])
+
+        processed = []
+
+        def fake_process_chunk(path, idx, *a, **kw):
+            processed.append(idx)
+            return [{"start": 0.0, "end": 1.0, "text": "hi", "translated": "hi-en"}]
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: bool(processed))
+
+        lt.run_live_job(job_id, "http://example.com/live", "/fake/out", 20, "zh", "medium",
+                        engine=None, poll_interval=0.01)
+
+        assert background_jobs.get_status(job_id)["result"] == [
+            {"start": 0.0, "end": 1.0, "text": "hi", "translated": "hi-en"}]
+        background_jobs.clear_job(job_id)
+
+    def test_a_chunk_that_finishes_after_the_bump_is_discarded(self, monkeypatch):
+        job_id = "test_stale_after"
+        background_jobs = self._setup(monkeypatch, job_id, [(0, "chunk_00000.wav")])
+
+        def fake_process_chunk(path, idx, *a, **kw):
+            # Simulates the Stop button firing WHILE this chunk's own
+            # transcribe/translate call was still running.
+            lt.bump_generation(job_id)
+            return [{"start": 0.0, "end": 1.0, "text": "stale", "translated": "stale-en"}]
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+        # Never cancels via the normal flag -- the generation bump inside
+        # process_chunk (above) is the ONLY thing that ends this loop,
+        # which is exactly what this test needs to actually exercise.
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: False)
+
+        lt.run_live_job(job_id, "http://example.com/live", "/fake/out", 20, "zh", "medium",
+                        engine=None, poll_interval=0.01)
+
+        assert background_jobs.get_status(job_id)["result"] is None
+        background_jobs.clear_job(job_id)
+
+    def test_stopping_mid_batch_does_not_process_the_rest_of_the_queued_chunks(self, monkeypatch):
+        """Regression coverage for the real gap this step fixes: the inner
+        for-loop over list_completed_chunks had no cancel/generation check
+        at all, so several already-queued chunks kept getting transcribed
+        and applied even after Stop was clicked mid-batch."""
+        job_id = "test_stale_batch"
+        background_jobs = self._setup(
+            monkeypatch, job_id,
+            [(0, "chunk_00000.wav"), (1, "chunk_00001.wav"), (2, "chunk_00002.wav")])
+        # All three "arrive" in the same list_completed_chunks call, like a
+        # burst of chunks finishing while the loop was busy elsewhere.
+        monkeypatch.setattr(lt, "list_completed_chunks",
+                            lambda out_dir, last_completed: [
+                                (0, "chunk_00000.wav"), (1, "chunk_00001.wav"),
+                                (2, "chunk_00002.wav")] if last_completed == -1 else [])
+
+        processed = []
+
+        def fake_process_chunk(path, idx, *a, **kw):
+            processed.append(idx)
+            if idx == 0:
+                lt.bump_generation(job_id)  # Stop clicked right after chunk 0
+            return [{"start": 0.0, "end": 1.0, "text": f"t{idx}", "translated": f"t{idx}-en"}]
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: False)
+
+        lt.run_live_job(job_id, "http://example.com/live", "/fake/out", 20, "zh", "medium",
+                        engine=None, poll_interval=0.01)
+
+        # Chunk 0 was already in flight when the bump happened (finishes
+        # before, per the exit condition) -- chunks 1/2 must never even
+        # start once the batch notices it's stale.
+        assert processed == [0]
+        assert background_jobs.get_status(job_id)["result"] is None
+        background_jobs.clear_job(job_id)
+
+
+class TestRunLiveJobCookiesPassthrough:
+    """run_live_job forwards its cookies params straight to
+    resolve_stream_url, the same as the rest of its arguments."""
+
+    def test_cookies_reach_resolve_stream_url(self, monkeypatch, tmp_path):
+        import background_jobs
+        seen = {}
+
+        def fake_resolve(url, cookies_browser=None, cookies_file=None):
+            seen["cookies_browser"] = cookies_browser
+            seen["cookies_file"] = cookies_file
+            raise lt.LiveCaptureError("stop here -- only checking what was passed in")
+
+        monkeypatch.setattr(lt, "resolve_stream_url", fake_resolve)
+        job_id = "test_cookies_passthrough"
+        background_jobs.clear_job(job_id)
+        with pytest.raises(lt.LiveCaptureError):
+            lt.run_live_job(job_id, "https://example.com/live", str(tmp_path), 20, "zh",
+                            "tiny", object(), cookies_browser="firefox", cookies_file="/tmp/c.txt")
+        assert seen == {"cookies_browser": "firefox", "cookies_file": "/tmp/c.txt"}
+
 
 @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
 class TestRealCaptureEndToEnd:
@@ -343,7 +517,7 @@ class TestRunLiveJobContextCarrying:
         background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                           "error": None, "cancel_requested": False, "result": None}
 
-        monkeypatch.setattr(lt, "resolve_stream_url", lambda url: "http://fake-stream")
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
 
         class FakeProc:
             def poll(self):

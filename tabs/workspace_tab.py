@@ -1123,7 +1123,9 @@ def render_workspace_tab():
                         downloaded_path = video_download.download(
                             dl_url.strip(), ddir, audio_only=dl_audio_only,
                             progress_cb=lambda frac, msg: (progress_bar.progress(frac), status.caption(msg)),
-                            title_cb=lambda t: _fetched_title.setdefault("title", t))
+                            title_cb=lambda t: _fetched_title.setdefault("title", t),
+                            cookies_browser=st.session_state.get("settings_cookies_browser"),
+                            cookies_file=st.session_state.get("settings_cookies_file") or None)
                         _title_update = {}
                         if _fetched_title.get("title") and not (drama.get("title_en") or drama.get("title_zh")):
                             _title_update["title_zh"] = _fetched_title["title"]
@@ -2209,7 +2211,7 @@ def render_workspace_tab():
         # button was clicked.
         if _tjob:
             if _tjob["status"] == "running":
-                st.progress(_tjob["progress"], text=_tjob.get("message") or "Transcribing...")
+                st.progress(_tjob["progress"], text=(_tjob.get("message") or "Transcribing...") + background_jobs.eta_text(_tjob))
                 st.caption("Running in the background -- safe to switch tabs, use other dramas, "
                           "or close the browser tab. Come back and this will show current progress.")
                 if st.button("🔄 Refresh progress", key=f"refresh_tc_{picked_id}"):
@@ -2461,7 +2463,7 @@ def render_workspace_tab():
 
         if _job:
             if _job["status"] == "running":
-                st.progress(_job["progress"], text=_job.get("message") or "Translating...")
+                st.progress(_job["progress"], text=(_job.get("message") or "Translating...") + background_jobs.eta_text(_job))
                 st.caption("Running in the background -- safe to switch tabs, use other dramas, "
                           "or close the browser tab. Come back and this will show current progress.")
                 if st.button("🔄 Refresh progress", key=f"refresh_tr_{picked_id}"):
@@ -3005,7 +3007,7 @@ def render_workspace_tab():
 
                 if _fjob:
                     if _fjob["status"] == "running":
-                        st.progress(_fjob["progress"], text=_fjob.get("message") or "Checking...")
+                        st.progress(_fjob["progress"], text=(_fjob.get("message") or "Checking...") + background_jobs.eta_text(_fjob))
                         if st.button("🔄 Refresh progress", key=f"refresh_fl_{picked_id}"):
                             st.rerun()
                     elif _fjob["status"] == "done":
@@ -3070,7 +3072,7 @@ def render_workspace_tab():
 
                     if _ffjob:
                         if _ffjob["status"] == "running":
-                            st.progress(_ffjob["progress"], text=_ffjob.get("message") or "Fixing...")
+                            st.progress(_ffjob["progress"], text=(_ffjob.get("message") or "Fixing...") + background_jobs.eta_text(_ffjob))
                             if st.button("🔄 Refresh progress", key=f"refresh_ff_{picked_id}"):
                                 st.rerun()
                         elif _ffjob["status"] == "done":
@@ -3125,7 +3127,7 @@ def render_workspace_tab():
 
                 if _ejob:
                     if _ejob["status"] == "running":
-                        st.progress(_ejob["progress"], text=_ejob.get("message") or "Reading tone...")
+                        st.progress(_ejob["progress"], text=(_ejob.get("message") or "Reading tone...") + background_jobs.eta_text(_ejob))
                         if st.button("🔄 Refresh progress", key=f"refresh_em_{picked_id}"):
                             st.rerun()
                     elif _ejob["status"] == "done":
@@ -3184,7 +3186,7 @@ def render_workspace_tab():
                             if st.button("🔄 Refresh progress", key=f"refresh_sv_queued_{picked_id}"):
                                 st.rerun()
                         elif _svjob["status"] == "running":
-                            st.progress(_svjob["progress"], text=_svjob.get("message") or "Listening...")
+                            st.progress(_svjob["progress"], text=(_svjob.get("message") or "Listening...") + background_jobs.eta_text(_svjob))
                             if st.button("🔄 Refresh progress", key=f"refresh_sv_{picked_id}"):
                                 st.rerun()
                         elif _svjob["status"] == "done":

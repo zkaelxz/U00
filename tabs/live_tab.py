@@ -89,6 +89,8 @@ def render_live_tab():
                 _JOB_ID, live_translate.run_live_job,
                 _JOB_ID, url.strip(), out_dir, segment_seconds, source_language,
                 whisper_size, engine,
+                cookies_browser=st.session_state.get("settings_cookies_browser"),
+                cookies_file=st.session_state.get("settings_cookies_file") or None,
                 gpu_touching=True, description="Live capture (local Whisper)")
             if started:
                 st.rerun()
@@ -102,6 +104,12 @@ def render_live_tab():
     else:
         st.info(job.get("message") or "Running...")
         if st.button("⏹️ Stop"):
+            # Bumping the generation (not just requesting cancel) means a
+            # chunk whose transcribe/translate call is still in flight
+            # right now gets its result discarded instead of applied
+            # after this session has already moved on -- see
+            # live_translate.run_live_job's own stale-chunk guard.
+            live_translate.bump_generation(_JOB_ID)
             background_jobs.request_cancel(_JOB_ID)
             st.rerun()
 

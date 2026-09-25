@@ -8,10 +8,16 @@ missing file produced a cryptic ModuleNotFoundError that took several
 back-and-forth messages to diagnose. This turns that into one glance.
 """
 
+import getpass
+import importlib.metadata
+import importlib.util
 import os
+import re
 import shutil
 import subprocess
-import importlib.util
+
+import diarize
+import storage
 
 # Every top-level .py file and tabs/*.py file expected to exist for the
 # app to run. Kept as an explicit list (not auto-discovered) so a
@@ -163,6 +169,218 @@ def check_library_writable(library_dir: str):
         return True
     except Exception:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Step 9b.2: Hugging Face model-cache visibility & cleanup.
+#
+# Whisper/pyannote/Qwen3-ASR/ForcedAligner/F5-TTS weights live in
+# huggingface_hub's own cache (~/.cache/huggingface by default), entirely
+# separate from storage.py's own accounting of this app's `library/`
+# folder -- across several backends this can reach tens of GB with no
+# visibility from inside the app.
+# ---------------------------------------------------------------------------
+
+def scan_hf_cache(cache_dir: str = None) -> list:
+    """[{"repo_id", "repo_type", "revision", "size_bytes"}, ...] for every
+    cached model revision, largest first. [] if huggingface_hub isn't
+    installed or there's no cache yet -- never raises, since this runs on
+    every Diagnostics load and a missing/corrupt cache shouldn't break
+    the rest of the page."""
+    try:
+        from huggingface_hub import scan_cache_dir
+    except ImportError:
+        return []
+    try:
+        info = scan_cache_dir(cache_dir) if cache_dir else scan_cache_dir()
+    except Exception:
+        return []
+    entries = [
+        {"repo_id": repo.repo_id, "repo_type": repo.repo_type,
+         "revision": rev.commit_hash, "size_bytes": rev.size_on_disk}
+        for repo in info.repos for rev in repo.revisions
+    ]
+    return sorted(entries, key=lambda e: -e["size_bytes"])
+
+
+def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
+    """Deletes one cached revision by its commit hash (a thin wrapper
+    over huggingface_hub's own delete strategy, which handles the
+    blob/symlink bookkeeping). False, not raised, if huggingface_hub
+    isn't installed or the delete fails for any reason."""
+    try:
+        from huggingface_hub import scan_cache_dir
+    except ImportError:
+        return False
+    try:
+        info = scan_cache_dir(cache_dir) if cache_dir else scan_cache_dir()
+        strategy = info.delete_revisions(revision)
+        if strategy.expected_freed_size <= 0:
+            # huggingface_hub treats an unknown revision as a silent
+            # no-op (a logged warning, nothing raised) -- checked here so
+            # a caller can tell "deleted" from "nothing matched" instead
+            # of reporting success either way.
+            return False
+        strategy.execute()
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Step 9b.2: model/engine version panel -- one row per AI model/engine
+# actually wired into the app today (not the roadmap's full aspirational
+# list; several named there, like OmniVoice or PaddleOCR-VL-For-Manga,
+# aren't implemented yet and belong to later steps). No network call:
+# this only reports what pip already knows is installed locally.
+# ---------------------------------------------------------------------------
+
+MODEL_ENGINE_REGISTRY = [
+    {"name": "Whisper (faster-whisper)", "kind": "package", "package": "faster-whisper",
+     "url": "https://github.com/SYSTRAN/faster-whisper"},
+    {"name": "Qwen3-ASR", "kind": "package", "package": "qwen-asr",
+     "url": "https://github.com/QwenLM/Qwen3-ASR"},
+    {"name": "SenseVoice (FunASR)", "kind": "package", "package": "funasr",
+     "url": "https://github.com/modelscope/FunASR"},
+    {"name": "pyannote.audio", "kind": "package", "package": "pyannote.audio",
+     "url": "https://github.com/pyannote/pyannote-audio"},
+    {"name": "pyannote diarization model", "kind": "repo",
+     "repo_ids": diarize.DIARIZATION_MODELS,
+     "url": "https://huggingface.co/pyannote/speaker-diarization-community-1"},
+    {"name": "manga-ocr", "kind": "package", "package": "manga-ocr",
+     "url": "https://github.com/kha-white/manga-ocr"},
+    {"name": "PaddleOCR", "kind": "package", "package": "paddleocr",
+     "url": "https://github.com/PaddlePaddle/PaddleOCR"},
+    {"name": "audio-separator", "kind": "package", "package": "audio-separator",
+     "url": "https://github.com/nomadkaraoke/python-audio-separator"},
+    {"name": "Demucs", "kind": "package", "package": "demucs",
+     "url": "https://github.com/facebookresearch/demucs"},
+    {"name": "F5-TTS", "kind": "package", "package": "f5-tts",
+     "url": "https://github.com/SWivid/F5-TTS"},
+    {"name": "edge-tts", "kind": "package", "package": "edge-tts",
+     "url": "https://github.com/rany2/edge-tts"},
+    {"name": "ElevenLabs (hosted)", "kind": "package", "package": "elevenlabs",
+     "url": "https://elevenlabs.io"},
+]
+
+
+def get_model_engine_versions(ollama_model: str = None) -> list:
+    """[{"name", "version", "url"}, ...], one row per MODEL_ENGINE_REGISTRY
+    entry plus the active Ollama tag if given. A "package" entry's version
+    comes from importlib.metadata (no import of the package itself, so no
+    heavy ML import-time cost just to check a version) -- "not installed"
+    if it isn't present. A "repo" entry (a bare model checkpoint this
+    app's own code names directly, not a pip-versioned package) shows its
+    Hugging Face repo id(s) as its identifier instead of a version number.
+    Makes no network call."""
+    out = []
+    for entry in MODEL_ENGINE_REGISTRY:
+        if entry["kind"] == "repo":
+            version = ", ".join(entry["repo_ids"])
+        else:
+            try:
+                version = importlib.metadata.version(entry["package"])
+            except importlib.metadata.PackageNotFoundError:
+                version = "not installed"
+        out.append({"name": entry["name"], "version": version, "url": entry["url"]})
+    if ollama_model:
+        out.append({"name": "Ollama (active tag)", "version": ollama_model,
+                    "url": "https://ollama.com/library"})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Step 9b.2: proactive check for gated pyannote model access -- catches
+# the exact real-world failure (a 403 on one gated model masking that the
+# OTHER one is also gated, since load_pipeline() tries community-1 first
+# and only surfaces 3.1's error) before it shows up as a runtime error on
+# "Re-run speaker detection."
+# ---------------------------------------------------------------------------
+
+def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
+    """[{"model", "accessible", "error"}, ...] for every entry in
+    diarize.DIARIZATION_MODELS. This DOES reach the network (a lightweight
+    HfApi().model_info() call per model) -- unlike everything else in this
+    module, so call it only from an explicit button, never on every
+    Diagnostics page load. [] if huggingface_hub isn't installed.
+    api: injected HfApi-shaped object for tests; a real HfApi() otherwise."""
+    if api is None:
+        try:
+            from huggingface_hub import HfApi
+        except ImportError:
+            return []
+        api = HfApi()
+    results = []
+    for model in diarize.DIARIZATION_MODELS:
+        try:
+            api.model_info(model, token=hf_token or None)
+            results.append({"model": model, "accessible": True, "error": None})
+        except Exception as e:
+            results.append({"model": model, "accessible": False, "error": str(e)})
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Step 9b.2: "Copy diagnostics for support" -- the existing key/token
+# redaction (translate_engines.redact_secrets) plus stripping local file
+# paths and the OS username, since a raw library path or a home directory
+# can leak the machine's username into a support conversation.
+# ---------------------------------------------------------------------------
+
+_PATH_PATTERN = re.compile(
+    r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+[\\/])+([^\s\\/:*?"<>|]+)')
+
+
+def redact_for_support(text: str) -> str:
+    """Same secret redaction the rest of the app already uses for stored
+    errors (translate_engines.redact_secrets), plus: the current OS
+    username replaced with [USER], and every absolute filesystem path
+    (POSIX or Windows) collapsed to just its last path segment prefixed
+    with ".../" -- enough to stay readable without exposing the folder
+    structure (or a username embedded in it) underneath."""
+    import translate_engines
+    text = translate_engines.redact_secrets(text or "")
+    username = getpass.getuser()
+    if username:
+        text = re.sub(re.escape(username), "[USER]", text, flags=re.IGNORECASE)
+    text = _PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+    return text
+
+
+def format_diagnostics_report(results: dict, hf_cache: list = None,
+                              model_versions: list = None) -> str:
+    """Plain-text "copy diagnostics for support" report -- built from the
+    same `results` dict the Diagnostics page already renders, so nothing
+    here re-checks anything run_full_diagnostics doesn't already check.
+    Pass through redact_for_support() before showing/copying it."""
+    lines = []
+    py = results.get("python") or {}
+    lines.append(f"Python: {py.get('version', '?')}")
+    ff = results.get("ffmpeg") or {}
+    lines.append("ffmpeg: " + ("found" if ff.get("found") else "MISSING")
+                 + (f" ({ff['version']})" if ff.get("version") else ""))
+    js = results.get("js_runtime") or {}
+    lines.append(f"JS runtime: {js.get('name') or 'MISSING'}")
+    lines.append(f"Library writable: {results.get('library_writable')}")
+    api_keys = results.get("api_keys") or {}
+    set_keys = [k for k, v in api_keys.items() if v]
+    lines.append("API keys set: " + (", ".join(set_keys) if set_keys else "none"))
+    deps = results.get("dependencies") or {}
+    missing = sorted(k for k, v in deps.items() if not v.get("installed"))
+    lines.append("Missing dependencies: " + (", ".join(missing) if missing else "none"))
+    files = results.get("files") or {}
+    if not files.get("all_present", True):
+        lines.append("Missing files: " + ", ".join(
+            (files.get("missing_top_level") or []) + (files.get("missing_tabs") or [])))
+    if hf_cache is not None:
+        total = sum(e["size_bytes"] for e in hf_cache)
+        lines.append(f"Hugging Face cache: {len(hf_cache)} revision(s), "
+                     f"{storage.format_bytes(total)} total")
+    if model_versions is not None:
+        lines.append("Model/engine versions:")
+        for m in model_versions:
+            lines.append(f"  - {m['name']}: {m['version']}")
+    return "\n".join(lines)
 
 
 def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict):

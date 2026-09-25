@@ -83,17 +83,23 @@ class LiveCaptureError(RuntimeError):
 _YOUTUBE_CLIENT_FALLBACKS = ["android", "tv", "web_safari"]
 
 
-def resolve_stream_url(url: str) -> str:
+def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str = None) -> str:
     """
     Resolves a page URL (YouTube live, or anything yt-dlp supports) to a
     direct, ffmpeg-playable media URL WITHOUT downloading anything -- the
     piece that lets ffmpeg read an ongoing live broadcast the same way it
     reads a file.
+
+    cookies_browser/cookies_file: pass yt-dlp the person's own login (see
+    video_download.cookie_options()) for a stream page that needs it.
     """
     try:
         import yt_dlp
     except ImportError as exc:
         raise ImportError("Live capture needs yt-dlp: pip install yt-dlp") from exc
+
+    import video_download
+    cookie_opts = video_download.cookie_options(cookies_browser, cookies_file)
 
     def _try(fmt, player_client=None):
         opts = {"format": fmt, "quiet": True, "no_warnings": True,
@@ -104,7 +110,8 @@ def resolve_stream_url(url: str) -> str:
                 # works around below. Deno is yt-dlp's own default; listing
                 # the others too means it still works if only one of them
                 # happens to be installed.
-                "js_runtimes": {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}}
+                "js_runtimes": {"deno": {}, "node": {}, "bun": {}, "quickjs": {}},
+                **cookie_opts}
         if player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -261,9 +268,36 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     return cues
 
 
+# {job_id: generation}, a plain module dict rather than something
+# behind background_jobs' own lock -- a single int increment/read per
+# job_id needs no more ceremony than that, same reasoning as
+# background_jobs' own is_cancel_requested flag.
+_generations = {}
+
+
+def bump_generation(job_id: str) -> int:
+    """Advances this live session's generation counter and returns the
+    new value. Call this from the Stop button's own handler (alongside
+    request_cancel) -- that's the one place a NEW generation can start
+    while an OLDER one's chunk is still genuinely in flight (mid
+    transcribe/translate call inside run_live_job's own thread, which
+    only notices a stop request between iterations). A restarted session
+    can't itself race the one it replaces: start_job() already refuses a
+    second run under the same job_id while the first is still "running",
+    so by the time a new run_live_job call can begin, the old one has
+    already returned -- but bumping here too costs nothing and keeps the
+    guard honest if that single-instance assumption ever changes."""
+    _generations[job_id] = _generations.get(job_id, 0) + 1
+    return _generations[job_id]
+
+
+def current_generation(job_id: str) -> int:
+    return _generations.get(job_id, 0)
+
+
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
-                  poll_interval: float = 2.0):
+                  poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -273,9 +307,18 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     fresh full list after every new chunk rather than appended one cue
     at a time, so a caller reading it mid-update never sees a partial
     write.
+
+    Stale-chunk guard: this call's own generation (bump_generation(),
+    captured once at the top) is re-checked before a chunk's result is
+    applied. If the Stop button bumped the generation while a chunk's
+    transcribe/translate call was still running, that chunk's result is
+    discarded -- it belongs to a session that already moved on -- instead
+    of landing after the fact.
     """
+    my_generation = bump_generation(job_id)
+
     background_jobs.update_progress(job_id, 0.0, "Resolving stream URL...")
-    source_url = resolve_stream_url(url)
+    source_url = resolve_stream_url(url, cookies_browser=cookies_browser, cookies_file=cookies_file)
 
     background_jobs.update_progress(job_id, 0.0, "Starting capture...")
     proc = start_segment_capture(source_url, out_dir, segment_seconds)
@@ -285,7 +328,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     context_prompt = ""
     try:
         while True:
-            if background_jobs.is_cancel_requested(job_id):
+            if (background_jobs.is_cancel_requested(job_id)
+                    or current_generation(job_id) != my_generation):
                 break
             if proc.poll() is not None:
                 background_jobs.update_progress(
@@ -293,11 +337,20 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                 break
 
             for idx, path in list_completed_chunks(out_dir, last_completed):
+                if current_generation(job_id) != my_generation:
+                    # Stopped mid-batch -- don't burn through the rest of
+                    # this batch's already-queued chunks either.
+                    break
                 background_jobs.update_progress(job_id, 0.0, f"Processing chunk {idx}...")
                 try:
                     new_cues = process_chunk(
                         path, idx, segment_seconds, source_language, whisper_size,
                         engine, use_gpu=use_gpu, context_prompt=context_prompt)
+                    if current_generation(job_id) != my_generation:
+                        # The session moved on while this one chunk's own
+                        # transcribe/translate call was in flight -- its
+                        # result is stale, so it's dropped, not applied.
+                        continue
                     all_cues.extend(new_cues)
                     if new_cues:
                         # Carries this chunk's own tail into the NEXT chunk's
