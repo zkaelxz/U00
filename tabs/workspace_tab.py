@@ -4,6 +4,7 @@ tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.
 import dataclasses
 
 from common import *
+import raw_transcript
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
@@ -1746,7 +1747,11 @@ def render_workspace_tab():
                             "experimental setting off.")
 
                     _result_tmode = st.session_state.get(f"tmode_{picked_id}")
+                    # What actually produced the text, for raw_transcript.json.
+                    _raw_backend, _raw_model = "whisper", whisper_size
                     if _result_tmode == "hardsub_ocr":
+                        _raw_backend = "hardsub_ocr"
+                        _raw_model = st.session_state.get(f"hardsub_ocr_backend_{picked_id}", "tesseract")
                         # OCR already produced real per-cue timing straight from
                         # the video -- no separate alignment step needed, same
                         # reasoning as the Whisper-text-override branch below,
@@ -1770,6 +1775,7 @@ def render_workspace_tab():
                                 segments = asr_backend.Qwen3ASRBackend().transcribe(
                                     audio_path, source_language, whisper_segments=segments,
                                     use_gpu=st.session_state.get("use_gpu", False))
+                                _raw_backend, _raw_model = "qwen3_asr", "Qwen3-ASR"
                             except ImportError:
                                 st.warning("Qwen3-ASR needs `pip install qwen-asr torch` -- using Whisper's "
                                           "own transcription for this run.")
@@ -1829,6 +1835,14 @@ def render_workspace_tab():
                     # on lines that no longer exist.
                     background_jobs.cancel_line_jobs(picked_id)
                     db.save_lines(picked_id, lines)
+                    # After the save, so each line's permanent id is recorded.
+                    # Written once and never touched again -- a later run gets
+                    # its own timestamped file.
+                    raw_transcript.write_raw_transcript(
+                        ddir, segments, lines, backend=_raw_backend, model=_raw_model,
+                        language=source_language,
+                        mode=_result_tmode if _result_tmode in ("hardsub_ocr", "whisper")
+                        else "aligned_transcript")
                     db.update_drama(picked_id, status="aligned")
                     st.success(f"Aligned {len(lines)} lines.")
                 background_jobs.clear_job(_transcribe_job_id)
@@ -2106,6 +2120,7 @@ def render_workspace_tab():
             page_slice = visible_lines[page_start: page_start + review_page_size]
 
             edited_page_rows = []
+            _raw = raw_transcript.load_latest(ddir)
             for ln in page_slice:
                 if ln.flag:
                     fc1, fc2 = st.columns([5, 1])
@@ -2175,6 +2190,22 @@ def render_workspace_tab():
                                     st.rerun()
                             else:
                                 st.warning("No speech found in this line's timing window.")
+                    _orig_text = raw_transcript.original_text_for_line(_raw, ln)
+                    if _orig_text is not None:
+                        st.markdown("**📜 Compare with original**")
+                        st.caption(_orig_text or "(empty)")
+                        if _orig_text.strip() == zh.strip():
+                            st.caption("Unchanged from the original transcript.")
+                        elif st.button("↩️ Restore original text for this line",
+                                       key=f"rvrestore_{ln.idx}"):
+                            for _r in all_lines:
+                                if _r.idx == ln.idx:
+                                    _r.zh = _orig_text
+                            db.save_lines(picked_id, all_lines)
+                            # The text box keeps what was typed in it across a
+                            # rerun unless its state is dropped.
+                            st.session_state.pop(f"zh_{ln.idx}", None)
+                            st.rerun()
                 # Editing a flagged line's translation is treated as addressing
                 # it -- clears automatically rather than needing a separate
                 # "mark reviewed" click on top of the fix itself. Merely
