@@ -184,6 +184,49 @@ class TestCmdTranslateParity:
         assert rows[0]["flag"] == "review"
         assert rows[0]["flag_note"] == "check this"
 
+    def test_reflect_flag_threads_through_and_saves_notes(self, isolated_db, monkeypatch):
+        """CLI/UI parity (Step 7): --reflect must reach translate_lines_with_
+        engine the same way the Workspace Translate button's checkbox does,
+        and the reflection critique must actually get saved as a note."""
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+
+        seen = {}
+        def fake_translate(lines, engine, notes_cb=None, **kwargs):
+            seen.update(kwargs)
+            if notes_cb:
+                notes_cb([{"line_idx": 0, "term": "", "note_type": "reflection", "note": "a critique"}])
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        args = _translate_args(id=did, reflect=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(args)
+
+        assert seen["reflect"] is True
+        notes = isolated_db.list_translation_notes(did)
+        assert [n["note"] for n in notes] == ["a critique"]
+
+    def test_reflect_defaults_to_false_when_the_namespace_lacks_it(self, isolated_db, monkeypatch):
+        # Defensive getattr, same pattern already used for ollama_url --
+        # an older/hand-built Namespace without --reflect must not crash.
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        seen = {}
+        def fake_translate(lines, engine, **kwargs):
+            seen.update(kwargs)
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        args = _translate_args(id=did)  # no "reflect" key at all
+        assert not hasattr(args, "reflect")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(args)
+        assert seen["reflect"] is False
+
 
 class TestCmdDubFlagPreservation:
     def test_flag_and_flag_note_survive_a_dub_run(self, isolated_db, monkeypatch):

@@ -134,7 +134,7 @@ def _jump_to_line_button(picked_id, line_idx, all_lines, key):
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6,
-                       ollama_num_ctx_override=None):
+                       ollama_num_ctx_override=None, reflect=False):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -143,6 +143,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     goes through background_jobs.update_progress(); the main script polls
     that on its next rerun rather than this function updating any UI
     directly, which it structurally cannot do from here.
+
+    reflect: Step 7's "High quality" Reflect mode -- three LLM passes per
+    batch instead of one; the middle (reflection) pass's critique is
+    saved as a translation note per line, via notes_cb below.
     """
     # {speaker_label: "Name (pronouns)"}, named characters only -- a line
     # whose speaker has no name set is shown to the translator with no
@@ -158,6 +162,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
+        reflect=reflect,
+        notes_cb=lambda notes: db.save_translation_notes(
+            drama_id, notes, id_by_idx=_id_by_idx(lines)),
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Translating... {frac*100:.0f}%"),
         # Translation owns `en` and nothing else -- a flag job, a merge or
@@ -1843,6 +1850,31 @@ def render_workspace_tab():
                  "the engine, style, or glossary and wanting the whole drama redone "
                  "consistently.")
 
+        reflect_mode = False
+        if not _translation_only_engine:
+            reflect_mode = b2.checkbox(
+                "✨ High quality (Reflect mode)", value=False, key=f"reflect_mode_{picked_id}",
+                help="Three separate passes instead of one: a literal translation, then the "
+                     "same engine critiques that specific translation (saved as a translation "
+                     "note you can review), then a final rewrite using that critique. Costs "
+                     "about 3x as much as a normal translation run.")
+            if reflect_mode and st.session_state.lines and api_key:
+                _reflect_targets = (st.session_state.lines if force_retranslate
+                                    else [ln for ln in st.session_state.lines if not ln.en.strip()])
+                if _reflect_targets:
+                    try:
+                        _reflect_est_engine = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                        _reflect_cost = translate_engines.estimate_reflect_mode_cost(
+                            _reflect_est_engine, [ln.zh for ln in _reflect_targets])
+                        st.caption(f"💰 Estimated Reflect-mode cost for {len(_reflect_targets)} "
+                                   f"line(s): ~${_reflect_cost:.2f} (roughly 3x a normal "
+                                   "translation run -- a rough estimate, not a precise bill).")
+                    except Exception:
+                        pass
+
         _transcribe_job_id = f"transcribe_{picked_id}"
         _tjob = background_jobs.get_status(_transcribe_job_id)
 
@@ -2183,8 +2215,11 @@ def render_workspace_tab():
                 novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
                 engine_choice, style_preset, context_window,
                 st.session_state.get("settings_ollama_num_ctx_override") or None,
+                reflect=reflect_mode,
                 gpu_touching=engine_choice == "ollama",
-                description=f"Ollama translation ({_drama_label(drama)})")
+                description=(f"Ollama Reflect-mode translation ({_drama_label(drama)})"
+                            if reflect_mode and engine_choice == "ollama" else
+                            f"Ollama translation ({_drama_label(drama)})"))
             if started:
                 st.info(_job_start_message(
                     _translate_job_id,

@@ -1048,6 +1048,86 @@ class TestTranslateButtonUsesConfiguredOllamaUrl:
         assert captured.get("base_url") == "http://gpu-box:11434"
 
 
+class TestReflectModeUI:
+    """Step 7: the "High quality (Reflect mode)" checkbox next to the
+    Translate button -- hidden for translation-only engines (Reflect mode
+    needs an LLM), shows a rough pre-run cost estimate when checked, and
+    threads reflect=True through to the actual background job."""
+
+    def _drama(self, isolated_db, translated=False):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="你好", en="Hello." if translated else "")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _checkbox(self, at, did):
+        matches = [c for c in at.checkbox if c.key == f"reflect_mode_{did}"]
+        assert matches, "Reflect mode checkbox not found"
+        return matches[0]
+
+    def test_checkbox_hidden_for_a_translation_only_engine(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned",
+                                       translation_engine="deepl")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        at = self._run(did)
+        assert not [c for c in at.checkbox if c.key == f"reflect_mode_{did}"]
+
+    def test_checkbox_shown_and_off_by_default_for_an_llm_engine(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert self._checkbox(at, did).value is False
+
+    def test_checking_it_shows_a_cost_estimate(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._checkbox(at, did).set_value(True).run()
+        assert any("Estimated Reflect-mode cost" in c.value for c in at.caption)
+
+    def test_reflect_mode_reaches_the_background_job(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            background_jobs, "start_job",
+            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._checkbox(at, did).set_value(True).run()
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click()
+        at.run(timeout=30)
+
+        assert captured.get("reflect") is True
+
+    def test_unchecked_reflect_defaults_to_false_on_the_job(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(
+            background_jobs, "start_job",
+            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click()
+        at.run(timeout=30)
+
+        assert captured.get("reflect") is False
+
+
 class TestMergePreviewDoesNotMutateLiveLines:
     """Step 5b item 2: merge_adjacent_short_lines mutates the Line objects
     it merges in place (and renumbers every line's .idx) -- the "Preview
