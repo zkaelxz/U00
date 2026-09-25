@@ -1672,17 +1672,19 @@ def render_workspace_tab():
                                    help="Higher considers more alternatives before committing. "
                                         "8-10 helps on difficult audio; it costs time, not money.")
 
+            _default_min_silence_ms = st.session_state.get(f"min_silence_ms_{picked_id}", 300)
             min_silence_ms = st.slider(
-                "Speech-splitting sensitivity (ms of silence to start a new line)", 300, 3000, 2000, 100,
-                help="The default (2000ms) merges any two stretches of speech separated by less "
-                     "than 2 seconds of silence into ONE segment -- with only the first sentence "
-                     "kept as that line's text. For back-to-back dialogue, internal-monologue "
-                     "narration, or quick exchanges, this routinely swallows several real lines "
-                     "into one oversized block. Lower it (500-1000ms) if lines feel too long or "
-                     "thoughts/dialogue seem to go missing. Too low starts splitting mid-sentence "
-                     "on normal speech pauses -- there's no universally correct value.")
-            if min_silence_ms < 2000:
-                st.caption(f"Set to {min_silence_ms}ms -- more, shorter lines than the default; "
+                "Speech-splitting sensitivity (ms of silence to start a new line)", 300, 3000,
+                _default_min_silence_ms, 100,
+                help="The default (300ms) starts a new line at almost any real pause, so "
+                     "back-to-back dialogue, internal-monologue narration and quick exchanges "
+                     "each get their own line instead of several being merged into one "
+                     "oversized block with only the first sentence kept as its text. Raise it "
+                     "(1000ms+) if a drama has genuinely long natural pauses and lines are "
+                     "splitting mid-thought -- there's no universally correct value.")
+            st.session_state[f"min_silence_ms_{picked_id}"] = min_silence_ms
+            if min_silence_ms > 300:
+                st.caption(f"Set to {min_silence_ms}ms -- fewer, longer lines than the default; "
                           f"re-run 'Check line coverage' below after aligning to see the effect.")
 
             vad_threshold = st.slider(
