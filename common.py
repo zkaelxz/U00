@@ -20,6 +20,7 @@ import dictionary
 import reader as reader_module
 import vocab_export
 import qa
+import app_help
 import background_jobs
 import bulk_import
 import story_context

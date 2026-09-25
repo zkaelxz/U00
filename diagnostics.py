@@ -32,6 +32,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
     "adaptive_style.py", "line_tools.py", "emotion.py", "ui_theme.py", "page_fetch.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
+    "app_help.py",
 ]
 EXPECTED_TABS_FILES = [
     "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
