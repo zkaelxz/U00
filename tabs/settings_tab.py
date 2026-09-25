@@ -9,6 +9,7 @@ field still works independently if you want to override it there.
 import os
 from common import st, synced_api_key_input
 import translate_engines
+import video_download
 
 
 def _load_env_defaults(env_path: str = None):
@@ -173,6 +174,24 @@ def render_settings_sidebar():
                      "stops cleanly -- keeping every finished line -- when it reaches what's "
                      "left. Estimates, not a bill. To keep it across restarts, set "
                      "BAIHE_MONTHLY_CAP_USD in your .env file.")
+
+        with st.expander("Downloads", expanded=False):
+            st.caption("Some sites (TikTok and Instagram especially, more aggressively than "
+                      "YouTube) block plain unauthenticated requests. Pass yt-dlp your own "
+                      "browser login to reach content that needs you signed in -- used for "
+                      "both the Workspace URL downloader and Live capture.")
+            _cookie_options = ["-- none --"] + video_download.COOKIE_BROWSERS
+            _saved_browser = st.session_state.get("settings_cookies_browser") or "-- none --"
+            _picked_browser = st.selectbox(
+                "Pull cookies from this browser", _cookie_options,
+                index=_cookie_options.index(_saved_browser) if _saved_browser in _cookie_options else 0)
+            st.session_state["settings_cookies_browser"] = (
+                None if _picked_browser == "-- none --" else _picked_browser)
+            st.session_state["settings_cookies_file"] = st.text_input(
+                "...or a cookies.txt file path (takes priority over the browser above)",
+                value=st.session_state.get("settings_cookies_file", ""),
+                help="Export one with a browser extension (e.g. \"Get cookies.txt\") if the "
+                     "browser option above can't read your profile directly.")
 
         with st.expander("Defaults for new dramas", expanded=False):
             _default_engine_options = ["claude", "deepseek", "deepl", "google", "ollama",

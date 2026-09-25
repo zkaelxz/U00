@@ -26,8 +26,27 @@ class DownloadError(RuntimeError):
     clear message instead of yt-dlp's raw exception text."""
 
 
+# yt-dlp's own supported browser names for --cookies-from-browser.
+COOKIE_BROWSERS = ["chrome", "firefox", "edge", "brave", "opera", "vivaldi", "safari"]
+
+
+def cookie_options(browser: str = None, cookies_file: str = None) -> dict:
+    """yt-dlp options for cookie-based login, for a site that blocks
+    unauthenticated requests (TikTok and Instagram in particular, far
+    more aggressively than YouTube does) -- previously only ever
+    mentioned as a workaround in an error message, never something the
+    user could actually turn on. A cookies FILE wins if somehow both are
+    given (it's the more specific choice); {} if neither is set, which
+    is the existing unauthenticated behavior, unchanged."""
+    if cookies_file:
+        return {"cookiefile": cookies_file}
+    if browser:
+        return {"cookiesfrombrowser": (browser,)}
+    return {}
+
+
 def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
-             title_cb=None) -> str:
+             title_cb=None, cookies_browser: str = None, cookies_file: str = None) -> str:
     """Downloads `url` into `out_dir` and returns the path to the
     resulting file.
 
@@ -52,6 +71,11 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     auto-fill a drama's title fields without a second network request
     to re-fetch what this call already knows. Not invoked at all if
     yt-dlp's response has no title (rare, but not guaranteed).
+
+    cookies_browser/cookies_file: pass yt-dlp the person's own login
+    (see cookie_options()) for a site that blocks unauthenticated
+    requests -- TikTok and Instagram in particular. Both default to
+    None, the existing unauthenticated behavior.
 
     Raises ImportError if yt-dlp isn't installed, or DownloadError (with
     the original exception chained) if the download/extraction itself
@@ -103,6 +127,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             "merge_output_format": "mp4",
             "js_runtimes": js_runtimes,
         }
+    ydl_opts.update(cookie_options(cookies_browser, cookies_file))
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -111,6 +136,9 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             if title_cb and info.get("title"):
                 title_cb(info["title"])
     except Exception as exc:
+        cookie_hint = ("" if (cookies_browser or cookies_file) else
+                      " If the site needs you to be signed in (TikTok and Instagram "
+                      "especially), turn on cookie-based login in Settings.")
         if "format" in str(exc).lower():
             raise DownloadError(
                 f"Couldn't download from that URL.\n\n{type(exc).__name__}: {exc}\n\n"
@@ -118,13 +146,13 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
                 "runtime to use (Deno, Node, Bun or QuickJS; check the Diagnostics tab). "
                 "Install Deno (https://deno.land) and run `pip install -U yt-dlp`. If you "
                 "already have one, the link may just be wrong/private/region-locked, or "
-                "the site isn't supported by yt-dlp."
+                f"the site isn't supported by yt-dlp.{cookie_hint}"
             ) from exc
         raise DownloadError(
             f"Couldn't download from that URL.\n\n{type(exc).__name__}: {exc}\n\n"
             "Common causes: the link is wrong/private/region-locked, the site isn't "
             "supported by yt-dlp, or yt-dlp is out of date for a site that changed "
-            "recently -- try `pip install -U yt-dlp` first."
+            f"recently -- try `pip install -U yt-dlp` first.{cookie_hint}"
         ) from exc
 
     if audio_only:

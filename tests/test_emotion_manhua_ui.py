@@ -380,7 +380,15 @@ class TestHfTokenInScanlateMlDetector:
     separate code path that never got the same fix -- same warning,
     different function, easy to miss without checking both."""
 
-    def _stub_hf_and_ultralytics(self):
+    def _stub_hf_and_ultralytics(self, monkeypatch):
+        # monkeypatch.setitem, not a raw sys.modules[...] = assignment --
+        # a real huggingface_hub is installed in this environment, and a
+        # permanent replacement here would leak into every later test in
+        # the same process (a real, previously-latent bug this step's own
+        # diagnostics.py tests surfaced: a later test doing a genuine
+        # `import huggingface_hub` picked up this stub, silently missing
+        # attributes real code expects). monkeypatch restores the real
+        # module automatically once this test ends.
         import sys, types
         calls = {}
         fake_hf = types.ModuleType("huggingface_hub")
@@ -389,24 +397,24 @@ class TestHfTokenInScanlateMlDetector:
             calls["env_token"] = os.environ.get("HF_TOKEN")
             return "/fake/model.pt"
         fake_hf.hf_hub_download = fake_download
-        sys.modules["huggingface_hub"] = fake_hf
+        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
         fake_ul = types.ModuleType("ultralytics")
         fake_ul.YOLO = lambda path: types.SimpleNamespace(predict=lambda *a, **k: [])
-        sys.modules["ultralytics"] = fake_ul
+        monkeypatch.setitem(sys.modules, "ultralytics", fake_ul)
         return calls
 
-    def test_explicit_token_argument_reaches_the_download(self):
+    def test_explicit_token_argument_reaches_the_download(self, monkeypatch):
         import os
-        calls = self._stub_hf_and_ultralytics()
+        calls = self._stub_hf_and_ultralytics(monkeypatch)
         import scanlate
         os.environ.pop("HF_TOKEN", None)
         scanlate.__dict__.pop("_bubble_ml_model", None)
         scanlate.detect_bubbles_ml("/fake/image.png", hf_token="explicit-token")
         assert calls["env_token"] == "explicit-token"
 
-    def test_falls_back_to_an_already_set_environment_token(self):
+    def test_falls_back_to_an_already_set_environment_token(self, monkeypatch):
         import os
-        calls = self._stub_hf_and_ultralytics()
+        calls = self._stub_hf_and_ultralytics(monkeypatch)
         import scanlate
         scanlate.__dict__.pop("_bubble_ml_model", None)
         os.environ["HF_TOKEN"] = "env-token"
@@ -414,8 +422,8 @@ class TestHfTokenInScanlateMlDetector:
         assert calls["env_token"] == "env-token"
         os.environ.pop("HF_TOKEN", None)
 
-    def test_no_token_available_does_not_crash(self):
-        calls = self._stub_hf_and_ultralytics()
+    def test_no_token_available_does_not_crash(self, monkeypatch):
+        calls = self._stub_hf_and_ultralytics(monkeypatch)
         import scanlate
         import os
         os.environ.pop("HF_TOKEN", None)

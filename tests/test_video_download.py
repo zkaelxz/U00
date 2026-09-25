@@ -177,3 +177,88 @@ class TestVideoDownload:
         assert calls["opts"]["format"] == "bestvideo+bestaudio/best"
         assert "postprocessors" not in calls["opts"]
         assert calls["opts"]["js_runtimes"] == {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}
+
+
+class TestCookieOptions:
+    def test_no_cookies_gives_empty_dict(self):
+        import video_download
+        assert video_download.cookie_options() == {}
+        assert video_download.cookie_options(None, None) == {}
+
+    def test_browser_alone(self):
+        import video_download
+        assert video_download.cookie_options(browser="chrome") == {"cookiesfrombrowser": ("chrome",)}
+
+    def test_file_alone(self):
+        import video_download
+        assert video_download.cookie_options(cookies_file="/tmp/cookies.txt") == {
+            "cookiefile": "/tmp/cookies.txt"}
+
+    def test_file_wins_over_browser_if_both_given(self):
+        import video_download
+        opts = video_download.cookie_options(browser="chrome", cookies_file="/tmp/cookies.txt")
+        assert opts == {"cookiefile": "/tmp/cookies.txt"}
+
+
+class TestDownloadCookiesReachYtDlp:
+    def _stub_output(self, out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+
+    def test_cookies_browser_reaches_ydl_opts(self, tmp_path):
+        out_dir = str(tmp_path)
+        calls = _install_fake_yt_dlp()
+        self._stub_output(out_dir)
+        try:
+            import video_download
+            importlib.reload(video_download)
+            video_download.download("https://example.com/v", out_dir, cookies_browser="firefox")
+            assert calls["opts"]["cookiesfrombrowser"] == ("firefox",)
+        finally:
+            _teardown()
+
+    def test_cookies_file_reaches_ydl_opts(self, tmp_path):
+        out_dir = str(tmp_path)
+        calls = _install_fake_yt_dlp()
+        self._stub_output(out_dir)
+        try:
+            import video_download
+            importlib.reload(video_download)
+            video_download.download("https://example.com/v", out_dir, cookies_file="/tmp/mycookies.txt")
+            assert calls["opts"]["cookiefile"] == "/tmp/mycookies.txt"
+        finally:
+            _teardown()
+
+    def test_no_cookies_means_no_cookie_keys(self, tmp_path):
+        out_dir = str(tmp_path)
+        calls = _install_fake_yt_dlp()
+        self._stub_output(out_dir)
+        try:
+            import video_download
+            importlib.reload(video_download)
+            video_download.download("https://example.com/v", out_dir)
+            assert "cookiesfrombrowser" not in calls["opts"]
+            assert "cookiefile" not in calls["opts"]
+        finally:
+            _teardown()
+
+    def test_error_message_hints_at_cookies_when_none_are_set(self, tmp_path):
+        calls = _install_fake_yt_dlp(raise_exc=RuntimeError("HTTP Error 403: Forbidden"))
+        try:
+            import video_download
+            importlib.reload(video_download)
+            with pytest.raises(video_download.DownloadError, match="cookie-based login"):
+                video_download.download("https://example.com/v", str(tmp_path))
+        finally:
+            _teardown()
+
+    def test_error_message_omits_the_hint_when_cookies_are_already_set(self, tmp_path):
+        calls = _install_fake_yt_dlp(raise_exc=RuntimeError("HTTP Error 403: Forbidden"))
+        try:
+            import video_download
+            importlib.reload(video_download)
+            with pytest.raises(video_download.DownloadError) as exc_info:
+                video_download.download("https://example.com/v", str(tmp_path), cookies_browser="chrome")
+            assert "cookie-based login" not in str(exc_info.value)
+        finally:
+            _teardown()

@@ -240,3 +240,254 @@ class TestDescribeJob:
     def test_unrecognized_job_id_falls_back_to_the_raw_string(self):
         from tabs.diagnostics_tab import _describe_job
         assert _describe_job("some_custom_thing") == "some_custom_thing"
+
+
+# ---------------------------------------------------------------------------
+# Step 9b.2: HF model-cache panel, model/engine version panel, pyannote
+# gated-access check, "copy diagnostics for support" redaction.
+# ---------------------------------------------------------------------------
+
+def _make_fake_hf_repo(cache_dir, repo_type_prefix, org, name, commit_hash="a" * 40,
+                       files=None):
+    """Builds a real, minimal-but-valid Hugging Face cache repo directory
+    by hand (blobs/refs/snapshots), so scan_cache_dir()/delete_revisions()
+    -- real huggingface_hub code, not mocked -- can parse and delete it,
+    without touching the real ~/.cache/huggingface."""
+    files = files or {"config.json": b"{}" * 200}
+    repo_dir = os.path.join(cache_dir, f"{repo_type_prefix}--{org}--{name}")
+    blobs_dir = os.path.join(repo_dir, "blobs")
+    snapshot_dir = os.path.join(repo_dir, "snapshots", commit_hash)
+    refs_dir = os.path.join(repo_dir, "refs")
+    os.makedirs(blobs_dir, exist_ok=True)
+    os.makedirs(snapshot_dir, exist_ok=True)
+    os.makedirs(refs_dir, exist_ok=True)
+    for i, (filename, content) in enumerate(files.items()):
+        blob_hash = f"{'0' * 63}{i}"
+        blob_path = os.path.join(blobs_dir, blob_hash)
+        with open(blob_path, "wb") as f:
+            f.write(content)
+        os.symlink(blob_path, os.path.join(snapshot_dir, filename))
+    with open(os.path.join(refs_dir, "main"), "w") as f:
+        f.write(commit_hash)
+    return repo_dir
+
+
+class TestHfCacheScanAndDelete:
+    def test_lists_entries_with_real_sizes(self, tmp_path_str):
+        _make_fake_hf_repo(tmp_path_str, "models", "Systran", "faster-whisper-large-v3",
+                           files={"model.bin": b"x" * 5000})
+        entries = diagnostics.scan_hf_cache(tmp_path_str)
+        assert len(entries) == 1
+        assert entries[0]["repo_id"] == "Systran/faster-whisper-large-v3"
+        assert entries[0]["repo_type"] == "model"
+        assert entries[0]["size_bytes"] >= 5000
+
+    def test_lists_multiple_repos_largest_first(self, tmp_path_str):
+        _make_fake_hf_repo(tmp_path_str, "models", "org", "small", commit_hash="a" * 40,
+                           files={"f.bin": b"x" * 100})
+        _make_fake_hf_repo(tmp_path_str, "models", "org", "big", commit_hash="b" * 40,
+                           files={"f.bin": b"x" * 100000})
+        entries = diagnostics.scan_hf_cache(tmp_path_str)
+        assert [e["repo_id"] for e in entries] == ["org/big", "org/small"]
+
+    def test_deleting_a_revision_actually_frees_the_space(self, tmp_path_str):
+        _make_fake_hf_repo(tmp_path_str, "models", "org", "model-a", commit_hash="c" * 40,
+                           files={"f.bin": b"x" * 9000})
+        before = diagnostics.scan_hf_cache(tmp_path_str)
+        assert len(before) == 1
+        ok = diagnostics.delete_hf_cache_revision(before[0]["revision"], tmp_path_str)
+        assert ok is True
+        after = diagnostics.scan_hf_cache(tmp_path_str)
+        assert after == []
+
+    def test_empty_or_missing_cache_dir_is_not_an_error(self, tmp_path_str):
+        missing = os.path.join(tmp_path_str, "does_not_exist")
+        assert diagnostics.scan_hf_cache(missing) == []
+
+    def test_delete_of_an_unknown_revision_fails_cleanly(self, tmp_path_str):
+        _make_fake_hf_repo(tmp_path_str, "models", "org", "model-a")
+        assert diagnostics.delete_hf_cache_revision("f" * 40, tmp_path_str) is False
+
+    def test_huggingface_hub_not_installed_returns_empty_not_raised(self, monkeypatch):
+        # sys.modules[name] = None is the standard, thread-safe way to
+        # simulate "not installed" -- Python's import system raises
+        # ImportError for exactly that name and nothing else. Patching
+        # builtins.__import__ globally would risk breaking an unrelated
+        # module's import happening concurrently in another thread (this
+        # app runs background_jobs threads throughout its own test suite).
+        monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+        assert diagnostics.scan_hf_cache() == []
+        assert diagnostics.delete_hf_cache_revision("x") is False
+
+
+class TestModelEngineVersions:
+    def test_lists_every_registered_backend_with_a_version_or_repo_id(self):
+        versions = diagnostics.get_model_engine_versions()
+        names = {v["name"] for v in versions}
+        assert "Whisper (faster-whisper)" in names
+        assert "pyannote diarization model" in names
+        for v in versions:
+            assert v["version"]  # never blank -- "not installed" at worst
+            assert v["url"].startswith("http")
+
+    def test_repo_entry_shows_the_actual_diarization_model_ids(self):
+        import diarize
+        versions = diagnostics.get_model_engine_versions()
+        row = next(v for v in versions if v["name"] == "pyannote diarization model")
+        for model in diarize.DIARIZATION_MODELS:
+            assert model in row["version"]
+
+    def test_an_installed_package_shows_a_real_version_string(self):
+        versions = diagnostics.get_model_engine_versions()
+        row = next(v for v in versions if v["name"] == "pyannote.audio")
+        # anthropic/requests/etc. are installed in this sandbox's test
+        # env, but pyannote.audio may or may not be -- just check the
+        # function distinguishes "not installed" from an actual version
+        # rather than crashing either way.
+        assert row["version"] == "not installed" or row["version"][0].isdigit()
+
+    def test_ollama_tag_appended_only_when_given(self):
+        assert not any(v["name"].startswith("Ollama") for v in diagnostics.get_model_engine_versions())
+        versions = diagnostics.get_model_engine_versions("qwen3:8b")
+        row = next(v for v in versions if v["name"].startswith("Ollama"))
+        assert row["version"] == "qwen3:8b"
+
+    def test_makes_no_network_call(self, monkeypatch):
+        def boom(*a, **k):
+            raise AssertionError("should not touch the network")
+        monkeypatch.setattr("requests.get", boom)
+        monkeypatch.setattr("requests.post", boom)
+        diagnostics.get_model_engine_versions("qwen3:8b")  # must not raise
+
+
+class TestPyannoteGatedAccessCheck:
+    class _FakeApi:
+        def __init__(self, gated=()):
+            self.gated = set(gated)
+            self.calls = []
+
+        def model_info(self, model, token=None):
+            self.calls.append((model, token))
+            if model in self.gated:
+                raise RuntimeError(f"Access to model {model} is restricted. You must be "
+                                   "authenticated to access it.")
+
+    def test_accessible_and_gated_models_both_reported(self):
+        import diarize
+        gated_model = diarize.DIARIZATION_MODELS[1]
+        api = self._FakeApi(gated=(gated_model,))
+        results = diagnostics.check_pyannote_gated_access(api=api)
+        assert len(results) == len(diarize.DIARIZATION_MODELS)
+        by_model = {r["model"]: r for r in results}
+        assert by_model[diarize.DIARIZATION_MODELS[0]]["accessible"] is True
+        assert by_model[gated_model]["accessible"] is False
+        assert "restricted" in by_model[gated_model]["error"]
+
+    def test_hf_token_is_passed_through(self):
+        api = self._FakeApi()
+        diagnostics.check_pyannote_gated_access(hf_token="hf_faketoken", api=api)
+        assert all(token == "hf_faketoken" for _, token in api.calls)
+
+    def test_huggingface_hub_not_installed_returns_empty(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+        assert diagnostics.check_pyannote_gated_access() == []
+
+
+class TestRedactForSupport:
+    def test_strips_api_keys(self):
+        text = diagnostics.redact_for_support("key=sk-ant-api03-" + "X" * 40)
+        assert "sk-ant-api03" not in text
+
+    def test_strips_the_os_username(self, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "bobsmith")
+        text = diagnostics.redact_for_support("C:\\Users\\bobsmith\\project\\library\\foo.txt")
+        assert "bobsmith" not in text
+
+    def test_collapses_posix_paths_to_the_last_segment(self):
+        text = diagnostics.redact_for_support("saved to /home/bob/U00/library/drama_3/audio.wav")
+        assert "/home/bob" not in text
+        assert "audio.wav" in text
+
+    def test_collapses_windows_paths_to_the_last_segment(self):
+        text = diagnostics.redact_for_support(r"saved to C:\Users\bob\U00\library\drama_3\audio.wav")
+        assert "bob" not in text
+        assert "audio.wav" in text
+
+    def test_empty_text_is_safe(self):
+        assert diagnostics.redact_for_support("") == ""
+        assert diagnostics.redact_for_support(None) == ""
+
+
+class TestFormatDiagnosticsReport:
+    def _results(self, **overrides):
+        base = {
+            "python": {"version": "3.11.0", "ok": True},
+            "ffmpeg": {"found": True, "version": "ffmpeg version 6.0"},
+            "js_runtime": {"found": True, "name": "deno"},
+            "library_writable": True,
+            "api_keys": {"claude": True, "gemini": False},
+            "dependencies": {"anthropic": {"installed": True, "tier": "engine"},
+                             "torch": {"installed": False, "tier": "feature"}},
+            "files": {"all_present": True, "missing_top_level": [], "missing_tabs": []},
+        }
+        base.update(overrides)
+        return base
+
+    def test_report_mentions_missing_dependency_and_key_state(self):
+        report = diagnostics.format_diagnostics_report(self._results())
+        assert "torch" in report
+        assert "claude" in report and "gemini" not in report.split("API keys set:")[1].split("\n")[0]
+
+    def test_includes_hf_cache_and_model_versions_when_given(self):
+        hf_cache = [{"repo_id": "org/model", "repo_type": "model", "revision": "a" * 40,
+                    "size_bytes": 1024 * 1024}]
+        model_versions = [{"name": "Whisper (faster-whisper)", "version": "1.0.0",
+                           "url": "https://x"}]
+        report = diagnostics.format_diagnostics_report(self._results(), hf_cache, model_versions)
+        assert "1 revision(s)" in report
+        assert "Whisper (faster-whisper): 1.0.0" in report
+
+    def test_omits_cache_and_versions_sections_when_not_given(self):
+        report = diagnostics.format_diagnostics_report(self._results())
+        assert "Hugging Face cache" not in report
+        assert "Model/engine versions" not in report
+
+    def test_report_content_survives_redaction_intact_apart_from_secrets(self):
+        report = diagnostics.format_diagnostics_report(self._results())
+        redacted = diagnostics.redact_for_support(report)
+        assert "torch" in redacted
+        assert "Python: 3.11.0" in redacted
+
+
+class TestDiagnosticsTabSupportReport:
+    """UI-level: the 'Copy diagnostics for support' button actually wires
+    format_diagnostics_report + redact_for_support together, so a path/
+    username that would appear in the raw diagnostics never reaches the
+    copyable box."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_report_appears_with_no_path_or_username(self, isolated_db, monkeypatch):
+        monkeypatch.setattr("getpass.getuser", lambda: "realuserabc")
+        at = self._run()
+        [b for b in at.button if b.key == "build_support_report"][0].click()
+        at.run(timeout=30)
+        # Find the specific code block holding the report (there's also
+        # the log-tail code block on this page).
+        codes = [c.value for c in at.code]
+        report = next((c for c in codes if "Python:" in c), None)
+        assert report is not None
+        assert "realuserabc" not in report
+        assert os.path.dirname(os.path.dirname(os.path.abspath(
+            "tabs/diagnostics_tab.py"))) not in report
+        assert "Model/engine versions" in report
+        assert "Whisper (faster-whisper)" in report

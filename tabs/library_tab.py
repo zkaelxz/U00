@@ -1,6 +1,8 @@
 """
 tabs/library.py -- Library tab UI, extracted from the former monolithic app.py.
 """
+import time
+
 from common import *
 
 
@@ -8,6 +10,114 @@ def cache_hit_share(usage: dict) -> float:
     """Share of logged input tokens that were prompt-cache reads."""
     total = usage.get("input_tokens") or 0
     return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
+
+
+BULK_SERIES_TRANSLATE_JOB_ID = "bulk_series_translate"
+
+
+def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
+                                  ollama_base_url: str = None, gemini_free_tier: bool = False):
+    """Step 9b.3: translates every drama in drama_ids that has no
+    translation yet, queued ONE AT A TIME rather than all at once (same
+    GPU/API-load reasoning as everywhere else in this app that queues
+    rather than parallelizes). Each drama uses its own saved engine
+    (`drama.translation_engine`) and, if it belongs to a series, that
+    series' own glossary and style hints -- the same settings its own
+    Workspace tab would build for it (mirrors cli.cmd_translate's own
+    UI-parity logic). Skips (does not queue) a drama that already has a
+    translate job running elsewhere, rather than racing it.
+
+    Deliberately reuses the real per-drama job id ("translate_<id>")
+    run_translate_job already uses -- if the user opens that drama's own
+    Workspace tab mid-run, they see the same real job, not a shadow copy.
+    This coordinator job's own progress/message combine the queue
+    position with that live per-drama progress into one line, for
+    Library's combined status display.
+
+    api_keys: {engine_name: api_key} gathered from Settings by the caller
+    BEFORE starting this as a background job -- this function runs in a
+    thread and must never touch st.session_state (background_jobs.py's
+    hard rule).
+    """
+    results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
+               "skipped_no_lines": [], "errors": {}}
+    total = len(drama_ids) or 1
+    for i, did in enumerate(drama_ids):
+        if background_jobs.is_cancel_requested(job_id):
+            break
+        drama = db.get_drama(did)
+        title = (drama.get("title_en") or drama.get("title_zh") or f"drama #{did}") if drama else f"drama #{did}"
+        per_job_id = f"translate_{did}"
+        background_jobs.update_progress(job_id, i / total, f"Translating {i + 1}/{len(drama_ids)} -- {title} (0%)")
+        if not drama:
+            continue
+        if background_jobs.is_running(per_job_id):
+            results["skipped_running"].append(did)
+            continue
+        rows = db.load_lines(did)
+        if not rows:
+            results["skipped_no_lines"].append(did)
+            continue
+
+        engine_choice = drama.get("translation_engine") or "claude"
+        needs_key = engine_choice not in ("ollama", "test_offline", "libretranslate", "nllb")
+        api_key = api_keys.get(engine_choice)
+        if needs_key and not api_key:
+            results["skipped_no_key"].append(did)
+            continue
+        if not api_key:
+            api_key = "offline" if engine_choice == "test_offline" else "local"
+        try:
+            engine = translate_engines.get_engine(
+                engine_choice, api_key, None,
+                free_tier=engine_choice == "gemini" and gemini_free_tier,
+                base_url=ollama_base_url if engine_choice == "ollama" else None)
+        except Exception as e:
+            results["errors"][did] = translate_engines.redact_secrets(str(e))
+            continue
+
+        lines = core_module.lines_from_rows(rows)
+        series_id = drama.get("series_id")
+        glossary_terms = db.list_glossary_terms(series_id) if series_id else None
+        series_chars = db.list_series_characters(series_id) if series_id else []
+        drama_chars = db.list_characters_with_series_names(did)
+        style_guidelines = tguide.build_style_guidelines(
+            style_preset="audio_drama", glossary_terms=glossary_terms,
+            custom_notes=tguide.build_character_gender_hints(series_chars, drama_chars))
+        character_names = tguide.build_speaker_labels(drama_chars, series_chars)
+        novel_reference = None
+        if drama.get("novel_reference_filename"):
+            novel_path = os.path.join(db.drama_dir(did), drama["novel_reference_filename"])
+            if os.path.exists(novel_path):
+                with open(novel_path, encoding="utf-8") as f:
+                    novel_reference = f.read()
+
+        import tabs.workspace_tab as workspace_tab
+        background_jobs.start_job(
+            per_job_id, workspace_tab.run_translate_job,
+            per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
+            glossary_terms, style_guidelines, engine_choice, "audio_drama", 6, None)
+
+        while background_jobs.is_running(per_job_id):
+            if background_jobs.is_cancel_requested(job_id):
+                background_jobs.request_cancel(per_job_id)
+            per_status = background_jobs.get_status(per_job_id) or {}
+            background_jobs.update_progress(
+                job_id, (i + (per_status.get("progress") or 0.0)) / total,
+                f"Translating {i + 1}/{len(drama_ids)} -- {title} "
+                f"({(per_status.get('progress') or 0.0) * 100:.0f}%)")
+            time.sleep(0.5)
+
+        if background_jobs.is_cancel_requested(job_id):
+            break
+        per_status = background_jobs.get_status(per_job_id) or {}
+        if per_status.get("status") == "error":
+            results["errors"][did] = per_status.get("error")
+        else:
+            results["translated"].append(did)
+
+    background_jobs.update_progress(job_id, 1.0, "Done")
+    background_jobs.set_result(job_id, results)
 
 
 def render_library_tab():
@@ -162,6 +272,55 @@ def render_library_tab():
                     db.delete_drama(did)
                 st.success(f"Deleted {len(selected_ids)} drama(s).")
                 st.rerun()
+
+            untranslated_selected = [did for did in selected_ids
+                                     if (db.get_drama(did) or {}).get("status") == "aligned"]
+            bulk_translate_running = background_jobs.is_running(BULK_SERIES_TRANSLATE_JOB_ID)
+            if bc3.button(f"🌐 Bulk translate ({len(untranslated_selected)})",
+                          disabled=not untranslated_selected or bulk_translate_running):
+                api_keys = {engine: st.session_state.get(f"settings_{engine}")
+                           for engine in translate_engines.ENGINES}
+                started = background_jobs.start_job(
+                    BULK_SERIES_TRANSLATE_JOB_ID, run_bulk_series_translate_job,
+                    BULK_SERIES_TRANSLATE_JOB_ID, untranslated_selected, api_keys,
+                    default_locale=st.session_state.get("settings_default_locale", "en-US"),
+                    ollama_base_url=st.session_state.get("settings_ollama_url") or None,
+                    gemini_free_tier=st.session_state.get("gemini_free_tier", False))
+                if started:
+                    st.info("Bulk translation started -- queued one drama at a time. "
+                           "Come back here any time to see progress.")
+                    st.rerun()
+            if not untranslated_selected and selected_ids:
+                bc3.caption("None of the selected dramas are untranslated (status 'aligned').")
+
+        _bulk_job = background_jobs.get_status(BULK_SERIES_TRANSLATE_JOB_ID)
+        if _bulk_job:
+            if _bulk_job["status"] == "running":
+                bjc1, bjc2 = st.columns([5, 1])
+                bjc1.progress(_bulk_job["progress"],
+                             text=(_bulk_job.get("message") or "Translating...")
+                             + background_jobs.eta_text(_bulk_job))
+                if bjc2.button("⏹️ Cancel", key="bulk_series_translate_cancel"):
+                    background_jobs.request_cancel(BULK_SERIES_TRANSLATE_JOB_ID)
+                    st.rerun()
+                if st.button("🔄 Refresh", key="bulk_series_translate_refresh"):
+                    st.rerun()
+            elif _bulk_job["status"] == "done":
+                r = _bulk_job.get("result") or {}
+                parts = [f"{len(r.get('translated', []))} translated"]
+                if r.get("skipped_running"):
+                    parts.append(f"{len(r['skipped_running'])} already running elsewhere")
+                if r.get("skipped_no_key"):
+                    parts.append(f"{len(r['skipped_no_key'])} skipped (no API key)")
+                if r.get("skipped_no_lines"):
+                    parts.append(f"{len(r['skipped_no_lines'])} skipped (no lines)")
+                if r.get("errors"):
+                    parts.append(f"{len(r['errors'])} failed")
+                st.success("Bulk translation finished: " + ", ".join(parts) + ".")
+                background_jobs.clear_job(BULK_SERIES_TRANSLATE_JOB_ID)
+            elif _bulk_job["status"] == "error":
+                st.error(f"Bulk translation failed: {_bulk_job['error']}")
+                background_jobs.clear_job(BULK_SERIES_TRANSLATE_JOB_ID)
 
         st.subheader("Bulk export")
         exportable = [d for d in dramas if d["status"] in ("translated", "dubbed", "exported")]

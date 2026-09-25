@@ -29,6 +29,7 @@ import translate_engines
 from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
                                  run_fix_flagged_lines_job, run_translate_job)
+import video_download
 import core as core_module
 from core import Line
 
@@ -1049,6 +1050,71 @@ class TestTranslateButtonUsesConfiguredOllamaUrl:
         assert captured.get("base_url") == "http://gpu-box:11434"
 
 
+class TestDownloadButtonUsesCookieSettings:
+    """Step 9b.4: the Workspace URL-downloader button must thread the
+    cookies setting from Settings into video_download.download(), not
+    just leave it available for callers who happen to pass it."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="not started")
+        return did
+
+    def _run(self, did, **session_state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        for k, v in session_state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_cookies_reach_the_download_call(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        captured = {}
+
+        def fake_download(url, out_dir, **kwargs):
+            captured.update(kwargs)
+            raise video_download.DownloadError("stop here -- only checking what was passed in")
+
+        monkeypatch.setattr(video_download, "download", fake_download)
+        at = self._run(did, settings_cookies_browser="firefox", settings_cookies_file="")
+        [r for r in at.radio if r.key == f"import_method_{did}"][0].set_value("url").run()
+        [t for t in at.text_input if t.key == f"dl_url_{did}"][0].set_value(
+            "https://example.com/v").run()
+        [b for b in at.button if b.label == "⬇️ Download"][0].click()
+        at.run(timeout=30)
+
+        assert captured.get("cookies_browser") == "firefox"
+        assert captured.get("cookies_file") is None
+
+    def test_no_cookies_configured_passes_none(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        captured = {}
+
+        def fake_download(url, out_dir, **kwargs):
+            captured.update(kwargs)
+            raise video_download.DownloadError("stop here -- only checking what was passed in")
+
+        monkeypatch.setattr(video_download, "download", fake_download)
+        at = self._run(did)
+        [r for r in at.radio if r.key == f"import_method_{did}"][0].set_value("url").run()
+        [t for t in at.text_input if t.key == f"dl_url_{did}"][0].set_value(
+            "https://example.com/v").run()
+        [b for b in at.button if b.label == "⬇️ Download"][0].click()
+        at.run(timeout=30)
+
+        assert captured.get("cookies_browser") is None
+        assert captured.get("cookies_file") is None
+
+
 class TestReflectModeUI:
     """Step 7: the "High quality (Reflect mode)" checkbox next to the
     Translate button -- hidden for translation-only engines (Reflect mode
@@ -1540,6 +1606,71 @@ class TestGemini31FlashLiteInDropdown:
         at.run(timeout=30)
         engine = captured["args"][3]
         assert engine.model == "gemini-3.1-flash-lite"
+
+
+class TestJobEtaDisplay:
+    """Step 9b.1 exit condition: the ETA appears once progress is
+    non-trivial, and disappears/holds sensibly at 0% and 100%."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did, runs=2):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        for _ in range(runs):
+            at.run(timeout=30)
+        return at
+
+    def test_no_eta_at_zero_percent(self, isolated_db):
+        did = self._drama(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                         "error": None, "cancel_requested": False, "result": None,
+                                         "started_at": time.time() - 30}
+        at = self._run(did)
+        bar = [p for p in at.get("progress") if p.value == 0][0]
+        assert "remaining" not in bar.proto.text
+        background_jobs.clear_job(job_id)
+
+    def test_eta_shown_once_progress_is_non_trivial(self, isolated_db):
+        did = self._drama(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.5, "message": "",
+                                         "error": None, "cancel_requested": False, "result": None,
+                                         "started_at": time.time() - 30}
+        at = self._run(did)
+        bar = [p for p in at.get("progress") if p.value == 50][0]
+        assert "remaining" in bar.proto.text
+        background_jobs.clear_job(job_id)
+
+    def test_no_eta_once_done_shows_success_not_a_bar(self, isolated_db):
+        did = self._drama(isolated_db)
+        job_id = f"translate_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "done", "progress": 1.0, "message": "",
+                                         "error": None, "cancel_requested": False, "result": {"errors": []},
+                                         "started_at": time.time() - 30}
+        # A single run -- the "done" branch clears the job as its last
+        # step, so a second render (as the shared helper's default does
+        # for other tests, to reach steady state) would see no job left
+        # and lose the very success message this test checks for.
+        at = self._run(did, runs=1)
+        assert not at.get("progress")
+        assert any("complete" in m.value for m in at.success)
 
 
 class TestMergePreviewDoesNotMutateLiveLines:

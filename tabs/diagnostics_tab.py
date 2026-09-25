@@ -4,6 +4,7 @@ iterative back-and-forth when something's missing or misconfigured.
 """
 from common import *
 import diagnostics
+import storage
 import time
 
 # job_id prefixes this app actually uses (see background_jobs.start_job
@@ -55,6 +56,76 @@ def render_diagnostics_tab():
                 st.rerun()
         if st.button("🔄 Refresh", key="jobs_panel_refresh"):
             st.rerun()
+
+    st.divider()
+    st.subheader("💾 Downloaded model cache")
+    st.caption("Whisper/pyannote/Qwen3-ASR/F5-TTS weights live in Hugging Face's own cache "
+              "(usually `~/.cache/huggingface`), separate from this app's own `library/` "
+              "folder above -- across several backends this can reach tens of GB.")
+    hf_cache = diagnostics.scan_hf_cache()
+    if not hf_cache:
+        st.caption("Nothing cached yet, or `huggingface_hub` isn't installed.")
+    else:
+        st.caption(f"{len(hf_cache)} cached revision(s), "
+                  f"{storage.format_bytes(sum(e['size_bytes'] for e in hf_cache))} total.")
+        for entry in hf_cache:
+            hc1, hc2 = st.columns([5, 1])
+            hc1.caption(f"**{entry['repo_id']}** ({entry['repo_type']}) -- "
+                       f"{storage.format_bytes(entry['size_bytes'])} -- `{entry['revision'][:12]}`")
+            if hc2.button("🗑️ Delete", key=f"hf_cache_del_{entry['revision']}"):
+                if diagnostics.delete_hf_cache_revision(entry["revision"]):
+                    st.success(f"Deleted {entry['repo_id']}.")
+                    st.rerun()
+                else:
+                    st.error("Delete failed -- see the log for details.")
+
+    st.divider()
+    st.subheader("🧩 Model & engine versions")
+    st.caption("What's actually installed/configured locally for every AI model or engine "
+              "this app wires into a feature. No network call -- this doesn't check whether "
+              "something newer exists, only what's here right now.")
+    model_versions = diagnostics.get_model_engine_versions(
+        st.session_state.get("settings_ollama_model"))
+    for m in model_versions:
+        st.caption(f"**{m['name']}**: `{m['version']}` -- [{m['url']}]({m['url']})")
+
+    st.divider()
+    st.subheader("🔒 pyannote gated model access")
+    st.caption("`diarize.load_pipeline()` tries `speaker-diarization-community-1` first, falling "
+              "back to `-3.1` only if that fails -- so a 403 naming `-3.1` specifically can mean "
+              "BOTH models are gated on your Hugging Face account, not just one. This check "
+              "reaches Hugging Face's API (the only check on this page that does), so it only "
+              "runs when you click the button below, not automatically.")
+    if st.button("🔍 Check pyannote access", key="check_pyannote_access"):
+        with st.spinner("Checking..."):
+            st.session_state["pyannote_access_results"] = diagnostics.check_pyannote_gated_access(
+                st.session_state.get("settings_hf_token") or None)
+    _pa_results = st.session_state.get("pyannote_access_results")
+    if _pa_results is not None:
+        if not _pa_results:
+            st.caption("`huggingface_hub` isn't installed -- can't check.")
+        for r in _pa_results:
+            if r["accessible"]:
+                st.caption(f"🟢 `{r['model']}`: accessible")
+            else:
+                st.error(f"🔴 `{r['model']}`: gated, terms not accepted (or another error) -- "
+                        f"visit https://huggingface.co/{r['model']} to accept the terms. "
+                        f"({r['error']})")
+
+    st.divider()
+    st.subheader("📋 Copy diagnostics for support")
+    st.caption("A redacted summary of everything above -- API keys, local file paths, and your "
+              "OS username are stripped, even though the panels above show the real values. "
+              "Use the copy icon in the top-right of the box below.")
+    if st.button("📋 Build copyable report", key="build_support_report"):
+        _report_results = st.session_state.get("diagnostics_results") or diagnostics.run_full_diagnostics(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), db.LIBRARY_DIR,
+            {key: bool(st.session_state.get(f"settings_{key}"))
+             for key in ["claude", "deepseek", "gemini", "deepl", "google", "elevenlabs", "hf_token"]})
+        st.session_state["support_report_text"] = diagnostics.redact_for_support(
+            diagnostics.format_diagnostics_report(_report_results, hf_cache, model_versions))
+    if st.session_state.get("support_report_text"):
+        st.code(st.session_state["support_report_text"], language="text")
 
     st.divider()
     st.subheader("📜 Log")
@@ -310,8 +381,12 @@ def render_diagnostics_tab():
         st.caption(ff["version"])
     if not js_rt["found"]:
         st.warning("No JavaScript runtime (Deno, Node, Bun or QuickJS) found on PATH -- "
-                   "YouTube downloads and Live capture may silently lose formats without one. "
-                   "Install Deno (https://deno.land) and run `pip install -U yt-dlp`.")
+                   "downloads and Live capture from any site (not just YouTube) may silently "
+                   "lose formats without one. Install Deno (https://deno.land) and run "
+                   "`pip install -U yt-dlp`.")
+    st.caption("If a download or Live capture fails because the site needs you signed in "
+              "(common on TikTok and Instagram, less so on YouTube), turn on cookie-based "
+              "login under ⚙️ Settings → Downloads.")
 
     # ---- File completeness ----
     st.subheader("Project files")
