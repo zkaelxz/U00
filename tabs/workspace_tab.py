@@ -552,8 +552,14 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
         vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
         try:
-            audio_path = audio_preprocess.separate_vocals(audio_path, vocals_path,
-                                                          backend=separation_backend)
+            audio_path = audio_preprocess.separate_vocals(
+                audio_path, vocals_path, backend=separation_backend,
+                progress_cb=lambda frac: background_jobs.update_progress(
+                    job_id, frac, f"Removing background music... {frac * 100:.0f}%"),
+                cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id))
+        except audio_preprocess.VocalSeparationCancelled:
+            background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+            return
         except audio_preprocess.VocalSeparationError as exc:
             background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
             return
@@ -577,8 +583,15 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
         return
 
+    # Whisper's own pass has no cancel checkpoint of its own yet (out of
+    # scope for this step -- see Step 4g) -- this is the next point a
+    # cancel requested mid-transcription can actually be honored. The
+    # expensive work is already done by here, so a cancel caught this
+    # late just skips the optional realign step rather than discarding
+    # the transcript -- never lose already-done work over a cancel, same
+    # rule this app follows for an optional add-on failing outright.
     word_align_error = None
-    if realign_long_segments:
+    if realign_long_segments and not background_jobs.is_cancel_requested(job_id):
         import word_align
         background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
         try:
@@ -2464,11 +2477,24 @@ def render_workspace_tab():
                 st.progress(_tjob["progress"], text=(_tjob.get("message") or "Transcribing...") + background_jobs.eta_text(_tjob))
                 st.caption("Running in the background -- safe to switch tabs, use other dramas, "
                           "or close the browser tab. Come back and this will show current progress.")
-                if st.button("🔄 Refresh progress", key=f"refresh_tc_{picked_id}"):
+                tc1, tc2 = st.columns(2)
+                if tc1.button("🔄 Refresh progress", key=f"refresh_tc_{picked_id}"):
                     st.rerun()
+                if tc2.button("✖ Cancel", key=f"cancel_tc_{picked_id}"):
+                    background_jobs.request_cancel(_transcribe_job_id)
+                    st.rerun()
+                st.caption("Cancelling during vocal separation stops it right away; cancelling once "
+                          "the actual speech recognition has started only takes effect once that "
+                          "pass finishes (it has no mid-run checkpoint of its own yet) and just "
+                          "skips the optional \"Split long merged lines\" step -- the transcript "
+                          "itself is never discarded.")
             elif _tjob["status"] == "done":
                 _tresult = _tjob.get("result") or {}
-                if _tresult.get("failed_reason") == "model_download":
+                if _tresult.get("failed_reason") == "cancelled":
+                    st.warning("Transcription was cancelled before it produced a transcript. "
+                              "Nothing was lost -- your audio and settings are saved. Press the "
+                              "button again to start over.")
+                elif _tresult.get("failed_reason") == "model_download":
                     st.error("Speech recognition model couldn't be downloaded.")
                     st.code(_tresult.get("detail", ""), language="text")
                     st.caption("Nothing was lost -- your audio, transcript and settings are saved. "

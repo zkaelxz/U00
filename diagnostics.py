@@ -51,7 +51,7 @@ OPTIONAL_DEPENDENCIES = {
     "requests": ("requests", "Google/LibreTranslate/metadata lookup/navigator", "engine"),
     "bs4": ("bs4", "metadata lookup, navigator, bulk import", "feature"),
     "pyannote.audio": ("pyannote.audio", "speaker diarization", "feature"),
-    "soundfile": ("soundfile", "speaker diarization (reads audio.wav)", "feature"),
+    "soundfile": ("soundfile", "speaker diarization, vocal separation chunking (reads audio.wav)", "feature"),
     "edge_tts": ("edge_tts", "free online dubbing", "feature"),
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     "f5_tts": ("f5_tts", "local voice cloning", "feature"),
