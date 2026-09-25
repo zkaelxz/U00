@@ -231,6 +231,19 @@ def load_turns(drama_dir: str):
         return json.load(f).get("turns")
 
 
+def load_last_speaker_count(drama_dir: str):
+    """The `num_speakers` used for the last real detection run on this
+    drama, or None if detection hasn't run yet (or that run used
+    auto-detect, which is also stored as None) -- lets the UI default
+    "Expected number of speakers" to whatever was actually used last
+    time instead of always resetting to 0."""
+    path = os.path.join(drama_dir, TURNS_FILE)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("num_speakers")
+
+
 def load_embeddings(drama_dir: str) -> dict:
     """The stored {speaker_label: [float, ...]} voice fingerprints from
     the last detection run, or {} if there are none (no run yet, an

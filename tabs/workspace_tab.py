@@ -1774,12 +1774,17 @@ def render_workspace_tab():
             run_diarize = st.checkbox("Run speaker diarization during alignment",
                                        value=(content_mode == "streamer_vod"),
                                        disabled=not hf_token)
+            import diarize
+            _default_expected_speakers = st.session_state.get(
+                f"expected_speakers_{picked_id}",
+                diarize.load_last_speaker_count(ddir) or 0)
             expected_speakers = st.number_input(
                 "Expected number of speakers (0 = auto-detect)", min_value=0, max_value=20,
-                value=0, disabled=not hf_token,
+                value=_default_expected_speakers, disabled=not hf_token,
                 help="Telling the diarizer how many speakers to expect is usually more reliable "
                      "than auto-detection, especially on long or noisy audio -- particularly "
                      "relevant for Streamer/VOD content with several people talking.")
+            st.session_state[f"expected_speakers_{picked_id}"] = expected_speakers
             _speaker_audio = (os.path.join(ddir, drama["audio_filename"])
                               if drama.get("audio_filename") else None)
             if (_speaker_audio and os.path.exists(_speaker_audio)
