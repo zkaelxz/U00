@@ -37,7 +37,7 @@ import traceback
 import db
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
-    chunk_novel_text, extract_audio_from_video, lines_from_rows, release_gpu_models,
+    chunk_novel_text, extract_audio_from_video, lines_from_rows, release_gpu_models, WHISPER_MODELS,
 )
 import translate_engines
 import translation_guide as tguide
@@ -224,7 +224,8 @@ def cmd_align(args):
         with open(transcript_path, "r", encoding="utf-8") as f:
             transcript_text = f.read()
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
-        segments = transcribe_for_timing(audio_path, args.whisper_size, language=d.get("source_language") or "zh")
+        segments = transcribe_for_timing(audio_path, args.whisper_size, language=d.get("source_language") or "zh",
+                                         fast_mode=getattr(args, "fast", False))
         user_lines = split_user_transcript(transcript_text)
         lines = align_transcript_to_timing(user_lines, segments)
         release_gpu_models()
@@ -353,7 +354,9 @@ def main():
 
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
-    p_align.add_argument("--whisper-size", default="medium")
+    p_align.add_argument("--whisper-size", default="medium", choices=list(WHISPER_MODELS))
+    p_align.add_argument("--fast", action="store_true",
+                         help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.set_defaults(func=cmd_align)
 
     p_diarize = sub.add_parser("diarize", help="Re-run speaker detection on stored audio (no re-transcription)")

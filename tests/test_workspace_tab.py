@@ -103,9 +103,10 @@ def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeyp
     import audio_preprocess
     seen = {}
 
-    def fake_separate(in_path, out_path, model="htdemucs"):
+    def fake_separate(in_path, out_path, backend="auto"):
         seen["in_path"] = in_path
         seen["out_path"] = out_path
+        seen["backend"] = backend
         return out_path
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
 
@@ -115,9 +116,10 @@ def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeyp
     monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
 
     run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
-                        separate_vocals_first=True)
+                        separate_vocals_first=True, separation_backend="audio_separator")
 
     assert seen["in_path"] == audio_path
+    assert seen["backend"] == "audio_separator"
     assert seen["out_path"] == str(tmp_path / "vocals.wav")
     assert seen["transcribed_path"] == str(tmp_path / "vocals.wav")
     result = background_jobs.get_status(job_id)["result"]
@@ -152,7 +154,7 @@ def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
 
     import audio_preprocess
 
-    def fake_separate(in_path, out_path, model="htdemucs"):
+    def fake_separate(in_path, out_path, backend="auto"):
         raise audio_preprocess.VocalSeparationError("Vocal separation needs Demucs: pip install demucs")
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
 

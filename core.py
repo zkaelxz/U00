@@ -25,7 +25,7 @@ class Line:
     en: str = ""
     speaker: str = None
     dub_filename: str = None
-    flag: str = None       # a key from translate_engines.FLAG_REASONS, or None
+    flag: str = None       # a key from translate_engines.FLAG_REASONS / SYSTEM_FLAG_REASONS, or None
     flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
     # True once someone set this line's speaker by hand -- re-running
     # speaker detection (diarize.merge_speakers) leaves it alone unless
@@ -134,6 +134,35 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 # ---------------------------------------------------------------------------
 
 _whisper_model_cache = {}
+
+# Speech-recognition models offered in the Workspace picker (faster-whisper
+# names). large-v3-turbo is never a default: it's much faster but reported
+# weaker on Japanese and Korean, so large-v3/medium stay the defaults there.
+WHISPER_MODELS = {
+    "small": "small -- fastest, least accurate",
+    "medium": "medium -- balanced default",
+    "large-v3": "large-v3 -- most accurate, slower, ~3GB",
+    "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
+}
+_TURBO_WEAK_LANGUAGES = {"ja", "ko"}
+
+
+def whisper_model_warning(model_size: str, language: str) -> str:
+    """A note to show when the picked model is a known poor fit for the
+    drama's language, or "" if there's nothing to warn about."""
+    if model_size == "large-v3-turbo" and (language or "") in _TURBO_WEAK_LANGUAGES:
+        return ("large-v3-turbo is reported noticeably weaker on Japanese and Korean -- "
+                "large-v3 (or medium) is the safer choice for this drama.")
+    return ""
+
+
+# Decoder settings that stop Whisper's repeated-phrase loops at the source
+# (the same line echoed for minutes after music or silence): don't feed
+# each segment's text into the next one's prompt, forbid repeating any
+# 3-token sequence, and mildly penalise repeats. filter_hallucinated_segments
+# stays as the backstop for whatever still slips through.
+WHISPER_ANTI_LOOP_KWARGS = {"condition_on_previous_text": False, "no_repeat_ngram_size": 3,
+                            "repetition_penalty": 1.1}
 
 
 def release_gpu_models():
@@ -400,7 +429,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            hf_token: str = None, initial_prompt: str = "",
                            beam_size: int = 5, min_silence_duration_ms: int = 2000,
                            vad_threshold: float = 0.5, filter_hallucination_repeats: int = 4,
-                           on_gpu_fallback=None, progress_cb=None):
+                           on_gpu_fallback=None, progress_cb=None, fast_mode: bool = False):
     """
     initial_prompt: proper nouns to prime recognition with -- see
     build_initial_prompt(). Costs nothing and is the single biggest free
@@ -458,6 +487,10 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     multi-hour file. Progress is estimated from how far into the audio the
     latest segment ends (`info.duration` is faster-whisper's own total
     length estimate); silently reports nothing if that's unavailable.
+
+    fast_mode: opt-in -- runs faster-whisper's BatchedInferencePipeline,
+    which decodes several VAD chunks at once (roughly 4x faster on a GPU).
+    Same settings, same output shape; uses more VRAM while it runs.
     """
     model = load_whisper_model(model_size, use_gpu=use_gpu, local_model_path=local_model_path,
                                 hf_token=hf_token)
@@ -465,6 +498,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         "language": language, "vad_filter": True, "beam_size": beam_size,
         "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
                             "threshold": vad_threshold},
+        **WHISPER_ANTI_LOOP_KWARGS,
     }
     if initial_prompt.strip():
         kwargs["initial_prompt"] = initial_prompt.strip()
@@ -480,8 +514,14 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
             result = filter_hallucinated_segments(result, filter_hallucination_repeats)
         return result
 
+    def _run(m):
+        if fast_mode:
+            from faster_whisper import BatchedInferencePipeline
+            return BatchedInferencePipeline(model=m).transcribe(audio_path, **kwargs)
+        return m.transcribe(audio_path, **kwargs)
+
     try:
-        segments, _info = model.transcribe(audio_path, **kwargs)
+        segments, _info = _run(model)
         return _collect(segments, _info)
     except Exception as exc:
         # ctranslate2 defers CUDA init until this exact point -- a broken
@@ -495,7 +535,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                 on_gpu_fallback(exc)
             cpu_model = load_whisper_model(model_size, use_gpu=False,
                                             local_model_path=local_model_path, hf_token=hf_token)
-            segments, _info = cpu_model.transcribe(audio_path, **kwargs)
+            segments, _info = _run(cpu_model)
             return _collect(segments, _info)
         raise
 
