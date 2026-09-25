@@ -2781,6 +2781,221 @@ class TestTranscriptionCancelButton:
             _clear(job_id)
 
 
+class TestAutotuneRealMidRunStop:
+    """Step 6h: auto-tune runs each candidate min_silence_duration_ms
+    value as its own real OS subprocess, one after another, reusing
+    Step 4d/4e/4g's own subprocess-cancel mechanism (transcribe_for_timing
+    has no cancel checkpoint of its own) -- so cancelling mid-run
+    actually terminates whichever candidate is currently running, not
+    just hides the UI. multiprocessing.Process itself is faked
+    throughout, matching this project's established convention for
+    these tests -- no real OS process is ever spawned."""
+
+    def _drama_with_audio(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _fake_process_factory(self, monkeypatch, run_target_on_start=False, alive_forever=False):
+        instances = []
+
+        class _FakeProcess:
+            def __init__(self, target, args, daemon=True):
+                self._target, self._args = target, args
+                self._alive = True
+                self.terminated = False
+                self.exitcode = None
+
+            def start(self):
+                if run_target_on_start:
+                    self._target(*self._args)
+                    self._alive = False
+                    self.exitcode = 0
+                elif not alive_forever:
+                    self._alive = False
+                    self.exitcode = 1
+
+            def is_alive(self):
+                return self._alive
+
+            def terminate(self):
+                self.terminated = True
+                self._alive = False
+
+            def join(self, timeout=None):
+                pass
+
+        def factory(target, args, daemon=True):
+            proc = _FakeProcess(target, args, daemon=daemon)
+            instances.append(proc)
+            return proc
+
+        monkeypatch.setattr(background_jobs.multiprocessing, "Process", factory)
+        return instances
+
+    def test_clicking_auto_tune_starts_a_real_background_job_not_a_blocking_call(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_audio(isolated_db)
+        self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"autotune_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.key == f"autotune_btn_{did}"]
+        assert buttons, "Auto-tune button not found"
+        buttons[0].click().run(timeout=30)
+
+        status = background_jobs.get_status(job_id)
+        assert status is not None
+        assert status["status"] in ("running", "queued")
+        if status["status"] == "running":
+            background_jobs.request_cancel(job_id)
+            deadline = time.time() + 2
+            while time.time() < deadline:
+                s = background_jobs.get_status(job_id)
+                if s is None or s["status"] != "running":
+                    break
+                time.sleep(0.02)
+        background_jobs.clear_job(job_id)
+
+    def test_cancel_button_appears_while_running_and_actually_requests_a_stop(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_audio(isolated_db)
+        instances = self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"autotune_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs.start_process_job(
+            job_id, core_module.autotune_subprocess_worker,
+            args=("/fake/audio.wav", "large-v3", "zh", False, None, None, "", 5, 300, 0.5, False),
+            gpu_touching=True)
+
+        at = self._run(did)
+        at.session_state[f"autotune_{did}"] = {"candidates": [300, 800, 1500], "results": [],
+                                               "cancelled": False}
+        at.run(timeout=30)
+        cancel_buttons = [b for b in at.button if b.key == f"cancel_autotune_{did}"]
+        assert cancel_buttons, "Cancel button should show while auto-tune is running"
+        cancel_buttons[0].click().run(timeout=30)
+
+        deadline = time.time() + 2
+        while time.time() < deadline and not instances[0].terminated:
+            time.sleep(0.02)
+        assert instances[0].terminated is True, "Cancel must call the real Process.terminate()"
+        status = background_jobs.get_status(job_id)
+        assert status is None or status["status"] == "cancelled"
+        if status is not None:
+            background_jobs.clear_job(job_id)
+
+    def test_each_candidate_produces_a_distinct_coverage_result_and_chains_to_the_next(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_audio(isolated_db)
+        self._fake_process_factory(monkeypatch, run_target_on_start=True)
+
+        # Three candidates, each returning a different segment set --
+        # standing in for "produces a real, distinct diagnose_line_coverage
+        # result" -- so the finished run must show 3 distinct results,
+        # one per candidate, not the same one repeated three times.
+        segments_by_ms = {
+            300: [{"start": float(i), "end": float(i) + 1, "text": f"line{i}"} for i in range(5)],
+            800: [{"start": float(i), "end": float(i) + 1, "text": f"line{i}"} for i in range(3)],
+            1500: [{"start": 0.0, "end": 20.0, "text": "一二三四五六七八九十一二三四五"}],
+        }
+
+        def fake_worker(audio_path, model_size, language, use_gpu, local_model_path, hf_token,
+                        initial_prompt, beam_size, candidate_ms, vad_threshold, fast_mode,
+                        result_queue):
+            result_queue.put(("ok", {"candidate_ms": candidate_ms,
+                                     "segments": segments_by_ms[candidate_ms]}))
+        monkeypatch.setattr(core_module, "autotune_subprocess_worker", fake_worker)
+
+        job_id = f"autotune_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.key == f"autotune_btn_{did}"]
+        buttons[0].click().run(timeout=30)
+        # AppTest's st.rerun() re-executes synchronously and the fake
+        # process runs its target for real, but the real watcher thread
+        # still needs real wall-clock time to notice each candidate's
+        # process exit and mark the job "done" -- poll with reruns
+        # rather than assuming one .run() chains through all three.
+        deadline = time.time() + 5
+        state = None
+        while time.time() < deadline:
+            state = at.session_state.get(f"autotune_{did}")
+            if state and len(state["results"]) >= 3:
+                break
+            time.sleep(0.05)
+            at.run(timeout=30)
+
+        assert state and len(state["results"]) == 3
+        by_ms = {r["candidate_ms"]: r for r in state["results"]}
+        assert by_ms[300]["total_lines"] == 5 and by_ms[300]["long_lines"] == 0
+        assert by_ms[800]["total_lines"] == 3 and by_ms[800]["long_lines"] == 0
+        assert by_ms[1500]["total_lines"] == 1 and by_ms[1500]["long_lines"] == 1
+        background_jobs.clear_job(job_id)
+
+    def test_nothing_is_applied_until_the_user_explicitly_picks_one(self, isolated_db, monkeypatch):
+        """Design requirement, not just a manual check: auto-tune must
+        never silently apply a candidate -- the persisted slider value
+        stays whatever it was until "Use Nms" is explicitly clicked."""
+        did = self._drama_with_audio(isolated_db)
+        self._fake_process_factory(monkeypatch, run_target_on_start=True)
+
+        def fake_worker(audio_path, model_size, language, use_gpu, local_model_path, hf_token,
+                        initial_prompt, beam_size, candidate_ms, vad_threshold, fast_mode,
+                        result_queue):
+            result_queue.put(("ok", {"candidate_ms": candidate_ms,
+                                     "segments": [{"start": 0.0, "end": 1.0, "text": "x"}]}))
+        monkeypatch.setattr(core_module, "autotune_subprocess_worker", fake_worker)
+
+        job_id = f"autotune_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.key == f"autotune_btn_{did}"]
+        buttons[0].click().run(timeout=30)
+        deadline = time.time() + 5
+        state = None
+        while time.time() < deadline:
+            state = at.session_state.get(f"autotune_{did}")
+            if state and len(state["results"]) >= 3:
+                break
+            time.sleep(0.05)
+            at.run(timeout=30)
+        assert state and len(state["results"]) == 3
+
+        # All three candidates finished -- the persisted slider value
+        # must still be untouched (300, the default) until "Use" is clicked.
+        assert at.session_state.get(f"min_silence_ms_{did}", 300) == 300
+
+        use_buttons = [b for b in at.button if b.key == f"autotune_use_{did}_800"]
+        assert use_buttons, "\"Use 800ms\" button not found among the results"
+        use_buttons[0].click().run(timeout=30)
+
+        assert at.session_state[f"min_silence_ms_{did}"] == 800
+        assert f"autotune_{did}" not in at.session_state  # results cleared after picking
+        background_jobs.clear_job(job_id)
+
+
 class TestTranscribeQueuesBehindAnotherGpuJob:
     """Step 5c: a global, soft "one GPU job at a time" guard -- nothing
     before this stopped a transcription on one drama and, say, a
