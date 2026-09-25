@@ -1160,10 +1160,12 @@ Prompted by the user's "unified local translation platform" vision doc, cross-re
 1. **A series-level view, reachable from Library/Home** (Step 13 item 4's Home concept is the natural home for this): for any series with more than one drama, list every drama in it across media types together — e.g. "Series X: 1 video drama, 1 manga, 1 novel," not three unrelated Library rows.
 2. **A "shared from this series" indicator** wherever a character or glossary term appears in Workspace/Scanlate/Reader, so the sharing that already happens under the hood becomes visible — e.g. a small note that a character's pronoun/voice info came from the series, not this specific project, with a link to the series view.
 3. **No schema change, no new backend service** — this is a UI-only step built on data that already exists, sized like any other step in the 13–21 range, not a new architecture.
+4. **Surface Series in the "✏️ Edit metadata" expander too, at the user's direct request — confirmed a real gap by reading `workspace_tab.py` directly.** Today, series assignment only exists inside the separate "📖 Series glossary & term handling" expander (item 3 of the Translation section), even though it's exactly the kind of field a user reaches for in metadata alongside title/author/genre/tags — it's genuinely hidden relative to every other identifying field. Explicitly **not** removing it from the glossary expander (the user asked to keep it there) — add the same `series_options` dropdown (existing series, or "+ New series...") to the metadata expander too, both driven by the same `db.update_drama(picked_id, series_id=...)` call the glossary section already uses, so there's one source of truth and no risk of the two controls disagreeing.
 
 **Exit:**
 - Manual check: create two dramas (different `media_type`) in the same series with a shared character already set, and confirm the series view lists both together and the character indicator shows the shared origin.
 - A test shows the series-view query returns every drama for a given `series_id` regardless of `media_type`.
+- Manual check: set a drama's series from the metadata expander, confirm it shows correctly in the glossary expander's own dropdown (and vice versa) — one `series_id`, two entry points, never out of sync.
 
 ### Step 23 — Source-adapter architecture (interface only, no site-specific code)
 Second half of the user's raw-source vision (§0), scoped down to what's responsibly buildable this pass. Checked the two reference projects directly before designing anything, not assumed:
