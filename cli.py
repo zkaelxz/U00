@@ -37,6 +37,7 @@ from core import (
 )
 import translate_engines
 import translation_guide as tguide
+import raw_transcript
 import dub as dub_module
 
 
@@ -183,6 +184,10 @@ def cmd_align(args):
         user_lines = split_user_transcript(transcript_text)
         lines = align_transcript_to_timing(user_lines, segments)
         db.save_lines(d["id"], lines)
+        # Same untouched-output record the Workspace transcription writes.
+        raw_transcript.write_raw_transcript(
+            ddir, segments, lines, backend="whisper", model=args.whisper_size,
+            language=d.get("source_language") or "zh", mode="aligned_transcript")
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
 
