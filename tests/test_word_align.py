@@ -24,11 +24,44 @@ import core as core_module
 
 
 class TestCheckDependencies:
-    def test_raises_a_clear_actionable_error_when_missing(self, monkeypatch):
+    """Step 4h: the old message bundled all three imports into one catch,
+    so it could never say which one actually failed -- a real, confirmed
+    gap (the user upgraded torch/torchaudio but the error still named
+    both, when only uroman was actually missing)."""
+
+    def _stub_present(self, monkeypatch, *names):
+        """Installs an empty-but-importable fake module for each name, so
+        a test naming ONE specific package as missing is deterministic
+        regardless of what's actually installed in the sandbox running
+        it (real torch happens to be present here; torchaudio/uroman
+        aren't -- neither fact should be able to affect these tests)."""
+        for name in names:
+            monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+
+    def test_names_torch_specifically_when_only_it_is_missing(self, monkeypatch):
+        self._stub_present(monkeypatch, "torchaudio", "uroman", "soundfile")
         monkeypatch.setitem(sys.modules, "torch", None)
+        with pytest.raises(word_align.WordAlignError, match=r"pip install torch$"):
+            word_align._check_dependencies()
+
+    def test_names_torchaudio_specifically_when_only_it_is_missing(self, monkeypatch):
+        self._stub_present(monkeypatch, "torch", "uroman", "soundfile")
         monkeypatch.setitem(sys.modules, "torchaudio", None)
+        with pytest.raises(word_align.WordAlignError, match="pip install torchaudio"):
+            word_align._check_dependencies()
+
+    def test_names_uroman_specifically_when_only_it_is_missing(self, monkeypatch):
+        self._stub_present(monkeypatch, "torch", "torchaudio", "soundfile")
         monkeypatch.setitem(sys.modules, "uroman", None)
-        with pytest.raises(word_align.WordAlignError, match="pip install torchaudio uroman"):
+        with pytest.raises(word_align.WordAlignError, match="pip install uroman"):
+            word_align._check_dependencies()
+
+    def test_names_soundfile_specifically_when_only_it_is_missing(self, monkeypatch):
+        """align_words() reads audio via soundfile now (Step 4h item 3),
+        so it's a real dependency of this feature too."""
+        self._stub_present(monkeypatch, "torch", "torchaudio", "uroman")
+        monkeypatch.setitem(sys.modules, "soundfile", None)
+        with pytest.raises(word_align.WordAlignError, match="pip install soundfile"):
             word_align._check_dependencies()
 
 
@@ -80,6 +113,17 @@ class TestAlignWords:
             def __getitem__(self, idx):
                 return self
 
+        class FakeWaveformArray:
+            """Stands in for what soundfile.read() returns -- only .T is
+            used (to convert (frames, channels) -> (channels, frames),
+            the shape torchaudio.load() used to hand back directly)."""
+            def __init__(self, shape):
+                self.shape = shape
+
+            @property
+            def T(self):
+                return FakeWaveformArray((self.shape[1], self.shape[0]))
+
         class FakeSpan:
             def __init__(self, start, end):
                 self.start, self.end = start, end
@@ -110,19 +154,22 @@ class TestAlignWords:
             def get_aligner(self):
                 return FakeAligner()
 
-        fake_torch = t.ModuleType("torch")
-        fake_torch.inference_mode = lambda: _NullContext()
-
         class _NullContext:
             def __enter__(self):
                 return None
 
             def __exit__(self, *a):
                 return False
+
+        fake_torch = t.ModuleType("torch")
         fake_torch.inference_mode = lambda: _NullContext()
+        # align_words() now does torch.from_numpy(waveform.T) instead of
+        # torchaudio.load() -- wraps whatever soundfile.read() (faked
+        # below) hands back into the same FakeTensor the rest of this
+        # fake already expects.
+        fake_torch.from_numpy = lambda arr: FakeTensor(arr.shape)
 
         fake_torchaudio = t.ModuleType("torchaudio")
-        fake_torchaudio.load = lambda path: (FakeTensor((1, num_samples)), sample_rate)
         fake_torchaudio.pipelines = t.SimpleNamespace(MMS_FA=FakeBundle())
         fake_torchaudio.functional = t.SimpleNamespace(
             resample=lambda waveform, orig_sr, new_sr: waveform)
@@ -134,9 +181,23 @@ class TestAlignWords:
                 return text  # identity -- not testing real romanization here
         fake_uroman.Uroman = FakeUroman
 
+        read_calls = []
+        fake_soundfile = t.ModuleType("soundfile")
+        # (frames, channels) -- the shape soundfile's own always_2d=True
+        # read returns, before align_words()'s own .T flips it to
+        # (channels, frames) to match what torchaudio.load() used to
+        # hand back directly.
+
+        def fake_read(path, dtype="float32", always_2d=True):
+            read_calls.append((path, dtype, always_2d))
+            return FakeWaveformArray((num_samples, 1)), sample_rate
+        fake_soundfile.read = fake_read
+
         monkeypatch.setitem(sys.modules, "torch", fake_torch)
         monkeypatch.setitem(sys.modules, "torchaudio", fake_torchaudio)
         monkeypatch.setitem(sys.modules, "uroman", fake_uroman)
+        monkeypatch.setitem(sys.modules, "soundfile", fake_soundfile)
+        return read_calls
 
     def test_returns_one_entry_per_word_in_order(self, monkeypatch):
         self._install_fakes(monkeypatch, num_frames=100, sample_rate=16000, num_samples=16000)
@@ -152,6 +213,17 @@ class TestAlignWords:
         # token 1 -> span(1,2) -> start=1*0.01=0.01, end=2*0.01=0.02
         assert result[0] == ("a", 0.0, pytest.approx(0.01))
         assert result[1] == ("b", pytest.approx(0.01), pytest.approx(0.02))
+
+    def test_reads_audio_via_soundfile_not_torchaudio_load(self, monkeypatch):
+        """Step 4h item 3: torchaudio.load() routes through torchcodec by
+        default on torchaudio>=2.9, which can fail for a plain WAV read
+        that never needed torchcodec's decode path -- the same class of
+        break Step 4c already fixed for diarize(). The fake torchaudio
+        module here has no .load attribute at all, so this would raise
+        AttributeError immediately if align_words() ever called it again."""
+        read_calls = self._install_fakes(monkeypatch, num_frames=10, sample_rate=16000, num_samples=1600)
+        word_align.align_words("/fake/audio.wav", ["a"])
+        assert read_calls == [("/fake/audio.wav", "float32", True)]
 
 
 class TestRealignLongSegment:
@@ -196,6 +268,32 @@ class TestRealignLongSegment:
         segment = {"start": 100.0, "end": 130.0, "text": "你好世界"}
         result = word_align.realign_long_segment("/fake/audio.wav", segment, "zh")
         assert result == [segment]
+
+    def test_the_real_exception_is_logged_before_falling_back(self, monkeypatch, isolated_db):
+        """Step 4h item 2: this used to be a bare except Exception: return
+        [segment] -- silently swallowing ANY failure inside align_words()
+        (a real, confirmed live break: a torchcodec-routing failure on
+        torchaudio>=2.9, the same class Step 4c already fixed for
+        diarize()), leaving every segment quietly unsplit with no error
+        visible anywhere."""
+        import applog
+
+        monkeypatch.setattr(segment_module, "segment_and_annotate",
+                             lambda text, language, chinese_script="simplified":
+                             [("你好", None), ("世界", None)])
+        monkeypatch.setattr(core_module, "extract_audio_slice",
+                             lambda audio_path, start, end, out_path: open(out_path, "wb").close())
+
+        def failing_align(slice_path, words, device="cpu"):
+            raise RuntimeError("torchcodec decode failed")
+        monkeypatch.setattr(word_align, "align_words", failing_align)
+
+        segment = {"start": 100.0, "end": 130.0, "text": "你好世界"}
+        result = word_align.realign_long_segment("/fake/audio.wav", segment, "zh")
+
+        assert result == [segment]  # the safe fallback is unchanged
+        joined = "\n".join(applog.tail(50))
+        assert "torchcodec decode failed" in joined
 
     def test_slice_file_is_cleaned_up_even_on_failure(self, monkeypatch):
         monkeypatch.setattr(segment_module, "segment_and_annotate",

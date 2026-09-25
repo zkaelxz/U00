@@ -47,10 +47,10 @@ genuinely missing dependency, by contrast, fails LOUD and immediately
 (WordAlignError) so the caller can show one clear, actionable message
 instead of every single line silently no-op'ing with no visible error.
 
-Requires: `pip install torchaudio uroman` (torchaudio is already a
-transitive dependency of faster-whisper/pyannote.audio elsewhere in this
-app; torchaudio.pipelines.MMS_FA downloads its own model, ~1.1GB, from
-Meta on first use).
+Requires: `pip install torchaudio uroman soundfile` (torchaudio and
+soundfile are already transitive/direct dependencies of faster-whisper/
+pyannote.audio elsewhere in this app; torchaudio.pipelines.MMS_FA
+downloads its own model, ~1.1GB, from Meta on first use).
 """
 import os
 import tempfile
@@ -69,9 +69,14 @@ def _check_dependencies():
         import torch  # noqa: F401
         import torchaudio  # noqa: F401
         import uroman  # noqa: F401
+        import soundfile  # noqa: F401
     except ImportError as exc:
+        # exc.name is the specific module that failed to import, and
+        # happens to match its pip package name exactly for all four of
+        # these -- names the one actually missing instead of bundling
+        # all of them into one message that can't say which it was.
         raise WordAlignError(
-            "Word-level realignment needs: pip install torchaudio uroman") from exc
+            f"Word-level realignment needs: pip install {exc.name}") from exc
 
 
 def align_words(audio_path: str, words: list, device: str = "cpu"):
@@ -86,10 +91,19 @@ def align_words(audio_path: str, words: list, device: str = "cpu"):
     one Latin-based token inventory, so each word is romanized via
     `uroman` before alignment; the words returned are still your
     ORIGINAL (un-romanized) input, just with timing attached.
+
+    Reads audio_path via soundfile, not torchaudio.load() -- the same
+    Step 4c fix diarize() already needed: torchaudio>=2.9 routes
+    load()/save() through torchcodec by default, which can fail (no
+    compiled-per-FFmpeg-version DLLs) for a plain WAV read that never
+    needed torchcodec's decode path at all. MMS_FA itself is still the
+    real torchaudio model this aligns against -- only the file read
+    changes.
     """
     import torch
     import torchaudio
     import uroman as ur
+    import soundfile as sf
 
     bundle = torchaudio.pipelines.MMS_FA
     model = bundle.get_model().to(device)
@@ -97,7 +111,8 @@ def align_words(audio_path: str, words: list, device: str = "cpu"):
     aligner = bundle.get_aligner()
     uromanizer = ur.Uroman()
 
-    waveform, sr = torchaudio.load(audio_path)
+    waveform, sr = sf.read(audio_path, dtype="float32", always_2d=True)
+    waveform = torch.from_numpy(waveform.T)  # (frames, channels) -> (channels, frames)
     if sr != bundle.sample_rate:
         waveform = torchaudio.functional.resample(waveform, sr, bundle.sample_rate)
 
@@ -163,7 +178,12 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     to split) -- see the module docstring for why this fails soft rather
     than raising: a confirmed real failure mode exists for CTC aligners
     on some CJK text, and one line's alignment trouble must never lose
-    that line or crash a whole transcription job over it.
+    that line or crash a whole transcription job over it. The real
+    exception is logged (applog) before falling back, though -- silently
+    swallowing it made a real, confirmed break in align_words() itself
+    (a torchcodec-routing failure, the same class Step 4c already fixed
+    for diarize()) invisible: every segment just quietly stayed unsplit
+    with no error shown anywhere.
     """
     import segment as segment_module
 
@@ -178,7 +198,11 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
         import core as core_module
         core_module.extract_audio_slice(audio_path, segment["start"], segment["end"], slice_path)
         aligned = align_words(slice_path, words, device=device)
-    except Exception:
+    except Exception as exc:
+        import applog
+        applog.get_logger().error(
+            f"word-level realignment failed on segment {segment['start']:.1f}-"
+            f"{segment['end']:.1f}s, keeping it unsplit: {exc}")
         return [segment]
     finally:
         if os.path.exists(slice_path):
