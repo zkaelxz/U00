@@ -3,33 +3,29 @@
 > **NEXT:** Confirmed via `git log origin/baihe-subtitler` — Steps 1d, 1e,
 > 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12), autonomous mode is
 > working as intended. The `CLAUDE.md` re-copy is also done (commit
-> `cea6688`). **Two more merged commits since the last check, neither tied
-> to a specific step**: PR #13 re-synced `CLAUDE.md` from this planning
-> branch (picking up this session's Sonnet-default/Opus-gate reversal and
-> the "register new optional deps in diagnostics" rule), and PR #14
-> ("Register audio-separator and funasr in diagnostics' OPTIONAL_DEPENDENCIES")
-> is real, working evidence that new rule is already catching genuine gaps.
-> **Start Step 5b next** (four bugs now, not three — the three the user
-> found during manual testing, plus the fully-diagnosed `js_runtimes`
-> list-vs-dict fix for Live capture, found and precisely specified this
-> session) — small, unrelated-to-6c fixes, worth clearing before 6c so they
-> don't linger. **Then Step 5c** (the global GPU-job guard, added this
-> session) fits naturally right after — small, and closes a real VRAM-
-> contention gap before more GPU-heavy steps land. **Then Step 6c** — its
-> design is already confirmed correct as written (rule-based split first
-> reusing `segment.py`, one LLM pass only for lines still too long with its
-> output checked against the original text via `SequenceMatcher`, and the
-> warn-then-selectively-clear guardrail for lines whose boundaries actually
-> changed) — no redesign needed, just the step's own existing "re-verify
-> against current code" instruction before implementing, **and it's now an
-> Opus-gated step** (§4) — stop and confirm the model switch before
-> starting it.
+> `cea6688`). **Three more merged commits since the last check**: PR #13
+> re-synced `CLAUDE.md` from this planning branch, PR #14 registered
+> `audio-separator`/`funasr` in Diagnostics, and **PR #15 registered
+> `demucs`** too — a pre-existing gap flagged (not silently fixed) in PR
+> #14's own description, then cleared in a small follow-up once the
+> planning session confirmed it was low-risk enough not to wait for a full
+> triage cycle. **Steps 5b and 5c are now both merged**: **PR #16** ("Step
+> 5b: fix bugs found during manual testing of Steps 1-6b") and **PR #17**
+> ("Step 5c: a global, soft GPU-job guard for concurrent GPU-touching
+> jobs"). **Start Step 6c next** — its design is already confirmed correct
+> as written (rule-based split first reusing `segment.py`, one LLM pass
+> only for lines still too long with its output checked against the
+> original text via `SequenceMatcher`, and the warn-then-selectively-clear
+> guardrail for lines whose boundaries actually changed) — no redesign
+> needed, just the step's own existing "re-verify against current code"
+> instruction before implementing, **and it's an Opus-gated step** (§4) —
+> stop and confirm the model switch before starting it.
 > **Manual checks still open, not chased further this session:** Step 5's
 > GPU/VRAM figure for `qwen3:8b` is now resolved without hardware (see §2);
 > Step 6b's mpv/VLC playback and live-preview checks still need a person at
-> a screen.
+> a screen; Step 5b's and 5c's own manual checks (§2 rows) are pending too.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-26. If this line is stale, the status table below
+> memory, as of 2026-09-27. If this line is stale, the status table below
 > it is the source of truth.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
@@ -1172,8 +1168,8 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 3 — R1-lite original transcript | `step-3-keep-original-transcript` | ✅ Merged (PR #8) | ⏳ Pending |
   | 4 — R2 speaker detection | `step-4-rerun-speaker-detection` | ✅ Merged (PR #9) | ⏳ Pending |
   | 5 — R3-lite local-model defaults | `step-5-local-model-defaults` | ✅ Merged (PR #10) | ✅ **Resolved (2026-09-26)** via real quantization-level VRAM research rather than hardware access — see manual-check note in §2. |
-  | 5b — Bugs found during manual testing | — | Not started | — |
-  | 5c — Global GPU-job guard | — | Not started | — |
+  | 5b — Bugs found during manual testing | `step-5b-bug-fixes` | ✅ Merged (PR #16) | ⏳ Pending |
+  | 5c — Global GPU-job guard | `step-5c-gpu-job-guard` | ✅ Merged (PR #17) | ⏳ Pending |
   | 6 — Transcription quality | `step-6-transcription-quality` | ✅ Merged (PR #11) | ⏳ Pending |
   | 6b — Export formats (VTT/ASS) | `step-6b-export-formats` | ✅ Merged (PR #12) | ⏳ **Partial** — mpv/VLC playback check and the live-preview check both need a person watching a screen; not done yet. |
   | 6c — Meaning-based re-segmentation | — | Not started | — |
