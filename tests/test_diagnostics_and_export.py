@@ -73,7 +73,8 @@ class TestDiagnostics:
         deps = diagnostics.OPTIONAL_DEPENDENCIES
         assert deps["audio-separator"][0] == "audio_separator"
         assert deps["funasr"][0] == "funasr"
-        assert deps["audio-separator"][2] == deps["funasr"][2] == "feature"
+        assert deps["demucs"][0] == "demucs"
+        assert deps["audio-separator"][2] == deps["funasr"][2] == deps["demucs"][2] == "feature"
 
     def test_file_completeness_detects_all_present_in_real_project(self):
         result = diagnostics.check_file_completeness(PROJECT_ROOT)
