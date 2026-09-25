@@ -69,6 +69,7 @@ OPTIONAL_DEPENDENCIES = {
                         "falls back to Demucs)", "feature"),
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
+    "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "pytest": ("pytest", "running the test suite", "dev"),
 }
 
