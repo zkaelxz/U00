@@ -67,10 +67,21 @@
 > the exact fix this session specced (pre-load via `torchaudio.load()`,
 > pass a `{"waveform", "sample_rate"}` dict instead of a bare path),
 > confirmed by reading the real diff, not just the commit message.
-> **Start Step 10b next**, ahead of Step 11 (Scanlate: finish the ML
-> detector, add real inpainting, auto-route OCR) — still in the Steps
-> 1e–10 autonomous-mode window's aftermath; check §4's Opus-gate table
-> for each step's own gating status before starting.
+> **Reprioritized (2026-09-27), at the user's explicit request: start
+> Step 4d next, ahead of Step 10b.** The implementing session correctly
+> followed the previous version of this note and picked up neither —
+> nothing here is a mistake on their part, this is a genuine, deliberate
+> reorder, not a correction of stale guidance. Step 4d (real mid-run stop
+> for speaker detection, via a subprocess so Cancel can actually
+> terminate the run rather than the cooperative-flag pattern every other
+> job uses) was queued in normal build order since it's a real feature
+> request, not a live bug the way 4b/4c were — the user asked to bump it
+> ahead anyway. Step 10b (CI automation for the fresh-machine bootstrap
+> check) stays queued, just no longer next. After Step 4d: Step 10b, then
+> Step 11 (Scanlate), then Steps 18b/18c (App Assistant, in-app Install
+> buttons) in their existing build-order position — still in the Steps
+> 1e–10 autonomous-mode window's aftermath; check §4's Opus-gate table for
+> each step's own gating status before starting.
 > **Manual checks still open, not chased further this session:** Steps
 > 5b/5c/6c/6d/6e/7/7b/8/9/9b/9c/9d/10's own manual-check rows (§2) are all
 > pending; Step 6b's mpv/VLC playback and live-preview checks still need
