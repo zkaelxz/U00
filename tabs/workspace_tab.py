@@ -2127,21 +2127,20 @@ def render_workspace_tab():
                                                        "en-AU": "Australian English"}[l])
         st.session_state[f"locale_{picked_id}"] = locale
 
-        with st.expander("💾 Save current settings as a preset"):
-            st.caption("Captures engine + model, translation style, English variant, the "
-                      "pronoun default and genre-guidance toggle above -- reusable on any "
-                      "other drama, not just this series (📚 Library → 🎛️ Presets to manage "
-                      "saved ones).")
-            _new_preset_name = st.text_input("Preset name", key=f"new_preset_name_{picked_id}")
-            if st.button("Save as preset", key=f"save_preset_btn_{picked_id}",
-                        disabled=not _new_preset_name.strip()):
-                db.save_preset(
-                    _new_preset_name.strip(), translation_engine=engine_choice,
-                    engine_model=engine_model, style_preset=style_preset, locale=locale,
-                    default_female_pronouns=st.session_state.get(
-                        f"default_female_pronouns_{picked_id}", False),
-                    include_genre_notes=include_genre_notes)
-                st.success(f"Saved preset \"{_new_preset_name.strip()}\".")
+        st.caption("💾 **Save current settings as a preset** — captures engine + model, "
+                  "translation style, English variant, the pronoun default and "
+                  "genre-guidance toggle above -- reusable on any other drama, not just "
+                  "this series (📚 Library → 🎛️ Presets to manage saved ones).")
+        _new_preset_name = st.text_input("Preset name", key=f"new_preset_name_{picked_id}")
+        if st.button("Save as preset", key=f"save_preset_btn_{picked_id}",
+                    disabled=not _new_preset_name.strip()):
+            db.save_preset(
+                _new_preset_name.strip(), translation_engine=engine_choice,
+                engine_model=engine_model, style_preset=style_preset, locale=locale,
+                default_female_pronouns=st.session_state.get(
+                    f"default_female_pronouns_{picked_id}", False),
+                include_genre_notes=include_genre_notes)
+            st.success(f"Saved preset \"{_new_preset_name.strip()}\".")
         context_window = st.slider(
             "Context lines shown from before each batch", 0, 20, 6,
             help="Shows the model how the immediately preceding lines were already "
