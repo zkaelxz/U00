@@ -91,8 +91,10 @@
 > that resolves whether Step 9f item 4's `scan_hf_cache` bug is a live
 > regression or just a stale test fixture (see Step 9f for the full
 > finding).
+> **Re-checked against real branch state (2026-09-26) before this next note, not assumed:** `git fetch origin baihe-subtitler` confirms the latest merge is still **PR #36** ("Step 4c follow-up: fix CI-red — skip `TestDiarize*` cleanly without torch"), already recorded above. Nothing further has merged since — Step 4d is still genuinely not started, so the reprioritization above still holds as the real next pickup.
+> **Step 18 flagged as ready to hand off, at the user's explicit request (2026-09-26) — a deliberate reprioritization, not a correction.** Step 18 (Diagnostics narrowing) now carries a concrete, user-confirmed item 2 refinement: hyperlink each "Model & engine versions" entry's own name instead of spelling the raw URL out in the visible text, and give installed vs. not-installed rows a real, consistent visual signal (a checkmark/version pairing vs. a muted "not installed," driven by an actual boolean rather than today's identical styling) — both checked directly against `diagnostics_tab.py`'s real render loop before being written up, not guessed. This doesn't reorder the queue ahead of Step 4d/4g (both real bugs, still the more urgent pickups) — it's flagged as ready *whenever* the implementing session reaches Diagnostics work, so it isn't missed or has to be re-derived from a vague "make it nicer" note later.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-25. If this line is stale, the status table below
+> memory, as of 2026-09-26. If this line is stale, the status table below
 > it is the source of truth.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
