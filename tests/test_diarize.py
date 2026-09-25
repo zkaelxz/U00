@@ -11,6 +11,7 @@ new name either.
 """
 import sys
 import os
+import queue
 
 import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -203,6 +204,51 @@ class TestDiarizePreloadsAudioWithSoundfile:
         monkeypatch.setitem(sys.modules, "soundfile", fake_soundfile)  # overwrite _stub_pyannote's own fake
         diarize.diarize("/fake/audio.wav", "hf_xxx")
         assert load_calls == [("/fake/audio.wav", "float32", True)]
+
+
+class TestDiarizeSubprocessWorker:
+    """Step 4d: diarize_subprocess_worker() is the entry point
+    background_jobs.start_process_job() runs in its own OS process, so a
+    real mid-run Cancel can terminate it (pyannote's pipeline call has no
+    cooperative-cancellation checkpoint of its own). Tested here as a
+    plain function call against the same fixture pipeline used
+    elsewhere in this file -- background_jobs.py's own tests cover the
+    actual multiprocessing.Process/cancel machinery -- confirming it
+    produces exactly what a direct diarize() call would, and reports an
+    exception instead of raising into the (real, separate) process."""
+
+    def test_matches_a_direct_diarize_call_on_success(self):
+        pytest.importorskip("torch")
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00"), (1.0, 2.0, "SPEAKER_01")])
+        direct_segments, direct_model, direct_embeddings = diarize.diarize(
+            "/fake/audio.wav", "hf_xxx", num_speakers=2, return_model=True, return_embeddings=True)
+
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00"), (1.0, 2.0, "SPEAKER_01")])
+        result_queue = queue.Queue()
+        diarize.diarize_subprocess_worker("/fake/audio.wav", "hf_xxx", 2, result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome == ("ok", {"segments": direct_segments, "model": direct_model,
+                                  "embeddings": direct_embeddings})
+
+    def test_reports_an_exception_instead_of_raising(self):
+        pytest.importorskip("torch")
+
+        def _boom(model_name, **kwargs):
+            raise RuntimeError("pipeline exploded")
+
+        import types
+        fake_module = types.ModuleType("pyannote.audio")
+        fake_module.Pipeline = types.SimpleNamespace(from_pretrained=_boom)
+        sys.modules["pyannote.audio"] = fake_module
+        parent = types.ModuleType("pyannote")
+        parent.audio = fake_module
+        sys.modules["pyannote"] = parent
+
+        result_queue = queue.Queue()
+        diarize.diarize_subprocess_worker("/fake/audio.wav", "hf_xxx", None, result_queue)
+        outcome = result_queue.get_nowait()
+        assert outcome == ("error", "RuntimeError", "pipeline exploded")
 
 
 class TestAssignSpeakerToLine:

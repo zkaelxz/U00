@@ -2005,11 +2005,13 @@ class TestDiarizationEstimateCaption:
 
     def _run(self, did, monkeypatch):
         from streamlit.testing.v1 import AppTest
-        import diarize
 
-        monkeypatch.setattr(diarize, "diarize", lambda *a, **k: ([], "fake-model"))
-        monkeypatch.setattr(diarize, "save_turns", lambda *a, **k: None)
-        monkeypatch.setattr(diarize, "manual_lines_that_would_change", lambda *a, **k: [])
+        # Step 4d: the button now starts a real multiprocessing.Process
+        # via background_jobs.start_process_job() instead of calling
+        # diarize.diarize() synchronously -- faked here the same way
+        # test_background_jobs.py fakes it, so this test doesn't spawn a
+        # real OS process.
+        monkeypatch.setattr(background_jobs, "start_process_job", lambda *a, **k: True)
 
         def _render():
             import tabs.workspace_tab as wt
@@ -2033,6 +2035,182 @@ class TestDiarizationEstimateCaption:
         at.run(timeout=30)
 
         assert any("12:34" in c.value for c in at.caption)
+
+
+class TestSpeakerDetectionRealMidRunStop:
+    """Step 4d: diarization now runs as a real OS subprocess
+    (background_jobs.start_process_job), not a blocking gpu_slot() call
+    inside the button handler -- so it's non-blocking, and Cancel can
+    actually terminate the underlying work rather than just asking it to
+    stop cooperatively (pyannote's pipeline call has no such checkpoint).
+    multiprocessing.Process itself is faked throughout, matching
+    test_background_jobs.py's own convention -- no real OS process is
+    ever spawned -- but the real _jobs dict, watcher thread, and lock
+    all run for real."""
+
+    def _drama_with_audio(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["workspace_hf_token_input"] = "fake-hf-token"
+        at.run(timeout=30)
+        return at
+
+    def _fake_process_factory(self, monkeypatch, run_target_on_start=False, alive_forever=False):
+        instances = []
+
+        class _FakeProcess:
+            def __init__(self, target, args, daemon=True):
+                self._target, self._args = target, args
+                self._alive = True
+                self.terminated = False
+                self.exitcode = None
+
+            def start(self):
+                if run_target_on_start:
+                    self._target(*self._args)
+                    self._alive = False
+                    self.exitcode = 0
+                elif not alive_forever:
+                    self._alive = False
+                    self.exitcode = 1
+
+            def is_alive(self):
+                return self._alive
+
+            def terminate(self):
+                self.terminated = True
+                self._alive = False
+
+            def join(self, timeout=None):
+                pass
+
+        def factory(target, args, daemon=True):
+            proc = _FakeProcess(target, args, daemon=daemon)
+            instances.append(proc)
+            return proc
+
+        monkeypatch.setattr(background_jobs.multiprocessing, "Process", factory)
+        return instances
+
+    def _wait_past(self, job_id, status_to_leave, timeout=2.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            status = background_jobs.get_status(job_id)
+            if status is None or status["status"] != status_to_leave:
+                return status
+            time.sleep(0.02)
+        return background_jobs.get_status(job_id)
+
+    def test_clicking_the_button_starts_a_real_background_job_not_a_blocking_call(
+            self, isolated_db, monkeypatch):
+        """The whole point of Step 4d: the button no longer blocks the
+        script inside a gpu_slot() call -- it starts a job and control
+        returns to the script immediately, with the job visible via
+        background_jobs.get_status()."""
+        did = self._drama_with_audio(isolated_db)
+        self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"diarize_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.key == f"rerun_speakers_{did}"]
+        assert buttons
+        buttons[0].click().run(timeout=30)
+
+        status = background_jobs.get_status(job_id)
+        assert status is not None
+        assert status["status"] in ("running", "queued")
+        # alive_forever=True means a real watcher thread is still polling
+        # in the background -- cancel and wait for it to actually exit
+        # before this test ends, so it can't outlive this test and touch
+        # a later test's same-named job_id (isolated_db resets its own
+        # autoincrement per test, but background_jobs' module-level
+        # state and daemon threads don't).
+        if status["status"] == "running":
+            background_jobs.request_cancel(job_id)
+            self._wait_past(job_id, "running")
+        background_jobs.clear_job(job_id)
+
+    def test_cancel_button_appears_while_running_and_actually_requests_a_stop(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_audio(isolated_db)
+        instances = self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"diarize_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs.start_process_job(
+            job_id, diarize.diarize_subprocess_worker,
+            args=("/fake/audio.wav", "hf_x", None), gpu_touching=False)
+
+        at = self._run(did)
+        cancel_buttons = [b for b in at.button if b.key == f"cancel_diarize_{did}"]
+        assert cancel_buttons, "Cancel button should show while the job is running"
+        # AppTest's st.rerun() re-executes synchronously within this one
+        # call, so by the time it returns the real watcher thread may
+        # already have noticed the cancel, terminated the process, AND
+        # (correctly) had the next render clear the finished job record --
+        # all before this line runs. That's correct, fast behavior, not a
+        # bug, so this doesn't assert on is_cancel_requested()/a "cancelled"
+        # status still being present -- only on what must be true either
+        # way: the fake process's terminate() was actually called (the
+        # exit condition this test exists for), and the job never ended up
+        # "done"/"error" (it never finishes on its own -- alive_forever=True
+        # -- so the only way it can stop at all is via terminate()).
+        cancel_buttons[0].click().run(timeout=30)
+
+        deadline = time.time() + 2
+        while time.time() < deadline and not instances[0].terminated:
+            time.sleep(0.02)
+        assert instances[0].terminated is True, "Cancel must call the real Process.terminate()"
+        status = background_jobs.get_status(job_id)
+        assert status is None or status["status"] == "cancelled"
+        if status is not None:
+            background_jobs.clear_job(job_id)
+
+    def test_done_job_result_is_applied_the_same_way_a_synchronous_run_used_to(
+            self, isolated_db, monkeypatch):
+        """Confirms the async path produces the exact same end state a
+        direct diarize.diarize() call used to -- turns saved, speakers
+        merged onto the drama's lines."""
+        did = self._drama_with_audio(isolated_db)
+        self._fake_process_factory(monkeypatch, run_target_on_start=True)
+
+        def fake_worker(audio_path, hf_token, num_speakers, result_queue):
+            result_queue.put(("ok", {"segments": [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"}],
+                                     "model": "fake-model", "embeddings": {}}))
+        monkeypatch.setattr(diarize, "diarize_subprocess_worker", fake_worker)
+
+        job_id = f"diarize_{did}"
+        background_jobs.clear_job(job_id)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.key == f"rerun_speakers_{did}"]
+        # AppTest's st.rerun() re-executes the script synchronously within
+        # this one call (rather than returning to the caller first), and
+        # the fake process runs its target synchronously in start() too --
+        # so by the time this returns, the result has already round-
+        # tripped through the (real) queue and been applied.
+        buttons[0].click().run(timeout=30)
+
+        lines = db.load_line_objects(did)
+        assert lines[0].speaker == "SPEAKER_00"
+        assert background_jobs.get_status(job_id) is None  # cleared once applied
 
 
 class TestVerticalShortsExport:
@@ -2233,6 +2411,72 @@ class TestTranscribeQueuesBehindAnotherGpuJob:
         finally:
             release.set()
             background_jobs.clear_job(f"transcribe_{did}")
+
+
+class TestDiarizationAutoStartsAfterAlign:
+    """Step 4d: the "Run speaker diarization during alignment" checkbox
+    used to run diarize.diarize() synchronously inline, in the same
+    script run as Transcribe & Align, blocking it from finishing until
+    diarization completed too. It now starts the same background
+    subprocess job _render_speaker_rerun's own polling picks up (section
+    4), rather than diarizing inline -- this just confirms the wiring:
+    once alignment finishes, a diarize_<id> job is actually started."""
+
+    def _drama_ready_to_align(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="not started",
+                                        audio_filename="audio.wav", transcript_mode="have_transcript")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did, monkeypatch):
+        from streamlit.testing.v1 import AppTest
+        import tabs.workspace_tab as wt
+
+        monkeypatch.setattr(wt, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"tmode_{did}"] = "have_transcript"
+        at.session_state[f"transcript_{did}"] = "你好"
+        at.session_state["workspace_hf_token_input"] = "fake-hf-token"
+        at.run(timeout=30)
+        return at
+
+    def test_diarize_checkbox_starts_a_background_job_once_alignment_finishes(
+            self, isolated_db, monkeypatch):
+        did = self._drama_ready_to_align(isolated_db)
+        started_jobs = []
+        monkeypatch.setattr(
+            background_jobs, "start_process_job",
+            lambda job_id, target, **kwargs: started_jobs.append((job_id, target, kwargs)) or True)
+
+        at = self._run(did, monkeypatch)
+        diarize_checks = [c for c in at.checkbox if "Run speaker diarization" in c.label]
+        assert diarize_checks, "diarization checkbox not found"
+        diarize_checks[0].check().run(timeout=30)
+
+        buttons = [b for b in at.button if b.label == "▶ Transcribe & Align"]
+        assert buttons, "Transcribe & Align button not found"
+        buttons[0].click()
+        at.run(timeout=30)
+
+        deadline = time.time() + 3
+        while time.time() < deadline and background_jobs.is_running(f"transcribe_{did}"):
+            time.sleep(0.02)
+        at.run(timeout=30)
+
+        assert any(job_id == f"diarize_{did}" for job_id, _, _ in started_jobs), \
+            f"expected a diarize_{did} job to be started, got: {started_jobs}"
+        background_jobs.clear_job(f"transcribe_{did}")
 
 
 class TestResegmentGuardrail:
