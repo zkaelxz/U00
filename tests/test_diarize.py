@@ -46,10 +46,13 @@ class _FakeDiarizeOutput4x:
             self.speaker_embeddings = speaker_embeddings
 
 
-def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False):
+def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False,
+                   fake_waveform="FAKE_WAVEFORM", fake_sample_rate=16000):
     """Builds a fake pyannote.audio module whose Pipeline.from_pretrained
     only accepts one specific auth kwarg name -- raising TypeError for
     the other, the same way a real version-mismatched install would.
+    Also stubs torchaudio (not installed in this sandbox -- no GPU, no
+    network) since diarize() always pre-loads the audio through it now.
 
     wrap_4x_output: when True, the fake pipeline's call returns a
     _FakeDiarizeOutput4x wrapping the result (pyannote.audio 4.x's
@@ -57,7 +60,7 @@ def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False):
     (3.x's shape)."""
     import types
 
-    calls = {"kwarg_used": None}
+    calls = {"kwarg_used": None, "audio_arg": None}
 
     class FakePipeline:
         @staticmethod
@@ -68,7 +71,8 @@ def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False):
                     f"Pipeline.from_pretrained() got an unexpected keyword argument '{bad}'")
             calls["kwarg_used"] = accepted_kwarg
 
-            def _call(audio_path, num_speakers=None):
+            def _call(audio, num_speakers=None):
+                calls["audio_arg"] = audio
                 result = _FakeDiarizationResult(turns)
                 return _FakeDiarizeOutput4x(result) if wrap_4x_output else result
             return _call
@@ -80,6 +84,11 @@ def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False):
     parent = types.ModuleType("pyannote")
     parent.audio = fake_module
     sys.modules["pyannote"] = parent
+
+    fake_torchaudio = types.ModuleType("torchaudio")
+    fake_torchaudio.load = lambda path: (fake_waveform, fake_sample_rate)
+    sys.modules["torchaudio"] = fake_torchaudio
+
     return calls
 
 
@@ -132,6 +141,37 @@ class TestDiarizePyannote4CompatibleOutputShape:
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
         result = diarize.diarize("/fake/audio.wav", "hf_xxx")
         assert result == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+
+
+class TestDiarizePreloadsAudioWithTorchaudio:
+    """Step 4b regression coverage for a real reported crash: passing a
+    bare audio-path string to pipeline() makes pyannote.audio 4.x decode
+    it through torchcodec, which this app never installs. diarize() must
+    instead pre-load the audio itself with torchaudio.load() (already a
+    pinned dependency, already used the same way in word_align.py) and
+    hand pyannote a {"waveform", "sample_rate"} dict."""
+
+    def test_pipeline_receives_a_waveform_dict_not_the_bare_path(self):
+        calls = _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")],
+                               fake_waveform="FAKE_WAVEFORM", fake_sample_rate=16000)
+        diarize.diarize("/fake/audio.wav", "hf_xxx")
+        assert calls["audio_arg"] == {"waveform": "FAKE_WAVEFORM", "sample_rate": 16000}
+
+    def test_torchaudio_load_is_called_with_the_given_audio_path(self, monkeypatch):
+        import types
+        load_calls = []
+
+        def fake_load(path):
+            load_calls.append(path)
+            return "FAKE_WAVEFORM", 16000
+        fake_torchaudio = types.ModuleType("torchaudio")
+        fake_torchaudio.load = fake_load
+        monkeypatch.setitem(sys.modules, "torchaudio", fake_torchaudio)
+
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
+        monkeypatch.setitem(sys.modules, "torchaudio", fake_torchaudio)  # _stub_pyannote overwrites it
+        diarize.diarize("/fake/audio.wav", "hf_xxx")
+        assert load_calls == ["/fake/audio.wav"]
 
 
 class TestAssignSpeakerToLine:

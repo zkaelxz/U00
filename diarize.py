@@ -14,10 +14,15 @@ the first time) and works better with a GPU, but runs on CPU too --
 just slower. Not run inside this sandbox since it has no network; the
 code is here for you to run locally.
 
-pyannote.audio 4.x needs Python 3.10+ and reads audio with ffmpeg
-through torchcodec (3.x doesn't need either). Its pipeline(audio) call
-also returns a different result type than 3.x -- see the getattr() in
+pyannote.audio 4.x needs Python 3.10+. Its pipeline(audio) call also
+returns a different result type than 3.x -- see the getattr() in
 diarize() below for why that's handled rather than assumed away.
+
+diarize() pre-loads the audio with torchaudio.load() and passes pyannote
+a {"waveform", "sample_rate"} dict rather than a bare file path -- a
+bare path makes pyannote.audio 4.x decode it through torchcodec, which
+this app never installs (torchaudio is already a pinned dependency and
+is used the same way in word_align.py).
 """
 
 import datetime
@@ -71,7 +76,9 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     every existing call keeps its exact current return shape.
     """
     pipeline, model = load_pipeline(hf_token)
-    result = pipeline(audio_path, num_speakers=num_speakers)
+    import torchaudio
+    waveform, sample_rate = torchaudio.load(audio_path)
+    result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, num_speakers=num_speakers)
     # pyannote.audio 4.x's pipeline(audio) returns a DiarizeOutput dataclass
     # (its .speaker_diarization attribute holds the actual Annotation)
     # instead of an Annotation directly, so .itertracks() would otherwise
