@@ -426,11 +426,17 @@ def group_notes_by_line(notes) -> dict:
     Notes with no line_idx (not tied to a specific line) are dropped --
     inlining them into the subtitle track has nowhere sensible to go;
     they're still in the Markdown appendix and the in-app Reader.
+    Step 7's reflection notes (note_type "reflection" -- see
+    translate_engines.translate_lines_with_engine's notes_cb) are dropped
+    too --
+    a translator's own reasoning about a line's wording is for review,
+    not a reader-facing aside, and it has no `term` to introduce it
+    (unlike an idiom/allusion/etc. note, which names what it's about).
     """
     grouped = {}
     for n in notes:
         idx = n.get("line_idx")
-        if idx is None:
+        if idx is None or n.get("note_type") == "reflection":
             continue
         grouped.setdefault(idx, []).append({"term": n.get("term", ""), "note": n.get("note", "")})
     return grouped

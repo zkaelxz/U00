@@ -1845,3 +1845,168 @@ class TestResumeAfterCrash:
         assert all(l.en for l in lines)
         assert errors == []
         assert fresh.calls == 1  # only the one missing batch, not all five
+
+
+class _ScriptedReflectEngine:
+    """Claude-shaped fake for reflect_translate_batch -- returns the given
+    JSON responses in order (one per call) and records the raw prompt
+    text sent each time, so a test can check what each of the three
+    passes actually asked for."""
+    supports_reference = True
+    model = "fake-model"
+
+    def __init__(self, responses):
+        self.client = self
+        self.messages = self
+        self.responses = list(responses)
+        self.prompts = []
+
+    def create(self, model, max_tokens, messages):
+        self.prompts.append(messages[0]["content"])
+        text = self.responses[len(self.prompts) - 1]
+        return type("Resp", (), {"content": [_FakeBlock(text)]})()
+
+
+class TestReflectTranslateBatch:
+    """Step 7: Reflect mode's three-pass pipeline (faithfulness, reflection,
+    expressiveness) -- id-keyed at every pass, like Step 1's translate_batch,
+    not VideoLingo's own SequenceMatcher fuzzy matching."""
+
+    def test_three_calls_per_batch(self):
+        engine = _ScriptedReflectEngine([
+            '{"1": "Draft one.", "2": "Draft two."}',
+            '{"1": "reads awkwardly out loud"}',
+            '{"1": "Final one.", "2": "Final two."}',
+        ])
+        translations, critiques = te.reflect_translate_batch(
+            engine, ["你好", "再见"], {"line_ids": None})
+        assert len(engine.prompts) == 3
+        assert translations == ["Final one.", "Final two."]
+        assert critiques == ["reads awkwardly out loud", ""]  # line 2's draft needed no critique
+
+    def test_each_pass_asks_for_something_different(self):
+        engine = _ScriptedReflectEngine([
+            '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
+        te.reflect_translate_batch(engine, ["你好"], {})
+        assert "FAITHFULNESS" in engine.prompts[0]
+        assert "REFLECTION" in engine.prompts[1]
+        assert "Draft." in engine.prompts[1]  # the reflection pass sees pass 1's own draft
+        assert "EXPRESSIVENESS" in engine.prompts[2]
+        assert "critique" in engine.prompts[2]  # the rewrite pass sees the critique
+
+    def test_permanent_line_ids_are_kept_through_every_pass(self):
+        engine = _ScriptedReflectEngine([
+            '{"101": "Draft one.", "205": "Draft two."}',
+            '{"101": "a critique"}',
+            '{"101": "Final one.", "205": "Final two."}',
+        ])
+        translations, critiques = te.reflect_translate_batch(
+            engine, ["你好", "再见"], {"line_ids": [101, 205]})
+        assert translations == ["Final one.", "Final two."]
+        assert critiques == ["a critique", ""]
+        for prompt in engine.prompts:
+            assert "101." in prompt and "205." in prompt  # ids, not 1-based positions
+
+    def test_a_missing_id_in_one_pass_only_affects_that_lines_result(self):
+        # Line 2's faithfulness draft never comes back (even after the
+        # built-in retry) -- it must not be sent to reflection at all, and
+        # line 1's result must be completely unaffected.
+        engine = _ScriptedReflectEngine([
+            '{"1": "Draft one."}',       # pass 1, first attempt: line 2 missing
+            '{}',                        # pass 1, retry: still missing
+            '{"1": "a critique"}',       # pass 2: only line 1 was ever asked about
+            '{"1": "Final one."}',       # pass 3: line 2 has nothing to rewrite
+        ])
+        translations, critiques = te.reflect_translate_batch(engine, ["你好", "再见"], {})
+        assert translations == ["Final one.", ""]
+        assert critiques == ["a critique", ""]
+        # Confirms line 2 was never put in front of the reflection pass:
+        assert "再见" not in engine.prompts[2]
+
+    def test_final_translation_falls_back_to_the_faithful_draft(self):
+        # Expressiveness never returns a rewrite for line 1, even after its
+        # own built-in retry -- its draft translation is used as-is rather
+        # than losing the line entirely.
+        engine = _ScriptedReflectEngine([
+            '{"1": "Draft one."}', '{"1": "a critique"}', '{}', '{}'])
+        translations, critiques = te.reflect_translate_batch(engine, ["你好"], {})
+        assert translations == ["Draft one."]
+        assert critiques == ["a critique"]
+
+    def test_a_draft_with_no_critique_is_not_sent_to_the_reflection_pass(self):
+        engine = _ScriptedReflectEngine(['{"1": ""}', '{}', '{"1": ""}'])
+        # An empty draft (id came back with "" -- treated as no usable draft
+        # since "" isn't kept by _parse_id_keyed_json in the first place;
+        # simulate directly missing instead):
+        engine2 = _ScriptedReflectEngine(['{}', '{}', '{}'])
+        translations, critiques = te.reflect_translate_batch(engine2, ["你好"], {})
+        assert len(engine2.prompts) == 2  # pass 1 (x1, no retry-worthy content) + pass 3; pass 2 skipped
+        assert translations == [""]
+        assert critiques == [""]
+
+    def test_requires_an_llm_capable_engine(self):
+        class TranslationOnlyEngine:
+            supports_reference = False
+        with pytest.raises(RuntimeError):
+            te.reflect_translate_batch(TranslationOnlyEngine(), ["你好"], {})
+
+
+class TestReflectModeInTranslateLinesWithEngine:
+    """The integration surface run_translate_job actually uses: reflect=True
+    routes each batch through reflect_translate_batch instead of
+    engine.translate_batch, and notes_cb receives the reflection critiques
+    in translation_guide's translation-notes shape."""
+
+    def test_reflect_mode_writes_translations_and_notes(self):
+        engine = _ScriptedReflectEngine([
+            '{"11": "Draft one.", "22": "Draft two."}',
+            '{"11": "a bit stiff"}',
+            '{"11": "Final one.", "22": "Final two."}',
+        ])
+        lines = [Line(idx=0, start=0, end=1, zh="你好", id=11),
+                 Line(idx=1, start=1, end=2, zh="再见", id=22)]
+        captured_notes = []
+        te.translate_lines_with_engine(
+            lines, engine, {}, batch_size=10, reflect=True,
+            notes_cb=captured_notes.append)
+        assert [ln.en for ln in lines] == ["Final one.", "Final two."]
+        assert len(captured_notes) == 1  # one notes_cb call, for this one batch
+        notes = captured_notes[0]
+        assert notes == [{"line_idx": 0, "term": "", "note_type": "reflection", "note": "a bit stiff"}]
+
+    def test_reflect_false_never_touches_reflect_translate_batch(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(te, "reflect_translate_batch", lambda *a, **k: called.append(1))
+
+        class PlainEngine:
+            supports_reference = True
+            def translate_batch(self, zh_lines, context):
+                return [f"EN:{z}" for z in zh_lines]
+        lines = [Line(idx=0, start=0, end=1, zh="你好")]
+        te.translate_lines_with_engine(lines, PlainEngine(), {}, batch_size=10, reflect=False)
+        assert called == []
+        assert lines[0].en == "EN:你好"
+
+    def test_notes_cb_is_not_called_when_nothing_needed_a_critique(self):
+        engine = _ScriptedReflectEngine(['{"1": "Draft."}', '{}', '{"1": "Final."}'])
+        lines = [Line(idx=0, start=0, end=1, zh="你好")]
+        captured = []
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=10, reflect=True,
+                                       notes_cb=captured.append)
+        assert captured == []
+
+
+class TestEstimateReflectModeCost:
+    def test_costs_roughly_three_times_a_normal_estimate(self):
+        engine = te.ClaudeEngine.__new__(te.ClaudeEngine)
+        engine.model = "claude-sonnet-5"
+        lines = ["你好世界" * 10] * 5
+        chars = sum(len(z) for z in lines)
+        input_tokens = int(chars / 3.5) + 300
+        output_tokens = int(chars / 2.5)
+        expected_single = te.estimate_cost_for_engine(engine, input_tokens, output_tokens)
+        assert te.estimate_reflect_mode_cost(engine, lines) == pytest.approx(expected_single * 3)
+
+    def test_free_tier_gemini_reflect_estimate_is_zero(self):
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        assert te.estimate_reflect_mode_cost(engine, ["你好"] * 20) == 0.0
