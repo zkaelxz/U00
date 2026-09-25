@@ -1974,8 +1974,8 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 16 — Settings consolidation | — | Not started | — |
   | 17 — Discover/Navigator merge | — | Not started | — |
   | 18 — Diagnostics narrowing | — | Not started | — |
-  | 18b — App Assistant | — | Not started | — |
-  | 18c — In-app Install buttons for optional dependencies | — | Not started | — |
+  | 18b — App Assistant | `step-18b-app-assistant` | ✅ Merged (PR #45) | ⏳ Pending |
+  | 18c — In-app Install buttons for optional dependencies | `step-18c-install-buttons` | ✅ Merged (PR #46) | ⏳ Pending |
   | 19 — Full click-through UX test | — | Not started | — |
   | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
   | 20b — Richer Anki export: sentence + audio | — | Not started | — |
