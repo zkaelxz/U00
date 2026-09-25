@@ -801,6 +801,69 @@ class TestPagesAndBubbles:
         page = isolated_db.get_page(pid)
         assert page["rendered_filename"] == "pages/typeset_0000.png"
 
+    def test_list_bubbles_for_drama_spans_every_page(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        pid0 = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
+        pid1 = isolated_db.create_page(did, 1, "pages/page_0001.png", 600, 400)
+        isolated_db.save_bubbles(pid0, [
+            {"x": 1, "y": 1, "w": 10, "h": 10, "source_text": "a", "translated_text": "Hello",
+             "font_size": 18, "skip": False}])
+        isolated_db.save_bubbles(pid1, [
+            {"x": 2, "y": 2, "w": 10, "h": 10, "source_text": "b", "translated_text": "World",
+             "font_size": 18, "skip": False}])
+        bubbles = isolated_db.list_bubbles_for_drama(did)
+        assert len(bubbles) == 2
+        assert {b["page_idx"] for b in bubbles} == {0, 1}
+        assert {b["translated_text"] for b in bubbles} == {"Hello", "World"}
+
+    def test_list_bubbles_for_drama_ignores_other_dramas(self, isolated_db):
+        did_a = isolated_db.create_drama(title_en="A")
+        did_b = isolated_db.create_drama(title_en="B")
+        pid_a = isolated_db.create_page(did_a, 0, "pages/page_0000.png", 600, 400)
+        isolated_db.create_page(did_b, 0, "pages/page_0000.png", 600, 400)
+        isolated_db.save_bubbles(pid_a, [
+            {"x": 1, "y": 1, "w": 10, "h": 10, "source_text": "a", "translated_text": "Only A",
+             "font_size": 18, "skip": False}])
+        bubbles = isolated_db.list_bubbles_for_drama(did_b)
+        assert bubbles == []
+
+    def test_update_bubble_text_only_changes_translated_text(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
+        isolated_db.save_bubbles(pid, [
+            {"x": 10, "y": 20, "w": 100, "h": 50, "source_text": "orig", "translated_text": "old",
+             "font_size": 24, "skip": True, "font_category": "bold"}])
+        bubble_id = isolated_db.load_bubbles(pid)[0]["id"]
+
+        isolated_db.update_bubble_text(bubble_id, "new")
+
+        updated = isolated_db.load_bubbles(pid)[0]
+        assert updated["translated_text"] == "new"
+        # Everything else about the bubble stays exactly as it was.
+        assert updated["x"] == 10 and updated["y"] == 20
+        assert updated["w"] == 100 and updated["h"] == 50
+        assert updated["source_text"] == "orig"
+        assert updated["font_size"] == 24
+        assert updated["skip"] == 1
+        assert updated["font_category"] == "bold"
+
+    def test_update_bubble_text_does_not_touch_other_bubbles(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
+        isolated_db.save_bubbles(pid, [
+            {"x": 1, "y": 1, "w": 10, "h": 10, "source_text": "a", "translated_text": "keep me",
+             "font_size": 18, "skip": False},
+            {"x": 2, "y": 2, "w": 10, "h": 10, "source_text": "b", "translated_text": "change me",
+             "font_size": 18, "skip": False},
+        ])
+        bubbles = isolated_db.load_bubbles(pid)
+        target = next(b for b in bubbles if b["translated_text"] == "change me")
+
+        isolated_db.update_bubble_text(target["id"], "changed")
+
+        reloaded = {b["translated_text"] for b in isolated_db.load_bubbles(pid)}
+        assert reloaded == {"keep me", "changed"}
+
     def test_font_category_round_trips(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
         pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)

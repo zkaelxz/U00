@@ -1274,6 +1274,36 @@ def load_bubbles(page_id: int):
     return [dict(r) for r in rows]
 
 
+def list_bubbles_for_drama(drama_id: int):
+    """Every bubble across every saved page of a drama, each carrying its
+    page's idx as page_idx -- used by Scanlate's bulk find-and-replace
+    (Step 11 item 9), which needs to preview/apply across a whole
+    drama's saved pages at once, not just whichever page is currently
+    open in the tab."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT bubbles.*, pages.idx AS page_idx FROM bubbles "
+        "JOIN pages ON pages.id = bubbles.page_id "
+        "WHERE pages.drama_id = ? ORDER BY pages.idx, bubbles.idx", (drama_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_bubble_text(bubble_id: int, translated_text: str):
+    """Updates just one bubble's translated_text, nothing else -- unlike
+    save_bubbles() (which deletes and re-inserts every bubble on a
+    page), this is the safe, minimal-field write bulk find-and-replace
+    (Step 11 item 9) needs: touching only the field the operation is
+    actually about, so x/y/w/h/source_text/skip/font_category on every
+    other bubble -- and every OTHER bubble on the same page -- are never
+    at risk of being silently clobbered."""
+    conn = get_conn()
+    conn.execute("UPDATE bubbles SET translated_text = ? WHERE id = ?",
+                 (translated_text, bubble_id))
+    conn.commit()
+    conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Known titles (searchable discovery library, separate from your working
 # drama catalog -- import a known_title into `dramas` when you're ready

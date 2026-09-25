@@ -11,9 +11,14 @@ openai>=1.30          # for DeepSeek (OpenAI-compatible API)
 deepl>=1.18            # for DeepL
 requests>=2.31             # for Google Translate REST calls, metadata lookup, navigator
 beautifulsoup4>=4.12       # for metadata lookup and navigator page parsing
-transformers>=4.40         # for the local NLLB-200 engine (genuinely free,
+transformers>=4.46         # for the local NLLB-200 engine (genuinely free,
                             # fully offline MT, no API key -- see the "nllb"
-                            # engine in translate_engines.py)
+                            # engine in translate_engines.py), and (>=4.46,
+                            # bumped from >=4.40 for this) Scanlate's ML
+                            # bubble detector and the opt-in
+                            # PaddleOCR-VL-For-Manga backend -- both need
+                            # RT-DETR-v2/current VLM support this package
+                            # only gained in more recent releases.
 sentencepiece>=0.2          # tokenizer NLLB-200 needs
 
 # Speaker diarization:
@@ -63,10 +68,31 @@ piper-tts>=1.2
 # Voice cloning alternative, hosted (optional, paid API, no GPU needed):
 elevenlabs>=1.0
 
-# ML-based bubble detection for Scanlate (optional, better accuracy than
-# the free OpenCV heuristic, heavier install):
-ultralytics>=8.0
+# ML-based bubble detection + inpainting for Scanlate (optional, better
+# accuracy/quality than the free OpenCV heuristics, heavier install).
+# transformers (above) loads the bubble detector; torch+safetensors load
+# the LaMa-manga inpainting checkpoint (see scanlate.py's own docstrings
+# for both -- neither was run end-to-end against real weights in the
+# environment this was built in, sanity-check on one page first):
 huggingface_hub>=0.20
+torch>=2.0
+safetensors>=0.4
+
+# Scanlate PDF import: splits a PDF into per-page images on upload
+# (optional -- png/jpg/jpeg uploads still work without it):
+pypdf>=4.0
+
+# Scanlate manual erase/heal brush (optional -- freeform paint-to-erase
+# on the page preview, independent of bubble detection). Its own PyPI
+# page shows no release in the past 12 months -- confirmed directly
+# while wiring this up: with this app's pinned streamlit>=1.49, its
+# component fails to load at all (StreamlitAPIException -- the
+# maintenance gap has caught up with newer Streamlit component-API
+# changes), not just a hypothetical risk. The Scanlate tab's brush UI
+# degrades to a clear message rather than crashing when that happens;
+# an updated/alternative canvas component would need to replace this
+# pin before the brush tool actually works.
+streamlit-drawable-canvas>=0.9
 
 # Anki .apkg export for Reader vocab (optional -- CSV export needs nothing extra):
 genanki>=0.13
