@@ -352,3 +352,25 @@ class TestSaveLoadTurnsWithEmbeddings:
 
     def test_load_embeddings_before_any_run_is_empty_not_an_error(self, tmp_path):
         assert diarize.load_embeddings(str(tmp_path)) == {}
+
+
+class TestLoadLastSpeakerCount:
+    """Step 4f: "Expected number of speakers" always reset to 0 on load,
+    even after a real detection run had used a specific count -- the
+    value was already being saved (save_turns's own num_speakers field)
+    but never read back. This is the read-back half of that fix."""
+
+    def test_returns_the_num_speakers_used_for_the_last_real_run(self, tmp_path):
+        d = str(tmp_path)
+        diarize.save_turns(d, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+                           num_speakers=2)
+        assert diarize.load_last_speaker_count(d) == 2
+
+    def test_none_when_the_last_run_used_auto_detect(self, tmp_path):
+        d = str(tmp_path)
+        diarize.save_turns(d, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+                           num_speakers=None)
+        assert diarize.load_last_speaker_count(d) is None
+
+    def test_none_before_any_run_not_an_error(self, tmp_path):
+        assert diarize.load_last_speaker_count(str(tmp_path)) is None

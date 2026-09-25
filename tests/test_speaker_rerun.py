@@ -280,3 +280,53 @@ class TestRerunButton:
         row = isolated_db.load_lines(did)[2]
         assert row["speaker"] == "Xiaoling" and row["speaker_manual"] == 1
         assert not isolated_db.load_lines(did)[1]["speaker_manual"]
+
+
+class TestExpectedSpeakersDefaultsToLastRun:
+    """Step 4f: the field used to hardcode value=0 on every render, even
+    right after a real detection run had used a specific count -- the
+    count was already being saved (diarize.save_turns's own num_speakers
+    field) but never read back."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_hf_token"] = "hf_fake"
+        at.run(timeout=30)
+        return at
+
+    def _box(self, at):
+        [box] = [n_ for n_ in at.number_input if n_.label.startswith("Expected number of speakers")]
+        return box
+
+    def test_defaults_to_0_when_no_run_has_ever_happened(self, isolated_db):
+        did, _ = _drama_with_audio(isolated_db)
+        at = self._run(did)
+        assert self._box(at).value == 0
+
+    def test_defaults_to_the_count_used_for_the_last_real_run(self, isolated_db):
+        did, ddir = _drama_with_audio(isolated_db)
+        diarize.save_turns(ddir, THREE, num_speakers=3)
+        at = self._run(did)
+        assert self._box(at).value == 3
+
+    def test_a_prior_auto_detect_run_still_defaults_to_0(self, isolated_db):
+        did, ddir = _drama_with_audio(isolated_db)
+        diarize.save_turns(ddir, TWO, num_speakers=None)
+        at = self._run(did)
+        assert self._box(at).value == 0
+
+    def test_manually_changing_it_survives_a_rerun_rather_than_snapping_back(self, isolated_db):
+        did, ddir = _drama_with_audio(isolated_db)
+        diarize.save_turns(ddir, THREE, num_speakers=3)
+        at = self._run(did)
+        assert self._box(at).value == 3
+        self._box(at).set_value(5).run(timeout=30)
+        assert self._box(at).value == 5
