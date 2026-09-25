@@ -330,3 +330,195 @@ class TestFailedJobIsLogged:
         assert "AIzaSyFAKESECRETVALUE12345" not in status["traceback"]
         joined = "\n".join(applog.tail(50))
         assert "AIzaSyFAKESECRETVALUE12345" not in joined
+
+
+class TestGpuJobGuard:
+    """Step 5c: a soft, global "one GPU job at a time" guard, prompted by a
+    shared review flagging that nothing today stops two independent
+    GPU-touching jobs (different job_ids, different dramas) from running
+    concurrently and competing for the same VRAM. gpu_touching=True jobs
+    queue behind each other instead of starting immediately; non-GPU jobs
+    are unaffected either way."""
+
+    def setup_method(self):
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)  # never leak into other tests
+
+    def test_a_second_gpu_job_queues_instead_of_starting(self):
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow():
+            started.set()
+            release.wait(timeout=2.0)
+
+        assert bg.start_job("gpu_a", slow, gpu_touching=True) is True
+        started.wait(timeout=2.0)
+        assert bg.get_status("gpu_a")["status"] == "running"
+
+        calls = []
+        assert bg.start_job("gpu_b", lambda: calls.append(1), gpu_touching=True) is True
+        assert bg.get_status("gpu_b")["status"] == "queued"
+        assert calls == []  # queued, not started
+
+        release.set()
+        _wait("gpu_a")
+        bg.clear_job("gpu_a")
+        bg.clear_job("gpu_b")
+
+    def test_a_non_gpu_job_is_unaffected_by_a_running_gpu_job(self):
+        release = threading.Event()
+        bg.start_job("gpu_c", lambda: release.wait(timeout=2.0), gpu_touching=True)
+
+        calls = []
+        assert bg.start_job("cpu_a", lambda: calls.append(1), gpu_touching=False) is True
+        _wait("cpu_a")
+        assert calls == [1]  # ran immediately, no queueing
+
+        release.set()
+        _wait("gpu_c")
+        bg.clear_job("gpu_c")
+        bg.clear_job("cpu_a")
+
+    def test_queued_gpu_job_starts_automatically_once_the_running_one_finishes(self):
+        release = threading.Event()
+        started = threading.Event()
+        bg.start_job("gpu_d", lambda: (started.set(), release.wait(timeout=2.0)),
+                     gpu_touching=True)
+        started.wait(timeout=2.0)
+
+        second_ran = threading.Event()
+        bg.start_job("gpu_e", lambda: second_ran.set(), gpu_touching=True)
+        assert bg.get_status("gpu_e")["status"] == "queued"
+
+        release.set()
+        assert second_ran.wait(timeout=2.0), "queued job never started after the first finished"
+        _wait("gpu_e")
+        assert bg.get_status("gpu_e")["status"] == "done"
+        bg.clear_job("gpu_d")
+        bg.clear_job("gpu_e")
+
+    def test_toggle_off_allows_two_gpu_jobs_to_run_concurrently(self):
+        bg.set_gpu_limit_enabled(False)
+        release = threading.Event()
+        started_f = threading.Event()
+        bg.start_job("gpu_f", lambda: (started_f.set(), release.wait(timeout=2.0)),
+                     gpu_touching=True)
+        started_f.wait(timeout=2.0)
+
+        started_g = threading.Event()
+        bg.start_job("gpu_g", lambda: started_g.set(), gpu_touching=True)
+        assert started_g.wait(timeout=2.0), "second GPU job should start immediately when the limit is off"
+        assert bg.get_status("gpu_g")["status"] != "queued"
+
+        release.set()
+        _wait("gpu_f")
+        _wait("gpu_g")
+        bg.clear_job("gpu_f")
+        bg.clear_job("gpu_g")
+
+    def test_gpu_busy_description_reflects_the_running_job(self):
+        release = threading.Event()
+        started = threading.Event()
+        bg.start_job("gpu_h", lambda: (started.set(), release.wait(timeout=2.0)),
+                     gpu_touching=True, description="Transcription for Test Drama")
+        started.wait(timeout=2.0)
+
+        assert bg.gpu_busy_description() == "Transcription for Test Drama"
+        assert "Transcription for Test Drama" in bg.get_status("gpu_h")["description"]
+
+        release.set()
+        _wait("gpu_h")
+        bg.clear_job("gpu_h")
+
+    def test_clearing_a_queued_job_drops_it_from_the_queue(self):
+        release = threading.Event()
+        bg.start_job("gpu_i", lambda: release.wait(timeout=2.0), gpu_touching=True)
+
+        calls = []
+        bg.start_job("gpu_j", lambda: calls.append(1), gpu_touching=True)
+        assert bg.get_status("gpu_j")["status"] == "queued"
+
+        bg.clear_job("gpu_j")  # the user navigated away / reset before it ever ran
+        release.set()
+        _wait("gpu_i")
+        time.sleep(0.1)  # give a wrongly-surviving queue entry a chance to fire
+        assert bg.get_status("gpu_j") is None
+        assert calls == []
+        bg.clear_job("gpu_i")
+
+
+class TestGpuSlot:
+    """gpu_slot() is for GPU-touching work that runs synchronously in the
+    calling thread (diarization, dub generation) instead of as its own
+    start_job() job -- it still has to participate in the same "one GPU
+    job at a time" accounting, or it would be invisible to the guard
+    above and defeat the point of Step 5c."""
+
+    def setup_method(self):
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)
+
+    def test_blocks_until_a_running_gpu_job_finishes(self):
+        release = threading.Event()
+        started = threading.Event()
+        bg.start_job("gpu_k", lambda: (started.set(), release.wait(timeout=2.0)),
+                     gpu_touching=True)
+        started.wait(timeout=2.0)
+
+        entered = threading.Event()
+
+        def use_slot():
+            with bg.gpu_slot("Diarization", poll_interval=0.02):
+                entered.set()
+
+        t = threading.Thread(target=use_slot)
+        t.start()
+        time.sleep(0.1)
+        assert not entered.is_set(), "gpu_slot must not enter while a GPU job is running"
+
+        release.set()
+        t.join(timeout=2.0)
+        assert entered.is_set()
+        _wait("gpu_k")
+        bg.clear_job("gpu_k")
+
+    def test_a_gpu_touching_start_job_queues_behind_an_active_gpu_slot(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def hold_slot():
+            with bg.gpu_slot("Dub generation", poll_interval=0.02):
+                entered.set()
+                release.wait(timeout=2.0)
+
+        t = threading.Thread(target=hold_slot)
+        t.start()
+        entered.wait(timeout=2.0)
+
+        bg.start_job("gpu_l", lambda: None, gpu_touching=True)
+        assert bg.get_status("gpu_l")["status"] == "queued"
+
+        release.set()
+        t.join(timeout=2.0)
+        _wait("gpu_l")
+        assert bg.get_status("gpu_l")["status"] == "done"
+        bg.clear_job("gpu_l")
+
+    def test_off_toggle_lets_gpu_slot_run_immediately_alongside_a_gpu_job(self):
+        bg.set_gpu_limit_enabled(False)
+        release = threading.Event()
+        bg.start_job("gpu_m", lambda: release.wait(timeout=2.0), gpu_touching=True)
+
+        entered = threading.Event()
+        with bg.gpu_slot("Diarization", poll_interval=0.02):
+            entered.set()
+        assert entered.is_set()
+
+        release.set()
+        _wait("gpu_m")
+        bg.clear_job("gpu_m")
