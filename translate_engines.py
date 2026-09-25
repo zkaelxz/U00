@@ -38,6 +38,10 @@ GEMINI_MODELS = {
     "gemini-flash-lite-latest": "Flash-Lite -- cheapest, recommended default for bulk subtitle translation",
     "gemini-flash-latest": "Flash -- stronger nuance than Flash-Lite, still inexpensive",
     "gemini-pro-latest": "Pro -- highest quality, most expensive",
+    # Opt-in only, never the default: confirmed as a stable model id and
+    # priced at ai.google.dev in September 2026, but there's no CJK-specific
+    # quality benchmark for it yet, so no quality claim is made here.
+    "gemini-3.1-flash-lite": "3.1 Flash-Lite -- cheaper, lighter tier (no quality claim yet)",
 }
 
 PRICING_PER_MILLION_TOKENS = {
@@ -54,14 +58,62 @@ PRICING_PER_MILLION_TOKENS = {
     "gemini-flash-lite-latest": {"input": 0.30, "output": 2.50},
     "gemini-flash-latest": {"input": 0.75, "output": 3.75},
     "gemini-pro-latest": {"input": 2.0, "output": 12.0},
+    "gemini-3.1-flash-lite": {"input": 0.25, "output": 1.50},
 }
 
 
-def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+# Cache reads are billed at a fraction of the input price: 10% on Claude,
+# less than that on Gemini and DeepSeek. One conservative figure for all
+# of them -- a spending cap should never be undercut by an estimate that
+# came out cheaper than the real bill.
+CACHE_READ_PRICE_FACTOR = 0.1
+# Claude charges 25% extra on the tokens it writes to the cache.
+CACHE_WRITE_PRICE_FACTOR = 1.25
+
+
+def estimate_cost(model: str, input_tokens: int, output_tokens: int,
+                  cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
+    """input_tokens is the whole prompt; cache_read_tokens/cache_write_tokens
+    are the parts of it that were served from / written to a prompt cache."""
     rates = PRICING_PER_MILLION_TOKENS.get(model)
     if not rates:
         return 0.0
-    return (input_tokens / 1_000_000 * rates["input"]) + (output_tokens / 1_000_000 * rates["output"])
+    uncached = max(0, input_tokens - cache_read_tokens - cache_write_tokens)
+    effective_input = (uncached + cache_read_tokens * CACHE_READ_PRICE_FACTOR
+                       + cache_write_tokens * CACHE_WRITE_PRICE_FACTOR)
+    return (effective_input / 1_000_000 * rates["input"]) + (output_tokens / 1_000_000 * rates["output"])
+
+
+def _empty_usage() -> dict:
+    return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
+
+
+def _add_usage(total: dict, usage: dict):
+    for k in _empty_usage():
+        total[k] = total.get(k, 0) + (usage.get(k) or 0)
+
+
+def claude_usage(usage) -> dict:
+    """A Claude response's usage in this app's shape. Claude's own
+    input_tokens EXCLUDES cached tokens, so the whole prompt is the sum of
+    all three input fields."""
+    if usage is None:
+        return _empty_usage()
+    read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    return {"input_tokens": (getattr(usage, "input_tokens", 0) or 0) + read + write,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+            "cache_read_tokens": read, "cache_write_tokens": write}
+
+
+def gemini_usage(usage_metadata) -> dict:
+    """Gemini's usageMetadata in this app's shape. cachedContentTokenCount
+    (implicit or explicit cache hits) is already part of promptTokenCount."""
+    u = usage_metadata or {}
+    return {"input_tokens": u.get("promptTokenCount", 0) or 0,
+            "output_tokens": u.get("candidatesTokenCount", 0) or 0,
+            "cache_read_tokens": u.get("cachedContentTokenCount", 0) or 0,
+            "cache_write_tokens": 0}
 
 
 def _is_rate_limit_error(e: Exception) -> bool:
@@ -157,17 +209,13 @@ _MEDIUM_DESCRIPTIONS = {
 
 
 def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, locale: str = "en-US",
-                            glossary_terms=None, style_guidelines: str = "", recent_context=None,
-                            upcoming_lines=None):
-    """
-    upcoming_lines: raw (untranslated) source text for the few lines
-    immediately AFTER this batch, shown for context only -- the model is
-    told explicitly not to translate them here. Fixes a real, one-sided
-    gap: recent_context already showed how PRECEDING lines were
-    translated, but nothing showed what comes next, so a line ending on
-    a cliffhanger or an incomplete thought had no forward context to
-    resolve against, only backward.
-    """
+                            glossary_terms=None, style_guidelines: str = ""):
+    """The STABLE part of every translation prompt for one drama/job --
+    identical across all of its batches, so provider prompt caching
+    (Claude cache_control, Gemini implicit caching, DeepSeek prefix
+    caching) can hit on it. Anything that changes per batch belongs in
+    build_batch_context() instead, which goes after this, in the user
+    message."""
     meta_lines = []
     for label, key in [("Title", "title_en"), ("Original title", "title_zh"),
                         ("Author", "author"), ("Studio", "studio"),
@@ -200,28 +248,6 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
     else:
         glossary_block = ""
 
-    if recent_context:
-        ctx_pairs = "\n".join(f"- {zh} -> {en}" for zh, en in recent_context)
-        context_block = (
-            "\nHow the lines immediately before this batch were just translated "
-            "(for continuity -- a pronoun, an ongoing topic, or a person referred "
-            "to only by relation may depend on this). These are NOT part of what "
-            f"you're translating now:\n{ctx_pairs}\n"
-        )
-    else:
-        context_block = ""
-
-    if upcoming_lines:
-        upcoming_block = (
-            "\nWhat's said immediately AFTER this batch, in the original language "
-            "(for context only -- a line that ends on an unresolved thought or a "
-            "cliffhanger may need this to translate correctly). Do NOT translate "
-            "these here, they'll be translated in a later batch:\n"
-            + "\n".join(f"- {t}" for t in upcoming_lines) + "\n"
-        )
-    else:
-        upcoming_block = ""
-
     source_language = drama_meta.get("source_language") or "zh"
     source_language_name = LANGUAGE_NAMES.get(source_language, "the source language")
     medium = _MEDIUM_DESCRIPTIONS.get(
@@ -237,8 +263,6 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
         + (f"Drama metadata:\n{meta_block}\n\n" if meta_block else "")
         + locale_instruction
         + glossary_block
-        + context_block
-        + upcoming_block
         + "Rules:\n"
         "- Keep each translation concise enough to read comfortably as a subtitle.\n"
         "- Keep character names, honorifics, and recurring terms consistent.\n"
@@ -255,6 +279,82 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
         "commentary."
     )
     return instructions, meta_block
+
+
+def build_batch_context(recent_context=None, upcoming_lines=None) -> str:
+    """The per-batch part of a translation prompt: how the lines just
+    before this batch were translated, and the raw source of the lines
+    just after it. Changes every batch, so it goes in the user message
+    after the stable instructions -- never inside them, where it would
+    break the cached prefix for everything after it.
+
+    upcoming_lines: raw (untranslated) source text for the few lines
+    immediately AFTER this batch, shown for context only -- the model is
+    told explicitly not to translate them here. Fixes a real, one-sided
+    gap: recent_context already showed how PRECEDING lines were
+    translated, but nothing showed what comes next, so a line ending on
+    a cliffhanger or an incomplete thought had no forward context to
+    resolve against, only backward."""
+    parts = []
+    if recent_context:
+        ctx_pairs = "\n".join(f"- {zh} -> {en}" for zh, en in recent_context)
+        parts.append(
+            "How the lines immediately before this batch were just translated "
+            "(for continuity -- a pronoun, an ongoing topic, or a person referred "
+            "to only by relation may depend on this). These are NOT part of what "
+            f"you're translating now:\n{ctx_pairs}\n")
+    if upcoming_lines:
+        parts.append(
+            "What's said immediately AFTER this batch, in the original language "
+            "(for context only -- a line that ends on an unresolved thought or a "
+            "cliffhanger may need this to translate correctly). Do NOT translate "
+            "these here, they'll be translated in a later batch:\n"
+            + "\n".join(f"- {t}" for t in upcoming_lines) + "\n")
+    return "\n".join(parts)
+
+
+def build_stable_prompt(context: dict):
+    """(instructions, novel_reference_block) -- the two stable pieces of
+    a translation prompt, in cache order: instructions (style guide and
+    glossary included), then the reference novel. novel_reference_block
+    is "" when there's no reference."""
+    instructions, _ = build_llm_instructions(
+        context.get("style_note", ""), context.get("drama_meta", {}),
+        context.get("novel_reference"), locale=context.get("locale", "en-US"),
+        glossary_terms=context.get("glossary_terms"),
+        style_guidelines=context.get("style_guidelines", ""),
+    )
+    novel_reference = context.get("novel_reference")
+    novel_block = ""
+    if novel_reference and novel_reference.strip():
+        novel_block = ("REFERENCE NOVEL TRANSLATION (authoritative for THIS drama only):\n\n"
+                       + novel_reference.strip())
+    return instructions, novel_block
+
+
+def build_stable_system_text(context: dict) -> str:
+    """The stable prefix as one string, for engines with a single system
+    field (DeepSeek, Gemini, Ollama)."""
+    instructions, novel_block = build_stable_prompt(context)
+    return instructions + ("\n\n" + novel_block if novel_block else "")
+
+
+def build_claude_system_blocks(context: dict) -> list:
+    """The stable prefix as Claude system blocks, with cache_control on
+    the last one so the whole stable part is cached, not just the
+    reference novel. A prefix under the model's minimum cacheable length
+    simply isn't cached -- no error."""
+    instructions, novel_block = build_stable_prompt(context)
+    blocks = [{"type": "text", "text": instructions}]
+    if novel_block:
+        blocks.append({"type": "text", "text": novel_block})
+    blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return blocks
+
+
+def build_batch_user_message(context: dict, numbered: str) -> str:
+    batch_ctx = build_batch_context(context.get("recent_context"), context.get("upcoming_lines"))
+    return (batch_ctx + "\n" if batch_ctx else "") + "Translate these lines:\n\n" + numbered
 
 
 def _parse_json_array(text: str, fallback_count: int):
@@ -515,36 +615,24 @@ class ClaudeEngine:
         import anthropic
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        self.last_usage = _empty_usage()
+
+    def build_request_params(self, context: dict, numbered: str) -> dict:
+        """One translation request's Messages API params -- shared by
+        translate_batch and bulk mode's Message Batches submission, so a
+        bulk request is byte-for-byte the prompt a live one would send."""
+        return {
+            "model": self.model, "max_tokens": 4000,
+            "system": build_claude_system_blocks(context),
+            "messages": [{"role": "user", "content": build_batch_user_message(context, numbered)}],
+        }
 
     def translate_batch(self, zh_lines, context: dict):
-        instructions, _ = build_llm_instructions(
-            context.get("style_note", ""), context.get("drama_meta", {}),
-            context.get("novel_reference"), locale=context.get("locale", "en-US"),
-            glossary_terms=context.get("glossary_terms"),
-            style_guidelines=context.get("style_guidelines", ""),
-            recent_context=context.get("recent_context"),
-            upcoming_lines=context.get("upcoming_lines"),
-        )
-        blocks = [{"type": "text", "text": instructions}]
-        novel_reference = context.get("novel_reference")
-        if novel_reference and novel_reference.strip():
-            blocks.append({
-                "type": "text",
-                "text": "REFERENCE NOVEL TRANSLATION (authoritative for THIS drama only):\n\n"
-                        + novel_reference.strip(),
-                "cache_control": {"type": "ephemeral"},
-            })
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        self.last_usage = _empty_usage()
 
         def call_model(numbered):
-            resp = self.client.messages.create(
-                model=self.model, max_tokens=4000, system=blocks,
-                messages=[{"role": "user", "content": "Translate these lines:\n\n" + numbered}],
-            )
-            if hasattr(resp, "usage"):
-                self.last_usage["input_tokens"] += getattr(resp.usage, "input_tokens", 0)
-                self.last_usage["output_tokens"] += getattr(resp.usage, "output_tokens", 0)
+            resp = self.client.messages.create(**self.build_request_params(context, numbered))
+            _add_usage(self.last_usage, claude_usage(getattr(resp, "usage", None)))
             return "".join(b.text for b in resp.content if b.type == "text").strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
@@ -563,35 +651,33 @@ class DeepSeekEngine:
         from openai import OpenAI
         self.client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
         self.model = model
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        self.last_usage = _empty_usage()
 
     def translate_batch(self, zh_lines, context: dict):
-        instructions, _ = build_llm_instructions(
-            context.get("style_note", ""), context.get("drama_meta", {}),
-            context.get("novel_reference"), locale=context.get("locale", "en-US"),
-            glossary_terms=context.get("glossary_terms"),
-            style_guidelines=context.get("style_guidelines", ""),
-            recent_context=context.get("recent_context"),
-            upcoming_lines=context.get("upcoming_lines"),
-        )
-        novel_reference = context.get("novel_reference")
-        system_text = instructions
-        if novel_reference and novel_reference.strip():
-            system_text += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
-                             "only):\n\n" + novel_reference.strip())
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        system_text = build_stable_system_text(context)
+        self.last_usage = _empty_usage()
 
         def call_model(numbered):
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_text},
-                    {"role": "user", "content": "Translate these lines:\n\n" + numbered},
+                    {"role": "user", "content": build_batch_user_message(context, numbered)},
                 ],
             )
-            if hasattr(resp, "usage") and resp.usage:
-                self.last_usage["input_tokens"] += getattr(resp.usage, "prompt_tokens", 0)
-                self.last_usage["output_tokens"] += getattr(resp.usage, "completion_tokens", 0)
+            usage = getattr(resp, "usage", None)
+            if usage:
+                # DeepSeek reports its automatic prefix-cache hits as
+                # prompt_cache_hit_tokens; the OpenAI-standard field is
+                # prompt_tokens_details.cached_tokens. Either way it's a
+                # subset of prompt_tokens.
+                details = getattr(usage, "prompt_tokens_details", None)
+                cached = (getattr(usage, "prompt_cache_hit_tokens", None)
+                          or getattr(details, "cached_tokens", None) or 0)
+                _add_usage(self.last_usage, {
+                    "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                    "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+                    "cache_read_tokens": cached or 0})
             return resp.choices[0].message.content.strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
@@ -614,7 +700,7 @@ class GeminiEngine:
                  free_tier: bool = False):
         self.api_key = api_key
         self.model = model
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        self.last_usage = _empty_usage()
         # Free-tier Gemini keys hard-error past ~10 requests/minute rather
         # than queuing -- self-pacing client-side is cheaper than handling
         # 429s. Paid keys have no such limit, so this only applies here.
@@ -636,35 +722,27 @@ class GeminiEngine:
                 t for t in self._free_tier_request_times if now - t < 60]
         self._free_tier_request_times.append(now)
 
+    def build_request_body(self, context: dict, numbered: str) -> dict:
+        """One translation request's generateContent body -- shared by
+        translate_batch and bulk mode's Batch API submission."""
+        return {
+            "systemInstruction": {"parts": [{"text": build_stable_system_text(context)}]},
+            "contents": [{"parts": [{"text": build_batch_user_message(context, numbered)}]}],
+        }
+
     def translate_batch(self, zh_lines, context: dict):
         import requests
-        instructions, _ = build_llm_instructions(
-            context.get("style_note", ""), context.get("drama_meta", {}),
-            context.get("novel_reference"), locale=context.get("locale", "en-US"),
-            glossary_terms=context.get("glossary_terms"),
-            style_guidelines=context.get("style_guidelines", ""),
-            recent_context=context.get("recent_context"),
-            upcoming_lines=context.get("upcoming_lines"),
-        )
-        novel_reference = context.get("novel_reference")
-        if novel_reference and novel_reference.strip():
-            instructions += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
-                              "only):\n\n" + novel_reference.strip())
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{self.model}:generateContent")
-        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+        self.last_usage = _empty_usage()
 
         def call_model(numbered):
             self._throttle_for_free_tier()
-            resp = requests.post(url, headers={"x-goog-api-key": self.api_key}, json={
-                "systemInstruction": {"parts": [{"text": instructions}]},
-                "contents": [{"parts": [{"text": "Translate these lines:\n\n" + numbered}]}],
-            }, timeout=120)
+            resp = requests.post(url, headers={"x-goog-api-key": self.api_key},
+                                 json=self.build_request_body(context, numbered), timeout=120)
             resp.raise_for_status()
             data = resp.json()
-            usage = data.get("usageMetadata") or {}
-            self.last_usage["input_tokens"] += usage.get("promptTokenCount", 0)
-            self.last_usage["output_tokens"] += usage.get("candidatesTokenCount", 0)
+            _add_usage(self.last_usage, gemini_usage(data.get("usageMetadata")))
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
@@ -964,6 +1042,8 @@ SYSTEM_FLAG_REASONS = {
     "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
     "timing_overlap": "Overlaps the next line -- exports trim it",
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
+    "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
+                            "result wasn't applied; translate this line again"),
 }
 
 
@@ -1124,23 +1204,12 @@ class OllamaEngine:
 
     def translate_batch(self, zh_lines, context: dict):
         import requests
-        instructions, _ = build_llm_instructions(
-            context.get("style_note", ""), context.get("drama_meta", {}),
-            context.get("novel_reference"), locale=context.get("locale", "en-US"),
-            glossary_terms=context.get("glossary_terms"),
-            style_guidelines=context.get("style_guidelines", ""),
-            recent_context=context.get("recent_context"),
-            upcoming_lines=context.get("upcoming_lines"),
-        )
-        novel_reference = context.get("novel_reference")
-        system_text = instructions
-        if novel_reference and novel_reference.strip():
-            system_text += ("\n\nREFERENCE NOVEL TRANSLATION (authoritative for THIS drama "
-                             "only):\n\n" + novel_reference.strip())
+        system_text = build_stable_system_text(context)
         num_ctx_override = context.get("ollama_num_ctx_override")
 
         def call_model(numbered):
-            estimated = _estimate_ollama_num_ctx(system_text, numbered)
+            user_text = build_batch_user_message(context, numbered)
+            estimated = _estimate_ollama_num_ctx(system_text, user_text)
             # The override can only raise the window, never lower it below
             # what's actually needed -- a manual value smaller than the
             # estimate would silently reintroduce the exact truncation bug
@@ -1156,7 +1225,7 @@ class OllamaEngine:
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system_text},
-                    {"role": "user", "content": "Translate these lines:\n\n" + numbered},
+                    {"role": "user", "content": user_text},
                 ],
                 "stream": False,
                 "format": _OLLAMA_ID_KEYED_JSON_SCHEMA,
@@ -1336,27 +1405,53 @@ def get_engine(engine_name: str, api_key: str = None, model: str = None,
     return cls(api_key, **kwargs)
 
 
-def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int) -> float:
+def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
+                             cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
     """Same as estimate_cost, but $0 for a Gemini engine running under its
     free tier -- PRICING_PER_MILLION_TOKENS prices the paid tier, which
     doesn't apply once free_tier is set on the engine instance."""
     if getattr(engine, "free_tier", False):
         return 0.0
-    return estimate_cost(getattr(engine, "model", ""), input_tokens, output_tokens)
+    return estimate_cost(getattr(engine, "model", ""), input_tokens, output_tokens,
+                         cache_read_tokens, cache_write_tokens)
+
+
+def estimate_translation_cost(engine, zh_lines: list) -> float:
+    """Rough pre-run estimate of a normal single-pass translation run,
+    from the lines' own character count (a tokenizer-free ~3.5
+    chars/token heuristic -- an order-of-magnitude estimate, not a
+    precise bill)."""
+    chars = sum(len(z) for z in zh_lines)
+    input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
+    output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
+    return estimate_cost_for_engine(engine, input_tokens, output_tokens)
 
 
 def estimate_reflect_mode_cost(engine, zh_lines: list) -> float:
     """Rough pre-run estimate for Step 7's Reflect mode, shown before the
     user starts it (it costs real money to run and can't be cancelled
     mid-line the way a single bad batch can). Reflect mode is three LLM
-    calls instead of translate_batch's one, so this estimates a normal
-    single-pass run's cost from the batch's own character count (a
-    tokenizer-free ~3.5 chars/token heuristic -- an order-of-magnitude
-    estimate, not a precise bill) and multiplies by 3."""
-    chars = sum(len(z) for z in zh_lines)
-    input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
-    output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
-    return estimate_cost_for_engine(engine, input_tokens, output_tokens) * 3
+    calls instead of translate_batch's one, so this is a normal run's
+    estimate times 3."""
+    return estimate_translation_cost(engine, zh_lines) * 3
+
+
+def resolve_cost_cap(job_cap_usd=None, monthly_cap_usd=None, month_spend_usd: float = 0.0):
+    """(cap, refusal) for a job about to start. cap is the tighter of the
+    per-job cap and whatever is left of the monthly cap, or None when
+    neither is set (0 or None both mean "no cap"). refusal is a plain
+    message when the monthly cap is already used up -- don't start."""
+    caps = []
+    if job_cap_usd:
+        caps.append(float(job_cap_usd))
+    if monthly_cap_usd:
+        remaining = float(monthly_cap_usd) - float(month_spend_usd or 0)
+        if remaining <= 0:
+            return None, (f"This month's spending cap (${float(monthly_cap_usd):.2f}) is already "
+                          f"used up (${float(month_spend_usd):.2f} logged so far). Raise it in "
+                          "Settings to keep going.")
+        caps.append(remaining)
+    return (min(caps) if caps else None), None
 
 
 def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1):
@@ -1416,9 +1511,9 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
         context.get("novel_reference"), locale=context.get("locale", "en-US"),
         glossary_terms=context.get("glossary_terms"),
         style_guidelines=context.get("style_guidelines", ""),
-        recent_context=context.get("recent_context"),
-        upcoming_lines=context.get("upcoming_lines"),
     )
+    batch_ctx = build_batch_context(context.get("recent_context"), context.get("upcoming_lines"))
+    batch_ctx = batch_ctx + "\n" if batch_ctx else ""
 
     def call(prompt):
         return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb)
@@ -1436,6 +1531,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
             "instructed above.\n\n"
             'Return ONLY a JSON object mapping each line number to its translation, e.g. '
             '{"1": "...", "2": "..."}. No preamble, no markdown fences.\n\n'
+            + batch_ctx +
             f"Lines:\n{numbered}"
         )
 
@@ -1454,6 +1550,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
             'Return ONLY a JSON object mapping each line number to its critique, e.g. '
             '{"1": "..."}. Omit a key entirely for a line that needs no critique. No preamble, '
             "no markdown fences.\n\n"
+            + batch_ctx +
             f"Lines:\n{pairs}"
         )
 
@@ -1488,6 +1585,7 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
             "line.\n\n"
             'Return ONLY a JSON object mapping each line number to its final translation, e.g. '
             '{"1": "..."}. No preamble, no markdown fences.\n\n'
+            + batch_ctx +
             "Lines:\n" + "\n".join(parts)
         )
 
@@ -1498,6 +1596,26 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     return translations, critiques
 
 
+def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
+                              locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
+                              ollama_num_ctx_override: int = None) -> dict:
+    """The per-job context every engine's prompt is built from -- shared by
+    live translation and bulk submission so both send the same prompt."""
+    return {
+        "drama_meta": drama_meta,
+        "style_note": style_note,
+        "novel_reference": novel_reference if getattr(engine, "supports_reference", False) else None,
+        "locale": locale,
+        "glossary_terms": glossary_terms,
+        "style_guidelines": style_guidelines,
+        # Regression fix: DeepL/Google both used to hardcode "zh" here
+        # regardless of the drama's actual source language -- a Japanese
+        # or Korean drama translated through either silently mistranslated.
+        "source_language": (drama_meta or {}).get("source_language", "zh"),
+        "ollama_num_ctx_override": ollama_num_ctx_override,
+    }
+
+
 def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
@@ -1505,7 +1623,8 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                                  style_guidelines: str = "", cancel_check_cb=None,
                                  context_window: int = 6, context_window_ahead: int = 3,
                                  character_names: dict = None, ollama_num_ctx_override: int = None,
-                                 reflect: bool = False, notes_cb=None):
+                                 reflect: bool = False, notes_cb=None, cost_cap_usd: float = None,
+                                 cap_cb=None, target_ids=None):
     """cancel_check_cb: optional callable returning True if the run should
     stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
     so a background translation job can be stopped safely (rather than
@@ -1542,10 +1661,26 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
     too if the caller only saves once at the very end.
 
     usage_cb: optional callback invoked after every successful batch
-    with (input_tokens, output_tokens) -- call db.log_usage(...) from
-    it for cost tracking. Only fires for engines that expose
-    .last_usage (currently Claude and DeepSeek); pure-MT engines don't
-    report token counts the same way, so nothing is logged for those.
+    with (input_tokens, output_tokens, cache_read_tokens,
+    cache_write_tokens) -- call db.log_usage(...) from it for cost
+    tracking. input_tokens is the whole prompt; the cache counts are the
+    parts of it read from / written to a provider prompt cache. In
+    Reflect mode it's called once per LLM pass with just (input_tokens,
+    output_tokens), so give the last two parameters defaults. Only fires
+    for engines that report usage; pure-MT engines don't report token
+    counts the same way, so nothing is logged for those.
+
+    cost_cap_usd: stop cleanly once this run's estimated spend
+    (estimate_cost_for_engine over each batch's real reported usage)
+    reaches this many dollars. Checked after each batch, so the batch
+    that crosses the cap still finishes and is saved -- the run can go
+    over by at most one batch, and never loses finished work. cap_cb, if
+    given, is called with the amount spent when the cap stops a run that
+    still had batches left.
+
+    target_ids: optional set of permanent line ids -- only those lines are
+    translated (on top of the force_retranslate rule); every other line
+    still serves as look-back/look-ahead context.
 
     A failed batch is retried once, then, if it fails again, its lines
     are left untranslated (.en stays empty) and noted in the returned
@@ -1584,26 +1719,27 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
     backward. 0 disables this.
     """
     target_lines = lines if force_retranslate else [ln for ln in lines if not ln.en.strip()]
+    if target_ids is not None:
+        target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in target_ids]
     if not target_lines:
         if progress_cb:
             progress_cb(1.0)
         return lines, []
 
     character_names = character_names or {}
-    context = {
-        "drama_meta": drama_meta,
-        "style_note": style_note,
-        "novel_reference": novel_reference if getattr(engine, "supports_reference", False) else None,
-        "locale": locale,
-        "glossary_terms": glossary_terms,
-        "style_guidelines": style_guidelines,
-        # Regression fix: DeepL/Google both used to hardcode "zh" here
-        # regardless of the drama's actual source language -- a Japanese
-        # or Korean drama translated through either silently mistranslated.
-        "source_language": (drama_meta or {}).get("source_language", "zh"),
-        "ollama_num_ctx_override": ollama_num_ctx_override,
-    }
+    context = build_translation_context(
+        engine, drama_meta, style_note=style_note, novel_reference=novel_reference, locale=locale,
+        glossary_terms=glossary_terms, style_guidelines=style_guidelines,
+        ollama_num_ctx_override=ollama_num_ctx_override)
     errors = []
+    spent = 0.0
+
+    def record_usage(inp, out, cache_read=0, cache_write=0):
+        nonlocal spent
+        spent += estimate_cost_for_engine(engine, inp, out, cache_read, cache_write)
+        if usage_cb:
+            usage_cb(inp, out, cache_read, cache_write)
+
     n_batches = (len(target_lines) + batch_size - 1) // batch_size
     for bi, start in enumerate(range(0, len(target_lines), batch_size)):
         if cancel_check_cb and cancel_check_cb():
@@ -1637,7 +1773,7 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             if reflect:
                 translations, critiques = call_with_backoff(
                     lambda: reflect_translate_batch(engine, [ln.zh for ln in batch], context,
-                                                    usage_cb=usage_cb)
+                                                    usage_cb=record_usage)
                 )
                 if notes_cb:
                     notes = [{"line_idx": ln.idx, "term": "", "note_type": "reflection", "note": c}
@@ -1648,8 +1784,10 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                 translations = call_with_backoff(
                     lambda: engine.translate_batch([ln.zh for ln in batch], context)
                 )
-                if usage_cb and hasattr(engine, "last_usage"):
-                    usage_cb(engine.last_usage.get("input_tokens", 0), engine.last_usage.get("output_tokens", 0))
+                if hasattr(engine, "last_usage"):
+                    u = engine.last_usage
+                    record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
+                                 u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
             if len(translations) != len(batch):
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
                                "error": f"engine returned {len(translations)} translation(s) for "
@@ -1668,4 +1806,8 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             save_cb(lines)
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
+        if cost_cap_usd is not None and spent >= cost_cap_usd and bi + 1 < n_batches:
+            if cap_cb:
+                cap_cb(spent)
+            break
     return lines, errors

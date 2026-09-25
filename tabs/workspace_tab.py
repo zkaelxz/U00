@@ -10,6 +10,7 @@ import raw_transcript
 import resegment
 import sensevoice_tags
 import subtitle_formats
+import bulk_translate
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
@@ -134,7 +135,7 @@ def _jump_to_line_button(picked_id, line_idx, all_lines, key):
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6,
-                       ollama_num_ctx_override=None, reflect=False):
+                       ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -147,7 +148,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     reflect: Step 7's "High quality" Reflect mode -- three LLM passes per
     batch instead of one; the middle (reflection) pass's critique is
     saved as a translation note per line, via notes_cb below.
+
+    cost_cap_usd: stop cleanly (every finished line kept) once this run's
+    estimated spend reaches it -- the tighter of the per-job and monthly
+    caps, resolved before the job starts. None = no cap.
     """
+    cap_reached = {}
     # {speaker_label: "Name (pronouns)"}, named characters only -- a line
     # whose speaker has no name set is shown to the translator with no
     # name at all (see translate_lines_with_engine's own docstring),
@@ -163,6 +169,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         context_window=context_window, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect,
+        cost_cap_usd=cost_cap_usd,
+        cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=lambda notes: db.save_translation_notes(
             drama_id, notes, id_by_idx=_id_by_idx(lines)),
         progress_cb=lambda frac: background_jobs.update_progress(
@@ -171,9 +179,10 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         # the user's own edits can run alongside without being overwritten.
         save_cb=lambda ls: db.save_lines(drama_id, ls, fields=("en",)),
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
-        usage_cb=lambda inp, out: db.log_usage(
+        usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translate",
-            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
+            inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
+            cache_read_tokens=cache_read),
     )
 
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
@@ -194,7 +203,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         # transcription finished meanwhile) -- its writes were no-ops, and
         # recording a version or a "translated" status would describe lines
         # that no longer exist.
-        background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True})
+        background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
+                                            "cap_reached": cap_reached.get("spent")})
         return
 
     _version_label = f"{engine_choice} · {style_preset}"
@@ -210,7 +220,147 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     db.update_drama(drama_id, status="translated", translation_engine=engine_choice,
                      last_translate_errors=json.dumps(errors, ensure_ascii=False) if errors else None)
 
-    background_jobs.set_result(job_id, {"errors": errors})
+    background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent")})
+
+
+def _bulk_engine_factory(engine_choice, model):
+    """An engine built with the key currently in Settings, or None if
+    there isn't one -- a pending bulk job can only be checked with a key,
+    and keys are never stored on disk."""
+    key = st.session_state.get(f"settings_{engine_choice}")
+    if not key:
+        return None
+    try:
+        return translate_engines.get_engine(engine_choice, key, model or None)
+    except Exception:
+        return None
+
+
+def _start_bulk_translation(drama_id, drama, engine, engine_choice, novel_reference, glossary_terms,
+                            style_guidelines, style_note, locale, style_preset, context_window,
+                            force_retranslate, job_cap, monthly_cap, estimate):
+    """Step 9's Bulk mode, from the Translate button. Returns (st method
+    name, message). Lines come fresh from the database so each carries
+    its permanent id and current English."""
+    lines = db.load_line_objects(drama_id)
+    translate_args = {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
+                      "style_guidelines": style_guidelines, "style_preset": style_preset,
+                      "context_window": context_window, "cost_cap_usd": job_cap or None}
+    try:
+        if engine_choice == "deepseek":
+            translate_args["novel_reference"] = novel_reference
+            bulk_id = bulk_translate.schedule_offpeak_translation(
+                drama_id, lines, engine_choice, getattr(engine, "model", ""), translate_args,
+                force_retranslate=force_retranslate)
+            bulk_translate.start_poller(bulk_id, engine=engine, monthly_cap_usd=monthly_cap or None)
+            job = db.get_bulk_job(bulk_id)
+            return "success", (f"Scheduled for DeepSeek's off-peak window (from "
+                               f"{job['scheduled_for'][:16].replace('T', ' ')} UTC). Track it under "
+                               "🐢 Bulk jobs below; the app needs to be running then.")
+        cap, refusal = translate_engines.resolve_cost_cap(
+            job_cap, monthly_cap, db.get_month_spend() if monthly_cap else 0.0)
+        if refusal:
+            return "warning", refusal
+        if cap is not None and estimate is not None and estimate > cap:
+            return "warning", (f"Not submitted: a bulk batch can't be stopped part-way, and its "
+                               f"estimate (~${estimate:.2f}) is above your ${cap:.2f} cap. Raise the "
+                               "cap, or run it as a normal translation, which stops at the cap.")
+        series_id = drama.get("series_id")
+        character_names = tguide.build_speaker_labels(
+            db.list_characters_with_series_names(drama_id),
+            db.list_series_characters(series_id) if series_id else [])
+        context = translate_engines.build_translation_context(
+            engine, drama, style_note=style_note, novel_reference=novel_reference, locale=locale,
+            glossary_terms=glossary_terms, style_guidelines=style_guidelines)
+        provider = bulk_translate.make_provider(engine_choice, engine)
+        bulk_id = bulk_translate.submit_bulk_translation(
+            drama_id, lines, engine, engine_choice, context, provider=provider,
+            translate_args={"glossary_terms": glossary_terms, "style_preset": style_preset},
+            force_retranslate=force_retranslate, context_window=context_window,
+            character_names=character_names)
+        bulk_translate.start_poller(bulk_id, provider=provider, engine=engine)
+        n = len(db.list_bulk_job_lines(bulk_id))
+        return "success", (f"Submitted {n} line(s) as one bulk batch at half price. Most finish "
+                           "within an hour (24 hours at most) -- track it under 🐢 Bulk jobs below.")
+    except Exception as e:
+        return "error", f"Bulk submission failed: {translate_engines.redact_secrets(str(e))}"
+
+
+_BULK_STATUS_LABELS = {
+    "submitting": "Submitting", "submitted": "Waiting for results", "scheduled": "Scheduled",
+    "running": "Translating (off-peak)", "applied": "Done", "cancelled": "Cancelled",
+    "failed": "Failed", "auth_error": "Can't check -- key refused",
+}
+_BULK_SUMMARY_LABELS = {
+    "applied": "applied", "translated": "translated", "dropped_deleted": "dropped (line deleted)",
+    "flagged_source_changed": "flagged (source changed)", "kept_your_edit": "kept your edit",
+    "skipped_changed": "skipped (edited meanwhile)", "missing": "missing",
+    "failed_requests": "failed requests", "batch_errors": "failed batches",
+}
+
+
+def _render_bulk_jobs_panel(drama_id, monthly_cap):
+    """Pending and recent bulk jobs for this drama, with Check now and
+    Cancel. Also restarts polling for pending jobs after an app restart."""
+    jobs = db.list_bulk_jobs(drama_id)
+    if not jobs:
+        return
+    resumed = bulk_translate.resume_pending(drama_id, _bulk_engine_factory, monthly_cap or None)
+    seen_key = f"bulk_applied_seen_{drama_id}"
+    seen = st.session_state.setdefault(seen_key, {j["id"] for j in jobs if j["status"] == "applied"})
+    if any(j["status"] == "applied" and j["id"] not in seen for j in jobs):
+        # A poller finished in the background -- show its lines.
+        st.session_state.lines = db.load_line_objects(drama_id)
+        seen.update(j["id"] for j in jobs if j["status"] == "applied")
+    pending = [j for j in jobs if j["status"] in ("submitting", "submitted", "scheduled",
+                                                  "running", "auth_error")]
+    with st.expander(f"🐢 Bulk jobs ({len(pending)} pending)", expanded=bool(pending)):
+        _note = st.session_state.pop(f"bulk_note_{drama_id}", None)
+        if _note:
+            st.info(_note)
+        for job in jobs[:10]:
+            with st.container(border=True):
+                st.markdown(f"**#{job['id']}** · {job['engine']} ({job['model'] or 'default'}) · "
+                            f"submitted {(job['submitted_at'] or '')[:16].replace('T', ' ')} UTC · "
+                            f"**{_BULK_STATUS_LABELS.get(job['status'], job['status'])}**")
+                if job["status"] == "scheduled" and job.get("scheduled_for"):
+                    st.caption(f"Starts at {job['scheduled_for'][:16].replace('T', ' ')} UTC "
+                               "(DeepSeek off-peak), while the app is running.")
+                if resumed.get(job["id"]) == "needs_key":
+                    st.caption(f"Needs your {job['engine']} API key (Settings) to keep checking "
+                               "this job.")
+                if job["status"] == "auth_error":
+                    st.error(f"Checking this batch failed: {job['last_error']} Update the key in "
+                             "Settings, then Check now.")
+                elif job.get("last_error"):
+                    st.caption(f"Last problem: {job['last_error']}")
+                if job.get("result_summary"):
+                    parts = [f"{_BULK_SUMMARY_LABELS[k]} {v}" for k, v in job["result_summary"].items()
+                             if k in _BULK_SUMMARY_LABELS and v]
+                    if parts:
+                        st.caption("Result: " + " · ".join(parts))
+                c1, c2 = st.columns(2)
+                if job["status"] in ("submitted", "auth_error") and c1.button(
+                        "🔄 Check now", key=f"bulk_check_{job['id']}"):
+                    engine = _bulk_engine_factory(job["engine"], job["model"])
+                    if engine is None:
+                        st.warning(f"Add your {job['engine']} API key in Settings first.")
+                    else:
+                        try:
+                            bulk_translate.check_once(
+                                job["id"], bulk_translate.make_provider(job["engine"], engine))
+                        except bulk_translate.BulkAuthError:
+                            pass  # recorded on the job; shown after the rerun
+                        except Exception as e:
+                            db.update_bulk_job(job["id"], last_error=translate_engines.redact_secrets(str(e)))
+                        st.rerun()
+                if job["status"] in ("submitting", "submitted", "scheduled", "auth_error") and c2.button(
+                        "✖ Cancel", key=f"bulk_cancel_{job['id']}"):
+                    engine = _bulk_engine_factory(job["engine"], job["model"])
+                    provider = bulk_translate.make_provider(job["engine"], engine) if engine else None
+                    st.session_state[f"bulk_note_{drama_id}"] = bulk_translate.cancel_bulk_job(
+                        job["id"], provider)
+                    st.rerun()
 
 
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
@@ -1838,9 +1988,21 @@ def render_workspace_tab():
                 _ollama_unreachable = True
                 st.warning(f"⚠️ Can't reach Ollama at `{_ollama_check_url}` — is it running?")
 
+        # Step 9: spending caps apply to the engines that bill per token
+        # and report usage; a free-tier Gemini key costs nothing.
+        _cap_applies = (engine_choice in ("claude", "deepseek", "gemini")
+                        and not (engine_choice == "gemini" and _gemini_free_tier))
+        _monthly_cap = st.session_state.get("settings_monthly_cap_usd") or 0
+        _month_spend = db.get_month_spend() if (_cap_applies and _monthly_cap) else 0.0
+        _monthly_refusal = None
+        if _cap_applies:
+            _, _monthly_refusal = translate_engines.resolve_cost_cap(None, _monthly_cap, _month_spend)
+            if _monthly_refusal:
+                st.warning(_monthly_refusal)
+
         run_translate = b2.button("🌐 Translate all lines",
                                    disabled=st.session_state.lines is None or not api_key
-                                            or _ollama_unreachable)
+                                            or _ollama_unreachable or bool(_monthly_refusal))
         force_retranslate = b2.checkbox(
             "Force re-translate everything (redoes lines that already have a "
             "translation too, not just what's missing)",
@@ -1860,22 +2022,73 @@ def render_workspace_tab():
                      "same engine critiques that specific translation (saved as a translation "
                      "note you can review), then a final rewrite using that critique. Costs "
                      "about 3x as much as a normal translation run.")
-            if reflect_mode and st.session_state.lines and api_key:
-                _reflect_targets = (st.session_state.lines if force_retranslate
-                                    else [ln for ln in st.session_state.lines if not ln.en.strip()])
-                if _reflect_targets:
-                    try:
-                        _reflect_est_engine = translate_engines.get_engine(
-                            engine_choice, api_key, engine_model,
-                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
-                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
-                        _reflect_cost = translate_engines.estimate_reflect_mode_cost(
-                            _reflect_est_engine, [ln.zh for ln in _reflect_targets])
-                        st.caption(f"💰 Estimated Reflect-mode cost for {len(_reflect_targets)} "
-                                   f"line(s): ~${_reflect_cost:.2f} (roughly 3x a normal "
-                                   "translation run -- a rough estimate, not a precise bill).")
-                    except Exception:
-                        pass
+
+        bulk_mode = False
+        if (engine_choice in bulk_translate.BULK_ENGINES
+                and not (engine_choice == "gemini" and _gemini_free_tier)):
+            bulk_mode = b2.checkbox(
+                "🐢 Bulk (cheaper, slower)", value=False, key=f"bulk_mode_{picked_id}",
+                help="Half price, for work nobody is waiting on. Claude and Gemini: every batch "
+                     "is sent at once through their batch APIs -- most finish within an hour, "
+                     "some take up to 24 hours. DeepSeek: waits for its next off-peak window "
+                     "(half price) and runs then. Results are applied by line id, so you can keep "
+                     "editing meanwhile -- a line whose source text changes before its result "
+                     "arrives is flagged for review instead of overwritten.")
+            if bulk_mode and reflect_mode:
+                st.info("Bulk mode is off while Reflect mode is on -- its three passes each "
+                        "depend on the one before, so they can't go out as one batch.")
+                bulk_mode = False
+            elif bulk_mode and engine_choice == "deepseek":
+                _window = bulk_translate.next_deepseek_offpeak_start(bulk_translate._utcnow())
+                st.caption("🐢 Runs in DeepSeek's off-peak window (half price) -- "
+                           + ("starting right away." if bulk_translate.is_deepseek_offpeak(
+                               bulk_translate._utcnow()) else f"from {_window:%H:%M} UTC today."))
+            elif bulk_mode:
+                st.caption("🐢 Bulk trade-off: every batch is sent at the same time, so the "
+                           "look-back context can only use translations that already exist -- "
+                           "not ones from earlier batches of this same run. Slightly less "
+                           "consistent than a normal run; a consistency check afterwards helps.")
+
+        _est_targets = []
+        if st.session_state.lines and api_key and (reflect_mode or _cap_applies):
+            _est_targets = (st.session_state.lines if force_retranslate
+                            else [ln for ln in st.session_state.lines if not ln.en.strip()])
+        _estimate = None
+        if _est_targets:
+            try:
+                _est_engine = translate_engines.get_engine(
+                    engine_choice, api_key, engine_model,
+                    free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                    base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                _est_fn = (translate_engines.estimate_reflect_mode_cost if reflect_mode
+                           else translate_engines.estimate_translation_cost)
+                _estimate = _est_fn(_est_engine, [ln.zh for ln in _est_targets])
+            except Exception:
+                _estimate = None
+        if _estimate is not None and reflect_mode:
+            st.caption(f"💰 Estimated Reflect-mode cost for {len(_est_targets)} "
+                       f"line(s): ~${_estimate:.2f} (roughly 3x a normal "
+                       "translation run -- a rough estimate, not a precise bill).")
+        elif _estimate is not None and _cap_applies and bulk_mode:
+            _estimate *= bulk_translate.BATCH_PRICE_FACTOR
+            st.caption(f"💰 Estimated bulk cost for {len(_est_targets)} line(s): ~${_estimate:.2f} "
+                       "(half price -- a rough estimate, not a precise bill).")
+        elif _estimate is not None and _cap_applies:
+            st.caption(f"💰 Estimated cost for {len(_est_targets)} line(s): ~${_estimate:.2f} "
+                       "(a rough estimate, not a precise bill).")
+
+        _job_cap = 0.0
+        if _cap_applies:
+            _job_cap = b2.number_input(
+                "Stop this job if it costs more than (USD, 0 = no cap)", min_value=0.0,
+                step=0.5, value=0.0, key=f"cost_cap_{picked_id}",
+                help="Spend is added up from each batch's real reported usage while the job "
+                     "runs; once it reaches this, the job stops cleanly and keeps every "
+                     "finished line. The batch that crosses the cap still completes, so it can "
+                     "go over by at most one batch. Your monthly cap (Settings) applies too.")
+            if _job_cap and _estimate is not None and _estimate > _job_cap:
+                st.warning(f"The estimate (~${_estimate:.2f}) is above your ${_job_cap:.2f} cap -- "
+                           "the job will stop once it reaches the cap, keeping what's finished.")
 
         _transcribe_job_id = f"transcribe_{picked_id}"
         _tjob = background_jobs.get_status(_transcribe_job_id)
@@ -2206,32 +2419,45 @@ def render_workspace_tab():
                                + ("\n\n" + _emotion_block if _emotion_block else "")
                                + ("\n\n" + _gender_block if _gender_block else "")))
 
-            # A copy, not the live list -- the background thread mutates its own
-            # lines and saves through the database; the main script reloads from
-            # there once the job is visible again, rather than two threads
-            # touching the same objects st.session_state also holds.
-            _lines_copy = _copy_lines(st.session_state.lines)
-
-            started = background_jobs.start_job(
-                _translate_job_id, run_translate_job,
-                _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
-                novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
-                engine_choice, style_preset, context_window,
-                st.session_state.get("settings_ollama_num_ctx_override") or None,
-                reflect=reflect_mode,
-                gpu_touching=engine_choice == "ollama",
-                description=(f"Ollama Reflect-mode translation ({_drama_label(drama)})"
-                            if reflect_mode and engine_choice == "ollama" else
-                            f"Ollama translation ({_drama_label(drama)})"))
-            if started:
-                st.info(_job_start_message(
-                    _translate_job_id,
-                    "Translation started in the background -- it keeps running even if you "
-                    "switch tabs or close this one. Come back here any time to see progress; "
-                    "it'll pick up right where it is."))
-                st.rerun()
+            if bulk_mode:
+                _kind, _msg = _start_bulk_translation(
+                    picked_id, drama, engine, engine_choice, novel_reference, glossary_terms,
+                    style_guidelines, style_note, locale, style_preset, context_window,
+                    force_retranslate, _job_cap, _monthly_cap, _estimate)
+                getattr(st, _kind)(_msg)
             else:
-                st.warning("A translation is already running for this drama.")
+                # A copy, not the live list -- the background thread mutates its own
+                # lines and saves through the database; the main script reloads from
+                # there once the job is visible again, rather than two threads
+                # touching the same objects st.session_state also holds.
+                _lines_copy = _copy_lines(st.session_state.lines)
+
+                _cost_cap = None
+                if _cap_applies:
+                    _cost_cap, _ = translate_engines.resolve_cost_cap(
+                        _job_cap, _monthly_cap, db.get_month_spend() if _monthly_cap else 0.0)
+
+                started = background_jobs.start_job(
+                    _translate_job_id, run_translate_job,
+                    _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
+                    novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
+                    engine_choice, style_preset, context_window,
+                    st.session_state.get("settings_ollama_num_ctx_override") or None,
+                    reflect=reflect_mode,
+                    cost_cap_usd=_cost_cap,
+                    gpu_touching=engine_choice == "ollama",
+                    description=(f"Ollama Reflect-mode translation ({_drama_label(drama)})"
+                                if reflect_mode and engine_choice == "ollama" else
+                                f"Ollama translation ({_drama_label(drama)})"))
+                if started:
+                    st.info(_job_start_message(
+                        _translate_job_id,
+                        "Translation started in the background -- it keeps running even if you "
+                        "switch tabs or close this one. Come back here any time to see progress; "
+                        "it'll pick up right where it is."))
+                    st.rerun()
+                else:
+                    st.warning("A translation is already running for this drama.")
 
         if _job:
             if _job["status"] == "running":
@@ -2243,7 +2469,13 @@ def render_workspace_tab():
             elif _job["status"] == "done":
                 st.session_state.lines = db.load_line_objects(picked_id)
                 _errors = (_job.get("result") or {}).get("errors", [])
-                if _errors:
+                _cap_spent = (_job.get("result") or {}).get("cap_reached")
+                if _cap_spent is not None:
+                    _left = sum(1 for ln in st.session_state.lines if not ln.en.strip())
+                    st.warning(f"Stopped at your spending cap after about ${_cap_spent:.2f} -- "
+                               f"every finished line was kept. {_left} line(s) are still "
+                               "untranslated; raise the cap and click Translate to continue.")
+                elif _errors:
                     failed_line_nums = [i + 1 for e in _errors for i in e["lines"]]
                     st.warning(f"Translated with {len(_errors)} batch failure(s) -- lines "
                               f"{failed_line_nums} are still untranslated, but everything else was "
@@ -2256,6 +2488,8 @@ def render_workspace_tab():
                 with st.expander("Details"):
                     st.code(_job.get("traceback", ""), language="text")
                 background_jobs.clear_job(_translate_job_id)
+
+        _render_bulk_jobs_panel(picked_id, _monthly_cap)
 
     # ---------------------------------------------------- Character naming
     characters = db.list_characters_with_series_names(picked_id)
