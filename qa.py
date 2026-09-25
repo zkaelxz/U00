@@ -20,9 +20,6 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
     for a multi-turn conversation; each call is still stateless on the
     engine side, so history is replayed as context every time.
     """
-    if not getattr(engine, "supports_reference", False):
-        return "This engine doesn't support free-form Q&A -- use Claude, DeepSeek, or Ollama."
-
     context_lines = lines[:max_lines]
     transcript = "\n".join(
         f"[{ln.idx}] ({ln.speaker or '?'}) {ln.zh} -> {ln.en}" for ln in context_lines
@@ -44,6 +41,18 @@ def ask_about_drama(question: str, lines, drama_meta: dict, engine, max_lines: i
 
     messages = list(chat_history or [])
     messages.append({"role": "user", "content": question})
+
+    return _dispatch_chat(system_prompt, messages, engine)
+
+
+def _dispatch_chat(system_prompt: str, messages: list, engine) -> str:
+    """Shared multi-engine chat dispatch, factored out of ask_about_drama
+    so app_help.ask_about_app (Step 18b) can reuse the exact same
+    Claude/OpenAI-shaped/Gemini/Ollama request handling -- only the
+    system_prompt/grounding differs per caller, the dispatch mechanics
+    (auth shape, free-tier throttling, Ollama's num_ctx estimate) don't."""
+    if not getattr(engine, "supports_reference", False):
+        return "This engine doesn't support free-form Q&A -- use Claude, DeepSeek, or Ollama."
 
     client = getattr(engine, "client", None)
     if client is not None and hasattr(client, "messages"):
