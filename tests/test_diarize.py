@@ -24,15 +24,26 @@ class _FakeDiarizationResult:
         for start, end, speaker in self._turns:
             yield type("Turn", (), {"start": start, "end": end})(), None, speaker
 
+    def labels(self):
+        return sorted({speaker for _, _, speaker in self._turns})
+
 
 class _FakeDiarizeOutput4x:
     """Mimics pyannote.audio 4.x's DiarizeOutput dataclass: pipeline(audio)
     returns this wrapper instead of an Annotation directly, with the
     actual Annotation-like result on .speaker_diarization. Calling
     .itertracks() on THIS object (as 3.x code would, unchanged) raises
-    AttributeError, which is exactly the real reported break."""
-    def __init__(self, annotation):
+    AttributeError, which is exactly the real reported break.
+
+    speaker_embeddings: Step 8's optional per-speaker voice fingerprints,
+    one row per label in .speaker_diarization.labels() order -- only
+    present on a real pyannote 4.x DiarizeOutput, never on 3.x's plain
+    Annotation, which is exactly what extract_speaker_embeddings() checks
+    for via getattr."""
+    def __init__(self, annotation, speaker_embeddings=None):
         self.speaker_diarization = annotation
+        if speaker_embeddings is not None:
+            self.speaker_embeddings = speaker_embeddings
 
 
 def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False):
@@ -149,3 +160,75 @@ class TestLabelLinesWithSpeakers:
         diarize.label_lines_with_speakers(lines, segments)
         assert lines[0].speaker == "SPEAKER_00"
         assert lines[1].speaker == "SPEAKER_01"
+
+
+class TestExtractSpeakerEmbeddings:
+    """Step 8: pyannote.audio 4.x's DiarizeOutput.speaker_embeddings, one
+    row per speaker in annotation.labels() order -- mapped to
+    {speaker_label: [float, ...]}. Not present at all on 3.x's plain
+    Annotation, which extract_speaker_embeddings() must handle as "no
+    embeddings" rather than raising."""
+
+    def test_maps_embeddings_to_speaker_labels_in_label_order(self):
+        annotation = _FakeDiarizationResult(
+            [(0.0, 1.0, "SPEAKER_00"), (1.0, 2.0, "SPEAKER_01")])
+        result = _FakeDiarizeOutput4x(annotation, speaker_embeddings=[[1.0, 0.0], [0.0, 1.0]])
+        out = diarize.extract_speaker_embeddings(result, annotation)
+        assert out == {"SPEAKER_00": [1.0, 0.0], "SPEAKER_01": [0.0, 1.0]}
+
+    def test_pyannote_3x_result_has_no_embeddings_attribute(self):
+        annotation = _FakeDiarizationResult([(0.0, 1.0, "SPEAKER_00")])
+        # A plain 3.x Annotation-like result -- itself, no wrapper, no
+        # .speaker_embeddings at all.
+        assert diarize.extract_speaker_embeddings(annotation, annotation) == {}
+
+    def test_a_4x_output_with_no_embeddings_set_is_also_empty(self):
+        annotation = _FakeDiarizationResult([(0.0, 1.0, "SPEAKER_00")])
+        result = _FakeDiarizeOutput4x(annotation)  # no speaker_embeddings kwarg
+        assert diarize.extract_speaker_embeddings(result, annotation) == {}
+
+    def test_malformed_embeddings_degrade_to_empty_rather_than_raising(self):
+        annotation = _FakeDiarizationResult(
+            [(0.0, 1.0, "SPEAKER_00"), (1.0, 2.0, "SPEAKER_01")])
+        # Only one row for two speakers -- an IndexError waiting to happen.
+        result = _FakeDiarizeOutput4x(annotation, speaker_embeddings=[[1.0, 0.0]])
+        assert diarize.extract_speaker_embeddings(result, annotation) == {}
+
+
+class TestDiarizeReturnEmbeddings:
+    def test_return_embeddings_false_keeps_the_exact_existing_shapes(self):
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
+        assert diarize.diarize("/fake/audio.wav", "hf_xxx") == \
+            [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
+        segments, model = diarize.diarize("/fake/audio.wav", "hf_xxx", return_model=True)
+        assert model and segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+
+    def test_return_embeddings_true_with_a_3x_style_result_gives_an_empty_dict(self):
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
+        segments, embeddings = diarize.diarize("/fake/audio.wav", "hf_xxx", return_embeddings=True)
+        assert segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+        assert embeddings == {}
+
+    def test_return_model_and_embeddings_together(self):
+        _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
+        segments, model, embeddings = diarize.diarize(
+            "/fake/audio.wav", "hf_xxx", return_model=True, return_embeddings=True)
+        assert model and segments and embeddings == {}
+
+
+class TestSaveLoadTurnsWithEmbeddings:
+    def test_embeddings_round_trip_through_save_and_load(self, tmp_path):
+        d = str(tmp_path)
+        diarize.save_turns(d, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}],
+                           embeddings={"SPEAKER_00": [0.1, 0.2, 0.3]})
+        assert diarize.load_embeddings(d) == {"SPEAKER_00": [0.1, 0.2, 0.3]}
+        assert diarize.load_turns(d) == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
+
+    def test_no_embeddings_given_saves_and_loads_an_empty_dict(self, tmp_path):
+        d = str(tmp_path)
+        diarize.save_turns(d, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}])
+        assert diarize.load_embeddings(d) == {}
+
+    def test_load_embeddings_before_any_run_is_empty_not_an_error(self, tmp_path):
+        assert diarize.load_embeddings(str(tmp_path)) == {}
