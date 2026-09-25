@@ -549,3 +549,75 @@ class TestBulkSeriesTranslateStatusUI:
         assert any("2 translated" in m.value and "1 skipped (no API key)" in m.value
                   for m in at.success)
         assert background_jobs.get_status(lt.BULK_SERIES_TRANSLATE_JOB_ID) is None
+
+
+class TestManagePresetsUI:
+    """Step 9c item 4: the Library tab's "🎛️ Presets" panel -- list,
+    rename, delete."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_no_presets_shows_the_empty_state(self, isolated_db):
+        at = self._run()
+        assert any("No presets saved yet" in c.value for c in at.caption)
+
+    def test_a_saved_preset_shows_its_captured_fields_at_a_glance(self, isolated_db):
+        isolated_db.save_preset(
+            "Novel style", translation_engine="claude", engine_model="claude-sonnet-5",
+            style_preset="novel", locale="en-GB", default_female_pronouns=True,
+            include_genre_notes=False)
+        at = self._run()
+        assert any("Novel style" in m.value for m in at.markdown)
+        fields = " ".join(c.value for c in at.caption)
+        assert "claude" in fields and "claude-sonnet-5" in fields
+        assert "novel" in fields and "en-GB" in fields
+        assert "she/her default" in fields
+        assert "genre guidance off" in fields
+
+    def test_rename_updates_the_name_only(self, isolated_db):
+        pid = isolated_db.save_preset("Old name", translation_engine="claude", locale="en-US")
+        at = self._run()
+
+        [t for t in at.text_input if t.key == f"rename_preset_{pid}"][0].set_value(
+            "New name").run()
+        [b for b in at.button if b.key == f"rename_preset_btn_{pid}"][0].click().run()
+
+        p = isolated_db.get_preset(pid)
+        assert p["name"] == "New name"
+        assert p["translation_engine"] == "claude"
+        assert p["locale"] == "en-US"
+
+    def test_rename_to_the_same_name_is_disabled(self, isolated_db):
+        pid = isolated_db.save_preset("Same name")
+        at = self._run()
+        btn = [b for b in at.button if b.key == f"rename_preset_btn_{pid}"][0]
+        assert btn.disabled
+
+    def test_delete_removes_only_that_preset(self, isolated_db):
+        pid1 = isolated_db.save_preset("Keep me")
+        pid2 = isolated_db.save_preset("Delete me")
+        at = self._run()
+
+        [b for b in at.button if b.key == f"delete_preset_{pid2}"][0].click().run()
+
+        assert [p["id"] for p in isolated_db.list_presets()] == [pid1]
+
+    def test_deleting_a_preset_does_not_change_a_drama_it_was_applied_to(self, isolated_db):
+        pid = isolated_db.save_preset("Series defaults", translation_engine="deepseek")
+        did = isolated_db.create_drama(title_en="A Drama", translation_engine="deepseek")
+        before = isolated_db.get_drama(did)
+        at = self._run()
+
+        [b for b in at.button if b.key == f"delete_preset_{pid}"][0].click().run()
+
+        assert isolated_db.get_preset(pid) is None
+        assert isolated_db.get_drama(did) == before

@@ -478,3 +478,41 @@ def render_library_tab():
             except Exception as e:
                 st.error(f"Restore failed: {e}")
 
+    st.divider()
+    st.subheader("🎛️ Presets")
+    st.caption("Saved Workspace configurations (engine + model, translation style, English "
+              "variant, pronoun default, genre-guidance toggle) -- save one from a drama's "
+              "🌐 Translation section, apply it to any drama regardless of series. Deleting or "
+              "renaming a preset never changes any drama it was previously applied to; a preset "
+              "is a one-time fill-in, not a live link.")
+    _presets = db.list_presets()
+    if not _presets:
+        st.caption("No presets saved yet.")
+    else:
+        for _p in _presets:
+            _pc1, _pc2, _pc3 = st.columns([3, 2, 1])
+            with _pc1:
+                _fields = []
+                if _p.get("translation_engine"):
+                    _fields.append(_p["translation_engine"]
+                                    + (f" ({_p['engine_model']})" if _p.get("engine_model") else ""))
+                if _p.get("style_preset"):
+                    _fields.append(_p["style_preset"])
+                if _p.get("locale"):
+                    _fields.append(_p["locale"])
+                _fields.append("she/her default" if _p.get("default_female_pronouns") else "no pronoun default")
+                _fields.append("genre guidance on" if _p.get("include_genre_notes") else "genre guidance off")
+                st.markdown(f"**{_p['name']}**")
+                st.caption(" · ".join(_fields))
+            with _pc2:
+                _new_name = st.text_input("Rename to", value=_p["name"],
+                                          key=f"rename_preset_{_p['id']}", label_visibility="collapsed")
+                if st.button("Rename", key=f"rename_preset_btn_{_p['id']}",
+                            disabled=not _new_name.strip() or _new_name.strip() == _p["name"]):
+                    db.rename_preset(_p["id"], _new_name.strip())
+                    st.rerun()
+            with _pc3:
+                if st.button("🗑️", key=f"delete_preset_{_p['id']}", help=f"Delete \"{_p['name']}\""):
+                    db.delete_preset(_p["id"])
+                    st.rerun()
+
