@@ -945,6 +945,8 @@ FLAG_REASONS = {
 # Flags the app sets itself (not offered to the LLM as a reason to pick).
 SYSTEM_FLAG_REASONS = {
     "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
+    "timing_overlap": "Overlaps the next line -- exports trim it",
+    "reading_speed": "Too fast to read -- too many characters for the time it's shown",
 }
 
 
