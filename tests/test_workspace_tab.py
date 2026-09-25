@@ -1395,6 +1395,95 @@ class TestTranscribeQueuesBehindAnotherGpuJob:
             background_jobs.clear_job(f"transcribe_{did}")
 
 
+class TestResegmentGuardrail:
+    """Step 6c: re-segmenting a drama that's already translated warns
+    first, won't apply until confirmed, and then clears translation, flag
+    and notes only on the lines actually split -- everything else keeps its
+    permanent id and data. Also pins that the page shows the new lines
+    afterward rather than reading stale per-position widget values back
+    over them (lines are renumbered by the split)."""
+
+    LONG = "他说他明天会来，可是我不太相信他。因为他上次也是这么说的，结果根本没有出现"
+    FIRST = "他说他明天会来，可是我不太相信他。"
+    SECOND = "因为他上次也是这么说的，结果根本没有出现"
+
+    def _drama(self, isolated_db, translated=True):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="你好。", en="Hello." if translated else "",
+                 flag="needs_review" if translated else None),
+            Line(idx=1, start=2.0, end=12.0, zh=self.LONG,
+                 en="He said he'd come tomorrow..." if translated else "",
+                 flag="mistranslation" if translated else None),
+            Line(idx=2, start=12.0, end=14.0, zh="再见。", en="Bye." if translated else ""),
+        ])
+        if translated:
+            isolated_db.save_translation_notes(did, [
+                {"line_idx": 0, "term": "你好", "note_type": "cultural", "note": "greeting"},
+                {"line_idx": 1, "term": "明天", "note_type": "cultural", "note": "tomorrow"},
+            ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, key):
+        matches = [b for b in at.button if b.key == key]
+        assert matches, f"button {key!r} not found on the page"
+        return matches[0]
+
+    def test_warns_and_waits_for_confirmation_then_clears_only_the_split_line(self, isolated_db):
+        did = self._drama(isolated_db)
+        before = isolated_db.load_line_objects(did)
+        at = self._run(did)
+
+        self._button(at, f"reseg_preview_btn_{did}").click()
+        at.run(timeout=30)
+        assert any("already translated" in w.value and "re-translating" in w.value
+                   for w in at.warning)
+        assert self._button(at, f"reseg_apply_{did}").disabled is True
+        # Previewing changed nothing yet.
+        assert [l.zh for l in isolated_db.load_line_objects(did)] == ["你好。", self.LONG, "再见。"]
+
+        [c for c in at.checkbox if c.key == f"reseg_confirm_{did}"][0].check()
+        at.run(timeout=30)
+        self._button(at, f"reseg_apply_{did}").click()
+        at.run(timeout=30)
+        at.run(timeout=30)
+
+        after = isolated_db.load_line_objects(did)
+        assert [l.zh for l in after] == ["你好。", self.FIRST, self.SECOND, "再见。"]
+        assert (after[0].id, after[0].en, after[0].flag) == (before[0].id, "Hello.", "needs_review")
+        assert (after[3].id, after[3].en) == (before[2].id, "Bye.")
+        assert [(l.en, l.flag) for l in after[1:3]] == [("", None), ("", None)]
+        assert [n["term"] for n in isolated_db.list_translation_notes(did)] == ["你好"]
+        # The page shows the new lines -- not stale boxes read back over them.
+        assert [l.zh for l in at.session_state.lines] == [l.zh for l in after]
+        assert [ta.value for ta in at.text_area if ta.key in ("zh_1", "zh_2")] == \
+               [self.FIRST, self.SECOND]
+        assert any(h["label"] == "before re-segment" for h in isolated_db.list_line_history(did))
+
+    def test_untranslated_drama_needs_no_confirmation(self, isolated_db):
+        did = self._drama(isolated_db, translated=False)
+        at = self._run(did)
+        self._button(at, f"reseg_preview_btn_{did}").click()
+        at.run(timeout=30)
+        assert not any("already translated" in w.value for w in at.warning)
+        assert self._button(at, f"reseg_apply_{did}").disabled is False
+
+
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:
     """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
     features (consistency check, flagging, emotion detection, notes,
