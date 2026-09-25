@@ -34,6 +34,25 @@ def _describe_job(job_id: str) -> str:
     return job_id
 
 
+def _run_pip_stream(running_label: str, done_label: str, failed_label: str, stream_gen) -> dict:
+    """Runs a diagnostics.stream_* generator inside an st.status box,
+    writing each real output line as it arrives rather than just
+    spinning, and returns {"ok": bool} once it's done. Shared by the
+    generic per-package Install button and the GPU-PyTorch reinstall
+    button below -- both need the exact same "show real progress, never
+    swallow the real error" handling."""
+    result = {"ok": False}
+    with st.status(running_label, expanded=True) as box:
+        for item in stream_gen:
+            if item.get("done"):
+                result["ok"] = item["ok"]
+            else:
+                box.write(item["line"])
+        box.update(label=done_label if result["ok"] else failed_label,
+                   state="complete" if result["ok"] else "error")
+    return result
+
+
 def render_diagnostics_tab():
     st.subheader("🩺 Check my setup")
     st.caption("Run this any time something isn't working -- shows what's installed, what's "
@@ -89,6 +108,23 @@ def render_diagnostics_tab():
         st.session_state.get("settings_ollama_model"))
     for m in model_versions:
         st.caption(f"**{m['name']}**: `{m['version']}` -- [{m['url']}]({m['url']})")
+
+    if diagnostics.gpu_torch_mismatch():
+        st.warning("A real NVIDIA GPU is on this machine, but the installed PyTorch build is "
+                  "CPU-only -- every GPU-touching stage (diarization, vocal separation, "
+                  "transcription, TTS) is running on CPU instead of your GPU.")
+        if st.button("⚡ Install GPU PyTorch", key="install_gpu_torch_btn"):
+            gpu_result = _run_pip_stream(
+                "Reinstalling PyTorch with GPU/CUDA support...",
+                "GPU PyTorch installed.", "GPU PyTorch reinstall failed -- see output above.",
+                diagnostics.stream_gpu_torch_reinstall(
+                    project_root=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            if gpu_result["ok"]:
+                st.success("Done -- re-checking...")
+                st.rerun()
+            else:
+                st.error("GPU PyTorch reinstall failed -- see the streamed output above for "
+                         "the real pip error.")
 
     st.divider()
     st.subheader("🔒 pyannote gated model access")
@@ -430,7 +466,21 @@ def render_diagnostics_tab():
                           expanded=(tier == "required")):
             for name, info in sorted(tier_deps.items()):
                 icon = "✅" if info["installed"] else "❌"
-                st.caption(f"{icon} **{name}** -- {info['powers']}")
+                installable = tier in diagnostics.INSTALLABLE_TIERS and not info["installed"]
+                if not installable:
+                    st.caption(f"{icon} **{name}** -- {info['powers']}")
+                    continue
+                dep_c1, dep_c2 = st.columns([5, 1])
+                dep_c1.caption(f"{icon} **{name}** -- {info['powers']}")
+                if dep_c2.button("⬇️ Install", key=f"install_dep_btn_{name}"):
+                    dep_result = _run_pip_stream(
+                        f"Installing {name}...", f"Installed {name}.",
+                        f"Install failed for {name} -- see output above.",
+                        diagnostics.stream_pip_install([name]))
+                    if dep_result["ok"]:
+                        st.session_state["diagnostics_results"] = diagnostics.run_full_diagnostics(
+                            project_root, db.LIBRARY_DIR, api_keys_set)
+                        st.rerun()
 
     missing_required = [k for k, v in deps.items() if v["tier"] == "required" and not v["installed"]]
     if missing_required:
