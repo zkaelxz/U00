@@ -2532,6 +2532,17 @@ class TestPresetsInWorkspaceUI:
         assert p["default_female_pronouns"] == 1
         assert p["translation_engine"] == "claude"
 
+    def test_save_as_preset_is_not_nested_in_its_own_expander(self, isolated_db):
+        """Step 9g: this used to be its own st.expander nested inside the
+        Translation section's own expander -- two clicks deep for
+        something Step 9c intended as one-click. Now rendered directly
+        in Translation's own flow."""
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert not any("Save current settings as a preset" in e.label for e in at.expander)
+        assert [t for t in at.text_input if t.key == f"new_preset_name_{did}"]
+        assert [b for b in at.button if b.key == f"save_preset_btn_{did}"]
+
     def test_saving_with_a_blank_name_is_disabled(self, isolated_db):
         did = self._drama(isolated_db)
         at = self._run(did)
