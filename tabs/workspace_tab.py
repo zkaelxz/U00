@@ -3777,6 +3777,15 @@ def render_workspace_tab():
                 _reseg_job_active = bool(_reseg_job and _reseg_job["status"] in ("running", "queued"))
                 if st.button("Preview re-segmentation", key=f"reseg_preview_btn_{picked_id}",
                              disabled=_reseg_job_active):
+                    # Re-fetch fresh from the database right before computing the
+                    # preview, rather than relying on edited_rows/st.session_state.lines
+                    # (which can go stale relative to the database between renders --
+                    # e.g. a background job's own field-scoped save landing in between).
+                    # Apply later commits this exact snapshot as a full line-list
+                    # replacement -- a stale id set here is exactly what caused real,
+                    # confirmed duplicate/orphaned rows (Step 6f).
+                    _reseg_source_lines = db.load_line_objects(picked_id)
+                    _reseg_source_ids = {ln.id for ln in _reseg_source_lines if ln.id is not None}
                     _reseg_engine = None
                     if _reseg_use_llm and _reseg_llm_ok:
                         _reseg_engine = translate_engines.get_engine(
@@ -3790,16 +3799,17 @@ def render_workspace_tab():
                     if _reseg_engine is not None and engine_choice == "ollama":
                         background_jobs.start_process_job(
                             _reseg_job_id, resegment.resegment_subprocess_worker,
-                            args=(_copy_lines(edited_rows), source_language, _reseg_engine,
+                            args=(_copy_lines(_reseg_source_lines), source_language, _reseg_engine,
                                   (_raw or {}).get("segments"), chinese_script),
                             gpu_touching=True, description=f"Re-segmenting ({_drama_label(drama)})")
+                        st.session_state[f"{_reseg_key}_source_ids"] = _reseg_source_ids
                         st.info("Finding meaningful split points in the background -- come back "
                                 "here for the preview once it's done, or Cancel below.")
                         st.rerun()
                     else:
                         with st.spinner("Finding meaningful split points..."):
                             _new_lines, _changed = resegment.resegment_lines(
-                                _copy_lines(edited_rows), source_language, engine=_reseg_engine,
+                                _copy_lines(_reseg_source_lines), source_language, engine=_reseg_engine,
                                 segments=(_raw or {}).get("segments"), chinese_script=chinese_script,
                                 usage_cb=lambda inp, out: db.log_usage(
                                     picked_id, engine_choice,
@@ -3809,6 +3819,7 @@ def render_workspace_tab():
                         st.session_state[_reseg_key] = {
                             "lines": _new_lines,
                             "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in _changed],
+                            "source_ids": _reseg_source_ids,
                         }
                 if _reseg_job:
                     if _reseg_job["status"] == "queued":
@@ -3842,6 +3853,7 @@ def render_workspace_tab():
                         st.session_state[_reseg_key] = {
                             "lines": _reseg_result.get("lines"),
                             "changed": _reseg_result.get("changed"),
+                            "source_ids": st.session_state.pop(f"{_reseg_key}_source_ids", set()),
                         }
                         background_jobs.clear_job(_reseg_job_id)
                 _reseg = st.session_state.get(_reseg_key)
@@ -3885,16 +3897,29 @@ def render_workspace_tab():
                             key=f"reseg_confirm_{picked_id}")
                         if st.button("✅ Apply re-segmentation", disabled=not _confirmed,
                                      key=f"reseg_apply_{picked_id}"):
-                            db.save_line_history_snapshot(picked_id, edited_rows, "before re-segment")
-                            db.save_lines(picked_id, _reseg["lines"])
-                            st.session_state.lines = db.load_line_objects(picked_id)
-                            st.session_state.pop(_reseg_key, None)
-                            st.session_state.pop(f"reseg_confirm_{picked_id}", None)
-                            _clear_line_widget_state()
-                            st.success(f"Re-segmented {len(_reseg['changed'])} line(s) and saved. "
-                                       "(Previous version saved to history -- see 'Version "
-                                       "history' below if you want it back.)")
-                            st.rerun()
+                            # Real safety check (Step 6f): _reseg["lines"] is about to
+                            # fully replace this drama's line set, computed from a
+                            # snapshot taken back when Preview ran -- if the database's
+                            # actual current id set has since diverged (another edit, a
+                            # background job finishing, etc.), committing it anyway is
+                            # exactly what silently orphaned/duplicated rows before.
+                            # Refuse and ask for a fresh Preview instead of guessing.
+                            if _reseg.get("source_ids") != db.load_line_ids(picked_id):
+                                st.error("This drama's lines changed since this preview was "
+                                        "computed -- re-run \"Preview re-segmentation\" before "
+                                        "applying, so nothing gets silently corrupted.")
+                            else:
+                                db.save_line_history_snapshot(
+                                    picked_id, db.load_line_objects(picked_id), "before re-segment")
+                                db.save_lines(picked_id, _reseg["lines"])
+                                st.session_state.lines = db.load_line_objects(picked_id)
+                                st.session_state.pop(_reseg_key, None)
+                                st.session_state.pop(f"reseg_confirm_{picked_id}", None)
+                                _clear_line_widget_state()
+                                st.success(f"Re-segmented {len(_reseg['changed'])} line(s) and saved. "
+                                           "(Previous version saved to history -- see 'Version "
+                                           "history' below if you want it back.)")
+                                st.rerun()
 
             with st.expander("🕓 Version history / undo"):
                 st.caption(

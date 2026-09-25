@@ -982,6 +982,21 @@ def load_line_objects(drama_id: int):
     return lines_from_rows(load_lines(drama_id))
 
 
+def load_line_ids(drama_id: int) -> set:
+    """Just the current set of line ids for this drama -- a cheap
+    staleness check for a caller about to commit a full line-list
+    replacement it computed from a snapshot taken earlier (see
+    resegment Apply's own safety check, Step 6f): if the database's
+    real current id set doesn't match what the snapshot was built
+    from, something else changed the drama's lines in between, and
+    committing the snapshot anyway would silently orphan/duplicate rows."""
+    conn = get_conn()
+    ids = {r["id"] for r in conn.execute(
+        "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
+    conn.close()
+    return ids
+
+
 def line_ids_exist(drama_id: int, line_ids) -> int:
     """How many of line_ids are still lines of this drama."""
     ids = [i for i in line_ids if i is not None]

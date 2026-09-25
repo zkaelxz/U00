@@ -2999,6 +2999,116 @@ class TestResegmentGuardrail:
         assert self._button(at, f"reseg_apply_{did}").disabled is False
 
 
+class TestResegmentationStaleSnapshotSafety:
+    """Step 6f: real, confirmed data corruption -- Apply re-segmentation
+    could leave duplicate/orphaned rows because Preview computed its
+    result from a stale st.session_state.lines snapshot that no longer
+    matched the database's real current id set, and Apply committed
+    that stale snapshot as a full line-list replacement. Fixed two ways:
+    Preview now re-fetches fresh from the database right before
+    computing, and Apply refuses (rather than silently corrupting data)
+    if the database's id set has diverged from what Preview actually
+    saw."""
+
+    LONG = "他说他明天会来，可是我不太相信他。因为他上次也是这么说的，结果根本没有出现"
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="你好。"),
+            Line(idx=1, start=2.0, end=12.0, zh=self.LONG),
+        ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, key):
+        matches = [b for b in at.button if b.key == key]
+        assert matches, f"button {key!r} not found on the page"
+        return matches[0]
+
+    def test_preview_reflects_a_database_change_made_after_the_page_loaded(self, isolated_db):
+        """Confirms Preview re-fetches fresh from the database right
+        before computing, rather than relying on whatever
+        st.session_state.lines already happened to hold from when the
+        page first loaded."""
+        did = self._drama(isolated_db)
+        at = self._run(did)
+
+        # Something else changes the database after the page's own
+        # session_state.lines was already populated -- e.g. a line
+        # added by another action entirely, not reflected in this
+        # render's in-memory snapshot yet.
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=2, start=12.0, end=14.0, zh="新的一行。"))
+        isolated_db.save_lines(did, lines)
+
+        self._button(at, f"reseg_preview_btn_{did}").click()
+        at.run(timeout=30)
+
+        reseg_state = at.session_state[f"reseg_preview_{did}"]
+        # The fresh third line's id must be part of what Preview saw,
+        # proving it re-fetched rather than using the page's original
+        # (now-stale) two-line snapshot.
+        fresh_ids = {ln.id for ln in isolated_db.load_line_objects(did)}
+        assert reseg_state["source_ids"] == fresh_ids
+
+    def test_apply_refuses_when_the_database_changed_since_preview_ran(self, isolated_db):
+        """The second line of defense: even with item 1's fix, the
+        database could still change in the window between Preview
+        finishing and Apply being clicked (the user editing something
+        else, a background job landing) -- Apply must refuse rather
+        than commit a now-stale snapshot as a full replacement."""
+        did = self._drama(isolated_db)
+        at = self._run(did)
+
+        self._button(at, f"reseg_preview_btn_{did}").click()
+        at.run(timeout=30)
+        assert self._button(at, f"reseg_apply_{did}").disabled is False
+
+        # The database changes after Preview ran but before Apply is clicked.
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=2, start=12.0, end=14.0, zh="新的一行。"))
+        isolated_db.save_lines(did, lines)
+        before = isolated_db.load_line_objects(did)
+
+        self._button(at, f"reseg_apply_{did}").click()
+        at.run(timeout=30)
+
+        assert any("changed since this preview was computed" in e.value for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [(l.id, l.zh) for l in after] == [(l.id, l.zh) for l in before]  # untouched
+
+    def test_apply_succeeds_normally_when_nothing_changed_in_between(self, isolated_db):
+        """The happy path (nothing else touched the drama between Preview
+        and Apply) must not be spuriously blocked by the new safety
+        check."""
+        did = self._drama(isolated_db)
+        at = self._run(did)
+
+        self._button(at, f"reseg_preview_btn_{did}").click()
+        at.run(timeout=30)
+        self._button(at, f"reseg_apply_{did}").click()
+        at.run(timeout=30)
+        at.run(timeout=30)
+
+        assert not any(e for e in at.error)
+        assert f"reseg_preview_{did}" not in at.session_state  # applied and cleared
+
+
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:
     """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
     features (consistency check, flagging, emotion detection, notes,
