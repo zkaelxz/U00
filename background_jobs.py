@@ -33,6 +33,8 @@ or multi-process.
 """
 
 import contextlib
+import multiprocessing
+import queue
 import threading
 import time
 import traceback
@@ -122,7 +124,8 @@ def _promote_next_queued_gpu_job():
     """Called whenever a GPU-touching job/slot finishes -- starts the next
     queued GPU-touching job, if the GPU is actually free and anything is
     still waiting. Skips (and drops) queue entries that were cleared out
-    from under the queue in the meantime."""
+    from under the queue in the meantime. Dispatches to the thread-based
+    or process-based starter depending on how that entry was queued."""
     while True:
         with _lock:
             if not _gpu_queue or _other_gpu_job_running_locked(None):
@@ -131,12 +134,22 @@ def _promote_next_queued_gpu_job():
             job_id = entry["job_id"]
             if job_id not in _jobs or _jobs[job_id]["status"] != "queued":
                 continue
+            if entry.get("kind") == "process":
+                proc, result_queue = _register_process_job(
+                    job_id, entry["target"], entry["args"],
+                    _jobs[job_id]["gpu_touching"], entry["description"])
+                break
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
             _jobs[job_id]["started_at"] = time.time()
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]
             break
-    _spawn(job_id, target, args, kwargs)
+    if entry.get("kind") == "process":
+        proc.start()
+        threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue),
+                         daemon=True, name=f"job-watcher:{job_id}").start()
+    else:
+        _spawn(job_id, target, args, kwargs)
 
 
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
@@ -165,20 +178,158 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
                 "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
                 "error": None, "started_at": time.time(), "finished_at": None,
                 "cancel_requested": False, "result": None,
-                "gpu_touching": True, "description": description,
+                "gpu_touching": True, "description": description, "kind": "thread",
             }
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
-                                "kwargs": kwargs, "description": description})
+                                "kwargs": kwargs, "description": description, "kind": "thread"})
             return True
         _jobs[job_id] = {
             "status": "running", "progress": 0.0, "message": "Starting...",
             "error": None, "started_at": time.time(), "finished_at": None,
             "cancel_requested": False, "result": None,
-            "gpu_touching": gpu_touching, "description": description,
+            "gpu_touching": gpu_touching, "description": description, "kind": "thread",
         }
 
     _spawn(job_id, target, args, kwargs)
     return True
+
+
+def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
+                      description: str = None) -> bool:
+    """
+    Like start_job(), but runs target in a real OS subprocess
+    (multiprocessing.Process) instead of a thread -- the first
+    process-based job in this codebase, a genuinely new pattern rather
+    than an extension of start_job()'s thread model. For work with no
+    cooperative-cancellation checkpoint of its own (pyannote's
+    diarization pipeline is one opaque call), so request_cancel() can
+    actually terminate the underlying OS process instead of just asking
+    it to stop at some future safe point.
+
+    target must be a plain, top-level, picklable function (a closure or
+    bound method can't cross the process boundary) whose LAST parameter
+    accepts a multiprocessing.Queue -- this function appends that queue
+    to `args` itself when starting the process. target should put
+    exactly one plain-Python-only (no torch/pyannote objects) result
+    tuple onto that queue before returning: ("ok", <result...>) or
+    ("error", <exception type name>, <message>).
+
+    Same job_id/queued/gpu_touching semantics as start_job(); returns
+    False if job_id is already running or queued.
+    """
+    with _lock:
+        existing = _jobs.get(job_id)
+        if existing and existing["status"] in ("running", "queued"):
+            return False
+        if gpu_touching and _gpu_limit_enabled and _other_gpu_job_running_locked(job_id):
+            _jobs[job_id] = {
+                "status": "queued", "progress": 0.0,
+                "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
+                "error": None, "started_at": time.time(), "finished_at": None,
+                "cancel_requested": False, "result": None,
+                "gpu_touching": True, "description": description, "kind": "process",
+                "process": None,
+            }
+            _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
+                                "kwargs": {}, "description": description, "kind": "process"})
+            return True
+        proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description)
+    proc.start()
+    threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue),
+                     daemon=True, name=f"job-watcher:{job_id}").start()
+    return True
+
+
+def _register_process_job(job_id, target, args, gpu_touching, description):
+    """Caller must already hold _lock. Builds the Process and its result
+    queue and records the job dict entry, but doesn't call proc.start()
+    itself -- constructing a Process is cheap, but actually starting one
+    (forking/spawning a real OS process) shouldn't happen while holding
+    _lock, so callers start it themselves right after releasing the
+    lock. Returns (proc, result_queue) for that."""
+    result_queue = multiprocessing.Queue()
+    proc = multiprocessing.Process(target=target, args=(*args, result_queue), daemon=True)
+    _jobs[job_id] = {
+        "status": "running", "progress": 0.0, "message": "Starting...",
+        "error": None, "started_at": time.time(), "finished_at": None,
+        "cancel_requested": False, "result": None,
+        "gpu_touching": gpu_touching, "description": description, "kind": "process",
+        "process": proc,
+    }
+    return proc, result_queue
+
+
+def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
+    """Runs in this (the main) process, not the child -- a
+    multiprocessing.Process can't write back into this process's _jobs
+    dict itself (separate memory space), so this polls proc.is_alive()
+    and this job's cancel_requested flag, and is the one place that
+    actually calls proc.terminate() for a real, non-cooperative stop.
+    Also terminates the process if its job record is cleared out from
+    under it while still running (clear_job() on a thread-based job can
+    only leave it running invisibly; here, holding the real Process
+    object, cleanup can be immediate and complete instead)."""
+    import applog
+    logger = applog.get_logger()
+    try:
+        while True:
+            with _lock:
+                job = _jobs.get(job_id)
+                should_stop = job is None or job.get("cancel_requested")
+            if should_stop:
+                # terminate()/join() happen OUTSIDE the lock -- join can block
+                # for real seconds, and nothing else here should have to wait
+                # on that (another job's update_progress, a UI's get_status).
+                was_cleared = job is None
+                proc.terminate()
+                proc.join(timeout=5)
+                with _lock:
+                    if job_id in _jobs:
+                        _jobs[job_id]["status"] = "cancelled"
+                        _jobs[job_id]["finished_at"] = time.time()
+                logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
+                           f"(subprocess terminated)")
+                return
+            if not proc.is_alive():
+                break
+            time.sleep(poll_interval)
+
+        try:
+            # Not get_nowait(): multiprocessing.Queue.put() hands the
+            # pickled item to an internal feeder thread rather than
+            # writing it synchronously, so a process that exits right
+            # after put()ing its result can have already exited (proc.is_alive()
+            # already False, as checked above) before that item is actually
+            # readable from this end -- a real, documented race, not just a
+            # test timing quirk. A short blocking get gives it time to land.
+            outcome = result_queue.get(timeout=1)
+        except queue.Empty:
+            outcome = None
+        with _lock:
+            if job_id not in _jobs:
+                return
+            if outcome and outcome[0] == "ok":
+                _jobs[job_id]["status"] = "done"
+                _jobs[job_id]["progress"] = 1.0
+                _jobs[job_id]["result"] = outcome[1]
+                _jobs[job_id]["finished_at"] = time.time()
+                logger.info(f"job {job_id} finished")
+            elif outcome and outcome[0] == "error":
+                _, exc_type, msg = outcome
+                _jobs[job_id]["status"] = "error"
+                _jobs[job_id]["error"] = f"{exc_type}: {msg}"
+                _jobs[job_id]["finished_at"] = time.time()
+                logger.error(f"job {job_id} failed: {exc_type}: {msg}")
+            else:
+                _jobs[job_id]["status"] = "error"
+                _jobs[job_id]["error"] = (
+                    f"Subprocess exited unexpectedly (exit code {proc.exitcode}) without "
+                    "reporting a result.")
+                _jobs[job_id]["finished_at"] = time.time()
+                logger.error(f"job {job_id} subprocess died with no result "
+                            f"(exit code {proc.exitcode})")
+    finally:
+        _promote_next_queued_gpu_job()
 
 
 @contextlib.contextmanager
@@ -299,9 +450,14 @@ def cancel_line_jobs(drama_id):
 
 
 def request_cancel(job_id: str):
-    """Sets a cooperative cancellation flag. The job itself has to check
-    is_cancel_requested() between units of work -- this can't forcibly
-    kill a thread, only ask it to stop at the next safe point."""
+    """Sets the cancellation flag. For a thread-based job (start_job()),
+    this is purely cooperative -- the job itself has to check
+    is_cancel_requested() between units of work, since a thread can't be
+    forcibly killed. For a process-based job (start_process_job()), Step
+    4d's own _process_watcher notices this flag and actually calls
+    proc.terminate() -- a real, non-cooperative stop, since that's the
+    whole reason those jobs run in their own OS process instead of a
+    thread in the first place (no cooperative checkpoint to hook into)."""
     with _lock:
         if job_id in _jobs:
             _jobs[job_id]["cancel_requested"] = True
@@ -315,10 +471,15 @@ def is_cancel_requested(job_id: str) -> bool:
 
 def clear_job(job_id: str):
     """Removes a finished job's record so the UI stops showing it. Only
-    safe to call once the job isn't running -- clearing a live job just
-    means progress updates go nowhere until it finishes on its own. Also
-    drops it from the GPU queue if it was still queued, so a cleared job
-    can't be promoted and started later out of nowhere."""
+    safe to call once the job isn't running -- clearing a live THREAD-
+    based job just means progress updates go nowhere until it finishes
+    on its own (nothing here can forcibly stop a thread). A live
+    PROCESS-based job (start_process_job()) is the one exception:
+    _process_watcher holds the real Process object directly and notices
+    its record disappearing, so clearing it actually terminates the
+    subprocess rather than leaving it running invisibly. Also drops it
+    from the GPU queue if it was still queued, so a cleared job can't be
+    promoted and started later out of nowhere."""
     with _lock:
         _jobs.pop(job_id, None)
         _gpu_queue[:] = [e for e in _gpu_queue if e["job_id"] != job_id]

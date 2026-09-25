@@ -16,6 +16,7 @@ _JOB_LABELS = {
     "emotion": "Detecting emotional register",
     "consistency": "Checking translation consistency",
     "notes": "Generating translation notes",
+    "diarize": "Detecting speakers",
 }
 
 

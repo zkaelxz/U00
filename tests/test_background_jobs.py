@@ -577,3 +577,188 @@ class TestEtaHelpers:
         assert bg.eta_text(status) != ""
         time.sleep(0.4)
         bg.clear_job(job_id)
+
+
+class _FakeProcess:
+    """Stands in for multiprocessing.Process -- no real OS process is
+    ever spawned in these tests, matching this repo's no-GPU/no-real-
+    subprocess testing convention. Behavior is driven by the flags
+    below rather than an actual target function running in isolation."""
+
+    def __init__(self, target, args, daemon=True, run_target_on_start=False,
+                alive_forever=False, exitcode_if_no_result=1):
+        self._target = target
+        self._args = args
+        self._alive = True
+        self.terminated = False
+        self.exitcode = None
+        self._run_target_on_start = run_target_on_start
+        self._alive_forever = alive_forever
+        self._exitcode_if_no_result = exitcode_if_no_result
+
+    def start(self):
+        if self._run_target_on_start:
+            self._target(*self._args)
+            self._alive = False
+            self.exitcode = 0
+        elif not self._alive_forever:
+            self._alive = False
+            self.exitcode = self._exitcode_if_no_result
+
+    def is_alive(self):
+        return self._alive
+
+    def terminate(self):
+        self.terminated = True
+        self._alive = False
+        self.exitcode = -15
+
+    def join(self, timeout=None):
+        pass
+
+
+def _install_fake_process(monkeypatch, **kwargs):
+    """Patches bg.multiprocessing.Process with a factory building
+    _FakeProcess(**kwargs) instances, and returns the list of instances
+    it creates (in order) so a test can inspect e.g. .terminated after
+    the fact."""
+    instances = []
+
+    def factory(target, args, daemon=True):
+        proc = _FakeProcess(target, args, daemon=daemon, **kwargs)
+        instances.append(proc)
+        return proc
+
+    monkeypatch.setattr(bg.multiprocessing, "Process", factory)
+    return instances
+
+
+def _wait_for_status(job_id, not_status, timeout=2.0):
+    """Polls until get_status(job_id)["status"] is no longer not_status
+    (or the timeout elapses) -- for the process-watcher tests below,
+    where a real background thread (only multiprocessing.Process itself
+    is faked) needs a moment to notice and react."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = bg.get_status(job_id)
+        if status is None or status["status"] != not_status:
+            return status
+        time.sleep(0.02)
+    return bg.get_status(job_id)
+
+
+class TestProcessBasedJobs:
+    """Step 4d: the first process-based job type in this codebase.
+    start_process_job() runs target in a real multiprocessing.Process
+    instead of a thread, so request_cancel() can actually terminate the
+    underlying work -- built for diarization, whose pyannote pipeline
+    call has no cooperative-cancellation checkpoint of its own, unlike
+    every other job type here. multiprocessing.Process itself is faked
+    throughout (_FakeProcess above); the real background_jobs lock,
+    watcher thread, and GPU-queue machinery all run for real."""
+
+    def test_successful_job_reports_the_result(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def fake_worker(a, b, result_queue):
+            result_queue.put(("ok", {"sum": a + b}))
+
+        job_id = "test_process_ok"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, fake_worker, args=(2, 3)) is True
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done"
+        assert status["result"] == {"sum": 5}
+        bg.clear_job(job_id)
+
+    def test_error_in_the_subprocess_is_reported_not_swallowed(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def fake_worker(result_queue):
+            result_queue.put(("error", "RuntimeError", "boom"))
+
+        job_id = "test_process_error"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, fake_worker, args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert "RuntimeError" in status["error"] and "boom" in status["error"]
+        bg.clear_job(job_id)
+
+    def test_subprocess_exiting_with_no_result_is_reported_as_an_error(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=False, exitcode_if_no_result=1)
+
+        job_id = "test_process_crash"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda result_queue: None, args=())
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert "exit code 1" in status["error"]
+        bg.clear_job(job_id)
+
+    def test_cancel_actually_terminates_the_process_not_just_a_flag(self, monkeypatch):
+        """Exit condition: mocked Process.terminate() is actually called
+        (not just cancel_requested set), and status ends up 'cancelled',
+        not 'failed' or 'completed'."""
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+
+        job_id = "test_process_cancel"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, lambda result_queue: None, args=()) is True
+        status = None
+        deadline = time.time() + 2
+        while time.time() < deadline:
+            status = bg.get_status(job_id)
+            if status and status["status"] == "running":
+                break
+            time.sleep(0.01)
+        assert status["status"] == "running"
+
+        bg.request_cancel(job_id)
+        status = _wait_for_status(job_id, "running")
+
+        assert status["status"] == "cancelled"
+        assert status["status"] not in ("failed", "error", "done")
+        assert instances[0].terminated is True
+        bg.clear_job(job_id)
+
+    def test_clearing_a_running_process_job_terminates_it(self, monkeypatch):
+        instances = _install_fake_process(monkeypatch, alive_forever=True)
+        job_id = "test_process_clear"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda result_queue: None, args=())
+        deadline = time.time() + 2
+        while time.time() < deadline and not bg.is_running(job_id):
+            time.sleep(0.01)
+        assert bg.is_running(job_id)
+
+        bg.clear_job(job_id)
+        deadline = time.time() + 2
+        while time.time() < deadline and not instances[0].terminated:
+            time.sleep(0.02)
+        assert instances[0].terminated is True
+
+    def test_a_process_job_queues_behind_a_running_gpu_thread_job(self, monkeypatch):
+        """Process-based and thread-based GPU jobs share the same GPU
+        guard -- a diarization subprocess must still queue behind a
+        running transcription thread job."""
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        release = threading.Event()
+        started = threading.Event()
+        bg.start_job("test_process_gpu_thread", lambda: (started.set(), release.wait(timeout=2.0)),
+                     gpu_touching=True)
+        started.wait(timeout=2.0)
+
+        job_id = "test_process_gpu_process"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(
+            job_id, lambda result_queue: result_queue.put(("ok", {})),
+            args=(), gpu_touching=True) is True
+        assert bg.get_status(job_id)["status"] == "queued"
+
+        release.set()
+        _wait("test_process_gpu_thread")
+        status = _wait_for_status(job_id, "queued")
+        assert status["status"] == "done"
+        bg.clear_job("test_process_gpu_thread")
+        bg.clear_job(job_id)

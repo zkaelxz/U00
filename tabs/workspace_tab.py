@@ -856,42 +856,78 @@ def _apply_speaker_turns(drama_id, turns, overwrite_manual):
     return result
 
 
+def _apply_diarization_job_result(picked_id, ddir, expected_speakers, job, pending_key):
+    """Step 4d: once the diarize_<id> subprocess job reports 'done', apply
+    its result the exact same way a same-script-run diarization used to
+    -- save the turns, then merge speaker labels onto whatever lines are
+    currently saved (which may have been saved, by a caller elsewhere,
+    AFTER this job was started -- diarize.merge_speakers matches by time
+    overlap, not by being the same in-memory list, so that's fine)."""
+    import diarize
+    result = job.get("result") or {}
+    turns, model, embeddings = result.get("segments"), result.get("model"), result.get("embeddings", {})
+    if turns is not None:
+        diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model,
+                           embeddings=embeddings)
+        st.session_state[f"speaker_segments_{picked_id}"] = turns
+        conflicts = diarize.manual_lines_that_would_change(db.load_line_objects(picked_id), turns)
+        if conflicts:
+            st.session_state[pending_key] = len(conflicts)
+        else:
+            res = _apply_speaker_turns(picked_id, turns, overwrite_manual=False)
+            st.success(f"Speakers re-detected ({model}): {res['changed']} line(s) relabelled.")
+    background_jobs.clear_job(f"diarize_{picked_id}")
+
+
 def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speakers):
     import diarize
     st.caption("Already transcribed? Re-detect who speaks each line from the stored audio. "
                "The transcript text and timing aren't touched and nothing is re-transcribed. "
                "Uses the expected number of speakers above.")
     pending_key = f"speaker_rerun_pending_{picked_id}"
-    if st.button("🔁 Re-run speaker detection", disabled=not hf_token,
+    job_id = f"diarize_{picked_id}"
+    job = background_jobs.get_status(job_id)
+    _job_active = bool(job and job["status"] in ("running", "queued"))
+
+    _existing_lines = db.load_line_objects(picked_id)
+    _audio_duration = max((ln.end for ln in _existing_lines), default=0)
+    if _audio_duration:
+        st.caption(_diarization_estimate_caption(_audio_duration))
+
+    if st.button("🔁 Re-run speaker detection", disabled=not hf_token or _job_active,
                  key=f"rerun_speakers_{picked_id}"):
         st.session_state.pop(pending_key, None)
-        turns = None
-        _voice_embeddings = {}
-        _existing_lines = db.load_line_objects(picked_id)
-        _audio_duration = max((ln.end for ln in _existing_lines), default=0)
-        st.caption(_diarization_estimate_caption(_audio_duration))
-        with st.spinner("Detecting speakers... (first run downloads the model, and this may "
-                        "wait a moment if the GPU is busy with another job)"):
-            try:
-                with background_jobs.gpu_slot(f"Diarization (drama #{picked_id})"):
-                    turns, model, _voice_embeddings = diarize.diarize(
-                        audio_path, hf_token, num_speakers=expected_speakers or None,
-                        return_model=True, return_embeddings=True)
-            except Exception as e:
-                st.error(f"Speaker detection failed ({e}). Check your Hugging Face token and "
-                         "pyannote.audio install. Nothing was changed.")
-            finally:
-                core_module.release_gpu_models()
-        if turns is not None:
-            diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model,
-                               embeddings=_voice_embeddings)
-            st.session_state[f"speaker_segments_{picked_id}"] = turns
-            conflicts = diarize.manual_lines_that_would_change(db.load_line_objects(picked_id), turns)
-            if conflicts:
-                st.session_state[pending_key] = len(conflicts)
-            else:
-                res = _apply_speaker_turns(picked_id, turns, overwrite_manual=False)
-                st.success(f"Speakers re-detected ({model}): {res['changed']} line(s) relabelled.")
+        started = background_jobs.start_process_job(
+            job_id, diarize.diarize_subprocess_worker,
+            args=(audio_path, hf_token, expected_speakers or None),
+            gpu_touching=True, description=f"Diarization (drama #{picked_id})")
+        if started:
+            st.rerun()
+
+    if job:
+        if job["status"] == "queued":
+            st.info(job.get("message") or "Waiting for the GPU...")
+        elif job["status"] == "running":
+            st.info("Detecting speakers... (first run downloads the model)")
+            st.caption("Running in the background as its own process -- safe to switch tabs or "
+                      "use other dramas. Cancel below genuinely stops it (not just the display), "
+                      "unlike every other job's cooperative cancel in this app.")
+            jc1, jc2 = st.columns(2)
+            if jc1.button("🔄 Refresh progress", key=f"refresh_diarize_{picked_id}"):
+                st.rerun()
+            if jc2.button("✖ Cancel", key=f"cancel_diarize_{picked_id}"):
+                background_jobs.request_cancel(job_id)
+                st.rerun()
+        elif job["status"] == "cancelled":
+            st.warning("Speaker detection was stopped. Nothing was changed.")
+            background_jobs.clear_job(job_id)
+        elif job["status"] == "error":
+            st.error(f"Speaker detection failed ({job['error']}). Check your Hugging Face token "
+                     "and pyannote.audio install. Nothing was changed.")
+            background_jobs.clear_job(job_id)
+        elif job["status"] == "done":
+            _apply_diarization_job_result(picked_id, ddir, expected_speakers, job, pending_key)
+
     n_conflicts = st.session_state.get(pending_key)
     if n_conflicts:
         st.warning(f"{n_conflicts} line(s) have a speaker you corrected by hand, and the new "
@@ -2532,33 +2568,7 @@ def render_workspace_tab():
                                 lines = align_transcript_to_timing(user_lines, segments)
 
                     core_module.release_gpu_models()  # text/alignment stage done
-                    speaker_segments = None
-                    if run_diarize and hf_token:
-                        st.caption(_diarization_estimate_caption(
-                            max((ln.end for ln in lines), default=0)))
-                        with st.spinner("Running speaker diarization... (first run downloads the "
-                                        "model, and this may wait a moment if the GPU is busy "
-                                        "with another job)"):
-                            try:
-                                import diarize
-                                with background_jobs.gpu_slot(f"Diarization ({_drama_label(drama)})"):
-                                    speaker_segments, _dmodel, _voice_embeddings = diarize.diarize(
-                                        audio_path, hf_token, num_speakers=expected_speakers or None,
-                                        return_model=True, return_embeddings=True)
-                                diarize.save_turns(ddir, speaker_segments,
-                                                   num_speakers=expected_speakers or None, model=_dmodel,
-                                                   embeddings=_voice_embeddings)
-                                diarize.label_lines_with_speakers(lines, speaker_segments)
-                                for label in sorted({ln.speaker for ln in lines if ln.speaker}):
-                                    db.upsert_character(picked_id, label)
-                                st.session_state[f"speaker_segments_{picked_id}"] = speaker_segments
-                                st.success(f"Diarization found {len(set(ln.speaker for ln in lines if ln.speaker))} speaker(s).")
-                            except Exception as e:
-                                st.warning(f"Diarization failed ({e}) -- alignment still saved without speaker "
-                                          f"labels. Check your Hugging Face token and pyannote.audio install, "
-                                          f"then re-run just diarization if you want it.")
-                            finally:
-                                core_module.release_gpu_models()  # diarization stage done
+                    _start_diarization_after_align = run_diarize and hf_token
 
                     st.session_state.lines = lines
                     # A brand-new set of lines: a translate/flag job still
@@ -2576,6 +2586,14 @@ def render_workspace_tab():
                         else "aligned_transcript")
                     db.update_drama(picked_id, status="aligned")
                     st.success(f"Aligned {len(lines)} lines.")
+                    if _start_diarization_after_align:
+                        import diarize
+                        background_jobs.start_process_job(
+                            f"diarize_{picked_id}", diarize.diarize_subprocess_worker,
+                            args=(audio_path, hf_token, expected_speakers or None),
+                            gpu_touching=True, description=f"Diarization ({_drama_label(drama)})")
+                        st.info("Speaker detection started in the background -- see "
+                               "'4. 🎙️ Speaker diarization' above for progress, or to cancel it.")
                 background_jobs.clear_job(_transcribe_job_id)
             elif _tjob["status"] == "error":
                 # This job slot is shared between the Whisper transcription

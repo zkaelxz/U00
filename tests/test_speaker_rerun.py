@@ -111,6 +111,40 @@ def no_asr(monkeypatch):
 
 
 @pytest.fixture
+def fake_process(monkeypatch):
+    """Step 4d: "Re-run speaker detection" now starts a real
+    multiprocessing.Process (background_jobs.start_process_job) instead
+    of calling diarize.diarize() directly in the button handler -- faked
+    here to run its target synchronously inside .start(), so a test can
+    still assert on the result immediately after clicking, the same way
+    it could before Step 4d (AppTest's own st.rerun() already re-executes
+    the script synchronously within one .run() call, so the result is
+    fully applied by the time control returns). No real OS process is
+    ever spawned; diarize_subprocess_worker runs for real and calls the
+    (separately faked, via fake_diarize) diarize.diarize() itself."""
+    import background_jobs
+
+    class _FakeProcess:
+        def __init__(self, target, args, daemon=True):
+            self._target, self._args = target, args
+
+        def start(self):
+            self._target(*self._args)
+
+        def is_alive(self):
+            return False
+
+        def terminate(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(background_jobs.multiprocessing, "Process",
+                        lambda target, args, daemon=True: _FakeProcess(target, args, daemon))
+
+
+@pytest.fixture
 def fake_diarize(monkeypatch):
     calls = []
 
@@ -196,7 +230,8 @@ class TestRerunButton:
         [b] = [b for b in at.button if b.label == label]
         b.click().run(timeout=30)
 
-    def test_rerun_relabels_from_stored_audio_without_asr(self, isolated_db, no_asr, fake_diarize):
+    def test_rerun_relabels_from_stored_audio_without_asr(
+            self, isolated_db, no_asr, fake_diarize, fake_process):
         did, _ = _drama_with_audio(isolated_db)
         at = self._run(did)
         self._set_expected_speakers(at, 3)
@@ -206,7 +241,7 @@ class TestRerunButton:
         assert fake_diarize == [3]
 
     def test_asks_before_touching_a_hand_correction_and_keeps_it_by_default(
-            self, isolated_db, no_asr, fake_diarize):
+            self, isolated_db, no_asr, fake_diarize, fake_process):
         did, _ = _drama_with_audio(isolated_db)
         lines = isolated_db.load_line_objects(did)
         lines[2].speaker, lines[2].speaker_manual = "Xiaoling", True
@@ -223,7 +258,8 @@ class TestRerunButton:
         assert rows[2]["speaker"] == "Xiaoling"
         assert rows[1]["speaker"] == "SPEAKER_01"
 
-    def test_overwrites_only_after_explicit_confirmation(self, isolated_db, no_asr, fake_diarize):
+    def test_overwrites_only_after_explicit_confirmation(
+            self, isolated_db, no_asr, fake_diarize, fake_process):
         did, _ = _drama_with_audio(isolated_db)
         lines = isolated_db.load_line_objects(did)
         lines[2].speaker, lines[2].speaker_manual = "Xiaoling", True
