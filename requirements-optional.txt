@@ -37,8 +37,10 @@ elevenlabs>=1.0         # hosted, no GPU needed
 
 # --- vocal separation before transcription (audio_preprocess.py) ---
 # Strips background music from a music-bed source (audio dramas,
-# livestreams) before Whisper sees it. Downloads its own model (~80MB
-# for the default htdemucs) on first use.
+# livestreams) before Whisper sees it. audio-separator runs a Mel-Band
+# RoFormer vocal model (cleaner, preferred); Demucs is the fallback (its
+# project is archived). Each downloads its own model on first use.
+audio-separator>=0.30
 demucs>=4.0
 
 # --- word-level forced alignment (word_align.py), EXPERIMENTAL ---
@@ -102,3 +104,9 @@ playwright>=1.40        # then run: playwright install chromium
 
 # --- development ---
 pytest>=7.4
+
+# --- audio emotion / sound-event tags (sensevoice_tags.py) ---
+# SenseVoiceSmall: a second, audio-derived emotion read shown next to the
+# text-based one. Code MIT; model weights under the FunASR Model Open
+# Source License. Downloads the model on first use.
+funasr>=1.2

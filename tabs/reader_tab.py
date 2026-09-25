@@ -283,7 +283,7 @@ def render_reader_tab():
         st.caption(f"**Source:** {pl.zh}")
         st.caption(f"**Translation:** {pl.en or '_(untranslated)_'}")
         if pl.flag:
-            st.warning(f"🚩 Flagged: {translate_engines.FLAG_REASONS.get(pl.flag, pl.flag)}"
+            st.warning(f"🚩 Flagged: {translate_engines.flag_reason_label(pl.flag)}"
                       + (f" — {pl.flag_note}" if pl.flag_note else ""))
 
         lt1, lt2, lt3, lt4 = st.columns(4)

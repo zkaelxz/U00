@@ -6,7 +6,7 @@ Demucs itself isn't installed in this sandbox (no GPU, no network, heavy
 model download) -- its Python API (demucs.api.Separator/save_audio) is
 faked at that exact boundary, the same way other tests here fake
 faster_whisper.WhisperModel or paddleocr.PaddleOCR: this exercises
-separate_vocals()'s own logic (error handling, stem selection, path
+separate_vocals_demucs()'s own logic (error handling, stem selection, path
 plumbing) for real, without needing the actual neural network.
 """
 import os
@@ -53,7 +53,7 @@ def _install_fake_demucs(monkeypatch, stems=("drums", "bass", "other", "vocals")
 class TestSeparateVocals:
     def test_writes_the_vocals_stem_to_out_path(self, monkeypatch):
         captured = _install_fake_demucs(monkeypatch)
-        result = audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav")
+        result = audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav")
 
         assert result == "/fake/vocals.wav"
         assert captured["separate_path"] == "/fake/audio.wav"
@@ -63,7 +63,7 @@ class TestSeparateVocals:
 
     def test_uses_the_requested_model(self, monkeypatch):
         captured = _install_fake_demucs(monkeypatch)
-        audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav",
+        audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav",
                                           model="htdemucs_ft")
         assert captured["model"] == "htdemucs_ft"
 
@@ -71,14 +71,14 @@ class TestSeparateVocals:
         monkeypatch.setitem(sys.modules, "demucs", None)
         monkeypatch.setitem(sys.modules, "demucs.api", None)
         with pytest.raises(audio_preprocess.VocalSeparationError, match="pip install demucs"):
-            audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav")
+            audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav")
 
     def test_separation_failure_is_wrapped_not_raised_raw(self, monkeypatch):
         _install_fake_demucs(monkeypatch, separate_exc=RuntimeError("out of memory"))
         with pytest.raises(audio_preprocess.VocalSeparationError, match="out of memory"):
-            audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav")
+            audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav")
 
     def test_a_model_with_no_vocals_stem_raises_a_clear_error(self, monkeypatch):
         _install_fake_demucs(monkeypatch, stems=("drums", "bass"))
         with pytest.raises(audio_preprocess.VocalSeparationError, match="vocals stem"):
-            audio_preprocess.separate_vocals("/fake/audio.wav", "/fake/vocals.wav")
+            audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav")
