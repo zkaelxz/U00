@@ -322,3 +322,30 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
     for i, ln in enumerate(new_lines):
         ln.idx = i
     return new_lines, changed
+
+
+def resegment_subprocess_worker(lines, language, engine, segments, chinese_script, result_queue):
+    """Step 4e: entry point for running resegment_lines() in its own OS
+    process via background_jobs.start_process_job(), so Cancel can
+    actually stop it. Confirmed the lowest-risk of the three Step 4e
+    cases to hard-stop: resegment_lines is a pure in-memory computation
+    -- no DB write, no file write, anywhere in it. Its result only ever
+    reaches the caller as a preview; the actual DB save happens later,
+    behind a separate "Apply" confirmation the caller triggers itself.
+
+    usage_cb can't cross the process boundary (it closes over a live db
+    connection in the real caller) -- each call's (input, output) token
+    counts are collected here instead and hand back for the caller to
+    log once the job completes."""
+    usage_calls = []
+    try:
+        new_lines, changed = resegment_lines(
+            lines, language, engine=engine, segments=segments, chinese_script=chinese_script,
+            usage_cb=lambda inp, out: usage_calls.append((inp, out)))
+        result_queue.put(("ok", {
+            "lines": new_lines,
+            "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in changed],
+            "usage_calls": usage_calls,
+        }))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, str(exc)))

@@ -12,6 +12,7 @@ and build_narration_track's actual timing/routing/error-isolation logic
 for real, not just that the code compiles.
 """
 import os
+import queue
 import sys
 import types
 
@@ -373,3 +374,70 @@ class TestExtractReferenceClips:
         ]
         result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
         assert set(result.keys()) == {"A", "B"}
+
+
+class TestBuildTrackSubprocessWorker:
+    """Step 4e: build_track_subprocess_worker() is the entry point
+    background_jobs.start_process_job() runs in its own OS process, so a
+    real mid-run Cancel can terminate it. Confirmed safe to hard-stop:
+    each line's clip writes to its own file, and both build_dub_track and
+    build_narration_track already reuse (rather than re-synthesize) any
+    clip that exists from a prior partial run. Tested here as a plain
+    function call against the same fakes used elsewhere in this file --
+    background_jobs.py's own tests cover the actual multiprocessing.
+    Process/cancel machinery -- confirming it produces exactly what a
+    direct build_dub_track()/build_narration_track() call would, routes
+    on is_narration, and reports an exception instead of raising into the
+    (real, separate) process."""
+
+    def test_matches_a_direct_dub_track_call_on_success(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "synthesize_line",
+                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+
+        direct_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
+        direct_out_path, direct_errors = dub.build_dub_track(
+            direct_lines, str(tmp_path), {"A": "en-US-AvaNeural"})
+
+        worker_lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
+        result_queue = queue.Queue()
+        dub.build_track_subprocess_worker(
+            worker_lines, str(tmp_path), {"A": "en-US-AvaNeural"}, "en-US-AvaNeural",
+            {}, "edge_tts", False, result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
+                                  "errors": direct_errors})
+        assert worker_lines[0].dub_filename == direct_lines[0].dub_filename
+
+    def test_is_narration_true_routes_to_build_narration_track(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch, clip_lengths={
+            str(tmp_path / "dub_clips" / "line_0000.wav"): 2000,
+        })
+        monkeypatch.setattr(dub, "synthesize_line",
+                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
+        result_queue = queue.Queue()
+        dub.build_track_subprocess_worker(
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, result_queue)
+        outcome = result_queue.get_nowait()
+
+        # only build_narration_track rewrites .start/.end onto the lines
+        assert lines[0].end == 2.0
+        assert outcome[0] == "ok"
+
+    def test_reports_an_exception_instead_of_raising(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "synthesize_line",
+                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        monkeypatch.setattr(dub, "build_dub_track",
+                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+
+        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
+        result_queue = queue.Queue()
+        dub.build_track_subprocess_worker(
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome == ("error", "RuntimeError", "boom")
