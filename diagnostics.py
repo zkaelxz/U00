@@ -114,6 +114,28 @@ def check_js_runtime():
     return {"found": False, "name": None, "path": None}
 
 
+def check_cuda() -> dict:
+    """Whether a GPU is actually usable, for start.bat's own "print
+    anything missing in plain words" launcher check (Step 10) -- this is
+    deliberately the minimal "is it there at all" answer, not the
+    driver/CUDA-build version-mismatch detail Step 18 adds to the
+    in-app GPU/VRAM display; that's a different, later check built for a
+    different place (the Diagnostics tab, checked once you're already in
+    the app), not a launcher-time one. Doesn't import torch at all if
+    it isn't installed -- CPU-only is a fully supported, if slower, way
+    to run this app, not something to warn about."""
+    if not check_dependency("torch"):
+        return {"torch_installed": False, "cuda_available": None}
+    try:
+        import torch
+        return {"torch_installed": True, "cuda_available": bool(torch.cuda.is_available())}
+    except Exception:
+        # An installed-but-broken torch (a real, if rare, possibility --
+        # e.g. a CUDA build with no matching driver at all) shouldn't
+        # crash the launcher's own check; just report what's known.
+        return {"torch_installed": True, "cuda_available": None}
+
+
 def check_dependency(module_name: str) -> bool:
     """Checks importability without actually importing (avoids side
     effects and is faster for modules with heavy import-time work,
