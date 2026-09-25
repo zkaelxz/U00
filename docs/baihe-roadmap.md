@@ -1,27 +1,25 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT:** Step 1d (`step-1d-free-testing-engines`) is reviewed and
-> approved — diff and all 5 exit conditions checked directly against the
-> real branch. Create its PR and merge into `baihe-subtitler` (this last
-> gated merge — everything from Step 1e through Step 10 is now
-> **autonomous mode**, see §4: the implementing chat builds, tests, opens
-> the PR, and merges it itself, moving straight to the next step with no
-> stop for review or a merge go-ahead, except the existing
-> Opus-confirmation stop for Steps 2/6c/9).
-> **Before Step 1e starts:** the root `CLAUDE.md` on `baihe-subtitler`
-> still predates the Opus-confirmation-before-switching rule and the
-> dead/redundant-code cleanup rules (checked directly — `git show
-> origin/step-1d-free-testing-engines:CLAUDE.md` still lacks both). Have
-> the implementing session re-copy the current
-> `docs/ai-setup/CLAUDE.md` from this planning branch into
-> `baihe-subtitler`'s root before or as part of starting Step 1e — this
-> matters more now that autonomous mode means no per-step review will
-> catch a rule the implementing chat doesn't know about. Also still open
-> from last time: confirm with the user whether
-> `step-1c-pre-ai-setup`/`step-1c-dependency-fixes` being gone from
-> origin was intentional or GitHub's merge-UI default.
+> **NEXT:** Confirmed via `git log origin/baihe-subtitler` — Steps 1d, 1e,
+> 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12), autonomous mode is
+> working as intended. The `CLAUDE.md` re-copy is also done (commit
+> `cea6688`). **Start Step 5b next** (three bugs the user found during
+> manual testing: the Ollama URL from Settings not reaching translation, a
+> merge preview mutating live lines before it's confirmed, and stale text
+> in the re-transcribe box) — small, unrelated-to-6c fixes, worth clearing
+> before 6c so they don't linger. **Then Step 6c** — its design is already
+> confirmed correct as written (rule-based split first reusing
+> `segment.py`, one LLM pass only for lines still too long with its output
+> checked against the original text via `SequenceMatcher`, and the
+> warn-then-selectively-clear guardrail for lines whose boundaries
+> actually changed) — no redesign needed, just the step's own existing
+> "re-verify against current code" instruction before implementing.
+> **Manual checks still open, not chased further this session:** Step 5's
+> GPU/VRAM figure for `qwen3:8b` (no GPU available to test on — the
+> `ollama pull` + `ollama ps` follow-up is recorded in §2); Step 6b's
+> mpv/VLC playback and live-preview checks (need a person at a screen).
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-24. If this line is stale, the status table below
+> memory, as of 2026-09-25. If this line is stale, the status table below
 > it is the source of truth.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
@@ -32,7 +30,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 - Audited code: branch `baihe-subtitler` at commit `7af8453`. Every `file:function` reference below is on that branch.
 
 **Build order:**
-- Steps 1–5: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite.
+- Steps 1–5b: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite → bugs found during manual testing (5b).
 - Steps 6–20: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10) → Scanlate ML detector/inpainting/OCR routing (11) → novel narration TTS quality (11b) → dub timing: clamped time-stretch fallback (11c) → GUI polish and Streamlit performance (12) → UI foundation: components & project state (13) → Workspace shell rebuild (14) → Reader tab declutter (15) → Settings consolidation (16) → Discover/Navigator merge (17) → Diagnostics narrowing (18) → full click-through UX test (19) → UX polish: shortcuts, toasts, transcript search (20) → Review workspace: per-line audio and save-status (21). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
@@ -90,9 +88,10 @@ Rules for every milestone:
 | 2 | Add a note to a line, merge it with its neighbour, and check the note is still on the right line. |
 | 3 | Edit a few lines, then use "Compare with original" / "Restore original" on one of them. |
 | 4 | Change the number of speakers and press "Re-run speaker detection". Check the speakers change and the transcript text doesn't. |
-| 5 | Translate with Ollama and check it uses the `qwen3:8b` model. Run transcription then translation back-to-back with no out-of-memory error. |
+| 5 | Translate with Ollama and check it uses the `qwen3:8b` model. Run transcription then translation back-to-back with no out-of-memory error. **Partial (2026-09-25): confirmed on hardware without a GPU, so `qwen3:8b`'s real VRAM footprint is still unverified.** Follow-up: `ollama pull qwen3:8b` once, then check `ollama ps` during a real translation to see actual usage. |
+| 5b | Confirm the Ollama URL from Settings is actually used for a translation job. Open a merge preview, back out without confirming, and check the drama's lines are unchanged. Accept a re-transcribed line, then re-transcribe a different line, and check no stale text shows. |
 | 6 | Transcribe an episode that used to get repeated-phrase loops, and check timings stay in sync to the end. Run SenseVoice's emotion/event pass on a scene with clear emotional dialogue and check its tags actually appear next to (not merged into) the existing text-based emotion tag. |
-| 6b | Export the same episode as SRT, VTT and ASS. Check all three play correctly in your usual player, and ASS shows different speakers in different colours. |
+| 6b | Export the same episode as SRT, VTT and ASS. Check all three play correctly in your usual player, and ASS shows different speakers in different colours. **Partial (2026-09-25): the mpv/VLC playback check and the live-preview check both need a person watching a screen — not done yet, not skipped.** |
 | 6c | Turn on re-segmentation for one drama and check line boundaries land at real sentence/clause breaks, not mid-thought, and timing still lines up. |
 | 6d | Export a short clip vertically and check it's genuinely 9:16 with legible burned subtitles. |
 | 7 | Translate one episode in "High quality" mode. Check the cost estimate shows first and the critiques appear as notes. |
@@ -331,6 +330,18 @@ Changes:
 - **Out of scope:** a full `model_manager` module. Build one only if out-of-memory crashes actually happen.
 
 **Exit:** the Ollama default is `qwen3:8b` with a timeout, and a test shows the model caches are empty after a stage completes.
+
+### Step 5b — Bugs found during manual testing of Steps 1–6b
+Three real bugs the user found by hand while doing the manual checks for the merged steps so far — not part of the original plan for any of those steps, and not yet fixed. **Re-verify each against the current code before fixing** — these are relayed from manual testing, not confirmed against source this turn.
+
+1. **The Ollama URL set in Settings isn't actually used for translation.** The user configures a base URL for their local Ollama server in Settings, but a translation job doesn't appear to read it — `OllamaEngine` is presumably still pointed at a hardcoded/default URL. Confirm where the configured URL is supposed to flow into `OllamaEngine`'s construction and fix the gap.
+2. **Previewing a line-merge changes the page's lines before the user applies it.** The merge-preview computation appears to have a side effect on the real, live line list instead of being a read-only preview — so backing out of a preview without confirming doesn't actually leave the page unchanged.
+3. **Re-transcribe's "Use this" can leave stale text in the box.** After accepting a re-transcribed line's text, the per-line re-transcribe result box (`rv_retrans_<idx>`-style session state, per the existing pattern in Review & edit) isn't always cleared/refreshed correctly, so old text can still show.
+
+**Exit:**
+- A test shows a translation job actually uses the Ollama URL configured in Settings, not a hardcoded default.
+- A test shows opening a merge preview and then navigating away without confirming leaves the drama's stored lines unchanged.
+- A test shows using a re-transcribe result clears that line's result box, and starting a new re-transcribe on a different line doesn't show the previous line's stale text.
 
 ### Step 6 — Transcription quality
 1. **Whisper settings** (`core.transcribe_for_timing`).
@@ -781,14 +792,15 @@ Found by cross-checking the user's segment-editor spec against the actual Review
   | 1b — Safety fixes | `step-1b-safety-fixes` (deleted post-merge) | ✅ Merged (PR #2) | ⏳ Pending |
   | 1c-pre — AI setup | `step-1c-pre-ai-setup` (deleted after merge) | ✅ Merged | ⏳ Pending |
   | 1c — Dependency fixes | `step-1c-dependency-fixes` (deleted after merge) | ✅ Merged | ⏳ Pending |
-  | 1d — Free testing engines | `step-1d-free-testing-engines` | ✅ Reviewed & approved, PR pending | ⏳ Pending |
-  | 1e — Character pronouns | — | Not started | — |
-  | 2 — R0 permanent line IDs | — | Not started | — |
-  | 3 — R1-lite original transcript | — | Not started | — |
-  | 4 — R2 speaker detection | — | Not started | — |
-  | 5 — R3-lite local-model defaults | — | Not started | — |
-  | 6 — Transcription quality | — | Not started | — |
-  | 6b — Export formats (VTT/ASS) | — | Not started | — |
+  | 1d — Free testing engines | `step-1d-free-testing-engines` | ✅ Merged (PR #5) | ⏳ Pending |
+  | 1e — Character pronouns | `step-1e-character-pronouns` | ✅ Merged (PR #6) | ⏳ Pending |
+  | 2 — R0 permanent line IDs | `step-2-permanent-line-ids` | ✅ Merged (PR #7) | ⏳ Pending |
+  | 3 — R1-lite original transcript | `step-3-keep-original-transcript` | ✅ Merged (PR #8) | ⏳ Pending |
+  | 4 — R2 speaker detection | `step-4-rerun-speaker-detection` | ✅ Merged (PR #9) | ⏳ Pending |
+  | 5 — R3-lite local-model defaults | `step-5-local-model-defaults` | ✅ Merged (PR #10) | ⏳ **Partial** — no GPU to verify `qwen3:8b`'s real VRAM use; see manual-check note in §2. |
+  | 5b — Bugs found during manual testing | — | Not started | — |
+  | 6 — Transcription quality | `step-6-transcription-quality` | ✅ Merged (PR #11) | ⏳ Pending |
+  | 6b — Export formats (VTT/ASS) | `step-6b-export-formats` | ✅ Merged (PR #12) | ⏳ **Partial** — mpv/VLC playback check and the live-preview check both need a person watching a screen; not done yet. |
   | 6c — Meaning-based re-segmentation | — | Not started | — |
   | 6d — Vertical/shorts export | — | Not started | — |
   | 7 — Reflect translation mode | — | Not started | — |
@@ -914,6 +926,8 @@ reset or a different session picking up reviews later:
 - **Backend/data-architecture spec cross-check (Step 21, plus §3's R4/M8+ notes), at the user's request.** The user supplied a 40-part architecture spec (segment model, job/checkpoint system, provider abstractions, translation memory, QA, review flags, etc.) — cross-referenced every part against this roadmap directly rather than treating it as all-new work. **Already covered, confirmed by direct roadmap read, not re-implemented:** segment-level fields (flag/flag_note/speaker, permanent IDs via R0/Step 2), raw-vs-edited separation (R1-lite/Step 3), glossary (existing + Step 7b), translation context/prompt caching (Step 9), model comparison (an existing "Translation versions" expander in `workspace_tab.py`), review flags and filtering (existing `flag`/"show flagged only"), QA (`qa.py`, existing consistency/coverage checks), cross-project search (Library's existing "Search across all dramas"), project browser (Library's existing dashboard, plus Step 13's Home concept), GPU cache clearing (Step 5). **A large fraction of the spec (checkpointing, resumable jobs, a real job/artifact architecture, live-stream-ready incremental design, 20-hour-video handling) maps directly onto R4 and M8+ — both already in §3's deferred-milestones table with their own stated triggers.** Asked the user directly whether to reopen them now; **confirmed: keep deferred**, consistent with this project's standing "revisit only when the trigger actually happens" discipline rather than reopening a deliberately-scoped-down decision because a large spec arrived. **Checked and explicitly not recommended as a new architecture layer:** formal `ASRProvider`/`TranslationProvider`/`DiarizationProvider`/`OCRProvider` interface classes — the practical goal (swappable engines) is already achieved through Baihe's existing config/settings-driven engine pickers (Ollama tag, translation engine choice, OCR backend choice) without formal abstract-base-class interfaces; adding one now would be architecture for a hypothetical future provider, not a real current need — the same "don't create abstraction for its own sake" principle the spec's own Part 37 states, and this project's standing "fewer options"/no-speculative-design preference. **Genuinely new and added:** per-line audio playback and a save-status indicator in Review & edit (Step 21, both confirmed missing by direct `grep`/read of the actual editing code), GPU/VRAM display and a log-search filter (added to Step 18), and an explicit friendly-error-card behavior for the shared job-status component (added to Step 13's `ui/status.py` scope).
 
 - **Full-roadmap review pass, at the user's request ("review roadmap, reorder if needed, add or remove anything").** Read the entire 941-line doc top to bottom, not spot-checked. Found and fixed three real problems: (1) **a wasted-effort ordering bug** — Step 12 items 5–7 fixed `workspace_tab.py`'s collapsible-section consistency, redundant text, and typography, but Step 14 immediately replaces that whole file's structure, and Step 13 builds the same shared status helper Step 12 item 6 asked for — building the old-structure fix first would be discarded within two steps. Fixed by narrowing Step 12 items 5–6 to the three tabs the redesign doesn't otherwise touch (Library, Scanlate, Live) and moving the Workspace/Reader/Settings/Diagnostics consistency requirement explicitly into Steps 14/15/16/18 (each now cites Step 13's typographic scale directly, added as a new Step 13 item, rather than each rebuild inventing its own). (2) **A dangling reference** — Step 13's audit and §6 both mentioned a "Home concept" for Library that was never turned into an actual item; added as Step 13 item 4 (wire the shared pipeline stepper into Library's dashboard). (3) **Two stale rows in "Decisions already made"** (§0) — still said the default local model was `qwen2.5:7b` and SenseVoice was excluded pending license review, both superseded by Step 5 and Step 6 respectively; corrected to match. No steps added or removed — the fixes are content corrections and a narrower scope for one existing item, not new scope. Everything else (dependency ordering, the autonomous/gated mode split, the R4/M8+ deferrals) checked and confirmed still correct.
+
+- **Session wrap-up sync (2026-09-25), user approaching a usage limit.** Confirmed via `git log origin/baihe-subtitler` (not assumed): Steps 1d, 1e, 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12) and the `CLAUDE.md` re-copy happened (commit `cea6688`) — §4's status table was badly stale (showed all of these as "Not started") and has been corrected. Recorded the user's own manual-check results as given, not independently re-verified this session: Step 5's VRAM figure for `qwen3:8b` is unconfirmed (no GPU available), with the `ollama pull`/`ollama ps` follow-up noted for later; Step 6b's mpv/VLC and live-preview checks are pending a person at a screen. Added Step 5b for three bugs found during that manual testing (Ollama URL from Settings not reaching translation, a merge preview mutating live lines before confirmation, stale text in the re-transcribe box) — none of these were re-verified against current source this session, flagged for re-verification before fixing, same as every other step's standing instruction.
 
 ---
 
