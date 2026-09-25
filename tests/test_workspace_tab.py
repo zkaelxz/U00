@@ -1217,6 +1217,331 @@ class TestVoiceMatchSuggestions:
         assert not [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
 
 
+class _CapPricedEngine:
+    """$2.00 per batch on claude-sonnet-5 (1M input tokens each)."""
+    name = "claude"
+    supports_reference = True
+    model = "claude-sonnet-5"
+
+    def __init__(self):
+        self.last_usage = {}
+
+    def translate_batch(self, zh_lines, context):
+        self.last_usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+        return [f"EN:{z}" for z in zh_lines]
+
+
+class TestSpendingCapJob:
+    """Step 9 exit condition: a job stops at the cap and keeps its
+    finished lines."""
+
+    def test_job_stops_at_the_cap_and_keeps_its_finished_lines(self, isolated_db):
+        job_id = "test_translate_cap"
+        _clear(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        # 45 lines -> batches of 20, 20, 5 at $2.00 each; a $3 cap stops after
+        # the second batch (the one that crosses it).
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        lines = isolated_db.load_line_objects(did)
+
+        run_translate_job(job_id, did, lines, _CapPricedEngine(), {"id": did}, "", None, False,
+                          "en-US", None, "", "claude", "audio_drama", cost_cap_usd=3.0)
+
+        result = background_jobs.get_status(job_id)["result"]
+        assert result["cap_reached"] == pytest.approx(4.0)
+        saved = isolated_db.load_lines(did)
+        assert all(r["en"] == f"EN:句{i}" for i, r in enumerate(saved[:40]))
+        assert all(not r["en"] for r in saved[40:])
+        assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
+        _clear(job_id)
+
+    def test_no_cap_reports_no_stop(self, isolated_db):
+        job_id = "test_translate_nocap"
+        _clear(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
+                          {"id": did}, "", None, False, "en-US", None, "", "claude", "audio_drama")
+        assert background_jobs.get_status(job_id)["result"]["cap_reached"] is None
+        _clear(job_id)
+
+
+class TestSpendingCapUI:
+    def _drama(self, isolated_db, engine="claude"):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine=engine)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好" * 200)])
+        return did
+
+    def _run(self, did, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_claude"] = "sk-ant-fake"
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _translate_button(self, at):
+        return [b for b in at.button if b.label == "🌐 Translate all lines"][0]
+
+    def test_cap_input_and_estimate_shown_for_a_paid_engine(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert [n for n in at.number_input if n.key == f"cost_cap_{did}"]
+        assert any("Estimated cost for 1 line(s)" in c.value for c in at.caption)
+
+    def test_no_cap_input_for_a_free_engine(self, isolated_db):
+        did = self._drama(isolated_db, engine="test_offline")
+        at = self._run(did)
+        assert not [n for n in at.number_input if n.key == f"cost_cap_{did}"]
+
+    def test_the_cap_reaches_the_background_job(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [n for n in at.number_input if n.key == f"cost_cap_{did}"][0].set_value(1.5).run()
+        self._translate_button(at).click()
+        at.run(timeout=30)
+        assert captured.get("cost_cap_usd") == pytest.approx(1.5)
+
+    def test_monthly_cap_already_used_up_disables_translate(self, isolated_db):
+        did = self._drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "claude-sonnet-5", "translate", 1, 1, 12.0)
+        at = self._run(did, settings_monthly_cap_usd=10.0)
+        assert self._translate_button(at).disabled
+        assert any("already used up" in w.value for w in at.warning)
+
+    def test_monthly_remainder_becomes_the_jobs_cap(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+        did = self._drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "claude-sonnet-5", "translate", 1, 1, 7.0)
+        at = self._run(did, settings_monthly_cap_usd=10.0)
+        self._translate_button(at).click()
+        at.run(timeout=30)
+        assert captured.get("cost_cap_usd") == pytest.approx(3.0)
+
+
+class _FakeBulkProvider:
+    """Stands in for the Claude/Gemini batch APIs in UI tests."""
+    def __init__(self):
+        self.submitted = None
+        self.cancelled = []
+        self.polls = 0
+        self.refuse = False
+
+    def build_request(self, key, context, numbered):
+        return {"custom_id": key, "numbered": numbered}
+
+    def submit(self, requests_):
+        self.submitted = requests_
+        return "fake_batch_1"
+
+    def poll(self, batch_id):
+        import bulk_translate
+        self.polls += 1
+        if self.refuse:
+            raise bulk_translate.BulkAuthError("Claude refused the API key (HTTP 401).")
+        return "pending"
+
+    def results(self, batch_id):
+        return []
+
+    def cancel(self, batch_id):
+        self.cancelled.append(batch_id)
+
+
+class TestBulkModeUI:
+    """Step 9: the Bulk checkbox and the Bulk jobs panel."""
+
+    @pytest.fixture
+    def provider(self, monkeypatch):
+        import bulk_translate
+        fake = _FakeBulkProvider()
+        monkeypatch.setattr(bulk_translate, "make_provider", lambda engine_choice, engine: fake)
+        yield fake
+        for job in db.list_bulk_jobs():
+            background_jobs.request_cancel(bulk_translate.poll_job_id(job["id"]))
+        deadline = time.time() + 5
+        while any(background_jobs.is_running(bulk_translate.poll_job_id(j["id"]))
+                  for j in db.list_bulk_jobs()) and time.time() < deadline:
+            time.sleep(0.05)
+
+    def _drama(self, isolated_db, engine="claude", n=3):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine=engine)
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"第{i}句") for i in range(n)])
+        return did
+
+    def _pending_job(self, isolated_db, did, status="submitted", last_error=None):
+        import bulk_translate
+        lines = isolated_db.load_line_objects(did)
+        job_id = isolated_db.create_bulk_job(
+            did, "claude", "claude-sonnet-5", status,
+            [(ln.id, f"d{did}_b0", bulk_translate.zh_hash(ln.zh), "") for ln in lines],
+            provider_batch_id="fake_batch_1")
+        if last_error:
+            isolated_db.update_bulk_job(job_id, last_error=last_error)
+        return job_id
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_claude"] = "sk-ant-fake"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_bulk_checkbox_shown_for_claude_not_for_a_free_engine(self, isolated_db, provider):
+        did = self._drama(isolated_db)
+        assert [c for c in self._run(did).checkbox if c.key == f"bulk_mode_{did}"]
+        did2 = self._drama(isolated_db, engine="test_offline")
+        assert not [c for c in self._run(did2).checkbox if c.key == f"bulk_mode_{did2}"]
+
+    def test_bulk_translate_submits_a_batch_instead_of_a_live_job(self, isolated_db, provider,
+                                                                  monkeypatch):
+        started = []
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, *a, **kw: started.append(job_id) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [c for c in at.checkbox if c.key == f"bulk_mode_{did}"][0].set_value(True).run()
+        assert any("Bulk trade-off" in c.value for c in at.caption)
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click()
+        at.run(timeout=30)
+        assert provider.submitted and len(provider.submitted) == 1
+        assert not any(j.startswith("translate_") for j in started)
+        [job] = db.list_bulk_jobs(did)
+        assert job["status"] == "submitted" and job["provider_batch_id"] == "fake_batch_1"
+        assert any("Submitted 3 line(s)" in m.value for m in at.success)
+
+    def test_reflect_mode_turns_bulk_off(self, isolated_db, provider, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [c for c in at.checkbox if c.key == f"bulk_mode_{did}"][0].set_value(True).run()
+        [c for c in at.checkbox if c.key == f"reflect_mode_{did}"][0].set_value(True).run()
+        assert any("Bulk mode is off while Reflect mode is on" in i.value for i in at.info)
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click()
+        at.run(timeout=30)
+        assert provider.submitted is None
+        assert captured.get("reflect") is True
+
+    def test_panel_lists_a_pending_batch(self, isolated_db, provider):
+        did = self._drama(isolated_db)
+        job_id = self._pending_job(isolated_db, did)
+        at = self._run(did)
+        assert any("Bulk jobs (1 pending)" in e.label for e in at.expander)
+        assert any(f"#{job_id}" in m.value and "Waiting for results" in m.value for m in at.markdown)
+        assert [b for b in at.button if b.key == f"bulk_check_{job_id}"]
+        assert [b for b in at.button if b.key == f"bulk_cancel_{job_id}"]
+
+    def test_panel_restarts_polling_for_a_pending_batch(self, isolated_db, provider):
+        import bulk_translate
+        did = self._drama(isolated_db)
+        job_id = self._pending_job(isolated_db, did)
+        background_jobs.clear_all_jobs()
+        self._run(did)
+        deadline = time.time() + 5
+        while provider.polls == 0 and time.time() < deadline:
+            time.sleep(0.02)
+        assert provider.polls >= 1
+        assert background_jobs.is_running(bulk_translate.poll_job_id(job_id))
+
+    def test_cancel_stops_polling(self, isolated_db, provider):
+        import bulk_translate
+        did = self._drama(isolated_db)
+        job_id = self._pending_job(isolated_db, did)
+        at = self._run(did)
+        assert background_jobs.is_running(bulk_translate.poll_job_id(job_id))
+        [b for b in at.button if b.key == f"bulk_cancel_{job_id}"][0].click()
+        at.run(timeout=30)
+        deadline = time.time() + 5
+        while background_jobs.is_running(bulk_translate.poll_job_id(job_id)) and time.time() < deadline:
+            time.sleep(0.05)
+        assert not background_jobs.is_running(bulk_translate.poll_job_id(job_id))
+        assert db.get_bulk_job(job_id)["status"] == "cancelled"
+        assert provider.cancelled == ["fake_batch_1"]
+        assert not [b for b in at.button if b.key == f"bulk_cancel_{job_id}"]
+
+    def test_a_polling_auth_error_shows_on_the_panel(self, isolated_db, provider):
+        did = self._drama(isolated_db)
+        provider.refuse = True
+        job_id = self._pending_job(isolated_db, did)
+        at = self._run(did)
+        [b for b in at.button if b.key == f"bulk_check_{job_id}"][0].click()
+        at.run(timeout=30)
+        assert db.get_bulk_job(job_id)["status"] == "auth_error"
+        assert any("key refused" in m.value for m in at.markdown)
+        assert any("Claude refused the API key" in e.value for e in at.error)
+
+
+class TestGemini31FlashLiteInDropdown:
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_gemini"] = "gm-fake"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _model_box(self, at):
+        return [b for b in at.selectbox if b.label == "Gemini model"][0]
+
+    def test_offered_with_the_default_unchanged_and_reaches_the_job(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(args=a) or True)
+        did = isolated_db.create_drama(title_en="G", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned",
+                                       translation_engine="gemini")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        at = self._run(did)
+        box = self._model_box(at)
+        assert translate_engines.GEMINI_MODELS["gemini-3.1-flash-lite"] in box.options
+        assert box.value == "gemini-flash-lite-latest"
+
+        box.set_value("gemini-3.1-flash-lite").run()
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click()
+        at.run(timeout=30)
+        engine = captured["args"][3]
+        assert engine.model == "gemini-3.1-flash-lite"
+
+
 class TestMergePreviewDoesNotMutateLiveLines:
     """Step 5b item 2: merge_adjacent_short_lines mutates the Line objects
     it merges in place (and renumbers every line's .idx) -- the "Preview

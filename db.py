@@ -324,6 +324,39 @@ def init_db():
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE SET NULL
     );
 
+    -- Step 9 bulk mode: one row per submitted provider batch (or, for
+    -- DeepSeek, per job scheduled into its next off-peak window), kept on
+    -- disk so a restarted app can pick a pending batch back up by its id.
+    CREATE TABLE IF NOT EXISTS bulk_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        engine TEXT NOT NULL,
+        model TEXT,
+        provider_batch_id TEXT,   -- Anthropic msgbatch_..., Gemini batches/...; NULL for DeepSeek
+        status TEXT NOT NULL,     -- submitted | scheduled | applied | cancelled | failed | auth_error
+        scheduled_for TEXT,       -- DeepSeek: UTC start of the off-peak window it waits for
+        translate_args TEXT,      -- JSON: what a scheduled run needs to build its prompt
+        last_error TEXT,
+        result_summary TEXT,      -- JSON counts once results are applied
+        submitted_at TEXT,
+        updated_at TEXT,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+    );
+
+    -- Every line a bulk job covers, with what it looked like when it was
+    -- submitted -- results are applied by line id, and only to a line whose
+    -- source text still hashes the same and whose English hasn't been
+    -- changed since.
+    CREATE TABLE IF NOT EXISTS bulk_job_lines (
+        bulk_job_id INTEGER NOT NULL,
+        line_id INTEGER NOT NULL,
+        request_key TEXT,         -- the provider request (custom_id / metadata key) it was sent in
+        zh_hash TEXT NOT NULL,
+        en_at_submit TEXT,
+        PRIMARY KEY (bulk_job_id, line_id),
+        FOREIGN KEY (bulk_job_id) REFERENCES bulk_jobs(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS line_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER NOT NULL,
@@ -532,6 +565,11 @@ def init_db():
         # unnamed one. NULL/"" means unset -- no hint is added for that
         # character, distinct from "unspecified" as a deliberate choice.
         conn.execute("ALTER TABLE series_characters ADD COLUMN gender TEXT")
+    usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
+    if "cache_read_tokens" not in usage_cols:
+        # Step 9: the part of input_tokens served from a provider prompt
+        # cache, so the dashboard can show how often caching actually hits.
+        conn.execute("ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
     if "voice_fingerprint" not in sc_cols:
         # Step 8: a running-average pyannote voice embedding (JSON list of
         # floats), built up from every drama where a speaker was confirmed
@@ -1854,16 +1892,32 @@ def list_vocab_lookups(drama_id: int = None):
 # ---------------------------------------------------------------------------
 
 def log_usage(drama_id: int, engine: str, model: str, operation: str,
-              input_tokens: int = 0, output_tokens: int = 0, estimated_cost_usd: float = 0.0):
+              input_tokens: int = 0, output_tokens: int = 0, estimated_cost_usd: float = 0.0,
+              cache_read_tokens: int = 0):
+    """input_tokens is the whole prompt; cache_read_tokens is the part of
+    it a provider served from its prompt cache."""
     conn = get_conn()
     conn.execute("""
         INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens,
-                                output_tokens, estimated_cost_usd, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                output_tokens, estimated_cost_usd, created_at, cache_read_tokens)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (drama_id, engine, model, operation, input_tokens, output_tokens,
-          estimated_cost_usd, datetime.datetime.utcnow().isoformat()))
+          estimated_cost_usd, datetime.datetime.utcnow().isoformat(), cache_read_tokens or 0))
     conn.commit()
     conn.close()
+
+
+def get_month_spend(now: datetime.datetime = None) -> float:
+    """Estimated spend logged so far in the current calendar month (UTC),
+    across the whole library -- what the monthly cap is checked against."""
+    now = now or datetime.datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT COALESCE(SUM(estimated_cost_usd), 0) AS spent FROM usage_log WHERE created_at >= ?",
+        (month_start,)).fetchone()
+    conn.close()
+    return float(row["spent"])
 
 
 def get_usage_summary(drama_id: int = None):
@@ -1874,6 +1928,7 @@ def get_usage_summary(drama_id: int = None):
         row = conn.execute("""
             SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
                    COALESCE(SUM(output_tokens),0) as output_tokens,
+                   COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
                    COALESCE(SUM(estimated_cost_usd),0) as estimated_cost_usd,
                    COUNT(*) as call_count
             FROM usage_log WHERE drama_id = ?
@@ -1882,6 +1937,7 @@ def get_usage_summary(drama_id: int = None):
         row = conn.execute("""
             SELECT COALESCE(SUM(input_tokens),0) as input_tokens,
                    COALESCE(SUM(output_tokens),0) as output_tokens,
+                   COALESCE(SUM(cache_read_tokens),0) as cache_read_tokens,
                    COALESCE(SUM(estimated_cost_usd),0) as estimated_cost_usd,
                    COUNT(*) as call_count
             FROM usage_log
@@ -1899,11 +1955,99 @@ def get_usage_by_drama():
         SELECT d.id, d.title_en, d.title_zh, d.translation_engine,
                COALESCE(SUM(u.input_tokens),0) as input_tokens,
                COALESCE(SUM(u.output_tokens),0) as output_tokens,
+               COALESCE(SUM(u.cache_read_tokens),0) as cache_read_tokens,
                COALESCE(SUM(u.estimated_cost_usd),0) as estimated_cost_usd,
                COUNT(u.id) as call_count
         FROM dramas d LEFT JOIN usage_log u ON u.drama_id = d.id
         GROUP BY d.id ORDER BY estimated_cost_usd DESC
     """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Bulk (batch-API / off-peak) translation jobs -- Step 9
+# ---------------------------------------------------------------------------
+
+BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error")
+
+
+def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
+                    provider_batch_id: str = None, scheduled_for: str = None,
+                    translate_args: dict = None) -> int:
+    """lines: [(line_id, request_key, zh_hash, en_at_submit), ...]."""
+    now = datetime.datetime.utcnow().isoformat()
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN")
+        cur = conn.execute("""
+            INSERT INTO bulk_jobs (drama_id, engine, model, provider_batch_id, status,
+                                   scheduled_for, translate_args, submitted_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (drama_id, engine, model, provider_batch_id, status, scheduled_for,
+              json.dumps(translate_args, ensure_ascii=False) if translate_args is not None else None,
+              now, now))
+        job_id = cur.lastrowid
+        conn.executemany("""
+            INSERT INTO bulk_job_lines (bulk_job_id, line_id, request_key, zh_hash, en_at_submit)
+            VALUES (?, ?, ?, ?, ?)
+        """, [(job_id, lid, key, h, en) for lid, key, h, en in lines])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return job_id
+
+
+def _bulk_job_row(r) -> dict:
+    d = dict(r)
+    d["translate_args"] = json.loads(d["translate_args"]) if d.get("translate_args") else None
+    d["result_summary"] = json.loads(d["result_summary"]) if d.get("result_summary") else None
+    return d
+
+
+def get_bulk_job(bulk_job_id: int):
+    conn = get_conn()
+    r = conn.execute("SELECT * FROM bulk_jobs WHERE id = ?", (bulk_job_id,)).fetchone()
+    conn.close()
+    return _bulk_job_row(r) if r else None
+
+
+def list_bulk_jobs(drama_id: int = None, statuses=None) -> list:
+    """Newest first. statuses: optional iterable to filter on."""
+    sql, params = "SELECT * FROM bulk_jobs WHERE 1=1", []
+    if drama_id is not None:
+        sql += " AND drama_id = ?"
+        params.append(drama_id)
+    if statuses:
+        statuses = list(statuses)
+        sql += f" AND status IN ({','.join('?' * len(statuses))})"
+        params.extend(statuses)
+    conn = get_conn()
+    rows = conn.execute(sql + " ORDER BY id DESC", params).fetchall()
+    conn.close()
+    return [_bulk_job_row(r) for r in rows]
+
+
+def update_bulk_job(bulk_job_id: int, **fields):
+    allowed = {"status", "provider_batch_id", "scheduled_for", "last_error", "result_summary"}
+    fields = {k: v for k, v in fields.items() if k in allowed}
+    if "result_summary" in fields and fields["result_summary"] is not None:
+        fields["result_summary"] = json.dumps(fields["result_summary"])
+    fields["updated_at"] = datetime.datetime.utcnow().isoformat()
+    conn = get_conn()
+    conn.execute(f"UPDATE bulk_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",
+                 list(fields.values()) + [bulk_job_id])
+    conn.commit()
+    conn.close()
+
+
+def list_bulk_job_lines(bulk_job_id: int) -> list:
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM bulk_job_lines WHERE bulk_job_id = ? ORDER BY line_id",
+                        (bulk_job_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
