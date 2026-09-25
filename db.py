@@ -648,6 +648,12 @@ def init_db():
     if "result_text" not in bulk_job_line_cols:
         conn.execute("ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
         conn.execute("ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
+    vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
+    if "export_rich" not in vocab_cols:
+        # Step 20b: flags a lookup as queued for the richer sentence+audio
+        # Anki card type, set from the Reader right where the word was
+        # looked up, rather than only via a bulk end-of-session export.
+        conn.execute("ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
     conn.commit()
     conn.close()
     _migrate_line_refs_to_ids()
@@ -2020,13 +2026,22 @@ def save_vocab_lookup(drama_id: int, word: str, reading: str, definitions, langu
     conn.close()
 
 
-def list_vocab_lookups(drama_id: int = None):
+def list_vocab_lookups(drama_id: int = None, rich_only: bool = False):
+    """rich_only=True returns only lookups queued (via set_vocab_export_rich)
+    for the richer sentence+audio Anki card type -- see vocab_export.
+    export_vocab_apkg_sentence."""
     conn = get_conn()
+    conditions, params = [], []
     if drama_id:
-        rows = conn.execute("SELECT * FROM vocab_lookups WHERE drama_id = ? ORDER BY created_at",
-                             (drama_id,)).fetchall()
-    else:
-        rows = conn.execute("SELECT * FROM vocab_lookups ORDER BY created_at").fetchall()
+        conditions.append("drama_id = ?")
+        params.append(drama_id)
+    if rich_only:
+        conditions.append("export_rich = 1")
+    query = "SELECT * FROM vocab_lookups"
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY created_at"
+    rows = conn.execute(query, params).fetchall()
     conn.close()
     out = []
     for r in rows:
@@ -2037,6 +2052,17 @@ def list_vocab_lookups(drama_id: int = None):
             d["definitions"] = []
         out.append(d)
     return out
+
+
+def set_vocab_export_rich(drama_id: int, word: str, flag: bool = True):
+    """Queues (or un-queues) a single already-looked-up word for the
+    richer sentence+audio Anki card type -- called from the Reader's
+    definitions right where the word was looked up, per Step 20b."""
+    conn = get_conn()
+    conn.execute("UPDATE vocab_lookups SET export_rich = ? WHERE drama_id = ? AND word = ?",
+                 (1 if flag else 0, drama_id, word))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
