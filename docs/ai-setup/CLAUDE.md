@@ -111,12 +111,16 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   `translate_engines.py` and `qa.py` — extend that check if you add HTTP
   calls elsewhere.
 - **A background job must not silently overwrite another job's work.**
-  Jobs that call `db.save_lines()` (which replaces every line for a
-  drama) can race each other and race the user's own edits. Check
-  `background_jobs.any_line_writing_job(drama_id)` /
-  `other_line_writing_job(...)` before starting or allowing a new one —
-  this is a short-term guard until Step 2 (permanent line IDs) lets each
-  job write only the fields it owns.
+  A full sync (`db.save_lines(..., fields=None)`, which replaces every
+  line for a drama) can race another job or the user's own edits. A
+  background job should scope its own writes to the specific fields it
+  owns (`db.save_lines(..., fields=("en",))`, `fields=("flag",
+  "flag_note")`, etc.) rather than doing a full sync — Step 2 (permanent
+  line IDs) made this the real guard, replacing the older
+  `any_line_writing_job`/`other_line_writing_job` collision check, which
+  no longer exists in `background_jobs.py`. A field-scoped write only
+  updates rows that still exist and never inserts/deletes, so it can't
+  resurrect a line the user merged away or delete one they just added.
 - **`db.save_lines` deletes and re-inserts every line for a drama.** Any
   code building the `Line` list to pass to it must carry through
   `flag`/`flag_note`/`speaker` explicitly, or those fields silently get
