@@ -1374,6 +1374,116 @@ class TestVoiceMatchSuggestions:
         assert not [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
 
 
+class TestCharacterNamingGaps:
+    """Step 8b: three real gaps in "Name your characters" -- no transcript
+    sample shown per speaker (no way to tell who SPEAKER_00 actually is
+    without cross-referencing Review & edit by hand), a missing clone
+    reference with no explanation of why, and a silently-blank "what's
+    said in that clip" field indistinguishable from never having run
+    auto-extract at all."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="你好啊", speaker="SPEAKER_00"),
+            Line(idx=1, start=2.0, end=3.0, zh="是的", speaker="SPEAKER_00"),
+            Line(idx=2, start=4.0, end=5.0, zh="再见", speaker="SPEAKER_00"),
+        ])
+        isolated_db.upsert_character(did, "SPEAKER_00")
+        isolated_db.upsert_character(did, "SPEAKER_01")  # no lines attributed at all
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did, ddir
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_a_speaker_with_lines_shows_a_real_sample(self, isolated_db):
+        did, ddir = self._drama(isolated_db)
+        at = self._run(did)
+        captions = [c.value for c in at.caption]
+        assert any("你好啊" in c for c in captions)
+
+    def test_a_speaker_with_no_lines_says_so_instead_of_showing_nothing(self, isolated_db):
+        did, ddir = self._drama(isolated_db)
+        at = self._run(did)
+        captions = [c.value for c in at.caption]
+        assert any("No lines attributed to this speaker yet" in c for c in captions)
+
+    def test_a_skipped_speaker_shows_the_specific_reason_not_a_bare_caption(
+            self, isolated_db, monkeypatch):
+        did, ddir = self._drama(isolated_db)
+        import diarize
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_01"}])
+
+        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+            return {}, {"SPEAKER_01": {"closest_duration": 1.5, "reason": "too_short"}}
+        monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎯 Auto-extract reference clips from this audio"]
+        assert buttons, "Auto-extract button not found"
+        buttons[0].click().run(timeout=30)
+
+        captions = [c.value for c in at.caption]
+        assert any("1.5s" in c and "shorter than the 3s minimum" in c for c in captions)
+
+    def test_a_failed_ref_text_match_shows_a_specific_reason_not_a_blank_box(
+            self, isolated_db, monkeypatch):
+        did, ddir = self._drama(isolated_db)
+        import diarize
+        diarize.save_turns(ddir, [{"start": 100.0, "end": 106.0, "speaker": "SPEAKER_00"}])
+
+        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+            # A clip WAS found, but its time window (100-106s) doesn't
+            # match any of this drama's real lines (all under 5s) -- the
+            # exact "clip found, speaker-tag match failed" case.
+            return {"SPEAKER_00": {"path": os.path.join(drama_dir, "SPEAKER_00.wav"),
+                                   "start": 100.0, "end": 106.0}}, {}
+        monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎯 Auto-extract reference clips from this audio"]
+        buttons[0].click().run(timeout=30)
+
+        assert db.list_characters(did)[0]["ref_text"] in (None, "")
+        captions = [c.value for c in at.caption]
+        assert any("no transcript line's speaker tag matched it" in c for c in captions)
+
+    def test_a_successful_ref_text_match_is_saved_normally(self, isolated_db, monkeypatch):
+        did, ddir = self._drama(isolated_db)
+        import diarize
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}])
+
+        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+            return {"SPEAKER_00": {"path": os.path.join(drama_dir, "SPEAKER_00.wav"),
+                                   "start": 0.0, "end": 1.0}}, {}
+        monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎯 Auto-extract reference clips from this audio"]
+        buttons[0].click().run(timeout=30)
+
+        chars = {c["speaker_label"]: c for c in db.list_characters(did)}
+        assert chars["SPEAKER_00"]["ref_text"] == "你好啊"
+        captions = [c.value for c in at.caption]
+        assert not any("no transcript line's speaker tag matched it" in c for c in captions)
+
+
 class _CapPricedEngine:
     """$2.00 per batch on claude-sonnet-5 (1M input tokens each)."""
     name = "claude"

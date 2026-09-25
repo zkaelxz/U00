@@ -2897,13 +2897,33 @@ def render_workspace_tab():
                 audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
                 if audio_path and os.path.exists(audio_path):
                     import diarize as _diarize
-                    clips = dub_module.extract_reference_clips(audio_path, st.session_state.lines, speaker_segments, ddir)
+                    clips, skipped = dub_module.extract_reference_clips(
+                        audio_path, st.session_state.lines, speaker_segments, ddir)
+                    _ref_text_match_failed = set()
                     for label, info in clips.items():
                         matching_zh = next((ln.zh for ln in st.session_state.lines
                                              if ln.speaker == label and info["start"] <= ln.start <= info["end"] + 1), "")
                         db.upsert_character(picked_id, label,
-                                             ref_audio_filename=os.path.relpath(info["path"], ddir),
-                                             ref_text=matching_zh)
+                                             ref_audio_filename=os.path.relpath(info["path"], ddir))
+                        if matching_zh:
+                            db.upsert_character(picked_id, label, ref_text=matching_zh)
+                            # The ref_text text_input below is bound to this same
+                            # key -- without updating it too, its stale
+                            # (pre-auto-extract) widget value would win over the
+                            # `value=` we just changed on the very next rerun,
+                            # and the ref_text_input != c["ref_text"] check at
+                            # the bottom of the character loop would read that
+                            # as a user edit and immediately overwrite the
+                            # ref_text we just saved back to "".
+                            st.session_state[f"reftext_{label}"] = matching_zh
+                        else:
+                            # Don't silently save "" -- indistinguishable from the
+                            # field never having been touched. Leave whatever
+                            # ref_text was already there and explain the gap
+                            # instead (Step 8b item 3).
+                            _ref_text_match_failed.add(label)
+                    st.session_state[f"clip_skip_reasons_{picked_id}"] = skipped
+                    st.session_state[f"ref_text_match_failed_{picked_id}"] = _ref_text_match_failed
                     st.success(f"Extracted {len(clips)} reference clip(s).")
                     st.rerun()
 
@@ -2967,6 +2987,20 @@ def render_workspace_tab():
                                                      series_character_id=_sc["id"])
                                 st.rerun()
 
+                    # Step 8b item 1: a real sample of what this speaker actually
+                    # said, pulled straight from the transcript -- without this
+                    # there's no way to tell who SPEAKER_00 vs SPEAKER_01 is
+                    # without leaving this section to cross-reference Review & edit.
+                    _speaker_lines = [ln.zh for ln in st.session_state.lines
+                                     if ln.speaker == c["speaker_label"] and ln.zh.strip()]
+                    if _speaker_lines:
+                        _samples = [_speaker_lines[0]]
+                        if len(_speaker_lines) > 1:
+                            _samples.append(_speaker_lines[len(_speaker_lines) // 2])
+                        st.caption("💬 " + "  /  ".join(_samples))
+                    else:
+                        st.caption("No lines attributed to this speaker yet.")
+
                     cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
                     cc1.write(c["speaker_label"])
                     name = cc2.text_input("name", value=c["character_name"] or "",
@@ -3012,12 +3046,33 @@ def render_workspace_tab():
                         rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
                     else:
                         rc1.caption("No clone reference set")
+                        # Step 8b item 2: a missing clone ref isn't a bug, but
+                        # silence about WHY is -- name the specific reason
+                        # auto-extract found no eligible segment for this
+                        # speaker, instead of leaving this indistinguishable
+                        # from "auto-extract was never run."
+                        _skip_reason = st.session_state.get(
+                            f"clip_skip_reasons_{picked_id}", {}).get(c["speaker_label"])
+                        if _skip_reason:
+                            _bound = ("shorter than the 3s minimum" if _skip_reason["reason"] == "too_short"
+                                     else "longer than the 12s maximum")
+                            rc1.caption(f"Closest available clip was {_skip_reason['closest_duration']:.1f}s "
+                                       f"-- {_bound} for a clean reference.")
                     ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
                                                     type=["wav", "mp3", "m4a"], key=f"refup_{c['speaker_label']}",
                                                     label_visibility="collapsed")
                     ref_text_input = st.text_input(
                         f"What's said in that clip (original language, for {name or c['speaker_label']})",
                         value=c["ref_text"] or "", key=f"reftext_{c['speaker_label']}")
+                    if (not ref_text_input.strip() and c["speaker_label"] in
+                            st.session_state.get(f"ref_text_match_failed_{picked_id}", set())):
+                        # Step 8b item 3: same "silent empty result" shape as
+                        # item 2, in extract_reference_clips's own caller this
+                        # time -- a reference clip WAS found, but no transcript
+                        # line's speaker tag matched its time window.
+                        st.caption("A reference clip was found, but no transcript line's speaker "
+                                  "tag matched it -- try re-running speaker detection or "
+                                  "auto-extract again, or type the words said in the clip above.")
                     if ref_upload is not None:
                         ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
                         with open(os.path.join(ddir, ref_filename), "wb") as f:
