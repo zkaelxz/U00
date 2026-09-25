@@ -415,6 +415,66 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged)})
 
 
+def _apply_speaker_turns(drama_id, turns, overwrite_manual):
+    """Re-merges stored diarization turns onto the drama's existing lines
+    -- speakers only, never text or timing, and no ASR."""
+    import diarize
+    lines = db.load_line_objects(drama_id)
+    result = diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
+    for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+        db.upsert_character(drama_id, label)
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
+    st.session_state.lines = db.load_line_objects(drama_id)
+    # Review & edit's speaker boxes would otherwise keep showing (and, on
+    # the next rerun, read back as a manual edit) the old labels.
+    for ln in lines:
+        st.session_state.pop(f"speaker_{ln.idx}", None)
+    return result
+
+
+def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speakers):
+    import diarize
+    st.caption("Already transcribed? Re-detect who speaks each line from the stored audio. "
+               "The transcript text and timing aren't touched and nothing is re-transcribed. "
+               "Uses the expected number of speakers above.")
+    pending_key = f"speaker_rerun_pending_{picked_id}"
+    if st.button("🔁 Re-run speaker detection", disabled=not hf_token,
+                 key=f"rerun_speakers_{picked_id}"):
+        st.session_state.pop(pending_key, None)
+        turns = None
+        with st.spinner("Detecting speakers... (first run downloads the model)"):
+            try:
+                turns, model = diarize.diarize(audio_path, hf_token,
+                                               num_speakers=expected_speakers or None,
+                                               return_model=True)
+            except Exception as e:
+                st.error(f"Speaker detection failed ({e}). Check your Hugging Face token and "
+                         "pyannote.audio install. Nothing was changed.")
+        if turns is not None:
+            diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model)
+            st.session_state[f"speaker_segments_{picked_id}"] = turns
+            conflicts = diarize.manual_lines_that_would_change(db.load_line_objects(picked_id), turns)
+            if conflicts:
+                st.session_state[pending_key] = len(conflicts)
+            else:
+                res = _apply_speaker_turns(picked_id, turns, overwrite_manual=False)
+                st.success(f"Speakers re-detected ({model}): {res['changed']} line(s) relabelled.")
+    n_conflicts = st.session_state.get(pending_key)
+    if n_conflicts:
+        st.warning(f"{n_conflicts} line(s) have a speaker you corrected by hand, and the new "
+                   "detection would change them. Nothing has been applied yet.")
+        k1, k2 = st.columns(2)
+        keep = k1.button(f"Apply, keeping my {n_conflicts} correction(s)",
+                         key=f"rerun_keep_{picked_id}", type="primary")
+        overwrite = k2.button(f"Apply and overwrite my {n_conflicts} correction(s)",
+                              key=f"rerun_overwrite_{picked_id}")
+        if keep or overwrite:
+            res = _apply_speaker_turns(picked_id, diarize.load_turns(ddir), overwrite_manual=overwrite)
+            st.session_state.pop(pending_key, None)
+            st.success(f"Speakers re-detected: {res['changed']} line(s) relabelled"
+                       + (f", {res['kept_manual']} hand-corrected line(s) kept." if keep else "."))
+
+
 def render_workspace_tab():
     _gemini_free_tier = st.session_state.get("gemini_free_tier", False)
     st.subheader("1. Choose a drama")
@@ -1193,10 +1253,15 @@ def render_workspace_tab():
                                        disabled=not hf_token)
             expected_speakers = st.number_input(
                 "Expected number of speakers (0 = auto-detect)", min_value=0, max_value=20,
-                value=0, disabled=not run_diarize,
+                value=0, disabled=not hf_token,
                 help="Telling the diarizer how many speakers to expect is usually more reliable "
                      "than auto-detection, especially on long or noisy audio -- particularly "
                      "relevant for Streamer/VOD content with several people talking.")
+            _speaker_audio = (os.path.join(ddir, drama["audio_filename"])
+                              if drama.get("audio_filename") else None)
+            if (_speaker_audio and os.path.exists(_speaker_audio)
+                    and (st.session_state.lines or db.load_lines(picked_id))):
+                _render_speaker_rerun(picked_id, ddir, _speaker_audio, hf_token, expected_speakers)
         else:
             st.caption("For novel narration, speaker attribution is done by the translation LLM "
                        "(who's speaking each line) instead of audio diarization -- no audio to analyze.")
@@ -1817,8 +1882,11 @@ def render_workspace_tab():
                         with st.spinner("Running speaker diarization... (first run downloads the model)"):
                             try:
                                 import diarize
-                                speaker_segments = diarize.diarize(
-                                    audio_path, hf_token, num_speakers=expected_speakers or None)
+                                speaker_segments, _dmodel = diarize.diarize(
+                                    audio_path, hf_token, num_speakers=expected_speakers or None,
+                                    return_model=True)
+                                diarize.save_turns(ddir, speaker_segments,
+                                                   num_speakers=expected_speakers or None, model=_dmodel)
                                 diarize.label_lines_with_speakers(lines, speaker_segments)
                                 for label in sorted({ln.speaker for ln in lines if ln.speaker}):
                                     db.upsert_character(picked_id, label)
@@ -1951,6 +2019,9 @@ def render_workspace_tab():
             st.caption("Map speaker labels to character names, and optionally attach a reference "
                        "voice clip per character for cloning (instead of the free TTS pool).")
             speaker_segments = st.session_state.get(f"speaker_segments_{picked_id}")
+            if speaker_segments is None:
+                import diarize as _diarize_turns
+                speaker_segments = _diarize_turns.load_turns(ddir)
             can_auto_extract = has_audio_pipeline and speaker_segments is not None
 
             if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
@@ -2135,7 +2206,12 @@ def render_workspace_tab():
                                               label_visibility="collapsed", key=f"start_{ln.idx}")
                 end = cols[1].number_input("end", value=round(ln.end, 2), step=0.1,
                                             label_visibility="collapsed", key=f"end_{ln.idx}")
-                cols[2].caption(ln.speaker or "—")
+                speaker = cols[2].text_input(
+                    "speaker", value=ln.speaker or "", label_visibility="collapsed",
+                    key=f"speaker_{ln.idx}", placeholder="—",
+                    help="Who says this line. Changing it by hand marks it as a correction that "
+                         "re-running speaker detection won't overwrite without asking.").strip()
+                _speaker_changed = speaker != (ln.speaker or "")
                 zh = cols[3].text_area("zh", value=ln.zh, height=68, label_visibility="collapsed", key=f"zh_{ln.idx}")
                 en = cols[4].text_area("en", value=ln.en, height=68, label_visibility="collapsed", key=f"en_{ln.idx}")
                 cols[5].write(f"#{ln.idx + 1}")
@@ -2212,7 +2288,9 @@ def render_workspace_tab():
                 # looking at it (no change) leaves the flag in place.
                 _still_flag, _still_note = (ln.flag, ln.flag_note) if en.strip() == ln.en.strip() else (None, "")
                 edited_page_rows.append(Line(idx=ln.idx, start=start, end=end, zh=zh, en=en,
-                                              speaker=ln.speaker, dub_filename=ln.dub_filename,
+                                              speaker=(speaker or None) if _speaker_changed else ln.speaker,
+                                              speaker_manual=ln.speaker_manual or _speaker_changed,
+                                              dub_filename=ln.dub_filename,
                                               flag=_still_flag, flag_note=_still_note,
                                               id=ln.id, orig=ln.orig, merged_ids=ln.merged_ids))
 
