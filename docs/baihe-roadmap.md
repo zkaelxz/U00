@@ -3,23 +3,33 @@
 > **NEXT:** Confirmed via `git log origin/baihe-subtitler` — Steps 1d, 1e,
 > 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12), autonomous mode is
 > working as intended. The `CLAUDE.md` re-copy is also done (commit
-> `cea6688`). **Start Step 5b next** (three bugs the user found during
-> manual testing: the Ollama URL from Settings not reaching translation, a
-> merge preview mutating live lines before it's confirmed, and stale text
-> in the re-transcribe box) — small, unrelated-to-6c fixes, worth clearing
-> before 6c so they don't linger. **Then Step 6c** — its design is already
-> confirmed correct as written (rule-based split first reusing
-> `segment.py`, one LLM pass only for lines still too long with its output
-> checked against the original text via `SequenceMatcher`, and the
-> warn-then-selectively-clear guardrail for lines whose boundaries
-> actually changed) — no redesign needed, just the step's own existing
-> "re-verify against current code" instruction before implementing.
+> `cea6688`). **Two more merged commits since the last check, neither tied
+> to a specific step**: PR #13 re-synced `CLAUDE.md` from this planning
+> branch (picking up this session's Sonnet-default/Opus-gate reversal and
+> the "register new optional deps in diagnostics" rule), and PR #14
+> ("Register audio-separator and funasr in diagnostics' OPTIONAL_DEPENDENCIES")
+> is real, working evidence that new rule is already catching genuine gaps.
+> **Start Step 5b next** (four bugs now, not three — the three the user
+> found during manual testing, plus the fully-diagnosed `js_runtimes`
+> list-vs-dict fix for Live capture, found and precisely specified this
+> session) — small, unrelated-to-6c fixes, worth clearing before 6c so they
+> don't linger. **Then Step 5c** (the global GPU-job guard, added this
+> session) fits naturally right after — small, and closes a real VRAM-
+> contention gap before more GPU-heavy steps land. **Then Step 6c** — its
+> design is already confirmed correct as written (rule-based split first
+> reusing `segment.py`, one LLM pass only for lines still too long with its
+> output checked against the original text via `SequenceMatcher`, and the
+> warn-then-selectively-clear guardrail for lines whose boundaries actually
+> changed) — no redesign needed, just the step's own existing "re-verify
+> against current code" instruction before implementing, **and it's now an
+> Opus-gated step** (§4) — stop and confirm the model switch before
+> starting it.
 > **Manual checks still open, not chased further this session:** Step 5's
-> GPU/VRAM figure for `qwen3:8b` (no GPU available to test on — the
-> `ollama pull` + `ollama ps` follow-up is recorded in §2); Step 6b's
-> mpv/VLC playback and live-preview checks (need a person at a screen).
+> GPU/VRAM figure for `qwen3:8b` is now resolved without hardware (see §2);
+> Step 6b's mpv/VLC playback and live-preview checks still need a person at
+> a screen.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-25. If this line is stale, the status table below
+> memory, as of 2026-09-26. If this line is stale, the status table below
 > it is the source of truth.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
@@ -441,7 +451,7 @@ User asked directly whether a rate checker is possible for the free Gemini tier.
 **Exit:** changing `expected_speakers` and re-running relabels lines, and a test asserts that the ASR mock is never called. A test shows a manually-corrected line's speaker survives a re-run unless the user explicitly confirms overwriting it.
 
 ### Step 5 — R3-lite: Local-model defaults
-- Change the `OllamaEngine` default to **`qwen3:8b`** (checked directly against the originally-planned `qwen2.5:7b`, prompted by the user asking whether the current model choices are still the best available — Qwen3-8B is confirmed to outperform Qwen2.5-7B on translation specifically: FLORES+ COMET scores, e.g. Chinese→Arabic 19.74 vs. 17.39, and a literary-translation CEA100 score of 65.77 vs. 63.97, at essentially the same parameter count. A like-for-like swap, not a bigger model, so it doesn't reopen the "fewer options" question). Offer 14B as an opt-in labelled as not fitting cleanly in 8 GB, and add a request timeout. **Confirm actual quantized VRAM footprint against real hardware before shipping the default** — search-level VRAM figures for Qwen3-8B were inconsistent between sources and weren't independently verified to the depth this repo's other model claims are.
+- Change the `OllamaEngine` default to **`qwen3:8b`** (checked directly against the originally-planned `qwen2.5:7b`, prompted by the user asking whether the current model choices are still the best available — Qwen3-8B is confirmed to outperform Qwen2.5-7B on translation specifically: FLORES+ COMET scores, e.g. Chinese→Arabic 19.74 vs. 17.39, and a literary-translation CEA100 score of 65.77 vs. 63.97, at essentially the same parameter count. A like-for-like swap, not a bigger model, so it doesn't reopen the "fewer options" question). Offer 14B as an opt-in labelled as not fitting cleanly in 8 GB, and add a request timeout. **VRAM footprint resolved (2026-09-26), no real hardware needed** — see the manual-check note in §2: `ollama pull qwen3:8b`'s bare tag defaults to Q4_K_M, and real per-quantization figures confirm that fits the 8GB-class budget this default was designed around.
 - After each GPU stage (transcription, alignment, diarization) finishes, clear the model caches and call `torch.cuda.empty_cache()` when CUDA is available.
 - **Out of scope:** a full `model_manager` module. Build one only if out-of-memory crashes actually happen.
 
@@ -467,7 +477,7 @@ User shared a Gemini-authored review flagging VRAM/hardware saturation as a risk
 
 This is **not** R3-full (the deferred "single-slot model manager," §3) — that's a bigger, more general architecture (tracking which specific model occupies the GPU, unloading/reloading on demand) explicitly deferred until real OOM crashes are observed. This is smaller and more specific: a **global lock on GPU-touching job *starts***, not a model manager. It doesn't manage what's loaded — it just refuses to let a second GPU-heavy job begin while one is already running, queuing it instead.
 
-1. Add a `gpu_touching: bool` flag when a job is registered (transcription, diarization, OCR, TTS/dub, ML-based Scanlate detection/inpainting — not translation via a cloud API, which doesn't touch the local GPU at all, and not Ollama translation unless the app is already tracking it as GPU-bound elsewhere).
+1. Add a `gpu_touching: bool` flag when a job is registered (transcription, diarization, OCR, TTS/dub, ML-based Scanlate detection/inpainting, **and Ollama translation** — resolved definitively on a later pass: Ollama translation runs the local `qwen3:8b` model (Step 5's own default), so it's GPU-bound the same as every other local-model stage, no hedge needed. Only cloud-API translation (Claude/Gemini/DeepSeek) is excluded, since those never touch the local GPU at all).
 2. Before starting a new GPU-touching job, check whether any other GPU-touching job (any `job_id`, any drama) is currently `running`. If so, don't start it — queue it (reusing the same queue/backoff shape Step 9b's bulk-translate already introduces) and show a clear "Waiting — GPU busy with <job description>" message instead of starting a job that would silently compete for VRAM.
 3. This is a **soft** guard, not a hard block: a user on a genuinely high-VRAM machine (24GB+) may never need it and shouldn't be forced to wait unnecessarily — add a Settings toggle ("Limit to one GPU job at a time") defaulting **on** (matches the 8–12GB consumer-GPU assumption Gemini's review and this project's own hardware-budget decisions elsewhere, e.g. Step 5's VRAM-class reasoning, are built around), switchable off by anyone who knows their hardware can handle concurrent jobs.
 
@@ -1062,6 +1072,11 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 6c — Meaning-based re-segmentation | Changes line boundaries directly, and the guardrail added this session (detect exactly which lines' boundaries changed, clear only those, warn first) is the kind of edge-case-heavy logic that's easy to get almost right. |
   | 9 — Cost controls & bulk discounts | Batch results can come back hours later and must be matched by id with a source-text hash check, with correct handling for a line that was merged, deleted or edited in between — several ways to subtly misassign a result if any check is skipped. |
   | 11b — Novel narration TTS quality | Has grown into the step with the most interacting parts: four TTS backends with different capabilities (only one does voice design, only one does emotion), parallelized generation with a per-backend single-threaded exception, and the emotion→delivery mapping — a lot of places for one backend's quirk to leak into another's behaviour. |
+  | 9b item 6 — Live audio overlap + dedup | Real-time correctness edge cases: matching an overlap region between two independently-transcribed chunks and deduping it without dropping or duplicating text — the step's own text notes even Synthalingua's real version gets this wrong. Easy to get almost right, hard to notice when it's subtly not. |
+  | 23 + 23b — Source-adapter interface, and the first real adapter (manhuagui) | A new architectural interface (23) plus real integration wrinkles against an external, ToS-sensitive site (23b): LZString decoding, mirror fallback, rate-limit/backoff logic. Already gated for review regardless of model (§4's mode table); the model choice is a separate axis — getting the interface or the site-specific logic subtly wrong is exactly the "edge-case-heavy" shape this table exists for. |
+  | 24 — Translation memory, benchmark A/B, library status | Three grouped, independent features in one step — same "several interacting moving parts, one step" shape that got 11b flagged, plus the translation-memory piece touches suggestion logic that must never auto-apply. |
+
+  Added the four rows above 2026-09-26, on a full-review pass — these are steps that landed after the table was first set, checked against the same criteria as the original four, not new criteria invented for them.
 
   Everything else — including Step 11's model-swap fix, Step 10's uninstaller — is normal-risk, well-specified work; Sonnet has already handled comparable steps (1, 1b, 1c) correctly.
 - **Status** (last checked against the real branch state on 2026-09-24). For Steps 1e–10 in autonomous mode, there's no per-step "check Step X" request to trigger a table update — the planning chat should re-sync this table by checking real git state (§5 rule 1) whenever asked, or on its own initiative when picking the thread back up, rather than waiting to be told a step finished. **Manual check** tracks the user's own real-model check from §2's table, separately from merge status — a step can be merged with its manual check still pending, and that's expected to lag further behind in autonomous mode since steps land back-to-back. It moves to ✅ only when the user says "manual check passed for Step X"; the planning chat doesn't infer it.
@@ -1197,6 +1212,8 @@ reset or a different session picking up reviews later:
 - **Free-tier accuracy specifically, at the user's direct follow-up.** Tried to find hard CJK-specific benchmark numbers for Ollama/NLLB/LibreTranslate beyond §7.1's existing table and came up mostly empty — reporting that honestly rather than inventing precision. Gemini's free tier is the one with real evidence, because it's a rate limit on the same model, not a lesser one — its accuracy is exactly the paid Gemini numbers already in §7.1. Ollama's `qwen3:8b` has a real but non-CJK-specific improvement claim (Step 5's own en→ar/en→bg FLORES+ COMET numbers); searched specifically for a CJK-pair number in Qwen's technical report and the broader open-LLM-MT literature and didn't find one accessible this pass. NLLB has a real aggregate claim (44% average BLEU improvement over prior SOTA on FLORES-200) but it's not CJK-specific either, and the paper's own emphasis is low-resource-language gains, which likely overstates NLLB's edge on already-well-served CJK pairs. LibreTranslate's honest finding is that **no benchmark exists at all** — checked its own Argos Translate maintainer's community-forum post directly, which states plainly they never rigorously benchmarked it, only "manually tested"; independent reviews consistently rank it below Google Translate and explicitly warn against it for fiction, directly relevant to Baihe's actual content. Ranked by confidence of evidence: Gemini free-tier → Ollama → NLLB → LibreTranslate, added to §7.1.
 
 - **Reversed the "whole run on Opus" decision, at the user's direct request ("the cost is higher than I thought").** §4's working agreement and the "Model recommendation per step" table are back to gating the model choice: default Sonnet, stop and confirm before switching to Opus for a flagged step (currently 6c, 9, 11b — the same list from before the earlier Opus-everywhere decision), switch back to Sonnet once that step lands. Updated `docs/ai-setup/CLAUDE.md` to match — same sync caveat as any other edit to that staged file: the copy already merged into `baihe-subtitler` (Step 1c-pre) predates this change and needs picking up separately if the implementing session should see it before its next natural CLAUDE.md re-copy.
+
+- **Full-roadmap review pass #2, at the user's request ("review everything, optimize, question anything that isn't right").** Read the entire doc top to bottom (not spot-checked), plus fetched real `baihe-subtitler` git state to check the status table against reality, same discipline as the first full-review pass earlier this session. **Found and fixed a real staleness bug — the project's own recurring failure mode, happening again**: the NEXT pointer and §4 status table didn't know about two merged PRs (#13 re-syncing `CLAUDE.md` from this branch, #14 registering `audio-separator`/`funasr` in Diagnostics — real, working proof the "register every new optional dependency" rule added this session is already catching genuine gaps). Updated the NEXT pointer to reflect both and reconfirm Step 5b is still genuinely next. **Found and fixed two small logical gaps**: Step 5's own body still carried a VRAM caveat its manual-check row had already resolved — added a cross-reference; Step 5c hedged on whether Ollama translation counts as GPU-touching ("unless already tracking it elsewhere") when it obviously always is (it's Step 5's own local `qwen3:8b` default) — resolved definitively, no hedge. **Asked rather than silently decided**: whether the Opus-gate table (set before most of this session's work existed) should cover newer complex steps too — user said add all three candidates (Step 9b item 6, Steps 23+23b, Step 24), added with the same "why" criteria as the original four rows, not new criteria invented for them. **Checked and not changed**: Step 11b's two references to ElevenLabs as "already in Baihe" predate Step 11d's removal decision but are accurate for 11b's position in the build queue (11d lands 3 steps later) — not an error, just noted for anyone reading out of order.
 
 - **Live capture bug, reported live while the user was actually using the app.** `ValueError: Invalid js_runtimes format, expected a dict of {runtime: {config}}`, hit on a real, confirmed-live YouTube stream. Read `live_translate.py`/`video_download.py` directly to confirm the exact cause rather than guess: both pass `js_runtimes` to yt-dlp as a flat list at three call sites, but yt-dlp's real current option (confirmed against its own docs) expects a dict of `{runtime: {config}}` — a format change since Step 1c wrote this code. Added as Step 5b item 4, fully diagnosed with the precise fix already stated, not left as a re-verify like the other three bugs in that step — flagged as worth fixing out of queue order given it blocks all Live capture right now.
 
