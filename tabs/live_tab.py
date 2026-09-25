@@ -56,6 +56,13 @@ def render_live_tab():
         help="Shorter = lower latency, but Whisper loses cross-sentence "
              "context at each cut. Longer = better transcription per chunk, "
              "more delay before it appears.")
+    overlap_seconds = st.slider(
+        "Chunk overlap (seconds)", 0, 8, live_translate.DEFAULT_OVERLAP_SECONDS,
+        key="live_overlap_seconds", disabled=is_active,
+        help="Re-hears this much of the previous chunk's audio at the start of "
+             "each chunk, so a sentence cut at a boundary is transcribed whole; "
+             "the repeated part is removed before it's shown. 0 turns it off. "
+             "Capped at half the chunk length.")
 
     engine_list = list(translate_engines.ENGINES.keys())
     saved_engine = st.session_state.get("settings_default_engine", "claude")
@@ -89,6 +96,9 @@ def render_live_tab():
                 _JOB_ID, live_translate.run_live_job,
                 _JOB_ID, url.strip(), out_dir, segment_seconds, source_language,
                 whisper_size, engine,
+                cookies_browser=st.session_state.get("settings_cookies_browser"),
+                cookies_file=st.session_state.get("settings_cookies_file") or None,
+                overlap_seconds=overlap_seconds,
                 gpu_touching=True, description="Live capture (local Whisper)")
             if started:
                 st.rerun()
@@ -102,6 +112,12 @@ def render_live_tab():
     else:
         st.info(job.get("message") or "Running...")
         if st.button("⏹️ Stop"):
+            # Bumping the generation (not just requesting cancel) means a
+            # chunk whose transcribe/translate call is still in flight
+            # right now gets its result discarded instead of applied
+            # after this session has already moved on -- see
+            # live_translate.run_live_job's own stale-chunk guard.
+            live_translate.bump_generation(_JOB_ID)
             background_jobs.request_cancel(_JOB_ID)
             st.rerun()
 

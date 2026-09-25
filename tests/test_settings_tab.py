@@ -194,6 +194,56 @@ class TestLimitOneGpuJobToggle:
             background_jobs.set_gpu_limit_enabled(True)  # don't leak into other tests
 
 
+class TestCookieBasedLoginSettings:
+    """Step 9b.4: a Settings field for cookie-based login (browser or
+    cookies file), previously only ever mentioned inside a YouTube-
+    specific error message -- now something the user can actually turn
+    on, for TikTok/Instagram in particular."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.settings_tab import render_settings_sidebar
+            render_settings_sidebar()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _browser_box(self, at):
+        matches = [b for b in at.selectbox if b.label == "Pull cookies from this browser"]
+        assert matches, "browser selectbox not found"
+        return matches[0]
+
+    def _file_input(self, at):
+        matches = [t for t in at.text_input
+                  if t.label.startswith("...or a cookies.txt file path")]
+        assert matches, "cookies file text_input not found"
+        return matches[0]
+
+    def test_defaults_to_none(self):
+        at = self._run()
+        assert self._browser_box(at).value == "-- none --"
+        assert at.session_state.get("settings_cookies_browser") is None
+        assert at.session_state.get("settings_cookies_file") == ""
+
+    def test_picking_a_browser_sets_session_state(self):
+        at = self._run()
+        self._browser_box(at).set_value("chrome").run()
+        assert at.session_state.get("settings_cookies_browser") == "chrome"
+
+    def test_setting_a_cookies_file_path(self):
+        at = self._run()
+        self._file_input(at).set_value("/home/me/cookies.txt").run()
+        assert at.session_state.get("settings_cookies_file") == "/home/me/cookies.txt"
+
+    def test_offered_browsers_match_video_download_module(self):
+        import video_download
+        at = self._run()
+        assert self._browser_box(at).options[1:] == video_download.COOKIE_BROWSERS
+
+
 class TestRepeatedCallsPickUpLateEdits:
     """The actual bug fix: editing .env while the app is running (no
     restart) must take effect on the next call, as long as the session

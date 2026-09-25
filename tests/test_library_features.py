@@ -10,8 +10,12 @@ import tempfile
 import shutil
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import time
+
+import background_jobs
 import story_context as sc
 import storage as stg
+import translate_engines
 from core import Line
 
 
@@ -355,3 +359,193 @@ class TestCacheHitShare:
     def test_no_usage_is_zero_not_a_division_error(self):
         from tabs.library_tab import cache_hit_share
         assert cache_hit_share({"input_tokens": 0, "cache_read_tokens": 0}) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Step 9b.3: bulk "translate everything untranslated" across a series.
+# ---------------------------------------------------------------------------
+
+class TestBulkSeriesTranslate:
+    def _drama(self, isolated_db, n=2, engine="test_offline", series_id=None, status="aligned"):
+        did = isolated_db.create_drama(title_en=f"Drama {n}", media_type="audio_drama",
+                                       content_mode="audio_drama", status=status,
+                                       translation_engine=engine, series_id=series_id)
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(n)])
+        return did
+
+    def _run(self, drama_ids, monkeypatch, **kw):
+        import tabs.library_tab as lt
+        monkeypatch.setattr(lt.time, "sleep", lambda s: None)
+        job_id = "test_bulk_series"
+        background_jobs.clear_job(job_id)
+        started = background_jobs.start_job(
+            job_id, lt.run_bulk_series_translate_job, job_id, drama_ids, kw.pop("api_keys", {}), **kw)
+        assert started
+        deadline = time.time() + 5
+        while background_jobs.is_running(job_id) and time.time() < deadline:
+            time.sleep(0.02)
+        return background_jobs.get_status(job_id)
+
+    def test_translates_every_eligible_drama_with_its_own_saved_engine(self, isolated_db, monkeypatch):
+        d1 = self._drama(isolated_db, n=1, engine="test_offline")
+        d2 = self._drama(isolated_db, n=1, engine="test_offline")
+        status = self._run([d1, d2], monkeypatch)
+        result = status["result"]
+        assert sorted(result["translated"]) == sorted([d1, d2])
+        assert all(r["en"] for r in isolated_db.load_lines(d1))
+        assert all(r["en"] for r in isolated_db.load_lines(d2))
+        assert isolated_db.get_drama(d1)["status"] == "translated"
+
+    def test_a_drama_already_running_is_skipped_not_queued(self, isolated_db, monkeypatch):
+        d1 = self._drama(isolated_db)
+        background_jobs.clear_job(f"translate_{d1}")
+        background_jobs._jobs[f"translate_{d1}"] = {
+            "status": "running", "progress": 0.5, "message": "", "error": None,
+            "cancel_requested": False, "result": None, "started_at": time.time()}
+        status = self._run([d1], monkeypatch)
+        assert status["result"]["skipped_running"] == [d1]
+        assert not any(r["en"] for r in isolated_db.load_lines(d1))
+        background_jobs.clear_job(f"translate_{d1}")
+
+    def test_a_drama_needing_a_key_with_none_supplied_is_skipped(self, isolated_db, monkeypatch):
+        d1 = self._drama(isolated_db, engine="claude")
+        status = self._run([d1], monkeypatch, api_keys={})
+        assert status["result"]["skipped_no_key"] == [d1]
+        assert not any(r["en"] for r in isolated_db.load_lines(d1))
+
+    def test_a_drama_with_no_lines_is_skipped(self, isolated_db, monkeypatch):
+        d1 = isolated_db.create_drama(title_en="Empty", status="aligned",
+                                      translation_engine="test_offline")
+        status = self._run([d1], monkeypatch)
+        assert status["result"]["skipped_no_lines"] == [d1]
+
+    def test_each_drama_uses_its_own_series_glossary(self, isolated_db, monkeypatch):
+        sid = isolated_db.get_or_create_series("Test Series")
+        isolated_db.upsert_glossary_term(sid, "苏杉", "Su Shan", enforce_exact=True, notes="Su Xian")
+        d1 = self._drama(isolated_db, n=1, series_id=sid)
+
+        class RecordingEngine:
+            name = "test_offline"
+            supports_reference = True
+
+            def __init__(self):
+                self.last_usage = {}
+                self.seen_glossary = None
+
+            def translate_batch(self, zh_lines, context):
+                self.seen_glossary = context.get("glossary_terms")
+                return ["Su Xian appears." for _ in zh_lines]
+
+        recording = RecordingEngine()
+        import tabs.library_tab as lt
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: recording)
+        status = self._run([d1], monkeypatch)
+        assert recording.seen_glossary and recording.seen_glossary[0]["term_original"] == "苏杉"
+        # enforce_exact substitution still applies on top of the engine's own output.
+        assert isolated_db.load_lines(d1)[0]["en"] == "Su Shan appears."
+
+    def test_cancelling_stops_the_current_drama_and_skips_the_rest(self, isolated_db, monkeypatch):
+        import tabs.library_tab as lt
+        d1 = self._drama(isolated_db, n=1)
+        d2 = self._drama(isolated_db, n=1)
+        job_id = "test_bulk_series_cancel"
+        background_jobs.clear_job(job_id)
+        monkeypatch.setattr(lt.time, "sleep", lambda s: None)
+
+        class SlowEngine:
+            name = "test_offline"
+            supports_reference = True
+
+            def __init__(self):
+                self.last_usage = {}
+
+            def translate_batch(self, zh_lines, context):
+                background_jobs.request_cancel(job_id)
+                background_jobs.request_cancel(f"translate_{d1}")
+                return [f"EN:{z}" for z in zh_lines]
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: SlowEngine())
+        assert background_jobs.start_job(job_id, lt.run_bulk_series_translate_job, job_id, [d1, d2], {})
+        deadline = time.time() + 5
+        while background_jobs.is_running(job_id) and time.time() < deadline:
+            time.sleep(0.02)
+        result = background_jobs.get_status(job_id)["result"]
+        assert d2 not in result["translated"]
+        assert d2 not in result.get("skipped_running", [])
+        assert not any(r["en"] for r in isolated_db.load_lines(d2))
+
+    def test_combined_progress_message_names_the_current_drama(self, isolated_db, monkeypatch):
+        import tabs.library_tab as lt
+        d1 = self._drama(isolated_db, n=1)
+        job_id = "test_bulk_series_progress"
+        background_jobs.clear_job(job_id)
+        messages = []
+        real_update = background_jobs.update_progress
+
+        def spy(jid, frac, message=""):
+            if jid == job_id:
+                messages.append(message)
+            real_update(jid, frac, message)
+        monkeypatch.setattr(background_jobs, "update_progress", spy)
+        monkeypatch.setattr(lt.time, "sleep", lambda s: None)
+        lt.run_bulk_series_translate_job(job_id, [d1], {})
+        assert any("Drama 1" in m and "1/1" in m for m in messages)
+
+
+class TestBulkSeriesTranslateStatusUI:
+    """UI-level coverage for the combined status line/cancel button.
+    st.data_editor's selection column isn't a queryable widget in this
+    Streamlit AppTest version, so the click-to-select-and-submit path
+    itself is covered at the function level above (TestBulkSeriesTranslate)
+    -- this covers what the status panel renders once a job exists."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_combined_status_line_shows_while_running(self, isolated_db):
+        import tabs.library_tab as lt
+        isolated_db.create_drama(title_en="Any Drama")
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+        background_jobs._jobs[lt.BULK_SERIES_TRANSLATE_JOB_ID] = {
+            "status": "running", "progress": 0.3, "message": "Translating 2/5 -- Some Drama (40%)",
+            "error": None, "cancel_requested": False, "result": None, "started_at": time.time() - 10}
+        at = self._run()
+        bars = [p for p in at.get("progress") if p.value == 30]
+        assert bars and "Some Drama" in bars[0].proto.text
+        assert [b for b in at.button if b.key == "bulk_series_translate_cancel"]
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+
+    def test_cancel_button_requests_cancellation(self, isolated_db):
+        import tabs.library_tab as lt
+        isolated_db.create_drama(title_en="Any Drama")
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+        background_jobs._jobs[lt.BULK_SERIES_TRANSLATE_JOB_ID] = {
+            "status": "running", "progress": 0.3, "message": "Translating...",
+            "error": None, "cancel_requested": False, "result": None, "started_at": time.time()}
+        at = self._run()
+        [b for b in at.button if b.key == "bulk_series_translate_cancel"][0].click()
+        at.run(timeout=30)
+        assert background_jobs.is_cancel_requested(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+
+    def test_done_summary_shown_and_job_cleared(self, isolated_db):
+        import tabs.library_tab as lt
+        isolated_db.create_drama(title_en="Any Drama")
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+        background_jobs._jobs[lt.BULK_SERIES_TRANSLATE_JOB_ID] = {
+            "status": "done", "progress": 1.0, "message": "Done", "error": None,
+            "cancel_requested": False, "started_at": time.time() - 30,
+            "result": {"translated": [1, 2], "skipped_running": [], "skipped_no_key": [3],
+                      "skipped_no_lines": [], "errors": {}}}
+        at = self._run()
+        assert any("2 translated" in m.value and "1 skipped (no API key)" in m.value
+                  for m in at.success)
+        assert background_jobs.get_status(lt.BULK_SERIES_TRANSLATE_JOB_ID) is None

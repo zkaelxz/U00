@@ -214,6 +214,41 @@ def gpu_slot(description: str, poll_interval: float = 0.5):
         _promote_next_queued_gpu_job()
 
 
+def eta_seconds(started_at: float, frac: float, now: float = None) -> float:
+    """Estimated remaining seconds, extrapolated linearly from elapsed
+    time and progress so far -- or None when there isn't enough signal
+    to extrapolate from yet (right at the start, before the job's even
+    reported any progress, or once it's already done): a small `frac`
+    makes `(1 - frac) / frac` blow up into a wildly noisy estimate that's
+    worse than showing nothing."""
+    if not started_at or frac is None or frac <= 0.02 or frac >= 1.0:
+        return None
+    elapsed = (now if now is not None else time.time()) - started_at
+    if elapsed <= 0:
+        return None
+    return elapsed * (1 - frac) / frac
+
+
+def format_eta(seconds) -> str:
+    """' (~N min remaining)' / ' (~N sec remaining)', or '' for None --
+    already includes the leading space and parens so a caller can just
+    concatenate it onto an existing progress message."""
+    if seconds is None:
+        return ""
+    seconds = max(0, seconds)
+    if seconds < 60:
+        return f" (~{max(1, int(seconds))} sec remaining)"
+    return f" (~{max(1, round(seconds / 60))} min remaining)"
+
+
+def eta_text(job: dict, now: float = None) -> str:
+    """format_eta(eta_seconds(...)) straight from a get_status() dict --
+    the form every progress-bar call site actually has on hand."""
+    if not job:
+        return ""
+    return format_eta(eta_seconds(job.get("started_at"), job.get("progress"), now))
+
+
 def update_progress(job_id: str, frac: float, message: str = ""):
     """Called FROM inside the background thread to report progress.
     Silently does nothing if the job was cleared (e.g. by a reset) out
