@@ -22,6 +22,43 @@ def _format_media_type(m):
     return special.get(m, m.replace("_", " ").title())
 
 
+# The same "remember the last pick in a global session_state key" pattern
+# already used for the model dropdowns below (settings_claude_model etc.)
+# -- applying a preset's engine_model just needs to write into whichever
+# one matches the preset's own engine.
+_ENGINE_MODEL_SESSION_KEY = {
+    "claude": "settings_claude_model", "gemini": "settings_gemini_model",
+    "ollama": "settings_ollama_model",
+}
+
+
+def apply_preset_to_session(preset: dict, drama_id):
+    """Step 9c: copies a saved preset's captured fields onto session_state
+    for the style/locale/pronoun-default/genre-notes widgets below --
+    keyed per drama_id, same as `default_female_pronouns_{id}` already is
+    -- plus the matching global model-memory key for its engine, if it
+    saved one. translation_engine itself isn't handled here: it's
+    persisted straight onto the drama row (db.update_drama, or a
+    create_drama kwarg for a brand-new drama), the same place it's
+    already stored, not through session_state.
+
+    Every field is a plain default the widgets below read ONCE per
+    rerun, still freely editable afterward -- applying a preset never
+    locks anything, matching the roadmap's own requirement.
+    """
+    if preset.get("style_preset"):
+        st.session_state[f"style_preset_{drama_id}"] = preset["style_preset"]
+    if preset.get("locale"):
+        st.session_state[f"locale_{drama_id}"] = preset["locale"]
+    st.session_state[f"default_female_pronouns_{drama_id}"] = bool(
+        preset.get("default_female_pronouns"))
+    st.session_state[f"include_genre_notes_{drama_id}"] = bool(
+        preset.get("include_genre_notes", True))
+    _model_key = _ENGINE_MODEL_SESSION_KEY.get(preset.get("translation_engine"))
+    if _model_key and preset.get("engine_model"):
+        st.session_state[_model_key] = preset["engine_model"]
+
+
 def _sanitize_filename(name: str, max_length: int = 80) -> str:
     """Strips characters Windows/macOS/Linux all disallow in a filename
     (a custom export name is free-typed text, not something to trust
@@ -840,10 +877,26 @@ def render_workspace_tab():
         summary = st.text_area("Summary", value=prefill.get("summary", ""), height=100)
         media_type = st.selectbox("Content type", MEDIA_TYPE_OPTIONS,
                                    format_func=_format_media_type)
+
+        _all_presets = db.list_presets()
+        _preset_options = {"-- none --": None}
+        _preset_options.update({p["name"]: p for p in _all_presets})
+        _preset_choice = st.selectbox(
+            "Apply a preset (optional)", list(_preset_options.keys()),
+            help="Fills in the engine/model, translation style, English variant, pronoun "
+                 "default and genre-guidance fields below from a saved Workspace configuration "
+                 "(📚 Library → 🎛️ Presets to manage them) -- still freely editable afterward.")
+        _picked_preset = _preset_options[_preset_choice]
+
         if st.button("Create drama"):
-            new_id = db.create_drama(title_en=title_en, title_zh=title_zh, author=author,
-                                      studio=studio, director=director,
-                                      voice_actors=voice_actors, summary=summary, media_type=media_type)
+            new_id = db.create_drama(
+                title_en=title_en, title_zh=title_zh, author=author, studio=studio,
+                director=director, voice_actors=voice_actors, summary=summary,
+                media_type=media_type,
+                **({"translation_engine": _picked_preset["translation_engine"]}
+                   if _picked_preset and _picked_preset.get("translation_engine") else {}))
+            if _picked_preset:
+                apply_preset_to_session(_picked_preset, new_id)
             st.session_state.pop("autofill_metadata", None)
             st.session_state.active_drama_id = new_id
             st.session_state.lines = None
@@ -1621,6 +1674,25 @@ def render_workspace_tab():
                     db.update_drama(picked_id, last_translate_errors=None)
                     st.rerun()
 
+        _all_presets = db.list_presets()
+        if _all_presets:
+            _preset_options = {"-- none --": None}
+            _preset_options.update({p["name"]: p for p in _all_presets})
+            _pc1, _pc2 = st.columns([3, 1])
+            _preset_choice = _pc1.selectbox(
+                "Apply a preset", list(_preset_options.keys()),
+                key=f"apply_preset_choice_{picked_id}",
+                help="Fills in the fields below from a saved Workspace configuration "
+                     "(📚 Library → 🎛️ Presets to manage them) -- still freely editable "
+                     "afterward, never locked.")
+            if _pc2.button("Apply", key=f"apply_preset_btn_{picked_id}",
+                          disabled=_preset_options[_preset_choice] is None):
+                _picked_preset = _preset_options[_preset_choice]
+                if _picked_preset.get("translation_engine"):
+                    db.update_drama(picked_id, translation_engine=_picked_preset["translation_engine"])
+                apply_preset_to_session(_picked_preset, picked_id)
+                st.rerun()
+
         # tguide is already available here via `from common import *` (common.py
         # imports it at module level) -- a redundant local `import ... as tguide`
         # used to sit here, which makes Python treat `tguide` as local to this
@@ -1629,16 +1701,30 @@ def render_workspace_tab():
         # since that use executes before this line does.
         _style_keys = list(tguide.STYLE_PRESETS.keys())
         _default_style = "novel" if content_mode == "novel_narration" else "audio_drama"
+        _saved_style = st.session_state.get(f"style_preset_{picked_id}", _default_style)
+        if _saved_style not in _style_keys:
+            _saved_style = _default_style
         style_preset = st.selectbox(
-            "Translation style", _style_keys, index=_style_keys.index(_default_style),
+            "Translation style", _style_keys, index=_style_keys.index(_saved_style),
             format_func=lambda k: tguide.STYLE_PRESETS[k]["label"],
             help="Changes register and pacing guidance -- spoken dialogue reads very "
                  "differently from prose or bubble text.")
+        st.session_state[f"style_preset_{picked_id}"] = style_preset
         with st.expander("ℹ️ What this style asks the translator for"):
             st.caption(tguide.STYLE_PRESETS[style_preset]["guidance"])
+        # "Glossary scope" in Step 9c's preset (the roadmap's own term):
+        # whether the baihe/GL genre-guidance glossary block below is
+        # included by default -- the only reusable, series-independent
+        # glossary-related toggle here. A specific series' actual glossary
+        # terms (glossary_terms table) can't be a preset field: presets
+        # are explicitly meant to work "across unrelated series/projects"
+        # (see the roadmap item's own text), so binding one to one
+        # particular series_id would contradict that.
         include_genre_notes = st.checkbox(
             "Include baihe/GL genre guidance (pronoun clarity, kinship-term nuance, "
-            "don't soften romantic content)", value=True)
+            "don't soften romantic content)",
+            value=st.session_state.get(f"include_genre_notes_{picked_id}", True))
+        st.session_state[f"include_genre_notes_{picked_id}"] = include_genre_notes
         st.session_state[f"default_female_pronouns_{picked_id}"] = st.checkbox(
             "Default ambiguous pronouns to she/her",
             value=st.session_state.get(f"default_female_pronouns_{picked_id}", False),
@@ -1933,11 +2019,29 @@ def render_workspace_tab():
         style_note = st.text_input("Optional style notes",
                                     value=st.session_state.get("settings_default_style_note", ""))
         locale_options = ["en-US", "en-GB", "en-AU"]
-        default_locale = st.session_state.get("settings_default_locale", "en-US")
+        default_locale = st.session_state.get(
+            f"locale_{picked_id}", st.session_state.get("settings_default_locale", "en-US"))
         locale = st.selectbox("English variant", locale_options,
                                index=locale_options.index(default_locale) if default_locale in locale_options else 0,
                                format_func=lambda l: {"en-US": "American English", "en-GB": "British English",
                                                        "en-AU": "Australian English"}[l])
+        st.session_state[f"locale_{picked_id}"] = locale
+
+        with st.expander("💾 Save current settings as a preset"):
+            st.caption("Captures engine + model, translation style, English variant, the "
+                      "pronoun default and genre-guidance toggle above -- reusable on any "
+                      "other drama, not just this series (📚 Library → 🎛️ Presets to manage "
+                      "saved ones).")
+            _new_preset_name = st.text_input("Preset name", key=f"new_preset_name_{picked_id}")
+            if st.button("Save as preset", key=f"save_preset_btn_{picked_id}",
+                        disabled=not _new_preset_name.strip()):
+                db.save_preset(
+                    _new_preset_name.strip(), translation_engine=engine_choice,
+                    engine_model=engine_model, style_preset=style_preset, locale=locale,
+                    default_female_pronouns=st.session_state.get(
+                        f"default_female_pronouns_{picked_id}", False),
+                    include_genre_notes=include_genre_notes)
+                st.success(f"Saved preset \"{_new_preset_name.strip()}\".")
         context_window = st.slider(
             "Context lines shown from before each batch", 0, 20, 6,
             help="Shows the model how the immediately preceding lines were already "

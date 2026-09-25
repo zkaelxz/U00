@@ -227,6 +227,93 @@ class TestSeriesAndGlossary:
         assert terms[0]["term_original"] == "corrected term"
 
 
+class TestPresets:
+    """Step 9c: library-level, reusable Workspace-configuration presets.
+    Exit conditions: applying a preset sets all its captured fields with
+    none frozen against later manual changes (that's an apply_preset_to_
+    session/UI-level guarantee, see test_workspace_tab.py); deleting a
+    preset never changes a drama it was previously applied to; renaming
+    only changes the name."""
+
+    def test_save_preset_creates_and_captures_every_field(self, isolated_db):
+        pid = isolated_db.save_preset(
+            "Audio drama defaults", translation_engine="claude",
+            engine_model="claude-sonnet-5", style_preset="audio_drama", locale="en-US",
+            default_female_pronouns=True, include_genre_notes=False)
+        p = isolated_db.get_preset(pid)
+        assert p["name"] == "Audio drama defaults"
+        assert p["translation_engine"] == "claude"
+        assert p["engine_model"] == "claude-sonnet-5"
+        assert p["style_preset"] == "audio_drama"
+        assert p["locale"] == "en-US"
+        assert p["default_female_pronouns"] == 1
+        assert p["include_genre_notes"] == 0
+
+    def test_defaults_are_applied_when_not_given(self, isolated_db):
+        pid = isolated_db.save_preset("Bare minimum")
+        p = isolated_db.get_preset(pid)
+        assert p["default_female_pronouns"] == 0
+        assert p["include_genre_notes"] == 1  # matches the Workspace checkbox's own default
+
+    def test_list_presets_is_sorted_case_insensitively_by_name(self, isolated_db):
+        isolated_db.save_preset("zebra")
+        isolated_db.save_preset("Apple")
+        isolated_db.save_preset("banana")
+        assert [p["name"] for p in isolated_db.list_presets()] == ["Apple", "banana", "zebra"]
+
+    def test_saving_under_an_existing_name_overwrites_its_fields(self, isolated_db):
+        pid = isolated_db.save_preset("My preset", translation_engine="claude", locale="en-US")
+        pid2 = isolated_db.save_preset("My preset", translation_engine="gemini", locale="en-GB")
+        assert pid2 == pid  # same row, not a second one
+        assert isolated_db.list_presets() == [isolated_db.get_preset(pid)]
+        p = isolated_db.get_preset(pid)
+        assert p["translation_engine"] == "gemini"
+        assert p["locale"] == "en-GB"
+
+    def test_delete_preset_does_not_change_a_drama_it_was_applied_to(self, isolated_db):
+        """Exit condition: deleting a preset doesn't change any drama it
+        was previously applied to. There's no live link at all -- applying
+        a preset only ever copies its fields onto a drama at that moment
+        -- so this proves the drama is untouched by checking its full row
+        is identical before and after the preset it came from is gone."""
+        pid = isolated_db.save_preset("Series defaults", translation_engine="deepseek",
+                                       style_preset="novel", locale="en-GB")
+        did = isolated_db.create_drama(title_en="A Drama", translation_engine="deepseek")
+        before = isolated_db.get_drama(did)
+
+        isolated_db.delete_preset(pid)
+
+        assert isolated_db.get_preset(pid) is None
+        assert isolated_db.get_drama(did) == before
+
+    def test_delete_preset_only_removes_that_one_preset(self, isolated_db):
+        pid1 = isolated_db.save_preset("Keep me")
+        pid2 = isolated_db.save_preset("Delete me")
+        isolated_db.delete_preset(pid2)
+        assert [p["id"] for p in isolated_db.list_presets()] == [pid1]
+
+    def test_rename_preset_changes_only_the_name(self, isolated_db):
+        pid = isolated_db.save_preset(
+            "Old name", translation_engine="claude", engine_model="claude-sonnet-5",
+            style_preset="audio_drama", locale="en-AU", default_female_pronouns=True,
+            include_genre_notes=False)
+        before = isolated_db.get_preset(pid)
+
+        isolated_db.rename_preset(pid, "New name")
+
+        after = isolated_db.get_preset(pid)
+        assert after["name"] == "New name"
+        for field in ("translation_engine", "engine_model", "style_preset", "locale",
+                      "default_female_pronouns", "include_genre_notes"):
+            assert after[field] == before[field]
+
+    def test_rename_preset_does_not_affect_other_presets(self, isolated_db):
+        pid1 = isolated_db.save_preset("Preset one")
+        pid2 = isolated_db.save_preset("Preset two")
+        isolated_db.rename_preset(pid1, "Renamed")
+        assert isolated_db.get_preset(pid2)["name"] == "Preset two"
+
+
 class TestSeriesCharacters:
     """A streamer's persistent cast (or a book series' recurring
     characters) -- independent of any one drama's diarization labels,
