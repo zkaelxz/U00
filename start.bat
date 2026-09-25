@@ -12,10 +12,25 @@ REM   start.bat --portable -- also turns on portable mode for this run
 REM                            (see portable.py; a PORTABLE marker file
 REM                            next to this script does the same thing
 REM                            without needing the flag every time)
+REM   start.bat --ci       -- Step 10b: non-interactive. Runs the exact
+REM                            same bootstrap (venv, deps, dependency
+REM                            check, wait for the server to answer), but
+REM                            skips opening a browser window and never
+REM                            calls `pause` -- so it can run unattended
+REM                            on a CI runner. Exits 0 once the server
+REM                            answers, non-zero (with the same message)
+REM                            if it never does. Same effect as setting
+REM                            the BAIHE_CI environment variable.
 
 cd /d "%~dp0"
 
+:parse_args
+if "%~1"=="" goto :args_done
 if /i "%~1"=="--portable" set BAIHE_PORTABLE=1
+if /i "%~1"=="--ci" set BAIHE_CI=1
+shift
+goto :parse_args
+:args_done
 
 set PORT=8501
 set VENV_DIR=venv
@@ -34,7 +49,7 @@ if errorlevel 1 (
     echo Install Python 3.9 or newer from https://python.org/downloads/
     echo and make sure to tick "Add python.exe to PATH" during setup,
     echo then run this again.
-    pause
+    if not defined BAIHE_CI pause
     exit /b 1
 )
 
@@ -45,7 +60,7 @@ if not exist %PY% (
     if errorlevel 1 (
         echo.
         echo Could not create the virtual environment. See the error above.
-        pause
+        if not defined BAIHE_CI pause
         exit /b 1
     )
 )
@@ -67,7 +82,7 @@ if errorlevel 1 (
         echo.
         echo Installing dependencies failed -- see the error above.
         echo A common fix: %PY% -m pip install --upgrade pip
-        pause
+        if not defined BAIHE_CI pause
         exit /b 1
     )
     echo.
@@ -100,7 +115,7 @@ if %_tries% GEQ 60 (
     echo.
     echo The server didn't answer after 30 seconds -- something may have gone
     echo wrong. Check the "Baihe Subtitler ^(server^)" window for an error.
-    pause
+    if not defined BAIHE_CI pause
     exit /b 1
 )
 timeout /t 1 /nobreak >nul
@@ -108,6 +123,10 @@ goto :wait_loop
 
 REM --- Open its own window (Edge app mode, falling back down) ---------------
 :open_window
+if defined BAIHE_CI (
+    echo Server is answering on port %PORT% -- CI mode, not opening a browser window.
+    exit /b 0
+)
 set "APP_URL=http://localhost:%PORT%"
 
 set "EDGE_EXE="

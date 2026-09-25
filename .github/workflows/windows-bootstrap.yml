@@ -1,0 +1,54 @@
+name: Windows Bootstrap
+
+# Step 10b: automates the one piece of Step 10's manual-check list that's
+# actually automatable -- does start.bat correctly bootstrap (venv, deps,
+# dependency check, server reachable) on a machine that's never run this
+# before. Runs the real start.bat (via its --ci flag), on a fresh
+# checkout, so it automatically tracks whatever that script does next
+# rather than a separate, hand-maintained copy of today's steps. Kept as
+# its own workflow (alongside, not replacing, tests.yml's ubuntu-latest
+# job) so it only runs when something that could actually change this
+# bootstrap changes.
+#
+# What this does NOT cover -- needs a person at a real screen instead:
+# the desktop-window/Edge-app-mode behavior, the shortcut's icon, and
+# uninstall.bat's interactive prompts.
+on:
+  push:
+    branches: [baihe-subtitler]
+    paths:
+      - start.bat
+      - requirements-core.txt
+      - constraints.txt
+      - check_setup.py
+  pull_request:
+    branches: [baihe-subtitler]
+    paths:
+      - start.bat
+      - requirements-core.txt
+      - constraints.txt
+      - check_setup.py
+
+jobs:
+  bootstrap:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run start.bat --ci
+        shell: cmd
+        run: start.bat --ci
+
+      - name: Health check -- confirm the server is actually reachable
+        shell: pwsh
+        run: |
+          $response = Invoke-WebRequest -Uri http://localhost:8501 -UseBasicParsing
+          if ($response.StatusCode -ne 200) {
+            Write-Error "Server responded with $($response.StatusCode), expected 200"
+            exit 1
+          }
+          Write-Host "Server answered on port 8501 with status $($response.StatusCode)"
