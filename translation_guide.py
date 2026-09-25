@@ -298,6 +298,40 @@ def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=Non
 # Automatic glossary extraction -- propose terms, don't auto-apply them
 # ---------------------------------------------------------------------------
 
+def _sample_lines_across_text(zh_lines: list, max_lines: int) -> list:
+    """The line-list counterpart of _sample_across_text (used by
+    extract_glossary_from_novel further down this file for the same
+    "spread across the whole thing, not a truncating prefix" idea, applied
+    to a list of individual lines instead of one long string): max_lines
+    lines evenly spread across the WHOLE list. A drama longer than
+    max_lines used to only ever show the model its first max_lines lines,
+    so a name or relationship introduced later was invisible to extraction
+    no matter how long the drama actually was. Spreading the sample means
+    the model sees the range of names/relationships across beginning,
+    middle and end in one combined view -- the real mechanism VideoLingo's
+    own whole-document pass uses (not a separate prose summary first)."""
+    n = len(zh_lines)
+    if n <= max_lines:
+        return list(zh_lines)
+    if max_lines <= 1:
+        return [zh_lines[0]] if max_lines == 1 else []
+    # step sized so i=0 lands on index 0 and i=max_lines-1 lands exactly
+    # on index n-1 -- the drama's actual ending is part of "the whole
+    # thing" just as much as its opening, and a step of n/max_lines
+    # (rather than (n-1)/(max_lines-1)) would fall a few lines short of
+    # it, same as the gap _sample_across_text's own stride avoids.
+    step = (n - 1) / (max_lines - 1)
+    idxs = sorted({round(i * step) for i in range(max_lines)})
+    if len(idxs) < max_lines:
+        # Rounding can collide two i's onto the same index on a short
+        # list -- top up from whatever indices weren't picked yet, so a
+        # short list still returns close to max_lines lines.
+        chosen = set(idxs)
+        remaining = [i for i in range(n) if i not in chosen]
+        idxs = sorted(idxs + remaining[:max_lines - len(idxs)])
+    return [zh_lines[i] for i in idxs]
+
+
 def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: int = 400,
                        known_terms=None, usage_cb=None):
     """
@@ -306,6 +340,11 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
     for each. Returns a list of dicts:
       {term, suggested_translation, category, policy, reason}
 
+    Samples up to max_lines lines spread across the whole drama (see
+    _sample_lines_across_text) rather than just its first max_lines --
+    for a drama longer than that, a term introduced only after the
+    opening scenes would otherwise never be proposed at all.
+
     Always meant for human review before being committed to a glossary --
     category and policy are judgment calls, and the model will sometimes
     propose translating something that should stay pinyin (or vice versa).
@@ -313,7 +352,7 @@ def extract_terms_llm(zh_lines, engine, source_language: str = "zh", max_lines: 
     if not getattr(engine, "supports_reference", False):
         return []
 
-    sample = "\n".join(zh_lines[:max_lines])
+    sample = "\n".join(_sample_lines_across_text(zh_lines, max_lines))
     if not sample.strip():
         return []
 

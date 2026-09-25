@@ -306,6 +306,69 @@ class TestLlmFunctionsGracefulFallback:
         assert tg.generate_translation_notes_llm(lines, MockLlm()) == []
 
 
+class TestExtractTermsLlmUsesTheSpreadSample:
+    """Confirms extract_terms_llm's actual prompt reflects the spread
+    sample, not just that the helper function works in isolation."""
+
+    def test_a_term_introduced_late_in_a_long_drama_reaches_the_prompt(self):
+        class FakeBlock:
+            type = "text"
+            def __init__(self, text):
+                self.text = text
+
+        class CapturingEngine:
+            supports_reference = True
+            model = "fake-model"
+            def __init__(self):
+                self.client = self
+                self.messages = self
+                self.prompts = []
+            def create(self, model, max_tokens, messages):
+                self.prompts.append(messages[0]["content"])
+                return type("Resp", (), {"content": [FakeBlock("[]")]})()
+
+        # A marker that appears nowhere else in the prompt template itself
+        # (TERM_POLICIES' own description text uses 沈清疑 as an example,
+        # so that name would be a false positive regardless of sampling).
+        lines = [f"filler line {i}" for i in range(3000)]
+        lines[-1] = "UNIQUEMARKERZZZ finally appears in the last line of the drama"
+        engine = CapturingEngine()
+        tg.extract_terms_llm(lines, engine)
+        assert "UNIQUEMARKERZZZ" in engine.prompts[0]
+
+
+class TestSampleLinesAcrossText:
+    """Step 7b: extract_terms_llm used to sample only zh_lines[:max_lines]
+    -- a truncating prefix. For a drama longer than max_lines, anything
+    introduced after that point (a name, a relationship) was invisible to
+    extraction no matter how long the drama actually was. Spreading the
+    sample across the whole list, the line-based counterpart of the
+    existing _sample_across_text used for novels, fixes that."""
+
+    def test_short_list_returned_whole_and_in_order(self):
+        lines = [f"line{i}" for i in range(5)]
+        assert tg._sample_lines_across_text(lines, 400) == lines
+
+    def test_long_list_samples_from_spread_out_points_not_just_the_start(self):
+        lines = [f"line{i}" for i in range(3000)]
+        sample = tg._sample_lines_across_text(lines, 400)
+        assert len(sample) == 400
+        # Not a prefix: the sample covers the true beginning AND end of
+        # the drama, not just its first max_lines entries.
+        assert sample != lines[:400]
+        assert sample[0] == lines[0]
+        assert sample[-1] == lines[-1]
+
+    def test_sample_preserves_original_reading_order(self):
+        lines = [f"line{i}" for i in range(1000)]
+        sample = tg._sample_lines_across_text(lines, 100)
+        indices = [lines.index(s) for s in sample]
+        assert indices == sorted(indices)
+
+    def test_empty_list(self):
+        assert tg._sample_lines_across_text([], 400) == []
+
+
 class TestNovelSampling:
     def test_samples_spread_across_the_text(self):
         long_text = "".join(f"part{i} content. " for i in range(3000))
