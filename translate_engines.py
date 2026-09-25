@@ -342,6 +342,27 @@ def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     return {}
 
 
+def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1) -> dict:
+    """The actual id-keyed request/parse/retry-missing loop shared by
+    _request_translations_with_retry below (every engine's own
+    translate_batch) and Step 7's reflect_translate_batch (three passes,
+    each with its own prompt shape). build_batch_text(batch_ids) returns
+    the prompt-ready text for just those ids -- a retry only re-sends
+    whichever ids came back missing, not the whole batch. Returns
+    {str(id): value} for whichever ids actually came back with a usable
+    value; a still-missing id after max_retries just isn't a key here,
+    same contract _parse_id_keyed_json already documents."""
+    remaining_ids = list(ids)
+    result_map = {}
+    for _attempt in range(max_retries + 1):
+        if not remaining_ids:
+            break
+        text = call_model_fn(build_batch_text(remaining_ids))
+        result_map.update(_parse_id_keyed_json(text, remaining_ids))
+        remaining_ids = [i for i in ids if str(i) not in result_map]
+    return result_map
+
+
 def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
                                      line_ids=None):
     """
@@ -375,17 +396,13 @@ def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_f
             and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
         ids = list(line_ids)
     pos = {i: p for p, i in enumerate(ids)}
-    remaining_ids = list(ids)
-    result_map = {}
-    for _attempt in range(max_retries + 1):
-        if not remaining_ids:
-            break
-        batch_lines = [zh_lines[pos[i]] for i in remaining_ids]
-        batch_names = ([speaker_names[pos[i]] for i in remaining_ids] if speaker_names else None)
-        numbered = _build_numbered_lines(remaining_ids, batch_lines, batch_names)
-        text = call_model_fn(numbered)
-        result_map.update(_parse_id_keyed_json(text, remaining_ids))
-        remaining_ids = [i for i in ids if str(i) not in result_map]
+
+    def build_batch_text(batch_ids):
+        batch_lines = [zh_lines[pos[i]] for i in batch_ids]
+        batch_names = ([speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
+        return _build_numbered_lines(batch_ids, batch_lines, batch_names)
+
+    result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries)
     return [result_map.get(str(i), "") for i in ids]
 
 
@@ -1328,18 +1345,180 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int) -> f
     return estimate_cost(getattr(engine, "model", ""), input_tokens, output_tokens)
 
 
+def estimate_reflect_mode_cost(engine, zh_lines: list) -> float:
+    """Rough pre-run estimate for Step 7's Reflect mode, shown before the
+    user starts it (it costs real money to run and can't be cancelled
+    mid-line the way a single bad batch can). Reflect mode is three LLM
+    calls instead of translate_batch's one, so this estimates a normal
+    single-pass run's cost from the batch's own character count (a
+    tokenizer-free ~3.5 chars/token heuristic -- an order-of-magnitude
+    estimate, not a precise bill) and multiplies by 3."""
+    chars = sum(len(z) for z in zh_lines)
+    input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
+    output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
+    return estimate_cost_for_engine(engine, input_tokens, output_tokens) * 3
+
+
+def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None, max_retries: int = 1):
+    """
+    Step 7's "High quality" Reflect mode: three separate LLM passes for
+    one batch, instead of translate_batch's single call --
+
+      1. Faithfulness: a literal translation preserving exact meaning,
+         not yet polished for how it reads.
+      2. Reflection: the same engine critiques that SPECIFIC draft --
+         where it's technically correct but reads unnaturally, plus
+         accuracy, pronouns/gender, glossary use, tone and register.
+      3. Expressiveness: rewrites using the reflection, now optimizing
+         for how it reads as a subtitle.
+
+    Deliberately three real passes, not VideoLingo's two-call version
+    (their reflection is folded invisibly into the rewrite prompt) --
+    giving the critique its own pass means it can be stored and shown
+    (as translation notes), not just silently baked into a rewrite.
+
+    Goes through call_llm_json, not each engine's own translate_batch:
+    call_llm_json already dispatches Claude/DeepSeek/Gemini/Ollama
+    uniformly for a single free-form prompt, which is exactly what three
+    differently-worded passes need -- translate_batch is fixed to one
+    particular (already-natural-reading) prompt shape and isn't reusable
+    for this. Every pass is id-keyed via _id_keyed_batch_request, the
+    same exact-id matching translate_batch uses (Step 1) -- deliberately
+    not VideoLingo's own SequenceMatcher fuzzy-similarity matching, which
+    is strictly less robust than an exact id.
+
+    context: same shape translate_batch's engines already take
+    (style_note, drama_meta, novel_reference, locale, glossary_terms,
+    style_guidelines, recent_context, upcoming_lines, speaker_labels,
+    line_ids) -- built once by translate_lines_with_engine either way.
+
+    Returns (translations, critiques): both lists parallel to zh_lines.
+    translations is the expressiveness pass's final wording, falling
+    back to the faithfulness draft for any line expressiveness never
+    returned, then "" if even that never came back. critiques is the
+    reflection pass's critique for that line, or "" if it had none (a
+    draft judged already good) or the pass never returned one.
+    """
+    if not getattr(engine, "supports_reference", False):
+        raise RuntimeError(f"{getattr(engine, 'name', type(engine).__name__)} can't run Reflect "
+                           "mode (needs an LLM engine, not a translation-only one).")
+
+    ids = list(range(1, len(zh_lines) + 1))
+    line_ids = context.get("line_ids")
+    if (line_ids is not None and len(line_ids) == len(zh_lines)
+            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
+        ids = list(line_ids)
+    pos = {i: p for p, i in enumerate(ids)}
+    speaker_names = context.get("speaker_labels")
+
+    instructions, _ = build_llm_instructions(
+        context.get("style_note", ""), context.get("drama_meta", {}),
+        context.get("novel_reference"), locale=context.get("locale", "en-US"),
+        glossary_terms=context.get("glossary_terms"),
+        style_guidelines=context.get("style_guidelines", ""),
+        recent_context=context.get("recent_context"),
+        upcoming_lines=context.get("upcoming_lines"),
+    )
+
+    def call(prompt):
+        return call_llm_json(engine, prompt, max_tokens=4000, fallback="{}", usage_cb=usage_cb)
+
+    def build_faithful_batch(batch_ids):
+        numbered = _build_numbered_lines(
+            batch_ids, [zh_lines[pos[i]] for i in batch_ids],
+            [speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
+        return (
+            f"{instructions}\n\n"
+            "This is the FAITHFULNESS pass of a multi-stage translation: translate each line "
+            "below preserving its exact literal meaning, grammar and information -- word choice "
+            "and register still matter, but don't optimize yet for how naturally it reads as a "
+            "subtitle; a later pass polishes that. Keep names and glossary terms consistent as "
+            "instructed above.\n\n"
+            'Return ONLY a JSON object mapping each line number to its translation, e.g. '
+            '{"1": "...", "2": "..."}. No preamble, no markdown fences.\n\n'
+            f"Lines:\n{numbered}"
+        )
+
+    direct_map = _id_keyed_batch_request(ids, build_faithful_batch, call, max_retries)
+    direct = {i: direct_map.get(str(i), "") for i in ids}
+
+    def build_reflection_batch(batch_ids):
+        pairs = "\n".join(f"{i}. {zh_lines[pos[i]]} -> {direct[i]}" for i in batch_ids)
+        return (
+            f"{instructions}\n\n"
+            "This is the REFLECTION pass: for each numbered line below (source -> a literal "
+            "draft translation), critique that SPECIFIC draft -- where it's technically correct "
+            "but reads unnaturally as a subtitle, plus accuracy, pronoun/gender choices, glossary "
+            "use, tone and register. One or two plain sentences per line. Skip a line's key "
+            "entirely if the draft is already good -- don't invent a critique to fill space.\n\n"
+            'Return ONLY a JSON object mapping each line number to its critique, e.g. '
+            '{"1": "..."}. Omit a key entirely for a line that needs no critique. No preamble, '
+            "no markdown fences.\n\n"
+            f"Lines:\n{pairs}"
+        )
+
+    # Only ids with an actual faithfulness draft go on to reflection/
+    # expressiveness -- there's nothing sensible to critique or rewrite
+    # for a line that never got one (an empty "Draft: " in the prompt).
+    # No retry on the reflection call itself (unlike the other two
+    # passes): a line the model chose NOT to critique is a normal,
+    # expected answer here -- most lines in a real batch have nothing
+    # worth flagging -- and treating every omitted id as "missing, must
+    # retry" would re-request the whole batch on almost every run, since
+    # it's rare for every single line to get a critique. An id absent
+    # here just means "no critique".
+    has_draft_ids = [i for i in ids if direct[i]]
+    critique_map = (_id_keyed_batch_request(has_draft_ids, build_reflection_batch, call, max_retries=0)
+                   if has_draft_ids else {})
+
+    def build_expressive_batch(batch_ids):
+        parts = []
+        for i in batch_ids:
+            entry = f"{i}. Source: {zh_lines[pos[i]]}\n   Draft: {direct[i]}"
+            critique = critique_map.get(str(i))
+            if critique:
+                entry += f"\n   Critique: {critique}"
+            parts.append(entry)
+        return (
+            f"{instructions}\n\n"
+            "This is the EXPRESSIVENESS pass: rewrite each line's draft translation using its "
+            "critique (where one is given) so it reads naturally as a subtitle -- fluent, "
+            "well-paced, in-register -- while keeping the source's exact meaning. A line with no "
+            "critique is probably already close; still return your best final wording for every "
+            "line.\n\n"
+            'Return ONLY a JSON object mapping each line number to its final translation, e.g. '
+            '{"1": "..."}. No preamble, no markdown fences.\n\n'
+            "Lines:\n" + "\n".join(parts)
+        )
+
+    final_map = (_id_keyed_batch_request(has_draft_ids, build_expressive_batch, call, max_retries)
+                if has_draft_ids else {})
+    translations = [final_map.get(str(i), direct.get(i, "")) for i in ids]
+    critiques = [critique_map.get(str(i), "") for i in ids]
+    return translations, critiques
+
+
 def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int = 20,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
                                  locale: str = "en-US", glossary_terms=None, usage_cb=None,
                                  style_guidelines: str = "", cancel_check_cb=None,
                                  context_window: int = 6, context_window_ahead: int = 3,
-                                 character_names: dict = None, ollama_num_ctx_override: int = None):
+                                 character_names: dict = None, ollama_num_ctx_override: int = None,
+                                 reflect: bool = False, notes_cb=None):
     """cancel_check_cb: optional callable returning True if the run should
     stop cooperatively between batches -- e.g. background_jobs.is_cancel_requested,
     so a background translation job can be stopped safely (rather than
     racing a destructive action like a full library reset against a
     thread that's still writing).
+
+    reflect: Step 7's "High quality" mode -- runs reflect_translate_batch
+    (three passes: faithfulness, reflection, expressiveness) per batch
+    instead of engine.translate_batch's single pass. notes_cb, if given,
+    is called once per batch with a list of {line_idx, term, note_type,
+    note} dicts (translation_guide's translation-notes shape) for
+    whichever lines the reflection pass actually critiqued -- call
+    db.save_translation_notes(...) from it. Ignored when reflect=False.
 
     ollama_num_ctx_override: optional Settings override for OllamaEngine's
     context-window size. Ignored by every other engine. OllamaEngine
@@ -1455,11 +1634,22 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
         context["speaker_labels"] = [character_names.get(ln.speaker) for ln in batch]
         context["line_ids"] = [getattr(ln, "id", None) for ln in batch]
         try:
-            translations = call_with_backoff(
-                lambda: engine.translate_batch([ln.zh for ln in batch], context)
-            )
-            if usage_cb and hasattr(engine, "last_usage"):
-                usage_cb(engine.last_usage.get("input_tokens", 0), engine.last_usage.get("output_tokens", 0))
+            if reflect:
+                translations, critiques = call_with_backoff(
+                    lambda: reflect_translate_batch(engine, [ln.zh for ln in batch], context,
+                                                    usage_cb=usage_cb)
+                )
+                if notes_cb:
+                    notes = [{"line_idx": ln.idx, "term": "", "note_type": "reflection", "note": c}
+                             for ln, c in zip(batch, critiques) if c]
+                    if notes:
+                        notes_cb(notes)
+            else:
+                translations = call_with_backoff(
+                    lambda: engine.translate_batch([ln.zh for ln in batch], context)
+                )
+                if usage_cb and hasattr(engine, "last_usage"):
+                    usage_cb(engine.last_usage.get("input_tokens", 0), engine.last_usage.get("output_tokens", 0))
             if len(translations) != len(batch):
                 errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
                                "error": f"engine returned {len(translations)} translation(s) for "

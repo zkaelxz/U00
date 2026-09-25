@@ -269,12 +269,16 @@ def cmd_translate(args):
         character_names = tguide.build_speaker_labels(drama_chars, series_chars)
         print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
+        _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d, style_note=args.style_note or "",
             novel_reference=novel_reference, force_retranslate=args.force,
             locale=args.locale, glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=args.ollama_num_ctx,
+            reflect=getattr(args, "reflect", False),
+            notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
+                did, notes, id_by_idx=_id_by_idx),
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
             # Same as the Workspace Translate job: writes `en` only.
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
@@ -393,6 +397,11 @@ def main():
                                    "leave unset to size it automatically (recommended).")
     p_translate.add_argument("--ollama-url", default=None,
                              help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
+    p_translate.add_argument("--reflect", action="store_true",
+                             help="Step 7 'High quality' Reflect mode: three passes per batch "
+                                  "(faithful draft, critique, rewrite) instead of one -- costs "
+                                  "about 3x as much. The critique is saved as a translation note "
+                                  "per line.")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
@@ -419,6 +428,7 @@ def main():
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
+    p_run.add_argument("--reflect", action="store_true")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")

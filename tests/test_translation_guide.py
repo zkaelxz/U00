@@ -206,6 +206,15 @@ class TestGroupNotesByLine:
     def test_empty_input_returns_empty_dict(self):
         assert tg.group_notes_by_line([]) == {}
 
+    def test_reflection_notes_are_excluded_from_subtitle_inlining(self):
+        """Step 7: a Reflect-mode critique has no `term` and isn't
+        reader-facing the way an idiom/allusion/etc. note is -- it must
+        never end up burned into an exported subtitle."""
+        notes = [{"line_idx": 3, "term": "", "note_type": "reflection", "note": "reads stiffly"},
+                 {"line_idx": 3, "term": "a", "note_type": "cultural", "note": "note a"}]
+        grouped = tg.group_notes_by_line(notes)
+        assert grouped[3] == [{"term": "a", "note": "note a"}]
+
 
 class TestNotesFormatting:
     def test_notes_render_with_title(self):
