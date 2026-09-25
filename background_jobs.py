@@ -118,49 +118,20 @@ def is_running(job_id: str) -> bool:
         return bool(job and job["status"] == "running")
 
 
-# Translate, flag, and fix-flagged-lines jobs (job ids "translate_<drama_id>",
-# "flag_<drama_id>", "fixflag_<drama_id>") each save their own full copy of
-# a drama's lines through db.save_lines(), which deletes and re-inserts
-# every line. Since they can run concurrently, whichever one saves last
-# silently wins and undoes whatever the other one wrote -- e.g. starting
-# "Find lines to flag" mid-translation wipes the translations done so far.
-# Short-term guard until Step 2 makes each job write only the fields it
-# owns (translation writes `en`; flagging writes `flag`/`flag_note`).
+# Jobs that write to a drama's existing lines (job ids "translate_<id>",
+# "flag_<id>", "fixflag_<id>"). Since Step 2 each writes only its own
+# fields by permanent line id, so they can run alongside each other and
+# the user's own edits. Replacing ALL of a drama's lines (a new
+# transcription) is the one thing that makes their work pointless.
 LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_")
 
 
-def other_line_writing_job(drama_id, exclude_prefix: str):
-    """Returns the short name ("translate", "flag", or "fixflag") of a
-    line-writing job currently running for this drama under a DIFFERENT
-    prefix than exclude_prefix, or None if none is running. Call this
-    before starting a new line-writing job for the drama; a same-type
-    duplicate is already refused by start_job()'s own job_id dedup."""
-    with _lock:
-        for prefix in LINE_WRITING_JOB_PREFIXES:
-            if prefix == exclude_prefix:
-                continue
-            job = _jobs.get(f"{prefix}{drama_id}")
-            if job and job["status"] == "running":
-                return prefix.rstrip("_")
-    return None
-
-
-def any_line_writing_job(drama_id) -> bool:
-    """True if a translate/flag/fix-flagged-lines job is currently
-    running for this drama. other_line_writing_job() above only stops
-    these three jobs from clashing with EACH OTHER -- a person's own
-    manual edit (the line editor's save, merge lines, a per-line fix,
-    undo/restore) still races one of them the same way: whichever
-    saves last through db.save_lines() silently wins. workspace_tab.py
-    uses this to lock every control that saves lines on the main
-    thread while one of these jobs is running for the drama being
-    viewed."""
-    with _lock:
-        for prefix in LINE_WRITING_JOB_PREFIXES:
-            job = _jobs.get(f"{prefix}{drama_id}")
-            if job and job["status"] == "running":
-                return True
-    return False
+def cancel_line_jobs(drama_id):
+    """Asks every running line-writing job for this drama to stop -- for
+    when its lines are about to be replaced wholesale."""
+    for prefix in LINE_WRITING_JOB_PREFIXES:
+        if is_running(f"{prefix}{drama_id}"):
+            request_cancel(f"{prefix}{drama_id}")
 
 
 def request_cancel(job_id: str):

@@ -41,9 +41,7 @@ def render_reader_tab():
     rscript = rdrama.get("chinese_script") or "simplified"
 
     rows = db.load_lines(rdrama["id"])
-    rlines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r["en"] or "",
-                     speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
-              for r in rows]
+    rlines = core_module.lines_from_rows(rows)
 
     rddir = db.drama_dir(rdrama["id"])
     media_path = None

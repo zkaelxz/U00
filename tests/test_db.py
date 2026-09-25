@@ -470,6 +470,7 @@ class TestEmotionsPersist:
 
     def test_save_and_load(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=str(i)) for i in range(4)])
         isolated_db.save_emotions(did, {
             0: {"emotion": "sarcastic", "intensity": 0.9, "note": "mock praise"},
             3: {"emotion": "sad", "intensity": 0.6, "note": ""},
@@ -481,6 +482,7 @@ class TestEmotionsPersist:
 
     def test_re_running_updates_existing_lines_rather_than_duplicating(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a")])
         isolated_db.save_emotions(did, {0: {"emotion": "angry", "intensity": 0.5, "note": ""}})
         isolated_db.save_emotions(did, {0: {"emotion": "sad", "intensity": 0.7, "note": ""}})
         loaded = isolated_db.load_emotions(did)
