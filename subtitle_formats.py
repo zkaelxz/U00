@@ -108,6 +108,26 @@ def overlap_note(ln, next_start: float) -> str:
             f"{next_start:.2f}s. Adjust the timing to fix it for good.")
 
 
+def lines_for_clip(lines, start: float, end: float):
+    """Copies of the lines overlapping [start, end), timeshifted so the
+    clip's own timeline starts at 0 -- for burning subtitles onto a video
+    that's been trimmed to that same range (Step 6e's vertical export). A
+    line only partially inside the window is clamped to it, not dropped or
+    left running past the clip's own end. Renumbers .idx in order; the
+    original `lines` are left untouched."""
+    out = []
+    for ln in lines:
+        if ln.end <= start or ln.start >= end:
+            continue
+        c = copy.copy(ln)
+        c.start = max(ln.start, start) - start
+        c.end = min(ln.end, end) - start
+        out.append(c)
+    for i, ln in enumerate(out):
+        ln.idx = i
+    return out
+
+
 # ---------------------------------------------------------- reading speed
 
 # Characters-per-second ceilings by script -- a starting table from

@@ -1393,6 +1393,101 @@ class TestDiarizationEstimateCaption:
         assert any("12:34" in c.value for c in at.caption)
 
 
+class TestVerticalShortsExport:
+    """Step 6e: the vertical/shorts export panel -- a clip-range picker
+    with a live time/size estimate and a soft "consider a shorter clip"
+    prompt past 20 minutes, shown before the render starts (never a hard
+    block). ffmpeg/ffprobe are always mocked -- whether a rendered clip
+    actually plays and looks right is the roadmap's own manual check, not
+    something this can judge."""
+
+    def _drama_with_video(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        audio_filename="audio.wav", source_video_filename="video.mp4")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        ddir = isolated_db.drama_dir(did)
+        for name in ("audio.wav", "video.mp4"):
+            with open(os.path.join(ddir, name), "wb") as f:
+                f.write(b"x")
+        return did
+
+    def _run(self, did, monkeypatch, duration=600.0):
+        from streamlit.testing.v1 import AppTest
+        import video_export
+
+        monkeypatch.setattr(video_export, "probe_duration_seconds", lambda p: duration)
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_estimate_and_range_slider_appear(self, isolated_db, monkeypatch):
+        did = self._drama_with_video(isolated_db)
+        at = self._run(did, monkeypatch, duration=120.0)
+        sliders = [s for s in at.slider if s.key == f"vshort_range_{did}"]
+        assert sliders and sliders[0].value == (0.0, 120.0)
+        assert any("render" in c.value for c in at.caption)
+        assert any("MB" in c.value for c in at.caption)
+        assert not any("long selection" in w.value for w in at.warning)
+
+    def test_long_selection_shows_a_soft_prompt_not_a_block(self, isolated_db, monkeypatch):
+        did = self._drama_with_video(isolated_db)
+        at = self._run(did, monkeypatch, duration=25 * 60)
+        assert any("long selection" in w.value for w in at.warning)
+        buttons = [b for b in at.button if b.key == f"vshort_generate_{did}"]
+        assert buttons and buttons[0].disabled is False  # a prompt, never a hard block
+
+    def test_probe_failure_warns_instead_of_crashing(self, isolated_db, monkeypatch):
+        import video_export
+        did = self._drama_with_video(isolated_db)
+        monkeypatch.setattr(video_export, "probe_duration_seconds",
+                             lambda p: (_ for _ in ()).throw(RuntimeError("no ffprobe")))
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+        from streamlit.testing.v1 import AppTest
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        assert not at.exception
+        assert any("Couldn't read this video's duration" in w.value for w in at.warning)
+
+    def test_generate_renders_a_timeshifted_clip_and_offers_a_download(self, isolated_db, monkeypatch):
+        import video_export
+        did = self._drama_with_video(isolated_db)
+        calls = {}
+
+        def fake_render(video_path, ass_text, out_path, start=0.0, end=None, crop_position=0.5):
+            calls.update(video_path=video_path, ass_text=ass_text, out_path=out_path,
+                         start=start, end=end, crop_position=crop_position)
+            with open(out_path, "wb") as f:
+                f.write(b"fake mp4 bytes")
+            return out_path
+
+        monkeypatch.setattr(video_export, "render_vertical_clip", fake_render)
+        at = self._run(did, monkeypatch, duration=60.0)
+
+        [b for b in at.button if b.key == f"vshort_generate_{did}"][0].click()
+        at.run(timeout=30)
+
+        assert calls["start"] == 0.0 and calls["end"] == 60.0
+        assert calls["crop_position"] == 0.5
+        assert "Dialogue:" in calls["ass_text"]  # a real ASS body, not the raw en text
+        assert any("Vertical clip ready" in s.value for s in at.success)
+        assert any(dl.label.startswith("Download") for dl in at.download_button)
+
+
 class TestWhisperSizeDefaultsToLargeV3:
     """Step 5b item 9: the Speech recognition model picker fell back to
     'medium' for any drama with no whisper_size saved yet -- every new
