@@ -411,6 +411,30 @@ NOTE_TYPES = {
 }
 
 
+def build_translation_notes_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
+    """The translation-notes prompt for one batch, each line numbered by
+    id_fn(ln) (position by default, matching generate_translation_notes_llm's
+    own "line_idx" output field). bulk_translate.py's bulk submission
+    (Step 9d) passes id_fn=lambda ln: ln.id -- see
+    translate_engines.build_flag_prompt's docstring for why a permanent
+    id matters once results can come back hours later."""
+    types_desc = "\n".join(f"  - {k}: {v}" for k, v in NOTE_TYPES.items())
+    pairs = "\n".join(f"[{id_fn(ln)}] {ln.zh} → {ln.en}" for ln in batch)
+    return (
+        "Below are source lines paired with their English translations from a baihe "
+        "(GL) work. Identify places where something meaningful did NOT survive the "
+        "translation and is worth a translation note for readers.\n\n"
+        f"Note types:\n{types_desc}\n\n"
+        "Be selective -- only flag things a reader would genuinely benefit from knowing. "
+        "Do not flag ordinary translation choices, and do not flag the same term more "
+        "than once. Write each note as one or two plain sentences a reader can absorb "
+        "quickly; don't lecture.\n\n"
+        'Return ONLY a JSON array: [{"line_idx": 0, "term": "the original term/phrase", '
+        '"note_type": "...", "note": "..."}]. Empty array if nothing is worth noting. '
+        "No preamble, no markdown fences.\n\n" + pairs
+    )
+
+
 def generate_translation_notes_llm(lines, engine, source_language: str = "zh",
                                     batch_size: int = 40, usage_cb=None):
     """
@@ -428,25 +452,11 @@ def generate_translation_notes_llm(lines, engine, source_language: str = "zh",
     if not translated:
         return []
 
-    types_desc = "\n".join(f"  - {k}: {v}" for k, v in NOTE_TYPES.items())
     all_notes = []
 
     for start in range(0, len(translated), batch_size):
         batch = translated[start:start + batch_size]
-        pairs = "\n".join(f"[{ln.idx}] {ln.zh} → {ln.en}" for ln in batch)
-        prompt = (
-            "Below are source lines paired with their English translations from a baihe "
-            "(GL) work. Identify places where something meaningful did NOT survive the "
-            "translation and is worth a translation note for readers.\n\n"
-            f"Note types:\n{types_desc}\n\n"
-            "Be selective -- only flag things a reader would genuinely benefit from knowing. "
-            "Do not flag ordinary translation choices, and do not flag the same term more "
-            "than once. Write each note as one or two plain sentences a reader can absorb "
-            "quickly; don't lecture.\n\n"
-            'Return ONLY a JSON array: [{"line_idx": 0, "term": "the original term/phrase", '
-            '"note_type": "...", "note": "..."}]. Empty array if nothing is worth noting. '
-            "No preamble, no markdown fences.\n\n" + pairs
-        )
+        prompt = build_translation_notes_prompt(batch)
         text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
         notes = _parse_json_array(text, 0)
         if isinstance(notes, list):
