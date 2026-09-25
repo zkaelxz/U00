@@ -122,6 +122,15 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   thing as their Workspace-tab equivalent (same glossary, style
   guidelines, locale, character names). When you touch one, check the
   other.
+- **Register every new optional dependency in `diagnostics.py`'s
+  `OPTIONAL_DEPENDENCIES` dict, in the same step/PR that adds it.**
+  Diagnostics' dependency panel, and by extension `start.bat`'s own
+  "print anything missing in plain words" check (Step 10), only know
+  about a package if it's in that dict. A step that adds a new `pip
+  install`-able extra (an OCR backend, a TTS engine, a canvas/UI
+  component, a notification library, etc.) without adding it here means
+  Diagnostics silently won't report it as missing, and the launcher's
+  output stays incomplete without anyone noticing.
 
 ## Where things are
 
