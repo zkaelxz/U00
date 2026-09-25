@@ -11,6 +11,8 @@ new name either.
 """
 import sys
 import os
+
+import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import diarize
@@ -103,6 +105,7 @@ def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False,
 
 class TestDiarizeTokenKwargCompatibility:
     def test_uses_new_token_kwarg_when_accepted(self):
+        pytest.importorskip("torch")
         calls = _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
         result = diarize.diarize("/fake/audio.wav", "hf_xxx")
         assert calls["kwarg_used"] == "token"
@@ -112,6 +115,7 @@ class TestDiarizeTokenKwargCompatibility:
         """The exact reported bug: an install where only the OLD kwarg
         name works. This must not raise -- it should fall back and
         actually complete the diarization run."""
+        pytest.importorskip("torch")
         calls = _stub_pyannote("use_auth_token", turns=[(0.0, 2.0, "SPEAKER_00"),
                                                           (2.0, 4.0, "SPEAKER_01")])
         result = diarize.diarize("/fake/audio.wav", "hf_xxx")
@@ -120,6 +124,7 @@ class TestDiarizeTokenKwargCompatibility:
         assert result[1]["speaker"] == "SPEAKER_01"
 
     def test_num_speakers_passed_through(self):
+        pytest.importorskip("torch")
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
         # Just confirming this doesn't raise with num_speakers set --
         # the fake pipeline accepts and ignores it, same as the real one
@@ -137,6 +142,7 @@ class TestDiarizePyannote4CompatibleOutputShape:
     result itself when it isn't (3.x's shape)."""
 
     def test_handles_the_4x_diarizeoutput_wrapper_shape(self):
+        pytest.importorskip("torch")
         calls = _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00"),
                                                 (1.0, 2.0, "SPEAKER_01")],
                                wrap_4x_output=True)
@@ -147,6 +153,7 @@ class TestDiarizePyannote4CompatibleOutputShape:
 
     def test_still_handles_the_3x_plain_annotation_shape(self):
         """Same call, unwrapped result -- must keep working unchanged."""
+        pytest.importorskip("torch")
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
         result = diarize.diarize("/fake/audio.wav", "hf_xxx")
         assert result == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
@@ -168,8 +175,8 @@ class TestDiarizePreloadsAudioWithSoundfile:
     torchaudio use (Meta's MMS forced-alignment model) is untouched."""
 
     def test_pipeline_receives_a_waveform_tensor_built_from_soundfile_and_the_right_sample_rate(self):
+        torch = pytest.importorskip("torch")
         import numpy as np
-        import torch
         frames = np.array([[0.1], [0.2], [0.3]], dtype="float32")  # 3 frames, 1 channel
         calls = _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")],
                                fake_frames=frames, fake_sample_rate=16000)
@@ -181,6 +188,7 @@ class TestDiarizePreloadsAudioWithSoundfile:
         assert torch.equal(audio_arg["waveform"], torch.from_numpy(frames.T))
 
     def test_soundfile_read_is_called_with_the_given_audio_path_and_always_2d(self, monkeypatch):
+        pytest.importorskip("torch")
         import types
         import numpy as np
         load_calls = []
@@ -260,6 +268,7 @@ class TestExtractSpeakerEmbeddings:
 
 class TestDiarizeReturnEmbeddings:
     def test_return_embeddings_false_keeps_the_exact_existing_shapes(self):
+        pytest.importorskip("torch")
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
         assert diarize.diarize("/fake/audio.wav", "hf_xxx") == \
             [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
@@ -268,12 +277,14 @@ class TestDiarizeReturnEmbeddings:
         assert model and segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
 
     def test_return_embeddings_true_with_a_3x_style_result_gives_an_empty_dict(self):
+        pytest.importorskip("torch")
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
         segments, embeddings = diarize.diarize("/fake/audio.wav", "hf_xxx", return_embeddings=True)
         assert segments == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
         assert embeddings == {}
 
     def test_return_model_and_embeddings_together(self):
+        pytest.importorskip("torch")
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")], wrap_4x_output=False)
         segments, model, embeddings = diarize.diarize(
             "/fake/audio.wav", "hf_xxx", return_model=True, return_embeddings=True)
