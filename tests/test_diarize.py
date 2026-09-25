@@ -47,18 +47,27 @@ class _FakeDiarizeOutput4x:
 
 
 def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False,
-                   fake_waveform="FAKE_WAVEFORM", fake_sample_rate=16000):
+                   fake_frames=None, fake_sample_rate=16000):
     """Builds a fake pyannote.audio module whose Pipeline.from_pretrained
     only accepts one specific auth kwarg name -- raising TypeError for
     the other, the same way a real version-mismatched install would.
-    Also stubs torchaudio (not installed in this sandbox -- no GPU, no
+    Also stubs soundfile (not installed in this sandbox -- no GPU, no
     network) since diarize() always pre-loads the audio through it now.
 
     wrap_4x_output: when True, the fake pipeline's call returns a
     _FakeDiarizeOutput4x wrapping the result (pyannote.audio 4.x's
     actual return shape) instead of the Annotation-like result directly
-    (3.x's shape)."""
+    (3.x's shape).
+
+    fake_frames: the numpy array soundfile.read() should return, shaped
+    (frames, channels) the way its own always_2d=True does -- defaults
+    to one silent mono frame for tests that don't care about the exact
+    waveform."""
     import types
+    import numpy as np
+
+    if fake_frames is None:
+        fake_frames = np.zeros((1, 1), dtype="float32")
 
     calls = {"kwarg_used": None, "audio_arg": None}
 
@@ -85,9 +94,9 @@ def _stub_pyannote(accepted_kwarg, turns, wrap_4x_output=False,
     parent.audio = fake_module
     sys.modules["pyannote"] = parent
 
-    fake_torchaudio = types.ModuleType("torchaudio")
-    fake_torchaudio.load = lambda path: (fake_waveform, fake_sample_rate)
-    sys.modules["torchaudio"] = fake_torchaudio
+    fake_soundfile = types.ModuleType("soundfile")
+    fake_soundfile.read = lambda path, dtype="float32", always_2d=True: (fake_frames, fake_sample_rate)
+    sys.modules["soundfile"] = fake_soundfile
 
     return calls
 
@@ -143,35 +152,49 @@ class TestDiarizePyannote4CompatibleOutputShape:
         assert result == [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}]
 
 
-class TestDiarizePreloadsAudioWithTorchaudio:
-    """Step 4b regression coverage for a real reported crash: passing a
-    bare audio-path string to pipeline() makes pyannote.audio 4.x decode
-    it through torchcodec, which this app never installs. diarize() must
-    instead pre-load the audio itself with torchaudio.load() (already a
-    pinned dependency, already used the same way in word_align.py) and
-    hand pyannote a {"waveform", "sample_rate"} dict."""
+class TestDiarizePreloadsAudioWithSoundfile:
+    """Step 4b passed a bare audio-path string to pipeline(), which makes
+    pyannote.audio 4.x decode it through torchcodec (never an installed
+    dependency) -- fixed there by pre-loading with torchaudio.load().
+    Step 4c replaces THAT with soundfile.read(): torchaudio's own
+    audio-loading path is being phased out upstream, so pinning it to an
+    older version is a losing long-term position, and pinning it forever
+    is not sustainable either. Every audio_path reaching diarize() is
+    always this app's own normalized audio.wav (see
+    core.extract_audio_from_video/extract_audio_slice, both plain 16kHz
+    mono PCM WAV), which soundfile (libsndfile-based, no compiled-per-
+    FFmpeg-version binary of its own, much less fragile than torchcodec
+    on Windows) reads directly. word_align.py's own separate, legitimate
+    torchaudio use (Meta's MMS forced-alignment model) is untouched."""
 
-    def test_pipeline_receives_a_waveform_dict_not_the_bare_path(self):
+    def test_pipeline_receives_a_waveform_tensor_built_from_soundfile_and_the_right_sample_rate(self):
+        import numpy as np
+        import torch
+        frames = np.array([[0.1], [0.2], [0.3]], dtype="float32")  # 3 frames, 1 channel
         calls = _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")],
-                               fake_waveform="FAKE_WAVEFORM", fake_sample_rate=16000)
+                               fake_frames=frames, fake_sample_rate=16000)
         diarize.diarize("/fake/audio.wav", "hf_xxx")
-        assert calls["audio_arg"] == {"waveform": "FAKE_WAVEFORM", "sample_rate": 16000}
+        audio_arg = calls["audio_arg"]
+        assert audio_arg["sample_rate"] == 16000
+        assert isinstance(audio_arg["waveform"], torch.Tensor)
+        assert audio_arg["waveform"].shape == (1, 3)  # (channels, frames)
+        assert torch.equal(audio_arg["waveform"], torch.from_numpy(frames.T))
 
-    def test_torchaudio_load_is_called_with_the_given_audio_path(self, monkeypatch):
+    def test_soundfile_read_is_called_with_the_given_audio_path_and_always_2d(self, monkeypatch):
         import types
+        import numpy as np
         load_calls = []
 
-        def fake_load(path):
-            load_calls.append(path)
-            return "FAKE_WAVEFORM", 16000
-        fake_torchaudio = types.ModuleType("torchaudio")
-        fake_torchaudio.load = fake_load
-        monkeypatch.setitem(sys.modules, "torchaudio", fake_torchaudio)
+        def fake_read(path, dtype="float32", always_2d=True):
+            load_calls.append((path, dtype, always_2d))
+            return np.zeros((1, 1), dtype="float32"), 16000
+        fake_soundfile = types.ModuleType("soundfile")
+        fake_soundfile.read = fake_read
 
         _stub_pyannote("token", turns=[(0.0, 1.0, "SPEAKER_00")])
-        monkeypatch.setitem(sys.modules, "torchaudio", fake_torchaudio)  # _stub_pyannote overwrites it
+        monkeypatch.setitem(sys.modules, "soundfile", fake_soundfile)  # overwrite _stub_pyannote's own fake
         diarize.diarize("/fake/audio.wav", "hf_xxx")
-        assert load_calls == ["/fake/audio.wav"]
+        assert load_calls == [("/fake/audio.wav", "float32", True)]
 
 
 class TestAssignSpeakerToLine:

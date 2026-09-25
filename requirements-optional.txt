@@ -16,6 +16,10 @@ yt-dlp>=2024.1           # YouTube and many other sites. Update often
 
 # --- speaker diarization ---
 pyannote.audio>=3.1
+soundfile>=0.12         # diarize.py reads the normalized audio.wav through
+                         # this (libsndfile-based) rather than torchcodec or
+                         # torchaudio -- lighter, no compiled-per-FFmpeg-
+                         # version binary of its own
 
 # --- Qwen3-ASR: alternative transcription model (asr_backend.py) and
 # --- Qwen3-ForcedAligner: alternative timing method (forced_align.py) ---

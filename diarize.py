@@ -2,7 +2,7 @@
 diarize.py -- speaker diarization: figures out WHO is speaking when, so
 lines can be grouped by character. Uses pyannote.audio, which needs:
 
-  1. `pip install pyannote.audio`
+  1. `pip install pyannote.audio soundfile`
   2. A free Hugging Face account + token: https://huggingface.co/settings/tokens
   3. Accepting the model terms at:
      https://huggingface.co/pyannote/speaker-diarization-community-1
@@ -18,11 +18,19 @@ pyannote.audio 4.x needs Python 3.10+. Its pipeline(audio) call also
 returns a different result type than 3.x -- see the getattr() in
 diarize() below for why that's handled rather than assumed away.
 
-diarize() pre-loads the audio with torchaudio.load() and passes pyannote
+diarize() pre-loads the audio with soundfile.read() and passes pyannote
 a {"waveform", "sample_rate"} dict rather than a bare file path -- a
 bare path makes pyannote.audio 4.x decode it through torchcodec, which
-this app never installs (torchaudio is already a pinned dependency and
-is used the same way in word_align.py).
+this app never installs. soundfile (libsndfile-based) reads it instead:
+every audio_path reaching diarize() is always this app's own normalized
+audio.wav (see core.extract_audio_from_video/extract_audio_slice, both
+plain 16kHz mono PCM WAV), which soundfile handles directly with no
+compiled-per-FFmpeg-version binary of its own -- unlike torchcodec, and
+more robust on Windows than pinning torchaudio to an older release would
+be, since torchaudio's own audio-loading path is being phased out
+upstream. word_align.py's separate, legitimate use of torchaudio (for
+Meta's MMS forced-alignment model, which needs the real thing) is
+untouched.
 """
 
 import datetime
@@ -76,8 +84,10 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     every existing call keeps its exact current return shape.
     """
     pipeline, model = load_pipeline(hf_token)
-    import torchaudio
-    waveform, sample_rate = torchaudio.load(audio_path)
+    import soundfile as sf
+    import torch
+    waveform, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
+    waveform = torch.from_numpy(waveform.T)  # (frames, channels) -> (channels, frames)
     result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, num_speakers=num_speakers)
     # pyannote.audio 4.x's pipeline(audio) returns a DiarizeOutput dataclass
     # (its .speaker_diarization attribute holds the actual Annotation)
