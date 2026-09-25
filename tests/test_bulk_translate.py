@@ -603,3 +603,314 @@ class TestDeepSeekOffPeak:
         _wait_for(bt.poll_job_id(bulk_id))
         assert all(r["en"].startswith("DS[") for r in isolated_db.load_lines(did))
         background_jobs.clear_job(bt.poll_job_id(bulk_id))
+
+
+# ---------------------------------------------------------------------------
+# Step 9d: flag/consistency/emotion/translation_notes routed through the
+# same bulk-submission machinery Step 9 built for translation, plus
+# Reflect's own three-sequential-stage pipeline.
+# ---------------------------------------------------------------------------
+
+class TestBulkFlag:
+    def test_applies_by_line_id_with_drop_flag_and_kept_edit(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude", batch_size=10)
+        batches = engine.client.messages.batches
+        key = batches.created[0]["custom_id"]
+
+        # The user manually flags line 0 while the batch is pending -- kept.
+        mutated = isolated_db.load_line_objects(did)
+        mutated[0].flag, mutated[0].flag_note = "slang_idiom", "manual"
+        isolated_db.save_lines(did, mutated, fields=("flag", "flag_note"))
+        # Line 1's source changes meanwhile -- flagged, not applied.
+        mutated = isolated_db.load_line_objects(did)
+        mutated[1].zh = "changed text"
+        isolated_db.save_lines(did, mutated, fields=("zh",))
+
+        payload = [{"line_idx": lid, "reason": "uncertain_translation", "note": "auto"} for lid in ids]
+        batches.results_list = [_succeeded(key, payload)]
+        batches.status = "ended"
+        status = bt.check_once(jid, bt.ClaudeBatchProvider(engine))
+
+        assert status == "applied"
+        summary = isolated_db.get_bulk_job(jid)["result_summary"]
+        assert summary == {"applied": 1, "dropped_deleted": 0, "flagged_source_changed": 1,
+                           "kept_your_edit": 1, "failed_requests": 0, "unknown_requests": 0}
+        final = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
+        assert final[ids[0]].flag == "slang_idiom" and final[ids[0]].flag_note == "manual"
+        assert final[ids[1]].flag == "bulk_source_changed"
+        assert final[ids[2]].flag == "uncertain_translation" and final[ids[2]].flag_note == "auto"
+
+    def test_a_line_deleted_meanwhile_is_dropped(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_flag(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+
+        remaining = [ln for ln in isolated_db.load_line_objects(did) if ln.id != ids[0]]
+        isolated_db.save_lines(did, remaining)
+
+        payload = [{"line_idx": lid, "reason": "uncertain_translation", "note": ""} for lid in ids]
+        results = [(key, json.dumps(payload), {}, None)]
+        summary = bt.apply_flag_results(jid, results)
+        assert summary["dropped_deleted"] == 1 and summary["applied"] == 1
+
+    def test_engines_without_a_batch_api_are_rejected(self, isolated_db):
+        did = _drama(isolated_db, n=1, en="x")
+        with pytest.raises(ValueError, match="batch API"):
+            bt.submit_bulk_flag(did, isolated_db.load_line_objects(did), NS(model="m"), "deepseek")
+
+
+class TestBulkConsistency:
+    def test_a_window_with_a_stale_line_is_dropped_a_clean_one_is_kept(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=6, en="translated")
+        isolated_db.save_consistency_issues(did, [{"term": "old", "variants": ["a"], "note": "stale"}])
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.submit_bulk_consistency(did, lines, engine, "claude", batch_size=3)
+        keys = [r["custom_id"] for r in engine.client.messages.batches.created]
+        assert len(keys) == 2
+
+        job_lines = isolated_db.list_bulk_job_lines(jid)
+        window0_ids = [r["line_id"] for r in job_lines if r["request_key"] == keys[0]]
+        mutated = isolated_db.load_line_objects(did)
+        by_id = {ln.id: ln for ln in mutated}
+        by_id[window0_ids[0]].zh = "edited"
+        isolated_db.save_lines(did, mutated, fields=("zh",))
+
+        results = [(keys[0], json.dumps([{"term": "dropped", "variants": ["x"], "note": "n"}]), {}, None),
+                  (keys[1], json.dumps([{"term": "kept", "variants": ["y"], "note": "n"}]), {}, None)]
+        summary = bt.apply_consistency_results(jid, results)
+        assert summary == {"issues_found": 1, "dropped_windows": 1, "failed_requests": 0,
+                           "unknown_requests": 0}
+        assert [i["term"] for i in isolated_db.load_consistency_issues(did)] == ["kept"]
+
+    def test_no_usable_windows_leaves_existing_issues_untouched(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2, en="translated")
+        isolated_db.save_consistency_issues(did, [{"term": "keep me", "variants": [], "note": ""}])
+        lines = isolated_db.load_line_objects(did)
+        jid = bt.submit_bulk_consistency(did, lines, engine, "claude", batch_size=10)
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        isolated_db.save_lines(did, [])  # every line gone
+        summary = bt.apply_consistency_results(jid, [(key, json.dumps([]), {}, None)])
+        assert summary["dropped_windows"] == 1
+        assert [i["term"] for i in isolated_db.load_consistency_issues(did)] == ["keep me"]
+
+
+class TestBulkEmotion:
+    def test_applies_by_line_id_with_drop_flag_and_kept_edit(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3)
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_emotion(did, lines, engine, "claude", batch_size=10)
+        key = engine.client.messages.batches.created[0]["custom_id"]
+
+        # The user (or a live run) already tagged line 0 differently -- kept.
+        isolated_db.save_emotions(did, {lines[0].idx: {"emotion": "sad", "intensity": 0.9,
+                                                       "note": "manual"}},
+                                  id_by_idx={lines[0].idx: ids[0]})
+        # Line 1's source changes meanwhile.
+        mutated = isolated_db.load_line_objects(did)
+        mutated[1].zh = "changed"
+        isolated_db.save_lines(did, mutated, fields=("zh",))
+
+        payload = [{"line_idx": lid, "emotion": "warm", "intensity": 0.6, "note": "n"} for lid in ids]
+        summary = bt.apply_emotion_results(jid, [(key, json.dumps(payload), {}, None)])
+
+        assert summary == {"applied": 1, "dropped_deleted": 0, "flagged_source_changed": 1,
+                           "kept_your_edit": 1, "failed_requests": 0, "unknown_requests": 0}
+        tags = isolated_db.load_emotions(did)
+        final = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
+        assert tags[final[ids[0]].idx]["emotion"] == "sad"  # kept
+        assert final[ids[1]].flag == "bulk_source_changed"
+        assert tags[final[ids[2]].idx]["emotion"] == "warm"
+
+    def test_a_line_deleted_meanwhile_is_dropped(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_emotion(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        isolated_db.save_lines(did, [ln for ln in isolated_db.load_line_objects(did) if ln.id != ids[0]])
+        payload = [{"line_idx": lid, "emotion": "warm", "intensity": 0.5, "note": ""} for lid in ids]
+        summary = bt.apply_emotion_results(jid, [(key, json.dumps(payload), {}, None)])
+        assert summary["dropped_deleted"] == 1 and summary["applied"] == 1
+
+
+class TestBulkTranslationNotes:
+    def test_applies_by_line_id_and_drops_a_stale_or_deleted_line(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=3, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+        jid = bt.submit_bulk_translation_notes(did, lines, engine, "claude", batch_size=10)
+        key = engine.client.messages.batches.created[0]["custom_id"]
+
+        mutated = isolated_db.load_line_objects(did)
+        mutated[1].zh = "changed"
+        isolated_db.save_lines(did, mutated, fields=("zh",))
+        remaining = [ln for ln in isolated_db.load_line_objects(did) if ln.id != ids[2]]
+        isolated_db.save_lines(did, remaining)
+
+        payload = [{"line_idx": lid, "term": f"term{lid}", "note_type": "idiom", "note": f"note{lid}"}
+                  for lid in ids]
+        summary = bt.apply_notes_results(jid, [(key, json.dumps(payload), {}, None)])
+
+        assert summary == {"applied": 1, "dropped_deleted": 1, "flagged_source_changed": 1,
+                           "failed_requests": 0, "unknown_requests": 0}
+        notes = isolated_db.list_translation_notes(did)
+        assert len(notes) == 1 and notes[0]["line_id"] == ids[0]
+
+    def test_notes_are_additive_not_overwritten(self, isolated_db):
+        """Unlike flag/emotion, notes have no "kept your edit" check --
+        applying a bulk result never removes a note a live run already
+        saved for a different term on the same line."""
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=1, en="translated")
+        lines = isolated_db.load_line_objects(did)
+        lid = lines[0].id
+        isolated_db.save_translation_notes(did, [{"line_id": lid, "term": "existing", "note": "old"}])
+        jid = bt.submit_bulk_translation_notes(did, lines, engine, "claude")
+        key = engine.client.messages.batches.created[0]["custom_id"]
+        payload = [{"line_idx": lid, "term": "new term", "note_type": "idiom", "note": "new"}]
+        bt.apply_notes_results(jid, [(key, json.dumps(payload), {}, None)])
+        terms = {n["term"] for n in isolated_db.list_translation_notes(did)}
+        assert terms == {"existing", "new term"}
+
+
+class TestBulkReflectPipeline:
+    """Exit condition: a mocked test shows a bulk Reflect job submits its
+    three passes as three sequential batches, each keyed off the previous
+    pass's actual saved results, and surfaces its multi-stage pending
+    status (not just "pending") on the Bulk jobs panel."""
+
+    def _drive_stage(self, isolated_db, engine, job_id, payload_by_id_fn):
+        batches = engine.client.messages.batches
+        req = batches.created[-1]
+        key = req["custom_id"]
+        job_lines = isolated_db.list_bulk_job_lines(job_id)
+        ids = [r["line_id"] for r in job_lines if r["request_key"] == key]
+        payload = {str(lid): payload_by_id_fn(lid) for lid in ids}
+        batches.results_list = [_succeeded(key, payload)]
+        batches.status = "ended"
+        return bt.check_once(job_id, bt.ClaudeBatchProvider(engine), engine=engine)
+
+    def test_three_sequential_batches_each_keyed_off_the_previous_stage(self, isolated_db):
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=2)
+        lines = isolated_db.load_line_objects(did)
+        ids = [ln.id for ln in lines]
+
+        jid1 = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
+        job1 = isolated_db.get_bulk_job(jid1)
+        assert (job1["kind"], job1["stage"]) == ("reflect", "faithful")
+        assert len(isolated_db.list_bulk_jobs(did)) == 1
+
+        status1 = self._drive_stage(isolated_db, engine, jid1, lambda lid: f"draft-{lid}")
+        assert status1 == "applied"
+
+        stage2 = bt._sibling_stage_job(job1["pipeline_id"], "reflect")
+        assert stage2 is not None and stage2["status"] == "submitted"
+        assert len(isolated_db.list_bulk_jobs(did)) == 2
+        # Stage 2's own prompt embeds stage 1's actual saved draft, not a
+        # fresh translation -- confirming it's genuinely keyed off the
+        # previous stage's saved result, not independently regenerated.
+        stage2_prompt = engine.client.messages.batches.created[0]["params"]["messages"][0]["content"]
+        assert f"draft-{ids[0]}" in stage2_prompt
+
+        # Only critique line 0 -- line 1 needs none, a normal outcome.
+        status2 = self._drive_stage(
+            isolated_db, engine, stage2["id"],
+            lambda lid: "needs polish" if lid == ids[0] else None)
+        assert status2 == "applied"
+
+        stage3 = bt._sibling_stage_job(job1["pipeline_id"], "expressive")
+        assert stage3 is not None and stage3["status"] == "submitted"
+        assert len(isolated_db.list_bulk_jobs(did)) == 3
+        stage3_prompt = engine.client.messages.batches.created[0]["params"]["messages"][0]["content"]
+        assert f"draft-{ids[0]}" in stage3_prompt and "needs polish" in stage3_prompt
+        assert f"draft-{ids[1]}" in stage3_prompt and "Critique" not in stage3_prompt.split(
+            f"draft-{ids[1]}")[1].split("\n\n")[0]
+
+        status3 = self._drive_stage(isolated_db, engine, stage3["id"], lambda lid: f"FINAL-{lid}")
+        assert status3 == "applied"
+
+        final = {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}
+        assert final == {ids[0]: f"FINAL-{ids[0]}", ids[1]: f"FINAL-{ids[1]}"}
+        notes = isolated_db.list_translation_notes(did)
+        assert len(notes) == 1 and notes[0]["line_id"] == ids[0] and notes[0]["note"] == "needs polish"
+        assert isolated_db.get_drama(did)["status"] == "translated"
+
+    def test_a_kept_edit_survives_through_every_stage(self, isolated_db):
+        """The "kept your edit" comparison at the final stage is against
+        English as it stood at the ORIGINAL faithfulness submission, not
+        re-snapshotted at each later stage."""
+        engine = _claude_engine()
+        did = _drama(isolated_db, n=1)
+        lines = isolated_db.load_line_objects(did)
+        jid1 = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
+        self._drive_stage(isolated_db, engine, jid1, lambda i: "draft")
+        stage2 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
+        self._drive_stage(isolated_db, engine, stage2["id"], lambda i: None)
+
+        mutated = isolated_db.load_line_objects(did)
+        mutated[0].en = "my own edit"
+        isolated_db.save_lines(did, mutated, fields=("en",))
+
+        stage3 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "expressive")
+        self._drive_stage(isolated_db, engine, stage3["id"], lambda i: "FINAL")
+        assert isolated_db.get_bulk_job(stage3["id"])["result_summary"]["kept_your_edit"] == 1
+        assert isolated_db.load_line_objects(did)[0].en == "my own edit"
+
+    def test_engines_without_a_batch_api_are_rejected(self, isolated_db):
+        did = _drama(isolated_db, n=1)
+        with pytest.raises(ValueError, match="batch API"):
+            bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), NS(model="m"),
+                                       "deepseek", {})
+
+    def test_panel_shows_the_current_stage_not_just_pending(self, isolated_db, monkeypatch):
+        """UI-level half of the exit condition: the Bulk jobs panel shows
+        which Reflect stage is current, not a generic status."""
+        import tabs.workspace_tab as wt
+        engine = _claude_engine()
+        monkeypatch.setattr(bt, "make_provider", lambda engine_choice, e: bt.ClaudeBatchProvider(engine))
+        # Avoids a real background poller thread racing this test's own
+        # already-consumed fake results -- the panel's own rendering (what
+        # this test actually checks) doesn't depend on resume_pending.
+        monkeypatch.setattr(bt, "resume_pending", lambda *a, **kw: {})
+        did = _drama(isolated_db, n=1)
+        lines = isolated_db.load_line_objects(did)
+        jid1 = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
+        assert wt._bulk_job_title(isolated_db.get_bulk_job(jid1)) == (
+            "Bulk Reflect -- faithfulness pass (stage 1/3)")
+
+        self._drive_stage(isolated_db, engine, jid1, lambda i: "draft")
+        stage2 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
+        assert wt._bulk_job_title(isolated_db.get_bulk_job(stage2["id"])) == (
+            "Bulk Reflect -- reflection pass (stage 2/3)")
+
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_claude"] = "sk-ant-fake"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        assert any("Bulk Reflect -- reflection pass (stage 2/3)" in m.value for m in at.markdown)
+        # Stage 1 (already applied, superseded) is not shown as its own
+        # separate card -- only the pipeline's current stage is.
+        assert not any("faithfulness pass" in m.value for m in at.markdown)

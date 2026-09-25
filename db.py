@@ -340,6 +340,20 @@ def init_db():
         result_summary TEXT,      -- JSON counts once results are applied
         submitted_at TEXT,
         updated_at TEXT,
+        -- Step 9d: which per-line LLM pass this job runs. 'translate' is
+        -- Step 9's original (and still the default, for old rows and
+        -- every existing call site that doesn't pass one).
+        kind TEXT NOT NULL DEFAULT 'translate',
+        -- Step 9d: Reflect's own three-pass pipeline ('faithful' ->
+        -- 'reflect' -> 'expressive'), NULL for every other kind -- see
+        -- bulk_translate.py's own module docstring for how one stage's
+        -- applied results submit the next.
+        stage TEXT,
+        -- Step 9d: shared across all three of one Reflect run's stage
+        -- rows (a plain string id, not a FK -- there's no single "parent"
+        -- row, just three siblings), so the Bulk jobs panel can group and
+        -- show them as one pipeline instead of three unrelated entries.
+        pipeline_id TEXT,
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
     );
 
@@ -353,6 +367,21 @@ def init_db():
         request_key TEXT,         -- the provider request (custom_id / metadata key) it was sent in
         zh_hash TEXT NOT NULL,
         en_at_submit TEXT,
+        -- Step 9d: a Reflect faithfulness/reflection stage's own raw
+        -- per-line output (a draft translation or a critique) -- not
+        -- applied to the line itself, just held here so the NEXT stage's
+        -- prompt can be built from it once this stage's batch returns.
+        -- Unused (NULL) for every other kind/stage.
+        result_text TEXT,
+        -- Step 9d: JSON snapshot of whatever field(s) a non-translate
+        -- kind is about to write, as they stood at submission -- e.g.
+        -- {"flag": ..., "flag_note": ...} for a flag job. Lets its own
+        -- apply step tell "the user already changed this since
+        -- submission" (keep their edit, same as en_at_submit already
+        -- does for translate) apart from "still exactly what it was".
+        -- NULL for kinds with no such conflict (translate uses
+        -- en_at_submit instead; notes are additive, never overwritten).
+        state_at_submit TEXT,
         PRIMARY KEY (bulk_job_id, line_id),
         FOREIGN KEY (bulk_job_id) REFERENCES bulk_jobs(id) ON DELETE CASCADE
     );
@@ -608,6 +637,17 @@ def init_db():
         # before render -- see scanlate.py's own docstring for why this
         # isn't a trained font-classifier model.
         conn.execute("ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
+    bulk_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
+    if "kind" not in bulk_job_cols:
+        # Step 9d: see the `bulk_jobs` table's own comment above -- every
+        # bulk job predating this column was a translation job.
+        conn.execute("ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
+        conn.execute("ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
+        conn.execute("ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
+    bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
+    if "result_text" not in bulk_job_line_cols:
+        conn.execute("ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
+        conn.execute("ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
     conn.commit()
     conn.close()
     _migrate_line_refs_to_ids()
@@ -2071,24 +2111,43 @@ BULK_PENDING_STATUSES = ("submitted", "scheduled", "auth_error")
 
 def create_bulk_job(drama_id: int, engine: str, model: str, status: str, lines,
                     provider_batch_id: str = None, scheduled_for: str = None,
-                    translate_args: dict = None) -> int:
-    """lines: [(line_id, request_key, zh_hash, en_at_submit), ...]."""
+                    translate_args: dict = None, kind: str = "translate",
+                    stage: str = None, pipeline_id: str = None) -> int:
+    """lines: [(line_id, request_key, zh_hash, en_at_submit), ...], or,
+    for a non-translate kind that needs something to compare against once
+    results come back (see the `bulk_job_lines` table's own comment),
+    [(line_id, request_key, zh_hash, en_at_submit, state_at_submit), ...]
+    -- a plain 4-tuple still works, with state_at_submit left NULL.
+
+    kind/stage/pipeline_id: see the `bulk_jobs` table's own comment
+    (Step 9d). Every existing call site left these at their defaults, so
+    an old job is still exactly what it always was: a translate job."""
     now = datetime.datetime.utcnow().isoformat()
     conn = get_conn()
     try:
         conn.execute("BEGIN")
         cur = conn.execute("""
             INSERT INTO bulk_jobs (drama_id, engine, model, provider_batch_id, status,
-                                   scheduled_for, translate_args, submitted_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   scheduled_for, translate_args, submitted_at, updated_at,
+                                   kind, stage, pipeline_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (drama_id, engine, model, provider_batch_id, status, scheduled_for,
               json.dumps(translate_args, ensure_ascii=False) if translate_args is not None else None,
-              now, now))
+              now, now, kind, stage, pipeline_id))
         job_id = cur.lastrowid
+        rows = []
+        for row in lines:
+            if len(row) == 4:
+                lid, key, h, en = row
+                state = None
+            else:
+                lid, key, h, en, state = row
+            rows.append((job_id, lid, key, h, en, state))
         conn.executemany("""
-            INSERT INTO bulk_job_lines (bulk_job_id, line_id, request_key, zh_hash, en_at_submit)
-            VALUES (?, ?, ?, ?, ?)
-        """, [(job_id, lid, key, h, en) for lid, key, h, en in lines])
+            INSERT INTO bulk_job_lines (bulk_job_id, line_id, request_key, zh_hash, en_at_submit,
+                                        state_at_submit)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, rows)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -2112,8 +2171,11 @@ def get_bulk_job(bulk_job_id: int):
     return _bulk_job_row(r) if r else None
 
 
-def list_bulk_jobs(drama_id: int = None, statuses=None) -> list:
-    """Newest first. statuses: optional iterable to filter on."""
+def list_bulk_jobs(drama_id: int = None, statuses=None, pipeline_id: str = None) -> list:
+    """Newest first. statuses: optional iterable to filter on.
+    pipeline_id: Step 9d -- every stage row of one Reflect run shares one,
+    so the Bulk jobs panel can pull all three (whichever exist so far) to
+    show them as a single pipeline."""
     sql, params = "SELECT * FROM bulk_jobs WHERE 1=1", []
     if drama_id is not None:
         sql += " AND drama_id = ?"
@@ -2122,6 +2184,9 @@ def list_bulk_jobs(drama_id: int = None, statuses=None) -> list:
         statuses = list(statuses)
         sql += f" AND status IN ({','.join('?' * len(statuses))})"
         params.extend(statuses)
+    if pipeline_id is not None:
+        sql += " AND pipeline_id = ?"
+        params.append(pipeline_id)
     conn = get_conn()
     rows = conn.execute(sql + " ORDER BY id DESC", params).fetchall()
     conn.close()
@@ -2147,6 +2212,24 @@ def list_bulk_job_lines(bulk_job_id: int) -> list:
                         (bulk_job_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def set_bulk_job_line_result_texts(bulk_job_id: int, result_by_line_id: dict):
+    """Step 9d: records a Reflect stage's own raw per-line output (a
+    faithfulness draft or a reflection critique) against this job's own
+    line rows -- read back by the NEXT stage's prompt builder, never
+    applied to a line directly (see the `bulk_job_lines` table's own
+    comment). A line id not in result_by_line_id is left NULL, meaning
+    that line either dropped out at this stage (source changed/deleted)
+    or the model simply returned nothing for it."""
+    if not result_by_line_id:
+        return
+    conn = get_conn()
+    conn.executemany(
+        "UPDATE bulk_job_lines SET result_text = ? WHERE bulk_job_id = ? AND line_id = ?",
+        [(text, bulk_job_id, lid) for lid, text in result_by_line_id.items()])
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
