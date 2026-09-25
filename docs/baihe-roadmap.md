@@ -1,35 +1,40 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT:** Confirmed via `git log origin/baihe-subtitler` — Steps 1d, 1e,
-> 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12), autonomous mode is
-> working as intended. The `CLAUDE.md` re-copy is also done (commit
-> `cea6688`). **Three more merged commits since the last check**: PR #13
-> re-synced `CLAUDE.md` from this planning branch, PR #14 registered
-> `audio-separator`/`funasr` in Diagnostics, and **PR #15 registered
-> `demucs`** too — a pre-existing gap flagged (not silently fixed) in PR
-> #14's own description, then cleared in a small follow-up once the
-> planning session confirmed it was low-risk enough not to wait for a full
-> triage cycle. **Steps 5b, 5c, and 6c are all now merged**: **PR #16**
-> ("Step 5b: fix bugs"), **PR #17** ("Step 5c: GPU-job guard"), **PR #18**
-> ("Step 6c: meaning-based subtitle re-segmentation") — a second re-check
-> this same session found 6c had already landed on top of 5b/5c, so this
-> pointer was one merge behind again within a single check-in cycle; the
-> status table below is the thing to trust if this line ever lags.
-> **Start the new Step 6d next** — three real, verified data-corruption
-> bugs reported by the implementing session after finishing 6c (Apply
-> merge/Restore not clearing stale line widgets, the export panel writing
-> bad overlap flags to the database as a result, and Improve-translation's
-> "Use this" missing the same widget-state pop Step 5b already added for
-> re-transcribe) — small and high-value to clear before more work lands on
-> the same file, same reasoning as 5b before 5c. **Then Step 6e**
-> (renamed from 6d — vertical/shorts export, unaffected by the bugs above)
-> — **not** Opus-gated, unlike Step 6c/6d's neighbor 9/11b/etc.
-> **Manual checks still open, not chased further this session:** Step 5's
-> GPU/VRAM figure for `qwen3:8b` is now resolved without hardware (see §2);
-> Step 6b's mpv/VLC playback and live-preview checks still need a person at
-> a screen; Step 5b/5c/6c's own manual checks (§2 rows) are pending too.
+> **NEXT:** Confirmed via `git log origin/baihe-subtitler` (2026-09-25) —
+> **seven more steps merged since the last check-in**: **PR #19** ("Step
+> 6d: clear stale per-line widget state after merge, restore and Improve
+> translation") and **PR #20** ("6d2: defer overlap-flag write behind a
+> click") together clear all three Step 6d bugs; **PR #21** ("Step 6e:
+> vertical/shorts export"); **PR #22** ("Step 7: Reflect translation
+> mode"); **PR #23** ("Step 7b: whole-document glossary sampling"); **PR
+> #24** ("Step 8: recurring-voice suggestions"); **PR #25** ("Step 9: cost
+> controls, bulk discounts, prompt caching, Gemini 3.1 Flash-Lite" — Opus
+> was used for this one per its own commit trailer, matching §4's
+> Opus-gate table). Steps 1d through 9 are now **all merged**.
+> **One real roadmap-correction flagged by the implementing session,
+> reviewed and fixed here**: Step 7b's own text assumed a two-step design
+> (a whole-document pass feeding into each chunk's *existing* per-chunk
+> extraction pass). The implementing session re-checked this against
+> current source before building and found that assumption doesn't hold —
+> `extract_terms_llm` has exactly one call site (`workspace_tab.py`'s
+> "Extract terms" button), a single call over a single sample, nothing
+> chunked. There's no second pass to feed into. What it built instead —
+> spreading that one sample across the whole drama instead of truncating
+> to a prefix — is still squarely the real bug Step 7b was written to fix,
+> just not the two-step shape originally described. Step 7b's text below
+> is corrected to match reality, not left describing a design that was
+> never actually there to begin with.
+> **Start Step 9b next** (job ETAs, model disk management, bulk series
+> translate, Live chunk guard) — still in the Steps 1e–10 autonomous-mode
+> window per §4, but **flagged Opus-gated** (item 6, live audio overlap +
+> dedup) — confirm the model switch before that item specifically, Sonnet
+> is fine for the rest of 9b.
+> **Manual checks still open, not chased further this session:** Steps
+> 5b/5c/6c/6d/6e/7/7b/8/9's own manual-check rows (§2) are all pending;
+> Step 6b's mpv/VLC playback and live-preview checks still need a person
+> at a screen.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-27. If this line is stale, the status table below
+> memory, as of 2026-09-25. If this line is stale, the status table below
 > it is the source of truth.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
@@ -605,13 +610,12 @@ Directly relevant to the "clip streamer" look you asked about earlier — that c
 
 **Exit:** a mocked engine test shows 3 calls per batch, with ids kept at every pass, and the reflection critique stored as notes.
 
-### Step 7b — Whole-document-first glossary extraction *(idea from VideoLingo)*
-`translation_guide.extract_terms_llm` already exists and works — confirmed it extracts terms chunk by chunk, each chunk processed in isolation (only "already in glossary" carried between chunks). Checked VideoLingo's real `core/_4_1_summarize.py`, and their approach is more specific than "summarize first": `get_summary()` takes the **combined, whole-document** source content in one call and directly produces the terminology list — `{src, tgt, note}` per term — so the model sees the full story at once before proposing any term, rather than only ever seeing one chunk at a time. That combined-context view, not a separate prose synopsis, is the actual mechanism worth adopting.
-1. Add a first pass that runs `extract_terms_llm`-style extraction over a **combined sample across the whole drama** (not per-chunk) — enough lines from spread-out points in the drama to see the range of names/relationships, not just its first few hundred lines.
-2. Feed that whole-document term list into each chunk's existing per-chunk extraction pass as known context (same `known_terms` parameter `extract_terms_llm` already accepts), so later, more-detailed chunk passes stay consistent with what the whole-document pass already established.
-3. This is one extra whole-document call per run, not one per chunk.
+### Step 7b — Whole-document-first glossary extraction *(idea from VideoLingo)* — ✅ **Merged (PR #23), text corrected to match what was actually built**
+`translation_guide.extract_terms_llm` already exists and works. This item was originally written assuming extraction already ran chunk-by-chunk, with a planned whole-document pass meant to feed into each chunk's `known_terms`. **The implementing session re-verified this against current source before building and found that assumption doesn't hold**: there is exactly one real call site (`workspace_tab.py`'s "Extract terms" button), and it makes a single call over a single sample — nothing here is chunked, so there was never a second, per-chunk pass to feed into. Checked VideoLingo's real `core/_4_1_summarize.py` for the actual idea worth adopting regardless: `get_summary()` takes the **combined, whole-document** source content in one call and directly produces the terminology list — `{src, tgt, note}` per term — so the model sees the full story at once before proposing any term, rather than a truncating prefix. That combined-context view is the real mechanism; the "feed into each chunk's pass" framing was never accurate for this codebase.
+1. ~~Add a first pass that runs `extract_terms_llm`-style extraction over a combined sample across the whole drama, then feed its output into each chunk's existing per-chunk pass as known context.~~ **What was actually built**: the one real call site's sample (previously `zh_lines[:max_lines]`, a truncating prefix that made any name introduced past the default 400-line cutoff invisible to extraction) now spreads `max_lines` lines evenly across the *whole* drama via a new `_sample_lines_across_text()` — explicitly including both the first and last line — the line-list counterpart of the existing `_sample_across_text()` already used by `extract_glossary_from_novel` for the same reasoning on raw-string input.
+2. This is still one call, not a chunked pipeline — the "one extra whole-document call per run, not one per chunk" framing below is moot since there was only ever one call to begin with.
 
-**Exit:** a mocked test shows the whole-document pass samples from spread-out points in the drama (not just the start), its output reaches every chunk's extraction as known context, and existing `extract_terms_llm` tests still pass.
+**Exit (as actually met):** a mocked test shows the sample spreads across the whole drama (not just the start, and including the true end), and existing `extract_terms_llm` tests still pass.
 
 ### Step 8 — Recurring-voice suggestions *(new feature, experimental; needs Step 4)*
 - With pyannote 4, `DiarizeOutput.speaker_embeddings` gives one voice fingerprint per detected speaker. Save them with the diarization turns.
@@ -1433,12 +1437,12 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 6 — Transcription quality | `step-6-transcription-quality` | ✅ Merged (PR #11) | ⏳ Pending |
   | 6b — Export formats (VTT/ASS) | `step-6b-export-formats` | ✅ Merged (PR #12) | ⏳ **Partial** — mpv/VLC playback check and the live-preview check both need a person watching a screen; not done yet. |
   | 6c — Meaning-based re-segmentation | `step-6c-meaning-resegmentation` | ✅ Merged (PR #18) | ⏳ Pending |
-  | 6d — Data-corruption bugs found after 6c | — | Not started | — |
-  | 6e — Vertical/shorts export | — | Not started | — |
-  | 7 — Reflect translation mode | — | Not started | — |
-  | 7b — Content-summary glossary extraction | — | Not started | — |
-  | 8 — Recurring-voice suggestions | — | Not started | — |
-  | 9 — Cost controls & bulk discounts | — | Not started | — |
+  | 6d — Data-corruption bugs found after 6c | `step-6d-stale-widget-fixes`, `step-6d2-defer-overlap-flag-write` | ✅ Merged (PR #19, #20) | ⏳ Pending |
+  | 6e — Vertical/shorts export | `step-6e-vertical-shorts-export` | ✅ Merged (PR #21) | ⏳ Pending |
+  | 7 — Reflect translation mode | `step-7-reflect-translation-mode` | ✅ Merged (PR #22) | ⏳ Pending |
+  | 7b — Content-summary glossary extraction | `step-7b-whole-document-glossary` | ✅ Merged (PR #23) | ⏳ Pending |
+  | 8 — Recurring-voice suggestions | `step-8-recurring-voice-suggestions` | ✅ Merged (PR #24) | ⏳ Pending |
+  | 9 — Cost controls & bulk discounts | `step-9-cost-controls-bulk-discounts` | ✅ Merged (PR #25) | ⏳ Pending |
   | 9b — Job ETAs, model disk management, bulk series translate | — | Not started | — |
   | 9c — Drama/project presets | — | Not started | — |
   | 10 — Windows launcher | — | Not started | — |
