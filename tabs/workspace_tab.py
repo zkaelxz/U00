@@ -1,6 +1,7 @@
 """
 tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.py.
 """
+import contextlib
 import dataclasses
 
 from common import *
@@ -330,6 +331,20 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
+def _drama_label(drama):
+    return drama.get("title_en") or drama.get("title_zh") or f"drama #{drama['id']}"
+
+
+def _job_start_message(job_id, running_message):
+    """Step 5c: start_job() may have queued this job behind another
+    GPU-touching one instead of actually starting it -- say so instead of
+    claiming it's already running."""
+    status = background_jobs.get_status(job_id)
+    if status and status["status"] == "queued":
+        return f"⏳ {status['message']}. It'll start automatically once the GPU is free."
+    return running_message
+
+
 def _diarization_estimate_caption(audio_duration_seconds):
     """pyannote's pipeline makes one call and only returns a result at the
     end -- no incremental progress callback exists in its public API, so
@@ -546,11 +561,13 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
         _existing_lines = db.load_line_objects(picked_id)
         _audio_duration = max((ln.end for ln in _existing_lines), default=0)
         st.caption(_diarization_estimate_caption(_audio_duration))
-        with st.spinner("Detecting speakers... (first run downloads the model)"):
+        with st.spinner("Detecting speakers... (first run downloads the model, and this may "
+                        "wait a moment if the GPU is busy with another job)"):
             try:
-                turns, model = diarize.diarize(audio_path, hf_token,
-                                               num_speakers=expected_speakers or None,
-                                               return_model=True)
+                with background_jobs.gpu_slot(f"Diarization (drama #{picked_id})"):
+                    turns, model = diarize.diarize(audio_path, hf_token,
+                                                   num_speakers=expected_speakers or None,
+                                                   return_model=True)
             except Exception as e:
                 st.error(f"Speaker detection failed ({e}). Check your Hugging Face token and "
                          "pyannote.audio install. Nothing was changed.")
@@ -1853,11 +1870,14 @@ def render_workspace_tab():
                     _transcribe_job_id, video_path, source_language,
                     st.session_state.get(f"hardsub_interval_{picked_id}", 1.0),
                     st.session_state.get(f"hardsub_ocr_backend_{picked_id}", "tesseract"),
-                    chinese_script, st.session_state.get("settings_tesseract_cmd") or None)
+                    chinese_script, st.session_state.get("settings_tesseract_cmd") or None,
+                    gpu_touching=True, description=f"Reading captions ({_drama_label(drama)})")
                 if started:
-                    st.info("Reading captions from the video in the background -- it keeps running "
-                            "even if you switch tabs or close this browser tab. Come back here any "
-                            "time to see progress; it'll pick up right where it is.")
+                    st.info(_job_start_message(
+                        _transcribe_job_id,
+                        "Reading captions from the video in the background -- it keeps running "
+                        "even if you switch tabs or close this browser tab. Come back here any "
+                        "time to see progress; it'll pick up right where it is."))
                     st.rerun()
                 else:
                     st.warning("A caption-reading job is already running for this drama.")
@@ -1871,11 +1891,14 @@ def render_workspace_tab():
                     initial_prompt, beam_size, min_silence_ms, vad_threshold, separate_vocals_first,
                     realign_long_segments, chinese_script,
                     st.session_state.get(f"whisper_fast_mode_{picked_id}", False),
-                    st.session_state.get(f"separation_backend_{picked_id}", "auto"))
+                    st.session_state.get(f"separation_backend_{picked_id}", "auto"),
+                    gpu_touching=True, description=f"Transcription ({_drama_label(drama)})")
                 if started:
-                    st.info("Transcription started in the background -- it keeps running even if you "
-                            "switch tabs or close this browser tab. Come back here any time to see "
-                            "progress; it'll pick up right where it is.")
+                    st.info(_job_start_message(
+                        _transcribe_job_id,
+                        "Transcription started in the background -- it keeps running even if you "
+                        "switch tabs or close this browser tab. Come back here any time to see "
+                        "progress; it'll pick up right where it is."))
                     st.rerun()
                 else:
                     st.warning("A transcription is already running for this drama.")
@@ -2040,12 +2063,15 @@ def render_workspace_tab():
                     if run_diarize and hf_token:
                         st.caption(_diarization_estimate_caption(
                             max((ln.end for ln in lines), default=0)))
-                        with st.spinner("Running speaker diarization... (first run downloads the model)"):
+                        with st.spinner("Running speaker diarization... (first run downloads the "
+                                        "model, and this may wait a moment if the GPU is busy "
+                                        "with another job)"):
                             try:
                                 import diarize
-                                speaker_segments, _dmodel = diarize.diarize(
-                                    audio_path, hf_token, num_speakers=expected_speakers or None,
-                                    return_model=True)
+                                with background_jobs.gpu_slot(f"Diarization ({_drama_label(drama)})"):
+                                    speaker_segments, _dmodel = diarize.diarize(
+                                        audio_path, hf_token, num_speakers=expected_speakers or None,
+                                        return_model=True)
                                 diarize.save_turns(ddir, speaker_segments,
                                                    num_speakers=expected_speakers or None, model=_dmodel)
                                 diarize.label_lines_with_speakers(lines, speaker_segments)
@@ -2142,11 +2168,15 @@ def render_workspace_tab():
                 _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
                 novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
                 engine_choice, style_preset, context_window,
-                st.session_state.get("settings_ollama_num_ctx_override") or None)
+                st.session_state.get("settings_ollama_num_ctx_override") or None,
+                gpu_touching=engine_choice == "ollama",
+                description=f"Ollama translation ({_drama_label(drama)})")
             if started:
-                st.info("Translation started in the background -- it keeps running even if you "
-                        "switch tabs or close this one. Come back here any time to see progress; "
-                        "it'll pick up right where it is.")
+                st.info(_job_start_message(
+                    _translate_job_id,
+                    "Translation started in the background -- it keeps running even if you "
+                    "switch tabs or close this one. Come back here any time to see progress; "
+                    "it'll pick up right where it is."))
                 st.rerun()
             else:
                 st.warning("A translation is already running for this drama.")
@@ -2581,10 +2611,14 @@ def render_workspace_tab():
                     _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _consistency_job_id, run_consistency_job,
-                        _consistency_job_id, picked_id, _lines_copy, engine, engine_choice)
+                        _consistency_job_id, picked_id, _lines_copy, engine, engine_choice,
+                        gpu_touching=engine_choice == "ollama",
+                        description=f"Ollama consistency check ({_drama_label(drama)})")
                     if started:
-                        st.info("Checking in the background -- safe to switch tabs or run another "
-                                "check while this runs.")
+                        st.info(_job_start_message(
+                            _consistency_job_id,
+                            "Checking in the background -- safe to switch tabs or run another "
+                            "check while this runs."))
                         st.rerun()
                     else:
                         st.warning("Already checking for this drama.")
@@ -2629,11 +2663,15 @@ def render_workspace_tab():
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
                         base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     _lines_copy = _copy_lines(edited_rows)
-                    started = background_jobs.start_job(_flag_job_id, run_flag_job,
-                                                          _flag_job_id, picked_id, _lines_copy, engine_f,
-                                                          engine_choice)
+                    started = background_jobs.start_job(
+                        _flag_job_id, run_flag_job,
+                        _flag_job_id, picked_id, _lines_copy, engine_f, engine_choice,
+                        gpu_touching=engine_choice == "ollama",
+                        description=f"Ollama flagging ({_drama_label(drama)})")
                     if started:
-                        st.info("Checking in the background -- safe to switch tabs while this runs.")
+                        st.info(_job_start_message(
+                            _flag_job_id,
+                            "Checking in the background -- safe to switch tabs while this runs."))
                         st.rerun()
                     else:
                         st.warning("Already checking for this drama.")
@@ -2691,10 +2729,14 @@ def render_workspace_tab():
                             _fixflag_job_id, run_fix_flagged_lines_job,
                             _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
                             whisper_size, st.session_state.get("use_gpu", False), source_language,
-                            engine_ff, engine_choice)
+                            engine_ff, engine_choice,
+                            gpu_touching=bool(_fixflag_audio_path) or engine_choice == "ollama",
+                            description=f"Fixing flagged lines ({_drama_label(drama)})")
                         if started:
-                            st.info("Fixing flagged lines in the background -- safe to switch tabs "
-                                    "while this runs.")
+                            st.info(_job_start_message(
+                                _fixflag_job_id,
+                                "Fixing flagged lines in the background -- safe to switch tabs "
+                                "while this runs."))
                             st.rerun()
                         else:
                             st.warning("Already fixing flagged lines for this drama.")
@@ -2743,9 +2785,13 @@ def render_workspace_tab():
                     _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _emotion_job_id, run_emotion_job,
-                        _emotion_job_id, picked_id, _lines_copy, eng_e, use_cues, engine_choice)
+                        _emotion_job_id, picked_id, _lines_copy, eng_e, use_cues, engine_choice,
+                        gpu_touching=engine_choice == "ollama",
+                        description=f"Ollama emotion detection ({_drama_label(drama)})")
                     if started:
-                        st.info("Reading tone in the background -- safe to switch tabs while this runs.")
+                        st.info(_job_start_message(
+                            _emotion_job_id,
+                            "Reading tone in the background -- safe to switch tabs while this runs."))
                         st.rerun()
                     else:
                         st.warning("Already detecting emotional register for this drama.")
@@ -2798,13 +2844,19 @@ def render_workspace_tab():
                         started = background_jobs.start_job(
                             _sv_job_id, run_sensevoice_job, _sv_job_id, picked_id,
                             _copy_lines(edited_rows), _sv_audio, ddir,
-                            st.session_state.get("use_gpu", False))
+                            st.session_state.get("use_gpu", False),
+                            gpu_touching=True,
+                            description=f"SenseVoice audio tagging ({_drama_label(drama)})")
                         if started:
                             st.rerun()
                         else:
                             st.warning("Already tagging this drama's audio.")
                     if _svjob:
-                        if _svjob["status"] == "running":
+                        if _svjob["status"] == "queued":
+                            st.info(_svjob.get("message") or "Waiting -- GPU busy.")
+                            if st.button("🔄 Refresh progress", key=f"refresh_sv_queued_{picked_id}"):
+                                st.rerun()
+                        elif _svjob["status"] == "running":
                             st.progress(_svjob["progress"], text=_svjob.get("message") or "Listening...")
                             if st.button("🔄 Refresh progress", key=f"refresh_sv_{picked_id}"):
                                 st.rerun()
@@ -2962,10 +3014,14 @@ def render_workspace_tab():
                     started = background_jobs.start_job(
                         _notes_job_id, run_translation_notes_job,
                         _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
-                        source_language)
+                        source_language,
+                        gpu_touching=engine_choice == "ollama",
+                        description=f"Ollama translation notes ({_drama_label(drama)})")
                     if started:
-                        st.info("Reviewing in the background -- safe to switch tabs or run another "
-                                "check while this runs.")
+                        st.info(_job_start_message(
+                            _notes_job_id,
+                            "Reviewing in the background -- safe to switch tabs or run another "
+                            "check while this runs."))
                         st.rerun()
                     else:
                         st.warning("Already generating notes for this drama.")
@@ -3112,13 +3168,20 @@ def render_workspace_tab():
                             "ref_text": c["ref_text"] or "",
                         }
                 progress_bar = st.progress(0.0, text="Generating...")
+                # F5-TTS (voice cloning without an ElevenLabs voice_id) is the
+                # only locally-run, GPU-touching path here -- edge_tts is a free
+                # online service and "offline" fallback TTS is CPU-only, so
+                # this only takes a GPU slot when it's actually needed.
+                _uses_f5tts = any("engine" not in v for v in clone_map.values())
                 try:
                     build_fn = dub_module.build_narration_track if content_mode == "novel_narration" else dub_module.build_dub_track
-                    out_path, dub_errors = build_fn(
-                        st.session_state.lines, ddir, voice_map, character_clone_map=clone_map,
-                        tts_engine=tts_engine,
-                        progress_cb=lambda frac: progress_bar.progress(frac, text=f"Generating... {frac*100:.0f}%"),
-                    )
+                    with background_jobs.gpu_slot(f"Dub generation ({_drama_label(drama)})") \
+                            if _uses_f5tts else contextlib.nullcontext():
+                        out_path, dub_errors = build_fn(
+                            st.session_state.lines, ddir, voice_map, character_clone_map=clone_map,
+                            tts_engine=tts_engine,
+                            progress_cb=lambda frac: progress_bar.progress(frac, text=f"Generating... {frac*100:.0f}%"),
+                        )
                     progress_bar.empty()
                     db.save_lines(picked_id, st.session_state.lines)
                     db.update_drama(picked_id, status="dubbed")

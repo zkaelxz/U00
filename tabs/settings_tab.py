@@ -147,6 +147,17 @@ def render_settings_sidebar():
                      "if you have a CUDA GPU. Falls back to CPU automatically if unavailable.")
             st.caption("Requires a CUDA-capable GPU and the GPU build of PyTorch. "
                       "If transcription errors after enabling this, turn it back off.")
+            st.session_state["settings_limit_one_gpu_job"] = st.checkbox(
+                "Limit to one GPU job at a time",
+                value=st.session_state.get("settings_limit_one_gpu_job", True),
+                help="Transcription, diarization, OCR, TTS/dub, and local-model (Ollama) "
+                     "translation all load a model onto the GPU. On an 8-12GB consumer GPU, "
+                     "two of these running at once (e.g. from two different tabs) can overwhelm "
+                     "its VRAM -- with this on, a second GPU-touching job waits for the first "
+                     "to finish instead of starting alongside it. Turn off only if you know your "
+                     "hardware can handle several at once (24GB+ VRAM).")
+            import background_jobs
+            background_jobs.set_gpu_limit_enabled(st.session_state["settings_limit_one_gpu_job"])
 
         with st.expander("Defaults for new dramas", expanded=False):
             _default_engine_options = ["claude", "deepseek", "deepl", "google", "ollama",

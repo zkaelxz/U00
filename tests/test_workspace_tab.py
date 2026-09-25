@@ -1332,6 +1332,69 @@ class TestWhisperSizeDefaultsToLargeV3:
         assert boxes[0].value == "small"
 
 
+class TestTranscribeQueuesBehindAnotherGpuJob:
+    """Step 5c: a global, soft "one GPU job at a time" guard -- nothing
+    before this stopped a transcription on one drama and, say, a
+    diarization or OCR job on a completely different drama from starting
+    concurrently and competing for the same VRAM. This exercises the real
+    click path (not background_jobs directly) for one of the two jobs the
+    roadmap's own manual check names: a transcription started while
+    another GPU-touching job is already running should queue, not start."""
+
+    def setup_method(self):
+        background_jobs.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        background_jobs.set_gpu_limit_enabled(True)
+        background_jobs.clear_job("gpu_busy_elsewhere")
+
+    def _drama_with_audio_and_transcript(self, isolated_db, tmp_path):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="not started",
+                                        audio_filename="audio.wav", transcript_mode="have_transcript")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"tmode_{did}"] = "have_transcript"
+        at.session_state[f"transcript_{did}"] = "你好"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_transcription_queues_while_another_gpu_job_is_running(self, isolated_db, tmp_path):
+        release = threading.Event()
+        background_jobs.start_job("gpu_busy_elsewhere", lambda: release.wait(timeout=5.0),
+                                   gpu_touching=True, description="Diarization (drama #999)")
+        try:
+            did = self._drama_with_audio_and_transcript(isolated_db, tmp_path)
+            at = self._run(did)
+
+            buttons = [b for b in at.button if b.label == "▶ Transcribe & Align"]
+            assert buttons, "Transcribe & Align button not found"
+            buttons[0].click()
+            at.run(timeout=30)
+
+            job = background_jobs.get_status(f"transcribe_{did}")
+            assert job is not None
+            assert job["status"] == "queued"
+            assert "GPU busy" in job["message"]
+        finally:
+            release.set()
+            background_jobs.clear_job(f"transcribe_{did}")
+
+
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:
     """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
     features (consistency check, flagging, emotion detection, notes,
