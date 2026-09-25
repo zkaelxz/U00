@@ -107,7 +107,7 @@ def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeyp
     import audio_preprocess
     seen = {}
 
-    def fake_separate(in_path, out_path, backend="auto"):
+    def fake_separate(in_path, out_path, backend="auto", progress_cb=None, cancel_check_cb=None):
         seen["in_path"] = in_path
         seen["out_path"] = out_path
         seen["backend"] = backend
@@ -158,7 +158,7 @@ def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
 
     import audio_preprocess
 
-    def fake_separate(in_path, out_path, backend="auto"):
+    def fake_separate(in_path, out_path, backend="auto", progress_cb=None, cancel_check_cb=None):
         raise audio_preprocess.VocalSeparationError("Vocal separation needs Demucs: pip install demucs")
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
 
@@ -173,6 +173,95 @@ def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
     assert result["failed_reason"] == "vocal_separation"
     assert "pip install demucs" in result["detail"]
     assert called == []  # transcription must never run on a failed separation
+    _clear(job_id)
+
+
+def test_vocal_separation_cancel_reports_cancelled_and_never_starts_transcription(monkeypatch, tmp_path):
+    """Step 4g checkpoint 1: cancelling during vocal separation must stop
+    the job before Whisper ever starts, not just fail silently or let
+    transcription run anyway."""
+    job_id = "test_transcribe_vocal_sep_cancel"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    audio_path = str(tmp_path / "audio.wav")
+
+    import audio_preprocess
+
+    def fake_separate(in_path, out_path, backend="auto", progress_cb=None, cancel_check_cb=None):
+        raise audio_preprocess.VocalSeparationCancelled("stopped")
+    monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+
+    called = []
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: called.append(1))
+
+    run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
+                        separate_vocals_first=True)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"failed_reason": "cancelled"}
+    assert called == []  # transcription must never run after a cancel
+    _clear(job_id)
+
+
+def test_vocal_separation_threads_progress_and_cancel_callbacks_through(monkeypatch, tmp_path):
+    """Confirms run_transcribe_job actually wires background_jobs'
+    progress/cancel plumbing into separate_vocals(), not just that a
+    cancel eventually gets reported -- a real gap the roadmap named
+    ("no real progress and no mid-run stop")."""
+    job_id = "test_transcribe_vocal_sep_wiring"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    audio_path = str(tmp_path / "audio.wav")
+
+    import audio_preprocess
+    seen = {}
+
+    def fake_separate(in_path, out_path, backend="auto", progress_cb=None, cancel_check_cb=None):
+        seen["progress_cb"] = progress_cb
+        seen["cancel_check_cb"] = cancel_check_cb
+        progress_cb(0.5)
+        assert cancel_check_cb() is False
+        return out_path
+    monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: [
+        {"start": 0.0, "end": 1.0, "text": "hi"}])
+
+    run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
+                        separate_vocals_first=True)
+
+    assert seen["progress_cb"] is not None and seen["cancel_check_cb"] is not None
+    status = background_jobs.get_status(job_id)
+    assert status["progress"] == 0.5
+    assert "Removing background music" in status["message"]
+    _clear(job_id)
+
+
+def test_cancel_after_transcription_skips_realign_but_keeps_the_transcript(monkeypatch):
+    """Step 4g checkpoint 2: Whisper's own pass has no cancel checkpoint
+    of its own yet, so a cancel requested during it is only caught once
+    it returns -- at that point the expensive work is already done, so
+    this must skip the optional realign step rather than discard the
+    transcript (never lose already-done work over a cancel)."""
+    job_id = "test_transcribe_cancel_after_whisper"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": True, "result": None}
+    fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: fake_segments)
+
+    import word_align
+    monkeypatch.setattr(word_align, "realign_oversized_segments",
+                        lambda *a, **k: pytest.fail("realign must not run once cancelled"))
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
+                        realign_long_segments=True)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["segments"] == fake_segments  # the transcript itself is kept, not discarded
+    assert result["word_align_error"] is None
     _clear(job_id)
 
 
@@ -2631,6 +2720,65 @@ class TestWhisperSizeDefaultsToLargeV3:
         at = self._run(did)
         boxes = [sb for sb in at.selectbox if sb.key == f"whisper_size_{did}"]
         assert boxes[0].value == "small"
+
+
+class TestTranscriptionCancelButton:
+    """Step 4g item 1: the transcription job's progress panel used to
+    show only "Refresh progress" while running, with no way to actually
+    stop it -- a real, confirmed gap (the user clicked Cancel during
+    vocal separation and confirmed it did nothing, since no Cancel
+    button was even rendered for this job in any phase)."""
+
+    def _drama_with_audio(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_cancel_button_appears_while_running_and_actually_requests_a_stop(self, isolated_db):
+        did = self._drama_with_audio(isolated_db)
+        job_id = f"transcribe_{did}"
+        _clear(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.3,
+                                         "message": "Transcribing... 30%", "error": None,
+                                         "cancel_requested": False, "result": None,
+                                         "started_at": time.time(), "finished_at": None}
+        try:
+            at = self._run(did)
+            cancel_buttons = [b for b in at.button if b.key == f"cancel_tc_{did}"]
+            assert cancel_buttons, "Cancel button should show while transcription is running"
+            cancel_buttons[0].click().run(timeout=30)
+            assert background_jobs.is_cancel_requested(job_id) is True
+        finally:
+            _clear(job_id)
+
+    def test_cancelled_outcome_shows_a_clear_message_not_a_generic_error(self, isolated_db):
+        did = self._drama_with_audio(isolated_db)
+        job_id = f"transcribe_{did}"
+        _clear(job_id)
+        background_jobs._jobs[job_id] = {"status": "done", "progress": 0.0, "message": "",
+                                         "error": None, "cancel_requested": True,
+                                         "result": {"failed_reason": "cancelled"},
+                                         "started_at": time.time(), "finished_at": time.time()}
+        try:
+            at = self._run(did)
+            assert any("cancelled" in w.value.lower() for w in at.warning)
+        finally:
+            _clear(job_id)
 
 
 class TestTranscribeQueuesBehindAnotherGpuJob:

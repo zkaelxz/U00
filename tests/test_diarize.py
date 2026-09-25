@@ -19,6 +19,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import diarize
 
 
+@pytest.fixture(autouse=True)
+def _restore_stubbed_modules():
+    """_stub_pyannote() below replaces sys.modules entries directly
+    (a plain function, not a fixture, so it can be called with no
+    monkeypatch in scope) -- without this, a stub it installs (soundfile
+    in particular, now that Step 4g's vocal-separation chunking also
+    needs the real module elsewhere in the same test process) leaks into
+    every test that runs after it, in this file or any other."""
+    originals = {name: sys.modules.get(name) for name in ("soundfile", "pyannote", "pyannote.audio")}
+    yield
+    for name, mod in originals.items():
+        if mod is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = mod
+
+
 class _FakeDiarizationResult:
     def __init__(self, turns):
         self._turns = turns
