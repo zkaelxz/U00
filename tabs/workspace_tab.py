@@ -686,6 +686,26 @@ def _diarization_estimate_caption(audio_duration_seconds):
             f"doesn't expose one), just this spinner until it finishes.")
 
 
+def _autotune_estimate_caption(audio_duration_seconds, num_candidates):
+    """Step 6h: each candidate is its own full re-transcription (VAD
+    segmentation happens inside faster-whisper's own decode pass, not a
+    separable pre-step this app can hook into more cheaply) -- same
+    "scale a range off the audio's own length" honesty as
+    _diarization_estimate_caption above, here multiplied by how many
+    candidates are actually queued."""
+    if not audio_duration_seconds or audio_duration_seconds <= 0 or num_candidates <= 0:
+        return ""
+
+    def _mmss(seconds):
+        m, s = divmod(int(round(seconds)), 60)
+        return f"{m}:{s:02d}"
+
+    return (f"{num_candidates} candidate(s) on audio this long (~{_mmss(audio_duration_seconds)}) "
+            f"usually takes roughly {_mmss(audio_duration_seconds * num_candidates)}–"
+            f"{_mmss(audio_duration_seconds * 2 * num_candidates)} total, depending on your "
+            f"hardware -- each candidate is a full re-transcription, one after another.")
+
+
 def _copy_lines(lines):
     """Independent copies for a background job (it mutates its own list
     while the page keeps editing st.session_state's). dataclasses.replace
@@ -1696,6 +1716,108 @@ def render_workspace_tab():
                      "Raise it (0.6-0.7) if a noisy or music-heavy source is producing phantom "
                      "lines from non-speech. Same tradeoff shape as the setting above -- no value "
                      "is strictly better for every source.")
+
+            if existing_audio and os.path.exists(existing_audio):
+                _autotune_key = f"autotune_{picked_id}"
+                _autotune_job_id = f"autotune_{picked_id}"
+                _autotune = st.session_state.get(_autotune_key)
+                _autotune_job = background_jobs.get_status(_autotune_job_id)
+                with st.expander("🪄 Auto-tune this value (tries a few candidates, you pick)"):
+                    st.caption(
+                        "Re-transcribes this drama's audio once per candidate value below and "
+                        "shows how many long/merged lines each produces -- an honest way to pick "
+                        "a value without guessing, at the real cost of one full re-transcription "
+                        "per candidate. Never applies anything by itself -- you pick from the "
+                        "results, the same as setting the slider above by hand.")
+                    _candidates = list(core_module.DEFAULT_AUTOTUNE_CANDIDATES_MS)
+
+                    def _start_autotune_candidate(candidate_ms):
+                        background_jobs.start_process_job(
+                            _autotune_job_id, core_module.autotune_subprocess_worker,
+                            args=(existing_audio, whisper_size, source_language,
+                                  st.session_state.get("use_gpu", False), None,
+                                  st.session_state.get("settings_hf_token", "") or None,
+                                  initial_prompt, beam_size, candidate_ms, vad_threshold,
+                                  st.session_state.get(f"whisper_fast_mode_{picked_id}", False)),
+                            gpu_touching=True, description=f"Auto-tuning ({_drama_label(drama)})")
+
+                    if not _autotune and not _autotune_job:
+                        try:
+                            import video_export
+                            _audio_duration = video_export.probe_duration_seconds(existing_audio)
+                        except Exception:
+                            _audio_duration = 0
+                        _eta = _autotune_estimate_caption(_audio_duration, len(_candidates))
+                        if _eta:
+                            st.caption(_eta)
+                        if st.button("🪄 Auto-tune", key=f"autotune_btn_{picked_id}"):
+                            st.session_state[_autotune_key] = {
+                                "candidates": _candidates, "results": [], "cancelled": False}
+                            _start_autotune_candidate(_candidates[0])
+                            st.rerun()
+
+                    if _autotune_job:
+                        if _autotune_job["status"] == "queued":
+                            st.info(_autotune_job.get("message") or "Waiting for the GPU...")
+                        elif _autotune_job["status"] == "running":
+                            _tested_n = len(_autotune["results"]) if _autotune else 0
+                            _current_ms = _candidates[_tested_n] if _tested_n < len(_candidates) else "?"
+                            st.info(f"Testing candidate {_tested_n + 1} of {len(_candidates)} "
+                                    f"({_current_ms}ms)...")
+                            ac1, ac2 = st.columns(2)
+                            if ac1.button("🔄 Refresh progress", key=f"refresh_autotune_{picked_id}"):
+                                st.rerun()
+                            if ac2.button("✖ Cancel", key=f"cancel_autotune_{picked_id}"):
+                                background_jobs.request_cancel(_autotune_job_id)
+                                if _autotune:
+                                    _autotune["cancelled"] = True
+                                st.rerun()
+                        elif _autotune_job["status"] == "cancelled":
+                            st.warning("Auto-tune was stopped. Results for whichever candidate(s) "
+                                      "already finished are shown below, if any.")
+                            background_jobs.clear_job(_autotune_job_id)
+                        elif _autotune_job["status"] == "error":
+                            st.error(f"Auto-tune failed: {_autotune_job['error']}")
+                            background_jobs.clear_job(_autotune_job_id)
+                            st.session_state.pop(_autotune_key, None)
+                        elif _autotune_job["status"] == "done":
+                            _result = _autotune_job.get("result") or {}
+                            _segments = _result.get("segments") or []
+                            _cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
+                                          for i, s in enumerate(_segments) if s["text"].strip()]
+                            _coverage = core_module.diagnose_line_coverage(_cand_lines)
+                            _autotune["results"].append({
+                                "candidate_ms": _result.get("candidate_ms"),
+                                "long_lines": len(_coverage["long_lines"]),
+                                "total_lines": len(_cand_lines),
+                            })
+                            background_jobs.clear_job(_autotune_job_id)
+                            _tested = {r["candidate_ms"] for r in _autotune["results"]}
+                            _remaining = [c for c in _autotune["candidates"] if c not in _tested]
+                            if _remaining and not _autotune.get("cancelled"):
+                                _start_autotune_candidate(_remaining[0])
+                            st.rerun()
+
+                    if _autotune and _autotune["results"] and not _autotune_job:
+                        st.markdown("**Results** (fewer long/merged lines is generally better -- "
+                                  "watch total line count too, since splitting into far more lines "
+                                  "isn't automatically an improvement)")
+                        _best = min(_autotune["results"], key=lambda r: r["long_lines"])
+                        for r in sorted(_autotune["results"], key=lambda r: r["candidate_ms"]):
+                            rc1, rc2, rc3, rc4 = st.columns([2, 2, 2, 2])
+                            rc1.metric(f"{r['candidate_ms']}ms" + (" ⭐" if r is _best else ""), "")
+                            rc2.metric("Long/merged lines", r["long_lines"])
+                            rc3.metric("Total lines", r["total_lines"])
+                            if rc4.button(f"Use {r['candidate_ms']}ms",
+                                         key=f"autotune_use_{picked_id}_{r['candidate_ms']}"):
+                                st.session_state[f"min_silence_ms_{picked_id}"] = r["candidate_ms"]
+                                st.session_state.pop(_autotune_key, None)
+                                st.success(f"Speech-splitting sensitivity set to {r['candidate_ms']}ms. "
+                                          "Re-run \"Transcribe & Align\" above to apply it.")
+                                st.rerun()
+                        if st.button("Discard results", key=f"autotune_discard_{picked_id}"):
+                            st.session_state.pop(_autotune_key, None)
+                            st.rerun()
 
             separate_vocals_first = st.checkbox(
                 "🎵 Remove background music before transcribing (slower)",
