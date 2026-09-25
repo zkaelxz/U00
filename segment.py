@@ -20,8 +20,10 @@ display and click-to-define word boundaries.
       default (nothing to add above the text itself).
 
 Each function returns a list of (word, reading_or_none) tuples in
-reading order, ready to render as ruby text.
+reading order, ready to render as ruby text. segment_words() is the same
+segmentation without the readings (word boundaries only).
 """
+import re
 
 _jieba = None
 _sudachi_tokenizer = None
@@ -56,11 +58,39 @@ def _cut_traditional(text: str):
     return words
 
 
-def segment_zh(text: str, chinese_script: str = "simplified"):
+def _load_jieba():
     global _jieba
     if _jieba is None:
         import jieba
         _jieba = jieba
+
+
+def _load_sudachi():
+    global _sudachi_tokenizer
+    if _sudachi_tokenizer is None:
+        from sudachipy import tokenizer, dictionary
+        _sudachi_tokenizer = dictionary.Dictionary().create()
+        globals()["_sudachi_mode"] = tokenizer.Tokenizer.SplitMode.B
+
+
+def segment_words(text: str, language: str, chinese_script: str = "simplified"):
+    """Just the words, in order, with no reading annotation -- for callers
+    that only need where words start and end (resegment.py), so they don't
+    also need pypinyin/pykakasi installed. The words always reassemble into
+    exactly `text` for zh/ja. Korean is space-delimited already, so its
+    words are simply the space-separated runs (spaces kept as their own
+    items) -- no kiwipiepy needed for that."""
+    if language == "ko":
+        return [w for w in re.split(r"(\s+)", text) if w]
+    if language == "ja":
+        _load_sudachi()
+        return [m.surface() for m in _sudachi_tokenizer.tokenize(text, globals()["_sudachi_mode"])]
+    _load_jieba()
+    return _cut_traditional(text) if chinese_script == "traditional" else list(_jieba.cut(text))
+
+
+def segment_zh(text: str, chinese_script: str = "simplified"):
+    _load_jieba()
     from pypinyin import pinyin, Style
     words = _cut_traditional(text) if chinese_script == "traditional" else list(_jieba.cut(text))
     out = []
@@ -74,11 +104,8 @@ def segment_zh(text: str, chinese_script: str = "simplified"):
 
 
 def segment_ja(text: str):
-    global _sudachi_tokenizer, _kakasi
-    if _sudachi_tokenizer is None:
-        from sudachipy import tokenizer, dictionary
-        _sudachi_tokenizer = dictionary.Dictionary().create()
-        globals()["_sudachi_mode"] = tokenizer.Tokenizer.SplitMode.B
+    global _kakasi
+    _load_sudachi()
     if _kakasi is None:
         import pykakasi
         _kakasi = pykakasi.kakasi()
