@@ -378,55 +378,99 @@ class TestHfTokenInScanlateMlDetector:
     """The Whisper model download was fixed to use an HF token earlier,
     but the Scanlate ML bubble detector's own huggingface_hub call was a
     separate code path that never got the same fix -- same warning,
-    different function, easy to miss without checking both."""
+    different function, easy to miss without checking both.
 
-    def _stub_hf_and_ultralytics(self, monkeypatch):
+    Step 11 real fix: detect_bubbles_ml() used to load its checkpoint
+    through ultralytics.YOLO, but the model is RT-DETR-v2, which
+    ultralytics can never load -- these tests stub `torch` and
+    `transformers` instead, matching the corrected implementation."""
+
+    def _stub_torch_and_transformers(self, monkeypatch, tmp_path):
         # monkeypatch.setitem, not a raw sys.modules[...] = assignment --
-        # a real huggingface_hub is installed in this environment, and a
-        # permanent replacement here would leak into every later test in
-        # the same process (a real, previously-latent bug this step's own
-        # diagnostics.py tests surfaced: a later test doing a genuine
-        # `import huggingface_hub` picked up this stub, silently missing
-        # attributes real code expects). monkeypatch restores the real
-        # module automatically once this test ends.
+        # a permanent replacement here would leak into every later test in
+        # the same process. monkeypatch restores the real module
+        # automatically once this test ends.
         import sys, types
+        import contextlib
         calls = {}
-        fake_hf = types.ModuleType("huggingface_hub")
-        def fake_download(repo_id, filename):
-            import os
-            calls["env_token"] = os.environ.get("HF_TOKEN")
-            return "/fake/model.pt"
-        fake_hf.hf_hub_download = fake_download
-        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
-        fake_ul = types.ModuleType("ultralytics")
-        fake_ul.YOLO = lambda path: types.SimpleNamespace(predict=lambda *a, **k: [])
-        monkeypatch.setitem(sys.modules, "ultralytics", fake_ul)
+
+        fake_torch = types.ModuleType("torch")
+        fake_torch.no_grad = lambda: contextlib.nullcontext()
+        fake_torch.tensor = lambda x: x
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+        class FakeProcessor:
+            def __call__(self, images, return_tensors):
+                return {}
+
+            def post_process_object_detection(self, outputs, threshold, target_sizes):
+                return [{"scores": [], "labels": [], "boxes": []}]
+
+        class FakeModel:
+            config = types.SimpleNamespace(id2label={})
+
+            def eval(self):
+                pass
+
+            def __call__(self, **kwargs):
+                return None
+
+        fake_transformers = types.ModuleType("transformers")
+
+        class FakeAutoImageProcessor:
+            @staticmethod
+            def from_pretrained(repo_id, token=None):
+                calls["processor_token"] = token
+                return FakeProcessor()
+
+        class FakeAutoModelForObjectDetection:
+            @staticmethod
+            def from_pretrained(repo_id, token=None):
+                calls["model_token"] = token
+                return FakeModel()
+
+        fake_transformers.AutoImageProcessor = FakeAutoImageProcessor
+        fake_transformers.AutoModelForObjectDetection = FakeAutoModelForObjectDetection
+        monkeypatch.setitem(sys.modules, "transformers", fake_transformers)
+
+        # A real (tiny) image -- unlike the old ultralytics path, this one
+        # genuinely opens the file with PIL before doing anything else.
+        from PIL import Image
+        img_path = tmp_path / "fake.png"
+        Image.new("RGB", (10, 10)).save(img_path)
+        calls["img_path"] = str(img_path)
         return calls
 
-    def test_explicit_token_argument_reaches_the_download(self, monkeypatch):
+    def test_explicit_token_argument_reaches_the_download(self, monkeypatch, tmp_path):
         import os
-        calls = self._stub_hf_and_ultralytics(monkeypatch)
+        calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
         import scanlate
         os.environ.pop("HF_TOKEN", None)
         scanlate.__dict__.pop("_bubble_ml_model", None)
-        scanlate.detect_bubbles_ml("/fake/image.png", hf_token="explicit-token")
-        assert calls["env_token"] == "explicit-token"
+        scanlate.__dict__.pop("_bubble_ml_processor", None)
+        scanlate.detect_bubbles_ml(calls["img_path"], hf_token="explicit-token")
+        assert calls["processor_token"] == "explicit-token"
+        assert calls["model_token"] == "explicit-token"
 
-    def test_falls_back_to_an_already_set_environment_token(self, monkeypatch):
+    def test_falls_back_to_an_already_set_environment_token(self, monkeypatch, tmp_path):
         import os
-        calls = self._stub_hf_and_ultralytics(monkeypatch)
+        calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
         import scanlate
         scanlate.__dict__.pop("_bubble_ml_model", None)
+        scanlate.__dict__.pop("_bubble_ml_processor", None)
         os.environ["HF_TOKEN"] = "env-token"
-        scanlate.detect_bubbles_ml("/fake/image.png")
-        assert calls["env_token"] == "env-token"
+        scanlate.detect_bubbles_ml(calls["img_path"])
+        assert calls["processor_token"] == "env-token"
+        assert calls["model_token"] == "env-token"
         os.environ.pop("HF_TOKEN", None)
 
-    def test_no_token_available_does_not_crash(self, monkeypatch):
-        calls = self._stub_hf_and_ultralytics(monkeypatch)
+    def test_no_token_available_does_not_crash(self, monkeypatch, tmp_path):
+        calls = self._stub_torch_and_transformers(monkeypatch, tmp_path)
         import scanlate
         import os
         os.environ.pop("HF_TOKEN", None)
         scanlate.__dict__.pop("_bubble_ml_model", None)
-        scanlate.detect_bubbles_ml("/fake/image.png")  # must not raise
-        assert calls["env_token"] is None
+        scanlate.__dict__.pop("_bubble_ml_processor", None)
+        scanlate.detect_bubbles_ml(calls["img_path"])  # must not raise
+        assert calls["processor_token"] is None
+        assert calls["model_token"] is None

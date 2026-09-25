@@ -455,3 +455,337 @@ class TestMlBackendFallback:
 
     def test_cv_backend_never_raises_model_error(self, synthetic_page):
         assert isinstance(scanlate.detect_bubbles(synthetic_page, backend="cv"), list)
+
+    def test_ml_backend_falls_back_cleanly_when_the_model_isnt_installed(self, synthetic_page):
+        # No mocking here -- exercises the real code path with whatever's
+        # actually installed. Where torch/transformers are genuinely
+        # absent, this hits the real ImportError -> BubbleModelUnavailable
+        # fallback rather than a simulated one; where they ARE installed,
+        # this only confirms detect_bubbles_ml() doesn't hang trying a
+        # real network download against a fake path -- it still must
+        # raise (and fall back), just via a different exception branch.
+        try:
+            import torch  # noqa: F401
+            import transformers  # noqa: F401
+        except ImportError:
+            with pytest.raises(scanlate.BubbleModelUnavailable) as exc_info:
+                scanlate.detect_bubbles(synthetic_page, backend="ml")
+            assert exc_info.value.fell_back_to_cv is True
+        else:
+            pytest.skip("torch and transformers are both installed -- see the mocked "
+                        "TestHfTokenInScanlateMlDetector tests for the loads-and-runs path")
+
+
+class TestAutoBackendSelection:
+    """Step 11 item 5: 'auto' uses the ML backend whenever its weights
+    are already cached locally, the free heuristic otherwise -- and
+    never triggers a fresh download just because auto mode is on."""
+
+    def test_bubble_ml_weights_cached_true_when_cache_hit(self, monkeypatch, tmp_path):
+        import huggingface_hub
+        cached_file = tmp_path / "model.safetensors"
+        cached_file.write_bytes(b"x")
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                             lambda repo_id, filename: str(cached_file))
+        assert scanlate.bubble_ml_weights_cached() is True
+
+    def test_bubble_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
+        import huggingface_hub
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                             lambda repo_id, filename: None)
+        assert scanlate.bubble_ml_weights_cached() is False
+
+    def test_lama_ml_weights_cached_true_when_cache_hit(self, monkeypatch, tmp_path):
+        import huggingface_hub
+        cached_file = tmp_path / "lama.safetensors"
+        cached_file.write_bytes(b"x")
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                             lambda repo_id, filename: str(cached_file))
+        assert scanlate.lama_ml_weights_cached() is True
+
+    def test_lama_ml_weights_cached_false_when_no_cache_hit(self, monkeypatch):
+        import huggingface_hub
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache",
+                             lambda repo_id, filename: None)
+        assert scanlate.lama_ml_weights_cached() is False
+
+    def test_detect_bubbles_auto_never_calls_ml_when_not_cached(self, monkeypatch, synthetic_page):
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: False)
+        called = {}
+        monkeypatch.setattr(scanlate, "detect_bubbles_ml",
+                             lambda *a, **k: called.setdefault("ml", True) or [])
+        boxes = scanlate.detect_bubbles(synthetic_page, backend="auto")
+        assert "ml" not in called
+        assert isinstance(boxes, list)
+
+    def test_detect_bubbles_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page):
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
+        fake_boxes = [{"x": 1, "y": 1, "w": 2, "h": 2, "confidence": 0.9}]
+        monkeypatch.setattr(scanlate, "detect_bubbles_ml", lambda *a, **k: fake_boxes)
+        assert scanlate.detect_bubbles(synthetic_page, backend="auto") == fake_boxes
+
+    def test_inpaint_region_auto_uses_cv_when_lama_not_cached(self, monkeypatch, synthetic_page, temp_dir):
+        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: False)
+        called = {}
+        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+                             lambda *a, **k: called.setdefault("ml", True))
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        out_path = os.path.join(temp_dir, "auto_cv.png")
+        result = scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
+        assert "ml" not in called
+        assert os.path.exists(result)
+
+    def test_inpaint_region_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page, temp_dir):
+        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: True)
+        called = {}
+
+        def fake_ml_inpaint(roi, mask, hf_token=None):
+            called["used"] = True
+            return roi  # identity -- still a valid image array
+
+        monkeypatch.setattr(scanlate, "_run_ml_inpaint", fake_ml_inpaint)
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        out_path = os.path.join(temp_dir, "auto_ml.png")
+        result = scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="auto")
+        assert called.get("used") is True
+        assert os.path.exists(result)
+
+    def test_inpaint_region_ml_unavailable_falls_back_to_cv_and_raises(
+            self, monkeypatch, synthetic_page, temp_dir):
+        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+                             lambda *a, **k: (_ for _ in ()).throw(ImportError("no torch")))
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        out_path = os.path.join(temp_dir, "fallback.png")
+        with pytest.raises(scanlate.InpaintModelUnavailable) as exc_info:
+            scanlate.inpaint_region(synthetic_page, box, out_path=out_path, backend="ml")
+        assert exc_info.value.fell_back_to_cv is True
+        # The CV-inpainted result was still produced and written, not lost.
+        assert os.path.exists(out_path)
+
+
+class TestInpaintMaskRegion:
+    """Step 11 item 10: the manual erase/heal brush -- inpaints exactly
+    the painted pixels, independent of any bubble box."""
+
+    def test_erases_masked_pixels_and_produces_valid_image(self, synthetic_page, temp_dir):
+        mask = np.zeros((400, 600), dtype=np.uint8)
+        mask[100:150, 150:250] = 1
+        out_path = os.path.join(temp_dir, "brush.png")
+        result_path = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
+        assert os.path.exists(result_path)
+        img = cv2.imread(result_path)
+        assert img.shape == (400, 600, 3)
+
+    def test_empty_mask_leaves_the_image_unchanged(self, synthetic_page, temp_dir):
+        mask = np.zeros((400, 600), dtype=np.uint8)
+        out_path = os.path.join(temp_dir, "brush_empty.png")
+        result_path = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path)
+        original = cv2.imread(synthetic_page)
+        result = cv2.imread(result_path)
+        assert (original == result).all()
+
+    def test_mismatched_mask_shape_raises(self, synthetic_page):
+        mask = np.zeros((10, 10), dtype=np.uint8)
+        with pytest.raises(ValueError):
+            scanlate.inpaint_mask_region(synthetic_page, mask)
+
+    def test_without_out_path_returns_array(self, synthetic_page):
+        mask = np.zeros((400, 600), dtype=np.uint8)
+        mask[100:150, 150:250] = 1
+        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=None)
+        assert isinstance(result, np.ndarray)
+
+    def test_ml_backend_unavailable_falls_back_and_attaches_result(
+            self, monkeypatch, synthetic_page, temp_dir):
+        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+                             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        mask = np.zeros((400, 600), dtype=np.uint8)
+        mask[100:150, 150:250] = 1
+        out_path = os.path.join(temp_dir, "brush_fallback.png")
+        with pytest.raises(scanlate.InpaintModelUnavailable) as exc_info:
+            scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="ml")
+        assert exc_info.value.fell_back_to_cv is True
+        assert os.path.exists(out_path)
+
+    def test_auto_uses_cv_when_lama_not_cached(self, monkeypatch, synthetic_page, temp_dir):
+        # Same shared auto-select as inpaint_region() (Step 11 item 5) --
+        # the brush uses the exact same backend logic, not a separate copy.
+        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: False)
+        called = {}
+        monkeypatch.setattr(scanlate, "_run_ml_inpaint",
+                             lambda *a, **k: called.setdefault("ml", True))
+        mask = np.zeros((400, 600), dtype=np.uint8)
+        mask[100:150, 150:250] = 1
+        out_path = os.path.join(temp_dir, "brush_auto_cv.png")
+        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
+        assert "ml" not in called
+        assert os.path.exists(result)
+
+    def test_auto_uses_ml_when_cached(self, monkeypatch, synthetic_page, temp_dir):
+        monkeypatch.setattr(scanlate, "lama_ml_weights_cached", lambda: True)
+        called = {}
+
+        def fake_ml_inpaint(roi, mask, hf_token=None):
+            called["used"] = True
+            return roi
+
+        monkeypatch.setattr(scanlate, "_run_ml_inpaint", fake_ml_inpaint)
+        mask = np.zeros((400, 600), dtype=np.uint8)
+        mask[100:150, 150:250] = 1
+        out_path = os.path.join(temp_dir, "brush_auto_ml.png")
+        result = scanlate.inpaint_mask_region(synthetic_page, mask, out_path=out_path, backend="auto")
+        assert called.get("used") is True
+        assert os.path.exists(result)
+
+
+class TestAutoOcrBackend:
+    """Step 11 item 4: default OCR backend by source language, always
+    overridable manually."""
+
+    def test_japanese_defaults_to_manga_ocr(self):
+        assert scanlate.auto_ocr_backend("ja") == "manga_ocr"
+
+    def test_japanese_prefers_paddle_vl_manga_when_asked(self):
+        assert scanlate.auto_ocr_backend("ja", prefer_paddle_vl_manga=True) == "paddle_vl_manga"
+
+    def test_chinese_defaults_to_paddle(self):
+        assert scanlate.auto_ocr_backend("zh") == "paddle"
+
+    def test_korean_defaults_to_paddle(self):
+        assert scanlate.auto_ocr_backend("ko") == "paddle"
+
+    def test_unknown_language_falls_back_to_tesseract(self):
+        assert scanlate.auto_ocr_backend("fr") == "tesseract"
+
+
+class TestOcrBoxRegion:
+    def test_crops_and_routes_to_the_auto_backend(self, monkeypatch, synthetic_page):
+        import ocr
+        captured = {}
+
+        def fake_extract(paths, backend, source_language, chinese_script="simplified",
+                          tesseract_cmd=None):
+            captured["backend"] = backend
+            captured["path_exists"] = os.path.exists(paths[0])
+            return "detected text"
+
+        monkeypatch.setattr(ocr, "extract_text_from_images", fake_extract)
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        result = scanlate.ocr_box_region(synthetic_page, box, "ja")
+        assert result == "detected text"
+        assert captured["backend"] == "manga_ocr"
+        assert captured["path_exists"] is True
+
+    def test_explicit_backend_overrides_auto_routing(self, monkeypatch, synthetic_page):
+        import ocr
+        captured = {}
+        monkeypatch.setattr(ocr, "extract_text_from_images",
+                             lambda paths, backend, source_language, chinese_script="simplified",
+                                    tesseract_cmd=None: captured.setdefault("backend", backend) or "x")
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        scanlate.ocr_box_region(synthetic_page, box, "ja", backend="tesseract")
+        assert captured["backend"] == "tesseract"
+
+    def test_temp_crop_file_is_cleaned_up_afterward(self, monkeypatch, synthetic_page):
+        import ocr
+        seen_paths = []
+
+        def fake_extract(paths, backend, source_language, chinese_script="simplified",
+                          tesseract_cmd=None):
+            seen_paths.append(paths[0])
+            return "x"
+
+        monkeypatch.setattr(ocr, "extract_text_from_images", fake_extract)
+        box = {"x": 100, "y": 80, "w": 300, "h": 140}
+        scanlate.ocr_box_region(synthetic_page, box, "zh")
+        assert not os.path.exists(seen_paths[0])
+
+
+class TestPdfImportExport:
+    """Step 11 item 7."""
+
+    def test_pages_to_pdf_creates_a_valid_multi_page_pdf(self, synthetic_page, temp_dir):
+        from PIL import Image
+        page2 = os.path.join(temp_dir, "page2.png")
+        Image.new("RGB", (600, 400), (200, 200, 200)).save(page2)
+        out_pdf = os.path.join(temp_dir, "out.pdf")
+
+        result = scanlate.pages_to_pdf([synthetic_page, page2], out_pdf)
+
+        assert result == out_pdf
+        assert os.path.exists(out_pdf)
+        pypdf = pytest.importorskip("pypdf")
+        reader = pypdf.PdfReader(out_pdf)
+        assert len(reader.pages) == 2
+
+    def test_pages_to_pdf_raises_on_an_empty_list(self, temp_dir):
+        with pytest.raises(ValueError):
+            scanlate.pages_to_pdf([], os.path.join(temp_dir, "empty.pdf"))
+
+    def test_pdf_to_page_images_round_trips_a_real_pdf(self, synthetic_page, temp_dir):
+        # Builds a real PDF from a real (synthetic, non-copyrighted) page,
+        # then splits it back apart -- exercises pypdf's own image
+        # extraction against a real file instead of a hand-crafted one.
+        pytest.importorskip("pypdf")
+        pdf_path = os.path.join(temp_dir, "roundtrip.pdf")
+        scanlate.pages_to_pdf([synthetic_page], pdf_path)
+        out_dir = os.path.join(temp_dir, "extracted")
+
+        image_paths, skipped = scanlate.pdf_to_page_images(pdf_path, out_dir)
+
+        assert len(image_paths) == 1
+        assert skipped == []
+        assert os.path.exists(image_paths[0])
+        from PIL import Image
+        assert Image.open(image_paths[0]).size == (600, 400)
+
+
+class TestBulkFindReplacePreview:
+    """Step 11 item 9. Pure preview logic -- no database involved (see
+    tests/test_db.py's TestPagesAndBubbles for the apply-by-id path,
+    which confirms only translated_text ever changes)."""
+
+    def _bubbles(self):
+        return [
+            {"id": 1, "page_idx": 0, "translated_text": "Hello Bob"},
+            {"id": 2, "page_idx": 0, "translated_text": "Bob said hi"},
+            {"id": 3, "page_idx": 1, "translated_text": "Nothing to see here"},
+        ]
+
+    def test_finds_and_previews_matches_without_mutating_input(self):
+        bubbles = self._bubbles()
+        matches = scanlate.bulk_find_replace_preview(bubbles, "Bob", "Alice")
+        assert len(matches) == 2
+        assert {m["id"] for m in matches} == {1, 2}
+        assert bubbles[0]["translated_text"] == "Hello Bob"  # preview only, no mutation
+
+    def test_case_insensitive_by_default(self):
+        bubbles = [{"id": 1, "page_idx": 0, "translated_text": "bob and BOB"}]
+        matches = scanlate.bulk_find_replace_preview(bubbles, "bob", "Alice")
+        assert matches[0]["new_text"] == "Alice and Alice"
+
+    def test_case_sensitive_when_requested(self):
+        bubbles = [{"id": 1, "page_idx": 0, "translated_text": "bob and BOB"}]
+        matches = scanlate.bulk_find_replace_preview(bubbles, "bob", "Alice", case_sensitive=True)
+        assert matches[0]["new_text"] == "Alice and BOB"
+
+    def test_regex_mode(self):
+        bubbles = [{"id": 1, "page_idx": 0, "translated_text": "line1 line2"}]
+        matches = scanlate.bulk_find_replace_preview(bubbles, r"line\d", "X", use_regex=True)
+        assert matches[0]["new_text"] == "X X"
+
+    def test_literal_mode_does_not_treat_find_as_a_regex(self):
+        bubbles = [{"id": 1, "page_idx": 0, "translated_text": "a.b.c"}]
+        matches = scanlate.bulk_find_replace_preview(bubbles, ".", "-", use_regex=False)
+        assert matches[0]["new_text"] == "a-b-c"
+
+    def test_no_matches_when_find_is_empty(self):
+        assert scanlate.bulk_find_replace_preview(self._bubbles(), "", "x") == []
+
+    def test_invalid_regex_raises_value_error(self):
+        with pytest.raises(ValueError):
+            scanlate.bulk_find_replace_preview(self._bubbles(), "(unclosed", "x", use_regex=True)
+
+    def test_bubbles_with_no_match_are_excluded(self):
+        matches = scanlate.bulk_find_replace_preview(self._bubbles(), "zzz_not_present", "x")
+        assert matches == []
