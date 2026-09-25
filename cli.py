@@ -33,7 +33,7 @@ import traceback
 import db
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
-    chunk_novel_text, extract_audio_from_video,
+    chunk_novel_text, extract_audio_from_video, lines_from_rows,
 )
 import translate_engines
 import translation_guide as tguide
@@ -199,13 +199,7 @@ def cmd_translate(args):
         if not rows:
             print(f"#{d['id']} skipped: no aligned lines yet.")
             return
-        # flag/flag_note carried through explicitly: save_cb below calls
-        # db.save_lines() on this exact list on every batch, including for
-        # lines this run doesn't touch -- dropping those fields here would
-        # silently wipe every review-queue flag in the drama on every run.
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
-                      speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
-                 for r in rows]
+        lines = lines_from_rows(rows)
         novel_reference = _load_novel_reference(d)
         # UI parity: without these, a CLI-run translation skipped the
         # series glossary, craft/style guidelines, and locale entirely --
@@ -227,7 +221,8 @@ def cmd_translate(args):
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=args.ollama_num_ctx,
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
-            save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines),
+            # Same as the Workspace Translate job: writes `en` only.
+            save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
         )
         db.update_drama(d["id"], status="translated", translation_engine=args.engine)
         if batch_errors:
@@ -247,13 +242,7 @@ def cmd_dub(args):
         if not rows or not any(r.get("en") for r in rows):
             print(f"#{d['id']} skipped: not translated yet.")
             return
-        # flag/flag_note carried through explicitly, same reasoning as
-        # cmd_translate above -- db.save_lines() below on this exact list
-        # would otherwise silently wipe every review-queue flag in the
-        # drama on every dub run. A real, confirmed gap this replaces.
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
-                      speaker=r.get("speaker"), flag=r.get("flag"), flag_note=r.get("flag_note") or "")
-                 for r in rows]
+        lines = lines_from_rows(rows)
         ddir = db.drama_dir(d["id"])
 
         chars = db.list_characters(d["id"])
@@ -280,7 +269,7 @@ def cmd_dub(args):
             lines, ddir, voice_map, character_clone_map=clone_map,
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
         )
-        db.save_lines(d["id"], lines)
+        db.save_lines(d["id"], lines, fields=("dub_filename",))
         db.update_drama(d["id"], status="dubbed")
         if dub_errors:
             print(f"\n#{d['id']} track: {out_path} ({len(dub_errors)} line(s) silent due to "

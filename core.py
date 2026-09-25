@@ -6,7 +6,13 @@ without pulling in a UI framework.
 
 import re
 import difflib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+# The per-line columns db.save_lines writes. `idx` is the line's current
+# position (display order) -- it changes on every merge/split; `id` is the
+# permanent identity notes, emotions and background jobs attach to.
+LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note")
 
 
 @dataclass
@@ -20,6 +26,59 @@ class Line:
     dub_filename: str = None
     flag: str = None       # a key from translate_engines.FLAG_REASONS, or None
     flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
+    # Permanent row id (lines.id). None for a line not saved yet.
+    id: int = field(default=None, compare=False)
+    # Field values as last loaded from / saved to the database. db.save_lines
+    # only writes a field whose value differs from this, so two writers
+    # (a background job and the page) can't clobber each other's fields.
+    # None means "unknown" -- every field is written.
+    orig: dict = field(default=None, compare=False, repr=False)
+    # Ids of lines merged into this one since the last save -- db.save_lines
+    # re-points their notes/emotions here before deleting their rows.
+    merged_ids: list = field(default_factory=list, compare=False, repr=False)
+
+
+def line_from_row(row) -> "Line":
+    """The one shared db row (db.load_lines dict) -> Line conversion. Carries
+    id and every field through, so nothing (flags, speaker, dub clip) is
+    silently dropped by a caller that forgets one, and records `orig` so a
+    later save writes only what actually changed."""
+    ln = Line(idx=row["idx"], start=row["start"], end=row["end"], zh=row.get("zh") or "",
+              en=row.get("en") or "", speaker=row.get("speaker"),
+              dub_filename=row.get("dub_filename"), flag=row.get("flag"),
+              flag_note=row.get("flag_note") or "", id=row.get("id"))
+    ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
+    return ln
+
+
+def lines_from_rows(rows) -> list:
+    return [line_from_row(r) for r in rows]
+
+
+def adopt_ids(restored, current) -> list:
+    """For restoring a saved snapshot/translation version over the current
+    lines: gives each restored line the permanent id (and `orig`) of the
+    current line it replaces -- by id when the snapshot recorded one, else
+    by position (snapshots from before Step 2 have no ids) -- so notes and
+    emotions stay attached instead of being deleted with the old rows.
+    Fields a snapshot doesn't store (flag, flag_note, dub_filename) are
+    carried over from the matched line rather than wiped."""
+    by_id = {ln.id: ln for ln in current if getattr(ln, "id", None) is not None}
+    by_idx = {ln.idx: ln for ln in current}
+    used = set()
+    for ln in restored:
+        match = by_id.get(ln.id) if ln.id is not None else None
+        if match is None or match.id in used:
+            match = by_idx.get(ln.idx)
+        if match is None or match.id in used:
+            ln.id = None
+            continue
+        used.add(match.id)
+        ln.id, ln.orig = match.id, match.orig
+        for f in ("flag", "flag_note", "dub_filename"):
+            if getattr(ln, f) in (None, ""):
+                setattr(ln, f, getattr(match, f))
+    return restored
 
 
 def fmt_ts(seconds: float) -> str:
@@ -499,6 +558,10 @@ def merge_adjacent_short_lines(lines, min_duration: float = 1.2, max_gap: float 
             prev.zh = (prev.zh.rstrip() + ln.zh.strip())
             prev.en = (prev.en.rstrip() + " " + ln.en.strip()).strip()
             prev.end = ln.end
+            if not prev.flag and ln.flag:
+                prev.flag, prev.flag_note = ln.flag, ln.flag_note
+            if getattr(ln, "id", None) is not None:
+                prev.merged_ids = list(prev.merged_ids) + [ln.id] + list(ln.merged_ids)
         else:
             merged.append(ln)
 

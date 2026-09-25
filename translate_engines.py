@@ -342,7 +342,8 @@ def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     return {}
 
 
-def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1):
+def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
+                                     line_ids=None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -367,13 +368,20 @@ def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_f
     incomplete response as a reason to redo (or lose) the whole batch.
     """
     ids = list(range(1, len(zh_lines) + 1))
+    # The lines' own permanent ids (Step 2) when every line has one and
+    # they're unique -- the same id a line keeps through merges and
+    # re-saves. Otherwise (unsaved lines, non-translation callers) 1..n.
+    if (line_ids is not None and len(line_ids) == len(zh_lines)
+            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
+        ids = list(line_ids)
+    pos = {i: p for p, i in enumerate(ids)}
     remaining_ids = list(ids)
     result_map = {}
     for _attempt in range(max_retries + 1):
         if not remaining_ids:
             break
-        batch_lines = [zh_lines[i - 1] for i in remaining_ids]
-        batch_names = ([speaker_names[i - 1] for i in remaining_ids] if speaker_names else None)
+        batch_lines = [zh_lines[pos[i]] for i in remaining_ids]
+        batch_names = ([speaker_names[pos[i]] for i in remaining_ids] if speaker_names else None)
         numbered = _build_numbered_lines(remaining_ids, batch_lines, batch_names)
         text = call_model_fn(numbered)
         result_map.update(_parse_id_keyed_json(text, remaining_ids))
@@ -522,7 +530,8 @@ class ClaudeEngine:
                 self.last_usage["output_tokens"] += getattr(resp.usage, "output_tokens", 0)
             return "".join(b.text for b in resp.content if b.type == "text").strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+                                                line_ids=context.get("line_ids"))
 
 
 # ---------------------------------------------------------------------------
@@ -568,7 +577,8 @@ class DeepSeekEngine:
                 self.last_usage["output_tokens"] += getattr(resp.usage, "completion_tokens", 0)
             return resp.choices[0].message.content.strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+                                                line_ids=context.get("line_ids"))
 
 
 # ---------------------------------------------------------------------------
@@ -640,7 +650,8 @@ class GeminiEngine:
             self.last_usage["output_tokens"] += usage.get("candidatesTokenCount", 0)
             return data["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+                                                line_ids=context.get("line_ids"))
 
 
 # ---------------------------------------------------------------------------
@@ -1113,7 +1124,8 @@ class OllamaEngine:
             resp.raise_for_status()
             return resp.json()["message"]["content"].strip()
 
-        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model)
+        return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
+                                                line_ids=context.get("line_ids"))
 
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the
@@ -1413,6 +1425,7 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             context["upcoming_lines"] = [ln.zh for ln in upcoming
                                          if ln.zh.strip() and ln.idx not in batch_idxs]
         context["speaker_labels"] = [character_names.get(ln.speaker) for ln in batch]
+        context["line_ids"] = [getattr(ln, "id", None) for ln in batch]
         try:
             translations = call_with_backoff(
                 lambda: engine.translate_batch([ln.zh for ln in batch], context)

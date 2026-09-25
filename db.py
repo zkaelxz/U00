@@ -249,25 +249,27 @@ def init_db():
     CREATE TABLE IF NOT EXISTS translation_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER NOT NULL,
-        line_idx INTEGER,
+        line_id INTEGER,          -- lines.id: the permanent link
+        line_idx INTEGER,         -- position when saved; fallback only, see list_translation_notes
         term TEXT,
         note_type TEXT,           -- idiom, wordplay, name_meaning, allusion, cultural, honorific
         note TEXT,
         created_at TEXT,
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
-        UNIQUE(drama_id, line_idx, term)
+        UNIQUE(drama_id, line_id, term)
     );
 
     CREATE TABLE IF NOT EXISTS line_emotions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER NOT NULL,
-        line_idx INTEGER NOT NULL,
+        line_id INTEGER,          -- lines.id: the permanent link
+        line_idx INTEGER,         -- position when saved; fallback only
         emotion TEXT,
         intensity REAL,
         note TEXT,
         created_at TEXT,
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
-        UNIQUE(drama_id, line_idx)
+        UNIQUE(drama_id, line_id)
     );
 
     CREATE TABLE IF NOT EXISTS consistency_issues (
@@ -328,6 +330,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS reading_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER NOT NULL,
+        line_id INTEGER,
         line_idx INTEGER,
         percent_complete REAL,
         accessed_at TEXT,
@@ -519,6 +522,99 @@ def init_db():
         conn.execute("ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
     conn.commit()
     conn.close()
+    _migrate_line_refs_to_ids()
+
+
+_LINE_REF_TABLE_DDL = {
+    "translation_notes": """
+        CREATE TABLE {name} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            line_id INTEGER,
+            line_idx INTEGER,
+            term TEXT,
+            note_type TEXT,
+            note TEXT,
+            created_at TEXT,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+            UNIQUE(drama_id, line_id, term)
+        )""",
+    "line_emotions": """
+        CREATE TABLE {name} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            line_id INTEGER,
+            line_idx INTEGER,
+            emotion TEXT,
+            intensity REAL,
+            note TEXT,
+            created_at TEXT,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+            UNIQUE(drama_id, line_id)
+        )""",
+}
+_LINE_REF_TABLE_COLUMNS = {
+    "translation_notes": ("drama_id", "line_idx", "term", "note_type", "note", "created_at"),
+    "line_emotions": ("drama_id", "line_idx", "emotion", "intensity", "note", "created_at"),
+}
+_LINE_ID_FOR_IDX_SQL = ("(SELECT l.id FROM lines l WHERE l.drama_id = t.drama_id "
+                        "AND l.idx = t.line_idx ORDER BY l.id LIMIT 1)")
+
+
+def _migrate_line_refs_to_ids():
+    """One-time (Step 2): translation_notes, line_emotions and
+    reading_history pointed at a line by its position (line_idx), which a
+    merge or split renumbers -- so a note silently ended up on a
+    different line. They now point at lines.id.
+
+    Safe to interrupt: the affected tables are first copied as-is into
+    _backup_step2_<table> (kept, never overwritten on a re-run), then the
+    rebuild runs as ONE transaction -- SQLite rolls DDL back too, so a
+    crash partway leaves the old tables untouched and the next start just
+    runs it again. Once done, the line_id columns exist and this is a no-op."""
+    conn = get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    try:
+        def cols(t):
+            return {r[1] for r in conn.execute(f"PRAGMA table_info({t})").fetchall()}
+        rebuild = [t for t in _LINE_REF_TABLE_DDL if "line_id" not in cols(t)]
+        history = "line_id" not in cols("reading_history")
+        if not rebuild and not history:
+            return
+        conn.execute("BEGIN")
+        for t in rebuild + (["reading_history"] if history else []):
+            conn.execute(f"CREATE TABLE IF NOT EXISTS _backup_step2_{t} AS SELECT * FROM {t}")
+        conn.execute("COMMIT")
+
+        conn.execute("BEGIN")
+        for t in rebuild:
+            new = f"{t}_step2_new"
+            keep = _LINE_REF_TABLE_COLUMNS[t]
+            conn.execute(f"DROP TABLE IF EXISTS {new}")
+            conn.execute(_LINE_REF_TABLE_DDL[t].format(name=new))
+            conn.execute(
+                f"INSERT OR IGNORE INTO {new} (id, line_id, {', '.join(keep)}) "
+                f"SELECT t.id, {_LINE_ID_FOR_IDX_SQL}, {', '.join('t.' + c for c in keep)} FROM {t} t")
+            conn.execute(f"DROP TABLE {t}")
+            conn.execute(f"ALTER TABLE {new} RENAME TO {t}")
+        if history:
+            conn.execute("ALTER TABLE reading_history ADD COLUMN line_id INTEGER")
+            conn.execute("UPDATE reading_history SET line_id = " + _LINE_ID_FOR_IDX_SQL.replace("t.", "reading_history."))
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def _line_id_for_idx(conn, drama_id, line_idx):
+    if line_idx is None:
+        return None
+    row = conn.execute("SELECT id FROM lines WHERE drama_id = ? AND idx = ? ORDER BY id LIMIT 1",
+                       (drama_id, int(line_idx))).fetchone()
+    return row["id"] if row else None
 
 
 def drama_dir(drama_id: int) -> str:
@@ -636,45 +732,137 @@ def distinct_voice_actors() -> List[str]:
 # Lines CRUD
 # ---------------------------------------------------------------------------
 
-def save_lines(drama_id: int, lines):
-    """Replaces all lines for a drama with the given list of Line-like objects.
+from core import LINE_FIELDS as _LINE_COLUMNS  # noqa: E402 -- core has no db dependency
 
-    Wrapped in an explicit transaction: this deletes every existing line
-    before re-inserting, so a failure partway through would otherwise
-    destroy translation work that cost real money to produce. On any
-    error the delete is rolled back and the previous lines survive
-    intact. Do not remove the rollback -- sqlite's implicit transaction
-    happens to cover this today, but that's a side effect of connection
-    lifecycle, not a guarantee."""
+
+def _line_value(ln, f):
+    v = getattr(ln, f, None)
+    return "" if (f == "flag_note" and v is None) else v
+
+
+def save_lines(drama_id: int, lines, fields=None):
+    """Saves a drama's lines by their permanent id (Line.id).
+
+    Full sync (fields=None) -- the list IS the drama's lines now:
+      - a line whose id exists for this drama is updated in place;
+      - a line with no id (or an id that isn't this drama's) is inserted,
+        and its new id is written back onto the object;
+      - an existing row whose id isn't in the list is deleted (its notes
+        and emotions with it), except that a line's `merged_ids` are
+        re-pointed onto that line first, so a note on a merged-away line
+        stays with the line it was merged into.
+
+    Field-scoped (fields=("en",) etc.) -- for background jobs: only those
+    columns are updated, only on rows that still exist. Never inserts or
+    deletes, so a job can't resurrect a line the user merged away or
+    delete one the user just added.
+
+    Either way, a line loaded through core.line_from_row carries `orig`,
+    and a field whose value still equals `orig` isn't written -- it wasn't
+    changed by this caller, so whatever is in the database now (another
+    writer's newer value) is kept. After saving, `orig` is updated.
+
+    One transaction: on any error nothing is written."""
+    cols = _LINE_COLUMNS if fields is None else tuple(f for f in _LINE_COLUMNS if f in fields)
     conn = get_conn()
     try:
         conn.execute("BEGIN")
-        conn.execute("DELETE FROM lines WHERE drama_id = ?", (drama_id,))
-        conn.executemany(
-            "INSERT INTO lines (drama_id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [(drama_id, ln.idx, ln.start, ln.end, ln.zh, ln.en,
-              getattr(ln, "speaker", None), getattr(ln, "dub_filename", None),
-              getattr(ln, "flag", None), getattr(ln, "flag_note", "")) for ln in lines]
-        )
+        existing = {r["id"] for r in conn.execute(
+            "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
+        kept = set()
+        for ln in lines:
+            lid = getattr(ln, "id", None)
+            orig = getattr(ln, "orig", None)
+            if lid in existing and lid not in kept:
+                changed = [f for f in cols
+                           if orig is None or _line_value(ln, f) != orig.get(f)]
+                if changed:
+                    conn.execute(
+                        f"UPDATE lines SET {', '.join(f + ' = ?' for f in changed)} "
+                        f"WHERE id = ? AND drama_id = ?",
+                        [_line_value(ln, f) for f in changed] + [lid, drama_id])
+                kept.add(lid)
+            elif fields is None:
+                cur = conn.execute(
+                    f"INSERT INTO lines (drama_id, {', '.join(_LINE_COLUMNS)}) "
+                    f"VALUES (?, {', '.join('?' for _ in _LINE_COLUMNS)})",
+                    [drama_id] + [_line_value(ln, f) for f in _LINE_COLUMNS])
+                ln.id = cur.lastrowid
+                kept.add(ln.id)
+            else:
+                continue
+        if fields is None:
+            for ln in lines:
+                for mid in getattr(ln, "merged_ids", None) or []:
+                    if mid in existing and mid not in kept:
+                        _repoint_line_refs(conn, drama_id, mid, ln.id)
+            removed = existing - kept
+            for lid in removed:
+                _delete_line_refs(conn, lid)
+            conn.executemany("DELETE FROM lines WHERE id = ?", [(lid,) for lid in removed])
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
-    conn.close()
+    for ln in lines:
+        if getattr(ln, "id", None) is None or not hasattr(ln, "orig"):
+            continue
+        # What this caller last wrote/saw is now the baseline, so its next
+        # save only writes what changes after this point.
+        ln.orig = {**(ln.orig or {}), **{f: _line_value(ln, f) for f in cols}}
+        if fields is None:
+            ln.merged_ids = []
+
+
+def _repoint_line_refs(conn, drama_id, from_id, to_id):
+    """Moves notes/emotions/reading history from a merged-away line onto
+    the line it was merged into. Where the target already has an emotion
+    (one per line) or a note on the same term, the target's own wins."""
+    conn.execute("UPDATE OR IGNORE translation_notes SET line_id = ? WHERE line_id = ? AND drama_id = ?",
+                 (to_id, from_id, drama_id))
+    conn.execute("UPDATE OR IGNORE line_emotions SET line_id = ? WHERE line_id = ? AND drama_id = ?",
+                 (to_id, from_id, drama_id))
+    conn.execute("UPDATE reading_history SET line_id = ? WHERE line_id = ? AND drama_id = ?",
+                 (to_id, from_id, drama_id))
+
+
+def _delete_line_refs(conn, line_id):
+    conn.execute("DELETE FROM translation_notes WHERE line_id = ?", (line_id,))
+    conn.execute("DELETE FROM line_emotions WHERE line_id = ?", (line_id,))
+    conn.execute("UPDATE reading_history SET line_id = NULL WHERE line_id = ?", (line_id,))
 
 
 def load_lines(drama_id: int):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT idx, start, end, zh, en, speaker, dub_filename, flag, flag_note "
-        "FROM lines WHERE drama_id = ? ORDER BY idx",
+        "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note "
+        "FROM lines WHERE drama_id = ? ORDER BY idx, id",
         (drama_id,)
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def load_line_objects(drama_id: int):
+    """db.load_lines as core.Line objects (id and `orig` set) -- the shared
+    loader every caller that edits and re-saves lines should use."""
+    from core import lines_from_rows
+    return lines_from_rows(load_lines(drama_id))
+
+
+def line_ids_exist(drama_id: int, line_ids) -> int:
+    """How many of line_ids are still lines of this drama."""
+    ids = [i for i in line_ids if i is not None]
+    if not ids:
+        return 0
+    conn = get_conn()
+    n = conn.execute(
+        f"SELECT COUNT(*) FROM lines WHERE drama_id = ? AND id IN ({', '.join('?' for _ in ids)})",
+        [drama_id] + ids).fetchone()[0]
+    conn.close()
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -988,29 +1176,45 @@ def upsert_glossary_term(series_id: int, term_original: str, term_translation: s
 # Translation notes (idioms, wordplay, meaningful names, allusions)
 # ---------------------------------------------------------------------------
 
-def save_translation_notes(drama_id: int, notes):
-    """notes: list of {line_idx, term, note_type, note}. Existing notes
-    for the same (drama, line, term) are updated rather than duplicated."""
+def save_translation_notes(drama_id: int, notes, id_by_idx: dict = None):
+    """notes: list of {line_idx, term, note_type, note} (or with line_id).
+    Stored against the line's permanent id. id_by_idx: {line_idx: line_id}
+    as of when the notes were generated -- a background job passes its
+    own copy's mapping, since the user may have merged lines since. Without
+    it, line_idx is resolved against the drama's lines as they are now.
+    Existing notes for the same (drama, line, term) are updated rather
+    than duplicated."""
     conn = get_conn()
     now = datetime.datetime.utcnow().isoformat()
     for n in notes:
+        line_idx = n.get("line_idx")
+        line_id = n.get("line_id")
+        if line_id is None:
+            line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
+                       else _line_id_for_idx(conn, drama_id, line_idx))
         conn.execute("""
-            INSERT INTO translation_notes (drama_id, line_idx, term, note_type, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(drama_id, line_idx, term) DO UPDATE SET
+            INSERT INTO translation_notes (drama_id, line_id, line_idx, term, note_type, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(drama_id, line_id, term) DO UPDATE SET
                 note_type = excluded.note_type,
                 note = excluded.note
-        """, (drama_id, n.get("line_idx"), n.get("term", ""), n.get("note_type", "cultural"),
+        """, (drama_id, line_id, line_idx, n.get("term", ""), n.get("note_type", "cultural"),
               n.get("note", ""), now))
     conn.commit()
     conn.close()
 
 
 def list_translation_notes(drama_id: int):
+    """line_idx is the note's line's CURRENT position (it follows the line
+    through merges/splits); the stored position is only a fallback for a
+    note whose line couldn't be matched when it was migrated."""
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM translation_notes WHERE drama_id = ? ORDER BY line_idx", (drama_id,)
-    ).fetchall()
+    rows = conn.execute("""
+        SELECT n.id, n.drama_id, n.line_id, COALESCE(l.idx, n.line_idx) AS line_idx,
+               n.term, n.note_type, n.note, n.created_at
+        FROM translation_notes n LEFT JOIN lines l ON l.id = n.line_id
+        WHERE n.drama_id = ? ORDER BY 4, n.id
+    """, (drama_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -1059,24 +1263,32 @@ def load_consistency_issues(drama_id: int):
     return out
 
 
-def save_emotions(drama_id: int, emotion_map: dict):
+def save_emotions(drama_id: int, emotion_map: dict, id_by_idx: dict = None):
     """emotion_map: {line_idx: {"emotion", "intensity", "note"}}, the shape
     emotion.detect_emotions() returns. Persisted so a whole-drama emotion
     detection run (a real LLM batch job, same cost scale as translation)
     survives a page refresh instead of vanishing with Streamlit's session
     state -- previously the only place this result lived, so losing the
-    session meant re-running (and re-paying for) the whole thing."""
+    session meant re-running (and re-paying for) the whole thing.
+
+    Stored against each line's permanent id; id_by_idx works as in
+    save_translation_notes."""
     conn = get_conn()
     now = datetime.datetime.utcnow().isoformat()
     for line_idx, tag in emotion_map.items():
+        line_idx = int(line_idx)
+        line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
+                   else _line_id_for_idx(conn, drama_id, line_idx))
+        if line_id is None:
+            continue  # the line it was about no longer exists
         conn.execute("""
-            INSERT INTO line_emotions (drama_id, line_idx, emotion, intensity, note, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(drama_id, line_idx) DO UPDATE SET
+            INSERT INTO line_emotions (drama_id, line_id, line_idx, emotion, intensity, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(drama_id, line_id) DO UPDATE SET
                 emotion = excluded.emotion,
                 intensity = excluded.intensity,
                 note = excluded.note
-        """, (drama_id, int(line_idx), tag.get("emotion", "neutral"),
+        """, (drama_id, line_id, line_idx, tag.get("emotion", "neutral"),
               tag.get("intensity", 0.5), tag.get("note", ""), now))
     conn.commit()
     conn.close()
@@ -1084,15 +1296,18 @@ def save_emotions(drama_id: int, emotion_map: dict):
 
 def load_emotions(drama_id: int) -> dict:
     """Returns the same {line_idx: {"emotion", "intensity", "note"}} shape
-    save_emotions() takes, so it drops straight back into
-    emotion.emotion_summary()/build_emotion_guidance() unchanged."""
+    save_emotions() takes, keyed by each line's CURRENT position, so it
+    drops straight back into emotion.emotion_summary()/
+    build_emotion_guidance() unchanged."""
     conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM line_emotions WHERE drama_id = ?", (drama_id,)
-    ).fetchall()
+    rows = conn.execute("""
+        SELECT COALESCE(l.idx, e.line_idx) AS line_idx, e.emotion, e.intensity, e.note
+        FROM line_emotions e LEFT JOIN lines l ON l.id = e.line_id
+        WHERE e.drama_id = ?
+    """, (drama_id,)).fetchall()
     conn.close()
     return {r["line_idx"]: {"emotion": r["emotion"], "intensity": r["intensity"],
-                             "note": r["note"] or ""} for r in rows}
+                             "note": r["note"] or ""} for r in rows if r["line_idx"] is not None}
 
 
 # ---------------------------------------------------------------------------
@@ -1122,9 +1337,10 @@ def save_progress(drama_id: int, last_line_idx: int = None, audio_position_secon
     """, (drama_id, last_line_idx, audio_position_seconds, last_page, percent_complete, now))
     if record_history and (last_line_idx is not None or percent_complete is not None):
         conn.execute(
-            "INSERT INTO reading_history (drama_id, line_idx, percent_complete, accessed_at) "
-            "VALUES (?, ?, ?, ?)",
-            (drama_id, last_line_idx, percent_complete, now))
+            "INSERT INTO reading_history (drama_id, line_id, line_idx, percent_complete, accessed_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (drama_id, _line_id_for_idx(conn, drama_id, last_line_idx), last_line_idx,
+             percent_complete, now))
     conn.commit()
     conn.close()
 
@@ -1164,13 +1380,17 @@ def list_reading_history(drama_id: int = None, limit: int = 50):
     conn = get_conn()
     if drama_id:
         rows = conn.execute(
-            "SELECT h.*, d.title_en, d.title_zh FROM reading_history h "
-            "JOIN dramas d ON d.id = h.drama_id WHERE h.drama_id = ? "
+            "SELECT h.id, h.drama_id, h.line_id, COALESCE(l.idx, h.line_idx) AS line_idx, "
+            "h.percent_complete, h.accessed_at, d.title_en, d.title_zh FROM reading_history h "
+            "JOIN dramas d ON d.id = h.drama_id LEFT JOIN lines l ON l.id = h.line_id "
+            "WHERE h.drama_id = ? "
             "ORDER BY h.accessed_at DESC LIMIT ?", (drama_id, limit)).fetchall()
     else:
         rows = conn.execute(
-            "SELECT h.*, d.title_en, d.title_zh FROM reading_history h "
-            "JOIN dramas d ON d.id = h.drama_id ORDER BY h.accessed_at DESC LIMIT ?",
+            "SELECT h.id, h.drama_id, h.line_id, COALESCE(l.idx, h.line_idx) AS line_idx, "
+            "h.percent_complete, h.accessed_at, d.title_en, d.title_zh FROM reading_history h "
+            "JOIN dramas d ON d.id = h.drama_id LEFT JOIN lines l ON l.id = h.line_id "
+            "ORDER BY h.accessed_at DESC LIMIT ?",
             (limit,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -1212,7 +1432,8 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
                               model: str = "", make_active: bool = False):
     """Stores a complete translation as a named version, so re-translating
     with a different model never destroys the previous attempt."""
-    payload = [{"idx": ln.idx, "start": ln.start, "end": ln.end, "zh": ln.zh, "en": ln.en,
+    payload = [{"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
+                "zh": ln.zh, "en": ln.en,
                 "speaker": getattr(ln, "speaker", None)} for ln in lines]
     conn = get_conn()
     if make_active:
@@ -1452,7 +1673,8 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     operation. Keeps only the most recent `keep_last` snapshots per
     drama to avoid unbounded growth -- older ones are pruned."""
     snapshot = [
-        {"idx": ln.idx, "start": ln.start, "end": ln.end, "zh": ln.zh, "en": ln.en,
+        {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
+         "zh": ln.zh, "en": ln.en,
          "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None)}
         for ln in lines
     ]
