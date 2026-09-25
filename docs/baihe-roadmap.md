@@ -1957,7 +1957,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 10 — Windows launcher | `step-10-windows-launcher-portable-mode` (deleted after merge) | ✅ Merged (PR #29) | ⏳ Pending |
   | 10b — CI automation for the fresh-machine bootstrap check | `step-10b-windows-ci-bootstrap` (deleted after merge) | ✅ Merged (PR #34) | ⏳ Pending |
   | 10c — Fix: wire the app icon into the running app, not just the shortcut | `step-10-app-icon-followup` (deleted after merge) | ✅ Merged (PR #35) | ⏳ Pending |
-  | 10d — Push the already-known CI fix to old, already-merged branches | — | Not started | — |
+  | 10d — Push the already-known CI fix to old, already-merged branches | — | ✅ **Done** (2026-09-27) — direct pushes to 4 branches, no PR/merge involved; see step text for the CI-trigger dead end and why | — |
   | 10e — LAN client/server access: print the real network URL | — | Not started | — |
   | 11 — Scanlate ML detector/inpainting/OCR routing | — | Not started | — |
   | 11b — Novel narration TTS quality | — | Not started | — |
