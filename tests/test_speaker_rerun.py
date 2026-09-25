@@ -114,9 +114,13 @@ def no_asr(monkeypatch):
 def fake_diarize(monkeypatch):
     calls = []
 
-    def fake(audio_path, hf_token, num_speakers=None, return_model=False):
+    def fake(audio_path, hf_token, num_speakers=None, return_model=False, return_embeddings=False):
         calls.append(num_speakers)
         turns = THREE if num_speakers == 3 else TWO
+        if return_model and return_embeddings:
+            return turns, "fake-model", {}
+        if return_embeddings:
+            return turns, {}
         return (turns, "fake-model") if return_model else turns
     monkeypatch.setattr(diarize, "diarize", fake)
     return calls

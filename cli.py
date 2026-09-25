@@ -194,11 +194,13 @@ def cmd_diarize(args):
             return
         print(f"#{d['id']} detecting speakers...")
         try:
-            turns, model = diarize.diarize(audio_path, hf_token, num_speakers=args.num_speakers or None,
-                                           return_model=True)
+            turns, model, embeddings = diarize.diarize(
+                audio_path, hf_token, num_speakers=args.num_speakers or None,
+                return_model=True, return_embeddings=True)
         finally:
             release_gpu_models()
-        diarize.save_turns(ddir, turns, num_speakers=args.num_speakers or None, model=model)
+        diarize.save_turns(ddir, turns, num_speakers=args.num_speakers or None, model=model,
+                          embeddings=embeddings)
         result = diarize.merge_speakers(lines, turns, overwrite_manual=args.overwrite_manual)
         for label in sorted({ln.speaker for ln in lines if ln.speaker}):
             db.upsert_character(d["id"], label)

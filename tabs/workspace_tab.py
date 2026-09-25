@@ -579,6 +579,7 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
                  key=f"rerun_speakers_{picked_id}"):
         st.session_state.pop(pending_key, None)
         turns = None
+        _voice_embeddings = {}
         _existing_lines = db.load_line_objects(picked_id)
         _audio_duration = max((ln.end for ln in _existing_lines), default=0)
         st.caption(_diarization_estimate_caption(_audio_duration))
@@ -586,16 +587,17 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
                         "wait a moment if the GPU is busy with another job)"):
             try:
                 with background_jobs.gpu_slot(f"Diarization (drama #{picked_id})"):
-                    turns, model = diarize.diarize(audio_path, hf_token,
-                                                   num_speakers=expected_speakers or None,
-                                                   return_model=True)
+                    turns, model, _voice_embeddings = diarize.diarize(
+                        audio_path, hf_token, num_speakers=expected_speakers or None,
+                        return_model=True, return_embeddings=True)
             except Exception as e:
                 st.error(f"Speaker detection failed ({e}). Check your Hugging Face token and "
                          "pyannote.audio install. Nothing was changed.")
             finally:
                 core_module.release_gpu_models()
         if turns is not None:
-            diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model)
+            diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model,
+                               embeddings=_voice_embeddings)
             st.session_state[f"speaker_segments_{picked_id}"] = turns
             conflicts = diarize.manual_lines_that_would_change(db.load_line_objects(picked_id), turns)
             if conflicts:
@@ -2115,11 +2117,12 @@ def render_workspace_tab():
                             try:
                                 import diarize
                                 with background_jobs.gpu_slot(f"Diarization ({_drama_label(drama)})"):
-                                    speaker_segments, _dmodel = diarize.diarize(
+                                    speaker_segments, _dmodel, _voice_embeddings = diarize.diarize(
                                         audio_path, hf_token, num_speakers=expected_speakers or None,
-                                        return_model=True)
+                                        return_model=True, return_embeddings=True)
                                 diarize.save_turns(ddir, speaker_segments,
-                                                   num_speakers=expected_speakers or None, model=_dmodel)
+                                                   num_speakers=expected_speakers or None, model=_dmodel,
+                                                   embeddings=_voice_embeddings)
                                 diarize.label_lines_with_speakers(lines, speaker_segments)
                                 for label in sorted({ln.speaker for ln in lines if ln.speaker}):
                                     db.upsert_character(picked_id, label)
@@ -2282,6 +2285,43 @@ def render_workspace_tab():
                     st.rerun()
 
             _series_chars = db.list_series_characters(drama["series_id"]) if drama.get("series_id") else []
+
+            # Step 8: recurring-voice suggestions -- experimental (Phase 1
+            # §3.4: nobody has shown this works reliably across different
+            # recordings). Purely a suggestion the user confirms or
+            # dismisses; nothing here ever names a speaker on its own.
+            if _series_chars:
+                import diarize as _diarize_embeddings
+                import voice_id as _voice_id
+                _voice_embeddings = _diarize_embeddings.load_embeddings(ddir)
+                if _voice_embeddings:
+                    _already_named = {c["speaker_label"] for c in characters if c["character_name"]}
+                    _dismissed_suggestions = db.list_dismissed_voice_suggestions(picked_id)
+                    _voice_suggestions = _voice_id.suggest_speaker_matches(
+                        _voice_embeddings, _series_chars, already_named=_already_named,
+                        dismissed=_dismissed_suggestions)
+                    for sug in _voice_suggestions:
+                        with st.container(border=True):
+                            vc1, vc2, vc3 = st.columns([4, 1, 1])
+                            vc1.caption(f"🔊 **{sug['speaker_label']}** sounds like "
+                                       f"**{sug['character_name']}** (similarity "
+                                       f"{sug['similarity']:.2f}) -- experimental, please confirm.")
+                            if vc2.button("✅ Accept", key=f"voiceaccept_{sug['speaker_label']}_"
+                                                          f"{sug['series_character_id']}"):
+                                db.upsert_character(
+                                    picked_id, sug["speaker_label"],
+                                    character_name=sug["character_name"],
+                                    series_character_id=sug["series_character_id"])
+                                db.update_series_character_voice_fingerprint(
+                                    sug["series_character_id"],
+                                    _voice_embeddings[sug["speaker_label"]])
+                                st.success(f"{sug['speaker_label']} set to {sug['character_name']}.")
+                                st.rerun()
+                            if vc3.button("❌ Reject", key=f"voicereject_{sug['speaker_label']}_"
+                                                          f"{sug['series_character_id']}"):
+                                db.dismiss_voice_suggestion(
+                                    picked_id, sug["speaker_label"], sug["series_character_id"])
+                                st.rerun()
 
             for c in characters:
                 with st.container(border=True):

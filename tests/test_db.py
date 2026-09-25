@@ -370,6 +370,87 @@ class TestSeriesCharacters:
         assert isolated_db.list_series_characters(sid) == []
 
 
+class TestVoiceFingerprint:
+    """Step 8: series_characters keeps a running-average voice embedding,
+    blended in only on an explicit Accept -- never automatically."""
+
+    def test_defaults_to_unset(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        assert sc["voice_fingerprint"] is None
+        assert sc["voice_fingerprint_samples"] in (0, None)
+
+    def test_first_sample_is_stored_as_is(self, isolated_db):
+        import json
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        isolated_db.update_series_character_voice_fingerprint(sc["id"], [1.0, 0.0, 0.0])
+        [sc] = isolated_db.list_series_characters(sid)
+        assert json.loads(sc["voice_fingerprint"]) == [1.0, 0.0, 0.0]
+        assert sc["voice_fingerprint_samples"] == 1
+
+    def test_second_sample_is_averaged_with_the_first(self, isolated_db):
+        import json
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        isolated_db.update_series_character_voice_fingerprint(sc["id"], [1.0, 0.0])
+        isolated_db.update_series_character_voice_fingerprint(sc["id"], [0.0, 1.0])
+        [sc] = isolated_db.list_series_characters(sid)
+        assert json.loads(sc["voice_fingerprint"]) == [0.5, 0.5]
+        assert sc["voice_fingerprint_samples"] == 2
+
+    def test_dimension_mismatch_restarts_from_the_new_sample(self, isolated_db):
+        import json
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        isolated_db.update_series_character_voice_fingerprint(sc["id"], [1.0, 0.0, 0.0])
+        isolated_db.update_series_character_voice_fingerprint(sc["id"], [0.5, 0.5])  # different length
+        [sc] = isolated_db.list_series_characters(sid)
+        assert json.loads(sc["voice_fingerprint"]) == [0.5, 0.5]
+        assert sc["voice_fingerprint_samples"] == 1
+
+    def test_unknown_series_character_id_is_a_no_op(self, isolated_db):
+        isolated_db.update_series_character_voice_fingerprint(999999, [1.0, 0.0])  # must not raise
+
+
+class TestVoiceSuggestionDismissals:
+    def test_dismissed_pair_is_listed(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        isolated_db.dismiss_voice_suggestion(did, "SPEAKER_00", sc["id"])
+        assert isolated_db.list_dismissed_voice_suggestions(did) == {("SPEAKER_00", sc["id"])}
+
+    def test_a_different_candidate_for_the_same_speaker_is_not_dismissed(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        isolated_db.upsert_series_character(sid, "Rin")
+        chars = {c["character_name"]: c["id"] for c in isolated_db.list_series_characters(sid)}
+        isolated_db.dismiss_voice_suggestion(did, "SPEAKER_00", chars["Su Shan"])
+        dismissed = isolated_db.list_dismissed_voice_suggestions(did)
+        assert ("SPEAKER_00", chars["Su Shan"]) in dismissed
+        assert ("SPEAKER_00", chars["Rin"]) not in dismissed
+
+    def test_dismissing_the_same_pair_twice_does_not_raise(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        sid = isolated_db.get_or_create_series("Streamer A")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        [sc] = isolated_db.list_series_characters(sid)
+        isolated_db.dismiss_voice_suggestion(did, "SPEAKER_00", sc["id"])
+        isolated_db.dismiss_voice_suggestion(did, "SPEAKER_00", sc["id"])
+        assert len(isolated_db.list_dismissed_voice_suggestions(did)) == 1
+
+    def test_no_dismissals_yet_is_an_empty_set(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        assert isolated_db.list_dismissed_voice_suggestions(did) == set()
+
+
 class TestVocabLookups:
     def test_save_and_list(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test")
