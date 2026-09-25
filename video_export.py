@@ -24,18 +24,28 @@ def _write_srt_tempfile(srt_text: str) -> str:
     return path
 
 
+def _escape_filter_path(path: str) -> str:
+    # ffmpeg's subtitles filter needs escaped colons/backslashes in the path
+    return path.replace("\\", "\\\\").replace(":", "\\:")
+
+
 def burn_subtitles(video_path: str, srt_text: str, out_path: str,
                     font_size: int = 24, font_color: str = "white",
-                    outline_color: str = "black"):
+                    outline_color: str = "black", font_name: str = None,
+                    bold: bool = False, italic: bool = False, outline_width: int = 2,
+                    alignment: int = 2):
     """Hardsub: subtitles permanently drawn into the video. Most
-    compatible option -- plays correctly on literally anything."""
+    compatible option -- plays correctly on literally anything. The style
+    arguments become one flat force_style for every line; for per-speaker
+    colours, export ASS and use burn_ass instead."""
     srt_path = _write_srt_tempfile(srt_text)
     try:
-        # ffmpeg's subtitles filter needs escaped colons/backslashes in the path
-        escaped = srt_path.replace("\\", "\\\\").replace(":", "\\:")
+        escaped = _escape_filter_path(srt_path)
         style = (
-            f"FontSize={font_size},PrimaryColour=&H{_bgr_hex(font_color)}&,"
-            f"OutlineColour=&H{_bgr_hex(outline_color)}&,BorderStyle=1,Outline=2"
+            (f"FontName={font_name.replace(',', ' ')}," if font_name else "")
+            + f"FontSize={font_size},PrimaryColour=&H{_bgr_hex(font_color)}&,"
+            f"OutlineColour=&H{_bgr_hex(outline_color)}&,BorderStyle=1,Outline={outline_width},"
+            f"Bold={-1 if bold else 0},Italic={-1 if italic else 0},Alignment={alignment}"
         )
         cmd = [
             "ffmpeg", "-y", "-i", video_path,
@@ -45,6 +55,25 @@ def burn_subtitles(video_path: str, srt_text: str, out_path: str,
         subprocess.run(cmd, check=True, capture_output=True)
     finally:
         os.unlink(srt_path)
+    return out_path
+
+
+def burn_ass(video_path: str, ass_text: str, out_path: str):
+    """Hardsub from an ASS file: libass reads every style -- including one
+    colour per speaker -- straight from the file, so no force_style is
+    passed (it would flatten them all back to one look)."""
+    fd, ass_path = tempfile.mkstemp(suffix=".ass")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(ass_text)
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", video_path,
+            "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
+            "-c:a", "copy", out_path,
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+    finally:
+        os.unlink(ass_path)
     return out_path
 
 

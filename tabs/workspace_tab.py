@@ -7,6 +7,7 @@ from common import *
 import audio_preprocess
 import raw_transcript
 import sensevoice_tags
+import subtitle_formats
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
@@ -58,6 +59,56 @@ def _pronoun_picker(label, current, key, unset_label="Unspecified (use the defau
     # Nothing typed yet: keep the saved value rather than clearing it the
     # moment someone opens the custom box.
     return custom.strip() or current
+
+
+def _subtitle_style_controls(picked_id, lines, speaker_names):
+    """Style controls for ASS export and burned-in video, with a live
+    preview drawn from a real line of this drama. Widgets are keyed per
+    preset, so picking a preset resets them to that preset's values."""
+    sf = subtitle_formats
+    preset = st.selectbox("Starting look", list(sf.ASS_PRESETS), key=f"sub_preset_{picked_id}",
+                          help="A starting point to tune from, not a fixed look.")
+    base = sf.ASS_PRESETS[preset]
+    k = f"{picked_id}_{preset}"
+    _other = "Other (type a font name)"
+    c1, c2 = st.columns(2)
+    font_choice = c1.selectbox("Font", sf.FONT_CHOICES + [_other],
+                               index=sf.FONT_CHOICES.index(base["font"]), key=f"sub_font_{k}")
+    font = (c1.text_input("Font name", key=f"sub_font_custom_{k}").strip() or base["font"]
+            if font_choice == _other else font_choice)
+    size = c2.slider("Size", 12, 60, base["size"], key=f"sub_size_{k}")
+    outline_width = c2.slider("Outline width", 0, 10, base["outline_width"], key=f"sub_outline_w_{k}")
+    c3, c4, c5, c6 = st.columns(4)
+    bold = c3.checkbox("Bold", value=base["bold"], key=f"sub_bold_{k}")
+    italic = c3.checkbox("Italic", value=base["italic"], key=f"sub_italic_{k}")
+    primary = c4.color_picker("Text colour", base["primary"], key=f"sub_primary_{k}")
+    outline = c5.color_picker("Outline colour", base["outline"], key=f"sub_outline_{k}")
+    alignment = c6.selectbox("Position", list(sf.ALIGNMENTS), key=f"sub_align_{k}",
+                             index=list(sf.ALIGNMENTS).index(base["alignment"]),
+                             format_func=lambda a: a.replace("-", " "))
+    st.caption("A font that isn't common must be installed on the computer doing the export or "
+               "burn-in -- otherwise it silently falls back to a default font.")
+    style = {"font": font, "size": size, "bold": bold, "italic": italic, "primary": primary,
+             "outline": outline, "outline_width": outline_width, "alignment": alignment}
+
+    speaker_colors = {}
+    speakers = sorted({ln.speaker for ln in lines if ln.speaker})
+    if speakers and st.checkbox("One colour per speaker (ASS only)", value=True,
+                                key=f"sub_per_speaker_{picked_id}"):
+        defaults = sf.default_speaker_colors(speakers)
+        cols = st.columns(min(len(speakers), 4))
+        for i, sp in enumerate(speakers):
+            speaker_colors[sp] = cols[i % len(cols)].color_picker(
+                speaker_names.get(sp) or sp, defaults[sp], key=f"sub_spcolor_{picked_id}_{sp}")
+
+    sample = (next((ln for ln in lines if ln.en.strip()), None)
+              or next((ln for ln in lines if ln.zh.strip()), None))
+    if sample:
+        st.markdown(sf.style_preview_html(sample.en or sample.zh, style,
+                                          speaker_colors.get(sample.speaker)),
+                    unsafe_allow_html=True)
+        st.caption(f"Preview: line {sample.idx + 1}, updates as you change the controls.")
+    return style, speaker_colors
 
 
 def _jump_to_line_button(picked_id, line_idx, all_lines, key):
@@ -122,6 +173,11 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             if ln.en:
                 ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
         db.save_lines(drama_id, lines, fields=("en",))
+
+    # A translation too dense to read in the time it's on screen goes into
+    # the review queue like any other flag (never replacing an existing one).
+    if subtitle_formats.flag_dense_lines(lines):
+        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
 
     _job_line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
     if _job_line_ids and not db.line_ids_exist(drama_id, _job_line_ids):
@@ -3062,16 +3118,82 @@ def render_workspace_tab():
                      "to use the drama's title.", key=f"export_base_name_{picked_id}")
             _base_name = _sanitize_filename(_base_name) or _default_base_name
 
+            # Never export an overlapping (invalid) cue: trimmed in the export
+            # copies, and the line flagged so the timing gets fixed for good.
+            _export_lines, _overlaps = subtitle_formats.clamp_overlaps(st.session_state.lines)
+            if _overlaps:
+                _next_start = {a.idx: b.start for a, b in zip(st.session_state.lines,
+                                                               st.session_state.lines[1:])}
+                _newly = 0
+                for ln in st.session_state.lines:
+                    if ln.idx in _overlaps and not ln.flag:
+                        ln.flag = subtitle_formats.OVERLAP_FLAG
+                        ln.flag_note = subtitle_formats.overlap_note(ln, _next_start[ln.idx])
+                        _newly += 1
+                if _newly:
+                    db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
+                st.warning(f"⚠️ {len(_overlaps)} line(s) overlap the next one. The export trims them "
+                           "so no player gets an invalid cue, and they're flagged in Review & edit "
+                           "so you can fix the timing.")
+
+            _dense = subtitle_formats.dense_lines(st.session_state.lines)
+            if _dense:
+                st.warning(f"⚠️ {len(_dense)} translated line(s) have more text than can comfortably "
+                           "be read in the time they're on screen: "
+                           + ", ".join(f"#{ln.idx + 1} ({cps:.0f}/s)" for ln, cps, _ in _dense[:8])
+                           + (" …" if len(_dense) > 8 else "") + ".")
+                if st.button("🚩 Flag these for review", key=f"flag_dense_{picked_id}"):
+                    if subtitle_formats.flag_dense_lines(st.session_state.lines):
+                        db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
+                    st.rerun()
+
+            _sub_format = st.radio(
+                "Format", ["SRT", "VTT", "ASS"], horizontal=True, key=f"sub_format_{picked_id}",
+                help="SRT plays everywhere. VTT is for web players. ASS carries the style below "
+                     "(font, colours, one colour per speaker) -- for styled subtitles in players "
+                     "like mpv/VLC, or burned into the video.")
+            _wrap_chars = None
+            if st.checkbox("Split long lines", value=False, key=f"sub_wrap_{picked_id}",
+                           help="Breaks a long subtitle onto several lines at a sentence or clause "
+                                "break (or a space) -- never mid-word."):
+                w1, w2 = st.columns(2)
+                _wrap_chars = {
+                    "en": w1.number_input("Max characters per line (English)", 10, 80,
+                                          subtitle_formats.line_char_limit("en"),
+                                          key=f"sub_wrap_en_{picked_id}"),
+                    "zh": w2.number_input("Max characters per line (original)", 6, 60,
+                                          subtitle_formats.line_char_limit(source_language),
+                                          key=f"sub_wrap_zh_{picked_id}"),
+                }
+
+            st.markdown("**🎨 Subtitle style** — used by .ass files and burned-in video")
+            _speaker_names = {c["speaker_label"]: c["character_name"]
+                              for c in db.list_characters_with_series_names(picked_id)
+                              if c.get("character_name")}
+            _sub_style, _speaker_colors = _subtitle_style_controls(
+                picked_id, st.session_state.lines, _speaker_names)
+
+            def _subtitle_text(field):
+                if _sub_format == "VTT":
+                    return subtitle_formats.lines_to_vtt(_export_lines, field, _notes_by_idx, _wrap_chars)
+                if _sub_format == "ASS":
+                    return subtitle_formats.lines_to_ass(
+                        _export_lines, _sub_style, field, _notes_by_idx,
+                        speaker_colors=_speaker_colors, speaker_names=_speaker_names,
+                        wrap_chars=_wrap_chars, title=drama.get("title_en") or drama.get("title_zh") or "")
+                _src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
+                if field == "bilingual":
+                    return lines_to_bilingual_srt(_src, notes_by_idx=_notes_by_idx)
+                return lines_to_srt(_src, field, notes_by_idx=_notes_by_idx)
+
+            _ext = _sub_format.lower()
             c1, c2, c3 = st.columns(3)
-            c1.download_button("Download English .srt",
-                                lines_to_srt(st.session_state.lines, "en", notes_by_idx=_notes_by_idx),
-                                file_name=f"{_base_name}_english.srt", disabled=(_en_filled == 0))
-            c2.download_button("Download Chinese .srt",
-                                lines_to_srt(st.session_state.lines, "zh", notes_by_idx=_notes_by_idx),
-                                file_name=f"{_base_name}_chinese.srt", disabled=(_zh_filled == 0))
-            c3.download_button("Download Bilingual .srt",
-                                lines_to_bilingual_srt(st.session_state.lines, notes_by_idx=_notes_by_idx),
-                                file_name=f"{_base_name}_bilingual.srt",
+            c1.download_button(f"Download English .{_ext}", _subtitle_text("en"),
+                                file_name=f"{_base_name}_english.{_ext}", disabled=(_en_filled == 0))
+            c2.download_button(f"Download Chinese .{_ext}", _subtitle_text("zh"),
+                                file_name=f"{_base_name}_chinese.{_ext}", disabled=(_zh_filled == 0))
+            c3.download_button(f"Download Bilingual .{_ext}", _subtitle_text("bilingual"),
+                                file_name=f"{_base_name}_bilingual.{_ext}",
                                 disabled=(_zh_filled == 0 and _en_filled == 0))
 
             if content_mode == "novel_narration":
@@ -3109,9 +3231,16 @@ def render_workspace_tab():
                     horizontal=False,
                 )
                 sub_language = st.selectbox("Which subtitles to export on video", ["English", "Bilingual", "Chinese"])
-                sub_text_map = {"English": lines_to_srt(st.session_state.lines, "en", notes_by_idx=_notes_by_idx),
-                                 "Bilingual": lines_to_bilingual_srt(st.session_state.lines, notes_by_idx=_notes_by_idx),
-                                 "Chinese": lines_to_srt(st.session_state.lines, "zh", notes_by_idx=_notes_by_idx)}
+                _field_for = {"English": "en", "Bilingual": "bilingual", "Chinese": "zh"}
+                _srt_src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
+                sub_text_map = {"English": lines_to_srt(_srt_src, "en", notes_by_idx=_notes_by_idx),
+                                 "Bilingual": lines_to_bilingual_srt(_srt_src, notes_by_idx=_notes_by_idx),
+                                 "Chinese": lines_to_srt(_srt_src, "zh", notes_by_idx=_notes_by_idx)}
+                if sub_style == "hardsub":
+                    st.caption("Burned in with the style from 9. Export subtitles above"
+                               + (" -- as ASS, so each speaker keeps their own colour."
+                                  if _sub_format == "ASS" else
+                                  " (pick ASS there for one colour per speaker)."))
 
                 if st.button("🎬 Generate subtitled episode"):
                     import video_export
@@ -3119,8 +3248,17 @@ def render_workspace_tab():
                     out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
                     try:
                         with st.spinner("Rendering subtitled video... this can take a while for long episodes."):
-                            if sub_style == "hardsub":
-                                video_export.burn_subtitles(source_video_path, sub_text_map[sub_language], out_path)
+                            if sub_style == "hardsub" and _sub_format == "ASS":
+                                video_export.burn_ass(source_video_path,
+                                                      _subtitle_text(_field_for[sub_language]), out_path)
+                            elif sub_style == "hardsub":
+                                video_export.burn_subtitles(
+                                    source_video_path, sub_text_map[sub_language], out_path,
+                                    font_size=_sub_style["size"], font_color=_sub_style["primary"],
+                                    outline_color=_sub_style["outline"], font_name=_sub_style["font"],
+                                    bold=_sub_style["bold"], italic=_sub_style["italic"],
+                                    outline_width=_sub_style["outline_width"],
+                                    alignment=subtitle_formats.ALIGNMENTS[_sub_style["alignment"]])
                             else:
                                 if out_ext.lower() not in (".mp4", ".mkv"):
                                     out_path = os.path.splitext(out_path)[0] + ".mp4"
