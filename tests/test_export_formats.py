@@ -240,3 +240,35 @@ class TestPreview:
                      primary="red;background:url(x)")
         out = sf.style_preview_html("x", style)
         assert "display:none" not in out and "url(" not in out
+
+
+class TestLinesForClip:
+    """Step 6e: vertical/shorts export trims the VIDEO to [start, end), so
+    the burned subtitles need the same window, timeshifted to start at 0 --
+    otherwise a subtitle at absolute time 10:30 would never appear (or
+    appear at the wrong moment) in a clip that now starts at 0:00."""
+
+    def _lines(self):
+        return [Line(idx=0, start=0.0, end=2.0, zh="A", en="A"),
+                Line(idx=1, start=10.0, end=12.0, zh="B", en="B"),
+                Line(idx=2, start=20.0, end=22.0, zh="C", en="C")]
+
+    def test_only_overlapping_lines_are_kept(self):
+        out = sf.lines_for_clip(self._lines(), 5.0, 15.0)
+        assert [l.en for l in out] == ["B"]
+
+    def test_kept_lines_are_timeshifted_to_start_at_zero(self):
+        out = sf.lines_for_clip(self._lines(), 10.0, 22.0)
+        assert (out[0].start, out[0].end) == (0.0, 2.0)
+        assert (out[1].start, out[1].end) == (10.0, 12.0)
+
+    def test_a_partially_overlapping_line_is_clamped_to_the_window(self):
+        lines = [Line(idx=0, start=8.0, end=13.0, zh="X", en="X")]
+        out = sf.lines_for_clip(lines, 10.0, 20.0)
+        assert (out[0].start, out[0].end) == (0.0, 3.0)  # clamped at the clip's own start
+
+    def test_idx_is_renumbered_and_original_lines_untouched(self):
+        lines = self._lines()
+        out = sf.lines_for_clip(lines, 10.0, 22.0)
+        assert [l.idx for l in out] == [0, 1]
+        assert lines[1].start == 10.0  # the source line is a copy, not mutated
