@@ -275,6 +275,18 @@ def _make_fake_hf_repo(cache_dir, repo_type_prefix, org, name, commit_hash="a" *
 
 class TestHfCacheScanAndDelete:
     def test_lists_entries_with_real_sizes(self, tmp_path_str):
+        # huggingface_hub is in requirements.txt/requirements-optional.txt,
+        # not requirements-core.txt -- CI's own core-only install (see
+        # .github/workflows/tests.yml's comment) never has it, so this
+        # (and the two tests below that also call scan_cache_dir() against
+        # a real-shaped fake repo) must skip cleanly there instead of
+        # failing hard, the same convention every other optional-dependency
+        # test in this suite already follows (pytesseract, cv2, jieba).
+        # scan_hf_cache() itself is unaffected either way -- confirmed
+        # directly against a real download, not just this fixture -- this
+        # was a missing-skip-guard gap in the test, not a bug in the
+        # feature it's testing.
+        pytest.importorskip("huggingface_hub")
         _make_fake_hf_repo(tmp_path_str, "models", "Systran", "faster-whisper-large-v3",
                            files={"model.bin": b"x" * 5000})
         entries = diagnostics.scan_hf_cache(tmp_path_str)
@@ -284,6 +296,7 @@ class TestHfCacheScanAndDelete:
         assert entries[0]["size_bytes"] >= 5000
 
     def test_lists_multiple_repos_largest_first(self, tmp_path_str):
+        pytest.importorskip("huggingface_hub")
         _make_fake_hf_repo(tmp_path_str, "models", "org", "small", commit_hash="a" * 40,
                            files={"f.bin": b"x" * 100})
         _make_fake_hf_repo(tmp_path_str, "models", "org", "big", commit_hash="b" * 40,
@@ -292,6 +305,7 @@ class TestHfCacheScanAndDelete:
         assert [e["repo_id"] for e in entries] == ["org/big", "org/small"]
 
     def test_deleting_a_revision_actually_frees_the_space(self, tmp_path_str):
+        pytest.importorskip("huggingface_hub")
         _make_fake_hf_repo(tmp_path_str, "models", "org", "model-a", commit_hash="c" * 40,
                            files={"f.bin": b"x" * 9000})
         before = diagnostics.scan_hf_cache(tmp_path_str)
