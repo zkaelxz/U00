@@ -3,6 +3,7 @@ tests/test_transcription_quality.py -- Step 6: Whisper anti-loop settings,
 large-v3-turbo + batched fast mode, ForcedAligner reliability, vocal
 separation backends, and SenseVoice's audio emotion/event tags.
 """
+import os
 import sys
 import types
 
@@ -120,6 +121,15 @@ class TestForcedAlignerReliability:
         assert "timing_uncertain" not in te.FLAG_REASONS  # never offered to the LLM
 
 
+def _write_fixture_wav(path, seconds=0.2, samplerate=8000):
+    """A tiny real WAV -- Step 4g's chunking always round-trips vocal
+    separation through soundfile now, even for a short file, so a
+    placeholder path/bytes no longer reaches these fakes' own logic."""
+    import numpy as np
+    import soundfile as sf
+    sf.write(path, np.zeros((int(seconds * samplerate), 1), dtype="float32"), samplerate)
+
+
 def _fake_audio_separator(monkeypatch, fail=False, returns_relative=False):
     seen = {}
 
@@ -135,10 +145,12 @@ def _fake_audio_separator(monkeypatch, fail=False, returns_relative=False):
             if fail:
                 raise RuntimeError("CUDA out of memory")
             import os
+            import soundfile as sf
             name = "audio_(Vocals)_vocals_mel_band_roformer.wav"
-            with open(os.path.join(self.output_dir, name), "wb") as f:
-                f.write(b"vocals")
-            return [name if returns_relative else os.path.join(self.output_dir, name)]
+            data, sr = sf.read(audio_path, dtype="float32", always_2d=True)
+            out_path = os.path.join(self.output_dir, name)
+            sf.write(out_path, data, sr)
+            return [name if returns_relative else out_path]
 
     pkg = types.ModuleType("audio_separator")
     sub = types.ModuleType("audio_separator.separator")
@@ -151,39 +163,46 @@ def _fake_audio_separator(monkeypatch, fail=False, returns_relative=False):
 class TestVocalSeparationBackends:
     @pytest.mark.parametrize("relative", [False, True])
     def test_auto_prefers_mel_band_roformer(self, monkeypatch, tmp_path, relative):
+        pytest.importorskip("soundfile")
         import audio_preprocess as ap
         seen = _fake_audio_separator(monkeypatch, returns_relative=relative)
         monkeypatch.setattr(ap, "separate_vocals_demucs",
                             lambda *a, **k: pytest.fail("Demucs used when RoFormer worked"))
         monkeypatch.setitem(ap._BACKENDS, "demucs", ap.separate_vocals_demucs)
+        in_path = str(tmp_path / "in.wav")
+        _write_fixture_wav(in_path)
         out = str(tmp_path / "vocals.wav")
-        assert ap.separate_vocals("in.wav", out) == out
-        assert open(out, "rb").read() == b"vocals"
+        assert ap.separate_vocals(in_path, out) == out
+        assert os.path.exists(out)
         assert seen["model"] == ap.MEL_ROFORMER_VOCAL_MODEL and seen["stem"] == "Vocals"
-        assert [p.name for p in tmp_path.iterdir()] == ["vocals.wav"]  # temp dir cleaned up
+        # temp separator work dir cleaned up -- only the two real WAVs remain
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["in.wav", "vocals.wav"]
 
     def test_auto_falls_back_to_demucs_when_audio_separator_is_missing(self, monkeypatch, tmp_path):
         import audio_preprocess as ap
         monkeypatch.setitem(sys.modules, "audio_separator", None)
         monkeypatch.setitem(sys.modules, "audio_separator.separator", None)
         used = []
-        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda a, o: used.append("demucs") or o)
+        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda a, o, **kw: used.append("demucs") or o)
         assert ap.separate_vocals("in.wav", str(tmp_path / "v.wav")) == str(tmp_path / "v.wav")
         assert used == ["demucs"]
 
     def test_auto_falls_back_to_demucs_when_roformer_fails(self, monkeypatch, tmp_path):
+        pytest.importorskip("soundfile")
         import audio_preprocess as ap
         _fake_audio_separator(monkeypatch, fail=True)
         used = []
-        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda a, o: used.append("demucs") or o)
-        ap.separate_vocals("in.wav", str(tmp_path / "v.wav"))
+        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda a, o, **kw: used.append("demucs") or o)
+        in_path = str(tmp_path / "in.wav")
+        _write_fixture_wav(in_path)
+        ap.separate_vocals(in_path, str(tmp_path / "v.wav"))
         assert used == ["demucs"]
 
     def test_a_named_backend_uses_only_that_one(self, monkeypatch, tmp_path):
         import audio_preprocess as ap
         monkeypatch.setitem(sys.modules, "audio_separator", None)
         monkeypatch.setitem(sys.modules, "audio_separator.separator", None)
-        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda *a: pytest.fail("fell back"))
+        monkeypatch.setitem(ap._BACKENDS, "demucs", lambda *a, **kw: pytest.fail("fell back"))
         with pytest.raises(ap.VocalSeparationError, match="pip install audio-separator"):
             ap.separate_vocals("in.wav", str(tmp_path / "v.wav"), backend="audio_separator")
 
