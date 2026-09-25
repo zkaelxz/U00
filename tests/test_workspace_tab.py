@@ -2460,3 +2460,156 @@ class TestPerDramaPronounPicker:
         assert self._picker(at, "Pronouns (Su Shan)").value == "she/her"
         [c] = isolated_db.list_characters(did)
         assert not c["pronouns"]  # still following the series value, not a frozen copy
+
+
+class TestPresetsInWorkspaceUI:
+    """Step 9c: "Save as preset" / "Apply a preset" in the Workspace
+    tab's 5. Translation section, on an existing drama."""
+
+    def _drama(self, isolated_db):
+        return isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                         content_mode="audio_drama", translation_engine="claude")
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _style_box(self, at):
+        return [s for s in at.selectbox if s.label == "Translation style"][0]
+
+    def _locale_box(self, at):
+        return [s for s in at.selectbox if s.label == "English variant"][0]
+
+    def _pronoun_box(self, at):
+        return [c for c in at.checkbox if c.label == "Default ambiguous pronouns to she/her"][0]
+
+    def _genre_box(self, at):
+        return [c for c in at.checkbox if "Include baihe/GL genre guidance" in c.label][0]
+
+    def test_save_as_preset_captures_current_settings(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+
+        self._style_box(at).select("novel").run()
+        self._locale_box(at).select("en-GB").run()
+        self._pronoun_box(at).check().run()
+        [t for t in at.text_input if t.key == f"new_preset_name_{did}"][0].set_value(
+            "My preset").run()
+        [b for b in at.button if b.key == f"save_preset_btn_{did}"][0].click().run()
+
+        presets = db.list_presets()
+        assert len(presets) == 1
+        p = presets[0]
+        assert p["name"] == "My preset"
+        assert p["style_preset"] == "novel"
+        assert p["locale"] == "en-GB"
+        assert p["default_female_pronouns"] == 1
+        assert p["translation_engine"] == "claude"
+
+    def test_saving_with_a_blank_name_is_disabled(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        btn = [b for b in at.button if b.key == f"save_preset_btn_{did}"][0]
+        assert btn.disabled
+        assert db.list_presets() == []
+
+    def test_no_presets_saved_shows_no_apply_control(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert not [s for s in at.selectbox if s.key == f"apply_preset_choice_{did}"]
+
+    def test_apply_button_is_disabled_when_no_preset_is_selected(self, isolated_db):
+        did = self._drama(isolated_db)
+        db.save_preset("Some preset")
+        at = self._run(did)
+        btn = [b for b in at.button if b.key == f"apply_preset_btn_{did}"][0]
+        assert btn.disabled
+
+    def test_applying_a_preset_sets_every_captured_field(self, isolated_db):
+        did = self._drama(isolated_db)
+        db.save_preset("Novel style", translation_engine="deepseek", style_preset="novel",
+                       locale="en-GB", default_female_pronouns=True, include_genre_notes=False)
+        at = self._run(did)
+
+        [s for s in at.selectbox if s.key == f"apply_preset_choice_{did}"][0].select(
+            "Novel style").run()
+        [b for b in at.button if b.key == f"apply_preset_btn_{did}"][0].click().run()
+
+        assert db.get_drama(did)["translation_engine"] == "deepseek"
+        assert self._style_box(at).value == "novel"
+        assert self._locale_box(at).value == "en-GB"
+        assert self._pronoun_box(at).value is True
+        assert self._genre_box(at).value is False
+
+    def test_applied_fields_are_not_frozen_against_later_manual_changes(self, isolated_db):
+        """Exit condition: applying a preset sets its fields, and none of
+        them are frozen against later manual changes."""
+        did = self._drama(isolated_db)
+        db.save_preset("Novel style", style_preset="novel", locale="en-GB")
+        at = self._run(did)
+        [s for s in at.selectbox if s.key == f"apply_preset_choice_{did}"][0].select(
+            "Novel style").run()
+        [b for b in at.button if b.key == f"apply_preset_btn_{did}"][0].click().run()
+        assert self._style_box(at).value == "novel"
+
+        self._style_box(at).select("audio_drama").run()
+        assert self._style_box(at).value == "audio_drama"
+
+        # Confirms it wasn't just the immediate post-click render that
+        # happened to show the manual pick -- an unrelated later rerun
+        # doesn't silently revert it back to the preset's own value.
+        at.run(timeout=30)
+        assert self._style_box(at).value == "audio_drama"
+
+
+class TestApplyPresetOnNewDrama:
+    """Step 9c item 2: applying a preset "when creating a new drama"."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = None
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_no_presets_saved_still_allows_creating_a_drama(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Plain One").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["title_en"] == "Plain One"
+
+    def test_creating_a_drama_with_a_preset_applies_its_engine_and_fields(self, isolated_db):
+        db.save_preset("Novel defaults", translation_engine="deepseek", style_preset="novel",
+                       locale="en-GB", default_female_pronouns=True, include_genre_notes=False)
+        at = self._run()
+
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("New One").run()
+        [s for s in at.selectbox if s.label == "Apply a preset (optional)"][0].select(
+            "Novel defaults").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        new_id = dramas[0]["id"]
+        assert dramas[0]["translation_engine"] == "deepseek"
+        assert at.session_state[f"style_preset_{new_id}"] == "novel"
+        assert at.session_state[f"locale_{new_id}"] == "en-GB"
+        assert at.session_state[f"default_female_pronouns_{new_id}"] is True
+        assert at.session_state[f"include_genre_notes_{new_id}"] is False

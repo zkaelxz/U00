@@ -457,6 +457,26 @@ def init_db():
         FOREIGN KEY (case_id) REFERENCES benchmark_cases(id) ON DELETE CASCADE
     );
 
+    -- Step 9c: a named, reusable snapshot of a Workspace configuration --
+    -- captured at the library level (no drama_id/series_id), so it works
+    -- across unrelated series/projects, not just the drama it was saved
+    -- from. Applying one is a one-time fill-in, never a live link: no
+    -- other table references presets.id, so deleting or renaming a
+    -- preset never touches any drama it was previously applied to.
+    CREATE TABLE IF NOT EXISTS presets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        translation_engine TEXT,
+        engine_model TEXT,        -- e.g. a Claude/Gemini/Ollama model id -- which
+                                   -- dict it belongs to is decided by translation_engine
+        style_preset TEXT,        -- a tguide.STYLE_PRESETS key
+        locale TEXT,               -- 'en-US' / 'en-GB' / 'en-AU'
+        default_female_pronouns INTEGER DEFAULT 0,
+        include_genre_notes INTEGER DEFAULT 1,
+        created_at TEXT,
+        updated_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
     CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
     CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
@@ -1785,6 +1805,83 @@ def update_glossary_term(term_id: int, term_original: str, term_translation: str
             policy = ?, enforce_exact = ?
         WHERE id = ?
     """, (term_original, term_translation, notes, category, policy, int(enforce_exact), term_id))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Step 9c: Workspace-configuration presets -- library-level, reusable
+# across unrelated series/projects. See the `presets` table's own comment
+# in init_db for why deleting/renaming one never touches a drama it was
+# previously applied to: nothing else references presets.id at all.
+# ---------------------------------------------------------------------------
+
+def save_preset(name: str, translation_engine: str = None, engine_model: str = None,
+                 style_preset: str = None, locale: str = None,
+                 default_female_pronouns: bool = False, include_genre_notes: bool = True) -> int:
+    """Creates a new preset, or overwrites the existing one with this exact
+    name -- "Save as preset" under a name that's already taken replaces
+    its captured fields rather than failing on the name's UNIQUE
+    constraint, the same "save as" behavior as most apps. Overwriting
+    never touches any drama the old version was previously applied to,
+    since applying one only ever copies its fields onto a drama at that
+    moment (see the `presets` table comment) -- there's no live link to
+    break."""
+    now = datetime.datetime.utcnow().isoformat()
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO presets (name, translation_engine, engine_model, style_preset, locale,
+                              default_female_pronouns, include_genre_notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            translation_engine = excluded.translation_engine,
+            engine_model = excluded.engine_model,
+            style_preset = excluded.style_preset,
+            locale = excluded.locale,
+            default_female_pronouns = excluded.default_female_pronouns,
+            include_genre_notes = excluded.include_genre_notes,
+            updated_at = excluded.updated_at
+    """, (name, translation_engine, engine_model, style_preset, locale,
+          int(bool(default_female_pronouns)), int(bool(include_genre_notes)), now, now))
+    conn.commit()
+    # cur.lastrowid isn't reliable on the UPDATE branch of an upsert --
+    # look the row up by its own UNIQUE name instead of trusting it.
+    preset_id = conn.execute("SELECT id FROM presets WHERE name = ?", (name,)).fetchone()["id"]
+    conn.close()
+    return preset_id
+
+
+def list_presets():
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_preset(preset_id: int):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM presets WHERE id = ?", (preset_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def rename_preset(preset_id: int, new_name: str):
+    """Updates only the name -- every captured field is left exactly as
+    saved."""
+    conn = get_conn()
+    conn.execute("UPDATE presets SET name = ?, updated_at = ? WHERE id = ?",
+                 (new_name, datetime.datetime.utcnow().isoformat(), preset_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_preset(preset_id: int):
+    """Removes only the presets row. No drama row (or any other table)
+    references a preset's id, so a drama this preset was previously
+    applied to is completely unaffected -- see the `presets` table's own
+    comment in init_db."""
+    conn = get_conn()
+    conn.execute("DELETE FROM presets WHERE id = ?", (preset_id,))
     conn.commit()
     conn.close()
 
