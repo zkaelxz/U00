@@ -194,7 +194,7 @@ class TestResolveStreamUrl:
         with pytest.raises(lt.LiveCaptureError, match="direct stream URL"):
             lt.resolve_stream_url("https://example.com/live")
 
-    def _install_fake_yt_dlp_with_attempt_log(self, monkeypatch, extract_info_fn):
+    def _install_fake_yt_dlp_with_attempt_log(self, monkeypatch, extract_info_fn, opts_log=None):
         import types
         fake_module = types.ModuleType("yt_dlp")
         attempts = []
@@ -203,6 +203,8 @@ class TestResolveStreamUrl:
             def __init__(self, opts):
                 client = (opts.get("extractor_args", {}).get("youtube", {}).get("player_client") or [None])[0]
                 attempts.append((opts["format"], client))
+                if opts_log is not None:
+                    opts_log.append(opts)
 
             def __enter__(self):
                 return self
@@ -239,6 +241,19 @@ class TestResolveStreamUrl:
             [("bestaudio/best", None), ("best", None)]
             + [("best", c) for c in lt._YOUTUBE_CLIENT_FALLBACKS]
         )
+
+    def test_js_runtimes_is_a_dict_not_a_list(self, monkeypatch):
+        """Regression test: yt-dlp's real, current js_runtimes option is a
+        dict of {runtime: {config}}, not a flat list -- a list raises
+        "Invalid js_runtimes format" and breaks Live capture entirely."""
+        opts_log = []
+        self._install_fake_yt_dlp_with_attempt_log(
+            monkeypatch, lambda _last: {"id": "abc", "url": "https://cdn.example/stream.m3u8"},
+            opts_log=opts_log)
+
+        lt.resolve_stream_url("https://example.com/live")
+
+        assert opts_log[0]["js_runtimes"] == {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}
 
     def test_no_video_formats_recovers_via_the_best_fallback(self, monkeypatch):
         def fail_only_on_bestaudio(last_attempt):

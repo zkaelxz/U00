@@ -209,6 +209,20 @@ class TestModelDownloadErrorHandling:
         assert isinstance(is_whisper_model_cached("nonexistent-size"), bool)
 
 
+class TestDefaultWhisperSize:
+    """Step 5b item 9: a consumer GPU in the 8-12GB class this app targets
+    (confirmed against real hardware -- an RTX 3080 Ti, 12GB) comfortably
+    fits large-v3 without needing large-v3-turbo's memory savings, and
+    large-v3-turbo is reported weaker on Japanese/Korean -- so large-v3 is
+    the default for all three source languages, not just an available
+    option alongside 'medium'."""
+
+    def test_default_whisper_size_is_large_v3(self):
+        from core import DEFAULT_WHISPER_SIZE, WHISPER_MODELS
+        assert DEFAULT_WHISPER_SIZE == "large-v3"
+        assert DEFAULT_WHISPER_SIZE in WHISPER_MODELS
+
+
 class TestDnsDiagnosis:
     """A DNS blocker (Pi-hole, AdGuard) returns 0.0.0.0 for blocked domains
     rather than failing, which looks identical to a broken connection from

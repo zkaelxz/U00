@@ -84,6 +84,19 @@ class TestAudioOnlyDownload:
         assert calls["opts"]["postprocessors"][0]["key"] == "FFmpegExtractAudio"
         assert os.path.isdir(out_dir)
 
+    def test_js_runtimes_is_a_dict_not_a_list(self, tmp_path):
+        """Regression test: yt-dlp's real, current js_runtimes option is a
+        dict of {runtime: {config}}, not a flat list -- a list raises
+        "Invalid js_runtimes format" and breaks every download."""
+        out_dir = str(tmp_path)
+        calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
+        open(os.path.join(out_dir, "downloaded_audio.wav"), "wb").close()
+
+        import video_download
+        video_download.download("https://youtu.be/xyz", out_dir, audio_only=True)
+
+        assert calls["opts"]["js_runtimes"] == {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}
+
     def test_progress_callback_receives_fraction_and_message(self, tmp_path):
         out_dir = str(tmp_path)
         calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": "m4a"})
@@ -163,3 +176,4 @@ class TestVideoDownload:
         assert path == os.path.join(out_dir, "downloaded_video.mp4")
         assert calls["opts"]["format"] == "bestvideo+bestaudio/best"
         assert "postprocessors" not in calls["opts"]
+        assert calls["opts"]["js_runtimes"] == {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}
