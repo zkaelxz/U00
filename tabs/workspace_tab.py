@@ -1,6 +1,8 @@
 """
 tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.py.
 """
+import dataclasses
+
 from common import *
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
@@ -102,7 +104,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         ollama_num_ctx_override=ollama_num_ctx_override,
         progress_cb=lambda frac: background_jobs.update_progress(
             job_id, frac, f"Translating... {frac*100:.0f}%"),
-        save_cb=lambda ls: db.save_lines(drama_id, ls),
+        # Translation owns `en` and nothing else -- a flag job, a merge or
+        # the user's own edits can run alongside without being overwritten.
+        save_cb=lambda ls: db.save_lines(drama_id, ls, fields=("en",)),
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translate",
@@ -114,7 +118,16 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         for ln in lines:
             if ln.en:
                 ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
-        db.save_lines(drama_id, lines)
+        db.save_lines(drama_id, lines, fields=("en",))
+
+    _job_line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
+    if _job_line_ids and not db.line_ids_exist(drama_id, _job_line_ids):
+        # Every line this job was translating has been replaced (e.g. a new
+        # transcription finished meanwhile) -- its writes were no-ops, and
+        # recording a version or a "translated" status would describe lines
+        # that no longer exist.
+        background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True})
+        return
 
     _version_label = f"{engine_choice} · {style_preset}"
     if (engine_choice in translate_engines.FREE_ENGINES
@@ -254,6 +267,25 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
+def _copy_lines(lines):
+    """Independent copies for a background job (it mutates its own list
+    while the page keeps editing st.session_state's). dataclasses.replace
+    carries every field, including the permanent id and the `orig`
+    baseline db.save_lines diffs against -- a hand-listed copy that forgets
+    one (flag, speaker) is exactly how fields used to get silently wiped."""
+    return [dataclasses.replace(ln, merged_ids=[]) for ln in lines]
+
+
+def _id_by_idx(lines):
+    """{line idx: permanent line id} as of when a job copied the lines, so
+    a result keyed by position lands on the right line even if the user
+    merged or split lines while the job ran. None if any line has no id
+    yet (then db resolves positions against the lines as they are now)."""
+    if any(getattr(ln, "id", None) is None for ln in lines):
+        return None
+    return {ln.idx: ln.id for ln in lines}
+
+
 def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choice):
     """
     Runs emotion.detect_emotions in a background thread, same reasoning as
@@ -275,7 +307,7 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "emotion_detect",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
-    db.save_emotions(drama_id, emap)
+    db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
     background_jobs.set_result(job_id, {"emotions": emap})
 
 
@@ -294,7 +326,7 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
-    db.save_lines(drama_id, lines)
+    db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
 
 
@@ -327,7 +359,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, so
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     if found_notes:
-        db.save_translation_notes(drama_id, found_notes)
+        db.save_translation_notes(drama_id, found_notes, id_by_idx=_id_by_idx(lines))
     background_jobs.set_result(job_id, {"note_count": len(found_notes)})
 
 
@@ -378,7 +410,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 pass  # leave the line flagged rather than lose the source fix silently
         background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
                                         f"Fixing flagged lines... {i + 1}/{len(flagged)}")
-    db.save_lines(drama_id, lines)
+    db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged)})
 
 
@@ -471,17 +503,6 @@ def render_workspace_tab():
     # sections above that point (Romanize credits, Raw novel upload) both
     # need it, and each read it before that later definition ran.
     source_language = drama.get("source_language") or "zh"
-
-    # Translate/flag/fix-flagged jobs each save their own full copy of the
-    # drama's lines via db.save_lines() from a background thread. Any
-    # OTHER control that writes lines from the main thread at the same
-    # time races it -- whichever save lands last silently discards the
-    # other's work. Defined here, once, since it gates controls in
-    # several sections below (Transcribe & Align / Chunk & Tag Speakers,
-    # Review & edit, AI dub), not just one.
-    _editing_locked = background_jobs.any_line_writing_job(picked_id)
-    _editing_locked_message = ("✋ Line editing is paused while translation is running, so your "
-                                "edits aren't overwritten. It unlocks when the job finishes.")
 
     with st.expander("✏️ Edit metadata", expanded=False):
         c1, c2 = st.columns(2)
@@ -1542,9 +1563,7 @@ def render_workspace_tab():
                           f"fetch it from Hugging Face (a few hundred MB to ~3GB). Needs a working "
                           f"internet connection; it's cached afterwards.")
 
-        if can_prep and _editing_locked:
-            st.info(_editing_locked_message)
-        run_prep = b1.button(prep_label, type="primary", disabled=not can_prep or _editing_locked)
+        run_prep = b1.button(prep_label, type="primary", disabled=not can_prep)
 
         # Ollama is exempted from the API-key check above, so with nothing
         # in its place, clicking Translate against a stopped local server
@@ -1672,6 +1691,7 @@ def render_workspace_tab():
                 db.upsert_character(picked_id, "Narrator", character_name="Narrator")
 
             st.session_state.lines = lines
+            background_jobs.cancel_line_jobs(picked_id)
             db.save_lines(picked_id, lines)
             db.update_drama(picked_id, status="aligned")
             st.success(f"Prepared {len(lines)} narration chunks.")
@@ -1804,6 +1824,10 @@ def render_workspace_tab():
                                           f"then re-run just diarization if you want it.")
 
                     st.session_state.lines = lines
+                    # A brand-new set of lines: a translate/flag job still
+                    # running on the old ones would only be spending money
+                    # on lines that no longer exist.
+                    background_jobs.cancel_line_jobs(picked_id)
                     db.save_lines(picked_id, lines)
                     db.update_drama(picked_id, status="aligned")
                     st.success(f"Aligned {len(lines)} lines.")
@@ -1822,10 +1846,7 @@ def render_workspace_tab():
         if st.session_state.lines is None:
             saved = db.load_lines(picked_id)
             if saved:
-                st.session_state.lines = [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                                 zh=r["zh"], en=r["en"] or "", speaker=r.get("speaker"),
-                                                 dub_filename=r.get("dub_filename"), flag=r.get("flag"),
-                                                 flag_note=r.get("flag_note") or "") for r in saved]
+                st.session_state.lines = core_module.lines_from_rows(saved)
 
         _translate_job_id = f"translate_{picked_id}"
         _job = background_jobs.get_status(_translate_job_id)
@@ -1867,35 +1888,22 @@ def render_workspace_tab():
             # A copy, not the live list -- the background thread mutates its own
             # lines and saves through the database; the main script reloads from
             # there once the job is visible again, rather than two threads
-            # touching the same objects st.session_state also holds. Carries
-            # flag/flag_note through explicitly: run_translate_job's save_cb
-            # calls db.save_lines() on this exact list on every batch, including
-            # for lines this run never touches -- dropping those fields here
-            # would silently wipe every flag in the drama on every translate run.
-            _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                 speaker=l.speaker, dub_filename=l.dub_filename,
-                                 flag=l.flag, flag_note=l.flag_note)
-                           for l in st.session_state.lines]
+            # touching the same objects st.session_state also holds.
+            _lines_copy = _copy_lines(st.session_state.lines)
 
-            _conflict = background_jobs.other_line_writing_job(picked_id, "translate_")
-            if _conflict:
-                st.warning(f"Can't start translation -- a {_conflict} job is already running "
-                           "for this drama. Both save every line, so running at the same time "
-                           "would let one silently overwrite the other. Wait for it to finish.")
+            started = background_jobs.start_job(
+                _translate_job_id, run_translate_job,
+                _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
+                novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
+                engine_choice, style_preset, context_window,
+                st.session_state.get("settings_ollama_num_ctx_override") or None)
+            if started:
+                st.info("Translation started in the background -- it keeps running even if you "
+                        "switch tabs or close this one. Come back here any time to see progress; "
+                        "it'll pick up right where it is.")
+                st.rerun()
             else:
-                started = background_jobs.start_job(
-                    _translate_job_id, run_translate_job,
-                    _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
-                    novel_reference, force_retranslate, locale, glossary_terms, style_guidelines,
-                    engine_choice, style_preset, context_window,
-                    st.session_state.get("settings_ollama_num_ctx_override") or None)
-                if started:
-                    st.info("Translation started in the background -- it keeps running even if you "
-                            "switch tabs or close this one. Come back here any time to see progress; "
-                            "it'll pick up right where it is.")
-                    st.rerun()
-                else:
-                    st.warning("A translation is already running for this drama.")
+                st.warning("A translation is already running for this drama.")
 
         if _job:
             if _job["status"] == "running":
@@ -1905,12 +1913,7 @@ def render_workspace_tab():
                 if st.button("🔄 Refresh progress", key=f"refresh_tr_{picked_id}"):
                     st.rerun()
             elif _job["status"] == "done":
-                st.session_state.lines = [
-                    Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
-                         en=r.get("en") or "", speaker=r.get("speaker"),
-                         dub_filename=r.get("dub_filename"), flag=r.get("flag"),
-                         flag_note=r.get("flag_note") or "")
-                    for r in db.load_lines(picked_id)]
+                st.session_state.lines = db.load_line_objects(picked_id)
                 _errors = (_job.get("result") or {}).get("errors", [])
                 if _errors:
                     failed_line_nums = [i + 1 for e in _errors for i in e["lines"]]
@@ -2070,17 +2073,10 @@ def render_workspace_tab():
             # unrelated click forced a second rerun.
             _early_flag_job = background_jobs.get_status(f"flag_{picked_id}")
             if _early_flag_job and _early_flag_job["status"] == "done":
-                st.session_state.lines = [
-                    Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
-                         en=r.get("en") or "", speaker=r.get("speaker"),
-                         dub_filename=r.get("dub_filename"), flag=r.get("flag"),
-                         flag_note=r.get("flag_note") or "")
-                    for r in db.load_lines(picked_id)]
+                st.session_state.lines = db.load_line_objects(picked_id)
 
             all_lines = st.session_state.lines
 
-            if _editing_locked:
-                st.info(_editing_locked_message)
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
@@ -2115,7 +2111,7 @@ def render_workspace_tab():
                     fc1, fc2 = st.columns([5, 1])
                     fc1.warning(f"⚠️ **{translate_engines.FLAG_REASONS.get(ln.flag, ln.flag)}**"
                                + (f" — {ln.flag_note}" if ln.flag_note else ""))
-                    if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}", disabled=_editing_locked):
+                    if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}"):
                         ln.flag, ln.flag_note = None, ""
                         db.save_lines(picked_id, all_lines)
                         st.rerun()
@@ -2142,7 +2138,7 @@ def render_workspace_tab():
                     _improved = st.session_state.get(f"rv_improved_{ln.idx}")
                     if _improved:
                         st.success(_improved)
-                        if st.button("Use this", key=f"rvuseimproved_{ln.idx}", disabled=_editing_locked):
+                        if st.button("Use this", key=f"rvuseimproved_{ln.idx}"):
                             db.record_edit_sample(picked_id, zh, en, _improved)
                             for _r in all_lines:
                                 if _r.idx == ln.idx:
@@ -2170,7 +2166,7 @@ def render_workspace_tab():
                         if _retrans is not None:
                             if _retrans:
                                 st.success(_retrans)
-                                if st.button("Use this", key=f"rvuseretrans_{ln.idx}", disabled=_editing_locked):
+                                if st.button("Use this", key=f"rvuseretrans_{ln.idx}"):
                                     for _r in all_lines:
                                         if _r.idx == ln.idx:
                                             _r.zh = _retrans
@@ -2186,7 +2182,8 @@ def render_workspace_tab():
                 _still_flag, _still_note = (ln.flag, ln.flag_note) if en.strip() == ln.en.strip() else (None, "")
                 edited_page_rows.append(Line(idx=ln.idx, start=start, end=end, zh=zh, en=en,
                                               speaker=ln.speaker, dub_filename=ln.dub_filename,
-                                              flag=_still_flag, flag_note=_still_note))
+                                              flag=_still_flag, flag_note=_still_note,
+                                              id=ln.id, orig=ln.orig, merged_ids=ln.merged_ids))
 
             # Splice the edited page back into the full list -- lines outside
             # this page stay untouched rather than being re-rendered/re-edited.
@@ -2196,7 +2193,7 @@ def render_workspace_tab():
                 edited_rows[_idx_to_pos[ln.idx]] = ln
             st.session_state.lines = edited_rows
 
-            if st.button("💾 Save edits (this page)", disabled=_editing_locked):
+            if st.button("💾 Save edits (this page)"):
                 # Capture what you actually changed, so the style profile can learn
                 # from real edits rather than guesswork.
                 _prev = {r["idx"]: r.get("en") or "" for r in db.load_lines(picked_id)}
@@ -2266,7 +2263,7 @@ def render_workspace_tab():
                         st.caption(f"⚠️ {_translation_only_message}")
                     if too_long_idxs and api_key and st.button(
                             "✂️ Auto-shorten overlong lines with LLM",
-                            disabled=_editing_locked or _translation_only_engine):
+                            disabled=_translation_only_engine):
                         engine = translate_engines.get_engine(
                             engine_choice, api_key, engine_model,
                             free_tier=engine_choice == "gemini" and _gemini_free_tier)
@@ -2298,9 +2295,7 @@ def render_workspace_tab():
                     engine = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier)
-                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                         speaker=l.speaker, dub_filename=l.dub_filename)
-                                   for l in edited_rows]
+                    _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _consistency_job_id, run_consistency_job,
                         _consistency_job_id, picked_id, _lines_copy, engine, engine_choice)
@@ -2346,28 +2341,18 @@ def render_workspace_tab():
                 if _translation_only_engine:
                     st.caption(f"⚠️ {_translation_only_message}")
                 if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
-                    _conflict = background_jobs.other_line_writing_job(picked_id, "flag_")
-                    if _conflict:
-                        st.warning(f"Can't start flagging -- a {_conflict} job is already "
-                                   "running for this drama. Both save every line, so running "
-                                   "at the same time would let one silently overwrite the "
-                                   "other. Wait for it to finish.")
+                    engine_f = translate_engines.get_engine(
+                        engine_choice, api_key, engine_model,
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                    _lines_copy = _copy_lines(edited_rows)
+                    started = background_jobs.start_job(_flag_job_id, run_flag_job,
+                                                          _flag_job_id, picked_id, _lines_copy, engine_f,
+                                                          engine_choice)
+                    if started:
+                        st.info("Checking in the background -- safe to switch tabs while this runs.")
+                        st.rerun()
                     else:
-                        engine_f = translate_engines.get_engine(
-                            engine_choice, api_key, engine_model,
-                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
-                        _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                             speaker=l.speaker, dub_filename=l.dub_filename,
-                                             flag=l.flag, flag_note=l.flag_note)
-                                       for l in edited_rows]
-                        started = background_jobs.start_job(_flag_job_id, run_flag_job,
-                                                              _flag_job_id, picked_id, _lines_copy, engine_f,
-                                                              engine_choice)
-                        if started:
-                            st.info("Checking in the background -- safe to switch tabs while this runs.")
-                            st.rerun()
-                        else:
-                            st.warning("Already checking for this drama.")
+                        st.warning("Already checking for this drama.")
 
                 if _fjob:
                     if _fjob["status"] == "running":
@@ -2376,12 +2361,7 @@ def render_workspace_tab():
                             st.rerun()
                     elif _fjob["status"] == "done":
                         _count = (_fjob.get("result") or {}).get("flagged_count", 0)
-                        st.session_state.lines = [
-                            Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
-                                 en=r.get("en") or "", speaker=r.get("speaker"),
-                                 dub_filename=r.get("dub_filename"), flag=r.get("flag"),
-                                 flag_note=r.get("flag_note") or "")
-                            for r in db.load_lines(picked_id)]
+                        st.session_state.lines = db.load_line_objects(picked_id)
                         edited_rows = st.session_state.lines
                         if _count:
                             st.warning(f"{_count} line(s) flagged -- see the review table below, or "
@@ -2418,31 +2398,21 @@ def render_workspace_tab():
                         "on this drama to re-transcribe, so only re-translation runs. Clears the "
                         "flag on any line this actually changes.")
                     if st.button("🔁 Re-transcribe + re-translate flagged lines") and api_key:
-                        _conflict = background_jobs.other_line_writing_job(picked_id, "fixflag_")
-                        if _conflict:
-                            st.warning(f"Can't start this -- a {_conflict} job is already "
-                                       "running for this drama. Both save every line, so "
-                                       "running at the same time would let one silently "
-                                       "overwrite the other. Wait for it to finish.")
+                        engine_ff = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        _lines_copy_ff = _copy_lines(edited_rows)
+                        started = background_jobs.start_job(
+                            _fixflag_job_id, run_fix_flagged_lines_job,
+                            _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
+                            whisper_size, st.session_state.get("use_gpu", False), source_language,
+                            engine_ff, engine_choice)
+                        if started:
+                            st.info("Fixing flagged lines in the background -- safe to switch tabs "
+                                    "while this runs.")
+                            st.rerun()
                         else:
-                            engine_ff = translate_engines.get_engine(
-                                engine_choice, api_key, engine_model,
-                                free_tier=engine_choice == "gemini" and _gemini_free_tier)
-                            _lines_copy_ff = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                                    speaker=l.speaker, dub_filename=l.dub_filename,
-                                                    flag=l.flag, flag_note=l.flag_note)
-                                              for l in edited_rows]
-                            started = background_jobs.start_job(
-                                _fixflag_job_id, run_fix_flagged_lines_job,
-                                _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
-                                whisper_size, st.session_state.get("use_gpu", False), source_language,
-                                engine_ff, engine_choice)
-                            if started:
-                                st.info("Fixing flagged lines in the background -- safe to switch tabs "
-                                        "while this runs.")
-                                st.rerun()
-                            else:
-                                st.warning("Already fixing flagged lines for this drama.")
+                            st.warning("Already fixing flagged lines for this drama.")
 
                     if _ffjob:
                         if _ffjob["status"] == "running":
@@ -2450,12 +2420,7 @@ def render_workspace_tab():
                             if st.button("🔄 Refresh progress", key=f"refresh_ff_{picked_id}"):
                                 st.rerun()
                         elif _ffjob["status"] == "done":
-                            st.session_state.lines = [
-                                Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"],
-                                     en=r.get("en") or "", speaker=r.get("speaker"),
-                                     dub_filename=r.get("dub_filename"), flag=r.get("flag"),
-                                     flag_note=r.get("flag_note") or "")
-                                for r in db.load_lines(picked_id)]
+                            st.session_state.lines = db.load_line_objects(picked_id)
                             edited_rows = st.session_state.lines
                             _ff_result = _ffjob.get("result") or {}
                             st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
@@ -2489,9 +2454,7 @@ def render_workspace_tab():
                     # A copy, not the live list -- same reasoning as the Translate
                     # button's _lines_copy: this runs in a background thread, and
                     # edited_rows is tied to the review table's current widget state.
-                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                         speaker=l.speaker, dub_filename=l.dub_filename)
-                                   for l in edited_rows]
+                    _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _emotion_job_id, run_emotion_job,
                         _emotion_job_id, picked_id, _lines_copy, eng_e, use_cues, engine_choice)
@@ -2602,15 +2565,17 @@ def render_workspace_tab():
                         active = " ✅ **active**" if v["is_active"] else ""
                         when = v["created_at"][:16].replace("T", " ") if v["created_at"] else "?"
                         vc1.caption(f"**{v['label']}**{active} — {v['model'] or v['engine']} · {when}")
-                        if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}",
-                                                              disabled=_editing_locked):
+                        if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}"):
                             full = db.get_translation_version(v["id"])
                             if full:
                                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
                                                                "before switching version")
-                                restored = [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                                  zh=r["zh"], en=r["en"], speaker=r.get("speaker"))
-                                            for r in full["lines"]]
+                                restored = core_module.adopt_ids(
+                                    [Line(idx=r["idx"], start=r["start"], end=r["end"],
+                                          zh=r["zh"], en=r["en"], speaker=r.get("speaker"),
+                                          id=r.get("id"))
+                                     for r in full["lines"]],
+                                    st.session_state.lines)
                                 db.save_lines(picked_id, restored)
                                 db.set_active_translation_version(picked_id, v["id"])
                                 st.session_state.lines = restored
@@ -2657,9 +2622,7 @@ def render_workspace_tab():
                     engine_n = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier)
-                    _lines_copy = [Line(idx=l.idx, start=l.start, end=l.end, zh=l.zh, en=l.en,
-                                         speaker=l.speaker, dub_filename=l.dub_filename)
-                                   for l in edited_rows]
+                    _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _notes_job_id, run_translation_notes_job,
                         _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
@@ -2737,7 +2700,7 @@ def render_workspace_tab():
                     st.info(f"{len(edited_rows)} lines -> {len(merged_preview)} lines after merging.")
                 merge_preview = st.session_state.get(f"merge_preview_{picked_id}")
                 if merge_preview:
-                    if st.button("✅ Apply merge", disabled=_editing_locked):
+                    if st.button("✅ Apply merge"):
                         db.save_line_history_snapshot(picked_id, edited_rows, "before merge")
                         db.save_lines(picked_id, merge_preview)
                         st.session_state.lines = merge_preview
@@ -2760,12 +2723,13 @@ def render_workspace_tab():
                         hc1, hc2 = st.columns([3, 1])
                         when = h["created_at"][:16].replace("T", " ") if h["created_at"] else "?"
                         hc1.caption(f"**{h['label']}** — {when}")
-                        if hc2.button("Restore", key=f"restore_{h['id']}", disabled=_editing_locked):
+                        if hc2.button("Restore", key=f"restore_{h['id']}"):
                             snapshot = db.get_line_history_snapshot(h["id"])
                             if snapshot:
                                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
                                                                "before restore")
-                                restored = [Line(**s) for s in snapshot]
+                                restored = core_module.adopt_ids(
+                                    [Line(**s) for s in snapshot], st.session_state.lines)
                                 db.save_lines(picked_id, restored)
                                 st.session_state.lines = restored
                                 st.success(f"Restored '{h['label']}'.")
@@ -2789,9 +2753,7 @@ def render_workspace_tab():
             )
             voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
             dub_button_label = "🎙️ Generate narration track" if content_mode == "novel_narration" else "🎙️ Generate dub track"
-            if _editing_locked:
-                st.info(_editing_locked_message)
-            if st.button(dub_button_label, disabled=_editing_locked):
+            if st.button(dub_button_label):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
                 clone_map = {}
