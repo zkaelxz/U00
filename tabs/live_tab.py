@@ -34,23 +34,25 @@ def render_live_tab():
 
     job = background_jobs.get_status(_JOB_ID)
     is_running = bool(job and job["status"] == "running")
+    is_queued = bool(job and job["status"] == "queued")
+    is_active = is_running or is_queued
 
-    url = st.text_input("Live stream URL", key="live_url", disabled=is_running,
+    url = st.text_input("Live stream URL", key="live_url", disabled=is_active,
                          placeholder="https://www.youtube.com/watch?v=...")
 
     c1, c2, c3 = st.columns(3)
     source_language = c1.selectbox(
         "Source language", ["zh", "ja", "ko"], key="live_source_language",
-        disabled=is_running)
+        disabled=is_active)
     whisper_size = c2.selectbox(
         "Whisper model", ["tiny", "base", "small", "medium"], index=2,
-        key="live_whisper_size", disabled=is_running,
+        key="live_whisper_size", disabled=is_active,
         help="Smaller = faster per chunk, closer to real time. 'medium' is "
              "this app's usual default elsewhere but is slower than a short "
              "chunk really has time for here.")
     segment_seconds = c3.slider(
         "Chunk length (seconds)", 10, 60, 20, step=5, key="live_segment_seconds",
-        disabled=is_running,
+        disabled=is_active,
         help="Shorter = lower latency, but Whisper loses cross-sentence "
              "context at each cut. Longer = better transcription per chunk, "
              "more delay before it appears.")
@@ -62,7 +64,7 @@ def render_live_tab():
         "Translation engine", engine_list,
         index=engine_list.index(saved_engine) if saved_engine in engine_list else 0,
         format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _live_gemini_free_tier)}",
-        key="live_engine_choice", disabled=is_running)
+        key="live_engine_choice", disabled=is_active)
 
     needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate")
     if engine_choice == "test_offline":
@@ -71,10 +73,10 @@ def render_live_tab():
     else:
         api_key = synced_api_key_input(
             f"{engine_choice} API key" + (" *(required)*" if needs_key else " (optional)"),
-            engine_choice, "live_api_key_input", disabled=is_running)
+            engine_choice, "live_api_key_input", disabled=is_active)
         api_key = api_key or ("local" if not needs_key else "")
 
-    if not is_running:
+    if not is_active:
         if st.button("▶️ Start", type="primary",
                       disabled=not url.strip() or (needs_key and not api_key)):
             engine = translate_engines.get_engine(
@@ -86,11 +88,17 @@ def render_live_tab():
             started = background_jobs.start_job(
                 _JOB_ID, live_translate.run_live_job,
                 _JOB_ID, url.strip(), out_dir, segment_seconds, source_language,
-                whisper_size, engine)
+                whisper_size, engine,
+                gpu_touching=True, description="Live capture (local Whisper)")
             if started:
                 st.rerun()
             else:
                 st.warning("A live session is already running.")
+    elif is_queued:
+        st.info(job.get("message") or "Waiting -- GPU busy.")
+        if st.button("✖️ Cancel"):
+            background_jobs.clear_job(_JOB_ID)
+            st.rerun()
     else:
         st.info(job.get("message") or "Running...")
         if st.button("⏹️ Stop"):

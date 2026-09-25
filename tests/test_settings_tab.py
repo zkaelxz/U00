@@ -155,6 +155,45 @@ class TestGeminiFreeTierCheckbox:
         assert self._checkbox(at).value is True
 
 
+class TestLimitOneGpuJobToggle:
+    """Step 5c: a "Limit to one GPU job at a time" checkbox, defaulting on,
+    that syncs into background_jobs' own module-level flag so start_job()
+    and gpu_slot() calls made anywhere in the same script run see the
+    current value -- background_jobs deliberately doesn't import
+    streamlit, so this sidebar is what keeps it in sync."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.settings_tab import render_settings_sidebar
+            render_settings_sidebar()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _checkbox(self, at):
+        matches = [c for c in at.checkbox if c.label == "Limit to one GPU job at a time"]
+        assert matches, "checkbox not found in the sidebar"
+        return matches[0]
+
+    def test_defaults_to_on(self):
+        import background_jobs
+        at = self._run()
+        assert self._checkbox(at).value is True
+        assert background_jobs.gpu_limit_enabled() is True
+
+    def test_turning_it_off_syncs_to_background_jobs(self):
+        import background_jobs
+        at = self._run()
+        try:
+            self._checkbox(at).set_value(False).run()
+            assert background_jobs.gpu_limit_enabled() is False
+        finally:
+            background_jobs.set_gpu_limit_enabled(True)  # don't leak into other tests
+
+
 class TestRepeatedCallsPickUpLateEdits:
     """The actual bug fix: editing .env while the app is running (no
     restart) must take effect on the next call, as long as the session
