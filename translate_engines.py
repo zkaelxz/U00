@@ -1307,9 +1307,13 @@ def engine_picker_label(engine_name: str, gemini_free_tier: bool = False) -> str
 
 
 def get_engine(engine_name: str, api_key: str = None, model: str = None,
-               free_tier: bool = False):
+               free_tier: bool = False, base_url: str = None):
     cls = ENGINES[engine_name]
-    kwargs = {"free_tier": free_tier} if engine_name == "gemini" else {}
+    kwargs = {}
+    if engine_name == "gemini":
+        kwargs["free_tier"] = free_tier
+    if engine_name == "ollama" and base_url:
+        kwargs["base_url"] = base_url
     if model:
         return cls(api_key, model, **kwargs)
     return cls(api_key, **kwargs)

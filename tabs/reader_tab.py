@@ -360,7 +360,7 @@ def render_reader_tab():
                             core_module.extract_audio_slice(audio_path, pl.start, pl.end, slice_path)
                             try:
                                 segments = core_module.transcribe_for_timing(
-                                    slice_path, model_size=rdrama.get("whisper_size") or "medium",
+                                    slice_path, model_size=rdrama.get("whisper_size") or core_module.DEFAULT_WHISPER_SIZE,
                                     language=rlang, use_gpu=st.session_state.get("use_gpu", False))
                                 retext = " ".join(s["text"] for s in segments).strip()
                             finally:

@@ -104,7 +104,7 @@ def resolve_stream_url(url: str) -> str:
                 # works around below. Deno is yt-dlp's own default; listing
                 # the others too means it still works if only one of them
                 # happens to be installed.
-                "js_runtimes": ["deno", "node", "bun", "quickjs"]}
+                "js_runtimes": {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}}
         if player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
         with yt_dlp.YoutubeDL(opts) as ydl:

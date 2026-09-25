@@ -1310,6 +1310,34 @@ class TestGetEngineFreeTierPassthrough:
         assert engine.free_tier is True
 
 
+class TestGetEngineOllamaBaseUrlPassthrough:
+    """Step 5b item 1: the Ollama base URL configured in Settings wasn't
+    actually reaching OllamaEngine -- get_engine() silently dropped it, so
+    translation always talked to the hardcoded http://localhost:11434
+    default no matter what was configured."""
+
+    def test_base_url_reaches_the_constructed_ollama_engine(self):
+        engine = te.get_engine("ollama", None, base_url="http://gpu-box:11434")
+        assert isinstance(engine, te.OllamaEngine)
+        assert engine.base_url == "http://gpu-box:11434"
+
+    def test_defaults_to_ollamas_own_default_when_not_configured(self):
+        engine = te.get_engine("ollama")
+        assert engine.base_url == "http://localhost:11434"
+
+    def test_base_url_reaches_ollama_even_with_an_explicit_model(self):
+        engine = te.get_engine("ollama", None, "qwen2.5:14b", base_url="http://gpu-box:11434")
+        assert engine.model == "qwen2.5:14b"
+        assert engine.base_url == "http://gpu-box:11434"
+
+    def test_base_url_kwarg_is_ignored_for_non_ollama_engines(self):
+        # Every other engine class's __init__ has no base_url parameter --
+        # this must not raise a TypeError just because the caller always
+        # passes the kwarg.
+        engine = te.get_engine("test_offline", base_url="http://gpu-box:11434")
+        assert not hasattr(engine, "base_url")
+
+
 class TestEstimateCostForEngine:
     """Step 1d item 5: cost shows $0 for a free-tier Gemini call, not the
     paid per-token rate its model name would normally look up."""

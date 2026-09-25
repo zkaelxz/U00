@@ -38,6 +38,7 @@ import db
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, extract_audio_from_video, lines_from_rows, release_gpu_models, WHISPER_MODELS,
+    DEFAULT_WHISPER_SIZE,
 )
 import translate_engines
 import translation_guide as tguide
@@ -71,7 +72,9 @@ def cmd_narrate_prep(args):
     """Chunk + speaker-tag a novel-narration drama's text (no audio)."""
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
     dramas = [d for d in dramas if d.get("content_mode") == "novel_narration"]
-    engine = translate_engines.get_engine(args.engine, args.api_key, args.model) if args.api_key else None
+    engine = translate_engines.get_engine(
+        args.engine, args.api_key, args.model,
+        base_url=getattr(args, "ollama_url", None)) if args.api_key else None
 
     def step(d):
         ddir = db.drama_dir(d["id"])
@@ -243,7 +246,8 @@ def cmd_align(args):
 def cmd_translate(args):
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
-    engine = translate_engines.get_engine(args.engine, args.api_key, args.model)
+    engine = translate_engines.get_engine(
+        args.engine, args.api_key, args.model, base_url=getattr(args, "ollama_url", None))
 
     def step(d):
         rows = db.load_lines(d["id"])
@@ -346,6 +350,8 @@ def main():
     p_narrate.add_argument("--engine", default="claude", choices=list(translate_engines.ENGINES))
     p_narrate.add_argument("--api-key", default=None)
     p_narrate.add_argument("--model", default=None)
+    p_narrate.add_argument("--ollama-url", default=None,
+                           help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_narrate.set_defaults(func=cmd_narrate_prep)
 
     p_list = sub.add_parser("list")
@@ -354,7 +360,7 @@ def main():
 
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
-    p_align.add_argument("--whisper-size", default="medium", choices=list(WHISPER_MODELS))
+    p_align.add_argument("--whisper-size", default=DEFAULT_WHISPER_SIZE, choices=list(WHISPER_MODELS))
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.set_defaults(func=cmd_align)
@@ -385,6 +391,8 @@ def main():
                               help="Override Ollama's context window size. Only ever raises it "
                                    "above the automatic per-prompt estimate, never below -- "
                                    "leave unset to size it automatically (recommended).")
+    p_translate.add_argument("--ollama-url", default=None,
+                             help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
@@ -395,7 +403,7 @@ def main():
 
     p_run = sub.add_parser("run")
     p_run.add_argument("--id", type=int, required=True)
-    p_run.add_argument("--whisper-size", default="medium")
+    p_run.add_argument("--whisper-size", default=DEFAULT_WHISPER_SIZE)
     p_run.add_argument("--engine", default="claude", choices=list(translate_engines.ENGINES))
     p_run.add_argument("--api-key", required=True)
     p_run.add_argument("--model", default=None)
@@ -410,6 +418,7 @@ def main():
     p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
+    p_run.add_argument("--ollama-url", default=None)
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")
