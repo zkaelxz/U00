@@ -64,6 +64,11 @@ OPTIONAL_DEPENDENCIES = {
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao)", "feature"),
+    "audio-separator": ("audio_separator",
+                        "background-music removal before transcription (Mel-Band RoFormer; "
+                        "falls back to Demucs)", "feature"),
+    "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
+                         "FunASR Model Open Source License)", "feature"),
     "pytest": ("pytest", "running the test suite", "dev"),
 }
 
