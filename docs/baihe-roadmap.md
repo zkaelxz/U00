@@ -1039,9 +1039,12 @@ Builds on `settings_tab.py`'s existing grouped-expander structure (Reading exper
 ### Step 17 — Discover/Navigator merge
 Fold Navigator's "known official platforms" reference material and translated-page-label steps into Discover's existing search/import flow as a sub-section, since both tabs are "find and bring in a title" (confirmed in Step 13's audit — this is the clearest single case of the same job split across two tabs). Removes one top-level tab (8 → 7) rather than just reorganizing within it.
 
+1. **Make Discover's sections collapsible, at the user's direct request — confirmed real and needed by reading `tabs/discover_tab.py` directly.** Today it's 7 flat `st.subheader` sections in one continuous scroll with no `st.expander`/collapse anywhere (Known titles library, Search, Find a title on the official platforms, Search baihehub.com, Bulk import from a tag/ranking listing page, Browse a site in-app, Import a title from a URL) — already long before this step folds Navigator's own sections in on top, which only makes the case stronger, not weaker. Wrap each section in `st.expander(...)`, same collapsible pattern Settings' grouped-expander structure already uses (Step 16) — default the most commonly-used sections open (Search, Import a title from a URL) and the rest collapsed, rather than everything expanded or everything collapsed by default. Use Step 13's typographic scale for each expander's own label, same reasoning as Step 14 item 6.
+
 **Exit:**
 - A test or manual check confirms every Navigator feature is still reachable from within Discover.
 - Manual check: a user who previously used Navigator to find a platform link can complete the same task starting from Discover.
+- Manual check: each of Discover's sections (including the folded-in Navigator content) is individually collapsible, and the page no longer requires scrolling past every section to reach one further down.
 
 ### Step 18 — Diagnostics narrowing
 Separate Diagnostics' 9 currently-flat concerns (confirmed in Step 13's audit) into clearly distinct groups: routine health checks (setup checks, running jobs, log, dependency tiers) stay as the default view; the accuracy-benchmark tool and the "danger zone" (destructive full-library reset) move behind their own clearly-separated sub-section so a routine "is Ollama reachable" check doesn't sit next to a destructive reset button in the same scroll.
