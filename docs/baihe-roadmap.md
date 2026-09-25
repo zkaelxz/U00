@@ -41,14 +41,31 @@
 > yet: they genuinely aren't wired into the app (Step 11/11b haven't
 > built them), not a Step 9b bug — verified by direct grep, not taken on
 > faith.
-> **Start Step 9c next** (drama/project presets) — still in the Steps
-> 1e–10 autonomous-mode window per §4, not Opus-gated.
+> **Three more steps merged since the last check-in, re-verified via a
+> fresh `git fetch origin baihe-subtitler` rather than trusted from
+> memory**: **PR #27** ("Step 9c: drama/project presets" — merged despite
+> its own CI run failing on the merged commit; the failure is Step 9b's
+> pre-existing `scan_hf_cache` bug, not caused by 9c's diff, now tracked
+> as Step 9f item 4 and bumped to higher priority there); **PR #28**
+> ("Step 9d: wire Bulk mode into flagging, consistency checks, emotion
+> detection, translation notes and Reflect mode"); **PR #29** ("Step 10:
+> one-click Windows launcher, portable mode, uninstaller"). Steps 1d
+> through 10 are now **all merged**.
+> **Start Step 11 next** (Scanlate: finish the ML detector, add real
+> inpainting, auto-route OCR) — still in the Steps 1e–10 autonomous-mode
+> window's aftermath; check §4's Opus-gate table for Step 11's own gating
+> status before starting.
 > **Manual checks still open, not chased further this session:** Steps
-> 5b/5c/6c/6d/6e/7/7b/8/9/9b's own manual-check rows (§2) are all
+> 5b/5c/6c/6d/6e/7/7b/8/9/9b/9c/9d/10's own manual-check rows (§2) are all
 > pending; Step 6b's mpv/VLC playback and live-preview checks still need
-> a person at a screen.
+> a person at a screen. **One concrete manual check worth prioritizing
+> over the others**: open Diagnostics and confirm whether the HF-cache
+> section shows real cached models or comes up empty — this is the check
+> that resolves whether Step 9f item 4's `scan_hf_cache` bug is a live
+> regression or just a stale test fixture (see Step 9f for the full
+> finding).
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-27. If this line is stale, the status table below
+> memory, as of 2026-09-25. If this line is stale, the status table below
 > it is the source of truth.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
@@ -742,7 +759,7 @@ Reported by the implementing session alongside Step 9b's PR (#26), confirmed dir
 2. **`tests/test_live_translate.py` imports `tempfile` at module level and never uses it — same class of finding, confirmed the same way.** Dead import, no behavior impact.
 3. **A real, if narrow, race between cancelling a queued Live job and GPU-slot promotion — confirmed by reading `background_jobs.py` directly, not just relayed.** `live_tab.py`'s "✖️ Cancel" button on a *queued* job calls `background_jobs.clear_job(job_id)`, whose own docstring already states the real caveat: "Only safe to call once the job isn't running." `_promote_next_queued_gpu_job()` (called whenever another GPU-touching job finishes) can promote a queued job to `"running"` and spawn its background thread **between** the Streamlit render that showed the Cancel button and the click actually being processed — a real, if narrow, window, not a made-up one. If that happens, `clear_job` pops the `_jobs` entry for a job whose background thread is now genuinely running: `update_progress`/`request_cancel`/the `runner()` completion handler all correctly guard with `if job_id in _jobs` (confirmed directly — none of them silently recreate a stale entry), so this doesn't resurrect a phantom job in the UI, but it does mean **the live capture keeps running for real, invisibly and uncancellably**, since there's no `_jobs` entry left for "Stop" or `request_cancel` to reach. **Fix (not yet done): have the queued-job Cancel path re-check the job's actual current status under the lock before clearing** (e.g. a small `background_jobs.cancel_queued(job_id)` that only clears if still `"queued"`, and falls back to the normal `request_cancel`+generation-bump path otherwise) — narrow enough not to need its own step.
 
-4. **`diagnostics.scan_hf_cache()` returns an empty list against a real HF-shaped cache directory — confirmed via a real CI failure on PR #27's own head commit, not the PR's own bug (surfaced there only because the full suite runs on every PR).** Three tests in `TestHfCacheScanAndDelete` all fail the same way (`assert 0 == 1` / `assert [] == [...]`) against `_make_fake_hf_repo`'s hand-built blobs/snapshots/refs fixture. `requirements-core.txt` pins `huggingface_hub>=0.20` with no upper bound — a materially newer installed version changing `scan_cache_dir()`'s internals is a real, plausible, **unconfirmed** cause; this hasn't been verified against the actual CI-installed version. **Fix (not yet done): pin an upper bound or re-verify the fixture against the currently-installed `huggingface_hub`'s real on-disk cache format**, whenever `diagnostics.py`/`requirements-core.txt` is next touched.
+4. **🔺 Higher priority than items 1–3 above — a possible live regression, not just a stale test fixture.** `diagnostics.scan_hf_cache()` returns an empty list against a real HF-shaped cache directory — confirmed via a real CI failure on PR #27's own head commit, not the PR's own bug (surfaced there only because the full suite runs on every PR). Three tests in `TestHfCacheScanAndDelete` all fail the same way (`assert 0 == 1` / `assert [] == [...]`) against `_make_fake_hf_repo`'s hand-built blobs/snapshots/refs fixture. `requirements-core.txt` pins `huggingface_hub>=0.20` with no upper bound — a materially newer installed version changing `scan_cache_dir()`'s internals is a real, plausible, **unconfirmed** cause; this hasn't been verified against the actual CI-installed version. **The reason this can't just wait for "whenever the file is next touched," unlike items 1–3**: if the same version drift that broke the test fixture also affects `scan_cache_dir()` against a *real* cache directory, the Diagnostics UI's HF-cache viewing/deleting feature could be silently broken for real users right now, not just in CI. **One concrete manual check would settle it, before any code change**: open Diagnostics and check whether the HF-cache section shows your real cached models, or comes up empty. Unconfirmed either way as of this writing — this is the open question, not a claim that it's definitely broken. **Fix (not yet done, and now not just "whenever touched"): pin an upper bound or re-verify the fixture against the currently-installed `huggingface_hub`'s real on-disk cache format** — do the manual check first; if it confirms a live break, this jumps the queue ahead of `diagnostics.py`'s next unrelated touch.
 
 **Exit:** N/A — this step exists to track findings, not to gate a manual check; items 1–4 above are addressed the next time `workspace_tab.py`/`test_live_translate.py`/`background_jobs.py`/`diagnostics.py` is touched.
 
@@ -1538,9 +1555,9 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 9b — Job ETAs, model disk management, bulk series translate | `step-9b-job-etas-disk-mgmt-bulk-series-live-guard` | ✅ Merged (PR #26) | ⏳ Pending |
   | 9c — Drama/project presets | `step-9c-drama-presets` (deleted after merge) | ✅ Merged (PR #27), **merged despite CI failing on the merged commit** — see §4 note below | ⏳ Pending |
   | 9f — Bugs found while building Step 9b | — | Not started | — |
-  | 9d — Wire Bulk mode into flagging/consistency/emotion/notes/Reflect | — | Not started | — |
+  | 9d — Wire Bulk mode into flagging/consistency/emotion/notes/Reflect | `step-9d-bulk-flag-consistency-emotion-notes-reflect` (deleted after merge) | ✅ Merged (PR #28) | ⏳ Pending |
   | 9e — Pre-existing bugs found while building Step 9 | — | Not started | — |
-  | 10 — Windows launcher | — | Not started | — |
+  | 10 — Windows launcher | `step-10-windows-launcher-portable-mode` (deleted after merge) | ✅ Merged (PR #29) | ⏳ Pending |
   | 11 — Scanlate ML detector/inpainting/OCR routing | — | Not started | — |
   | 11b — Novel narration TTS quality | — | Not started | — |
   | 11c — Dub timing: clamped time-stretch fallback | — | Not started | — |
