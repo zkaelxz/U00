@@ -130,9 +130,9 @@ class TestExtractTextPaddleUsesCurrentAPI:
     """
     @pytest.fixture(autouse=True)
     def reset_paddle_instance(self):
-        ocr.__dict__.pop("_paddle_instance", None)
+        ocr.__dict__.pop("_paddle_instances", None)
         yield
-        ocr.__dict__.pop("_paddle_instance", None)
+        ocr.__dict__.pop("_paddle_instances", None)
 
     def test_calls_predict_not_the_removed_ocr_cls_api(self, monkeypatch):
         try:
@@ -202,7 +202,28 @@ class TestExtractTextFromImagesUsesResolvedLang:
         # PaddleOCR's "ch" model handles both scripts itself -- chinese_script
         # shouldn't need to (and doesn't) affect which function runs.
         called = []
-        monkeypatch.setattr(ocr, "extract_text_paddle", lambda p: called.append(p) or "x")
+        monkeypatch.setattr(ocr, "extract_text_paddle",
+                             lambda p, lang="ch": called.append((p, lang)) or "x")
         ocr.extract_text_from_images(["/fake/page1.png"], backend="paddle",
                                        source_language="zh", chinese_script="traditional")
+        assert called == [("/fake/page1.png", "ch")]
+
+    def test_paddle_backend_uses_korean_model_for_korean_source(self, monkeypatch):
+        # Step 11 item 4: Korean's own default backend is paddle, not
+        # Tesseract -- but it needs PaddleOCR's Korean-language model,
+        # not the Chinese one "paddle" used to mean unconditionally.
+        called = []
+        monkeypatch.setattr(ocr, "extract_text_paddle",
+                             lambda p, lang="ch": called.append((p, lang)) or "x")
+        ocr.extract_text_from_images(["/fake/page1.png"], backend="paddle",
+                                       source_language="ko")
+        assert called == [("/fake/page1.png", "korean")]
+
+    def test_paddle_vl_manga_backend_is_dispatched(self, monkeypatch):
+        called = []
+        monkeypatch.setattr(ocr, "extract_text_paddle_vl_manga",
+                             lambda p: called.append(p) or "x")
+        result = ocr.extract_text_from_images(["/fake/page1.png"], backend="paddle_vl_manga",
+                                                source_language="ja")
         assert called == ["/fake/page1.png"]
+        assert result == "x"

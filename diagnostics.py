@@ -68,8 +68,18 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
-    "ultralytics": ("ultralytics", "ML bubble detection (Scanlate)", "feature"),
-    "huggingface_hub": ("huggingface_hub", "ML bubble detection, voice cloning model downloads", "feature"),
+    "transformers": ("transformers", "local NLLB-200 translation engine, ML bubble detection "
+                                     "(Scanlate), PaddleOCR-VL-For-Manga", "feature"),
+    "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
+                        "word-level realignment, several TTS/ASR backends", "feature"),
+    "safetensors": ("safetensors", "ML inpainting (Scanlate, LaMa-manga checkpoint)", "feature"),
+    "huggingface_hub": ("huggingface_hub", "ML bubble detection/inpainting, voice cloning model downloads",
+                        "feature"),
+    "pypdf": ("pypdf", "Scanlate PDF import (splitting a PDF into pages)", "feature"),
+    "streamlit_drawable_canvas": ("streamlit_drawable_canvas",
+                                  "Scanlate manual erase/heal brush -- confirmed incompatible "
+                                  "with this app's pinned streamlit>=1.49 as of this check "
+                                  "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao)", "feature"),

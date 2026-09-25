@@ -139,61 +139,115 @@ def inset_box_for_ocr(box: dict, frac: float = 0.10, min_inset: int = 4, max_ins
     }
 
 
+_BUBBLE_ML_REPO = "ogkalu/comic-text-and-bubble-detector"
+_LAMA_ML_REPO = "mayocream/lama-manga"
+
+
 def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str = None):
     """
     Real trained bubble/text detector, as an upgrade over
-    detect_bubbles_cv()'s free heuristic. Uses a YOLO-family model
-    fine-tuned for comic/manga text-region detection (the same class
-    of model koharu and manga-image-translator use under the hood).
+    detect_bubbles_cv()'s free heuristic. Uses
+    ogkalu/comic-text-and-bubble-detector (Hugging Face, Apache-2.0, 3
+    classes: bubble / text-in-bubble / text-outside-bubble, boxes only
+    -- the same class of model koharu and manga-image-translator use
+    under the hood).
 
-    Requires: `pip install ultralytics huggingface_hub`
+    Requires: `pip install transformers huggingface_hub`
     Downloads the model checkpoint from Hugging Face on first use
     (needs internet once; cached locally after).
 
-    NOTE: written against the documented ultralytics/huggingface_hub
+    Step 11 real fix: this used to load the checkpoint through
+    `ultralytics.YOLO`, but the model itself is RT-DETR-v2, not a YOLO
+    architecture -- `ultralytics` can never load it (confirmed against
+    `requirements.txt`, which installed `ultralytics` for exactly this
+    function), which is plausibly why this hook was never actually
+    wired up before. Loads through `transformers`'s own RT-DETR-v2
+    support instead, which also means huggingface_hub's own
+    HF_TOKEN-from-environment handling covers auth for free.
+
+    NOTE: written against the documented transformers/huggingface_hub
     APIs but not run end-to-end in the environment this was built in
     (no network access there to download a model or test inference).
     Sanity-check on one page before relying on it for a whole batch --
-    if the specific checkpoint ID below has moved or been renamed,
-    swap in whatever comic/manga text-detection YOLO checkpoint you
-    find current on Hugging Face; the rest of this function (box
-    extraction, confidence filtering, reading-order sort) stays the same.
+    if the checkpoint ID below has moved or been renamed, swap in
+    whatever comic/manga text-detection checkpoint you find current on
+    Hugging Face; the rest of this function (box extraction, confidence
+    filtering, reading-order sort) stays the same.
     """
     import os as _os
-    from huggingface_hub import hf_hub_download
-    from ultralytics import YOLO
+    from PIL import Image as _PILImage
+    import torch
+    from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
     # Same gap that hit Whisper's downloads: without a token, every request
     # is anonymous and rate-limited (the "unauthenticated requests" warning).
-    # hf_hub_download reads HF_TOKEN from the environment itself, so setting
-    # it here is enough -- no need to pass it through every call below.
+    # from_pretrained() reads HF_TOKEN from the environment itself if no
+    # explicit token is passed, so setting it here covers both paths.
     _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
     if _tok:
         _os.environ.setdefault("HF_TOKEN", _tok)
 
-    global _bubble_ml_model
+    global _bubble_ml_model, _bubble_ml_processor
     if "_bubble_ml_model" not in globals():
-        model_path = hf_hub_download(
-            repo_id="ogkalu/comic-text-and-bubble-detector",
-            filename="comic-text-and-bubble-detector.pt",
-        )
-        globals()["_bubble_ml_model"] = YOLO(model_path)
+        globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
+            _BUBBLE_ML_REPO, token=_tok)
+        model = AutoModelForObjectDetection.from_pretrained(_BUBBLE_ML_REPO, token=_tok)
+        model.eval()
+        globals()["_bubble_ml_model"] = model
 
     model = globals()["_bubble_ml_model"]
-    results = model.predict(image_path, conf=confidence, verbose=False)
+    processor = globals()["_bubble_ml_processor"]
+
+    image = _PILImage.open(image_path).convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    # target_sizes takes (height, width); PIL's .size is (width, height).
+    results = processor.post_process_object_detection(
+        outputs, threshold=confidence, target_sizes=torch.tensor([image.size[::-1]])
+    )[0]
 
     boxes = []
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            boxes.append({
-                "x": int(x1), "y": int(y1),
-                "w": int(x2 - x1), "h": int(y2 - y1),
-                "confidence": float(box.conf[0]),
-            })
+    for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+        x1, y1, x2, y2 = [float(v) for v in box.tolist()]
+        boxes.append({
+            "x": int(x1), "y": int(y1),
+            "w": int(x2 - x1), "h": int(y2 - y1),
+            "confidence": float(score),
+            "label": model.config.id2label.get(int(label), str(int(label))),
+        })
 
     boxes.sort(key=lambda b: (b["y"] // 50, -b["x"]))
     return boxes
+
+
+def bubble_ml_weights_cached() -> bool:
+    """True if the ML bubble detector's weights are already in the local
+    Hugging Face cache. Lets detect_bubbles(backend="auto") (Step 11
+    item 5) pick the better backend automatically once someone's
+    installed it, without the auto mode itself ever triggering a
+    surprise first-run download -- that only happens when "ml" is
+    picked explicitly."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    for filename in ("model.safetensors", "pytorch_model.bin"):
+        hit = try_to_load_from_cache(repo_id=_BUBBLE_ML_REPO, filename=filename)
+        if isinstance(hit, str) and os.path.exists(hit):
+            return True
+    return False
+
+
+def lama_ml_weights_cached() -> bool:
+    """Same idea as bubble_ml_weights_cached(), for the LaMa-manga
+    inpainting checkpoint (Step 11 items 2 and 5)."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    hit = try_to_load_from_cache(repo_id=_LAMA_ML_REPO, filename="model.safetensors")
+    return isinstance(hit, str) and os.path.exists(hit)
 
 
 class BubbleModelUnavailable(RuntimeError):
@@ -206,9 +260,12 @@ class BubbleModelUnavailable(RuntimeError):
         self.fell_back_to_cv = fell_back_to_cv
 
 
-def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
-    """Dispatcher: backend='cv' (free, default) or 'ml' (trained model,
-    better accuracy, heavier install).
+def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
+    """Dispatcher: backend='cv' (free heuristic), 'ml' (trained model,
+    better accuracy, heavier install), or 'auto' (default, Step 11 item
+    5) -- use the ML model if its weights are already cached locally,
+    the free heuristic otherwise. 'auto' never triggers a fresh
+    multi-hundred-MB download on its own; pick 'ml' explicitly for that.
 
     If the ML backend can't run -- not installed, or the model can't be
     downloaded -- this falls back to the heuristic and raises
@@ -216,6 +273,8 @@ def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
     problem degrades to a working-but-rougher result rather than failing
     the page entirely.
     """
+    if backend == "auto":
+        backend = "ml" if bubble_ml_weights_cached() else "cv"
     if backend != "ml":
         return detect_bubbles_cv(image_path)
 
@@ -224,7 +283,7 @@ def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
     except ImportError as exc:
         raise BubbleModelUnavailable(
             "The ML detector needs extra packages:\n"
-            "    pip install ultralytics huggingface_hub\n\n"
+            "    pip install transformers huggingface_hub\n\n"
             "Falling back to the free heuristic for this page."
         ) from exc
     except Exception as exc:
@@ -244,11 +303,244 @@ def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
         ) from exc
 
 
-def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4):
-    """Removes text within `box` using OpenCV inpainting so the
-    translated text has a clean background. Returns the path to the
-    (possibly newly-created) cleaned image; if out_path is None,
-    overwrites nothing and returns a PIL Image instead."""
+class InpaintModelUnavailable(RuntimeError):
+    """The ML inpainting backend couldn't be loaded or run. Carries
+    whether plain OpenCV inpainting already ran as a fallback, matching
+    BubbleModelUnavailable's shape so callers can handle both the same
+    way."""
+
+    def __init__(self, message, fell_back_to_cv=True):
+        super().__init__(message)
+        self.fell_back_to_cv = fell_back_to_cv
+
+
+def _build_lama_generator():
+    """
+    Constructs the FFC-ResNet generator architecture LaMa's published
+    checkpoints use -- unchanged from the original saic-mdal/lama
+    paper's default config (ngf=64, 3 downsampling stages, 9 FFC
+    residual blocks, global-feature ratio 0.75), which is what every
+    public LaMa fine-tune this project found (including manga/anime
+    ones) keeps unchanged, only retraining weights.
+
+    NOTE, same honesty as detect_bubbles_ml()'s own docstring: written
+    against the published architecture, not verified against
+    mayocream/lama-manga's actual state_dict key names in this
+    environment (no network/GPU here to download the real checkpoint).
+    _load_lama_generator() loads with strict=False and refuses to use
+    the result if most of the checkpoint's weights don't match this
+    shape, so a naming mismatch fails loudly and falls back to plain
+    OpenCV inpainting rather than silently running with near-random
+    weights. If that happens, inspect the real checkpoint's state_dict
+    keys (`safetensors.torch.load_file(path).keys()`) and adjust the
+    module names below to match.
+
+    Lazily imports torch so nothing else in this file -- including
+    detect_bubbles_cv()/inpaint_region()'s OpenCV-only default path --
+    ever needs it installed at all.
+    """
+    import torch
+    import torch.nn as nn
+
+    class FourierUnit(nn.Module):
+        def __init__(self, channels):
+            super().__init__()
+            self.conv = nn.Conv2d(channels * 2, channels * 2, kernel_size=1, bias=False)
+            self.bn = nn.BatchNorm2d(channels * 2)
+            self.relu = nn.ReLU(inplace=True)
+
+        def forward(self, x):
+            b, c, h, w = x.shape
+            ffted = torch.fft.rfft2(x, norm="ortho")
+            ffted = torch.stack([ffted.real, ffted.imag], dim=-1)
+            ffted = ffted.permute(0, 1, 4, 2, 3).reshape(b, c * 2, *ffted.shape[2:4])
+            ffted = self.relu(self.bn(self.conv(ffted)))
+            ffted = ffted.reshape(b, c, 2, *ffted.shape[2:]).permute(0, 1, 3, 4, 2)
+            ffted = torch.complex(ffted[..., 0].contiguous(), ffted[..., 1].contiguous())
+            return torch.fft.irfft2(ffted, s=(h, w), norm="ortho")
+
+    class SpectralTransform(nn.Module):
+        def __init__(self, in_ch, out_ch):
+            super().__init__()
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch // 2, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_ch // 2), nn.ReLU(inplace=True))
+            self.fu = FourierUnit(out_ch // 2)
+            self.conv2 = nn.Conv2d(out_ch // 2, out_ch, kernel_size=1, bias=False)
+
+        def forward(self, x):
+            x = self.conv1(x)
+            return self.conv2(x + self.fu(x))
+
+    class FFC(nn.Module):
+        def __init__(self, in_ch, out_ch, ratio_gin, ratio_gout, kernel_size=3, padding=1):
+            super().__init__()
+            in_cg, in_cl = int(in_ch * ratio_gin), in_ch - int(in_ch * ratio_gin)
+            out_cg, out_cl = int(out_ch * ratio_gout), out_ch - int(out_ch * ratio_gout)
+            self.out_cl, self.out_cg = out_cl, out_cg
+            conv = (lambda ci, co: nn.Conv2d(ci, co, kernel_size, padding=padding, bias=False)
+                    if ci and co else None)
+            self.convl2l = conv(in_cl, out_cl)
+            self.convl2g = conv(in_cl, out_cg)
+            self.convg2l = conv(in_cg, out_cl)
+            self.convg2g = SpectralTransform(in_cg, out_cg) if in_cg and out_cg else None
+
+        def forward(self, x_l, x_g):
+            out_l = 0
+            if self.out_cl:
+                out_l = (self.convl2l(x_l) if self.convl2l else 0) + \
+                        (self.convg2l(x_g) if self.convg2l else 0)
+            out_g = 0
+            if self.out_cg:
+                out_g = (self.convl2g(x_l) if self.convl2g else 0) + \
+                        (self.convg2g(x_g) if self.convg2g else 0)
+            return out_l, out_g
+
+    class FFCBlock(nn.Module):
+        def __init__(self, channels, ratio=0.75):
+            super().__init__()
+            local_ch, global_ch = channels - int(channels * ratio), int(channels * ratio)
+            self.ffc1 = FFC(channels, channels, ratio, ratio)
+            self.bn_l1, self.bn_g1 = nn.BatchNorm2d(local_ch), nn.BatchNorm2d(global_ch)
+            self.ffc2 = FFC(channels, channels, ratio, ratio)
+            self.bn_l2, self.bn_g2 = nn.BatchNorm2d(local_ch), nn.BatchNorm2d(global_ch)
+            self.act = nn.ReLU(inplace=True)
+
+        def forward(self, x_l, x_g):
+            id_l, id_g = x_l, x_g
+            l, g = self.ffc1(x_l, x_g)
+            l, g = self.act(self.bn_l1(l)), self.act(self.bn_g1(g))
+            l, g = self.ffc2(l, g)
+            l, g = self.act(self.bn_l2(l)), self.act(self.bn_g2(g))
+            return id_l + l, id_g + g
+
+    class Generator(nn.Module):
+        def __init__(self, ngf=64, n_down=3, n_blocks=9, ratio=0.75):
+            super().__init__()
+            self.stem = nn.Sequential(
+                nn.ReflectionPad2d(3), nn.Conv2d(4, ngf, 7, bias=False),
+                nn.BatchNorm2d(ngf), nn.ReLU(inplace=True))
+            down, ch = [], ngf
+            for _ in range(n_down):
+                down += [nn.Conv2d(ch, ch * 2, 3, stride=2, padding=1, bias=False),
+                          nn.BatchNorm2d(ch * 2), nn.ReLU(inplace=True)]
+                ch *= 2
+            self.down = nn.Sequential(*down)
+            self.blocks = nn.ModuleList([FFCBlock(ch, ratio) for _ in range(n_blocks)])
+            up = []
+            for _ in range(n_down):
+                up += [nn.ConvTranspose2d(ch, ch // 2, 3, stride=2, padding=1, output_padding=1),
+                       nn.BatchNorm2d(ch // 2), nn.ReLU(inplace=True)]
+                ch //= 2
+            self.up = nn.Sequential(*up)
+            self.head = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(ch, 3, 7), nn.Sigmoid())
+            self._ratio = ratio
+
+        def forward(self, x):
+            x = self.down(self.stem(x))
+            split = x.shape[1] - int(x.shape[1] * self._ratio)
+            x_l, x_g = x[:, :split], x[:, split:]
+            for block in self.blocks:
+                x_l, x_g = block(x_l, x_g)
+            return self.head(self.up(torch.cat([x_l, x_g], dim=1)))
+
+    return Generator()
+
+
+def _load_lama_generator(hf_token: str = None):
+    """Downloads (or reuses the already-cached) LaMa-manga checkpoint and
+    loads it into _build_lama_generator()'s architecture. Raises
+    RuntimeError -- caught by inpaint_region()/inpaint_mask_region() and
+    turned into InpaintModelUnavailable -- if most of the checkpoint's
+    weights don't match, rather than silently returning a near-random
+    model."""
+    global _lama_model
+    if "_lama_model" in globals():
+        return globals()["_lama_model"]
+
+    import os as _os
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file as _load_safetensors
+
+    _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
+    if _tok:
+        _os.environ.setdefault("HF_TOKEN", _tok)
+
+    ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename="model.safetensors", token=_tok)
+    state_dict = _load_safetensors(ckpt_path)
+
+    generator = _build_lama_generator()
+    own_keys = list(generator.state_dict().keys())
+    missing, unexpected = generator.load_state_dict(state_dict, strict=False)
+    if len(missing) > len(own_keys) * 0.1:
+        raise RuntimeError(
+            f"LaMa-manga checkpoint doesn't match the expected generator shape "
+            f"({len(missing)}/{len(own_keys)} weights unmatched, "
+            f"{len(unexpected)} unexpected keys in the checkpoint) -- "
+            f"_build_lama_generator() likely needs updating against this "
+            f"checkpoint's real state_dict key names."
+        )
+    generator.eval()
+    globals()["_lama_model"] = generator
+    return generator
+
+
+def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str = None):
+    """Runs LaMa-manga inpainting on one region-of-interest. roi_bgr: an
+    OpenCV BGR array. mask_u8: a same-size uint8 array, nonzero = erase
+    this pixel. Returns a BGR array the same size as roi_bgr, with only
+    the masked pixels replaced -- everywhere else stays byte-identical
+    to the input, same "only touch what was actually erased" discipline
+    as the OpenCV path below."""
+    import numpy as np
+    import torch
+    import cv2
+
+    generator = _load_lama_generator(hf_token=hf_token)
+    rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
+    mask = (mask_u8 > 0).astype("float32")
+    # Zero out the masked area in the image channel first -- otherwise the
+    # model can "peek" at the very pixels it's meant to be reconstructing.
+    rgb_masked = rgb * (1 - mask[..., None])
+    inp = np.concatenate([rgb_masked, mask[..., None]], axis=-1)
+    tensor = torch.from_numpy(inp).permute(2, 0, 1).unsqueeze(0)
+
+    # Three stride-2 downsamples need both spatial dims divisible by 8.
+    h, w = tensor.shape[-2:]
+    pad_h, pad_w = (-h) % 8, (-w) % 8
+    if pad_h or pad_w:
+        tensor = torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect")
+
+    with torch.no_grad():
+        out = generator(tensor)[0]
+    out = out[:, :h, :w].clamp(0, 1).permute(1, 2, 0).numpy()
+    out_bgr = cv2.cvtColor((out * 255).astype("uint8"), cv2.COLOR_RGB2BGR)
+
+    mask3 = np.repeat((mask_u8 > 0)[..., None], 3, axis=2)
+    return np.where(mask3, out_bgr, roi_bgr)
+
+
+def _resolve_inpaint_backend(backend: str) -> str:
+    if backend == "auto":
+        return "ml" if lama_ml_weights_cached() else "cv"
+    return backend
+
+
+def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4,
+                    backend: str = "auto", hf_token: str = None):
+    """Removes text within `box` so the translated text has a clean
+    background. Returns the path to the (possibly newly-created) cleaned
+    image; if out_path is None, overwrites nothing and returns an image
+    array instead.
+
+    backend='cv' (free, plain OpenCV inpainting), 'ml' (LaMa-manga,
+    Step 11 item 2 -- shape-aware, not just a rectangular inset), or
+    'auto' (default, Step 11 item 5) -- use LaMa-manga if its weights
+    are already cached locally, OpenCV otherwise. If the ML backend is
+    picked (explicitly or via auto) but can't actually run, this falls
+    back to OpenCV inpainting and raises InpaintModelUnavailable with
+    the cleaned image still attached, same fallback shape as
+    detect_bubbles()."""
     import cv2
     img = cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -263,13 +555,119 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY_INV)
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
 
-    inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
+    resolved = _resolve_inpaint_backend(backend)
+    inpainted_roi = None
+    fallback_error = None
+    if resolved == "ml":
+        try:
+            inpainted_roi = _run_ml_inpaint(roi, mask, hf_token=hf_token)
+        except ImportError as exc:
+            fallback_error = InpaintModelUnavailable(
+                "ML inpainting needs extra packages:\n"
+                "    pip install torch safetensors huggingface_hub\n\n"
+                "Falling back to plain OpenCV inpainting for this bubble."
+            )
+            fallback_error.__cause__ = exc
+        except Exception as exc:
+            fallback_error = InpaintModelUnavailable(
+                f"LaMa-manga inpainting failed: {type(exc).__name__}: {exc}\n\n"
+                "Falling back to plain OpenCV inpainting for this bubble."
+            )
+            fallback_error.__cause__ = exc
+
+    if inpainted_roi is None:
+        inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
     img[y:y + bh, x:x + bw] = inpainted_roi
 
     if out_path:
         cv2.imwrite(out_path, img)
-        return out_path
-    return img
+        result = out_path
+    else:
+        result = img
+
+    if fallback_error is not None:
+        fallback_error.fell_back_to_cv = True
+        # Attach the already-produced result so a caller that wants it
+        # doesn't have to redo the OpenCV pass itself.
+        fallback_error.result = result
+        raise fallback_error
+    return result
+
+
+def inpaint_mask_region(image_path: str, mask, out_path: str = None, padding: int = 4,
+                         backend: str = "auto", hf_token: str = None):
+    """Manual erase/heal brush (Step 11 item 10): inpaints exactly the
+    pixels the person painted, independent of any detected bubble box --
+    a sound effect, background text, or a stray detection artifact the
+    auto/manual bubble tools never touch.
+
+    mask: a 2D array the same height/width as the source image; any
+    nonzero pixel is erased (this is the raw brush-stroke mask -- unlike
+    inpaint_region(), there's no "text is dark pixels inside a light
+    bubble" heuristic here, because the person is manually choosing what
+    to remove, not detecting text). backend/hf_token: same as
+    inpaint_region(). Raises InpaintModelUnavailable the same way, with
+    the OpenCV-inpainted result still attached, if the ML backend can't
+    run."""
+    import cv2
+    import numpy as np
+
+    img = cv2.imread(image_path)
+    h, w = img.shape[:2]
+    mask = np.asarray(mask)
+    if mask.shape[:2] != (h, w):
+        raise ValueError(
+            f"mask shape {mask.shape[:2]} doesn't match the image {(h, w)}")
+
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        # Nothing painted -- return the image unchanged.
+        if out_path:
+            cv2.imwrite(out_path, img)
+            return out_path
+        return img
+
+    x0, x1 = max(0, int(xs.min()) - padding), min(w, int(xs.max()) + 1 + padding)
+    y0, y1 = max(0, int(ys.min()) - padding), min(h, int(ys.max()) + 1 + padding)
+    roi = img[y0:y1, x0:x1]
+    roi_mask = (mask[y0:y1, x0:x1] > 0).astype("uint8") * 255
+    roi_mask = cv2.dilate(roi_mask, np.ones((3, 3), np.uint8), iterations=1)
+
+    resolved = _resolve_inpaint_backend(backend)
+    inpainted_roi = None
+    fallback_error = None
+    if resolved == "ml":
+        try:
+            inpainted_roi = _run_ml_inpaint(roi, roi_mask, hf_token=hf_token)
+        except ImportError as exc:
+            fallback_error = InpaintModelUnavailable(
+                "ML inpainting needs extra packages:\n"
+                "    pip install torch safetensors huggingface_hub\n\n"
+                "Falling back to plain OpenCV inpainting for this brush stroke."
+            )
+            fallback_error.__cause__ = exc
+        except Exception as exc:
+            fallback_error = InpaintModelUnavailable(
+                f"LaMa-manga inpainting failed: {type(exc).__name__}: {exc}\n\n"
+                "Falling back to plain OpenCV inpainting for this brush stroke."
+            )
+            fallback_error.__cause__ = exc
+
+    if inpainted_roi is None:
+        inpainted_roi = cv2.inpaint(roi, roi_mask, 5, cv2.INPAINT_TELEA)
+    img[y0:y1, x0:x1] = inpainted_roi
+
+    if out_path:
+        cv2.imwrite(out_path, img)
+        result = out_path
+    else:
+        result = img
+
+    if fallback_error is not None:
+        fallback_error.fell_back_to_cv = True
+        fallback_error.result = result
+        raise fallback_error
+    return result
 
 
 # One of these three, matching sample_text_style()'s "suggested_style"
@@ -781,3 +1179,179 @@ def export_font_style_report(bubbles: list, out_path: str) -> str:
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# OCR backend auto-routing (Step 11 item 4) and manual-region OCR (item 8)
+# ---------------------------------------------------------------------------
+
+def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
+    """
+    Default OCR backend by source language, the way comic-translate does
+    but with maintained choices -- manga_ocr for Japanese (already a
+    Baihe dependency), paddle for Chinese, paddle for Korean too
+    (PaddleOCR supports both, unlike Tesseract-vs-nothing before this).
+    Explicitly not Pororo for Korean (comic-translate's own choice) --
+    checked its maintenance status directly: even a Hugging Face mirror
+    of just its OCR piece exists specifically because people are worried
+    about the main library's long-term upkeep, not worth taking on.
+
+    prefer_paddle_vl_manga: opt-in second Japanese backend
+    (jzhang533/PaddleOCR-VL-For-Manga) -- not a default swap, since its
+    own model card only benchmarks against base PaddleOCR-VL, not
+    against manga-ocr; which one's actually better for a given source is
+    a real head-to-head call, not something this function decides.
+
+    Always overridable manually -- this only picks the default; see
+    ocr_box_region()'s own `backend` parameter.
+    """
+    if source_language == "ja":
+        return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
+    if source_language in ("zh", "ko"):
+        return "paddle"
+    return "tesseract"
+
+
+def ocr_box_region(image_path: str, box: dict, source_language: str, backend: str = None,
+                    chinese_script: str = "simplified", tesseract_cmd: str = None,
+                    prefer_paddle_vl_manga: bool = False) -> str:
+    """
+    Crops `box` out of image_path -- inset first via inset_box_for_ocr(),
+    same reason as auto-detected bubbles (OCRing a bubble's own border
+    can make some backends return nothing at all) -- and OCRs it with
+    the auto-routed backend for source_language, or an explicit
+    `backend` override.
+
+    Shared by auto-detected bubbles and Step 11 item 8's manual-region
+    OCR: draw/type a box the auto-detector missed and run OCR on it,
+    instead of requiring the translated text to be typed in by hand.
+    """
+    import ocr as ocr_module
+    import tempfile
+    from PIL import Image as _PILImage
+
+    resolved_backend = backend or auto_ocr_backend(source_language, prefer_paddle_vl_manga)
+    ocr_box = inset_box_for_ocr(box)
+    tmp_path = None
+    with _PILImage.open(image_path) as img:
+        crop = img.crop((ocr_box["x"], ocr_box["y"],
+                          ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"]))
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            crop.save(tmp.name)
+            tmp_path = tmp.name
+    try:
+        return ocr_module.extract_text_from_images(
+            [tmp_path], backend=resolved_backend, source_language=source_language,
+            chinese_script=chinese_script, tesseract_cmd=tesseract_cmd).strip()
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# PDF import/export (Step 11 item 7)
+# ---------------------------------------------------------------------------
+
+def pdf_to_page_images(pdf_path: str, out_dir: str, prefix: str = "page") -> tuple:
+    """
+    Splits a PDF into per-page images on import -- raws and finished
+    scanlations are commonly shared as PDFs (Torii added this for the
+    same reason, v2.0.6.1); Scanlate's own page uploader only ever took
+    png/jpg/jpeg before this.
+
+    Uses pypdf (BSD-3, genuinely permissive) to pull each page's
+    embedded raster image, which is what a scanned-manga PDF actually
+    contains -- one full-page image per PDF page, not vector content to
+    render. PyMuPDF/fitz would also do this (and can additionally
+    rasterize vector pages), but its own license is AGPL-3.0, not the
+    permissive license the roadmap step that asked for this assumed --
+    checked directly rather than taken on faith, and not pulled in.
+
+    A page with no embedded image (a text/vector-only PDF page) is
+    skipped, not a hard failure. Returns (image_paths, skipped_pages) --
+    skipped_pages is a list of 0-based page indices, so the caller can
+    say which pages didn't come through instead of silently losing them.
+    """
+    from pypdf import PdfReader
+
+    os.makedirs(out_dir, exist_ok=True)
+    reader = PdfReader(pdf_path)
+    image_paths, skipped_pages = [], []
+    for i, page in enumerate(reader.pages):
+        images = list(page.images)
+        if not images:
+            skipped_pages.append(i)
+            continue
+        # A scanned page sometimes carries a small embedded logo/watermark
+        # alongside the real page scan -- the largest image is the page.
+        largest = max(images, key=lambda im: im.image.size[0] * im.image.size[1])
+        out_path = os.path.join(out_dir, f"{prefix}_{i:04d}.png")
+        largest.image.convert("RGB").save(out_path)
+        image_paths.append(out_path)
+    return image_paths, skipped_pages
+
+
+def pages_to_pdf(image_paths: list, out_path: str) -> str:
+    """
+    "Download as PDF" alongside the existing per-page download and bulk
+    ZIP (Torii added PDF download for the same reason, v2.0.8.1). Uses
+    Pillow -- already a hard dependency here, no new install -- which
+    can write a multi-page PDF directly, no separate PDF library needed
+    for export.
+    """
+    from PIL import Image as _PILImage
+
+    if not image_paths:
+        raise ValueError("No pages to export.")
+    images = [_PILImage.open(p).convert("RGB") for p in image_paths]
+    images[0].save(out_path, "PDF", save_all=True, append_images=images[1:])
+    return out_path
+
+
+# ---------------------------------------------------------------------------
+# Bulk find-and-replace across a drama's saved bubble text (Step 11 item 9)
+# ---------------------------------------------------------------------------
+
+def bulk_find_replace_preview(bubbles: list, find: str, replace: str,
+                               case_sensitive: bool = False, use_regex: bool = False) -> list:
+    """
+    Previews a bulk find-and-replace across an already-translated
+    project's bubble text before anything is applied -- same "don't
+    silently overwrite" pattern used everywhere else in this app.
+    Distinct from the glossary (shapes *future* translations) and
+    translation memory (*suggests* reuse going forward): this
+    retroactively corrects text already saved across many pages at once
+    (a name translated inconsistently before a glossary entry existed,
+    a typo that repeats).
+
+    bubbles: dicts with at least "id" and "translated_text" (matches
+    db.list_bubbles_for_drama()'s shape). Returns only the bubbles that
+    actually change, each as {"id", "page_idx", "old_text", "new_text"}.
+    Nothing here touches the database -- the caller applies each match
+    by id (db.update_bubble_text()) only after the person reviews this
+    list, and only translated_text changes; x/y/w/h/source_text/skip/
+    font fields are never touched by this path.
+    """
+    import re
+
+    if not find:
+        return []
+    flags = 0 if case_sensitive else re.IGNORECASE
+    pattern = find if use_regex else re.escape(find)
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        raise ValueError(f"Invalid find pattern: {exc}") from exc
+
+    matches = []
+    for b in bubbles:
+        old_text = b.get("translated_text") or ""
+        if not compiled.search(old_text):
+            continue
+        new_text = compiled.sub(replace, old_text)
+        if new_text != old_text:
+            matches.append({
+                "id": b["id"], "page_idx": b.get("page_idx"),
+                "old_text": old_text, "new_text": new_text,
+            })
+    return matches
