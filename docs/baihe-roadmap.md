@@ -31,7 +31,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5b: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite → bugs found during manual testing (5b).
-- Steps 6–20: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10) → Scanlate ML detector/inpainting/OCR routing (11) → novel narration TTS quality (11b) → dub timing: clamped time-stretch fallback (11c) → GUI polish and Streamlit performance (12) → UI foundation: components & project state (13) → Workspace shell rebuild (14) → Reader tab declutter (15) → Settings consolidation (16) → Discover/Navigator merge (17) → Diagnostics narrowing (18) → full click-through UX test (19) → UX polish: shortcuts, toasts, transcript search (20) → Review workspace: per-line audio and save-status (21). Milestones R4 and R7 are deferred (see §3).
+- Steps 6–20: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10) → Scanlate ML detector/inpainting/OCR routing (11) → novel narration TTS quality (11b) → dub timing: clamped time-stretch fallback (11c) → GUI polish and Streamlit performance (12) → UI foundation: components & project state (13) → Workspace shell rebuild (14) → Reader tab declutter (15) → Settings consolidation (16) → Discover/Navigator merge (17) → Diagnostics narrowing (18) → full click-through UX test (19) → UX polish: shortcuts, toasts, transcript search (20) → Review workspace: per-line audio and save-status (21) → series-level library view (22) → source-adapter architecture, interface only (23). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -42,6 +42,66 @@ Status: agreed plan (**shortened version**). This doc is written in the
 | Later backend/UI stack | **SQLite + FastAPI + React**, deferred to M8+. Streamlit stays until then. |
 | Rewrite vs. evolve | **Evolve** the existing app. There is no rewrite. |
 | Scope | **Shortened plan.** Only fix what the user would notice: translation quality, line identity, keeping the original transcript, and re-runnable speaker detection. Full artifact versioning, the ASR pipeline rebuild, extra export formats and the benchmark harness are deferred. |
+
+---
+
+## 0. Long-term vision
+
+Recorded here as durable direction, not as scope for the current step
+queue — added 2026-09-25 after the user shared a detailed vision (worked
+out with ChatGPT) for where this project eventually goes.
+
+**The core idea:** Baihe becomes a **unified local-first translation
+platform** across manga/manhua/manhwa, web novels/novels, and video/YouTube
+content — not separate tools bolted together, but one app sharing the same
+translation engine, glossary, translation memory, character context, and
+library across every media type. Philosophically close to combining Mihon
+(source/library system), OpenNovel (novel library/context), Jellyfin
+(centralized media library), and ImageTrans/BallonsTranslator (manga OCR/
+translation/typesetting) around one local backend, with cloud models
+staying strictly optional for content local models can't handle well.
+
+**Already the app's actual design, not a gap:** local-first with optional
+paid cloud, cost-tiered by difficulty (🧪 free tier → local models →
+optional paid API) — this is how Baihe already works (Ollama default,
+Step 1d's free-tier labelling, Step 9's bulk/batch discounts). A formal
+"Model Router" abstraction was checked and explicitly not recommended
+(§6) — the practical goal is already met by config-driven engine pickers
+for a single-user local app.
+
+**Already unusually far along and worth knowing about:** the "shared
+context across media types" idea isn't just aspirational — `db.py`'s real
+schema already keys `series_characters` and `glossary_terms` by
+`series_id`, not by individual project (`drama_id`), and `dramas.media_type`
+already spans `audio_drama`/`video_drama`/`novel`/`manhwa`/`manga`/
+`manhua`. A manga project and a video project in the same series already
+share one glossary and character list today — the gap is a visible UI
+surface for it, not new architecture. See the new series-level library
+view item, folded into the Steps 13–21 IA redesign.
+
+**Deliberately not committed to yet, tracked here for when a real decision
+is made:**
+- A **raw-source repository/adapter system** (Mihon/Keiyoushi-style: search
+  external sites, auto-fetch raw manga/novel chapters, auto-detect new
+  chapters) — a genuinely new capability, additive to (not replacing)
+  today's manual-download workflows. The adapter *interface* is being built
+  now as its own step (architecture only, no site-specific code); which
+  real site becomes the first working adapter is its own explicit decision,
+  not pre-committed here — see that step for what was checked and why.
+- **FastAPI backend, browser extension, eventual desktop app (Tauri/
+  Electron/PySide)** — this is the existing **M8+** deferred milestone
+  (§3), unchanged: "a large migration with no current pain driving it...
+  revisit when Streamlit becomes the bottleneck." Nothing about this vision
+  changes that trigger.
+- **Modular ASR/diarization, standalone VAD** — the existing **R4**
+  deferred milestone (§3), unchanged.
+- **A continuous research/benchmark/A-B-testing "model intelligence"
+  system** — this planning chat already does the equivalent by hand each
+  time the user asks "are my models still the best" (three times so far
+  this project, each producing a dated, cited §6/§7 entry). Automating that
+  into an always-running in-app subsystem is real, separate engineering
+  effort with no confirmed need yet beyond what the manual process already
+  delivers at near-zero ongoing cost — not ruled out, just not started.
 
 ---
 
@@ -114,6 +174,8 @@ Rules for every milestone:
 | 19 | Run through the 12 workflows listed in Step 19 yourself and confirm each one is obvious: where you are, what to do next, no unnecessary scrolling, related controls together. |
 | 20 | In Review & edit, try the save/next-flagged/prev-flagged/play-pause shortcuts and confirm they don't fire while typing in a text field. Save a line edit and confirm it shows a toast, not a static message. Search for a word you know appears in only one line and confirm it jumps to the right page. |
 | 21 | In Review & edit, play a line's audio snippet without leaving the page. Edit a few lines without saving, navigate away and back, and confirm the "unsaved changes" indicator is still showing (not silently cleared). |
+| 22 | Create two dramas of different media types in the same series with a shared character. Confirm the series view lists both together and shows where the shared character info came from. |
+| 23 | Add a mock/test source adapter and confirm a "page" from it flows through Scanlate's existing OCR/translate/typeset pipeline with no changes needed there. No real site is expected to work yet — this step ships the interface only. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -752,6 +814,39 @@ Found by cross-checking the user's segment-editor spec against the actual Review
 - A test shows the save-status indicator correctly reflects "unsaved changes" when a page's widget values differ from what's in the database, and "saved" immediately after a successful `db.save_lines` call.
 - Manual check: edit a few lines without saving, navigate to Diagnostics and back, and confirm the indicator still shows unsaved changes (session state alone isn't mistaken for "saved").
 
+### Step 22 — Series-level library view *(first concrete step toward §0's unified-library vision)*
+Prompted by the user's "unified local translation platform" vision doc, cross-referenced against the actual `db.py` schema before designing anything — a genuinely good finding, not assumed. **`series_characters` and `glossary_terms` are already keyed by `series_id`, not `drama_id`** (confirmed directly in `db.py`'s `CREATE TABLE` statements, with the schema's own comment: "shares a glossary across multiple dramas of the same series"), and **`dramas.media_type` already includes `manhwa`/`manga`/`manhua` alongside `audio_drama`/`video_drama`/`novel`** (confirmed in `workspace_tab.py`'s `MEDIA_TYPE_OPTIONS`). A manga project and a video project already in the same series **already share one glossary and character list today** — this is not a new data model to build, it's an existing capability with no visible UI surface. Library, Reader, Workspace, and Scanlate all treat `series_id` as a backend detail today, never showing the cross-media relationship to the user.
+
+1. **A series-level view, reachable from Library/Home** (Step 13 item 4's Home concept is the natural home for this): for any series with more than one drama, list every drama in it across media types together — e.g. "Series X: 1 video drama, 1 manga, 1 novel," not three unrelated Library rows.
+2. **A "shared from this series" indicator** wherever a character or glossary term appears in Workspace/Scanlate/Reader, so the sharing that already happens under the hood becomes visible — e.g. a small note that a character's pronoun/voice info came from the series, not this specific project, with a link to the series view.
+3. **No schema change, no new backend service** — this is a UI-only step built on data that already exists, sized like any other step in the 13–21 range, not a new architecture.
+
+**Exit:**
+- Manual check: create two dramas (different `media_type`) in the same series with a shared character already set, and confirm the series view lists both together and the character indicator shows the shared origin.
+- A test shows the series-view query returns every drama for a given `series_id` regardless of `media_type`.
+
+### Step 23 — Source-adapter architecture (interface only, no site-specific code)
+Second half of the user's raw-source vision (§0), scoped down to what's responsibly buildable this pass. Checked the two reference projects directly before designing anything, not assumed:
+- **[`keiyoushi/extensions-source`](https://github.com/keiyoushi/extensions-source)** — confirmed real: Apache-2.0, 4.7k stars, 1.7k forks, actively maintained (646 open issues, ongoing contribution). It's a **Kotlin/JVM extension system for Mihon/Tachiyomi** — different language/runtime from Baihe, so no code ports directly, but its per-site scraping patterns (what endpoint, what parsing, what auth each real site actually needs) are genuine, inspectable, battle-tested reference material — same "read the real technique, reimplement in our own stack" approach already used for every other integration in this roadmap.
+- **OpenToon / OpenNovel — confirmed NOT open source.** These are closed, commercial mobile apps (iOS/Android, subscription/coin-pack monetized, by Decade Studios) with no public architecture to study. Flagging this plainly rather than inventing an architecture that can't actually be verified.
+
+**Explicitly not done this pass, and why:** vetting the ToS/robots.txt/anti-bot posture of the ~20 official JP/CN/KR publisher platforms named in the user's spec (Shonen Jump+, Naver Webtoon, KakaoPage, Tencent Comics, etc.). That's a genuine multi-site legal/technical research project on its own — several are large commercial publishers with real anti-scraping incentives (paid content, official apps), a categorically higher-risk starting point than sites a community-maintained extension list has already converged on as realistically accessible through ordinary HTTP/HTML access. Doing shallow "checked" claims on 20 sites in one pass would be exactly the kind of unverified research this roadmap has avoided everywhere else.
+
+1. **The adapter interface** — `search()`, `get_series()`, `get_chapters()`, `get_pages()`, `download_page()`, with optional `login()`/`refresh_session()` for sources that need them; no adapter is required to implement every method. Each adapter declares its own content types (`manga`/`manhua`/`manhwa`/`novel`) and capabilities, so the same interface serves image sources and text sources without forcing one to pretend to be the other.
+2. **The access-method ladder, simplest-first**: direct HTTP/API → HTML parsing → browser-context request → rendered browser page, stopping at whichever level actually works for a given source — never attempting to defeat DRM, CAPTCHAs, or anti-bot systems; a source that isn't accessible through ordinary means reports "unavailable," not a bypass attempt.
+3. **Source-health tracking** (🟢/🟡/🔴, last success/failure, error type, response latency) and **reasonable rate-limiting/backoff** — a broken or blocked source stops being hit repeatedly rather than hammered.
+4. **A configurable raw-content cache** (don't retain / temporary / keep originals / keep translated / keep both), content-hashed to avoid re-downloading the same page.
+5. **Out of scope for this step, on purpose:** any actual site-specific adapter. This step ships with zero working sources — it's the interface and the plumbing, tested against a fake/mock source only.
+
+**Exit:**
+- A test shows a mock adapter implementing only `search()`/`get_series()`/`get_chapters()`/`get_pages()` (no `login()`) works correctly through the interface, and that calling an unimplemented optional method fails cleanly rather than crashing.
+- A test shows the access-method ladder tries each level in order and stops at the first that succeeds.
+- A test shows a source marked 🔴 unavailable isn't retried faster than its configured backoff.
+- A test shows the cache's four modes each behave as configured (nothing retained / cleared after use / kept) against a fake downloaded page.
+- Manual check: with a mock adapter added, confirm a raw "page" flows through into Scanlate's existing OCR/translate/typeset pipeline with no changes needed on that side — the whole point of the interface is that the rest of the app doesn't need to know a page came from an adapter instead of a manual upload.
+
+**Follow-up, not part of this step:** picking and vetting the first real site to build an actual adapter against — a separate, explicit decision once this interface exists, starting from Keiyoushi's currently-maintained extension list rather than the official-publisher list by default (lower risk, proven-accessible), unless the user specifically wants to start with a named official platform despite the higher risk.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -773,7 +868,7 @@ Found by cross-checking the user's segment-editor spec against the actual Review
 - **Planning chat:** branch `claude/baihe-subtitle-planning-95qyvq`, docs only. Roadmap changes go here.
 - **Implementing chat — two different flows depending on where the roadmap is:**
   - **Steps 1e through 10 (autonomous mode, starting 2026-09-24 at the user's request — "most of the checks have been good, let the AI go through the steps without additional checks"):** build the step on its own branch off the latest `baihe-subtitler`, run the full suite, open a pull request into `baihe-subtitler` **and merge it yourself**, then start the next step off the updated branch — no stop for the planning chat's diff review and no stop for the user's merge go-ahead in between steps. Still push a short plain-English summary of what changed with each step, for the record, but don't wait for a reply before continuing. **No per-step model-switch stop either** — the whole remaining run (this range and Step 11 onward) is on Opus throughout, at the user's explicit request (2026-09-24: "can I let the whole process run with opus"), so there's nothing to confirm per step; see the table below for why those particular steps would otherwise have needed it. If a step's own exit conditions can't be met, or something looks genuinely wrong (not just "the planning chat would nitpick this"), stop and say so rather than merging around it.
-  - **Steps 11 onward (back to the original gated flow):** once the roadmap's current list (through Step 10) is done, later additions go back to review-gated: build on its own branch, push, report, then **stop**; the user asks the planning chat to "check Step X"; once approved, the user says "create a PR for this step"; open the PR but **don't merge it yourself**; the user merges on GitHub; start the next step only after the previous one is merged. The user's own framing for this: once the current list is finished, further changes are "smaller scale," worth going back to a closer look before they land. **This explicitly includes Steps 13–19 (the UI/UX redesign)** — confirmed with the user that these start only after Steps 1e–12 are fully done, not interleaved with the currently-running autonomous batch, given the redesign touches every tab and the shared session-state model.
+  - **Steps 11 onward (back to the original gated flow):** once the roadmap's current list (through Step 10) is done, later additions go back to review-gated: build on its own branch, push, report, then **stop**; the user asks the planning chat to "check Step X"; once approved, the user says "create a PR for this step"; open the PR but **don't merge it yourself**; the user merges on GitHub; start the next step only after the previous one is merged. The user's own framing for this: once the current list is finished, further changes are "smaller scale," worth going back to a closer look before they land. **This explicitly includes Steps 13–19 (the UI/UX redesign)** — confirmed with the user that these start only after Steps 1e–12 are fully done, not interleaved with the currently-running autonomous batch, given the redesign touches every tab and the shared session-state model. **Also explicitly includes Steps 22–23** (the series-level library view and the source-adapter architecture, §0's first concrete steps) — same reasoning, plus Step 23 in particular touches new ground (external network access to a to-be-decided source) that warrants a closer look before merging regardless of size.
 - **Model recommendation per step (now informational only — see the note above).** The whole remaining run is on Opus at the user's request, so this table no longer gates anything; it documents *why* these particular steps would have been worth the extra care if the run were on a cheaper model, for anyone revisiting that cost/quality tradeoff later. Originally: everything not listed here would be fine on Sonnet — these are the steps with either a schema/data migration touching every existing project, correctness that depends on getting an edge case right rather than following a clear spec, or several interacting moving parts in one step:
 
   | Step | Why it needs the extra care |
@@ -823,6 +918,8 @@ Found by cross-checking the user's segment-editor spec against the actual Review
   | 19 — Full click-through UX test | — | Not started | — |
   | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
   | 21 — Review workspace: per-line audio and save-status | — | Not started | — |
+  | 22 — Series-level library view | — | Not started | — |
+  | 23 — Source-adapter architecture (interface only) | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
@@ -928,6 +1025,8 @@ reset or a different session picking up reviews later:
 - **Full-roadmap review pass, at the user's request ("review roadmap, reorder if needed, add or remove anything").** Read the entire 941-line doc top to bottom, not spot-checked. Found and fixed three real problems: (1) **a wasted-effort ordering bug** — Step 12 items 5–7 fixed `workspace_tab.py`'s collapsible-section consistency, redundant text, and typography, but Step 14 immediately replaces that whole file's structure, and Step 13 builds the same shared status helper Step 12 item 6 asked for — building the old-structure fix first would be discarded within two steps. Fixed by narrowing Step 12 items 5–6 to the three tabs the redesign doesn't otherwise touch (Library, Scanlate, Live) and moving the Workspace/Reader/Settings/Diagnostics consistency requirement explicitly into Steps 14/15/16/18 (each now cites Step 13's typographic scale directly, added as a new Step 13 item, rather than each rebuild inventing its own). (2) **A dangling reference** — Step 13's audit and §6 both mentioned a "Home concept" for Library that was never turned into an actual item; added as Step 13 item 4 (wire the shared pipeline stepper into Library's dashboard). (3) **Two stale rows in "Decisions already made"** (§0) — still said the default local model was `qwen2.5:7b` and SenseVoice was excluded pending license review, both superseded by Step 5 and Step 6 respectively; corrected to match. No steps added or removed — the fixes are content corrections and a narrower scope for one existing item, not new scope. Everything else (dependency ordering, the autonomous/gated mode split, the R4/M8+ deferrals) checked and confirmed still correct.
 
 - **Session wrap-up sync (2026-09-25), user approaching a usage limit.** Confirmed via `git log origin/baihe-subtitler` (not assumed): Steps 1d, 1e, 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12) and the `CLAUDE.md` re-copy happened (commit `cea6688`) — §4's status table was badly stale (showed all of these as "Not started") and has been corrected. Recorded the user's own manual-check results as given, not independently re-verified this session: Step 5's VRAM figure for `qwen3:8b` is unconfirmed (no GPU available), with the `ollama pull`/`ollama ps` follow-up noted for later; Step 6b's mpv/VLC and live-preview checks are pending a person at a screen. Added Step 5b for three bugs found during that manual testing (Ollama URL from Settings not reaching translation, a merge preview mutating live lines before confirmation, stale text in the re-transcribe box) — none of these were re-verified against current source this session, flagged for re-verification before fixing, same as every other step's standing instruction.
+
+- **"Unified local translation platform" vision review (§0, Steps 22–23), at the user's request.** User shared a detailed ~50-section architecture vision (worked out with ChatGPT) for a much larger long-term product — cross-referenced against the existing roadmap and this project's own decisions rather than treated as automatically new scope. Confirmed already-covered ground: local-first/cost-tiered model use (already Baihe's design), a formal model-router abstraction (already checked and rejected), QA/versioning/review-flags/job-system/SQLite (already covered by the earlier 40-part spec cross-check). Confirmed the FastAPI/browser-extension/desktop-app portion is the existing **M8+** deferred milestone and the modular-ASR portion is **R4** — neither reopened. **User confirmed wanting to start folding pieces in now** (not just recording it as direction) and wants both the existing manual-download workflows *and* a new automated raw-source-adapter system (not a replacement). Read `db.py`'s real schema directly before designing anything: confirmed `series_characters`/`glossary_terms` are already keyed by `series_id` (not `drama_id`) and `dramas.media_type` already spans manga/manhwa/manhua alongside audio/video/novel — the "shared context across media" idea is already ~implemented at the data layer, just has no UI surface; this became Step 22. For the raw-source-adapter piece, checked the two reference projects the user named directly: [`keiyoushi/extensions-source`](https://github.com/keiyoushi/extensions-source) confirmed real (Apache-2.0, 4.7k stars, Kotlin/Mihon extension format — technique reference only, no direct code port); OpenToon and OpenNovel confirmed **not** open source (closed commercial mobile apps by Decade Studios) — nothing to study architecturally there, flagged rather than invented. **Explicitly did not** attempt to vet the ~20 named official JP/CN/KR publisher platforms' ToS/scraping posture in this pass — a genuine multi-site research project on its own, deferred to a separate, explicit "pick and vet the first real site" decision (Step 23's own follow-up note), recommending Keiyoushi's actively-maintained list as a lower-risk starting point than the named official-publisher platforms by default.
 
 ---
 
