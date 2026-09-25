@@ -82,3 +82,29 @@ class TestSeparateVocals:
         _install_fake_demucs(monkeypatch, stems=("drums", "bass"))
         with pytest.raises(audio_preprocess.VocalSeparationError, match="vocals stem"):
             audio_preprocess.separate_vocals_demucs("/fake/audio.wav", "/fake/vocals.wav")
+
+
+class TestModelDirRespectsPortableModeOverride:
+    """Step 10: BAIHE_AUDIO_SEP_MODEL_DIR (set by portable.py's
+    activate_portable_mode() under portable mode) overrides the default
+    ~/.cache/audio-separator-models -- _MODEL_DIR is a module-level
+    constant, so this reimports the module with the env var already set,
+    the same as it would be by the time a real process reaches this
+    import."""
+
+    def test_env_var_set_overrides_the_default(self, monkeypatch):
+        import importlib
+        monkeypatch.setenv("BAIHE_AUDIO_SEP_MODEL_DIR", "/portable/model_cache/audio-separator-models")
+        try:
+            importlib.reload(audio_preprocess)
+            assert audio_preprocess._MODEL_DIR == "/portable/model_cache/audio-separator-models"
+        finally:
+            monkeypatch.delenv("BAIHE_AUDIO_SEP_MODEL_DIR", raising=False)
+            importlib.reload(audio_preprocess)
+
+    def test_no_env_var_falls_back_to_the_home_cache_dir(self, monkeypatch):
+        import importlib
+        monkeypatch.delenv("BAIHE_AUDIO_SEP_MODEL_DIR", raising=False)
+        importlib.reload(audio_preprocess)
+        assert audio_preprocess._MODEL_DIR == os.path.join(
+            os.path.expanduser("~"), ".cache", "audio-separator-models")
