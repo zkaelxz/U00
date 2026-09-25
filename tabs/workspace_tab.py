@@ -4,7 +4,9 @@ tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.
 import dataclasses
 
 from common import *
+import audio_preprocess
 import raw_transcript
+import sensevoice_tags
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
@@ -149,7 +151,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                         local_model_path, hf_token, initial_prompt, beam_size,
                         min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False,
-                        realign_long_segments=False, chinese_script="simplified"):
+                        realign_long_segments=False, chinese_script="simplified", fast_mode=False,
+                        separation_backend="auto"):
     """
     Runs just the Whisper speech-recognition pass in a background thread,
     same reasoning as run_translate_job above: this is the step that
@@ -198,7 +201,8 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
         vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
         try:
-            audio_path = audio_preprocess.separate_vocals(audio_path, vocals_path)
+            audio_path = audio_preprocess.separate_vocals(audio_path, vocals_path,
+                                                          backend=separation_backend)
         except audio_preprocess.VocalSeparationError as exc:
             background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
             return
@@ -212,7 +216,8 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
             on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
             progress_cb=lambda frac: background_jobs.update_progress(
-                job_id, frac, f"Transcribing... {frac * 100:.0f}%"))
+                job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
+            fast_mode=fast_mode)
     except core_module.ModelDownloadError as exc:
         background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
         return
@@ -311,6 +316,22 @@ def run_emotion_job(job_id, drama_id, lines, engine, use_audio_cues, engine_choi
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     db.save_emotions(drama_id, emap, id_by_idx=_id_by_idx(lines))
     background_jobs.set_result(job_id, {"emotions": emap})
+
+
+def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
+    """SenseVoice audio emotion/event tags per line, in the background --
+    stored in their own file (sensevoice_tags.AUDIO_TAGS_FILE), never
+    merged into the text-based emotions that feed translation."""
+    import sensevoice_tags
+    try:
+        tags = sensevoice_tags.tag_lines(
+            audio_path, lines, use_gpu=use_gpu,
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Listening for emotion and sounds... {frac * 100:.0f}%"))
+    finally:
+        core_module.release_gpu_models()
+    sensevoice_tags.save_audio_tags(drama_dir, tags)
+    background_jobs.set_result(job_id, {"tagged": len(tags)})
 
 
 def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
@@ -1098,17 +1119,27 @@ def render_workspace_tab():
                         tguide.glossary_to_csv(_current_gl),
                         file_name="glossary.csv")
 
-        _whisper_size_options = ["small", "medium", "large-v3"]
+        _whisper_size_options = list(core_module.WHISPER_MODELS)
         whisper_size = st.selectbox(
             "Speech recognition model", _whisper_size_options,
             index=_whisper_size_options.index(drama.get("whisper_size") or "medium")
                   if (drama.get("whisper_size") or "medium") in _whisper_size_options else 1,
+            format_func=lambda m: core_module.WHISPER_MODELS[m],
             disabled=content_mode == "novel_narration",
             key=f"whisper_size_{picked_id}",
             help="large-v3 is markedly better on Chinese names and homophones. It's free, "
                  "just slower and ~3GB to download — and much faster with GPU enabled.")
         if whisper_size != drama.get("whisper_size"):
             db.update_drama(picked_id, whisper_size=whisper_size)
+        _model_warning = core_module.whisper_model_warning(whisper_size, source_language)
+        if _model_warning and content_mode != "novel_narration":
+            st.warning(_model_warning)
+        st.checkbox(
+            "⚡ Fast mode (batched decoding, ~4× faster on a GPU)", value=False,
+            key=f"whisper_fast_mode_{picked_id}", disabled=content_mode == "novel_narration",
+            help="Runs several stretches of speech through the model at once. Same model and "
+                 "settings, just quicker -- it needs more GPU memory while it runs, so turn it "
+                 "off if transcription runs out of memory.")
 
         with st.expander("🎯 Recognition accuracy (free — worth doing)"):
             st.caption(
@@ -1173,14 +1204,20 @@ def render_workspace_tab():
             separate_vocals_first = st.checkbox(
                 "🎵 Remove background music before transcribing (slower)",
                 value=False,
-                help="Runs Demucs (a real music-source-separation model, not a generic noise "
-                     "filter) over the whole file first and transcribes only its vocals stem -- "
-                     "for a music bed under the dialogue that's confusing Whisper (phantom "
-                     "lines from lyrics, or real dialogue getting missed under the mix). Adds a "
-                     "full extra pass over the audio (roughly as long as transcription itself), "
-                     "and downloads its own model (~80MB) on first use. Skip this for already-"
-                     "clean dialogue -- there's nothing for it to separate out, so it only costs "
-                     "time. Needs `pip install demucs`.")
+                help="Runs a real music-source-separation model (not a generic noise filter) "
+                     "over the whole file first and transcribes only its vocals -- for a music "
+                     "bed under the dialogue that's confusing Whisper (phantom lines from "
+                     "lyrics, or real dialogue getting missed under the mix). Adds a full extra "
+                     "pass over the audio (roughly as long as transcription itself) and "
+                     "downloads its own model on first use. Skip this for already-clean "
+                     "dialogue -- there's nothing for it to separate out. Needs "
+                     "`pip install audio-separator` (preferred) or `pip install demucs`.")
+            separation_backend = st.selectbox(
+                "Music-removal model", list(audio_preprocess.SEPARATION_BACKENDS),
+                format_func=lambda b: audio_preprocess.SEPARATION_BACKENDS[b],
+                disabled=not separate_vocals_first, key=f"separation_backend_{picked_id}",
+                help="Mel-Band RoFormer usually leaves cleaner vocals on content with background "
+                     "music. Demucs is the older fallback (its project is no longer maintained).")
 
             realign_long_segments = st.checkbox(
                 "🧪 Split long merged lines using word-level alignment (experimental)",
@@ -1730,7 +1767,9 @@ def render_workspace_tab():
                     st.session_state.get("use_gpu", False), _local_model,
                     st.session_state.get("settings_hf_token", "") or None,
                     initial_prompt, beam_size, min_silence_ms, vad_threshold, separate_vocals_first,
-                    realign_long_segments, chinese_script)
+                    realign_long_segments, chinese_script,
+                    st.session_state.get(f"whisper_fast_mode_{picked_id}", False),
+                    st.session_state.get(f"separation_backend_{picked_id}", "auto"))
                 if started:
                     st.info("Transcription started in the background -- it keeps running even if you "
                             "switch tabs or close this browser tab. Come back here any time to see "
@@ -1804,7 +1843,7 @@ def render_workspace_tab():
                     st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
                               "Turn off \"Remove background music\" above to transcribe the original "
                               "audio instead, or fix the reported issue (often a missing "
-                              "`pip install demucs`) and press the button again.")
+                              "`pip install audio-separator` or `pip install demucs`) and press the button again.")
                 else:
                     segments = _tresult["segments"]
                     audio_path = existing_audio
@@ -2214,7 +2253,7 @@ def render_workspace_tab():
             for ln in page_slice:
                 if ln.flag:
                     fc1, fc2 = st.columns([5, 1])
-                    fc1.warning(f"⚠️ **{translate_engines.FLAG_REASONS.get(ln.flag, ln.flag)}**"
+                    fc1.warning(f"⚠️ **{translate_engines.flag_reason_label(ln.flag)}**"
                                + (f" — {ln.flag_note}" if ln.flag_note else ""))
                     if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}"):
                         ln.flag, ln.flag_note = None, ""
@@ -2621,6 +2660,54 @@ def render_workspace_tab():
                     st.caption(" · ".join(f"{k}: {v}" for k, v in
                                            sorted(summ["by_emotion"].items(), key=lambda x: -x[1])))
                     st.caption("These tags are applied automatically on the next translation run.")
+
+                if has_audio_pipeline:
+                    st.markdown("**🔊 From the audio (SenseVoice, optional)**")
+                    st.caption("A second opinion from how each line actually sounds -- emotion "
+                               "(happy, sad, angry, neutral, fearful, disgusted, surprised) plus "
+                               "sounds like laughter, crying or background music. Shown next to "
+                               "the text-based tags above, never merged into them: the two can "
+                               "disagree, and only the text-based tags feed translation. Needs "
+                               "`pip install funasr`. " + sensevoice_tags.LICENSE_NOTE)
+                    _sv_audio = (os.path.join(ddir, drama["audio_filename"])
+                                 if drama.get("audio_filename") else None)
+                    _sv_job_id = f"sensevoice_{picked_id}"
+                    _svjob = background_jobs.get_status(_sv_job_id)
+                    if st.button("🔊 Tag emotion & sounds from the audio",
+                                 disabled=not (_sv_audio and os.path.exists(_sv_audio)),
+                                 key=f"sensevoice_run_{picked_id}"):
+                        started = background_jobs.start_job(
+                            _sv_job_id, run_sensevoice_job, _sv_job_id, picked_id,
+                            _copy_lines(edited_rows), _sv_audio, ddir,
+                            st.session_state.get("use_gpu", False))
+                        if started:
+                            st.rerun()
+                        else:
+                            st.warning("Already tagging this drama's audio.")
+                    if _svjob:
+                        if _svjob["status"] == "running":
+                            st.progress(_svjob["progress"], text=_svjob.get("message") or "Listening...")
+                            if st.button("🔄 Refresh progress", key=f"refresh_sv_{picked_id}"):
+                                st.rerun()
+                        elif _svjob["status"] == "done":
+                            background_jobs.clear_job(_sv_job_id)
+                            st.rerun()
+                        elif _svjob["status"] == "error":
+                            st.error(f"Audio tagging failed: {_svjob['error']}")
+                            background_jobs.clear_job(_sv_job_id)
+                    _audio_tags = sensevoice_tags.load_audio_tags(ddir)
+                    if _audio_tags:
+                        _rows = sensevoice_tags.side_by_side(edited_rows, emap, _audio_tags)
+                        _n_disagree = sum(r["disagree"] for r in _rows)
+                        st.caption(f"{len(_audio_tags)} line(s) tagged from the audio. "
+                                   f"{_n_disagree} where the audio and the text-based read "
+                                   "disagree -- worth a listen.")
+                        st.dataframe(
+                            pd.DataFrame(_rows).rename(columns={
+                                "line": "#", "text": "Line", "text_emotion": "Text-based",
+                                "audio_emotion": "Audio emotion", "audio_events": "Sounds",
+                                "disagree": "Disagree?"}),
+                            hide_index=True, width="stretch")
 
             with st.expander("🎯 Adaptive style (learns from your edits)"):
                 st.caption(

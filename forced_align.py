@@ -58,10 +58,11 @@ from core import (
 # not the "zh"/"ja"/"ko" codes this project uses everywhere else.
 LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
 
-# The model's own documented cap is ~5 minutes (300s). MAX_CHUNK_SECONDS
-# keeps chunks comfortably under that; HARD_CAP_SECONDS is the point past
-# which a single line can't be salvaged by chunking at all.
-MAX_CHUNK_SECONDS = 280.0
+# The model's own documented cap is ~5 minutes (300s), but timing was
+# reported to drift out of sync after roughly 30s on long inputs, so chunks
+# are kept around a minute. HARD_CAP_SECONDS is the point past which a
+# single line can't be salvaged by chunking at all.
+MAX_CHUNK_SECONDS = 60.0
 HARD_CAP_SECONDS = 300.0
 
 _aligner_model_cache = {}
@@ -200,6 +201,23 @@ def _align_chunk(model, audio_path: str, chunk_lines, language_name: str, tmp_di
     return per_line_times
 
 
+TIMING_FALLBACK_NOTE = ("Forced alignment returned zero-length or out-of-order timing for this "
+                        "line, so it uses the approximate timing instead -- check it lines up.")
+
+
+def _bad_line_timings(per_line_times) -> set:
+    """Line indices whose aligned units include a zero-duration span
+    (Qwen3-ASR issue #197) or whose unit start times go backwards -- the
+    aligner's known failure modes, where its timing can't be trusted."""
+    bad = set()
+    for li, times in per_line_times.items():
+        spans = list(zip(times[0::2], times[1::2]))
+        if (any(end <= start for start, end in spans)
+                or any(b[0] < a[0] for a, b in zip(spans, spans[1:]))):
+            bad.add(li)
+    return bad
+
+
 def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: str,
                       use_gpu: bool = False):
     """Drop-in alternative to core.align_transcript_to_timing() -- same
@@ -231,5 +249,16 @@ def align_with_qwen3(audio_path: str, user_lines, whisper_segments, language: st
         for chunk in chunks:
             per_line_times.update(_align_chunk(model, audio_path, chunk, language_name, tmp_dir))
 
+    # Where the aligner's own output is broken, the coarse diff alignment
+    # (already computed above) is the better answer -- flagged, so the
+    # person checks those few lines instead of trusting them blindly.
+    bad = _bad_line_timings(per_line_times)
+    for li in bad:
+        per_line_times[li] = [coarse_lines[li].start, coarse_lines[li].end]
+
     total_audio_end = whisper_segments[-1]["end"] if whisper_segments else 0.0
-    return _lines_from_char_times(user_lines, per_line_times, total_audio_end)
+    lines = _lines_from_char_times(user_lines, per_line_times, total_audio_end)
+    for ln in lines:
+        if ln.idx in bad:
+            ln.flag, ln.flag_note = "timing_uncertain", TIMING_FALLBACK_NOTE
+    return lines
