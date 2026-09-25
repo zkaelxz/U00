@@ -6,6 +6,7 @@ export_package.py, and db.py's line history (undo) functions.
 import sys
 import os
 import json
+import types
 import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -491,3 +492,31 @@ class TestDiagnosticsTabSupportReport:
             "tabs/diagnostics_tab.py"))) not in report
         assert "Model/engine versions" in report
         assert "Whisper (faster-whisper)" in report
+
+
+class TestCheckCuda:
+    """Step 10: the minimal "is a GPU actually usable" answer for
+    start.bat's own launcher-time check -- deliberately not the fuller
+    driver/CUDA-build version-mismatch detail a later step adds to the
+    in-app GPU display."""
+
+    def test_torch_not_installed(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
+        assert diagnostics.check_cuda() == {"torch_installed": False, "cuda_available": None}
+
+    def test_torch_installed_cuda_available(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: True))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        assert diagnostics.check_cuda() == {"torch_installed": True, "cuda_available": True}
+
+    def test_torch_installed_no_cuda(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        fake_torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        assert diagnostics.check_cuda() == {"torch_installed": True, "cuda_available": False}
+
+    def test_torch_installed_but_broken_import_does_not_crash(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
+        assert diagnostics.check_cuda() == {"torch_installed": True, "cuda_available": None}
