@@ -1762,6 +1762,102 @@ reset or a different session picking up reviews later:
 
 - **Full section-by-section re-analysis of both ChatGPT vision docs, at the user's direct request** ("did you fully analyze... and see if they're able to be implemented and would improve"). Honest answer to that question: the first pass was a triage (covered/deferred/new), not a full per-section feasibility+value check — this pass did that properly, reading real code for every claim rather than restating the first pass's categorization. Found real things the first pass missed, both directions: **Baihe already has more than credited** — `benchmark_cases`/`benchmark_runs` plus Diagnostics' "🎯 Accuracy benchmark" section is a real, working benchmark/regression system (automatic regression/improvement detection between runs already implemented), substantially covering the vision doc's benchmark-corpus and regression-testing sections, which the first pass wrongly implied were entirely unbuilt. `glossary_terms` already has `category`/`policy`/`enforce_exact` — richer structured control than a flat term list. `translation_versions` and the existing "Translation versions" comparison expander already cover most of the versioning section. **And real, confirmed-missing pieces the first pass didn't check for specifically:** `translate_engines.py` (grepped directly) and `adaptive_style.py` (read in full) confirm there is **no real translation memory** — `adaptive_style.py` learns aggregate style preferences, not phrase-level reuse of a specific previously-approved translation; these are genuinely different mechanisms. The benchmark system compares run-over-run, not side-by-side (Engine A vs. B on one case, one view) — a real, small, missing mode on an otherwise-solid system. `dramas.status` tracks processing pipeline, not personal organization (Favorites/On Hold/Plan to Translate) — a real, separate, smaller gap. All three became Step 24. Also corrected an unverified assumption from the first pass: the browser extension was bundled into the M8+ (FastAPI/React) dismissal without actually checking whether it needs that whole migration — it may only need a small local endpoint; flagged as unresolved rather than left as a confident but unchecked claim.
 
+- **Source-candidate status summary (2026-09-27), at the user's request — a navigational index over the prose vetting notes above and the real adapters built in Step 23/23b–23k, not a replacement for either.** Every row below cites back to its own prose entry in this section (or its own `### Step 23x` for a built adapter) — keep this table in sync whenever a new candidate is vetted or an adapter is built, the same way §4's status table stays synced to real git state. Status key: ✅ Allowed (adapter built or real candidate, no blocking clause) · 🟡 Candidate (no blocking clause found, not yet built) · ❌ Disqualified (explicit ToS/robots.txt block) · ⚠️ Unresolved (couldn't confirm either way) · 🚫 Rejected/dropped (no payoff, or not a real/reachable site).
+
+  **Video**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | Bilibili | ✅ Allowed — Step 23d, adapter built | yt-dlp replicates Bilibili's own public web-player API calls, not defeating a challenge |
+  | NicoNico | ❌ Disqualified | Explicit ban on downloading via software/third-party sites; named GPTBot robots.txt block |
+  | Twitch VOD | ❌ Disqualified | Explicit ban on data mining/robots/scraping/unauthorized downloading |
+  | X/Twitter | ⚠️ Unresolved, leaning disqualified | ToS text unreachable; robots.txt confirms named AI-crawler blocks |
+
+  **Novels — Chinese (zh)**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | 52shuku.net | ✅ Allowed — Step 23e, adapter built | No blocking clause; Cloudflare is CDN-only |
+  | xbanxia.cc | ✅ Allowed — Step 23e, adapter built | Same; domain-match caveat flagged before shipping |
+  | Qidian (起点中文网) | ❌ Disqualified — hardest wall found | Active WAF challenge on every path, no real content reachable |
+  | 书旗小说 (Shuqi) | ❌ Disqualified | Explicit ban on unauthorized third-party tools/plugins |
+  | 刺猬猫 (Ciweimao) | ❌ Disqualified | Explicit ban on pirated/third-party scripts and programs |
+  | JJWXC | ❌ Disqualified | High-security, never attempted regardless of capability |
+  | 69shuba | ❌ Disqualified | Active Cloudflare bot-challenge |
+  | 17K小说网 | ⚠️ Unresolved | Both ToS pages hit an active anti-bot wall — same vendor as Qidian |
+  | 番茄小说 (Fanqie) | ⚠️ Unresolved | Reader ToS still unread (SPA); only the withdrawn author-contract AI clause found |
+  | 纵横中文网 (Zongheng) | ⚠️ Unresolved | Reader-facing terms not locatable after two passes |
+  | beqege.cc | ⚠️ Unresolved | Real HTTP 503, deliberately hostile posture, no mirror found |
+  | 七猫小说 (Qimao) | ⚠️ Ambiguous | Anti-tampering clause only, not a direct scraping ban |
+  | 下书网 | 🚫 Dropped | No confirmable real domain (5 unrelated copycats) |
+  | 360漫画 | 🚫 Dropped | Likely not a real, currently-operated site |
+
+  **Novels — Japanese (ja)**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | Hameln (syosetu.org) | 🟡 Candidate | No explicit ban; only an AI-*training*-crawler robots block, doesn't cover a plain browser UA |
+  | ノベルアップ+ (Novel Up+) | 🟡 Candidate | No ban found in accessible ToS; robots.txt unverified (WAF) |
+  | syosetu.com (Narou) | ❌ Disqualified | Explicit AI-use prohibition clause |
+  | ノベルバ (Novelba) | ❌ Disqualified | Explicit ban on "using automated tools to use the Service" |
+  | Kakuyomu | ⚠️ Unresolved | No ban found, but the reader path itself is robots-excluded |
+  | Alphapolis | ⚠️ Unresolved | Real ToS PDF exists, text not extractable this pass |
+  | エブリスタ (Everystar/estar.jp) | ⚠️ Unresolved | SPA shell + 403 on terms page |
+
+  **Novels — Korean (ko)**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | Bomtoon | 🟡 Candidate | Full 131KB ToS read, genuine confirmed absence of any automated-access clause |
+  | Naver Series | ❌ Disqualified | Umbrella ToS explicitly bans automated means/bots/scrapers |
+  | Ridibooks | ❌ Disqualified | Explicit macro/script/bot/scraping ban + DRM ban + active Cloudflare wall |
+  | Novelpia | ❌ Disqualified | Most restrictive robots.txt seen this session, plus explicit ToS ban |
+  | Postype | ❌ Disqualified | Explicit ban + explicit statement AI training isn't used on its content |
+  | KakaoPage | ⚠️ Unresolved | ToS loads via JS/API, unreadable |
+  | Joara | ⚠️ Unresolved | ToS unreadable; real independent scraper exists (technical only) |
+  | Munpia | ⚠️ Unresolved | Terms page itself is Cloudflare-challenge-protected |
+  | Diritto | ⚠️ Unresolved | ToS returned 403 |
+
+  **Comics/Manga/Manhua/Manhwa — Chinese (zh)**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | manhuagui.com | ✅ Allowed — Step 23b, adapter built | No blocking clause; named-AI-bot block only, generic catch-all permissive |
+  | baozimh.org/godamh.com ("Baozimhand") | ✅ Allowed — Step 23i, adapter built | Permissive, no challenge, real extension confirmed |
+  | guazimanhua.com | ✅ Allowed — Step 23h, adapter built | Server-rendered, real extension, named-bot-only robots.txt |
+  | miaoqumh.org | ✅ Allowed — Step 23h, adapter built | Cloudflare-as-CDN only, real extension exists |
+  | Kuaikan Manhua | ✅ Allowed — Step 23i, adapter built | Confirmed SSR content, no AI clause; its own community extension later found dead — from-scratch build, not a blocker |
+  | manhuaku.net | ✅ Allowed, browser-tier only — Step 23j | Real but commercial JS obfuscator + embedded AES key — deliberately not reverse-engineered |
+  | baozimh.com/cn.baozimh.com | ⚠️ Unresolved (blocked-from-here) | Active gatekeeper on every path here; real extension exists elsewhere — possible IP-reputation block, not confirmed universal |
+  | 咚漫 (Dongmanmanhua) | 🟡 Candidate-leaning, unconfirmed | No general-access ban found; extension found but not independently read |
+  | 哔哩哔哩漫画 (Bilibili Manga) | ⚠️ Untested — Step 23f | Full SPA, real ToS unreadable, signed image tokens confirmed but paid-chapter behavior unverified |
+
+  **Manga — Japanese (ja)**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | Manga UP! | ❌ Disqualified | Explicit ban including AI/ML data-mining specifically |
+  | BookWalker JP | ❌ Disqualified | Broad reproduction ban + named-AI-crawler robots block + DRM |
+  | Comic DAYS | ❌ Disqualified | Explicit AI-use prohibition clause |
+  | Pixiv | ❌ Disqualified | Explicit AI-training clause (2023 revision) + named-AI-bot robots block |
+  | Rawkuma | ❌ Disqualified | Real scan host (rawkuma.net) behind an active Cloudflare block |
+
+  **Manhwa — Korean (ko)**
+
+  | Site | Status | Why |
+  |---|---|---|
+  | ToonKor | ✅ Allowed — Step 23h, adapter built | Permissive robots.txt, real extension, no challenge |
+  | Toptoon | ❌ Disqualified | Explicit crawling/scraping/automated-device ban |
+  | Toomics | ❌ Disqualified | Explicit "web crawling" ban, grounds for termination |
+  | Kakao Webtoon | ❌ Disqualified | Explicit mass-data-collection/automated-program ban |
+  | Naver Webtoon | ❌ Disqualified (inferred) | Naver's umbrella ban likely covers it; not independently re-confirmed on this subdomain |
+  | MrBlue | 🚫 Rejected — no payoff | No hard clause, but no existing tooling, no incremental gain |
+  | Lezhin | ⚠️ Ambiguous | Only a broad catch-all, no direct clause |
+  | webtoons.com (international WEBTOON) | ⚠️ Unresolved | Separate legal entity from Naver Webtoon; own ToS unchecked, robots.txt blocks Scrapy by name |
+  | newtoki / manatoki / booktoki | 🚫 Dropped | Geo-restricted to Korea (user's own confirmation); manatoki's pinned domain looks parked, booktoki dead |
+
+  **Totals:** ~14 allowed/built, ~24 disqualified (explicit clause), ~3 rejected for no payoff, ~17 unresolved/ambiguous, ~5 dropped (unconfirmable or out of scope).
+
 ---
 
 ## 7. Model & engine registry
