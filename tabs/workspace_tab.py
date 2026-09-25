@@ -3370,22 +3370,32 @@ def render_workspace_tab():
             _base_name = _sanitize_filename(_base_name) or _default_base_name
 
             # Never export an overlapping (invalid) cue: trimmed in the export
-            # copies, and the line flagged so the timing gets fixed for good.
+            # copies. Detecting this is read-only and safe to do on every
+            # render, but writing the flag isn't -- this section renders on
+            # every page load, so a write here happened unconditionally,
+            # with no user action, straight from whatever st.session_state
+            # .lines held at that moment. That's exactly how a stale-lines
+            # bug elsewhere (e.g. the ones Step 6d just fixed) would reach
+            # the database as bogus flags before anyone noticed. Flagging
+            # for review now needs an explicit click.
             _export_lines, _overlaps = subtitle_formats.clamp_overlaps(st.session_state.lines)
             if _overlaps:
                 _next_start = {a.idx: b.start for a, b in zip(st.session_state.lines,
                                                                st.session_state.lines[1:])}
-                _newly = 0
-                for ln in st.session_state.lines:
-                    if ln.idx in _overlaps and not ln.flag:
+                _unflagged = [ln for ln in st.session_state.lines
+                              if ln.idx in _overlaps and not ln.flag]
+                st.warning(f"⚠️ {len(_overlaps)} line(s) overlap the next one. The export trims them "
+                           "so no player gets an invalid cue." +
+                           (f" {len(_unflagged)} of them aren't flagged for review yet."
+                            if _unflagged else
+                            " They're flagged in Review & edit so you can fix the timing."))
+                if _unflagged and st.button("🚩 Flag overlapping lines for review",
+                                            key=f"flag_overlaps_{picked_id}"):
+                    for ln in _unflagged:
                         ln.flag = subtitle_formats.OVERLAP_FLAG
                         ln.flag_note = subtitle_formats.overlap_note(ln, _next_start[ln.idx])
-                        _newly += 1
-                if _newly:
                     db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
-                st.warning(f"⚠️ {len(_overlaps)} line(s) overlap the next one. The export trims them "
-                           "so no player gets an invalid cue, and they're flagged in Review & edit "
-                           "so you can fix the timing.")
+                    st.rerun()
 
             _dense = subtitle_formats.dense_lines(st.session_state.lines)
             if _dense:
