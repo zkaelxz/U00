@@ -584,6 +584,24 @@ class TestVocabLookups:
         assert len(vocab) == 1
         assert vocab[0]["reading"] == "first"  # first insert wins
 
+    def test_rich_export_flag_defaults_off_and_is_filterable(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_vocab_lookup(did, "你好", "ni3 hao3", ["hello"], "zh", 0)
+        isolated_db.save_vocab_lookup(did, "再见", "zai4 jian4", ["goodbye"], "zh", 1)
+        assert isolated_db.list_vocab_lookups(did, rich_only=True) == []
+
+        isolated_db.set_vocab_export_rich(did, "你好", True)
+        rich = isolated_db.list_vocab_lookups(did, rich_only=True)
+        assert [r["word"] for r in rich] == ["你好"]
+        assert len(isolated_db.list_vocab_lookups(did)) == 2  # unfiltered list unaffected
+
+    def test_rich_export_flag_can_be_unset(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_vocab_lookup(did, "你好", "ni3 hao3", ["hello"], "zh", 0)
+        isolated_db.set_vocab_export_rich(did, "你好", True)
+        isolated_db.set_vocab_export_rich(did, "你好", False)
+        assert isolated_db.list_vocab_lookups(did, rich_only=True) == []
+
 
 class TestUsageTracking:
     def test_log_and_summarize(self, isolated_db):
