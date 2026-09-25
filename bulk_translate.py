@@ -24,9 +24,11 @@ import hashlib
 import json
 import threading
 import time
+import uuid
 
 import background_jobs
 import db
+import emotion
 import translate_engines
 import translation_guide as tguide
 
@@ -102,6 +104,17 @@ class ClaudeBatchProvider:
     def build_request(self, key: str, context: dict, numbered: str) -> dict:
         return {"custom_id": key, "params": self.engine.build_request_params(context, numbered)}
 
+    def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
+        """Step 9d: a plain single-user-message request, no system prompt
+        and no glossary/style context -- the same shape call_llm_json's
+        own Claude branch sends, used by flag/consistency/emotion/
+        translation-notes and Reflect's own three passes, none of which
+        are the "translate with full context" request build_request
+        above is for."""
+        return {"custom_id": key,
+                "params": {"model": self.engine.model, "max_tokens": max_tokens,
+                          "messages": [{"role": "user", "content": prompt}]}}
+
     def _call(self, fn):
         import anthropic
         try:
@@ -140,6 +153,12 @@ class GeminiBatchProvider:
 
     def build_request(self, key: str, context: dict, numbered: str) -> dict:
         return {"request": self.engine.build_request_body(context, numbered),
+                "metadata": {"key": key}}
+
+    def build_prompt_request(self, key: str, prompt: str, max_tokens: int = 3000) -> dict:
+        """Step 9d: see ClaudeBatchProvider.build_prompt_request's own
+        docstring -- same plain-prompt shape, no systemInstruction."""
+        return {"request": {"contents": [{"parts": [{"text": prompt}]}]},
                 "metadata": {"key": key}}
 
     def _check(self, resp):
@@ -307,6 +326,276 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
 
 
 # ---------------------------------------------------------------------------
+# Step 9d: generic per-line LLM batch kinds -- flag_uncertain_lines,
+# check_consistency_llm, detect_emotions and generate_translation_notes_llm
+# all already batch-process a drama's lines through one LLM call per
+# window; this reuses everything above (the providers, db.bulk_jobs/
+# bulk_job_lines, the poller, resume_pending, cancel_bulk_job) for them
+# too, instead of only translation. Unlike translate_batch's fixed
+# "translate with full glossary/style context" shape, each of these is
+# already just a single free-form prompt (see call_llm_json) -- so a
+# request here is provider.build_prompt_request(key, prompt), not
+# provider.build_request(key, context, numbered).
+
+# Every kind here numbers its prompt by permanent line id (id_fn=lambda
+# ln: ln.id on the id-aware builders; consistency's own prompt has no
+# per-line id at all -- see build_consistency_prompt's docstring), never
+# by ln.idx -- exactly the reason Step 2 moved translation off idx in the
+# first place: a bulk result can land hours later, by which point a
+# position could point at a completely different line.
+GENERIC_KINDS = ("flag", "consistency", "emotion", "translation_notes")
+
+
+def build_generic_bulk_requests(drama_id: int, provider, batches: list, max_tokens: int = 3000):
+    """batches: [(ids, prompt_text, batch_lines), ...], already built by
+    a kind-specific function below (or a Reflect stage, see
+    submit_reflect_stage). Returns (requests, line_rows) the same shape
+    db.create_bulk_job expects."""
+    requests_, line_rows = [], []
+    for bi, (ids, prompt_text, batch_lines) in enumerate(batches):
+        key = request_key(drama_id, bi)
+        requests_.append(provider.build_prompt_request(key, prompt_text, max_tokens=max_tokens))
+        line_rows.extend((ln.id, key, zh_hash(ln.zh)) for ln in batch_lines)
+    return requests_, line_rows
+
+
+def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, engine_choice: str,
+                            model: str, state_fn=None, translate_args: dict = None,
+                            stage: str = None, pipeline_id: str = None,
+                            max_tokens: int = 3000) -> int:
+    """Shared submission path for every kind in GENERIC_KINDS plus each
+    Reflect stage. state_fn(ln), if given, snapshots whatever field(s)
+    this kind is about to write, as they stand right now -- so its own
+    apply step can tell "the user already changed this since submission"
+    (keep their edit) apart from "still exactly what it was" (see the
+    `bulk_job_lines.state_at_submit` column's own comment). Kinds with no
+    such conflict (consistency, translation_notes, and every Reflect
+    stage but the last) simply don't pass one."""
+    requests_, id_key_hash_rows = build_generic_bulk_requests(drama_id, provider, batches,
+                                                              max_tokens=max_tokens)
+    if not requests_:
+        raise ValueError("Nothing to process -- no eligible lines.")
+    lines_by_id = {ln.id: ln for _, _, batch_lines in batches for ln in batch_lines}
+    rows = [(lid, key, h, None,
+            json.dumps(state_fn(lines_by_id[lid]), ensure_ascii=False) if state_fn else None)
+           for lid, key, h in id_key_hash_rows]
+    bulk_job_id = db.create_bulk_job(drama_id, engine_choice, model, "submitting", rows,
+                                     translate_args=translate_args, kind=kind, stage=stage,
+                                     pipeline_id=pipeline_id)
+    try:
+        batch_id = provider.submit(requests_)
+    except Exception as e:
+        db.update_bulk_job(bulk_job_id, status="failed",
+                           last_error=translate_engines.redact_secrets(str(e)))
+        raise
+    db.update_bulk_job(bulk_job_id, status="submitted", provider_batch_id=batch_id)
+    return bulk_job_id
+
+
+def _log_generic_usage(job: dict, usage: dict, usage_kind: str):
+    if usage and usage.get("input_tokens"):
+        db.log_usage(
+            job["drama_id"], job["engine"], job["model"], usage_kind,
+            usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+            translate_engines.estimate_cost(
+                job["model"], usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+                usage.get("cache_read_tokens", 0), usage.get("cache_write_tokens", 0))
+            * BATCH_PRICE_FACTOR,
+            cache_read_tokens=usage.get("cache_read_tokens", 0))
+
+
+def submit_bulk_flag(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
+                     batch_size: int = 30) -> int:
+    """The review-queue pass (translate_engines.flag_uncertain_lines),
+    bulk. state_fn captures each line's own current .flag/.flag_note, so
+    a flag the user set or cleared by hand while the batch was pending is
+    kept rather than silently overwritten once results arrive."""
+    provider = provider or make_provider(engine_choice, engine)
+    if provider is None:
+        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    eligible = [ln for ln in lines if (ln.en or "").strip()]
+    batches = []
+    for start in range(0, len(eligible), batch_size):
+        batch = eligible[start:start + batch_size]
+        prompt = translate_engines.build_flag_prompt(batch, id_fn=lambda ln: ln.id)
+        batches.append(([ln.id for ln in batch], prompt, batch))
+    return submit_generic_bulk_job(
+        drama_id, "flag", provider, batches, engine_choice, getattr(engine, "model", ""),
+        state_fn=lambda ln: {"flag": ln.flag, "flag_note": ln.flag_note}, max_tokens=2000)
+
+
+def submit_bulk_consistency(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
+                            batch_size: int = 60) -> int:
+    """The consistency check (translate_engines.check_consistency_llm),
+    bulk. No state_fn -- an issue names a term, not a line, so there's no
+    per-line "did the user already change this" to guard against; the
+    whole-window drop-if-stale check in apply_consistency_results is
+    this kind's only staleness guard."""
+    provider = provider or make_provider(engine_choice, engine)
+    if provider is None:
+        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    eligible = [ln for ln in lines if (ln.en or "").strip()]
+    batches = []
+    for start in range(0, len(eligible), batch_size):
+        batch = eligible[start:start + batch_size]
+        prompt = translate_engines.build_consistency_prompt(batch)
+        batches.append(([ln.id for ln in batch], prompt, batch))
+    return submit_generic_bulk_job(drama_id, "consistency", provider, batches, engine_choice,
+                                   getattr(engine, "model", ""), max_tokens=2000)
+
+
+def submit_bulk_emotion(drama_id: int, lines: list, engine, engine_choice: str, provider=None,
+                        batch_size: int = 40, use_audio_cues: bool = False) -> int:
+    """Emotion tagging (emotion.detect_emotions), bulk. state_fn captures
+    each line's own current tag (if any), same reasoning as
+    submit_bulk_flag's."""
+    provider = provider or make_provider(engine_choice, engine)
+    if provider is None:
+        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    eligible = [ln for ln in lines if (ln.zh or "").strip()]
+    existing = db.load_emotions(drama_id)  # keyed by CURRENT idx, same as detect_emotions' own return
+    existing_by_id = {ln.id: existing.get(ln.idx) for ln in lines}
+    batches = []
+    for start in range(0, len(eligible), batch_size):
+        batch = eligible[start:start + batch_size]
+        prompt = emotion.build_emotion_prompt(batch, use_audio_cues=use_audio_cues,
+                                              id_fn=lambda ln: ln.id)
+        batches.append(([ln.id for ln in batch], prompt, batch))
+    return submit_generic_bulk_job(
+        drama_id, "emotion", provider, batches, engine_choice, getattr(engine, "model", ""),
+        state_fn=lambda ln: existing_by_id.get(ln.id), max_tokens=3000)
+
+
+def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_choice: str,
+                                  provider=None, batch_size: int = 40) -> int:
+    """Translation notes (translation_guide.generate_translation_notes_llm),
+    bulk. No state_fn -- notes are additive (db.save_translation_notes
+    upserts per drama+line+term), never overwriting a whole field the way
+    flag/emotion do, so there's no "did the user already change this"
+    check to make; a stale line is still dropped in
+    apply_notes_results, same as every other kind."""
+    provider = provider or make_provider(engine_choice, engine)
+    if provider is None:
+        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    eligible = [ln for ln in lines if (ln.en or "").strip()]
+    batches = []
+    for start in range(0, len(eligible), batch_size):
+        batch = eligible[start:start + batch_size]
+        prompt = tguide.build_translation_notes_prompt(batch, id_fn=lambda ln: ln.id)
+        batches.append(([ln.id for ln in batch], prompt, batch))
+    return submit_generic_bulk_job(drama_id, "translation_notes", provider, batches, engine_choice,
+                                   getattr(engine, "model", ""), max_tokens=3000)
+
+
+# ---------------------------------------------------------------------------
+# Step 9d: Reflect mode, bulk -- the same faithfulness -> reflection ->
+# expressiveness pipeline as translate_engines.reflect_translate_batch,
+# but as three SEQUENTIAL bulk submissions instead of three in-process
+# calls. Confirmed directly against both Claude's Message Batches and
+# Gemini's Batch API: neither has a way to submit pass 2 once pass 1's
+# own results are back, all within one batch -- there is no such thing
+# as a batch that depends on another batch's output. So this submits
+# stage "faithful" now (submit_reflect_pipeline); once ITS results are
+# in, apply_reflect_stage_results persists them and auto-submits stage
+# "reflect", using the SAME pipeline_id; once THAT stage's results are
+# in, it auto-submits stage "expressive", which is the only stage that
+# actually writes anything to a line's .en (the other two only ever
+# populate bulk_job_lines.result_text for the NEXT stage to read).
+#
+# A real, deliberate simplification versus the live path: every stage's
+# prompt here omits recent_context/upcoming_lines (the surrounding-line
+# steering text build_bulk_requests still gives plain bulk translation).
+# Recomputing that accurately across three submissions that can each take
+# up to 24h, on a drama whose OTHER lines may themselves be translated or
+# edited in between, isn't worth the complexity for what's already a
+# cheaper/slower tradeoff mode -- and it's genuinely supplementary
+# context, not the actual cross-pass information a Reflect pass depends
+# on (the faithfulness draft and reflection critique THEMSELVES, which
+# this pipeline carries through exactly via bulk_job_lines.result_text,
+# unaffected by this simplification).
+# ---------------------------------------------------------------------------
+
+def _reflect_instructions(translate_args: dict) -> str:
+    args = translate_args or {}
+    instructions, _ = translate_engines.build_llm_instructions(
+        args.get("style_note", ""), args.get("drama_meta", {}), args.get("novel_reference"),
+        locale=args.get("locale", "en-US"), glossary_terms=args.get("glossary_terms"),
+        style_guidelines=args.get("style_guidelines", ""))
+    return instructions
+
+
+def _sibling_stage_job(pipeline_id: str, stage: str):
+    """The other bulk_jobs row from the same Reflect pipeline for a given
+    stage, or None if it doesn't exist (yet, or ever -- e.g. every line
+    dropped out before reaching it)."""
+    for job in db.list_bulk_jobs(pipeline_id=pipeline_id):
+        if job.get("stage") == stage:
+            return job
+    return None
+
+
+def submit_reflect_stage(drama_id: int, stage: str, provider, batches: list, engine_choice: str,
+                         model: str, pipeline_id: str, translate_args: dict = None,
+                         en_at_submit_by_id: dict = None, max_tokens: int = 4000) -> int:
+    """batches: [(id_zh_pairs, prompt_text), ...], id_zh_pairs = [(line_id,
+    zh), ...] -- zh is carried alongside each id purely so this stage's
+    own bulk_job_lines rows record a real zh_hash to compare against
+    later, without needing a whole Line object here. en_at_submit_by_id:
+    only ever populated for stage="expressive" (see
+    apply_reflect_stage_results) -- every earlier stage still records
+    whatever value is given (harmless; unused until expressive's own
+    "kept your edit" check)."""
+    requests_, rows = [], []
+    for bi, (id_zh_pairs, prompt_text) in enumerate(batches):
+        key = request_key(drama_id, bi)
+        requests_.append(provider.build_prompt_request(key, prompt_text, max_tokens=max_tokens))
+        for lid, zh in id_zh_pairs:
+            en_at_submit = (en_at_submit_by_id or {}).get(lid)
+            rows.append((lid, key, zh_hash(zh), en_at_submit))
+    if not requests_:
+        raise ValueError("Nothing to process -- no eligible lines.")
+    bulk_job_id = db.create_bulk_job(drama_id, engine_choice, model, "submitting", rows,
+                                     translate_args=translate_args, kind="reflect", stage=stage,
+                                     pipeline_id=pipeline_id)
+    try:
+        batch_id = provider.submit(requests_)
+    except Exception as e:
+        db.update_bulk_job(bulk_job_id, status="failed",
+                           last_error=translate_engines.redact_secrets(str(e)))
+        raise
+    db.update_bulk_job(bulk_job_id, status="submitted", provider_batch_id=batch_id)
+    return bulk_job_id
+
+
+def submit_reflect_pipeline(drama_id: int, lines: list, engine, engine_choice: str,
+                            translate_args: dict, provider=None, batch_size: int = 20,
+                            force_retranslate: bool = False) -> int:
+    """Submits stage "faithful", the pipeline's own first bulk job.
+    Returns its bulk_job_id -- the Bulk jobs panel shows this one first;
+    stages "reflect" and "expressive" only exist once the prior stage's
+    own results have actually come back (see apply_reflect_stage_results)."""
+    provider = provider or make_provider(engine_choice, engine)
+    if provider is None:
+        raise ValueError(f"{engine_choice} has no batch API -- bulk mode needs Claude or Gemini.")
+    targets = _target_lines(lines, force_retranslate)
+    if not targets:
+        raise ValueError("Nothing to translate -- every line already has a translation.")
+    instructions = _reflect_instructions(translate_args)
+    pipeline_id = f"reflect_{drama_id}_{uuid.uuid4().hex[:12]}"
+    batches = []
+    for start in range(0, len(targets), batch_size):
+        batch = targets[start:start + batch_size]
+        ids = [ln.id for ln in batch]
+        prompt = translate_engines.build_reflect_faithful_prompt(
+            instructions, "", ids, {ln.id: ln.zh for ln in batch})
+        batches.append(([(ln.id, ln.zh) for ln in batch], prompt))
+    en_at_submit_by_id = {ln.id: ln.en or "" for ln in targets}
+    return submit_reflect_stage(drama_id, "faithful", provider, batches, engine_choice,
+                                getattr(engine, "model", ""), pipeline_id,
+                                translate_args=translate_args, en_at_submit_by_id=en_at_submit_by_id)
+
+
+# ---------------------------------------------------------------------------
 # Applying results
 # ---------------------------------------------------------------------------
 
@@ -395,6 +684,551 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
     return counts
 
 
+def _stale_line(ln, expected_hash: str) -> bool:
+    """A line whose source has been deleted, or whose text no longer
+    hashes to what it was at submission -- the drop-or-flag guard every
+    kind below applies before touching anything, same as apply_bulk_results'
+    own zh_hash check."""
+    return ln is None or zh_hash(ln.zh) != expected_hash
+
+
+def apply_reflect_stage_results(bulk_job_id: int, results, engine=None) -> dict:
+    """Dispatches to the right stage handler -- see the module's own
+    Reflect-pipeline comment above for the three-stage shape. engine is
+    needed by every stage but "expressive" (the last), to submit the
+    pipeline's next stage; if it's None (e.g. no key available right
+    now), this stage's own results still apply/persist, the pipeline
+    just doesn't advance -- the same "needs_key" situation
+    resume_pending already surfaces for a plain bulk job."""
+    job = db.get_bulk_job(bulk_job_id)
+    stage = job.get("stage")
+    if stage == "faithful":
+        return _apply_reflect_faithful(job, results, engine)
+    if stage == "reflect":
+        return _apply_reflect_reflection(job, results, engine)
+    if stage == "expressive":
+        return _apply_reflect_expressive(job, results)
+    raise ValueError(f"Unknown Reflect stage: {stage}")
+
+
+def _apply_reflect_faithful(job: dict, results, engine) -> dict:
+    job_lines = db.list_bulk_job_lines(job["id"])
+    row_by_id = {r["line_id"]: r for r in job_lines}
+    ids_by_key = {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    current = db.load_line_objects(job["drama_id"])
+    cur_by_id = {ln.id: ln for ln in current}
+    counts = {"drafted": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
+              "failed_requests": 0, "unknown_requests": 0}
+    result_texts, en_at_submit_by_id = {}, {}
+    surviving_ids = []
+    changed_flag = False
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "reflect_faithful_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        expected_ids = [str(lid) for lid in ids_by_key[key]]
+        draft_map = _parse_strict(text, expected_ids)
+        for lid in ids_by_key[key]:
+            row = row_by_id[lid]
+            ln = cur_by_id.get(lid)
+            if _stale_line(ln, row["zh_hash"]):
+                if ln is not None:
+                    counts["flagged_source_changed"] += 1
+                    if not ln.flag:
+                        ln.flag = "bulk_source_changed"
+                        ln.flag_note = "Source text changed while a bulk Reflect job was pending"
+                        changed_flag = True
+                else:
+                    counts["dropped_deleted"] += 1
+                continue
+            draft = (draft_map.get(str(lid)) or "").strip()
+            if not draft:
+                continue  # no draft for this line -- it simply doesn't continue to the next stage
+            result_texts[lid] = draft
+            en_at_submit_by_id[lid] = row["en_at_submit"]
+            surviving_ids.append(lid)
+            counts["drafted"] += 1
+
+    if changed_flag:
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+    db.set_bulk_job_line_result_texts(job["id"], result_texts)
+
+    if surviving_ids and engine is not None:
+        _advance_to_reflection_stage(job, surviving_ids, result_texts, en_at_submit_by_id, engine)
+    return counts
+
+
+def _advance_to_reflection_stage(job: dict, ids: list, draft_by_id: dict, en_at_submit_by_id: dict,
+                                 engine, batch_size: int = 20):
+    provider = make_provider(job["engine"], engine)
+    if provider is None:
+        return
+    instructions = _reflect_instructions(job.get("translate_args"))
+    cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    batches = []
+    for start in range(0, len(ids), batch_size):
+        chunk = [lid for lid in ids[start:start + batch_size] if lid in cur_by_id]
+        if not chunk:
+            continue
+        zh_by_id = {lid: cur_by_id[lid].zh for lid in chunk}
+        prompt = translate_engines.build_reflect_reflection_prompt(
+            instructions, "", chunk, zh_by_id, {lid: draft_by_id[lid] for lid in chunk})
+        batches.append(([(lid, zh_by_id[lid]) for lid in chunk], prompt))
+    if not batches:
+        return
+    try:
+        submit_reflect_stage(job["drama_id"], "reflect", provider, batches, job["engine"],
+                             job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
+                             en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
+                             max_tokens=2000)
+    except Exception:
+        # Recorded on the new stage-2 job row itself (status="failed",
+        # last_error set) by submit_reflect_stage before it raises --
+        # stage 1 (this function's caller) already applied successfully
+        # and must still be marked "applied", not swallowed into looking
+        # stuck because stage 2 couldn't be submitted right now.
+        pass
+
+
+def _apply_reflect_reflection(job: dict, results, engine) -> dict:
+    job_lines = db.list_bulk_job_lines(job["id"])
+    row_by_id = {r["line_id"]: r for r in job_lines}
+    ids_by_key = {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    current = db.load_line_objects(job["drama_id"])
+    cur_by_id = {ln.id: ln for ln in current}
+    counts = {"critiqued": 0, "no_critique_needed": 0, "dropped_deleted": 0,
+              "flagged_source_changed": 0, "failed_requests": 0, "unknown_requests": 0}
+    result_texts, en_at_submit_by_id = {}, {}
+    surviving_ids = []
+    changed_flag = False
+
+    faithful_job = _sibling_stage_job(job["pipeline_id"], "faithful")
+    draft_by_id = ({r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(faithful_job["id"])}
+                  if faithful_job else {})
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "reflect_reflection_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        expected_ids = [str(lid) for lid in ids_by_key[key]]
+        critique_map = _parse_strict(text, expected_ids)
+        for lid in ids_by_key[key]:
+            row = row_by_id[lid]
+            ln = cur_by_id.get(lid)
+            if _stale_line(ln, row["zh_hash"]):
+                if ln is not None:
+                    counts["flagged_source_changed"] += 1
+                    if not ln.flag:
+                        ln.flag = "bulk_source_changed"
+                        ln.flag_note = "Source text changed while a bulk Reflect job was pending"
+                        changed_flag = True
+                else:
+                    counts["dropped_deleted"] += 1
+                continue
+            critique = (critique_map.get(str(lid)) or "").strip()
+            if critique:
+                result_texts[lid] = critique
+                counts["critiqued"] += 1
+            else:
+                # A line the model chose not to critique is a normal,
+                # expected outcome here (see reflect_translate_batch's
+                # own docstring) -- it still continues to expressiveness,
+                # just with no "Critique:" line in that prompt.
+                counts["no_critique_needed"] += 1
+            en_at_submit_by_id[lid] = row["en_at_submit"]
+            surviving_ids.append(lid)
+
+    if changed_flag:
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+    if result_texts:
+        db.set_bulk_job_line_result_texts(job["id"], result_texts)
+
+    if surviving_ids and engine is not None:
+        _advance_to_expressive_stage(job, surviving_ids, draft_by_id, result_texts,
+                                     en_at_submit_by_id, engine)
+    return counts
+
+
+def _advance_to_expressive_stage(job: dict, ids: list, draft_by_id: dict, critique_by_id: dict,
+                                 en_at_submit_by_id: dict, engine, batch_size: int = 20):
+    provider = make_provider(job["engine"], engine)
+    if provider is None:
+        return
+    instructions = _reflect_instructions(job.get("translate_args"))
+    cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    batches = []
+    for start in range(0, len(ids), batch_size):
+        chunk = [lid for lid in ids[start:start + batch_size] if lid in cur_by_id]
+        if not chunk:
+            continue
+        zh_by_id = {lid: cur_by_id[lid].zh for lid in chunk}
+        prompt = translate_engines.build_reflect_expressive_prompt(
+            instructions, "", chunk, zh_by_id, {lid: draft_by_id.get(lid, "") for lid in chunk},
+            {lid: critique_by_id.get(lid) for lid in chunk})
+        batches.append(([(lid, zh_by_id[lid]) for lid in chunk], prompt))
+    if not batches:
+        return
+    try:
+        submit_reflect_stage(job["drama_id"], "expressive", provider, batches, job["engine"],
+                             job["model"], job["pipeline_id"], translate_args=job.get("translate_args"),
+                             en_at_submit_by_id={lid: en_at_submit_by_id[lid] for lid in ids},
+                             max_tokens=4000)
+    except Exception:
+        # See _advance_to_reflection_stage's own comment -- stage 2
+        # already applied successfully regardless of whether stage 3
+        # could be submitted right now.
+        pass
+
+
+def _apply_reflect_expressive(job: dict, results) -> dict:
+    """The only Reflect stage that writes anything to a line -- the same
+    drop-or-flag-on-source-changed and "kept your edit" handling as
+    apply_bulk_results, since this is what a Reflect bulk job's own
+    en_at_submit means: the line's English as it stood when the ORIGINAL
+    faithfulness stage was submitted (carried through stage 2 unchanged,
+    not re-snapshotted at every stage), same as an edit made any time
+    during a long-running pipeline being respected, not just one made
+    after the very last stage happened to be submitted. Also saves the
+    reflection critique as a translation note, same as the live path's
+    own notes_cb (translate_engines.translate_lines_with_engine)."""
+    job_lines = db.list_bulk_job_lines(job["id"])
+    row_by_id = {r["line_id"]: r for r in job_lines}
+    ids_by_key = {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    current = db.load_line_objects(job["drama_id"])
+    cur_by_id = {ln.id: ln for ln in current}
+    args = job.get("translate_args") or {}
+    enforced = [t for t in (args.get("glossary_terms") or []) if t.get("enforce_exact")]
+
+    reflect_job = _sibling_stage_job(job["pipeline_id"], "reflect")
+    critique_by_id = ({r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(reflect_job["id"])
+                      if r["result_text"]} if reflect_job else {})
+    faithful_job = _sibling_stage_job(job["pipeline_id"], "faithful")
+    draft_by_id = ({r["line_id"]: r["result_text"] for r in db.list_bulk_job_lines(faithful_job["id"])}
+                  if faithful_job else {})
+
+    counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
+              "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0}
+    notes = []
+    changed_flag = False
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "reflect_expressive_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        request_ids = ids_by_key[key]
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        expected_ids = [str(lid) for lid in request_ids]
+        final_map = _parse_strict(text, expected_ids)
+        for lid in request_ids:
+            row = row_by_id[lid]
+            ln = cur_by_id.get(lid)
+            if _stale_line(ln, row["zh_hash"]):
+                if ln is not None:
+                    counts["flagged_source_changed"] += 1
+                    if not ln.flag:
+                        ln.flag = "bulk_source_changed"
+                        ln.flag_note = "Source text changed while a bulk Reflect job was pending"
+                        changed_flag = True
+                else:
+                    counts["dropped_deleted"] += 1
+                continue
+            if (ln.en or "") != (row["en_at_submit"] or ""):
+                counts["kept_your_edit"] += 1
+                continue
+            translation = (final_map.get(str(lid)) or draft_by_id.get(lid, "")).strip()
+            if not translation:
+                continue
+            if enforced:
+                translation = tguide.apply_hard_term_substitutions(translation, enforced)
+            ln.en = translation
+            counts["applied"] += 1
+            critique = critique_by_id.get(lid)
+            if critique:
+                notes.append({"line_id": lid, "term": "", "note_type": "reflection", "note": critique})
+
+    if counts["applied"]:
+        import subtitle_formats
+        changed_flag = subtitle_formats.flag_dense_lines(current) > 0 or changed_flag
+    if counts["applied"] or changed_flag:
+        db.save_lines(job["drama_id"], current, fields=("en", "flag", "flag_note"))
+    if counts["applied"]:
+        db.save_translation_version(
+            job["drama_id"], current, label=f"{job['engine']} bulk reflect", engine=job["engine"],
+            model=job["model"] or "", make_active=True)
+        db.update_drama(job["drama_id"], status="translated", translation_engine=job["engine"])
+    if notes:
+        db.save_translation_notes(job["drama_id"], notes)
+    return counts
+
+
+def apply_flag_results(bulk_job_id: int, results) -> dict:
+    """Applies review-queue flags (submit_bulk_flag) by line id, with the
+    same drop-or-flag-on-source-changed handling as apply_bulk_results,
+    plus its own "kept your edit" check: a line whose .flag/.flag_note the
+    user already changed since submission (state_at_submit) is left
+    alone rather than overwritten."""
+    job = db.get_bulk_job(bulk_job_id)
+    job_lines = db.list_bulk_job_lines(bulk_job_id)
+    row_by_id = {r["line_id"]: r for r in job_lines}
+    ids_by_key = {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    current = db.load_line_objects(job["drama_id"])
+    cur_by_id = {ln.id: ln for ln in current}
+    counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
+              "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0}
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "flag_review_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        flagged = translate_engines._parse_json_array(text, 0)
+        by_id = {}
+        if isinstance(flagged, list):
+            for f in flagged:
+                if isinstance(f, dict) and f.get("line_idx") is not None:
+                    try:
+                        by_id[int(f["line_idx"])] = f
+                    except (TypeError, ValueError):
+                        continue
+        for lid in ids_by_key[key]:
+            row = row_by_id[lid]
+            ln = cur_by_id.get(lid)
+            if _stale_line(ln, row["zh_hash"]):
+                if ln is not None:
+                    counts["flagged_source_changed"] += 1
+                    if not ln.flag:
+                        ln.flag = "bulk_source_changed"
+                        ln.flag_note = "Source text changed while bulk flagging was pending -- re-run it"
+                else:
+                    counts["dropped_deleted"] += 1
+                continue
+            state = json.loads(row["state_at_submit"]) if row.get("state_at_submit") else {}
+            if (ln.flag, ln.flag_note or "") != (state.get("flag"), state.get("flag_note") or ""):
+                counts["kept_your_edit"] += 1
+                continue
+            f = by_id.get(lid)
+            if f is None:
+                continue  # the model didn't flag this line -- nothing to apply, not an error
+            reason = (f.get("reason") if f.get("reason") in translate_engines.FLAG_REASONS
+                     else "uncertain_translation")
+            ln.flag = reason
+            ln.flag_note = f.get("note", "")
+            counts["applied"] += 1
+
+    if counts["applied"] or counts["flagged_source_changed"]:
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+    return counts
+
+
+def apply_consistency_results(bulk_job_id: int, results) -> dict:
+    """Applies consistency-check issues (submit_bulk_consistency). An
+    issue names a TERM, not a line (see build_consistency_prompt's own
+    docstring), so there's no single line id to drop a stale issue by --
+    instead, a whole WINDOW's issues are dropped together if any line in
+    that window was edited or deleted since submission. Replaces the
+    drama's consistency issues wholesale, same as a live check already
+    does (db.save_consistency_issues) -- but only once at least one
+    window's results were actually usable, so a bulk job that turned out
+    entirely stale doesn't wipe out a still-valid earlier check."""
+    job = db.get_bulk_job(bulk_job_id)
+    job_lines = db.list_bulk_job_lines(bulk_job_id)
+    ids_by_key, hash_by_id = {}, {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+        hash_by_id[r["line_id"]] = r["zh_hash"]
+    cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    counts = {"issues_found": 0, "dropped_windows": 0, "failed_requests": 0, "unknown_requests": 0}
+    issues = []
+    usable_windows = 0
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "consistency_check_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        window_ids = ids_by_key[key]
+        if any(_stale_line(cur_by_id.get(lid), hash_by_id[lid]) for lid in window_ids):
+            counts["dropped_windows"] += 1
+            continue
+        usable_windows += 1
+        window_issues = translate_engines._parse_json_array(text, 0)
+        if isinstance(window_issues, list):
+            issues.extend(i for i in window_issues if isinstance(i, dict) and i.get("term"))
+
+    counts["issues_found"] = len(issues)
+    if usable_windows:
+        db.save_consistency_issues(job["drama_id"], issues)
+    return counts
+
+
+def apply_emotion_results(bulk_job_id: int, results) -> dict:
+    """Applies emotion tags (submit_bulk_emotion) by line id, with the
+    same drop-or-flag-on-source-changed handling as apply_bulk_results,
+    plus its own "kept your edit" check against whatever tag the line
+    already had at submission (db.save_emotions is itself a per-line
+    upsert, so applying this incrementally never disturbs any OTHER
+    line's tag, live-set or from a different bulk job)."""
+    job = db.get_bulk_job(bulk_job_id)
+    job_lines = db.list_bulk_job_lines(bulk_job_id)
+    row_by_id = {r["line_id"]: r for r in job_lines}
+    ids_by_key = {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    current = db.load_line_objects(job["drama_id"])
+    cur_by_id = {ln.id: ln for ln in current}
+    existing = db.load_emotions(job["drama_id"])
+    existing_by_id = {ln.id: existing.get(ln.idx) for ln in current}
+    counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
+              "kept_your_edit": 0, "failed_requests": 0, "unknown_requests": 0}
+    to_save = {}
+    changed_flag = False
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "emotion_detect_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        tagged = emotion.parse_emotion_tags(text)
+        for lid in ids_by_key[key]:
+            row = row_by_id[lid]
+            ln = cur_by_id.get(lid)
+            if _stale_line(ln, row["zh_hash"]):
+                if ln is not None:
+                    counts["flagged_source_changed"] += 1
+                    if not ln.flag:
+                        ln.flag = "bulk_source_changed"
+                        ln.flag_note = "Source text changed while bulk emotion tagging was pending"
+                        changed_flag = True
+                else:
+                    counts["dropped_deleted"] += 1
+                continue
+            state = json.loads(row["state_at_submit"]) if row.get("state_at_submit") else None
+            if state != existing_by_id.get(lid):
+                counts["kept_your_edit"] += 1
+                continue
+            tag = tagged.get(lid)
+            if tag is None:
+                continue
+            to_save[lid] = tag
+            counts["applied"] += 1
+
+    if to_save:
+        # db.save_emotions expects its emotion_map keyed by line_idx (with
+        # id_by_idx resolving idx -> id), not by line_id directly -- to_save
+        # is keyed by line_id, so it's re-keyed by each line's CURRENT idx
+        # here rather than passing line ids where idx values are expected.
+        by_idx = {cur_by_id[lid].idx: tag for lid, tag in to_save.items()}
+        id_by_idx = {cur_by_id[lid].idx: lid for lid in to_save}
+        db.save_emotions(job["drama_id"], by_idx, id_by_idx=id_by_idx)
+    if changed_flag:
+        db.save_lines(job["drama_id"], current, fields=("flag", "flag_note"))
+    return counts
+
+
+def apply_notes_results(bulk_job_id: int, results) -> dict:
+    """Applies translation notes (submit_bulk_translation_notes) by line
+    id. No "kept your edit" check -- notes are additive
+    (db.save_translation_notes upserts per drama+line+term), never
+    overwriting a whole field the way flag/emotion do -- but a line whose
+    source changed or was deleted since submission is still dropped, same
+    as every other kind, since a note about since-changed text would be
+    about the wrong thing."""
+    job = db.get_bulk_job(bulk_job_id)
+    job_lines = db.list_bulk_job_lines(bulk_job_id)
+    row_by_id = {r["line_id"]: r for r in job_lines}
+    ids_by_key = {}
+    for r in job_lines:
+        ids_by_key.setdefault(r["request_key"], []).append(r["line_id"])
+    cur_by_id = {ln.id: ln for ln in db.load_line_objects(job["drama_id"])}
+    counts = {"applied": 0, "dropped_deleted": 0, "flagged_source_changed": 0,
+              "failed_requests": 0, "unknown_requests": 0}
+    notes = []
+
+    for key, text, usage, error in results:
+        _log_generic_usage(job, usage, "translation_notes_bulk")
+        if key not in ids_by_key:
+            counts["unknown_requests"] += 1
+            continue
+        if error or text is None:
+            counts["failed_requests"] += 1
+            continue
+        found = translate_engines._parse_json_array(text, 0)
+        by_id = {}
+        if isinstance(found, list):
+            for n in found:
+                if isinstance(n, dict) and n.get("note") and n.get("line_idx") is not None:
+                    try:
+                        by_id.setdefault(int(n["line_idx"]), []).append(n)
+                    except (TypeError, ValueError):
+                        continue
+        for lid in ids_by_key[key]:
+            ln = cur_by_id.get(lid)
+            if _stale_line(ln, row_by_id[lid]["zh_hash"]):
+                counts["dropped_deleted" if ln is None else "flagged_source_changed"] += 1
+                continue
+            for n in by_id.get(lid, []):
+                n["line_id"] = lid
+                n["note_type"] = n.get("note_type") if n.get("note_type") in tguide.NOTE_TYPES else "cultural"
+                notes.append(n)
+                counts["applied"] += 1
+
+    if notes:
+        db.save_translation_notes(job["drama_id"], notes)
+    return counts
+
+
+def apply_results_for_job(bulk_job_id: int, results, engine=None) -> dict:
+    """Dispatches to the right apply_* function by the job's own kind --
+    what check_once/_check_once_locked call instead of apply_bulk_results
+    directly, now that a bulk job isn't always a translation. engine: only
+    needed for kind="reflect" (see apply_reflect_stage_results), which may
+    need to submit the pipeline's NEXT stage."""
+    job = db.get_bulk_job(bulk_job_id)
+    kind = job.get("kind") or "translate"
+    if kind == "translate":
+        return apply_bulk_results(bulk_job_id, results)
+    if kind == "flag":
+        return apply_flag_results(bulk_job_id, results)
+    if kind == "consistency":
+        return apply_consistency_results(bulk_job_id, results)
+    if kind == "emotion":
+        return apply_emotion_results(bulk_job_id, results)
+    if kind == "translation_notes":
+        return apply_notes_results(bulk_job_id, results)
+    if kind == "reflect":
+        return apply_reflect_stage_results(bulk_job_id, results, engine=engine)
+    raise ValueError(f"Unknown bulk job kind: {kind}")
+
+
 # ---------------------------------------------------------------------------
 # Polling, scheduled runs, cancel, resume
 # ---------------------------------------------------------------------------
@@ -408,17 +1242,21 @@ def _check_lock(bulk_job_id: int) -> threading.Lock:
         return _check_locks.setdefault(bulk_job_id, threading.Lock())
 
 
-def check_once(bulk_job_id: int, provider) -> str:
+def check_once(bulk_job_id: int, provider, engine=None) -> str:
     """One status check. Returns the job's new status. Applies results
     as soon as the provider reports the batch ended. Raises BulkAuthError
     (after recording it on the job) if the key was refused. Serialized per
     job, so the background poller and a "Check now" click can't both
-    apply (and log the cost of) the same results."""
+    apply (and log the cost of) the same results.
+
+    engine: only needed for a Reflect job (kind="reflect") -- its own
+    apply step may submit the pipeline's next stage, which needs a live
+    engine the same way the original submission did."""
     with _check_lock(bulk_job_id):
-        return _check_once_locked(bulk_job_id, provider)
+        return _check_once_locked(bulk_job_id, provider, engine=engine)
 
 
-def _check_once_locked(bulk_job_id: int, provider) -> str:
+def _check_once_locked(bulk_job_id: int, provider, engine=None) -> str:
     job = db.get_bulk_job(bulk_job_id)
     if job is None or job["status"] not in ("submitted", "auth_error"):
         return job["status"] if job else "missing"
@@ -440,7 +1278,7 @@ def _check_once_locked(bulk_job_id: int, provider) -> str:
     # nothing that arrives after it is applied.
     if db.get_bulk_job(bulk_job_id)["status"] == "cancelled":
         return "cancelled"
-    summary = apply_bulk_results(bulk_job_id, results)
+    summary = apply_results_for_job(bulk_job_id, results, engine=engine)
     db.update_bulk_job(bulk_job_id, status="applied", result_summary=summary, last_error=None)
     return "applied"
 
@@ -528,7 +1366,7 @@ def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
             background_jobs.set_result(job_id, summary)
             return
         try:
-            status = check_once(bulk_job_id, provider)
+            status = check_once(bulk_job_id, provider, engine=engine)
         except BulkAuthError:
             return
         except Exception as e:

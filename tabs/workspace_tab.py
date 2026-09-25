@@ -323,6 +323,64 @@ def _start_bulk_translation(drama_id, drama, engine, engine_choice, novel_refere
         return "error", f"Bulk submission failed: {translate_engines.redact_secrets(str(e))}"
 
 
+_BULK_GENERIC_SUBMIT = {
+    "flag": bulk_translate.submit_bulk_flag,
+    "consistency": bulk_translate.submit_bulk_consistency,
+    "emotion": bulk_translate.submit_bulk_emotion,
+    "translation_notes": bulk_translate.submit_bulk_translation_notes,
+}
+_BULK_GENERIC_LABELS = {
+    "flag": "review-queue flagging", "consistency": "consistency check",
+    "emotion": "emotion detection", "translation_notes": "translation notes",
+}
+
+
+def _start_bulk_generic(kind, drama_id, engine, engine_choice, **submit_kwargs):
+    """Step 9d: submits a flag/consistency/emotion/translation-notes bulk
+    job -- same "submit now, poll later" shape as _start_bulk_translation
+    (Step 9), just for the four review/QA passes Step 9's own item 2
+    named as in scope for bulk mode but didn't build. Returns (st method
+    name, message)."""
+    lines = db.load_line_objects(drama_id)
+    try:
+        provider = bulk_translate.make_provider(engine_choice, engine)
+        bulk_id = _BULK_GENERIC_SUBMIT[kind](drama_id, lines, engine, engine_choice,
+                                             provider=provider, **submit_kwargs)
+        bulk_translate.start_poller(bulk_id, provider=provider, engine=engine)
+        return "success", (f"Submitted the {_BULK_GENERIC_LABELS[kind]} as a bulk batch at half "
+                           "price. Most finish within an hour (24 hours at most) -- track it "
+                           "under 🐢 Bulk jobs below.")
+    except Exception as e:
+        return "error", f"Bulk submission failed: {translate_engines.redact_secrets(str(e))}"
+
+
+def _start_bulk_reflect(drama_id, drama, engine, engine_choice, novel_reference, glossary_terms,
+                        style_guidelines, style_note, locale, style_preset, force_retranslate):
+    """Step 9d item 3: Reflect mode, bulk -- see bulk_translate.py's own
+    module comment for why this is three sequential submissions instead
+    of one. Only the FIRST (faithfulness) stage is submitted here; the
+    other two follow automatically as each prior stage's own results
+    come back (tracked under the same 🐢 Bulk jobs panel, one card per
+    pipeline showing its current stage)."""
+    lines = db.load_line_objects(drama_id)
+    translate_args = {"style_note": style_note, "drama_meta": drama, "novel_reference": novel_reference,
+                      "locale": locale, "glossary_terms": glossary_terms,
+                      "style_guidelines": style_guidelines, "style_preset": style_preset}
+    try:
+        provider = bulk_translate.make_provider(engine_choice, engine)
+        bulk_id = bulk_translate.submit_reflect_pipeline(
+            drama_id, lines, engine, engine_choice, translate_args, provider=provider,
+            force_retranslate=force_retranslate)
+        bulk_translate.start_poller(bulk_id, provider=provider, engine=engine)
+        return "success", ("Submitted the faithfulness pass as a bulk batch. Reflection and "
+                           "expressiveness follow automatically once each pass's results are back -- "
+                           "this takes roughly 3x longer than a single bulk pass, since each stage "
+                           "waits on the provider before the next one can submit. Track it under "
+                           "🐢 Bulk jobs below.")
+    except Exception as e:
+        return "error", f"Bulk submission failed: {translate_engines.redact_secrets(str(e))}"
+
+
 _BULK_STATUS_LABELS = {
     "submitting": "Submitting", "submitted": "Waiting for results", "scheduled": "Scheduled",
     "running": "Translating (off-peak)", "applied": "Done", "cancelled": "Cancelled",
@@ -336,9 +394,40 @@ _BULK_SUMMARY_LABELS = {
 }
 
 
+_BULK_KIND_LABELS = {
+    "translate": "Translation", "flag": "Review-queue flagging",
+    "consistency": "Consistency check", "emotion": "Emotion detection",
+    "translation_notes": "Translation notes", "reflect": "Reflect",
+}
+_REFLECT_STAGE_LABELS = {"faithful": "faithfulness pass", "reflect": "reflection pass",
+                         "expressive": "expressiveness pass"}
+_REFLECT_STAGE_NUMBER = {"faithful": 1, "reflect": 2, "expressive": 3}
+
+
+def _bulk_job_title(job: dict) -> str:
+    """Step 9d: a job's kind (and, for Reflect, its current stage) --
+    the exit condition's own "not just 'pending'" requirement. A Reflect
+    pipeline's card always shows the STAGE currently pending/applied,
+    not a generic "Reflect" label, so it reads as a multi-stage job in
+    progress rather than one opaque batch."""
+    kind = job.get("kind") or "translate"
+    if kind == "reflect" and job.get("stage"):
+        stage = job["stage"]
+        return (f"Bulk Reflect -- {_REFLECT_STAGE_LABELS.get(stage, stage)} "
+               f"(stage {_REFLECT_STAGE_NUMBER.get(stage, '?')}/3)")
+    return f"Bulk {_BULK_KIND_LABELS.get(kind, kind)}"
+
+
 def _render_bulk_jobs_panel(drama_id, monthly_cap):
     """Pending and recent bulk jobs for this drama, with Check now and
-    Cancel. Also restarts polling for pending jobs after an app restart."""
+    Cancel. Also restarts polling for pending jobs after an app restart.
+
+    A Reflect pipeline's three stages are three separate bulk_jobs rows
+    (see bulk_translate.py's own module comment) sharing one pipeline_id
+    -- only the LATEST one is shown here (jobs come back newest-id-first,
+    so the first row seen for a given pipeline_id already is the latest),
+    so a pipeline reads as one card whose stage advances, not three
+    separate opaque entries."""
     jobs = db.list_bulk_jobs(drama_id)
     if not jobs:
         return
@@ -351,13 +440,23 @@ def _render_bulk_jobs_panel(drama_id, monthly_cap):
         seen.update(j["id"] for j in jobs if j["status"] == "applied")
     pending = [j for j in jobs if j["status"] in ("submitting", "submitted", "scheduled",
                                                   "running", "auth_error")]
+    seen_pipelines = set()
+    displayed = []
+    for job in jobs:
+        pid = job.get("pipeline_id")
+        if pid:
+            if pid in seen_pipelines:
+                continue
+            seen_pipelines.add(pid)
+        displayed.append(job)
     with st.expander(f"🐢 Bulk jobs ({len(pending)} pending)", expanded=bool(pending)):
         _note = st.session_state.pop(f"bulk_note_{drama_id}", None)
         if _note:
             st.info(_note)
-        for job in jobs[:10]:
+        for job in displayed[:10]:
             with st.container(border=True):
-                st.markdown(f"**#{job['id']}** · {job['engine']} ({job['model'] or 'default'}) · "
+                st.markdown(f"**#{job['id']}** · {_bulk_job_title(job)} · {job['engine']} "
+                            f"({job['model'] or 'default'}) · "
                             f"submitted {(job['submitted_at'] or '')[:16].replace('T', ' ')} UTC · "
                             f"**{_BULK_STATUS_LABELS.get(job['status'], job['status'])}**")
                 if job["status"] == "scheduled" and job.get("scheduled_for"):
@@ -385,7 +484,8 @@ def _render_bulk_jobs_panel(drama_id, monthly_cap):
                     else:
                         try:
                             bulk_translate.check_once(
-                                job["id"], bulk_translate.make_provider(job["engine"], engine))
+                                job["id"], bulk_translate.make_provider(job["engine"], engine),
+                                engine=engine)
                         except bulk_translate.BulkAuthError:
                             pass  # recorded on the job; shown after the rerun
                         except Exception as e:
@@ -2140,10 +2240,17 @@ def render_workspace_tab():
                      "(half price) and runs then. Results are applied by line id, so you can keep "
                      "editing meanwhile -- a line whose source text changes before its result "
                      "arrives is flagged for review instead of overwritten.")
-            if bulk_mode and reflect_mode:
-                st.info("Bulk mode is off while Reflect mode is on -- its three passes each "
-                        "depend on the one before, so they can't go out as one batch.")
+            if bulk_mode and reflect_mode and engine_choice == "deepseek":
+                st.info("Bulk Reflect needs Claude or Gemini's own batch API -- DeepSeek only "
+                        "has an off-peak discount, which Reflect's three dependent passes can't "
+                        "use the same way a normal translation can.")
                 bulk_mode = False
+            elif bulk_mode and reflect_mode:
+                st.caption("🐢✨ Bulk Reflect: the faithfulness pass goes out first; reflection "
+                          "and expressiveness each submit automatically once the pass before them "
+                          "comes back, so this takes roughly 3x as long as a normal bulk batch on "
+                          "top of Bulk's own turnaround (still tracked as one entry under 🐢 Bulk "
+                          "jobs below).")
             elif bulk_mode and engine_choice == "deepseek":
                 _window = bulk_translate.next_deepseek_offpeak_start(bulk_translate._utcnow())
                 st.caption("🐢 Runs in DeepSeek's off-peak window (half price) -- "
@@ -2525,7 +2632,12 @@ def render_workspace_tab():
                                + ("\n\n" + _emotion_block if _emotion_block else "")
                                + ("\n\n" + _gender_block if _gender_block else "")))
 
-            if bulk_mode:
+            if bulk_mode and reflect_mode:
+                _kind, _msg = _start_bulk_reflect(
+                    picked_id, drama, engine, engine_choice, novel_reference, glossary_terms,
+                    style_guidelines, style_note, locale, style_preset, force_retranslate)
+                getattr(st, _kind)(_msg)
+            elif bulk_mode:
                 _kind, _msg = _start_bulk_translation(
                     picked_id, drama, engine, engine_choice, novel_reference, glossary_terms,
                     style_guidelines, style_note, locale, style_preset, context_window,
@@ -3036,25 +3148,37 @@ def render_workspace_tab():
                 _cjob = background_jobs.get_status(_consistency_job_id)
                 if _translation_only_engine:
                     st.caption(f"⚠️ {_translation_only_message}")
+                _consistency_bulk = False
+                if engine_choice in ("claude", "gemini") and not (engine_choice == "gemini"
+                                                                  and _gemini_free_tier):
+                    _consistency_bulk = st.checkbox(
+                        "🐢 Bulk (cheaper, slower)", key=f"bulk_consistency_{picked_id}",
+                        help="Half price via Claude/Gemini's own batch API -- most finish within "
+                             "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
+                             "instead of here.")
                 if st.button("Check consistency", disabled=_translation_only_engine) and api_key:
                     engine = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
                         base_url=_ollama_base_url if engine_choice == "ollama" else None)
-                    _lines_copy = _copy_lines(edited_rows)
-                    started = background_jobs.start_job(
-                        _consistency_job_id, run_consistency_job,
-                        _consistency_job_id, picked_id, _lines_copy, engine, engine_choice,
-                        gpu_touching=engine_choice == "ollama",
-                        description=f"Ollama consistency check ({_drama_label(drama)})")
-                    if started:
-                        st.info(_job_start_message(
-                            _consistency_job_id,
-                            "Checking in the background -- safe to switch tabs or run another "
-                            "check while this runs."))
-                        st.rerun()
+                    if _consistency_bulk:
+                        _kind, _msg = _start_bulk_generic("consistency", picked_id, engine, engine_choice)
+                        getattr(st, _kind)(_msg)
                     else:
-                        st.warning("Already checking for this drama.")
+                        _lines_copy = _copy_lines(edited_rows)
+                        started = background_jobs.start_job(
+                            _consistency_job_id, run_consistency_job,
+                            _consistency_job_id, picked_id, _lines_copy, engine, engine_choice,
+                            gpu_touching=engine_choice == "ollama",
+                            description=f"Ollama consistency check ({_drama_label(drama)})")
+                        if started:
+                            st.info(_job_start_message(
+                                _consistency_job_id,
+                                "Checking in the background -- safe to switch tabs or run another "
+                                "check while this runs."))
+                            st.rerun()
+                        else:
+                            st.warning("Already checking for this drama.")
 
                 if _cjob:
                     if _cjob["status"] == "running":
@@ -3090,24 +3214,36 @@ def render_workspace_tab():
                 _fjob = background_jobs.get_status(_flag_job_id)
                 if _translation_only_engine:
                     st.caption(f"⚠️ {_translation_only_message}")
+                _flag_bulk = False
+                if engine_choice in ("claude", "gemini") and not (engine_choice == "gemini"
+                                                                  and _gemini_free_tier):
+                    _flag_bulk = st.checkbox(
+                        "🐢 Bulk (cheaper, slower)", key=f"bulk_flag_{picked_id}",
+                        help="Half price via Claude/Gemini's own batch API -- most finish within "
+                             "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
+                             "instead of here.")
                 if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
                     engine_f = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
                         base_url=_ollama_base_url if engine_choice == "ollama" else None)
-                    _lines_copy = _copy_lines(edited_rows)
-                    started = background_jobs.start_job(
-                        _flag_job_id, run_flag_job,
-                        _flag_job_id, picked_id, _lines_copy, engine_f, engine_choice,
-                        gpu_touching=engine_choice == "ollama",
-                        description=f"Ollama flagging ({_drama_label(drama)})")
-                    if started:
-                        st.info(_job_start_message(
-                            _flag_job_id,
-                            "Checking in the background -- safe to switch tabs while this runs."))
-                        st.rerun()
+                    if _flag_bulk:
+                        _kind, _msg = _start_bulk_generic("flag", picked_id, engine_f, engine_choice)
+                        getattr(st, _kind)(_msg)
                     else:
-                        st.warning("Already checking for this drama.")
+                        _lines_copy = _copy_lines(edited_rows)
+                        started = background_jobs.start_job(
+                            _flag_job_id, run_flag_job,
+                            _flag_job_id, picked_id, _lines_copy, engine_f, engine_choice,
+                            gpu_touching=engine_choice == "ollama",
+                            description=f"Ollama flagging ({_drama_label(drama)})")
+                        if started:
+                            st.info(_job_start_message(
+                                _flag_job_id,
+                                "Checking in the background -- safe to switch tabs while this runs."))
+                            st.rerun()
+                        else:
+                            st.warning("Already checking for this drama.")
 
                 if _fjob:
                     if _fjob["status"] == "running":
@@ -3207,27 +3343,41 @@ def render_workspace_tab():
                                               "weak evidence for emotional register.")
                 _emotion_job_id = f"emotion_{picked_id}"
                 _ejob = background_jobs.get_status(_emotion_job_id)
+                _emotion_bulk = False
+                if engine_choice in ("claude", "gemini") and not (engine_choice == "gemini"
+                                                                  and _gemini_free_tier):
+                    _emotion_bulk = st.checkbox(
+                        "🐢 Bulk (cheaper, slower)", key=f"bulk_emotion_{picked_id}",
+                        help="Half price via Claude/Gemini's own batch API -- most finish within "
+                             "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
+                             "instead of here.")
                 if ec1.button("Detect emotional register", disabled=_translation_only_engine) and api_key:
                     eng_e = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
                         base_url=_ollama_base_url if engine_choice == "ollama" else None)
-                    # A copy, not the live list -- same reasoning as the Translate
-                    # button's _lines_copy: this runs in a background thread, and
-                    # edited_rows is tied to the review table's current widget state.
-                    _lines_copy = _copy_lines(edited_rows)
-                    started = background_jobs.start_job(
-                        _emotion_job_id, run_emotion_job,
-                        _emotion_job_id, picked_id, _lines_copy, eng_e, use_cues, engine_choice,
-                        gpu_touching=engine_choice == "ollama",
-                        description=f"Ollama emotion detection ({_drama_label(drama)})")
-                    if started:
-                        st.info(_job_start_message(
-                            _emotion_job_id,
-                            "Reading tone in the background -- safe to switch tabs while this runs."))
-                        st.rerun()
+                    if _emotion_bulk:
+                        _kind, _msg = _start_bulk_generic("emotion", picked_id, eng_e, engine_choice,
+                                                          use_audio_cues=use_cues)
+                        getattr(st, _kind)(_msg)
                     else:
-                        st.warning("Already detecting emotional register for this drama.")
+                        # A copy, not the live list -- same reasoning as the Translate
+                        # button's _lines_copy: this runs in a background thread, and
+                        # edited_rows is tied to the review table's current widget state.
+                        _lines_copy = _copy_lines(edited_rows)
+                        started = background_jobs.start_job(
+                            _emotion_job_id, run_emotion_job,
+                            _emotion_job_id, picked_id, _lines_copy, eng_e, use_cues, engine_choice,
+                            gpu_touching=engine_choice == "ollama",
+                            description=f"Ollama emotion detection ({_drama_label(drama)})")
+                        if started:
+                            st.info(_job_start_message(
+                                _emotion_job_id,
+                                "Reading tone in the background -- safe to switch tabs while this "
+                                "runs."))
+                            st.rerun()
+                        else:
+                            st.warning("Already detecting emotional register for this drama.")
 
                 if _ejob:
                     if _ejob["status"] == "running":
@@ -3438,26 +3588,39 @@ def render_workspace_tab():
                 _njob = background_jobs.get_status(_notes_job_id)
                 if _translation_only_engine:
                     st.caption(f"⚠️ {_translation_only_message}")
+                _notes_bulk = False
+                if engine_choice in ("claude", "gemini") and not (engine_choice == "gemini"
+                                                                  and _gemini_free_tier):
+                    _notes_bulk = st.checkbox(
+                        "🐢 Bulk (cheaper, slower)", key=f"bulk_notes_{picked_id}",
+                        help="Half price via Claude/Gemini's own batch API -- most finish within "
+                             "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
+                             "instead of here.")
                 if st.button("Generate translation notes", disabled=_translation_only_engine) and api_key:
                     engine_n = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
                         base_url=_ollama_base_url if engine_choice == "ollama" else None)
-                    _lines_copy = _copy_lines(edited_rows)
-                    started = background_jobs.start_job(
-                        _notes_job_id, run_translation_notes_job,
-                        _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
-                        source_language,
-                        gpu_touching=engine_choice == "ollama",
-                        description=f"Ollama translation notes ({_drama_label(drama)})")
-                    if started:
-                        st.info(_job_start_message(
-                            _notes_job_id,
-                            "Reviewing in the background -- safe to switch tabs or run another "
-                            "check while this runs."))
-                        st.rerun()
+                    if _notes_bulk:
+                        _kind, _msg = _start_bulk_generic("translation_notes", picked_id, engine_n,
+                                                          engine_choice)
+                        getattr(st, _kind)(_msg)
                     else:
-                        st.warning("Already generating notes for this drama.")
+                        _lines_copy = _copy_lines(edited_rows)
+                        started = background_jobs.start_job(
+                            _notes_job_id, run_translation_notes_job,
+                            _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
+                            source_language,
+                            gpu_touching=engine_choice == "ollama",
+                            description=f"Ollama translation notes ({_drama_label(drama)})")
+                        if started:
+                            st.info(_job_start_message(
+                                _notes_job_id,
+                                "Reviewing in the background -- safe to switch tabs or run another "
+                                "check while this runs."))
+                            st.rerun()
+                        else:
+                            st.warning("Already generating notes for this drama.")
 
                 if _njob:
                     if _njob["status"] == "running":
