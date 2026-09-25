@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 import diarize
 import storage
@@ -419,3 +420,101 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
         "library_writable": check_library_writable(library_dir),
         "api_keys": api_keys_set,
     }
+
+
+# ---------------------------------------------------------------------------
+# Step 18c: in-app "Install" buttons for optional dependencies, run against
+# the CURRENTLY RUNNING interpreter (sys.executable) -- when this app was
+# launched via start.bat/portable.py's own venv activation, that's already
+# the venv's own python, never a bare system `pip`.
+# ---------------------------------------------------------------------------
+
+# Only these two tiers ever get a generic Install button -- "required" is
+# already installed by definition (the app wouldn't be running otherwise)
+# and "dev" (pytest) has nothing to do with a running app session.
+INSTALLABLE_TIERS = ("feature", "engine")
+
+
+def stream_pip_install(pip_args: list, python_executable: str = None):
+    """Yields {"line": str} for each line of combined stdout/stderr as
+    `<python> -m pip install <pip_args>` runs, then a final
+    {"done": True, "ok": bool, "returncode": int}. Never swallows a
+    failed install into a generic message -- the real pip error text is
+    exactly what's yielded, for the caller to show in full (confirmed
+    live during this session: a genuine `audio-separator` build failure
+    on a real machine is exactly the case this must not hide)."""
+    python_executable = python_executable or sys.executable
+    cmd = [python_executable, "-m", "pip", "install"] + list(pip_args)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    for line in proc.stdout:
+        yield {"line": line.rstrip("\n")}
+    returncode = proc.wait()
+    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+
+
+def stream_pip_uninstall(pip_args: list, python_executable: str = None):
+    """Same shape as stream_pip_install, for `<python> -m pip uninstall -y`."""
+    python_executable = python_executable or sys.executable
+    cmd = [python_executable, "-m", "pip", "uninstall", "-y"] + list(pip_args)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    for line in proc.stdout:
+        yield {"line": line.rstrip("\n")}
+    returncode = proc.wait()
+    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+
+
+def gpu_torch_mismatch() -> bool:
+    """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
+    PATH) but the installed torch build can't see it -- the exact
+    CPU-only-wheel footgun Step 18 item 7 traces to a bare `pip install
+    torch` always resolving to PyPI's default (non-CUDA) wheel. A
+    minimal, self-contained version of the same nvidia-smi-on-PATH
+    detection Step 18 item 3's fuller GPU/VRAM display will also use --
+    that display doesn't exist yet, but this button (item 6) needs the
+    same signal regardless of which of the two lands first."""
+    if not shutil.which("nvidia-smi"):
+        return False
+    cuda = check_cuda()
+    return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
+
+
+# cu128, not cu124 -- confirmed directly against download.pytorch.org that
+# cu124's index only publishes wheels through cp313, nothing for cp314,
+# while cu128 already carries real Windows cp314 CUDA wheels (matches the
+# open pytorch/pytorch#169929 report of exactly this gap). Picked by the
+# running interpreter's own Python version below, not hardcoded to a
+# single value for every version, since CUDA-driver compatibility and
+# Python-ABI wheel availability vary independently.
+GPU_TORCH_CUDA_INDEX_BY_PYVER = {(3, 14): "cu128"}
+GPU_TORCH_CUDA_INDEX_DEFAULT = "cu128"
+
+
+def gpu_torch_cuda_index() -> str:
+    v = sys.version_info
+    return GPU_TORCH_CUDA_INDEX_BY_PYVER.get((v.major, v.minor), GPU_TORCH_CUDA_INDEX_DEFAULT)
+
+
+def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str = None):
+    """Uninstalls the CPU-only torch/torchaudio, then reinstalls both from
+    PyTorch's own CUDA index for the running interpreter's Python version.
+    Reuses constraints.txt's existing torch<3/torchaudio<3 caps via pip's
+    own `-c` flag (rather than duplicating those version numbers here) so
+    this reinstall can't drift outside the range the rest of the app
+    already assumes. Yields the same {"line": ...}/{"done": ...} items as
+    stream_pip_install, across both subprocess calls in sequence -- only
+    the LAST item has "done", so a caller can tell the whole sequence
+    (uninstall + install) apart from either step finishing early."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints_path = os.path.join(project_root, "constraints.txt")
+
+    for item in stream_pip_uninstall(["torch", "torchaudio"], python_executable):
+        if not item.get("done"):
+            yield item
+
+    index_url = f"https://download.pytorch.org/whl/{gpu_torch_cuda_index()}"
+    install_args = ["torch", "torchaudio", "--index-url", index_url]
+    if os.path.exists(constraints_path):
+        install_args += ["-c", constraints_path]
+    yield from stream_pip_install(install_args, python_executable)
