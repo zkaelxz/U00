@@ -31,7 +31,7 @@ Status: agreed plan (**shortened version**). This doc is written in the
 
 **Build order:**
 - Steps 1–5b: R5 → safety fixes (1b) → **AI setup (1c-pre)** → dependency fixes (1c) → free testing engines (1d) → character pronouns (1e) → R0 → R1-lite → R2 → R3-lite → bugs found during manual testing (5b).
-- Steps 6–20: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10) → Scanlate ML detector/inpainting/OCR routing (11) → novel narration TTS quality (11b) → dub timing: clamped time-stretch fallback (11c) → GUI polish and Streamlit performance (12) → UI foundation: components & project state (13) → Workspace shell rebuild (14) → Reader tab declutter (15) → Settings consolidation (16) → Discover/Navigator merge (17) → Diagnostics narrowing (18) → full click-through UX test (19) → UX polish: shortcuts, toasts, transcript search (20) → Review workspace: per-line audio and save-status (21) → series-level library view (22) → source-adapter architecture, interface only (23). Milestones R4 and R7 are deferred (see §3).
+- Steps 6–20: transcription quality (6) → export formats (6b) → meaning-based re-segmentation (6c) → vertical/shorts export (6d) → reflect translation mode (7) → content-summary glossary extraction (7b) → recurring-voice suggestions (8) → cost controls & bulk discounts (9) → job ETAs/model disk/bulk translate/diagnostics redaction (9b) → drama presets (9c) → Windows launcher (10) → Scanlate ML detector/inpainting/OCR routing (11) → novel narration TTS quality (11b) → dub timing: clamped time-stretch fallback (11c) → GUI polish and Streamlit performance (12) → UI foundation: components & project state (13) → Workspace shell rebuild (14) → Reader tab declutter (15) → Settings consolidation (16) → Discover/Navigator merge (17) → Diagnostics narrowing (18) → full click-through UX test (19) → UX polish: shortcuts, toasts, transcript search (20) → Review workspace: per-line audio and save-status (21) → series-level library view (22) → source-adapter architecture, interface only (23) → translation memory, benchmark A/B comparison, library organizational status (24). Milestones R4 and R7 are deferred (see §3).
 
 ## Decisions already made
 
@@ -79,6 +79,17 @@ share one glossary and character list today — the gap is a visible UI
 surface for it, not new architecture. See the new series-level library
 view item, folded into the Steps 13–21 IA redesign.
 
+**Also already richer than the vision doc's own "add a glossary system"
+framing implies:** `glossary_terms` already has `category` (person_name,
+clan_sect, honorific...), a `policy` field (keep_pinyin/hybrid/
+translate_meaning), and `enforce_exact` (hard find-replace, no drift
+allowed) — real, structured control, not just a flat term list. Character
+aliases already exist too (`series_characters.aliases`). Genuinely missing:
+term-level aliases (an alternate spelling of the *term itself*, not the
+character) and an explicit "prohibited translation" list, both small
+additions to the existing table rather than new architecture — not yet a
+roadmap item, noted here for when it's worth picking up.
+
 **Deliberately not committed to yet, tracked here for when a real decision
 is made:**
 - A **raw-source repository/adapter system** (Mihon/Keiyoushi-style: search
@@ -88,20 +99,38 @@ is made:**
   now as its own step (architecture only, no site-specific code); which
   real site becomes the first working adapter is its own explicit decision,
   not pre-committed here — see that step for what was checked and why.
-- **FastAPI backend, browser extension, eventual desktop app (Tauri/
-  Electron/PySide)** — this is the existing **M8+** deferred milestone
-  (§3), unchanged: "a large migration with no current pain driving it...
-  revisit when Streamlit becomes the bottleneck." Nothing about this vision
-  changes that trigger.
+- **FastAPI backend, eventual desktop app (Tauri/Electron/PySide)** — this
+  is the existing **M8+** deferred milestone (§3), unchanged: "a large
+  migration with no current pain driving it... revisit when Streamlit
+  becomes the bottleneck." Nothing about this vision changes that trigger.
+  **The browser extension specifically was bundled into that same
+  dismissal on a first pass without actually checking whether it needs
+  to be** — a browser extension only needs *some* small local HTTP
+  endpoint to talk to, not necessarily the full FastAPI+React migration.
+  That decoupling claim hasn't been verified either way yet; flagging
+  the correction rather than leaving an unchecked assumption standing.
+  Worth a real look if/when the browser-translation idea is picked up,
+  not resolved here.
 - **Modular ASR/diarization, standalone VAD** — the existing **R4**
   deferred milestone (§3), unchanged.
-- **A continuous research/benchmark/A-B-testing "model intelligence"
-  system** — this planning chat already does the equivalent by hand each
-  time the user asks "are my models still the best" (three times so far
-  this project, each producing a dated, cited §6/§7 entry). Automating that
-  into an always-running in-app subsystem is real, separate engineering
-  effort with no confirmed need yet beyond what the manual process already
-  delivers at near-zero ongoing cost — not ruled out, just not started.
+- **A continuously-running, automated research crawler** ("has anything
+  better been released" monitoring) — the *discovery* part isn't built,
+  and this planning chat does that by hand each time the user asks
+  (three times so far, each producing a dated, cited §6/§7 entry). No
+  confirmed need yet to automate discovery itself beyond what the manual
+  process already delivers at near-zero ongoing cost.
+  **Correction, found on a closer pass than the first review gave this:**
+  the *benchmark/regression* half of that idea is **already substantially
+  built**, not absent — `db.py`'s `benchmark_cases`/`benchmark_runs` tables
+  and Diagnostics' "🎯 Accuracy benchmark" section (confirmed real, working
+  code: register a real sample with optional reference text, run it through
+  the current pipeline, get a score, and the UI already **automatically
+  flags a regression** — a score drop of more than 5 points between runs —
+  and highlights an improvement the same way). That's real coverage of the
+  vision doc's Local Benchmark Corpus and Regression Testing sections. The
+  one confirmed gap: it compares **run-over-run** (before/after a change),
+  not **side-by-side** (Engine A vs. Engine B on the same case in one
+  view) — see the new Step 24 item.
 
 ---
 
@@ -176,6 +205,7 @@ Rules for every milestone:
 | 21 | In Review & edit, play a line's audio snippet without leaving the page. Edit a few lines without saving, navigate away and back, and confirm the "unsaved changes" indicator is still showing (not silently cleared). |
 | 22 | Create two dramas of different media types in the same series with a shared character. Confirm the series view lists both together and shows where the shared character info came from. |
 | 23 | Add a mock/test source adapter and confirm a "page" from it flows through Scanlate's existing OCR/translate/typeset pipeline with no changes needed there. No real site is expected to work yet — this step ships the interface only. |
+| 24 | Translate a batch with a repeated line and check a translation-memory suggestion appears (not auto-applied). In Diagnostics, run a benchmark case through two engines and compare them side by side. Mark a drama as a Favorite in Library, filter by it, and confirm its processing status is unaffected. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -847,6 +877,19 @@ Second half of the user's raw-source vision (§0), scoped down to what's respons
 
 **Follow-up, not part of this step:** picking and vetting the first real site to build an actual adapter against — a separate, explicit decision once this interface exists, starting from Keiyoushi's currently-maintained extension list rather than the official-publisher list by default (lower risk, proven-accessible), unless the user specifically wants to start with a named official platform despite the higher risk.
 
+### Step 24 — Translation memory, side-by-side benchmark comparison, and library organizational status
+Found on a proper section-by-section pass through the vision doc's remaining parts, checking each claim directly against real code before deciding it was a gap — the user asked directly whether that full analysis had actually been done, and the first pass hadn't gone this deep. Three independent, real, verified gaps — grouped to keep the step count down, same pattern as Step 9b/12/20.
+
+1. **Real translation memory — confirmed genuinely missing, distinct from what already exists.** Checked `translate_engines.py` directly (no `memory`/`fuzzy`/`SequenceMatcher`/`reuse` logic anywhere in it) and read `adaptive_style.py` in full: it learns *aggregate style preferences* from edits (shorter/more literal/term choices) and folds a summary into future prompts — genuinely useful, but not the same thing as recognizing that this exact or near-identical source phrase was translated and approved before and reusing that specific translation. That's real TM, and it doesn't exist. Add a `translation_memory` table (keyed by `series_id`, like glossary) storing approved source→translation pairs with a use count; on each new batch, check upcomming source lines for an exact or close match (plain string/`difflib` similarity — no new embedding dependency needed for a first version) and **surface it as a suggestion the translator can accept**, never silently auto-substitute — same guardrail pattern used everywhere else a suggestion could be wrong (Step 8's voice-match Accept/Reject, Step 7b's glossary suggestions).
+2. **Side-by-side engine comparison on the existing benchmark system — confirmed as the one real gap in an otherwise-already-built feature.** Diagnostics' "🎯 Accuracy benchmark" (confirmed real and working, see §0's correction above) already runs a case through the pipeline and tracks score history with automatic regression/improvement detection — but only one engine/config at a time, compared run-over-run. Add a "Compare engines on this case" mode: run the same registered case through two selected engines back to back and show both outputs (and scores, if a reference exists) side by side in one view — reusing `benchmark.run_suite` and the existing case/run storage, not a new comparison subsystem.
+3. **Library organizational status, distinct from the existing processing-status field.** Confirmed `dramas.status` already tracks pipeline stage (not started / aligned / translated / dubbed / exported) — that's real and working, not a gap. What's missing is a separate, personal organizational layer the vision doc asked for (Favorites, On Hold, Plan to Translate) that isn't about pipeline progress at all. `dramas.custom_tags` already exists (comma-separated, user-defined) and could informally serve this today, but there's no structured, filterable UI for it — add a small set of built-in quick-filter tags in Library (Favorite, On Hold, Plan to Translate) using the existing `custom_tags` column rather than a new field, plus a filter control to view by them.
+
+**Exit:**
+- A test shows a repeated or near-identical source line gets a translation-memory suggestion surfaced (not auto-applied), and a genuinely new line gets none.
+- A test shows the benchmark comparison mode runs one case through two engines and returns both results without corrupting either engine's own run history.
+- A test shows filtering Library by a quick-filter tag (Favorite/On Hold/Plan to Translate) returns the right dramas, and setting one doesn't affect `dramas.status`.
+- Manual check: mark a drama as a Favorite, confirm it's filterable in Library, and confirm it still shows its real processing status unaffected.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -868,7 +911,7 @@ Second half of the user's raw-source vision (§0), scoped down to what's respons
 - **Planning chat:** branch `claude/baihe-subtitle-planning-95qyvq`, docs only. Roadmap changes go here.
 - **Implementing chat — two different flows depending on where the roadmap is:**
   - **Steps 1e through 10 (autonomous mode, starting 2026-09-24 at the user's request — "most of the checks have been good, let the AI go through the steps without additional checks"):** build the step on its own branch off the latest `baihe-subtitler`, run the full suite, open a pull request into `baihe-subtitler` **and merge it yourself**, then start the next step off the updated branch — no stop for the planning chat's diff review and no stop for the user's merge go-ahead in between steps. Still push a short plain-English summary of what changed with each step, for the record, but don't wait for a reply before continuing. **No per-step model-switch stop either** — the whole remaining run (this range and Step 11 onward) is on Opus throughout, at the user's explicit request (2026-09-24: "can I let the whole process run with opus"), so there's nothing to confirm per step; see the table below for why those particular steps would otherwise have needed it. If a step's own exit conditions can't be met, or something looks genuinely wrong (not just "the planning chat would nitpick this"), stop and say so rather than merging around it.
-  - **Steps 11 onward (back to the original gated flow):** once the roadmap's current list (through Step 10) is done, later additions go back to review-gated: build on its own branch, push, report, then **stop**; the user asks the planning chat to "check Step X"; once approved, the user says "create a PR for this step"; open the PR but **don't merge it yourself**; the user merges on GitHub; start the next step only after the previous one is merged. The user's own framing for this: once the current list is finished, further changes are "smaller scale," worth going back to a closer look before they land. **This explicitly includes Steps 13–19 (the UI/UX redesign)** — confirmed with the user that these start only after Steps 1e–12 are fully done, not interleaved with the currently-running autonomous batch, given the redesign touches every tab and the shared session-state model. **Also explicitly includes Steps 22–23** (the series-level library view and the source-adapter architecture, §0's first concrete steps) — same reasoning, plus Step 23 in particular touches new ground (external network access to a to-be-decided source) that warrants a closer look before merging regardless of size.
+  - **Steps 11 onward (back to the original gated flow):** once the roadmap's current list (through Step 10) is done, later additions go back to review-gated: build on its own branch, push, report, then **stop**; the user asks the planning chat to "check Step X"; once approved, the user says "create a PR for this step"; open the PR but **don't merge it yourself**; the user merges on GitHub; start the next step only after the previous one is merged. The user's own framing for this: once the current list is finished, further changes are "smaller scale," worth going back to a closer look before they land. **This explicitly includes Steps 13–19 (the UI/UX redesign)** — confirmed with the user that these start only after Steps 1e–12 are fully done, not interleaved with the currently-running autonomous batch, given the redesign touches every tab and the shared session-state model. **Also explicitly includes Steps 22–24** (the series-level library view and the source-adapter architecture, §0's first concrete steps) — same reasoning, plus Step 23 in particular touches new ground (external network access to a to-be-decided source) that warrants a closer look before merging regardless of size.
 - **Model recommendation per step (now informational only — see the note above).** The whole remaining run is on Opus at the user's request, so this table no longer gates anything; it documents *why* these particular steps would have been worth the extra care if the run were on a cheaper model, for anyone revisiting that cost/quality tradeoff later. Originally: everything not listed here would be fine on Sonnet — these are the steps with either a schema/data migration touching every existing project, correctness that depends on getting an edge case right rather than following a clear spec, or several interacting moving parts in one step:
 
   | Step | Why it needs the extra care |
@@ -920,6 +963,7 @@ Second half of the user's raw-source vision (§0), scoped down to what's respons
   | 21 — Review workspace: per-line audio and save-status | — | Not started | — |
   | 22 — Series-level library view | — | Not started | — |
   | 23 — Source-adapter architecture (interface only) | — | Not started | — |
+  | 24 — Translation memory, benchmark A/B, library status | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
@@ -1027,6 +1071,8 @@ reset or a different session picking up reviews later:
 - **Session wrap-up sync (2026-09-25), user approaching a usage limit.** Confirmed via `git log origin/baihe-subtitler` (not assumed): Steps 1d, 1e, 2, 3, 4, 5, 6, and 6b are all merged (PRs #5–#12) and the `CLAUDE.md` re-copy happened (commit `cea6688`) — §4's status table was badly stale (showed all of these as "Not started") and has been corrected. Recorded the user's own manual-check results as given, not independently re-verified this session: Step 5's VRAM figure for `qwen3:8b` is unconfirmed (no GPU available), with the `ollama pull`/`ollama ps` follow-up noted for later; Step 6b's mpv/VLC and live-preview checks are pending a person at a screen. Added Step 5b for three bugs found during that manual testing (Ollama URL from Settings not reaching translation, a merge preview mutating live lines before confirmation, stale text in the re-transcribe box) — none of these were re-verified against current source this session, flagged for re-verification before fixing, same as every other step's standing instruction.
 
 - **"Unified local translation platform" vision review (§0, Steps 22–23), at the user's request.** User shared a detailed ~50-section architecture vision (worked out with ChatGPT) for a much larger long-term product — cross-referenced against the existing roadmap and this project's own decisions rather than treated as automatically new scope. Confirmed already-covered ground: local-first/cost-tiered model use (already Baihe's design), a formal model-router abstraction (already checked and rejected), QA/versioning/review-flags/job-system/SQLite (already covered by the earlier 40-part spec cross-check). Confirmed the FastAPI/browser-extension/desktop-app portion is the existing **M8+** deferred milestone and the modular-ASR portion is **R4** — neither reopened. **User confirmed wanting to start folding pieces in now** (not just recording it as direction) and wants both the existing manual-download workflows *and* a new automated raw-source-adapter system (not a replacement). Read `db.py`'s real schema directly before designing anything: confirmed `series_characters`/`glossary_terms` are already keyed by `series_id` (not `drama_id`) and `dramas.media_type` already spans manga/manhwa/manhua alongside audio/video/novel — the "shared context across media" idea is already ~implemented at the data layer, just has no UI surface; this became Step 22. For the raw-source-adapter piece, checked the two reference projects the user named directly: [`keiyoushi/extensions-source`](https://github.com/keiyoushi/extensions-source) confirmed real (Apache-2.0, 4.7k stars, Kotlin/Mihon extension format — technique reference only, no direct code port); OpenToon and OpenNovel confirmed **not** open source (closed commercial mobile apps by Decade Studios) — nothing to study architecturally there, flagged rather than invented. **Explicitly did not** attempt to vet the ~20 named official JP/CN/KR publisher platforms' ToS/scraping posture in this pass — a genuine multi-site research project on its own, deferred to a separate, explicit "pick and vet the first real site" decision (Step 23's own follow-up note), recommending Keiyoushi's actively-maintained list as a lower-risk starting point than the named official-publisher platforms by default.
+
+- **Full section-by-section re-analysis of both ChatGPT vision docs, at the user's direct request** ("did you fully analyze... and see if they're able to be implemented and would improve"). Honest answer to that question: the first pass was a triage (covered/deferred/new), not a full per-section feasibility+value check — this pass did that properly, reading real code for every claim rather than restating the first pass's categorization. Found real things the first pass missed, both directions: **Baihe already has more than credited** — `benchmark_cases`/`benchmark_runs` plus Diagnostics' "🎯 Accuracy benchmark" section is a real, working benchmark/regression system (automatic regression/improvement detection between runs already implemented), substantially covering the vision doc's benchmark-corpus and regression-testing sections, which the first pass wrongly implied were entirely unbuilt. `glossary_terms` already has `category`/`policy`/`enforce_exact` — richer structured control than a flat term list. `translation_versions` and the existing "Translation versions" comparison expander already cover most of the versioning section. **And real, confirmed-missing pieces the first pass didn't check for specifically:** `translate_engines.py` (grepped directly) and `adaptive_style.py` (read in full) confirm there is **no real translation memory** — `adaptive_style.py` learns aggregate style preferences, not phrase-level reuse of a specific previously-approved translation; these are genuinely different mechanisms. The benchmark system compares run-over-run, not side-by-side (Engine A vs. B on one case, one view) — a real, small, missing mode on an otherwise-solid system. `dramas.status` tracks processing pipeline, not personal organization (Favorites/On Hold/Plan to Translate) — a real, separate, smaller gap. All three became Step 24. Also corrected an unverified assumption from the first pass: the browser extension was bundled into the M8+ (FastAPI/React) dismissal without actually checking whether it needs that whole migration — it may only need a small local endpoint; flagged as unresolved rather than left as a confident but unchecked claim.
 
 ---
 
