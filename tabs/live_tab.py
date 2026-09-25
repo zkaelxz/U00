@@ -79,7 +79,9 @@ def render_live_tab():
                       disabled=not url.strip() or (needs_key and not api_key)):
             engine = translate_engines.get_engine(
                 engine_choice, api_key,
-                free_tier=engine_choice == "gemini" and _live_gemini_free_tier)
+                free_tier=engine_choice == "gemini" and _live_gemini_free_tier,
+                base_url=(st.session_state.get("settings_ollama_url") or None)
+                if engine_choice == "ollama" else None)
             out_dir = os.path.join(tempfile.gettempdir(), "baihe_live_capture")
             started = background_jobs.start_job(
                 _JOB_ID, live_translate.run_live_job,

@@ -124,7 +124,9 @@ def render_discover_tab():
     if st.button("Search baihehub") and bh_query:
         engine = translate_engines.get_engine(
             bh_engine_choice, bh_api_key,
-            free_tier=bh_engine_choice == "gemini" and _discover_gemini_free_tier
+            free_tier=bh_engine_choice == "gemini" and _discover_gemini_free_tier,
+            base_url=(st.session_state.get("settings_ollama_url") or None)
+            if bh_engine_choice == "ollama" else None
         ) if bh_api_key else None
         zh_query = title_library.translate_query_to_zh(bh_query, engine) if engine else bh_query
         st.caption(f"Searching for: {zh_query}")
@@ -161,10 +163,13 @@ def render_discover_tab():
         key="bulk_engine")
     bulk_api_key = synced_api_key_input("API key *(required)*", bulk_engine_choice, "bulk_api_key")
     _bulk_free_tier = bulk_engine_choice == "gemini" and _discover_gemini_free_tier
+    _bulk_ollama_url = ((st.session_state.get("settings_ollama_url") or None)
+                        if bulk_engine_choice == "ollama" else None)
 
     if st.button("🔍 Extract entries (review before saving)") and bulk_urls_text and bulk_api_key:
         urls = [u.strip() for u in bulk_urls_text.splitlines() if u.strip()]
-        engine = translate_engines.get_engine(bulk_engine_choice, bulk_api_key, free_tier=_bulk_free_tier)
+        engine = translate_engines.get_engine(bulk_engine_choice, bulk_api_key, free_tier=_bulk_free_tier,
+                                              base_url=_bulk_ollama_url)
         progress_bar = st.progress(0.0, text="Extracting...")
         entries, statuses = bulk_import.bulk_extract(
             urls, engine, source_name=bulk_source_name,
@@ -192,7 +197,8 @@ def render_discover_tab():
             pasted_listing = st.text_area("Pasted listing text", height=200, key="manual_bulk_paste")
             if st.button("Extract from pasted text") and pasted_listing.strip() and bulk_api_key:
                 engine_p = translate_engines.get_engine(
-                    bulk_engine_choice, bulk_api_key, free_tier=_bulk_free_tier)
+                    bulk_engine_choice, bulk_api_key, free_tier=_bulk_free_tier,
+                    base_url=_bulk_ollama_url)
                 with st.spinner("Extracting..."):
                     manual_entries = bulk_import.extract_listing_from_text(
                         pasted_listing, engine_p, source_name=bulk_source_name)
@@ -250,7 +256,9 @@ def render_discover_tab():
     if st.button("Fetch & add to library") and import_url and import_api_key:
         engine = translate_engines.get_engine(
             import_engine_choice, import_api_key,
-            free_tier=import_engine_choice == "gemini" and _discover_gemini_free_tier)
+            free_tier=import_engine_choice == "gemini" and _discover_gemini_free_tier,
+            base_url=(st.session_state.get("settings_ollama_url") or None)
+            if import_engine_choice == "ollama" else None)
         with st.spinner("Fetching and extracting..."):
             found, status = title_library.import_title_from_url(import_url, engine)
         if not status["ok"]:
