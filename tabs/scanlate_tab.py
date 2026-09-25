@@ -130,7 +130,9 @@ def render_scanlate_tab():
                     with st.spinner("Translating (with context from prior pages)..."):
                         engine = translate_engines.get_engine(
                             sc_engine_choice, sc_api_key,
-                            free_tier=sc_engine_choice == "gemini" and _sc_gemini_free_tier)
+                            free_tier=sc_engine_choice == "gemini" and _sc_gemini_free_tier,
+                            base_url=(st.session_state.get("settings_ollama_url") or None)
+                            if sc_engine_choice == "ollama" else None)
                         texts = [b["source_text"] for b in boxes]
                         prev_context = st.session_state.get(f"sc_context_{sc_drama['id']}", "")
                         try:

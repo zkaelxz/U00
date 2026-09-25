@@ -990,6 +990,348 @@ class TestOllamaReachabilityGatesTranslateButton:
         assert self._button(at, "🌐 Translate all lines").disabled is False
 
 
+class TestTranslateButtonUsesConfiguredOllamaUrl:
+    """Step 5b item 1: get_engine() gained a base_url passthrough (see
+    TestGetEngineOllamaBaseUrlPassthrough in test_translate_engines.py),
+    but that alone doesn't prove Workspace's own Translate button actually
+    reads settings_ollama_url and threads it through -- this closes that
+    gap end to end, at the real click site."""
+
+    def _drama_with_ollama_engine(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="ollama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_ollama_url"] = "http://gpu-box:11434"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_translate_uses_the_configured_ollama_url_not_the_hardcoded_default(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(translate_engines, "check_ollama_reachable", lambda url: True)
+        captured = {}
+        real_get_engine = translate_engines.get_engine
+
+        def _spy_get_engine(*args, **kwargs):
+            captured.update(kwargs)
+            return real_get_engine(*args, **kwargs)
+
+        monkeypatch.setattr(translate_engines, "get_engine", _spy_get_engine)
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+
+        did = self._drama_with_ollama_engine(isolated_db)
+        at = self._run(did)
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+
+        assert started.get("ok") is True
+        assert captured.get("base_url") == "http://gpu-box:11434"
+
+
+class TestMergePreviewDoesNotMutateLiveLines:
+    """Step 5b item 2: merge_adjacent_short_lines mutates the Line objects
+    it merges in place (and renumbers every line's .idx) -- the "Preview
+    merge" button used to pass it list(edited_rows), which copies the
+    outer list but not the Line objects inside, and edited_rows is the
+    exact same objects as st.session_state.lines. So clicking Preview
+    merge silently corrupted the live, unsaved lines before "Apply merge"
+    was ever clicked -- backing out of a preview didn't actually leave the
+    page unchanged. Fixed by copying the lines (_copy_lines) before
+    handing them to the merge function."""
+
+    def _drama_with_two_mergeable_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=0.5, zh="你", en="You"),
+            Line(idx=1, start=0.6, end=1.0, zh="好", en="good"),
+        ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_preview_merge_leaves_the_live_lines_untouched(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        at = self._run(did)
+
+        self._button(at, "Preview merge").click()
+        at.run(timeout=30)
+
+        live_lines = sorted(at.session_state.lines, key=lambda ln: ln.idx)
+        assert [ln.zh for ln in live_lines] == ["你", "好"]
+        assert [ln.idx for ln in live_lines] == [0, 1]
+
+        preview = at.session_state[f"merge_preview_{did}"]
+        assert [ln.zh for ln in preview] == ["你好"]
+
+
+class TestRetranscribeUseThisRefreshesTheZhBox:
+    """Step 5b item 3: the per-line zh box in Review & edit is a widget
+    keyed on zh_<idx>, which -- like every keyed Streamlit widget -- keeps
+    showing whatever it already holds rather than the line's new text on
+    the next rerun. Accepting a re-transcribe result updated the Line
+    object and the database, but without popping zh_<idx> first, the very
+    next rerun's edited_page_rows reconstruction read the box's still-old
+    value back and overwrote the just-accepted text in
+    st.session_state.lines -- so the accepted retranscription silently
+    reverted. The existing "Restore original text" button already pops
+    this same key for the same reason; "Use this" (retranscribe) now does
+    too."""
+
+    def _drama_with_audio(self, isolated_db, tmp_path):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="stale text", en="stale en")])
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did, monkeypatch, retrans_text):
+        from streamlit.testing.v1 import AppTest
+        import tabs.workspace_tab as wt
+
+        monkeypatch.setattr(wt.core_module, "extract_audio_slice", lambda *a, **k: None)
+        monkeypatch.setattr(wt.core_module, "transcribe_for_timing",
+                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": retrans_text}])
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label, key=None):
+        candidates = [b for b in at.button if b.key == key] if key else \
+            [b for b in at.button if b.label == label]
+        assert candidates, f"button {label!r} (key={key!r}) not found on the page"
+        return candidates[0]
+
+    def test_accepting_a_retranscription_is_not_reverted_on_the_next_rerun(
+            self, isolated_db, monkeypatch, tmp_path):
+        did = self._drama_with_audio(isolated_db, tmp_path)
+        at = self._run(did, monkeypatch, "新的文本")
+
+        self._button(at, "Re-transcribe", key="rvretrans_0").click()
+        at.run(timeout=30)
+
+        self._button(at, "Use this", key="rvuseretrans_0").click()
+        at.run(timeout=30)
+
+        zh_box = [ta for ta in at.text_area if ta.key == "zh_0"][0]
+        assert zh_box.value == "新的文本"
+        assert at.session_state.lines[0].zh == "新的文本"
+
+
+class TestRawNovelToggleGatedByContentMode:
+    """Step 5b item 6: the raw-novel uploader used to render unconditionally,
+    above the content_mode radio, for every content mode including
+    Streamer/VOD where it has no use. It's now placed after content_mode is
+    read, hidden entirely for streamer_vod/novel_narration, and shown for
+    audio_drama behind an off-by-default toggle -- except when a raw novel
+    was already saved for the drama, where the toggle stays on so existing
+    configuration doesn't silently disappear."""
+
+    def _drama(self, isolated_db, content_mode, with_existing_raw_novel=False):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode=content_mode, status="not started")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        if with_existing_raw_novel:
+            ddir = isolated_db.drama_dir(did)
+            with open(os.path.join(ddir, "raw_novel_context.txt"), "w", encoding="utf-8") as f:
+                f.write("existing raw novel text")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _toggle(self, at, did):
+        matches = [c for c in at.checkbox if c.key == f"raw_novel_toggle_{did}"]
+        return matches[0] if matches else None
+
+    def test_toggle_hidden_for_streamer_vod(self, isolated_db):
+        did = self._drama(isolated_db, "streamer_vod")
+        at = self._run(did)
+        assert self._toggle(at, did) is None
+
+    def test_toggle_hidden_for_novel_narration(self, isolated_db):
+        did = self._drama(isolated_db, "novel_narration")
+        at = self._run(did)
+        assert self._toggle(at, did) is None
+
+    def test_toggle_off_by_default_for_audio_drama_with_no_existing_raw_novel(self, isolated_db):
+        did = self._drama(isolated_db, "audio_drama")
+        at = self._run(did)
+        toggle = self._toggle(at, did)
+        assert toggle is not None
+        assert toggle.value is False
+        assert not [u for u in at.file_uploader if u.key == f"raw_novel_{did}"]
+
+    def test_toggle_on_when_raw_novel_already_saved(self, isolated_db):
+        did = self._drama(isolated_db, "audio_drama", with_existing_raw_novel=True)
+        at = self._run(did)
+        toggle = self._toggle(at, did)
+        assert toggle is not None
+        assert toggle.value is True
+        assert [u for u in at.file_uploader if u.key == f"raw_novel_{did}"]
+
+
+class TestDiarizationEstimateCaption:
+    """Step 5b item 8: pyannote's pipeline makes one call and only returns
+    a result at the end -- there's no incremental progress callback in its
+    public API (confirmed against diarize.diarize's own single blocking
+    pipeline() call), so an indeterminate st.spinner is the most that can
+    be shown live. This adds an honest estimated-duration caption, scaled
+    off the audio's own length, next to it."""
+
+    def test_caption_scales_with_audio_length(self):
+        from tabs.workspace_tab import _diarization_estimate_caption
+        caption = _diarization_estimate_caption(754)  # 12:34
+        assert "12:34" in caption
+
+    def test_caption_has_a_generic_fallback_for_unknown_length(self):
+        from tabs.workspace_tab import _diarization_estimate_caption
+        caption = _diarization_estimate_caption(0)
+        assert caption
+
+    def _drama_with_audio(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=754.0, zh="你好", en="Hello")])
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did, monkeypatch):
+        from streamlit.testing.v1 import AppTest
+        import diarize
+
+        monkeypatch.setattr(diarize, "diarize", lambda *a, **k: ([], "fake-model"))
+        monkeypatch.setattr(diarize, "save_turns", lambda *a, **k: None)
+        monkeypatch.setattr(diarize, "manual_lines_that_would_change", lambda *a, **k: [])
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["workspace_hf_token_input"] = "fake-hf-token"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_estimate_caption_shown_before_rerunning_speaker_detection(self, isolated_db, monkeypatch):
+        did = self._drama_with_audio(isolated_db)
+        at = self._run(did, monkeypatch)
+
+        buttons = [b for b in at.button if b.key == f"rerun_speakers_{did}"]
+        assert buttons, "🔁 Re-run speaker detection button not found"
+        buttons[0].click()
+        at.run(timeout=30)
+
+        assert any("12:34" in c.value for c in at.caption)
+
+
+class TestWhisperSizeDefaultsToLargeV3:
+    """Step 5b item 9: the Speech recognition model picker fell back to
+    'medium' for any drama with no whisper_size saved yet -- every new
+    drama got Whisper's less-accurate option by default despite large-v3
+    being available and comfortably fitting the app's target hardware.
+    Now defaults to core.DEFAULT_WHISPER_SIZE (large-v3)."""
+
+    def _new_drama(self, isolated_db, content_mode="audio_drama"):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode=content_mode, status="not started")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_new_drama_defaults_to_large_v3(self, isolated_db):
+        did = self._new_drama(isolated_db)
+        at = self._run(did)
+        boxes = [sb for sb in at.selectbox if sb.key == f"whisper_size_{did}"]
+        assert boxes, "Speech recognition model picker not found"
+        assert boxes[0].value == "large-v3"
+
+    def test_a_drama_with_an_explicit_size_keeps_it(self, isolated_db):
+        did = self._new_drama(isolated_db)
+        isolated_db.update_drama(did, whisper_size="small")
+        at = self._run(did)
+        boxes = [sb for sb in at.selectbox if sb.key == f"whisper_size_{did}"]
+        assert boxes[0].value == "small"
+
+
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:
     """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
     features (consistency check, flagging, emotion detection, notes,

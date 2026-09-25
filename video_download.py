@@ -83,7 +83,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     # is yt-dlp's own default; listing the others too means this still
     # works if only one of them happens to be installed (see Diagnostics
     # for which, if any, is on PATH).
-    js_runtimes = ["deno", "node", "bun", "quickjs"]
+    js_runtimes = {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}
 
     if audio_only:
         ydl_opts = {

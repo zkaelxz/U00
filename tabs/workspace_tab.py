@@ -330,6 +330,27 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
+def _diarization_estimate_caption(audio_duration_seconds):
+    """pyannote's pipeline makes one call and only returns a result at the
+    end -- no incremental progress callback exists in its public API, so
+    unlike Whisper's segment-by-segment real progress bar, this is the best
+    honest estimate available: diarization runtime scales roughly linearly
+    with audio length, so a range scaled off the audio's own length (rather
+    than a fixed number that ignores it) is truthful without pretending to
+    more precision than a single st.spinner can back up."""
+    if not audio_duration_seconds or audio_duration_seconds <= 0:
+        return "Usually takes anywhere from under a minute to a few minutes, depending on audio length and hardware."
+
+    def _mmss(seconds):
+        m, s = divmod(int(round(seconds)), 60)
+        return f"{m}:{s:02d}"
+
+    return (f"For audio this long (~{_mmss(audio_duration_seconds)}), usually takes roughly "
+            f"{_mmss(audio_duration_seconds)}–{_mmss(audio_duration_seconds * 2)}, depending on "
+            f"your hardware -- there's no incremental progress to show here (pyannote's pipeline "
+            f"doesn't expose one), just this spinner until it finishes.")
+
+
 def _copy_lines(lines):
     """Independent copies for a background job (it mutates its own list
     while the page keeps editing st.session_state's). dataclasses.replace
@@ -522,6 +543,9 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
                  key=f"rerun_speakers_{picked_id}"):
         st.session_state.pop(pending_key, None)
         turns = None
+        _existing_lines = db.load_line_objects(picked_id)
+        _audio_duration = max((ln.end for ln in _existing_lines), default=0)
+        st.caption(_diarization_estimate_caption(_audio_duration))
         with st.spinner("Detecting speakers... (first run downloads the model)"):
             try:
                 turns, model = diarize.diarize(audio_path, hf_token,
@@ -559,6 +583,10 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
 
 def render_workspace_tab():
     _gemini_free_tier = st.session_state.get("gemini_free_tier", False)
+    # Threaded into every get_engine(...) call below via base_url=; without
+    # this, OllamaEngine always fell back to its own http://localhost:11434
+    # default no matter what was configured in Settings.
+    _ollama_base_url = st.session_state.get("settings_ollama_url") or None
     st.subheader("1. Choose a drama")
     all_dramas = db.list_dramas()
     options = {"➕ New drama": None}
@@ -765,34 +793,6 @@ def render_workspace_tab():
             if chinese_script != drama.get("chinese_script"):
                 db.update_drama(picked_id, chinese_script=chinese_script)
 
-        with st.expander(f"📕 Raw {source_language.upper()} novel (optional -- helps transcription)"):
-            st.caption(
-                "Different from the reference translation below: this is the ORIGINAL-language "
-                "novel, used as context for speech recognition, not for translation. Whisper "
-                "primes on a short excerpt plus your glossary's names, which meaningfully helps it "
-                "guess the right proper nouns and phrasing instead of the nearest-sounding word."
-            )
-            raw_novel_file = st.file_uploader(
-                f"Upload the raw {source_language.upper()} novel (.txt/.md/.epub)",
-                type=["txt", "md", "epub"], key=f"raw_novel_{picked_id}")
-            _existing_raw_path = os.path.join(ddir, "raw_novel_context.txt")
-            _has_existing_raw = os.path.exists(_existing_raw_path)
-            if raw_novel_file is not None:
-                try:
-                    _raw_text = core_module.load_novel_text_for_context(
-                        raw_novel_file.getvalue(), raw_novel_file.name)
-                    with open(_existing_raw_path, "w", encoding="utf-8") as f:
-                        f.write(_raw_text)
-                    st.success(f"Loaded {len(_raw_text):,} characters.")
-                    _has_existing_raw = True
-                except ImportError as e:
-                    st.error(str(e))
-            if _has_existing_raw:
-                st.caption(f"✅ Raw novel context saved (~{os.path.getsize(_existing_raw_path):,} bytes).")
-                if st.button("🗑️ Remove raw novel context", key=f"rmraw_{picked_id}"):
-                    os.remove(_existing_raw_path)
-                    st.rerun()
-
         content_mode_options = ["audio_drama", "streamer_vod", "novel_narration"]
         content_mode = st.radio(
             "What are you working from?",
@@ -822,6 +822,48 @@ def render_workspace_tab():
         # diarization/translation" applies to both; only novel_narration
         # (no audio at all) is excluded.
         has_audio_pipeline = content_mode in ("audio_drama", "streamer_vod")
+
+        # Only audio_drama can be adapted from an original novel in a way this
+        # app can use: streamer_vod has no source text to be "adapted from",
+        # and novel_narration's own novel text area (below) already IS the
+        # novel -- no separate ASR pass exists in that mode to prime. Off by
+        # default (it's optional) unless a raw novel was already saved for
+        # this drama, so existing configuration doesn't disappear on its own.
+        _raw_novel_path = os.path.join(ddir, "raw_novel_context.txt")
+        _has_raw_novel = os.path.exists(_raw_novel_path)
+        if content_mode == "audio_drama":
+            _show_raw_novel = st.checkbox(
+                "📕 I have the original novel this is adapted from",
+                value=_has_raw_novel, key=f"raw_novel_toggle_{picked_id}",
+                help="Optional. Priming Whisper with the original-language novel's text "
+                     "helps it guess the right proper nouns and phrasing instead of the "
+                     "nearest-sounding word.")
+            if _show_raw_novel:
+                with st.expander(f"📕 Raw {source_language.upper()} novel (optional -- helps transcription)"):
+                    st.caption(
+                        "Different from the reference translation below: this is the ORIGINAL-language "
+                        "novel, used as context for speech recognition, not for translation. Whisper "
+                        "primes on a short excerpt plus your glossary's names, which meaningfully helps it "
+                        "guess the right proper nouns and phrasing instead of the nearest-sounding word."
+                    )
+                    raw_novel_file = st.file_uploader(
+                        f"Upload the raw {source_language.upper()} novel (.txt/.md/.epub)",
+                        type=["txt", "md", "epub"], key=f"raw_novel_{picked_id}")
+                    if raw_novel_file is not None:
+                        try:
+                            _raw_text = core_module.load_novel_text_for_context(
+                                raw_novel_file.getvalue(), raw_novel_file.name)
+                            with open(_raw_novel_path, "w", encoding="utf-8") as f:
+                                f.write(_raw_text)
+                            st.success(f"Loaded {len(_raw_text):,} characters.")
+                            _has_raw_novel = True
+                        except ImportError as e:
+                            st.error(str(e))
+                    if _has_raw_novel:
+                        st.caption(f"✅ Raw novel context saved (~{os.path.getsize(_raw_novel_path):,} bytes).")
+                        if st.button("🗑️ Remove raw novel context", key=f"rmraw_{picked_id}"):
+                            os.remove(_raw_novel_path)
+                            st.rerun()
 
         audio_file = None
         transcript_text = ""
@@ -1106,7 +1148,8 @@ def render_workspace_tab():
                         _gl_engine_name = drama.get("translation_engine") or "claude"
                         eng_gl = translate_engines.get_engine(
                             _gl_engine_name, gl_key,
-                            free_tier=_gl_engine_name == "gemini" and _gemini_free_tier)
+                            free_tier=_gl_engine_name == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if _gl_engine_name == "ollama" else None)
                         # If both are supplied the original is the source and the
                         # existing translation shows the established rendering.
                         src_text = _orig_src if _orig_src.strip() else _novel_src
@@ -1176,10 +1219,12 @@ def render_workspace_tab():
                         file_name="glossary.csv")
 
         _whisper_size_options = list(core_module.WHISPER_MODELS)
+        _default_whisper_size = drama.get("whisper_size") or core_module.DEFAULT_WHISPER_SIZE
         whisper_size = st.selectbox(
             "Speech recognition model", _whisper_size_options,
-            index=_whisper_size_options.index(drama.get("whisper_size") or "medium")
-                  if (drama.get("whisper_size") or "medium") in _whisper_size_options else 1,
+            index=_whisper_size_options.index(_default_whisper_size)
+                  if _default_whisper_size in _whisper_size_options
+                  else _whisper_size_options.index(core_module.DEFAULT_WHISPER_SIZE),
             format_func=lambda m: core_module.WHISPER_MODELS[m],
             disabled=content_mode == "novel_narration",
             key=f"whisper_size_{picked_id}",
@@ -1450,7 +1495,8 @@ def render_workspace_tab():
                         _ext_engine_name = drama.get("translation_engine") or "claude"
                         engine_x = translate_engines.get_engine(
                             _ext_engine_name, _extract_key,
-                            free_tier=_ext_engine_name == "gemini" and _gemini_free_tier)
+                            free_tier=_ext_engine_name == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if _ext_engine_name == "ollama" else None)
                         with st.spinner("Scanning for terms..."):
                             proposed = tguide.extract_terms_llm(
                                 source_lines, engine_x, source_language=source_language,
@@ -1747,10 +1793,10 @@ def render_workspace_tab():
         # before the button, rather than left to fail inside the job.
         _ollama_unreachable = False
         if engine_choice == "ollama":
-            _ollama_base_url = st.session_state.get("settings_ollama_url") or "http://localhost:11434"
-            if not translate_engines.check_ollama_reachable(_ollama_base_url):
+            _ollama_check_url = _ollama_base_url or "http://localhost:11434"
+            if not translate_engines.check_ollama_reachable(_ollama_check_url):
                 _ollama_unreachable = True
-                st.warning(f"⚠️ Can't reach Ollama at `{_ollama_base_url}` — is it running?")
+                st.warning(f"⚠️ Can't reach Ollama at `{_ollama_check_url}` — is it running?")
 
         run_translate = b2.button("🌐 Translate all lines",
                                    disabled=st.session_state.lines is None or not api_key
@@ -1844,7 +1890,8 @@ def render_workspace_tab():
                 with st.spinner("Tagging speakers with the translation LLM..."):
                     engine = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
-                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                        base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     known_chars = [c["character_name"] for c in db.list_characters(picked_id) if c["character_name"]]
                     speakers = translate_engines.tag_speakers_llm(
                         [ln.zh for ln in lines], engine, known_chars,
@@ -1991,6 +2038,8 @@ def render_workspace_tab():
                     core_module.release_gpu_models()  # text/alignment stage done
                     speaker_segments = None
                     if run_diarize and hf_token:
+                        st.caption(_diarization_estimate_caption(
+                            max((ln.end for ln in lines), default=0)))
                         with st.spinner("Running speaker diarization... (first run downloads the model)"):
                             try:
                                 import diarize
@@ -2056,7 +2105,8 @@ def render_workspace_tab():
                     novel_reference = novel_pasted
             engine = translate_engines.get_engine(
                 engine_choice, api_key, engine_model,
-                free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                base_url=_ollama_base_url if engine_choice == "ollama" else None)
             if force_retranslate and any(ln.en for ln in st.session_state.lines):
                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
                                                "before force re-translate")
@@ -2335,7 +2385,8 @@ def render_workspace_tab():
                     if api_key and st.button("✏️ Improve translation", key=f"rvimprove_{ln.idx}"):
                         eng_imp = translate_engines.get_engine(
                             engine_choice, api_key, engine_model,
-                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
                         with st.spinner("Rewriting..."):
                             improved = line_tools.improve_line(zh, en, eng_imp,
                                                                 source_language=source_language)
@@ -2359,7 +2410,7 @@ def render_workspace_tab():
                                 core_module.extract_audio_slice(_audio_path, ln.start, ln.end, _slice_path)
                                 try:
                                     _segs = core_module.transcribe_for_timing(
-                                        _slice_path, model_size=drama.get("whisper_size") or "medium",
+                                        _slice_path, model_size=drama.get("whisper_size") or core_module.DEFAULT_WHISPER_SIZE,
                                         language=source_language,
                                         use_gpu=st.session_state.get("use_gpu", False))
                                     st.session_state[f"rv_retrans_{ln.idx}"] = " ".join(
@@ -2377,6 +2428,13 @@ def render_workspace_tab():
                                             _r.zh = _retrans
                                     db.save_lines(picked_id, all_lines)
                                     st.session_state[f"rv_retrans_{ln.idx}"] = None
+                                    # The zh box below is a widget keyed on zh_<idx>, which
+                                    # (like every keyed widget) keeps showing whatever it
+                                    # already had rather than the line's new text on the next
+                                    # rerun -- without popping it, edited_page_rows further
+                                    # down reads that stale value back and overwrites the
+                                    # just-accepted retranscription in st.session_state.lines.
+                                    st.session_state.pop(f"zh_{ln.idx}", None)
                                     st.rerun()
                             else:
                                 st.warning("No speech found in this line's timing window.")
@@ -2489,7 +2547,8 @@ def render_workspace_tab():
                             disabled=_translation_only_engine):
                         engine = translate_engines.get_engine(
                             engine_choice, api_key, engine_model,
-                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
                         to_fix = [ln for ln in edited_rows if ln.idx in too_long_idxs]
                         translate_engines.rewrite_for_pacing_llm(
                             to_fix, engine,
@@ -2517,7 +2576,8 @@ def render_workspace_tab():
                 if st.button("Check consistency", disabled=_translation_only_engine) and api_key:
                     engine = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
-                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                        base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _consistency_job_id, run_consistency_job,
@@ -2566,7 +2626,8 @@ def render_workspace_tab():
                 if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
                     engine_f = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
-                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                        base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(_flag_job_id, run_flag_job,
                                                           _flag_job_id, picked_id, _lines_copy, engine_f,
@@ -2623,7 +2684,8 @@ def render_workspace_tab():
                     if st.button("🔁 Re-transcribe + re-translate flagged lines") and api_key:
                         engine_ff = translate_engines.get_engine(
                             engine_choice, api_key, engine_model,
-                            free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
                         _lines_copy_ff = _copy_lines(edited_rows)
                         started = background_jobs.start_job(
                             _fixflag_job_id, run_fix_flagged_lines_job,
@@ -2673,7 +2735,8 @@ def render_workspace_tab():
                 if ec1.button("Detect emotional register", disabled=_translation_only_engine) and api_key:
                     eng_e = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
-                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                        base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     # A copy, not the live list -- same reasoning as the Translate
                     # button's _lines_copy: this runs in a background thread, and
                     # edited_rows is tied to the review table's current widget state.
@@ -2787,7 +2850,8 @@ def render_workspace_tab():
                 if st.button("🧠 Learn my style from these edits") and api_key:
                     eng_a = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
-                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                        base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     all_samples = db.list_edit_samples()
                     with st.spinner("Analyzing your edits..."):
                         result = adaptive_style.analyze_edit_patterns(
@@ -2892,7 +2956,8 @@ def render_workspace_tab():
                 if st.button("Generate translation notes", disabled=_translation_only_engine) and api_key:
                     engine_n = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
-                        free_tier=engine_choice == "gemini" and _gemini_free_tier)
+                        free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                        base_url=_ollama_base_url if engine_choice == "ollama" else None)
                     _lines_copy = _copy_lines(edited_rows)
                     started = background_jobs.start_job(
                         _notes_job_id, run_translation_notes_job,
@@ -2966,7 +3031,13 @@ def render_workspace_tab():
                     "count -- review the result before saving."
                 )
                 if st.button("Preview merge"):
-                    merged_preview = merge_adjacent_short_lines(list(edited_rows))
+                    # merge_adjacent_short_lines mutates the Line objects it merges
+                    # in place (and renumbers every line's .idx) -- list(edited_rows)
+                    # only copies the outer list, not the Line objects inside it, so
+                    # without _copy_lines a preview silently corrupted the live,
+                    # unsaved st.session_state.lines before "Apply merge" was ever
+                    # clicked.
+                    merged_preview = merge_adjacent_short_lines(_copy_lines(edited_rows))
                     st.session_state[f"merge_preview_{picked_id}"] = merged_preview
                     st.info(f"{len(edited_rows)} lines -> {len(merged_preview)} lines after merging.")
                 merge_preview = st.session_state.get(f"merge_preview_{picked_id}")

@@ -136,14 +136,17 @@ def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
 _whisper_model_cache = {}
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
-# names). large-v3-turbo is never a default: it's much faster but reported
-# weaker on Japanese and Korean, so large-v3/medium stay the defaults there.
+# names). large-v3-turbo is never the default: it's much faster but reported
+# weaker on Japanese and Korean. large-v3 is the default for all three
+# source languages (zh/ja/ko) -- a consumer GPU in the 8-12GB class this app
+# targets has enough headroom for it, and it's the more accurate choice.
 WHISPER_MODELS = {
     "small": "small -- fastest, least accurate",
     "medium": "medium -- balanced default",
     "large-v3": "large-v3 -- most accurate, slower, ~3GB",
     "large-v3-turbo": "large-v3-turbo -- ~large-v3 accuracy much faster, but weaker on Japanese/Korean",
 }
+DEFAULT_WHISPER_SIZE = "large-v3"
 _TURBO_WEAK_LANGUAGES = {"ja", "ko"}
 
 
