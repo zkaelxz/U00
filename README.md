@@ -645,7 +645,7 @@ Defaults to Simplified; only matters at all when source_language is `zh`.
 
 ### Speaker diarization (audio-drama mode)
 
-Needs `pip install pyannote.audio`, a free Hugging Face token
+Needs `pip install pyannote.audio soundfile`, a free Hugging Face token
 (https://huggingface.co/settings/tokens), and accepting the model
 terms at https://huggingface.co/pyannote/speaker-diarization-3.1.
 First run downloads the model. CPU works, GPU is faster.
