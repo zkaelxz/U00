@@ -60,11 +60,15 @@ def load_pipeline(hf_token: str):
     raise last_error
 
 
-def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False):
+def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False,
+           return_embeddings: bool = False):
     """
     Returns a list of {"start": float, "end": float, "speaker": str}
     covering who spoke when, e.g. "SPEAKER_00", "SPEAKER_01", ... --
-    or (segments, model_name) with return_model=True.
+    or (segments, model_name) with return_model=True, or additionally
+    (..., embeddings) with return_embeddings=True too -- see
+    extract_speaker_embeddings() below. Both extra flags default off, so
+    every existing call keeps its exact current return shape.
     """
     pipeline, model = load_pipeline(hf_token)
     result = pipeline(audio_path, num_speakers=num_speakers)
@@ -78,7 +82,36 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     segments = []
     for turn, _, speaker in annotation.itertracks(yield_label=True):
         segments.append({"start": turn.start, "end": turn.end, "speaker": speaker})
-    return (segments, model) if return_model else segments
+
+    if not return_embeddings:
+        return (segments, model) if return_model else segments
+    embeddings = extract_speaker_embeddings(result, annotation)
+    return (segments, model, embeddings) if return_model else (segments, embeddings)
+
+
+def extract_speaker_embeddings(result, annotation) -> dict:
+    """Step 8: {speaker_label: [float, ...]} one voice fingerprint per
+    detected speaker, from pyannote.audio 4.x's DiarizeOutput.speaker_embeddings
+    -- {} on pyannote 3.x (no such attribute there) or if extraction fails
+    for any reason, since this is a bonus signal for voice-match
+    suggestions, never something a diarization run itself should fail
+    over just because embeddings couldn't be read out.
+
+    NOT verified against a real pyannote 4 install -- this sandbox has no
+    network (see this module's own top-of-file docstring), so this is
+    written directly against pyannote's documented DiarizeOutput shape:
+    speaker_embeddings is one row per speaker, in the same order
+    annotation.labels() returns them in. Confirm this against a real run
+    before relying on it.
+    """
+    raw = getattr(result, "speaker_embeddings", None)
+    if raw is None:
+        return {}
+    try:
+        labels = annotation.labels()
+        return {label: [float(x) for x in raw[i]] for i, label in enumerate(labels)}
+    except Exception:
+        return {}
 
 
 def assign_speaker_to_line(line_start: float, line_end: float, speaker_segments):
@@ -128,16 +161,23 @@ def merge_speakers(lines, turns, overwrite_manual: bool = False) -> dict:
     return {"changed": changed, "kept_manual": kept}
 
 
-def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "") -> str:
+def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
+              embeddings: dict = None) -> str:
     """Stores pyannote's output next to the drama, so speakers can be
     re-merged (or voice clips extracted) later without re-running it --
     it used to live only in st.session_state and vanish on a refresh.
-    Replaced on each detection run; it's the current result, not history."""
+    Replaced on each detection run; it's the current result, not history.
+
+    embeddings: Step 8's optional {speaker_label: [float, ...]} voice
+    fingerprints (extract_speaker_embeddings()), saved alongside the
+    turns -- {} (not None) when there's nothing to save, so load_embeddings
+    always gets a dict back, never needing a None check of its own."""
     path = os.path.join(drama_dir, TURNS_FILE)
     os.makedirs(drama_dir, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
-                   "num_speakers": num_speakers, "turns": list(turns)}, f, indent=2)
+                   "num_speakers": num_speakers, "turns": list(turns),
+                   "embeddings": embeddings or {}}, f, indent=2)
     return path
 
 
@@ -148,3 +188,14 @@ def load_turns(drama_dir: str):
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f).get("turns")
+
+
+def load_embeddings(drama_dir: str) -> dict:
+    """The stored {speaker_label: [float, ...]} voice fingerprints from
+    the last detection run, or {} if there are none (no run yet, an
+    older save from before Step 8, or pyannote 3.x with nothing to save)."""
+    path = os.path.join(drama_dir, TURNS_FILE)
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("embeddings") or {}

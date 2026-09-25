@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import background_jobs
 import db
+import diarize
 import translate_engines
 from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
@@ -1126,6 +1127,94 @@ class TestReflectModeUI:
         at.run(timeout=30)
 
         assert captured.get("reflect") is False
+
+
+class TestVoiceMatchSuggestions:
+    """Step 8: the "sounds like <name>" suggestion row next to the
+    character-naming section. Purely a suggestion -- Accept sets the
+    character name and blends the fingerprint, Reject only records a
+    dismissal, and neither ever fires without the user clicking a button."""
+
+    def _drama(self, isolated_db, embedding=(1.0, 0.0), fingerprint=(1.0, 0.0)):
+        sid = isolated_db.get_or_create_series("Test Series")
+        isolated_db.upsert_series_character(sid, "Su Shan")
+        sc = isolated_db.list_series_characters(sid)[0]
+        isolated_db.update_series_character_voice_fingerprint(sc["id"], list(fingerprint))
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine="test_offline", series_id=sid)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello.")])
+        isolated_db.upsert_character(did, "SPEAKER_00")
+        ddir = isolated_db.drama_dir(did)
+        diarize.save_turns(ddir, [], embeddings={"SPEAKER_00": list(embedding)})
+        return did, sc["id"]
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_a_matching_voice_shows_a_suggestion(self, isolated_db):
+        did, sc_id = self._drama(isolated_db)
+        at = self._run(did)
+        captions = [c.value for c in at.caption]
+        assert any("SPEAKER_00" in c and "Su Shan" in c for c in captions)
+
+    def test_no_suggestion_below_threshold(self, isolated_db):
+        # Orthogonal embeddings -- similarity 0, well under the default
+        # threshold, so nothing should be suggested at all.
+        did, sc_id = self._drama(isolated_db, embedding=(0.0, 1.0), fingerprint=(1.0, 0.0))
+        at = self._run(did)
+        buttons = [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
+        assert buttons == []
+
+    def test_accept_sets_the_character_name_and_updates_the_fingerprint(self, isolated_db):
+        did, sc_id = self._drama(isolated_db)
+        at = self._run(did)
+        accept = [b for b in at.button if b.key == f"voiceaccept_SPEAKER_00_{sc_id}"]
+        assert accept, "Accept button not found"
+        accept[0].click().run(timeout=30)
+
+        chars = db.list_characters_with_series_names(did)
+        assert chars[0]["character_name"] == "Su Shan"
+        assert chars[0]["series_character_id"] == sc_id
+
+        updated = db.list_series_characters(db.get_drama(did)["series_id"])[0]
+        assert updated["voice_fingerprint_samples"] == 2
+
+        assert db.list_dismissed_voice_suggestions(did) == set()
+
+    def test_reject_dismisses_without_changing_anything(self, isolated_db):
+        did, sc_id = self._drama(isolated_db)
+        at = self._run(did)
+        reject = [b for b in at.button if b.key == f"voicereject_SPEAKER_00_{sc_id}"]
+        assert reject, "Reject button not found"
+        reject[0].click().run(timeout=30)
+
+        assert db.list_dismissed_voice_suggestions(did) == {("SPEAKER_00", sc_id)}
+
+        chars = db.list_characters_with_series_names(did)
+        assert not chars[0]["character_name"]
+        assert chars[0]["series_character_id"] is None
+
+        updated = db.list_series_characters(db.get_drama(did)["series_id"])[0]
+        assert updated["voice_fingerprint_samples"] == 1
+
+    def test_rejecting_never_re_shows_that_pair(self, isolated_db):
+        did, sc_id = self._drama(isolated_db)
+        at = self._run(did)
+        reject = [b for b in at.button if b.key == f"voicereject_SPEAKER_00_{sc_id}"][0]
+        at = reject.click().run(timeout=30)
+        assert not [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
 
 
 class TestMergePreviewDoesNotMutateLiveLines:

@@ -246,6 +246,22 @@ def init_db():
         UNIQUE(series_id, term_original)
     );
 
+    -- Step 8: a voice-match suggestion ("SPEAKER_01 sounds like <name>")
+    -- the user explicitly rejected for this exact (drama, speaker,
+    -- candidate) triple -- never shown again for that combination, but a
+    -- different candidate for the same speaker (or the same candidate
+    -- for a different speaker) can still be suggested.
+    CREATE TABLE IF NOT EXISTS voice_suggestion_dismissals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        speaker_label TEXT NOT NULL,
+        series_character_id INTEGER NOT NULL,
+        created_at TEXT,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+        FOREIGN KEY (series_character_id) REFERENCES series_characters(id) ON DELETE CASCADE,
+        UNIQUE(drama_id, speaker_label, series_character_id)
+    );
+
     CREATE TABLE IF NOT EXISTS translation_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER NOT NULL,
@@ -516,6 +532,16 @@ def init_db():
         # unnamed one. NULL/"" means unset -- no hint is added for that
         # character, distinct from "unspecified" as a deliberate choice.
         conn.execute("ALTER TABLE series_characters ADD COLUMN gender TEXT")
+    if "voice_fingerprint" not in sc_cols:
+        # Step 8: a running-average pyannote voice embedding (JSON list of
+        # floats), built up from every drama where a speaker was confirmed
+        # (by Accept, never automatically) as this character -- see
+        # update_series_character_voice_fingerprint(). Compared by cosine
+        # similarity against a NEW drama's own per-speaker embeddings to
+        # suggest "this speaker sounds like <name>". NULL until at least
+        # one confirmed sample exists.
+        conn.execute("ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
+        conn.execute("ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
     bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
     if "font_category" not in bubble_cols:
         # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
@@ -982,6 +1008,63 @@ def delete_series_character(series_character_id: int):
     conn.execute("DELETE FROM series_characters WHERE id = ?", (series_character_id,))
     conn.commit()
     conn.close()
+
+
+def update_series_character_voice_fingerprint(series_character_id: int, new_embedding: list):
+    """Step 8: blends a newly-confirmed voice embedding into this
+    character's running-average fingerprint (simple incremental mean,
+    weighted by how many samples went into the average so far), so later
+    dramas compare against an average across every drama where this
+    character's voice was confirmed, not just the first one. Only ever
+    called from an explicit Accept -- never automatically."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT voice_fingerprint, voice_fingerprint_samples FROM series_characters WHERE id = ?",
+        (series_character_id,)).fetchone()
+    if row is None:
+        conn.close()
+        return
+    existing = json.loads(row["voice_fingerprint"]) if row["voice_fingerprint"] else None
+    n = row["voice_fingerprint_samples"] or 0
+    if existing and len(existing) == len(new_embedding):
+        blended = [(e * n + v) / (n + 1) for e, v in zip(existing, new_embedding)]
+    else:
+        # No prior fingerprint, or a dimension mismatch (a different
+        # embedding model produced it) -- start over from this sample
+        # rather than averaging incompatible vectors.
+        blended, n = list(new_embedding), 0
+    conn.execute(
+        "UPDATE series_characters SET voice_fingerprint = ?, voice_fingerprint_samples = ? WHERE id = ?",
+        (json.dumps(blended), n + 1, series_character_id))
+    conn.commit()
+    conn.close()
+
+
+def dismiss_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int):
+    """Records that this exact (drama, speaker, candidate) voice-match
+    suggestion was rejected, so it's never shown again for that
+    combination. A different candidate for the same speaker isn't
+    affected."""
+    conn = get_conn()
+    conn.execute("""
+        INSERT OR IGNORE INTO voice_suggestion_dismissals
+            (drama_id, speaker_label, series_character_id, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (drama_id, speaker_label, series_character_id, datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def list_dismissed_voice_suggestions(drama_id: int) -> set:
+    """{(speaker_label, series_character_id), ...} already rejected for
+    this drama -- checked before generating suggestions so a dismissed
+    one doesn't silently reappear on the next render."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT speaker_label, series_character_id FROM voice_suggestion_dismissals WHERE drama_id = ?",
+        (drama_id,)).fetchall()
+    conn.close()
+    return {(r["speaker_label"], r["series_character_id"]) for r in rows}
 
 
 def list_characters_with_series_names(drama_id: int):
