@@ -7,6 +7,7 @@ import dataclasses
 from common import *
 import audio_preprocess
 import raw_transcript
+import resegment
 import sensevoice_tags
 import subtitle_formats
 
@@ -329,6 +330,19 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
         return
     background_jobs.set_result(job_id, {"segments": cues})
+
+
+_LINE_WIDGET_KEY = re.compile(r"^(zh|en|start|end|speaker|rv_improved|rv_retrans)_\d+$")
+
+
+def _clear_line_widget_state():
+    """Review & edit's per-line widgets are keyed by position (zh_<idx>, ...)
+    and keep showing what they held, not the line's new value -- after an
+    operation that renumbers lines, a stale box would be read back on the
+    next rerun as an edit and written over whichever line now sits at that
+    position."""
+    for key in [k for k in st.session_state.keys() if _LINE_WIDGET_KEY.match(str(k))]:
+        del st.session_state[key]
 
 
 def _drama_label(drama):
@@ -3106,6 +3120,103 @@ def render_workspace_tab():
                         st.success("Merged and saved. (Previous version saved to history -- "
                                   "see 'Version history' below if you want it back.)")
                         st.rerun()
+
+            with st.expander("✂️ Re-segment long lines by meaning (optional)"):
+                _reseg_max = resegment.max_line_chars(source_language)
+                st.caption(
+                    "Speech recognition ends a line wherever the speaker pauses, not where a "
+                    "thought ends -- so a line can run several sentences together. This splits "
+                    f"only lines too long for a two-line subtitle (over {_reseg_max} characters), at "
+                    "sentence ends first, then commas, then clause-joining words (但是, 所以, でも, "
+                    "그리고...) -- never inside a word, never reworded. A line with no sensible "
+                    "place to split is left whole. Changes your line count -- review the preview "
+                    "before applying."
+                )
+                _reseg_llm_ok = bool(api_key) and not _translation_only_engine
+                _reseg_use_llm = st.checkbox(
+                    f"Ask {engine_choice} where to split lines the rules can't",
+                    value=_reseg_llm_ok, disabled=not _reseg_llm_ok,
+                    key=f"reseg_use_llm_{picked_id}",
+                    help="The model can only suggest WHERE to break. Its answer is matched back "
+                         "to the original text and thrown away if it changed any wording, so it "
+                         "can't alter what a line says. One short request per line that still "
+                         "needs it (retried up to 3 times on an unusable answer).")
+                _reseg_key = f"reseg_preview_{picked_id}"
+                if st.button("Preview re-segmentation", key=f"reseg_preview_btn_{picked_id}"):
+                    _reseg_engine = None
+                    if _reseg_use_llm and _reseg_llm_ok:
+                        _reseg_engine = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                    _raw = raw_transcript.load_latest(ddir)
+                    with st.spinner("Finding meaningful split points..."):
+                        with background_jobs.gpu_slot(f"Re-segmenting ({_drama_label(drama)})") \
+                                if _reseg_engine is not None and engine_choice == "ollama" \
+                                else contextlib.nullcontext():
+                            _new_lines, _changed = resegment.resegment_lines(
+                                _copy_lines(edited_rows), source_language, engine=_reseg_engine,
+                                segments=(_raw or {}).get("segments"), chinese_script=chinese_script,
+                                usage_cb=lambda inp, out: db.log_usage(
+                                    picked_id, engine_choice,
+                                    getattr(_reseg_engine, "model", engine_choice), "resegment",
+                                    inp, out, translate_engines.estimate_cost_for_engine(
+                                        _reseg_engine, inp, out)))
+                    st.session_state[_reseg_key] = {
+                        "lines": _new_lines,
+                        "changed": [(ln.id, ln.idx, ln.zh, pieces) for ln, pieces in _changed],
+                    }
+                _reseg = st.session_state.get(_reseg_key)
+                if _reseg is not None:
+                    if not _reseg["changed"]:
+                        st.info("Nothing to re-segment: every line either fits in a two-line "
+                                "subtitle already or has no meaningful place to split.")
+                    else:
+                        st.info(f"{len(edited_rows)} lines -> {len(_reseg['lines'])} lines: "
+                                f"{len(_reseg['changed'])} long line(s) would be split.")
+                        for _lid, _idx, _zh, _pieces in _reseg["changed"][:10]:
+                            st.caption(f"**#{_idx + 1}** {_zh}  \n→ " + "  ·  ".join(_pieces))
+                        if len(_reseg["changed"]) > 10:
+                            st.caption(f"...and {len(_reseg['changed']) - 10} more.")
+
+                        # Guardrail: splitting a line orphans its translation, flag,
+                        # notes and emotion tag (they described the old, longer line),
+                        # so those are cleared -- but only on the lines being split.
+                        _changed_ids = {c[0] for c in _reseg["changed"]}
+                        _by_id = {ln.id: ln for ln in edited_rows}
+                        _n_translated = sum(1 for i in _changed_ids
+                                            if i in _by_id and _by_id[i].en.strip())
+                        _n_flagged = sum(1 for i in _changed_ids if i in _by_id and _by_id[i].flag)
+                        _id_by_idx = {ln.idx: ln.id for ln in edited_rows}
+                        _n_notes = sum(1 for n in db.list_translation_notes(picked_id)
+                                       if _id_by_idx.get(n.get("line_idx")) in _changed_ids)
+                        _needs_confirm = bool(_n_translated or _n_flagged or _n_notes)
+                        if _needs_confirm or any(ln.en.strip() for ln in edited_rows):
+                            st.warning(
+                                f"⚠️ {_n_translated} of the lines being split "
+                                f"{'is' if _n_translated == 1 else 'are'} already translated -- "
+                                "re-segmenting will require re-translating the affected lines. "
+                                "Their translation"
+                                + (f", {_n_flagged} flag(s)" if _n_flagged else "")
+                                + (f", {_n_notes} note(s)" if _n_notes else "")
+                                + " and emotion tags will be cleared. Every other line keeps its "
+                                "translation, notes and flags untouched. (A snapshot is saved to "
+                                "Version history first.)")
+                        _confirmed = (not _needs_confirm) or st.checkbox(
+                            "I understand -- clear translations, flags and notes on the lines being split",
+                            key=f"reseg_confirm_{picked_id}")
+                        if st.button("✅ Apply re-segmentation", disabled=not _confirmed,
+                                     key=f"reseg_apply_{picked_id}"):
+                            db.save_line_history_snapshot(picked_id, edited_rows, "before re-segment")
+                            db.save_lines(picked_id, _reseg["lines"])
+                            st.session_state.lines = db.load_line_objects(picked_id)
+                            st.session_state.pop(_reseg_key, None)
+                            st.session_state.pop(f"reseg_confirm_{picked_id}", None)
+                            _clear_line_widget_state()
+                            st.success(f"Re-segmented {len(_reseg['changed'])} line(s) and saved. "
+                                       "(Previous version saved to history -- see 'Version "
+                                       "history' below if you want it back.)")
+                            st.rerun()
 
             with st.expander("🕓 Version history / undo"):
                 st.caption(
