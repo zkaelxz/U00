@@ -106,6 +106,30 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     return (segments, model, embeddings) if return_model else (segments, embeddings)
 
 
+def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, result_queue):
+    """Step 4d: entry point for running diarize() in its own OS process,
+    via background_jobs.start_process_job() -- pyannote's pipeline(...)
+    call is one opaque call with no cooperative-cancellation checkpoint
+    of its own (unlike every other job type in this app, which checks
+    is_cancel_requested() between discrete units of work), so a genuine
+    stop needs a real OS process to terminate() rather than a thread.
+
+    Must stay a plain, top-level, picklable function (multiprocessing
+    has to pickle the target to hand it to the child process) and must
+    only ever put plain-Python, already-JSON-safe values onto
+    result_queue -- segments/model/embeddings are exactly what diarize()
+    already returns, never a torch tensor or pyannote object, which
+    couldn't cross the process boundary at all.
+    """
+    try:
+        segments, model, embeddings = diarize(
+            audio_path, hf_token, num_speakers=num_speakers,
+            return_model=True, return_embeddings=True)
+        result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings}))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, str(exc)))
+
+
 def extract_speaker_embeddings(result, annotation) -> dict:
     """Step 8: {speaker_label: [float, ...]} one voice fingerprint per
     detected speaker, from pyannote.audio 4.x's DiarizeOutput.speaker_embeddings
