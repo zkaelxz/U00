@@ -55,6 +55,18 @@
 > request): CI automation for the fresh-machine bootstrap check
 > Step 10's own exit list flagged as manual-only — confirmed `start.bat`
 > and the existing CI workflow directly before writing it, not assumed.
+> **Two more real merges since then, re-verified directly, not from
+> memory**: **PR #30** ("Step 9f item 4: skip `TestHfCacheScanAndDelete`
+> cleanly without `huggingface_hub`") — corrected this session's own
+> earlier `huggingface_hub>=0.20` version-drift hypothesis: CI's
+> core-only install never has `huggingface_hub` at all, so the tests hit
+> the real, correct no-op path and failed hard instead of skipping;
+> never a live bug, confirmed two independent ways (the real PR #27 CI
+> log, and the user's own Diagnostics screenshot showing real cached
+> models). **PR #31** ("Step 4b: fix `diarize()` torchcodec failure") —
+> the exact fix this session specced (pre-load via `torchaudio.load()`,
+> pass a `{"waveform", "sample_rate"}` dict instead of a bare path),
+> confirmed by reading the real diff, not just the commit message.
 > **Start Step 10b next**, ahead of Step 11 (Scanlate: finish the ML
 > detector, add real inpainting, auto-route OCR) — still in the Steps
 > 1e–10 autonomous-mode window's aftermath; check §4's Opus-gate table
@@ -1578,7 +1590,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 2 — R0 permanent line IDs | `step-2-permanent-line-ids` | ✅ Merged (PR #7) | ⏳ Pending |
   | 3 — R1-lite original transcript | `step-3-keep-original-transcript` | ✅ Merged (PR #8) | ⏳ Pending |
   | 4 — R2 speaker detection | `step-4-rerun-speaker-detection` | ✅ Merged (PR #9) | ⏳ Pending |
-  | 4b — Fix: speaker detection fails without torchcodec | — | Not started | — |
+  | 4b — Fix: speaker detection fails without torchcodec | `step-4b-torchcodec-fix` (deleted after merge) | ✅ Merged (PR #31) | ⏳ Pending |
   | 5 — R3-lite local-model defaults | `step-5-local-model-defaults` | ✅ Merged (PR #10) | ✅ **Resolved (2026-09-26)** via real quantization-level VRAM research rather than hardware access — see manual-check note in §2. |
   | 5b — Bugs found during manual testing | `step-5b-bug-fixes` | ✅ Merged (PR #16) | ⏳ Pending |
   | 5c — Global GPU-job guard | `step-5c-gpu-job-guard` | ✅ Merged (PR #17) | ⏳ Pending |
