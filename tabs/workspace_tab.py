@@ -3552,6 +3552,66 @@ def render_workspace_tab():
                         except Exception as e:
                             st.error(f"Video export failed: {e}")
 
+            with st.expander("10b. 📱 Vertical/shorts export", expanded=False):
+                st.caption(
+                    "Renders a 9:16 vertical clip -- centre-cropped from the original video, with "
+                    "your subtitle style from 9. Export subtitles burned in -- for shorts/reels/"
+                    "TikTok. Additive: this doesn't replace the horizontal export above."
+                )
+                import video_export
+                try:
+                    _v_duration = video_export.probe_duration_seconds(source_video_path)
+                except Exception as e:
+                    _v_duration = None
+                    st.warning(f"Couldn't read this video's duration ({e}) -- check that ffmpeg "
+                               "is installed and the file isn't corrupted.")
+                if _v_duration:
+                    _clip_start, _clip_end = st.slider(
+                        "Clip range (seconds)", 0.0, float(_v_duration),
+                        value=(0.0, float(_v_duration)), key=f"vshort_range_{picked_id}",
+                        help="Defaults to the whole episode -- narrow it to a single scene/moment "
+                             "for an actual short-form clip.")
+                    _crop_position = st.slider(
+                        "Crop position (left ↔ right)", 0.0, 1.0, 0.5,
+                        key=f"vshort_crop_{picked_id}",
+                        help="Which part of the frame to keep after cropping to 9:16 -- 0.5 is "
+                             "centred. No face/subject auto-detection here; adjust by eye.")
+                    _clip_duration = max(_clip_end - _clip_start, 0.0)
+                    if _clip_duration <= 0:
+                        st.warning("Pick a range with a positive length.")
+                    else:
+                        _v_est = video_export.estimate_vertical_export(_clip_duration)
+                        st.caption(_v_est["time_note"])
+                        st.caption(_v_est["size_note"])
+                        if _v_est["is_long"]:
+                            st.warning(
+                                f"⚠️ {video_export._fmt_mmss(_clip_duration)} is a long selection "
+                                "for a vertical clip -- re-encoding a stretch this long is slow and "
+                                "heavy. Consider narrowing the range to a shorter moment, or use "
+                                "the horizontal export above for the full episode.")
+                        if st.button("📱 Generate vertical clip", key=f"vshort_generate_{picked_id}"):
+                            _clip_lines = subtitle_formats.lines_for_clip(
+                                _export_lines, _clip_start, _clip_end)
+                            _clip_ass = subtitle_formats.lines_to_ass(
+                                _clip_lines, _sub_style, "en", speaker_colors=_speaker_colors,
+                                speaker_names=_speaker_names, wrap_chars=_wrap_chars,
+                                title=drama.get("title_en") or drama.get("title_zh") or "")
+                            out_path = os.path.join(
+                                ddir, f"vertical_clip{os.path.splitext(source_video_path)[1]}")
+                            try:
+                                with st.spinner("Rendering vertical clip... this can take a while."):
+                                    video_export.render_vertical_clip(
+                                        source_video_path, _clip_ass, out_path,
+                                        start=_clip_start, end=_clip_end,
+                                        crop_position=_crop_position)
+                                st.success("Vertical clip ready.")
+                                _dl_name = f"{_base_name}_vertical{os.path.splitext(out_path)[1]}"
+                                with open(out_path, "rb") as f:
+                                    st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
+                            except Exception as e:
+                                st.error(f"Vertical export failed: {e}. Check that ffmpeg (with "
+                                         "libass) is installed.")
+
         st.divider()
         with st.expander("📦 Export this drama as a package", expanded=False):
             st.caption(
