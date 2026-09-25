@@ -47,11 +47,15 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   ignoring it or fixing it inline — fixing it would violate "keep changes
   minimal" and widen the diff the planning session has to review. The
   planning session decides whether it's worth its own step.
-- **This session runs on Opus for the whole remaining project**, at the
-  user's explicit request (2026-09-24). Nothing to check per step — the
-  roadmap's §4 "Model recommendation per step" table is now informational
-  only, documenting which steps would have warranted asking for Opus
-  specifically if the run weren't already on it throughout.
+- **Default to Sonnet. Check the roadmap's §4 "Model recommendation per
+  step" table before starting each step** (reversed 2026-09-26 from an
+  earlier "run everything on Opus" decision — cost was higher than
+  expected). If the step you're about to start is listed there, stop and
+  ask the user to confirm switching to Opus for that step specifically
+  before starting it, then switch back to Sonnet once it's done. If the
+  roadmap's own table disagrees with this summary, the roadmap is the
+  source of truth — it may have changed since this file was last copied
+  in.
 - **Re-verify before fixing.** The roadmap was written by reading the code
   at a point in time; re-read the files it names and confirm the problem
   still exists as described before changing anything. If the code has
@@ -122,6 +126,15 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   thing as their Workspace-tab equivalent (same glossary, style
   guidelines, locale, character names). When you touch one, check the
   other.
+- **Register every new optional dependency in `diagnostics.py`'s
+  `OPTIONAL_DEPENDENCIES` dict, in the same step/PR that adds it.**
+  Diagnostics' dependency panel, and by extension `start.bat`'s own
+  "print anything missing in plain words" check (Step 10), only know
+  about a package if it's in that dict. A step that adds a new `pip
+  install`-able extra (an OCR backend, a TTS engine, a canvas/UI
+  component, a notification library, etc.) without adding it here means
+  Diagnostics silently won't report it as missing, and the launcher's
+  output stays incomplete without anyone noticing.
 
 ## Where things are
 
