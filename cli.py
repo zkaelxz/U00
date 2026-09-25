@@ -21,6 +21,10 @@ Examples:
   # Generate AI dub tracks for every translated drama
   python cli.py dub --status translated
 
+  # Re-detect speakers for one drama with 3 voices (no re-transcription;
+  # lines you corrected by hand are kept unless --overwrite-manual)
+  python cli.py diarize --id 12 --num-speakers 3 --hf-token $HF_TOKEN
+
   # List what's in the library and its status
   python cli.py list
 """
@@ -161,6 +165,43 @@ def _load_novel_reference(drama):
             with open(p, "r", encoding="utf-8") as f:
                 return f.read()
     return None
+
+
+def cmd_diarize(args):
+    """Re-runs speaker detection on each drama's stored audio and re-labels
+    its existing lines -- text and timing untouched, no ASR. Same as the
+    Workspace's "Re-run speaker detection" button: hand-corrected speakers
+    are kept unless --overwrite-manual is given."""
+    import diarize
+    dramas = [db.get_drama(args.id)] if args.id else db.list_dramas()
+    hf_token = args.hf_token or os.environ.get("HF_TOKEN") or os.environ.get("BAIHE_HF_TOKEN")
+    if not hf_token:
+        print("Needs a Hugging Face token: --hf-token or the HF_TOKEN environment variable.")
+        return
+
+    def step(d):
+        ddir = db.drama_dir(d["id"])
+        audio_path = os.path.join(ddir, d["audio_filename"]) if d.get("audio_filename") else None
+        if not audio_path or not os.path.exists(audio_path):
+            print(f"#{d['id']} skipped: no audio file found in {ddir}")
+            return
+        lines = db.load_line_objects(d["id"])
+        if not lines:
+            print(f"#{d['id']} skipped: no lines yet (transcribe first).")
+            return
+        print(f"#{d['id']} detecting speakers...")
+        turns, model = diarize.diarize(audio_path, hf_token, num_speakers=args.num_speakers or None,
+                                       return_model=True)
+        diarize.save_turns(ddir, turns, num_speakers=args.num_speakers or None, model=model)
+        result = diarize.merge_speakers(lines, turns, overwrite_manual=args.overwrite_manual)
+        for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+            db.upsert_character(d["id"], label)
+        db.save_lines(d["id"], lines, fields=("speaker", "speaker_manual"))
+        print(f"#{d['id']} {result['changed']} line(s) relabelled with {model}"
+              + (f"; kept {result['kept_manual']} hand-corrected line(s) "
+                 f"(--overwrite-manual to replace them)." if result["kept_manual"] else "."))
+
+    _run_batch(dramas, step, "diarize")
 
 
 def cmd_align(args):
@@ -310,6 +351,14 @@ def main():
     p_align.add_argument("--id", type=int, default=None)
     p_align.add_argument("--whisper-size", default="medium")
     p_align.set_defaults(func=cmd_align)
+
+    p_diarize = sub.add_parser("diarize", help="Re-run speaker detection on stored audio (no re-transcription)")
+    p_diarize.add_argument("--id", type=int, default=None)
+    p_diarize.add_argument("--hf-token", default=None)
+    p_diarize.add_argument("--num-speakers", type=int, default=0)
+    p_diarize.add_argument("--overwrite-manual", action="store_true",
+                           help="Also replace speakers you corrected by hand")
+    p_diarize.set_defaults(func=cmd_diarize)
 
     p_translate = sub.add_parser("translate")
     p_translate.add_argument("--id", type=int, default=None)
