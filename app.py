@@ -19,6 +19,8 @@ Run with:  streamlit run app.py
 import portable
 portable.activate_portable_mode()
 
+import os
+
 from common import st
 import ui_theme
 
@@ -34,7 +36,14 @@ for _name in ("settings_tab", "library_tab", "reader_tab", "scanlate_tab",
         _tab_import_errors[_name] = _exc
 import tabs
 
-st.set_page_config(page_title="Baihe Audio Drama Subtitler", layout="wide")
+# Same icon make_shortcut.bat uses for the desktop shortcut -- this is
+# what actually shows up day to day, in the browser tab and in the Edge
+# app-mode window start.bat opens (the shortcut icon only shows up once,
+# before the app is even running). Falls back to Streamlit's own default
+# favicon if the file isn't there for some reason, rather than erroring.
+_ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "app_icon.ico")
+st.set_page_config(page_title="Baihe Audio Drama Subtitler", layout="wide",
+                   page_icon=_ICON_PATH if os.path.exists(_ICON_PATH) else None)
 # The settings sidebar must render BEFORE the stylesheet is injected: the
 # dark-mode toggle lives there, and injecting CSS first would always paint
 # with the previous value -- which is why it used to take two flips.
