@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 # The per-line columns db.save_lines writes. `idx` is the line's current
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
-LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note")
+LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
+               "speaker_manual")
 
 
 @dataclass
@@ -26,6 +27,10 @@ class Line:
     dub_filename: str = None
     flag: str = None       # a key from translate_engines.FLAG_REASONS, or None
     flag_note: str = ""    # brief reason from flag_uncertain_lines, e.g. "ambiguous 'her'"
+    # True once someone set this line's speaker by hand -- re-running
+    # speaker detection (diarize.merge_speakers) leaves it alone unless
+    # told to overwrite corrections.
+    speaker_manual: bool = False
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
     # Field values as last loaded from / saved to the database. db.save_lines
@@ -46,7 +51,8 @@ def line_from_row(row) -> "Line":
     ln = Line(idx=row["idx"], start=row["start"], end=row["end"], zh=row.get("zh") or "",
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
-              flag_note=row.get("flag_note") or "", id=row.get("id"))
+              flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
+              id=row.get("id"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     return ln
 
