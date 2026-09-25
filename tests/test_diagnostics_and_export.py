@@ -67,6 +67,14 @@ class TestDiagnostics:
             assert "powers" in info
             assert info["tier"] in ("required", "engine", "feature", "dev")
 
+    def test_step_6_optional_dependencies_are_registered(self):
+        """CLAUDE.md: every optional dependency must be listed here, or
+        Diagnostics never reports it as missing."""
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        assert deps["audio-separator"][0] == "audio_separator"
+        assert deps["funasr"][0] == "funasr"
+        assert deps["audio-separator"][2] == deps["funasr"][2] == "feature"
+
     def test_file_completeness_detects_all_present_in_real_project(self):
         result = diagnostics.check_file_completeness(PROJECT_ROOT)
         assert result["all_present"] is True, \
