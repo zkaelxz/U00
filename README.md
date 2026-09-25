@@ -688,9 +688,13 @@ app, not just a faster version of it:
   chunk boundary can transcribe worse than the same audio in one piece.
   There's no setting that removes this tradeoff, only where you sit on it.
 - **Lower accuracy than the normal pipeline on purpose.** Each chunk is
-  transcribed independently -- no cross-chunk context, and none of the
-  glossary/proper-noun priming (`initial_prompt`) the rest of the app
-  uses for names.
+  transcribed on its own, with only a few seconds of the previous
+  chunk's audio re-heard at its start ("Chunk overlap", default 3s) and
+  the previous chunk's text as a hint -- none of the glossary/proper-
+  noun priming the rest of the app uses for names. The re-heard part is
+  removed by an exact text match before it's shown; if the two
+  transcriptions of it disagree, a line straddling the boundary can
+  still repeat a word or two.
 - **Doesn't save into your Library yet.** The feed is ephemeral for
   this first version; copy anything worth keeping before you stop it.
 - **A resolved stream URL can expire** after a few hours on some

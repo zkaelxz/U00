@@ -71,3 +71,39 @@ class TestCookieSettingsReachTheStartButton:
 
         assert captured.get("cookies_browser") == "chrome"
         assert captured.get("cookies_file") == "/tmp/c.txt"
+
+
+class TestOverlapSettingReachesTheStartButton:
+    """Step 9b item 6: the Live tab's "Chunk overlap" slider reaches
+    live_translate.run_live_job as overlap_seconds."""
+
+    def _start(self, monkeypatch, **session_state):
+        from streamlit.testing.v1 import AppTest
+        import live_translate
+        background_jobs.clear_job("live_capture")
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+
+        def _render():
+            import tabs.live_tab as lt
+            lt.render_live_tab()
+
+        at = AppTest.from_function(_render)
+        for k, v in session_state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        [b for b in at.button if b.label == "▶️ Start"][0].click()
+        at.run(timeout=30)
+        return captured, live_translate
+
+    def test_default_overlap_is_passed(self, monkeypatch):
+        captured, live_translate = self._start(
+            monkeypatch, live_url="https://example.com/live", live_engine_choice="test_offline")
+        assert captured.get("overlap_seconds") == live_translate.DEFAULT_OVERLAP_SECONDS
+
+    def test_chosen_overlap_is_passed(self, monkeypatch):
+        captured, _ = self._start(
+            monkeypatch, live_url="https://example.com/live", live_engine_choice="test_offline",
+            live_overlap_seconds=0)
+        assert captured.get("overlap_seconds") == 0

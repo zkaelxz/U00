@@ -38,17 +38,24 @@ Known limitations, stated plainly rather than glossed over:
     on some platforms. If capture silently stops producing new chunks
     on a long-running stream, stop and restart the job to re-resolve a
     fresh URL.
-  - Each chunk's own transcribed tail IS now carried into the next
-    chunk's Whisper call as initial_prompt (see process_chunk), which
-    directly helps a sentence split across a chunk boundary -- but this
-    is still each chunk's OWN audio transcribed independently, not a
-    normal single-pass aligned transcription: the previous chunk's
-    actual audio is never re-heard, only a text hint of what was said,
-    and a name that never appeared in a prior chunk gets no priming
-    benefit at all (unlike the whole-file initial_prompt name list used
-    elsewhere in this app, built from the drama's known character names
-    up front). Proper-noun accuracy is still a bit worse than a normal
-    aligned transcription of the same content.
+  - Chunk boundaries: ffmpeg still cuts hard, non-overlapping chunks,
+    but each chunk is transcribed with the last few seconds of the
+    PREVIOUS chunk's actual audio prepended (overlap_seconds, see
+    run_live_job), so a sentence cut at a boundary is heard whole the
+    second time round; the re-heard overlap is then removed from what's
+    newly emitted by an exact suffix/prefix text match against what the
+    previous chunk already emitted there (see dedup_overlap). The
+    previous chunk's transcribed tail is also still carried as
+    initial_prompt. What's deliberately NOT done: fuzzy near-duplicate
+    matching. If the two transcriptions of the overlap disagree word-
+    for-word, the fallback only drops new lines that sit entirely inside
+    the overlap window, so a line straddling the boundary can still
+    repeat a few words in slightly different form. A line the previous
+    chunk already emitted is never retracted or re-translated with the
+    fuller context, either -- the rescued second half of a cut sentence
+    is translated on its own. A name that never appeared in a prior
+    chunk still gets no priming benefit (unlike the whole-file
+    initial_prompt name list used elsewhere in this app).
   - Built and verified with a real ffmpeg segment-capture pipeline
     against a local looping source (proving the capture -> chunk-
     detection -> transcribe -> translate loop genuinely works end to
@@ -62,6 +69,7 @@ import os
 import re
 import subprocess
 import time
+import wave
 
 import background_jobs
 
@@ -217,6 +225,151 @@ def list_completed_chunks(out_dir: str, last_completed_index: int):
     return [(i, os.path.join(out_dir, f"chunk_{i:05d}.wav")) for i in completed]
 
 
+def read_wav_tail(path: str, seconds: float):
+    """
+    The last `seconds` of a chunk's own PCM audio, kept in memory so it
+    can be prepended to the NEXT chunk after this one's file is deleted.
+    Returns {"params": (nchannels, sampwidth, framerate), "frames": bytes,
+    "seconds": tail length actually read, "chunk_seconds": the whole
+    chunk's length}, or None if the file can't be read as a WAV -- the
+    caller then just skips the overlap for the next chunk rather than
+    failing the job.
+    """
+    try:
+        with wave.open(path, "rb") as w:
+            nchannels, sampwidth, framerate, nframes = (
+                w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes())
+            tail_frames = min(nframes, int(round(seconds * framerate)))
+            w.setpos(nframes - tail_frames)
+            frames = w.readframes(tail_frames)
+    except (OSError, EOFError, wave.Error):
+        return None
+    return {"params": (nchannels, sampwidth, framerate), "frames": frames,
+            "seconds": tail_frames / framerate if framerate else 0.0,
+            "chunk_seconds": nframes / framerate if framerate else 0.0}
+
+
+def write_padded_chunk(tail: dict, chunk_path: str, out_path: str) -> float:
+    """
+    Writes `tail`'s audio (read_wav_tail() of the previous chunk)
+    followed by `chunk_path`'s own audio into `out_path`, and returns how
+    many seconds of padding were prepended -- the offset process_chunk
+    needs to put this chunk's timestamps back on the stream's timeline.
+    Returns 0.0 (and writes nothing) if the chunk can't be read or its
+    format doesn't match the tail's, so the chunk is transcribed
+    unpadded instead.
+    """
+    if not tail or not tail["frames"]:
+        return 0.0
+    try:
+        with wave.open(chunk_path, "rb") as w:
+            params = (w.getnchannels(), w.getsampwidth(), w.getframerate())
+            frames = w.readframes(w.getnframes())
+    except (OSError, EOFError, wave.Error):
+        return 0.0
+    if params != tail["params"]:
+        return 0.0
+    with wave.open(out_path, "wb") as out:
+        out.setnchannels(params[0])
+        out.setsampwidth(params[1])
+        out.setframerate(params[2])
+        out.writeframes(tail["frames"] + frames)
+    return tail["seconds"]
+
+
+# One token per CJK/kana character (no spaces to split on), one per run
+# of other letters/digits (space-separated languages, Korean included).
+# Punctuation and whitespace aren't tokens at all, so "北京。" and
+# "北京，" compare equal -- Whisper's punctuation of the same audio often
+# differs between two transcriptions, its words much less so.
+_CJK_CHARS = "぀-ヿ㐀-䶿一-鿿豈-﫿"
+_TOKEN_RE = re.compile(rf"[{_CJK_CHARS}]|[^\W_{_CJK_CHARS}]+")
+_LEADING_NON_WORD_RE = re.compile(r"^[\W_]+")
+
+# How many tokens at the very start of the padded transcription may be
+# skipped before the match begins -- the overlap audio starts at an
+# arbitrary point, often mid-word, and Whisper can render that partial
+# word as something that isn't in the previous chunk's text at all.
+# Skipped tokens are inside the overlap window, so dropping them loses
+# nothing the previous chunk didn't already emit.
+_MAX_LEADING_SKIP = 2
+
+
+def _tokens(text: str):
+    return [m.group(0).casefold() for m in _TOKEN_RE.finditer(text or "")]
+
+
+def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str) -> list:
+    """
+    Drops the re-transcribed overlap region from a padded chunk's
+    segments (timestamps still relative to the padded audio, so the
+    first `overlap_seconds` are audio the previous chunk already
+    covered).
+
+    tail_text: what the previous chunk actually emitted for its last
+    `overlap_seconds` -- its cues that reach into that window.
+
+    Exact matching only, no fuzzy near-duplicate suppression: finds the
+    longest run of tokens that is a SUFFIX of tail_text and also a
+    PREFIX of the segments that start inside the overlap window
+    (allowing up to _MAX_LEADING_SKIP garbled leading tokens before it,
+    and requiring at least 2 matched tokens when any are skipped), then
+    removes everything up to and including that run. What's left of a
+    segment cut part-way through is the speech right after the chunk
+    boundary, so its start moves to the boundary.
+
+    If tail_text is empty, the previous chunk emitted nothing there, so
+    there's nothing to duplicate: segments are returned unchanged. If
+    there's text but no exact match (the two transcriptions of the
+    overlap disagree), only segments that END inside the overlap window
+    are dropped -- they're wholly audio the previous chunk already
+    emitted text for -- and a segment straddling the boundary is kept
+    whole, preferring a possible repeated word over losing new speech.
+    """
+    segments = list(segments)
+    if overlap_seconds <= 0 or not segments:
+        return segments
+    tail = _tokens(tail_text)
+    if not tail:
+        return segments
+
+    head = []  # (token, segment position, char offset just past the token)
+    for pos, seg in enumerate(segments):
+        if seg["start"] >= overlap_seconds:
+            break
+        for m in _TOKEN_RE.finditer(seg.get("text") or ""):
+            head.append((m.group(0).casefold(), pos, m.end()))
+    head_tokens = [t for t, _, _ in head]
+
+    cut = None
+    for k in range(min(len(tail), len(head_tokens)), 0, -1):
+        for skip in range(0, min(_MAX_LEADING_SKIP, len(head_tokens) - k) + 1):
+            if skip and k < 2:
+                continue
+            if head_tokens[skip:skip + k] == tail[-k:]:
+                cut = skip + k
+                break
+        if cut is not None:
+            break
+
+    if cut is None:
+        return [seg for seg in segments if seg["end"] > overlap_seconds]
+
+    _, cut_pos, cut_char = head[cut - 1]
+    kept = []
+    for pos, seg in enumerate(segments):
+        if pos < cut_pos:
+            continue
+        if pos == cut_pos:
+            rest = _LEADING_NON_WORD_RE.sub("", (seg.get("text") or "")[cut_char:]).strip()
+            if not rest:
+                continue
+            start = seg["start"] if seg["end"] <= overlap_seconds else max(seg["start"], overlap_seconds)
+            seg = {**seg, "text": rest, "start": start}
+        kept.append(seg)
+    return kept
+
+
 # Whisper's initial_prompt has a real, hard limit (roughly the last 224
 # tokens) -- capping what's carried forward here to a generous but bounded
 # tail keeps every chunk's prompt cheap to build, not because a longer
@@ -224,15 +377,28 @@ def list_completed_chunks(out_dir: str, last_completed_index: int):
 # of whatever's passed.
 _CONTEXT_CARRY_CHARS = 200
 
+# A few seconds: long enough to re-hear a word or short phrase cut at a
+# chunk boundary, short enough that the extra audio re-transcribed per
+# chunk stays a small fraction of a 15-30s chunk.
+DEFAULT_OVERLAP_SECONDS = 3
+
 
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    source_language: str, whisper_size: str, engine, use_gpu: bool = False,
-                   context_prompt: str = ""):
+                   context_prompt: str = "", overlap_seconds: float = 0.0,
+                   overlap_tail_text: str = ""):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
     different chunks share one continuous timeline instead of each
     chunk restarting at zero.
+
+    overlap_seconds: how much of the previous chunk's audio was
+    prepended to `chunk_path` (write_padded_chunk()); 0.0 for an
+    unpadded chunk. overlap_tail_text: what the previous chunk emitted
+    for that same audio. The re-heard overlap is removed with
+    dedup_overlap() BEFORE translating, so it's never translated or
+    shown twice.
 
     context_prompt: the tail end of the PREVIOUS chunk's own transcribed
     text, passed through as Whisper's initial_prompt for this chunk. Each
@@ -251,7 +417,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     segments = core.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
         initial_prompt=context_prompt)
-    offset = chunk_index * segment_seconds
+    segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text)
+    offset = chunk_index * segment_seconds - overlap_seconds
     cues = []
     for seg in segments:
         text = (seg.get("text") or "").strip()
@@ -297,7 +464,8 @@ def current_generation(job_id: str) -> int:
 
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
-                  poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None):
+                  poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None,
+                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -314,7 +482,13 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     transcribe/translate call was still running, that chunk's result is
     discarded -- it belongs to a session that already moved on -- instead
     of landing after the fact.
+
+    overlap_seconds: how much of each chunk's own audio tail is prepended
+    to the next chunk before transcribing it (see the module docstring
+    and dedup_overlap()). 0 turns overlap off entirely; capped at half a
+    chunk so padding can never outweigh the chunk itself.
     """
+    overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
     my_generation = bump_generation(job_id)
 
     background_jobs.update_progress(job_id, 0.0, "Resolving stream URL...")
@@ -326,6 +500,9 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     all_cues = []
     last_completed = -1
     context_prompt = ""
+    # read_wav_tail() of the last processed chunk, plus "index" and
+    # "text" (what that chunk emitted for its own tail) once processed.
+    prev_tail = None
     try:
         while True:
             if (background_jobs.is_cancel_requested(job_id)
@@ -342,10 +519,21 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                     # this batch's already-queued chunks either.
                     break
                 background_jobs.update_progress(job_id, 0.0, f"Processing chunk {idx}...")
+                padded_path = None
                 try:
+                    # Read before this chunk's file is deleted below --
+                    # it's the audio the NEXT chunk gets padded with.
+                    tail = read_wav_tail(path, overlap_seconds) if overlap_seconds else None
+                    chunk_input, pad_seconds, tail_text = path, 0.0, ""
+                    if prev_tail and prev_tail["index"] == idx - 1:
+                        padded_path = os.path.join(out_dir, f"padded_{idx:05d}.wav")
+                        pad_seconds = write_padded_chunk(prev_tail, path, padded_path)
+                        if pad_seconds:
+                            chunk_input, tail_text = padded_path, prev_tail["text"]
                     new_cues = process_chunk(
-                        path, idx, segment_seconds, source_language, whisper_size,
-                        engine, use_gpu=use_gpu, context_prompt=context_prompt)
+                        chunk_input, idx, segment_seconds, source_language, whisper_size,
+                        engine, use_gpu=use_gpu, context_prompt=context_prompt,
+                        overlap_seconds=pad_seconds, overlap_tail_text=tail_text)
                     if current_generation(job_id) != my_generation:
                         # The session moved on while this one chunk's own
                         # transcribe/translate call was in flight -- its
@@ -359,13 +547,26 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                         # translation failure never breaks this.
                         joined = " ".join(c["text"] for c in new_cues)
                         context_prompt = joined[-_CONTEXT_CARRY_CHARS:]
+                    if tail:
+                        # Only cues that reach into this chunk's own last
+                        # tail["seconds"] -- an older line that merely
+                        # repeats a phrase must never match the next
+                        # chunk's overlap and get new speech trimmed.
+                        chunk_end = idx * segment_seconds + tail["chunk_seconds"]
+                        tail["index"] = idx
+                        tail["text"] = " ".join(
+                            c["text"] for c in new_cues if c["end"] > chunk_end - tail["seconds"])
+                    prev_tail = tail
                     background_jobs.set_result(job_id, list(all_cues))
                 finally:
                     last_completed = idx
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+                    for leftover in (path, padded_path):
+                        if not leftover:
+                            continue
+                        try:
+                            os.remove(leftover)
+                        except OSError:
+                            pass
             time.sleep(poll_interval)
     finally:
         stop_capture(proc)

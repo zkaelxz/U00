@@ -540,7 +540,7 @@ class TestRunLiveJobContextCarrying:
         seen_prompts = []
 
         def fake_process_chunk(path, idx, segment_seconds, source_language, whisper_size,
-                                engine, use_gpu=False, context_prompt=""):
+                                engine, use_gpu=False, context_prompt="", **kw):
             seen_prompts.append(context_prompt)
             return [{"start": 0.0, "end": 1.0, "text": f"text from chunk {idx}",
                      "translated": f"translated {idx}"}]
@@ -559,3 +559,345 @@ class TestRunLiveJobContextCarrying:
         assert seen_prompts[1] == "text from chunk 0"  # chunk 0's own tail
         background_jobs.clear_job(job_id)
 
+
+
+# ---------------------------------------------------------------------------
+# Step 9b item 6: real audio overlap between chunks + exact-match dedup.
+# ---------------------------------------------------------------------------
+
+def _seg(start, end, text):
+    return {"start": start, "end": end, "text": text}
+
+
+class TestDedupOverlap:
+    """dedup_overlap() on its own: segment timestamps are relative to the
+    PADDED chunk, so everything before `overlap_seconds` is audio the
+    previous chunk already covered."""
+
+    def test_cjk_suffix_prefix_match_trims_the_repeat_and_keeps_the_rest(self):
+        out = lt.dedup_overlap([_seg(0.5, 4.0, "我们明天去北京吧")], 2.0, "我们明天去")
+        assert out == [_seg(2.0, 4.0, "北京吧")]
+
+    def test_a_segment_wholly_inside_the_match_is_dropped_whole(self):
+        out = lt.dedup_overlap(
+            [_seg(0.0, 1.5, "then I said"), _seg(1.5, 5.0, "we should go home.")],
+            2.0, "and then I said")
+        assert out == [_seg(1.5, 5.0, "we should go home.")]
+
+    def test_punctuation_and_case_differences_still_match(self):
+        out = lt.dedup_overlap([_seg(0.0, 4.0, "hello world! How are you")],
+                               2.0, "Hello, World.")
+        assert out == [_seg(2.0, 4.0, "How are you")]
+
+    def test_a_garbled_partial_word_at_the_overlap_start_is_skipped(self):
+        # The overlap audio started mid-word, which Whisper heard as "嗯".
+        out = lt.dedup_overlap([_seg(0.0, 4.0, "嗯明天去北京吧")], 2.0, "我们明天去北京")
+        assert out == [_seg(2.0, 4.0, "吧")]
+
+    def test_a_single_token_after_a_skip_is_not_treated_as_a_match(self):
+        # "好" appearing two tokens in is coincidence, not the overlap --
+        # trimming "我很好" here would drop real new speech.
+        out = lt.dedup_overlap([_seg(1.0, 5.0, "我很好的朋友")], 2.0, "今天也好")
+        assert out == [_seg(1.0, 5.0, "我很好的朋友")]
+
+    def test_legitimate_repeats_after_the_match_are_kept(self):
+        out = lt.dedup_overlap(
+            [_seg(0.5, 3.0, "我们明天去北京吧"), _seg(3.5, 5.0, "好的走吧")], 2.0, "我们明天去")
+        assert [s["text"] for s in out] == ["北京吧", "好的走吧"]
+
+    def test_empty_tail_text_leaves_segments_untouched(self):
+        # The previous chunk emitted nothing for this audio, so nothing
+        # here can be a duplicate of it.
+        segs = [_seg(0.5, 1.5, "嗯"), _seg(2.5, 4.0, "你好")]
+        assert lt.dedup_overlap(segs, 2.0, "") == segs
+
+    def test_no_overlap_leaves_segments_untouched(self):
+        segs = [_seg(0.5, 1.5, "你好")]
+        assert lt.dedup_overlap(segs, 0.0, "你好") == segs
+
+    def test_no_exact_match_drops_only_segments_wholly_inside_the_overlap(self):
+        segs = [_seg(0.0, 1.5, "别的话"), _seg(1.0, 4.0, "跨界的一句"), _seg(4.0, 6.0, "新内容")]
+        out = lt.dedup_overlap(segs, 2.0, "完全不同")
+        # The straddling line is kept whole rather than risk losing its
+        # after-the-boundary half.
+        assert out == [_seg(1.0, 4.0, "跨界的一句"), _seg(4.0, 6.0, "新内容")]
+
+    def test_segments_starting_after_the_overlap_are_never_matched(self):
+        # "好的" said AFTER the boundary is new speech even though the
+        # previous chunk's tail also ended with "好的".
+        segs = [_seg(0.2, 1.0, "嗯"), _seg(3.0, 5.0, "好的走吧")]
+        out = lt.dedup_overlap(segs, 2.0, "好的")
+        assert out == [_seg(3.0, 5.0, "好的走吧")]
+
+    def test_a_trimmed_segment_that_ends_inside_the_overlap_keeps_its_start(self):
+        # The previous chunk lost its very last word at the cut ("go");
+        # the padded chunk rescues it. Its timing is kept as heard.
+        out = lt.dedup_overlap([_seg(0.5, 1.8, "we should go"), _seg(2.5, 4.0, "now")],
+                               2.0, "we should")
+        assert out == [_seg(0.5, 1.8, "go"), _seg(2.5, 4.0, "now")]
+
+
+def _write_wav(path, samples, rate=8000):
+    import struct
+    import wave
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"".join(struct.pack("<h", s) for s in samples))
+
+
+def _read_samples(path):
+    import struct
+    import wave
+    with wave.open(str(path), "rb") as w:
+        raw = w.readframes(w.getnframes())
+    return list(struct.unpack(f"<{len(raw) // 2}h", raw))
+
+
+class TestPaddedChunkAudio:
+    def test_tail_is_the_last_n_seconds_of_real_audio(self, tmp_path):
+        path = tmp_path / "chunk_00000.wav"
+        _write_wav(path, list(range(8000 * 4)))  # 4s, every sample distinct
+        tail = lt.read_wav_tail(str(path), 1.5)
+        assert tail["seconds"] == 1.5
+        assert tail["chunk_seconds"] == 4.0
+        assert tail["params"] == (1, 2, 8000)
+        import struct
+        assert list(struct.unpack(f"<{len(tail['frames']) // 2}h", tail["frames"])) == \
+            list(range(8000 * 4 - 12000, 8000 * 4))
+
+    def test_tail_longer_than_the_chunk_is_the_whole_chunk(self, tmp_path):
+        path = tmp_path / "chunk_00000.wav"
+        _write_wav(path, [1] * 8000)
+        tail = lt.read_wav_tail(str(path), 3.0)
+        assert tail["seconds"] == 1.0
+
+    def test_unreadable_chunk_gives_no_tail(self, tmp_path):
+        path = tmp_path / "chunk_00000.wav"
+        path.write_bytes(b"not a wav")
+        assert lt.read_wav_tail(str(path), 2.0) is None
+        assert lt.read_wav_tail(str(tmp_path / "missing.wav"), 2.0) is None
+
+    def test_padded_chunk_is_previous_tail_then_this_chunk(self, tmp_path):
+        prev, cur, out = tmp_path / "chunk_00000.wav", tmp_path / "chunk_00001.wav", tmp_path / "p.wav"
+        _write_wav(prev, [1] * 8000 + [2] * 8000)
+        _write_wav(cur, [3] * 16000)
+        pad = lt.write_padded_chunk(lt.read_wav_tail(str(prev), 1.0), str(cur), str(out))
+        assert pad == 1.0
+        assert _read_samples(out) == [2] * 8000 + [3] * 16000
+
+    def test_mismatched_format_is_not_padded(self, tmp_path):
+        prev, cur, out = tmp_path / "a.wav", tmp_path / "b.wav", tmp_path / "p.wav"
+        _write_wav(prev, [1] * 8000, rate=8000)
+        _write_wav(cur, [1] * 16000, rate=16000)
+        assert lt.write_padded_chunk(lt.read_wav_tail(str(prev), 1.0), str(cur), str(out)) == 0.0
+        assert not out.exists()
+
+
+# Tiny synthetic "speech": each 0.5s block of real PCM audio holds one
+# word, encoded as a constant sample value (code * 100); 0 is silence.
+_BLOCK_SECONDS = 0.5
+_RATE = 8000
+_WORDS = {1: "今天", 2: "天气", 3: "很", 4: "好", 5: "我们", 6: "明天", 7: "去",
+          8: "北京", 9: "吧", 10: "好的", 11: "走"}
+
+
+def _write_word_chunk(path, codes):
+    per_block = int(_RATE * _BLOCK_SECONDS)
+    _write_wav(path, [c * 100 for c in codes for _ in range(per_block)], rate=_RATE)
+
+
+def _fake_transcribe_by_decoding_audio(path, **kw):
+    """Stands in for Whisper, but genuinely "listens" to whatever audio
+    file it's given -- padded or not -- by decoding the block values back
+    into words, grouping runs of non-silent blocks into segments."""
+    samples = _read_samples(path)
+    per_block = int(_RATE * _BLOCK_SECONDS)
+    segments, current = [], None
+    for i in range(0, len(samples), per_block):
+        code = samples[i] // 100
+        t = (i // per_block) * _BLOCK_SECONDS
+        if code:
+            if current is None:
+                current = {"start": t, "end": t + _BLOCK_SECONDS, "text": ""}
+                segments.append(current)
+            current["text"] += _WORDS[code]
+            current["end"] = t + _BLOCK_SECONDS
+        else:
+            current = None
+    return segments
+
+
+class TestOverlapDedupAgainstRealAudio:
+    """Step 9b item 6 exit condition: two adjacent chunks of real WAV
+    audio, with a known phrase ("我们明天去") inside the overlap window,
+    run through run_live_job's own pad -> transcribe -> dedup path. The
+    final transcript must contain every word exactly once."""
+
+    def _run(self, monkeypatch, tmp_path, job_id, chunks, overlap_seconds=2):
+        import background_jobs
+        import core
+        out_dir = tmp_path / "chunks"
+        out_dir.mkdir()
+        for i, codes in enumerate(chunks):
+            _write_word_chunk(out_dir / f"chunk_{i:05d}.wav", codes)
+        # A successor file is what marks the last real chunk "complete".
+        (out_dir / f"chunk_{len(chunks):05d}.wav").write_bytes(b"")
+
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
+
+        class FakeProc:
+            def poll(self):
+                return None
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
+
+        heard = []
+
+        def transcribe(path, **kw):
+            heard.append(os.path.basename(path))
+            return _fake_transcribe_by_decoding_audio(path, **kw)
+        monkeypatch.setattr(core, "transcribe_for_timing", transcribe)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested",
+                            lambda jid: len(heard) >= len(chunks))
+
+        class EchoEngine:
+            def translate_batch(self, lines, context):
+                return [f"EN:{t}" for t in lines]
+
+        segment_seconds = len(chunks[0]) * _BLOCK_SECONDS
+        lt.run_live_job(job_id, "http://example.com/live", str(out_dir), segment_seconds,
+                        "zh", "tiny", EchoEngine(), poll_interval=0.01,
+                        overlap_seconds=overlap_seconds)
+        cues = background_jobs.get_status(job_id)["result"]
+        background_jobs.clear_job(job_id)
+        return cues, heard, out_dir
+
+    # chunk 0 ends "... 我们 明天 去" (cut mid-sentence); chunk 1 carries on
+    # "北京 吧 ... 好的 走 吧". The 2s overlap is chunk 0's last 4 blocks.
+    CHUNKS = [[1, 2, 3, 4, 0, 5, 6, 7], [8, 9, 0, 10, 11, 9, 0, 0]]
+
+    def test_no_duplicated_text_once_dedup_runs(self, monkeypatch, tmp_path):
+        cues, heard, out_dir = self._run(monkeypatch, tmp_path, "test_overlap_dedup", self.CHUNKS)
+
+        assert heard == ["chunk_00000.wav", "padded_00001.wav"]  # chunk 1 really was padded
+        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去", "北京吧", "好的走吧"]
+        assert "".join(c["text"] for c in cues) == "今天天气很好我们明天去北京吧好的走吧"
+        assert [c["translated"] for c in cues] == [f"EN:{c['text']}" for c in cues]
+        # Timestamps are back on the stream's own timeline: "北京吧" is
+        # the first thing after the 4s boundary.
+        assert [(c["start"], c["end"]) for c in cues] == [
+            (0.0, 2.0), (2.5, 4.0), (4.0, 5.0), (5.5, 7.0)]
+        assert not list(out_dir.glob("padded_*.wav"))  # cleaned up
+
+    def test_without_dedup_the_same_audio_would_repeat_the_phrase(self, monkeypatch, tmp_path):
+        # Proves the test above can actually see a duplicate: the padded
+        # transcription genuinely re-hears "我们明天去".
+        monkeypatch.setattr(lt, "dedup_overlap", lambda segs, overlap, tail: list(segs))
+        cues, _, _ = self._run(monkeypatch, tmp_path, "test_overlap_nodedup", self.CHUNKS)
+        assert "".join(c["text"] for c in cues).count("我们明天去") == 2
+
+    def test_overlap_zero_is_the_old_unpadded_behaviour(self, monkeypatch, tmp_path):
+        cues, heard, _ = self._run(monkeypatch, tmp_path, "test_overlap_off", self.CHUNKS,
+                                   overlap_seconds=0)
+        assert heard == ["chunk_00000.wav", "chunk_00001.wav"]
+        assert [c["text"] for c in cues] == ["今天天气很好", "我们明天去", "北京吧", "好的走吧"]
+
+    def test_a_word_repeated_right_after_the_boundary_is_kept(self, monkeypatch, tmp_path):
+        # chunk 0 ends "... 去"; chunk 1 opens with "去" said AGAIN. Only
+        # the overlap's own "我们明天去" is a repeat -- the second "去" is
+        # real new speech and must survive, not be swallowed with it.
+        chunks = [[1, 2, 0, 0, 0, 5, 6, 7], [7, 8, 9, 0, 0, 0, 0, 0]]
+        cues, _, _ = self._run(monkeypatch, tmp_path, "test_overlap_repeat_word", chunks)
+        assert [c["text"] for c in cues] == ["今天天气", "我们明天去", "去北京吧"]
+
+
+class TestOverlapTailTextWindow:
+    """What run_live_job hands the NEXT chunk as overlap_tail_text: only
+    what the previous chunk emitted for its own last overlap_seconds --
+    an older line elsewhere in that chunk must never be matched against
+    (it would trim real new speech that happens to repeat it)."""
+
+    def _run(self, monkeypatch, tmp_path, chunk0_cues, overlap_seconds=2):
+        import background_jobs
+        job_id = "test_overlap_tail_window"
+        out_dir = tmp_path / "chunks"
+        out_dir.mkdir()
+        for i in range(2):
+            _write_word_chunk(out_dir / f"chunk_{i:05d}.wav", [1] * 8)  # 4s each
+        (out_dir / "chunk_00002.wav").write_bytes(b"")
+
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
+
+        class FakeProc:
+            def poll(self):
+                return None
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
+
+        calls = []
+
+        def fake_process_chunk(path, idx, *a, overlap_seconds=0.0, overlap_tail_text="", **kw):
+            calls.append({"idx": idx, "overlap_seconds": overlap_seconds,
+                          "overlap_tail_text": overlap_tail_text})
+            return chunk0_cues if idx == 0 else []
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: len(calls) >= 2)
+
+        lt.run_live_job(job_id, "http://example.com/live", str(out_dir), 4, "zh", "tiny",
+                        engine=None, poll_interval=0.01, overlap_seconds=overlap_seconds)
+        background_jobs.clear_job(job_id)
+        return calls
+
+    def test_only_cues_reaching_into_the_tail_window_are_passed_on(self, monkeypatch, tmp_path):
+        calls = self._run(monkeypatch, tmp_path, [
+            {"start": 0.0, "end": 1.0, "text": "好的", "translated": ""},
+            {"start": 1.5, "end": 3.0, "text": "走吧", "translated": ""}])
+        assert calls[0]["overlap_seconds"] == 0.0  # first chunk: nothing to pad with
+        assert calls[1]["overlap_seconds"] == 2.0
+        assert calls[1]["overlap_tail_text"] == "走吧"
+
+    def test_a_chunk_silent_at_its_end_passes_on_no_tail_text(self, monkeypatch, tmp_path):
+        calls = self._run(monkeypatch, tmp_path, [
+            {"start": 0.0, "end": 1.0, "text": "好的", "translated": ""}])
+        assert calls[1]["overlap_seconds"] == 2.0  # still padded with real audio...
+        assert calls[1]["overlap_tail_text"] == ""  # ...but nothing to dedup against
+
+    def test_overlap_is_capped_at_half_a_chunk(self, monkeypatch, tmp_path):
+        calls = self._run(monkeypatch, tmp_path, [], overlap_seconds=10)  # 4s chunks
+        assert calls[1]["overlap_seconds"] == 2.0
+
+
+@pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+class TestPaddingRealFfmpegChunks:
+    """The WAV chunks ffmpeg's own segment muxer writes are readable by
+    read_wav_tail/write_padded_chunk -- not just WAVs this test suite
+    wrote itself."""
+
+    def test_pads_a_real_segmented_chunk(self, tmp_path):
+        out_dir = str(tmp_path / "chunks")
+        os.makedirs(out_dir)
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3",
+                        "-vn", "-ac", "1", "-ar", "16000", "-f", "segment",
+                        "-segment_time", "1", "-reset_timestamps", "1",
+                        os.path.join(out_dir, "chunk_%05d.wav")],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        c0, c1 = (os.path.join(out_dir, f"chunk_{i:05d}.wav") for i in (0, 1))
+        tail = lt.read_wav_tail(c0, 0.5)
+        assert tail is not None and tail["params"] == (1, 2, 16000)
+        assert tail["seconds"] == pytest.approx(0.5, abs=1e-3)
+
+        padded = os.path.join(out_dir, "padded_00001.wav")
+        pad = lt.write_padded_chunk(tail, c1, padded)
+        assert pad == tail["seconds"]
+        chunk1_frames = len(_read_samples(c1))
+        padded_samples = _read_samples(padded)
+        assert len(padded_samples) == chunk1_frames + 8000
+        assert padded_samples[:8000] == _read_samples(c0)[-8000:]
