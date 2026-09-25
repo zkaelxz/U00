@@ -272,6 +272,15 @@ def cmd_translate(args):
         print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
+        # Same caps as the Workspace Translate job: per job (--cost-cap)
+        # and per calendar month (--monthly-cap, or BAIHE_MONTHLY_CAP_USD).
+        monthly_cap = getattr(args, "monthly_cap", None)
+        cost_cap, refusal = translate_engines.resolve_cost_cap(
+            getattr(args, "cost_cap", None), monthly_cap,
+            db.get_month_spend() if monthly_cap else 0.0)
+        if refusal:
+            raise RuntimeError(refusal)
+        cap_reached = {}
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d, style_note=args.style_note or "",
             novel_reference=novel_reference, force_retranslate=args.force,
@@ -284,9 +293,18 @@ def cmd_translate(args):
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
             # Same as the Workspace Translate job: writes `en` only.
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
+            usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
+                did, args.engine, getattr(engine, "model", args.engine), "translate", inp, out,
+                translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
+                cache_read_tokens=cache_read),
+            cost_cap_usd=cost_cap,
+            cap_cb=lambda spent: cap_reached.update(spent=spent),
         )
         db.update_drama(d["id"], status="translated", translation_engine=args.engine)
-        if batch_errors:
+        if "spent" in cap_reached:
+            print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
+                  f"-- finished lines were kept; re-run with a higher cap to continue.")
+        elif batch_errors:
             print(f"\n#{d['id']} translated with {len(batch_errors)} batch failure(s) after "
                   f"backoff retries -- re-run this command to retry just the missing lines.")
         else:
@@ -404,6 +422,13 @@ def main():
                                   "(faithful draft, critique, rewrite) instead of one -- costs "
                                   "about 3x as much. The critique is saved as a translation note "
                                   "per line.")
+    p_translate.add_argument("--cost-cap", type=float, default=None,
+                           help="Stop a drama's translation once its estimated spend reaches this "
+                                "many USD (finished lines are kept).")
+    p_translate.add_argument("--monthly-cap", type=float,
+                           default=float(os.environ.get("BAIHE_MONTHLY_CAP_USD") or 0) or None,
+                           help="Refuse to start / stop once this calendar month's logged spend "
+                                "reaches this many USD. Defaults to BAIHE_MONTHLY_CAP_USD.")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
@@ -431,6 +456,13 @@ def main():
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
     p_run.add_argument("--reflect", action="store_true")
+    p_run.add_argument("--cost-cap", type=float, default=None,
+                           help="Stop a drama's translation once its estimated spend reaches this "
+                                "many USD (finished lines are kept).")
+    p_run.add_argument("--monthly-cap", type=float,
+                           default=float(os.environ.get("BAIHE_MONTHLY_CAP_USD") or 0) or None,
+                           help="Refuse to start / stop once this calendar month's logged spend "
+                                "reaches this many USD. Defaults to BAIHE_MONTHLY_CAP_USD.")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")

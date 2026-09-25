@@ -67,6 +67,7 @@ def _load_env_defaults(env_path: str = None):
         "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
         "ollama_url": ("BAIHE_OLLAMA_URL",),
         "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
+        "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
     }.items():
         if st.session_state.get(f"settings_{settings_key}"):
             continue
@@ -158,6 +159,20 @@ def render_settings_sidebar():
                      "hardware can handle several at once (24GB+ VRAM).")
             import background_jobs
             background_jobs.set_gpu_limit_enabled(st.session_state["settings_limit_one_gpu_job"])
+
+        with st.expander("Spending", expanded=False):
+            try:
+                _cap_default = float(st.session_state.get("settings_monthly_cap_usd") or 0)
+            except (TypeError, ValueError):
+                _cap_default = 0.0
+            st.session_state["settings_monthly_cap_usd"] = st.number_input(
+                "Monthly spending cap (USD, 0 = none)", min_value=0.0, step=1.0,
+                value=_cap_default,
+                help="Checked against the estimated spend already logged this calendar month "
+                     "(UTC). A translation won't start once it's used up, and a running one "
+                     "stops cleanly -- keeping every finished line -- when it reaches what's "
+                     "left. Estimates, not a bill. To keep it across restarts, set "
+                     "BAIHE_MONTHLY_CAP_USD in your .env file.")
 
         with st.expander("Defaults for new dramas", expanded=False):
             _default_engine_options = ["claude", "deepseek", "deepl", "google", "ollama",

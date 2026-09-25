@@ -492,6 +492,40 @@ class TestUsageTracking:
         assert summary["estimated_cost_usd"] == 0
 
 
+class TestCacheReadsAndMonthSpend:
+    """Step 9: usage_log records prompt-cache reads, and month-to-date
+    spend is what the monthly cap is checked against."""
+
+    def test_cache_read_tokens_are_summed(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.log_usage(did, "claude", "m", "translate", 1000, 10, 0.01, cache_read_tokens=800)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1000, 10, 0.01)
+        assert isolated_db.get_usage_summary(did)["cache_read_tokens"] == 800
+        assert isolated_db.get_usage_summary()["cache_read_tokens"] == 800
+        row = next(r for r in isolated_db.get_usage_by_drama() if r["id"] == did)
+        assert row["cache_read_tokens"] == 800
+
+    def test_month_spend_counts_only_the_current_month(self, isolated_db):
+        import datetime
+        import pytest
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 1.50)
+        conn = isolated_db.get_conn()
+        conn.execute("INSERT INTO usage_log (drama_id, engine, model, operation, input_tokens, "
+                     "output_tokens, estimated_cost_usd, created_at) VALUES (?, 'c', 'm', 't', 1, 1, 9.0, ?)",
+                     (did, "2000-01-15T00:00:00"))
+        conn.commit()
+        conn.close()
+        assert isolated_db.get_month_spend() == pytest.approx(1.50)
+        assert isolated_db.get_month_spend(datetime.datetime(2000, 1, 20)) == pytest.approx(10.50)
+
+    def test_the_cache_column_is_added_to_an_older_database(self, isolated_db):
+        conn = isolated_db.get_conn()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
+        conn.close()
+        assert "cache_read_tokens" in cols
+
+
 class TestUsageByDrama:
     """get_usage_by_drama backs the Library dashboard's cost breakdown --
     Step 1d added translation_engine and call_count to it so the

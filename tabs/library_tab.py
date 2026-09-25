@@ -4,6 +4,12 @@ tabs/library.py -- Library tab UI, extracted from the former monolithic app.py.
 from common import *
 
 
+def cache_hit_share(usage: dict) -> float:
+    """Share of logged input tokens that were prompt-cache reads."""
+    total = usage.get("input_tokens") or 0
+    return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
+
+
 def render_library_tab():
     stats = db.get_library_stats()
     usage = db.get_usage_summary()
@@ -13,6 +19,9 @@ def render_library_tab():
     c2.metric("Lines translated", f"{stats['translated_lines']:,} / {stats['total_lines']:,}")
     c3.metric("API calls logged", usage["call_count"])
     c4.metric("Estimated spend", f"${usage['estimated_cost_usd']:.2f}")
+    if usage["input_tokens"]:
+        st.caption(f"Prompt-cache hits: {cache_hit_share(usage):.0%} of input tokens were "
+                   "served from a provider's cache (billed at a fraction of the normal price).")
     if stats["by_status"]:
         status_line = " · ".join(f"{k}: {v}" for k, v in stats["by_status"].items())
         st.caption(f"By status — {status_line}")
@@ -72,6 +81,7 @@ def render_library_tab():
                 "$0.00 (free)" if d["estimated_cost_usd"] == 0 else f"${d['estimated_cost_usd']:.2f}"
                 for d in spending
             ]
+            cost_df["Cache hits"] = [f"{cache_hit_share(d):.0%}" for d in spending]
             cost_df = cost_df.drop(columns=["estimated_cost_usd"])
             st.dataframe(cost_df, width='stretch', hide_index=True)
         else:

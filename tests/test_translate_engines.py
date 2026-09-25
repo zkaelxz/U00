@@ -248,14 +248,12 @@ class TestBuildLlmInstructions:
         assert "Japanese baihe" in instructions
 
     def test_upcoming_lines_included_when_provided(self):
-        instructions, _ = te.build_llm_instructions(
-            "", {}, None, upcoming_lines=["下一句话"])
-        assert "下一句话" in instructions
-        assert "AFTER this batch" in instructions
+        block = te.build_batch_context(upcoming_lines=["下一句话"])
+        assert "下一句话" in block
+        assert "AFTER this batch" in block
 
     def test_no_upcoming_lines_omits_the_section(self):
-        instructions, _ = te.build_llm_instructions("", {}, None, upcoming_lines=None)
-        assert "AFTER this batch" not in instructions
+        assert "AFTER this batch" not in te.build_batch_context(upcoming_lines=None)
 
     def test_prompt_mentions_speaker_bracket_convention(self):
         # The model needs to be told what the [Name] prefix means and
@@ -300,18 +298,15 @@ class TestEstimateCost:
 
 class TestRecentContextInPrompt:
     def test_recent_context_included_when_provided(self):
-        instructions, _ = te.build_llm_instructions(
-            "", {}, None, recent_context=[("她昨天来了", "She came yesterday.")])
-        assert "她昨天来了 -> She came yesterday." in instructions
-        assert "continuity" in instructions.lower()
+        block = te.build_batch_context(recent_context=[("她昨天来了", "She came yesterday.")])
+        assert "她昨天来了 -> She came yesterday." in block
+        assert "continuity" in block.lower()
 
     def test_no_recent_context_omits_section(self):
-        instructions, _ = te.build_llm_instructions("", {}, None, recent_context=None)
-        assert "continuity" not in instructions.lower()
+        assert "continuity" not in te.build_batch_context(recent_context=None).lower()
 
     def test_empty_list_also_omits_section(self):
-        instructions, _ = te.build_llm_instructions("", {}, None, recent_context=[])
-        assert "continuity" not in instructions.lower()
+        assert te.build_batch_context(recent_context=[]) == ""
 
 
 class ContextCapturingEngine:
@@ -720,7 +715,8 @@ class TestGeminiEngine:
         result = engine.translate_batch(["你好", "再见"], {})
 
         assert result == ["Hello.", "Goodbye."]
-        assert engine.last_usage == {"input_tokens": 42, "output_tokens": 8}
+        assert engine.last_usage == {"input_tokens": 42, "output_tokens": 8,
+                                     "cache_read_tokens": 0, "cache_write_tokens": 0}
         assert "gemini-flash-lite-latest" in captured["url"]
         # Key goes in a header, never the URL/query string -- a
         # raise_for_status() failure's message includes the URL, and that
@@ -729,7 +725,7 @@ class TestGeminiEngine:
         assert "key=" not in captured["url"]
         assert "systemInstruction" in captured["json"]
 
-    def test_recent_context_reaches_the_system_instruction(self, monkeypatch):
+    def test_recent_context_reaches_the_user_message_not_the_system_instruction(self, monkeypatch):
         captured = {}
 
         class FakeResponse:
@@ -747,7 +743,9 @@ class TestGeminiEngine:
         engine.translate_batch(["x"], {"recent_context": [("她来了", "She came.")]})
 
         sys_text = captured["json"]["systemInstruction"]["parts"][0]["text"]
-        assert "她来了 -> She came." in sys_text
+        user_text = captured["json"]["contents"][0]["parts"][0]["text"]
+        assert "她来了 -> She came." in user_text
+        assert "她来了" not in sys_text
 
     def test_speaker_labels_reach_the_actual_numbered_lines_sent(self, monkeypatch):
         captured = {}
@@ -830,7 +828,8 @@ class TestGeminiEngine:
         monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
         engine = te.GeminiEngine("fake-key")
         engine.translate_batch(["x"], {})
-        assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0}
+        assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0,
+                                     "cache_read_tokens": 0, "cache_write_tokens": 0}
 
 
 class TestGeminiFreeTierThrottle:
@@ -2010,3 +2009,278 @@ class TestEstimateReflectModeCost:
     def test_free_tier_gemini_reflect_estimate_is_zero(self):
         engine = te.GeminiEngine("fake-key", free_tier=True)
         assert te.estimate_reflect_mode_cost(engine, ["你好"] * 20) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Step 9: prompt caching -- the stable part of the prompt must be
+# byte-identical across every batch of one drama, with everything that
+# changes per batch after it.
+# ---------------------------------------------------------------------------
+
+class _FakeClaudeUsage:
+    def __init__(self, input_tokens=100, output_tokens=20, cache_read=0, cache_write=0):
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_read_input_tokens = cache_read
+        self.cache_creation_input_tokens = cache_write
+
+
+class _FakeClaudeMessages:
+    """Records every messages.create call and answers with each requested
+    line id translated, so no batch ever needs a retry."""
+    def __init__(self, usage=None):
+        self.calls = []
+        self.usage = usage or _FakeClaudeUsage()
+
+    def create(self, **kwargs):
+        import json as _json
+        import re as _re
+        self.calls.append(kwargs)
+        user = kwargs["messages"][0]["content"]
+        numbered = user.split("Translate these lines:\n\n", 1)[1]
+        ids = _re.findall(r"^(\d+)\. ", numbered, flags=_re.M)
+        text = _json.dumps({i: f"EN{i}" for i in ids})
+
+        class _Block:
+            type = "text"
+        block = _Block()
+        block.text = text
+
+        class _Resp:
+            pass
+        resp = _Resp()
+        resp.content = [block]
+        resp.usage = self.usage
+        return resp
+
+
+def _claude_engine_with_fake_client(usage=None):
+    engine = te.ClaudeEngine("sk-ant-fake")
+    engine.client = type("C", (), {})()
+    engine.client.messages = _FakeClaudeMessages(usage)
+    return engine
+
+
+def _six_lines():
+    return [Line(idx=i, start=i, end=i + 1, zh=f"第{i}句", id=100 + i) for i in range(6)]
+
+
+class TestStablePromptPrefix:
+    def _run_claude(self, **kw):
+        engine = _claude_engine_with_fake_client()
+        lines = _six_lines()
+        te.translate_lines_with_engine(
+            lines, engine, {"title_en": "Drama"}, batch_size=2,
+            novel_reference="Reference novel text.", glossary_terms=[
+                {"term_original": "苏杉", "term_translation": "Su Shan"}],
+            style_guidelines="Keep it warm.", **kw)
+        return engine.client.messages.calls, lines
+
+    def test_claude_system_blocks_are_byte_identical_across_batches(self):
+        calls, lines = self._run_claude()
+        assert len(calls) == 3
+        systems = [repr(c["system"]) for c in calls]
+        assert systems[0] == systems[1] == systems[2]
+        assert [ln.en for ln in lines] == [f"EN{100 + i}" for i in range(6)]
+
+    def test_per_batch_context_lives_in_the_user_message_only(self):
+        calls, _ = self._run_claude()
+        # Batch 2 sees batch 1's translations (look-back) and batch 3's
+        # source (look-ahead) -- both must be in the user message, and
+        # neither may leak into the cached system prompt.
+        second_user = calls[1]["messages"][0]["content"]
+        assert "第0句 -> EN100" in second_user
+        assert "第4句" in second_user.split("Translate these lines:")[0]
+        system_text = "".join(b["text"] for b in calls[1]["system"])
+        assert "第0句" not in system_text and "第4句" not in system_text
+        assert calls[0]["messages"][0]["content"] != calls[1]["messages"][0]["content"]
+
+    def test_the_last_stable_block_carries_cache_control(self):
+        calls, _ = self._run_claude()
+        system = calls[0]["system"]
+        assert system[-1].get("cache_control") == {"type": "ephemeral"}
+        assert "Reference novel text." in system[-1]["text"]
+        assert all("cache_control" not in b for b in system[:-1])
+
+    def test_without_a_novel_reference_the_instructions_block_is_cached(self):
+        blocks = te.build_claude_system_blocks({"drama_meta": {}})
+        assert len(blocks) == 1
+        assert blocks[0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_gemini_system_instruction_is_byte_identical_across_batches(self, monkeypatch):
+        import json as _json
+        import re as _re
+        bodies = []
+
+        class FakeResponse:
+            def __init__(self, body):
+                self.body = body
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                user = self.body["contents"][0]["parts"][0]["text"]
+                ids = _re.findall(r"^(\d+)\. ", user.split("Translate these lines:\n\n", 1)[1],
+                                  flags=_re.M)
+                return {"candidates": [{"content": {"parts": [
+                    {"text": _json.dumps({i: "x" for i in ids})}]}}]}
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            bodies.append(json)
+            return FakeResponse(json)
+
+        monkeypatch.setattr("requests.post", fake_post)
+        te.translate_lines_with_engine(_six_lines(), te.GeminiEngine("k"), {}, batch_size=2,
+                                       novel_reference="Ref.")
+        assert len(bodies) == 3
+        assert bodies[0]["systemInstruction"] == bodies[1]["systemInstruction"] == \
+            bodies[2]["systemInstruction"]
+
+
+class TestCacheUsageAccounting:
+    def test_claude_usage_counts_cached_tokens_as_part_of_the_prompt(self):
+        u = te.claude_usage(_FakeClaudeUsage(input_tokens=50, output_tokens=10,
+                                             cache_read=900, cache_write=0))
+        assert u == {"input_tokens": 950, "output_tokens": 10,
+                     "cache_read_tokens": 900, "cache_write_tokens": 0}
+
+    def test_gemini_usage_reads_cached_content_token_count(self):
+        u = te.gemini_usage({"promptTokenCount": 1000, "candidatesTokenCount": 5,
+                             "cachedContentTokenCount": 800})
+        assert u["input_tokens"] == 1000 and u["cache_read_tokens"] == 800
+
+    def test_cache_reads_cost_less_than_uncached_input(self):
+        full = te.estimate_cost("claude-sonnet-5", 1_000_000, 0)
+        cached = te.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_read_tokens=1_000_000)
+        assert cached == pytest.approx(full * te.CACHE_READ_PRICE_FACTOR)
+
+    def test_cache_writes_cost_more_than_uncached_input(self):
+        full = te.estimate_cost("claude-sonnet-5", 1_000_000, 0)
+        written = te.estimate_cost("claude-sonnet-5", 1_000_000, 0, cache_write_tokens=1_000_000)
+        assert written == pytest.approx(full * te.CACHE_WRITE_PRICE_FACTOR)
+
+    def test_usage_cb_receives_cache_tokens_per_batch(self):
+        engine = _claude_engine_with_fake_client(
+            _FakeClaudeUsage(input_tokens=10, output_tokens=5, cache_read=90))
+        seen = []
+        te.translate_lines_with_engine(_six_lines(), engine, {}, batch_size=3,
+                                       usage_cb=lambda *a: seen.append(a))
+        assert seen == [(100, 5, 90, 0), (100, 5, 90, 0)]
+
+
+# ---------------------------------------------------------------------------
+# Step 9: spending caps
+# ---------------------------------------------------------------------------
+
+class _PricedEngine:
+    """Every batch reports 1M input tokens on claude-sonnet-5 -- $2.00 a
+    batch at PRICING_PER_MILLION_TOKENS, so cap arithmetic is exact."""
+    name = "claude"
+    supports_reference = True
+    model = "claude-sonnet-5"
+
+    def __init__(self):
+        self.calls = 0
+        self.last_usage = {}
+
+    def translate_batch(self, zh_lines, context):
+        self.calls += 1
+        self.last_usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+        return [f"EN:{z}" for z in zh_lines]
+
+
+class TestCostCap:
+    def _lines(self, n=6):
+        return [Line(idx=i, start=i, end=i + 1, zh=f"l{i}") for i in range(n)]
+
+    def test_stops_after_the_batch_that_reaches_the_cap_and_keeps_finished_lines(self):
+        lines, engine, seen = self._lines(), _PricedEngine(), []
+        _, errors = te.translate_lines_with_engine(
+            lines, engine, {}, batch_size=2, cost_cap_usd=3.0, cap_cb=seen.append)
+        assert engine.calls == 2
+        assert [ln.en for ln in lines] == ["EN:l0", "EN:l1", "EN:l2", "EN:l3", "", ""]
+        assert seen == [pytest.approx(4.0)]
+        assert errors == []
+
+    def test_no_cap_runs_everything(self):
+        lines, engine = self._lines(), _PricedEngine()
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+        assert engine.calls == 3 and all(ln.en for ln in lines)
+
+    def test_reaching_the_cap_on_the_last_batch_is_not_reported_as_a_stop(self):
+        lines, engine, seen = self._lines(4), _PricedEngine(), []
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, cost_cap_usd=4.0,
+                                       cap_cb=seen.append)
+        assert engine.calls == 2 and all(ln.en for ln in lines)
+        assert seen == []
+
+    def test_a_free_tier_engine_never_hits_a_cap(self):
+        lines, engine = self._lines(), _PricedEngine()
+        engine.free_tier = True
+        te.translate_lines_with_engine(lines, engine, {}, batch_size=2, cost_cap_usd=0.01)
+        assert engine.calls == 3
+
+
+class TestResolveCostCap:
+    def test_no_caps_means_no_cap(self):
+        assert te.resolve_cost_cap(None, None, 5.0) == (None, None)
+        assert te.resolve_cost_cap(0, 0, 5.0) == (None, None)
+
+    def test_job_cap_alone(self):
+        assert te.resolve_cost_cap(2.5, None, 100.0) == (2.5, None)
+
+    def test_monthly_remaining_alone(self):
+        assert te.resolve_cost_cap(None, 10.0, 7.5) == (pytest.approx(2.5), None)
+
+    def test_the_tighter_of_the_two_wins(self):
+        assert te.resolve_cost_cap(1.0, 10.0, 7.5)[0] == 1.0
+        assert te.resolve_cost_cap(5.0, 10.0, 7.5)[0] == pytest.approx(2.5)
+
+    def test_monthly_cap_used_up_refuses(self):
+        cap, refusal = te.resolve_cost_cap(5.0, 10.0, 10.0)
+        assert cap is None
+        assert "already used up" in refusal
+
+
+class TestEstimateTranslationCost:
+    def test_reflect_estimate_is_three_times_a_normal_run(self):
+        engine = _PricedEngine()
+        lines = ["你好世界" * 50] * 10
+        assert te.estimate_reflect_mode_cost(engine, lines) == pytest.approx(
+            3 * te.estimate_translation_cost(engine, lines))
+
+    def test_free_tier_estimates_zero(self):
+        engine = _PricedEngine()
+        engine.free_tier = True
+        assert te.estimate_translation_cost(engine, ["你好"] * 100) == 0.0
+
+
+class TestGemini31FlashLite:
+    """Step 9: Gemini 3.1 Flash-Lite is selectable, never the default."""
+
+    def test_selectable_but_not_the_default(self):
+        keys = list(te.GEMINI_MODELS)
+        assert "gemini-3.1-flash-lite" in keys
+        assert keys[0] == "gemini-flash-lite-latest"
+        assert te.GeminiEngine("k").model == "gemini-flash-lite-latest"
+
+    def test_priced_at_the_cheaper_rate(self):
+        assert te.PRICING_PER_MILLION_TOKENS["gemini-3.1-flash-lite"] == {"input": 0.25, "output": 1.50}
+        assert te.estimate_cost("gemini-3.1-flash-lite", 1_000_000, 1_000_000) == pytest.approx(1.75)
+
+    def test_reaches_the_api_with_the_right_model_id(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": '{"1": "Hi."}'}]}}]}
+
+        monkeypatch.setattr("requests.post", lambda url, headers=None, json=None, timeout=None:
+                            captured.update(url=url) or FakeResponse())
+        engine = te.get_engine("gemini", "k", "gemini-3.1-flash-lite")
+        assert engine.translate_batch(["你好"], {}) == ["Hi."]
+        assert captured["url"].endswith("/models/gemini-3.1-flash-lite:generateContent")

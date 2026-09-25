@@ -23,6 +23,7 @@ import argparse
 import io
 import contextlib
 
+import pytest
 import db
 import translate_engines
 import dub as dub_module
@@ -226,6 +227,56 @@ class TestCmdTranslateParity:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_translate(args)
         assert seen["reflect"] is False
+
+
+class TestCmdTranslateSpendingCaps:
+    """Step 9 parity with the Workspace Translate job: the CLI logs usage
+    (so the monthly cap sees CLI spend too) and honours both caps."""
+
+    class _Engine:
+        name = "claude"
+        supports_reference = True
+        model = "claude-sonnet-5"
+
+        def __init__(self):
+            self.calls = 0
+            self.last_usage = {}
+
+        def translate_batch(self, zh_lines, context):
+            self.calls += 1
+            self.last_usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+            return [f"EN:{z}" for z in zh_lines]
+
+    def _drama(self, isolated_db, n=45):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(n)])
+        return did
+
+    def test_cost_cap_stops_the_run_and_usage_is_logged(self, isolated_db, monkeypatch):
+        engine = self._Engine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        did = self._drama(isolated_db)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(_translate_args(id=did, cost_cap=3.0, monthly_cap=None))
+        assert engine.calls == 2
+        assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
+        assert isolated_db.get_usage_summary(did)["estimated_cost_usd"] == pytest.approx(4.0)
+        assert "stopped at the spending cap" in out.getvalue()
+
+    def test_monthly_cap_used_up_refuses_to_start(self, isolated_db, monkeypatch):
+        engine = self._Engine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        did = self._drama(isolated_db, n=2)
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                cli.cmd_translate(_translate_args(id=did, cost_cap=None, monthly_cap=20.0))
+            except SystemExit:
+                pass
+        assert engine.calls == 0
+        assert not any(r["en"] for r in isolated_db.load_lines(did))
 
 
 class TestCmdDubFlagPreservation:
