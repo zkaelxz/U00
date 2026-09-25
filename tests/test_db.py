@@ -158,6 +158,36 @@ class TestLinesSaveLoad:
         assert loaded[0]["flag"] is None
 
 
+class TestLoadLineIds:
+    """Step 6f: the cheap id-set check a caller uses to confirm a
+    snapshot it computed earlier isn't stale relative to the database
+    before committing it as a full replacement (see resegment Apply's
+    own safety check)."""
+
+    def test_returns_the_current_id_set(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a"),
+                                     Line(idx=1, start=1, end=2, zh="b")])
+        loaded = isolated_db.load_line_objects(did)
+        assert isolated_db.load_line_ids(did) == {ln.id for ln in loaded}
+
+    def test_empty_for_a_drama_with_no_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        assert isolated_db.load_line_ids(did) == set()
+
+    def test_reflects_a_change_made_by_another_save(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="a")])
+        before = isolated_db.load_line_ids(did)
+
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=1, start=1, end=2, zh="b"))
+        isolated_db.save_lines(did, lines)
+
+        assert isolated_db.load_line_ids(did) != before
+        assert isolated_db.load_line_ids(did) == {ln.id for ln in isolated_db.load_line_objects(did)}
+
+
 class TestSeriesAndGlossary:
     def test_get_or_create_is_idempotent(self, isolated_db):
         sid1 = isolated_db.get_or_create_series("Series A")
