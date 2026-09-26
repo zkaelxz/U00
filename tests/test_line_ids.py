@@ -188,6 +188,40 @@ class TestAdoptIds:
         assert rows[1]["flag"] == "idiom"
         assert len(isolated_db.list_translation_notes(did)) == 1
 
+    def test_a_merged_away_id_does_not_get_reattached_by_position(self, isolated_db):
+        """Step 25l bug: restoring a snapshot taken before a merge must not
+        fall back to matching the now-gone line by position -- idx shifts
+        after a merge deletes a row, so that would silently reattach the
+        snapshot's flag/notes to whatever unrelated line now sits at the
+        old position, and shift every later note along with it."""
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=0.5, zh="a", en="A"),
+                                      Line(idx=1, start=0.6, end=1.1, zh="b", en="B"),
+                                      Line(idx=2, start=10.0, end=14.0, zh="c", en="C"),
+                                      Line(idx=3, start=20.0, end=24.0, zh="d", en="D")])
+        current = isolated_db.load_line_objects(did)
+        current[2].flag, current[2].flag_note = "idiom", "note on c"
+        current[3].flag, current[3].flag_note = "ambiguous", "note on d"
+        isolated_db.save_lines(did, current)
+
+        pre_merge = isolated_db.load_line_objects(did)
+        isolated_db.save_line_history_snapshot(did, pre_merge, "before merge")
+        snap_id = isolated_db.list_line_history(did)[0]["id"]
+
+        merged = merge_adjacent_short_lines(isolated_db.load_line_objects(did))
+        assert [ln.zh for ln in merged] == ["ab", "c", "d"]   # "a"+"b" merged into one line
+        isolated_db.save_lines(did, merged)
+
+        rows = isolated_db.get_line_history_snapshot(snap_id)
+        restored = adopt_ids([Line(**r) for r in rows], isolated_db.load_line_objects(did))
+        isolated_db.save_lines(did, restored)
+
+        by_zh = {r["zh"]: r for r in isolated_db.load_lines(did)}
+        assert by_zh["a"]["flag"] is None
+        assert by_zh["b"]["flag"] is None and by_zh["b"]["flag_note"] == ""
+        assert by_zh["c"]["flag"] == "idiom" and by_zh["c"]["flag_note"] == "note on c"
+        assert by_zh["d"]["flag"] == "ambiguous" and by_zh["d"]["flag_note"] == "note on d"
+
 
 OLD_SCHEMA = """
 CREATE TABLE lines (id INTEGER PRIMARY KEY AUTOINCREMENT, drama_id INTEGER NOT NULL, idx INTEGER,
