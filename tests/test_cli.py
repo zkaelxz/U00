@@ -42,7 +42,7 @@ def _translate_args(**overrides):
 
 
 def _dub_args(**overrides):
-    defaults = dict(id=None, elevenlabs_key=None, gpt_sovits_url=None, m4b=False)
+    defaults = dict(id=None, gpt_sovits_url=None, m4b=False)
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 
@@ -290,7 +290,7 @@ class TestCmdDubFlagPreservation:
         calls = []
 
         def fake_build_dub_track(lines, drama_dir, voice_map, character_clone_map=None,
-                                 progress_cb=None, emotion_map=None):
+                                 progress_cb=None, emotion_map=None, **stretch):
             calls.append(lines)
             return "fake_dub.wav", []
         monkeypatch.setattr(dub_module, "build_dub_track", fake_build_dub_track)
@@ -304,6 +304,30 @@ class TestCmdDubFlagPreservation:
         rows = isolated_db.load_lines(did)
         assert rows[0]["flag"] == "needs_review"
         assert rows[0]["flag_note"] == "awkward phrasing"
+
+
+class TestCmdDubStretchLimits:
+    """Step 11c: the time-stretch clamp is adjustable from the CLI, the
+    same as from Workspace section 8 -- and defaults to dub.py's own."""
+
+    def _run(self, isolated_db, monkeypatch, **overrides):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        seen = {}
+        monkeypatch.setattr(dub_module, "build_dub_track",
+                            lambda lines, *a, **k: seen.update(k) or ("fake_dub.wav", []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did, **overrides))
+        return seen
+
+    def test_defaults(self, isolated_db, monkeypatch):
+        seen = self._run(isolated_db, monkeypatch)
+        assert (seen["max_speedup"], seen["max_slowdown"]) == (dub_module.DUB_MAX_SPEEDUP,
+                                                               dub_module.DUB_MAX_SLOWDOWN)
+
+    def test_flags_pass_through(self, isolated_db, monkeypatch):
+        seen = self._run(isolated_db, monkeypatch, max_speedup=1.2, max_slowdown=1.0)
+        assert (seen["max_speedup"], seen["max_slowdown"]) == (1.2, 1.0)
 
 
 class TestCmdDubNarration:

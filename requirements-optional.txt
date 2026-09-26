@@ -41,7 +41,6 @@ qwen-asr>=0.1          # recommends a clean Python 3.12 env. On Python
 
 # --- voice cloning ---
 f5-tts>=0.9             # local, GPU recommended
-elevenlabs>=1.0         # hosted, no GPU needed
 
 # Novel narration voices (optional, local; GPU strongly recommended). Pick
 # one per character in Workspace section 6; each downloads its own model on

@@ -165,7 +165,7 @@ def init_db():
         tts_voice TEXT,          -- fallback free TTS voice for this character
         ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
         ref_text TEXT,           -- transcript of what's said in the reference clip
-        elevenlabs_voice_id TEXT,-- cloned voice ID from ElevenLabs, if used instead of F5-TTS
+        elevenlabs_voice_id TEXT,-- hosted clone (engine removed in Step 11d); kept as a record, unused
         clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = F5-TTS
         voice_design TEXT,       -- described voice (OmniVoice voice design) for a character with no clip
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
