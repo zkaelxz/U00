@@ -261,3 +261,41 @@ class TestRequestEconomy:
         a.get_series("17332")
         a.get_chapters("17332")
         assert len(t.calls) == 1
+
+
+class TestAdultOptIn:
+    def test_off_by_default_and_the_message_names_the_toggle(self, isolated_db):
+        a, _ = _adapter({f"{W}/comic/17332/": html(fx.SERIES_PAGE_ADULT)})
+        assert a.allow_adult is False
+        with pytest.raises(ContentHidden) as e:
+            a.get_chapters("17332")
+        assert "Include adult-flagged works" in str(e.value)
+
+    def test_turning_it_on_for_this_source_is_picked_up(self, isolated_db):
+        from sources import store
+        store.set_adult_enabled("manhuagui", True)
+        a, t = _adapter({f"{W}/comic/17332/": html(fx.SERIES_PAGE_ADULT)})
+        assert a.allow_adult is True
+        assert len(a.get_chapters("17332")) == 4
+        assert t.calls[0]["headers"]["Cookie"] == "isAdult=1"
+        store.set_adult_enabled("manhuagui", False)
+        assert _adapter({})[0].allow_adult is False
+
+    def test_opt_in_is_per_source(self, isolated_db):
+        from sources import store
+        store.set_adult_enabled("some_other_source", True)
+        assert _adapter({})[0].allow_adult is False
+
+    def test_the_cookie_never_goes_to_the_image_cdn(self, isolated_db):
+        from sources.models import PageRef
+        path = "/ps3/x/001.jpg.webp?e=1&m=x"
+        a, t = _adapter({CDN + path: image(700, 1000, 1)}, allow_adult=True)
+        a.download_page(PageRef("manhuagui", "1", 0, path, headers={"Referer": W + "/"}))
+        assert "Cookie" not in t.calls[0]["headers"]
+
+    def test_adapters_without_a_switch_ignore_the_flag(self, isolated_db):
+        from sources.base import SourceAdapter
+
+        class Plain(SourceAdapter):
+            name = "plain"
+        assert Plain(client=make_client("plain", ScriptedTransport()), allow_adult=True).allow_adult is False

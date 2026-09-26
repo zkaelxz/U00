@@ -83,3 +83,14 @@ class TestSourcesTab:
         _button(at, "🔄 Reload chapter list").click()
         at.run(timeout=30)
         assert calls == ["1", "1"]
+
+    def test_adult_toggle_shown_only_for_sources_that_support_it(self, isolated_db, monkeypatch):
+        from sources import chapter_check, store
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+        store.set_setting("demo_source_enabled", True)
+        at = _app(isolated_db)
+        keys = [t.key for t in at.toggle]
+        assert "src_adult_manhuagui" in keys and "src_adult_demo" not in keys
+        at.toggle(key="src_adult_manhuagui").set_value(True)
+        at.run(timeout=30)
+        assert store.adult_enabled("manhuagui") and not store.adult_enabled("demo")

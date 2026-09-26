@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     "auto_queue_new_chapters": False,
     "demo_source_enabled": False,
     "disabled_sources": [],
+    "adult_sources": [],            # sources the person opted in to adult-flagged works for
 }
 
 
@@ -148,6 +149,19 @@ def all_settings() -> dict:
         for row in conn.execute("SELECT key, value FROM settings"):
             out[row["key"]] = json.loads(row["value"])
     return out
+
+
+def adult_enabled(source: str) -> bool:
+    return source in (get_setting("adult_sources") or [])
+
+
+def set_adult_enabled(source: str, enabled: bool):
+    current = set(get_setting("adult_sources") or [])
+    if enabled:
+        current.add(source)
+    else:
+        current.discard(source)
+    set_setting("adult_sources", sorted(current))
 
 
 # ---------------------------------------------------------------------------

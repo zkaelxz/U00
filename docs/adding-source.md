@@ -83,8 +83,16 @@ Rules:
   a token scheme, or solving a challenge is not. If content only appears
   after the site's own JavaScript runs, that's the `RENDERED_BROWSER`
   tier's job, not the adapter's.
-- **Adult-content flags stay off by default.** Only send one if a
-  setting explicitly opts in.
+- **Adult-content switches are per-source opt-ins, off by default.** If
+  the site hides some works behind its own "I'm an adult" switch
+  (usually a cookie), set `supports_adult_toggle = True`. Send the
+  switch only when `self.allow_adult` is true, and only to the hosts
+  that need it. When a hidden work is hit with it off, raise
+  `ContentHidden(self.adult_hidden_message("this chapter"))`. The
+  message tells the person exactly which toggle to use. The Sources tab
+  shows a **🔞 Include adult-flagged works** toggle for every adapter
+  that declares support, and stores the choice per source. Nothing else
+  needs wiring.
 - **Parse CJK chapter titles as they are.** `chapter_order.sort_chapters`
   handles ordering, and the UI already calls it.
 
