@@ -348,6 +348,34 @@ class TestCostDashboardShowsFreeEngineUsage:
         assert self._cost_df(at) is None
 
 
+class TestAnimeInLibraryTypeFilter:
+    """Step 22b: "anime" filterable in the Library, same as manhwa/manga/
+    manhua already are."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_anime_is_a_type_filter_option(self, isolated_db):
+        at = self._run()
+        type_filter = [s for s in at.selectbox if s.label == "Type"][0]
+        assert "Anime" in type_filter.options
+
+    def test_filtering_by_anime_shows_only_anime_dramas(self, isolated_db):
+        isolated_db.create_drama(title_en="An Anime", media_type="anime")
+        isolated_db.create_drama(title_en="A Novel", media_type="novel")
+        at = self._run()
+        [s for s in at.selectbox if s.label == "Type"][0].select("Anime").run()
+        assert any(c.value == "1 drama(s)" for c in at.caption)
+
+
 class TestCacheHitShare:
     """Step 9: the Library dashboard shows what share of input tokens were
     prompt-cache reads, next to the cost."""
