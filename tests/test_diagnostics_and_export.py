@@ -361,6 +361,20 @@ class TestModelEngineVersions:
         # rather than crashing either way.
         assert row["version"] == "not installed" or row["version"][0].isdigit()
 
+    def test_step_11b_voice_engines_have_rows(self):
+        rows = {v["name"]: v for v in diagnostics.get_model_engine_versions()}
+        for name in ("OmniVoice", "GPT-SoVITS", "Chatterbox", "TADA"):
+            assert name in rows
+        # a separate server, not a pip package -- says so rather than "not installed"
+        assert rows["GPT-SoVITS"]["version"] == "separate local server (not pip-installed)"
+
+    def test_step_11b_pip_engines_are_registered_dependencies(self):
+        # keyed by the real pip name, since the Install button runs `pip install <key>`
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        assert deps["omnivoice"][0] == "omnivoice"
+        assert deps["chatterbox-tts"][0] == "chatterbox"
+        assert deps["hume-tada"][0] == "tada"
+
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics.get_model_engine_versions())
         versions = diagnostics.get_model_engine_versions("qwen3:8b")
