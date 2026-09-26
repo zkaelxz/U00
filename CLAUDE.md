@@ -88,6 +88,19 @@ external project checked so far.
   test/push/stop workflow — repeating that boilerplate in every handoff is
   redundant. Only add extra detail beyond the one-liner when the step name
   alone is genuinely ambiguous, or the user asks for more.
+- **This planning session can spawn its own implementing sessions directly —
+  it doesn't need the user to open a separate chat.** Use
+  `mcp__Claude_Code_Remote__create_session` with `source_url` set to this
+  repo, `source_revision: "baihe-subtitler"`, and the one-line handoff
+  above as `prompt` (the new session inherits the model unless overridden).
+  This means several ready-to-send, non-overlapping steps can be dispatched
+  in parallel in one turn — don't sit on a step that's ready just because
+  the user hasn't separately opened a chat for it; ask before spawning if
+  it's unclear whether the user wants it run now, but the mechanism itself
+  requires no separate human action. Each spawned session shows up in this
+  session's own session list/notifications when it pushes or needs
+  attention — treat its pushed branch exactly like any other implementing
+  branch under the review-gate rules above.
 - **"Build Queue" chart — a reusable good practice, kept fresh on request.**
   When several steps are in flight across parallel implementing chats, a
   published Artifact chart (three columns: **Assigned** — handed off,
