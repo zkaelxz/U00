@@ -281,9 +281,15 @@ def _resolve_status(result: LadderResult):
 
 def load_capabilities(source: str, default: SourceCapabilities = None) -> SourceCapabilities:
     raw = store.load_capabilities(source)
-    if raw:
-        return SourceCapabilities.from_dict(raw)
-    return default or SourceCapabilities(platform=source)
+    if not raw:
+        return default or SourceCapabilities(platform=source)
+    caps = SourceCapabilities.from_dict(raw)
+    if default is not None and default.terms.get("tos_prohibited"):
+        # A stored record can't clear a prohibition the adapter's own
+        # built-in default currently states -- ToS status is a property
+        # of the site, not of what an earlier import happened to observe.
+        caps.terms["tos_prohibited"] = True
+    return caps
 
 
 def save_capabilities(source: str, caps: SourceCapabilities):
