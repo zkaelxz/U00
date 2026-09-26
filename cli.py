@@ -35,8 +35,10 @@ import portable
 portable.activate_portable_mode()
 
 import argparse
+import contextlib
 import os
 import sys
+import time
 import traceback
 
 import db
@@ -52,6 +54,35 @@ import raw_transcript
 import adaptive_style
 import emotion
 import dub as dub_module
+
+
+@contextlib.contextmanager
+def _gpu_lock(description: str, poll_interval: float = 5.0):
+    """Step 25w: cross-process "one GPU job at a time" guard, shared with
+    the live Streamlit UI's background_jobs.py through the gpu_lock table
+    in the shared library.db (see db.try_acquire_gpu_lock's own
+    docstring) -- this module never imports background_jobs.py at all, so
+    its own in-process guard (Step 5c) never covered a CLI run, and an
+    overnight CLI batch could run concurrently with a GPU-touching job
+    started from the live UI, competing for the same VRAM. Waits and
+    retries rather than failing outright, matching this module's own
+    "built for unattended overnight runs" framing -- yields the holder id
+    a caller running a multi-drama batch under this lock can use to send
+    its own periodic heartbeat_gpu_lock() calls, so a long batch doesn't
+    look abandoned partway through. poll_interval is a test-only knob;
+    real callers use the 5-second default."""
+    holder = f"cli:{os.getpid()}"
+    waited = False
+    while not db.try_acquire_gpu_lock(holder, description):
+        if not waited:
+            _busy_with = db.gpu_lock_status()[1] or "another job"
+            print(f"Waiting for the GPU -- busy with: {_busy_with}")
+            waited = True
+        time.sleep(poll_interval)
+    try:
+        yield holder
+    finally:
+        db.release_gpu_lock(holder)
 
 
 def _run_batch(dramas, step_fn, label: str):
@@ -201,6 +232,7 @@ def cmd_diarize(args):
             print(f"#{d['id']} skipped: no lines yet (transcribe first).")
             return
         print(f"#{d['id']} detecting speakers...")
+        db.heartbeat_gpu_lock(_gpu_holder)
         try:
             turns, model, embeddings = diarize.diarize(
                 audio_path, hf_token, num_speakers=args.num_speakers or None,
@@ -217,7 +249,8 @@ def cmd_diarize(args):
               + (f"; kept {result['kept_manual']} hand-corrected line(s) "
                  f"(--overwrite-manual to replace them)." if result["kept_manual"] else "."))
 
-    _run_batch(dramas, step, "diarize")
+    with _gpu_lock(f"CLI diarize ({len(dramas)} drama(s))") as _gpu_holder:
+        _run_batch(dramas, step, "diarize")
 
 
 def cmd_align(args):
@@ -237,6 +270,7 @@ def cmd_align(args):
         with open(transcript_path, "r", encoding="utf-8") as f:
             transcript_text = f.read()
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
+        db.heartbeat_gpu_lock(_gpu_holder)
         segments = transcribe_for_timing(audio_path, args.whisper_size, language=d.get("source_language") or "zh",
                                          fast_mode=getattr(args, "fast", False))
         user_lines = split_user_transcript(transcript_text)
@@ -250,7 +284,8 @@ def cmd_align(args):
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
 
-    _run_batch(dramas, step, "align")
+    with _gpu_lock(f"CLI align ({len(dramas)} drama(s))") as _gpu_holder:
+        _run_batch(dramas, step, "align")
 
 
 def cmd_translate(args):
@@ -304,6 +339,15 @@ def cmd_translate(args):
         if refusal:
             raise RuntimeError(refusal)
         cap_reached = {}
+        def _progress(frac, did=d["id"]):
+            if _gpu_holder:
+                # Step 25w: --engine ollama holds the cross-process GPU
+                # lock for this whole batch (see below) -- refreshed here,
+                # on every batch's own progress tick, so a long run doesn't
+                # look abandoned to another process before it's done.
+                db.heartbeat_gpu_lock(_gpu_holder)
+            print(f"  #{did}: {frac*100:.0f}%", end="\r")
+
         _, batch_errors = translate_engines.translate_lines_with_engine(
             lines, engine, drama_meta=d, style_note=args.style_note or "",
             novel_reference=novel_reference, force_retranslate=args.force,
@@ -313,7 +357,7 @@ def cmd_translate(args):
             reflect=getattr(args, "reflect", False),
             notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
                 did, notes, id_by_idx=_id_by_idx),
-            progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
+            progress_cb=_progress,
             # Same as the Workspace Translate job: writes `en` only.
             save_cb=lambda lines, did=d["id"]: db.save_lines(did, lines, fields=("en",)),
             usage_cb=lambda inp, out, cache_read=0, cache_write=0, did=d["id"]: db.log_usage(
@@ -339,7 +383,13 @@ def cmd_translate(args):
         else:
             print(f"\n#{d['id']} translated.")
 
-    _run_batch(dramas, step, "translate")
+    # Step 25w: only --engine ollama actually touches the GPU here (every
+    # other translate engine is a remote API call) -- the cross-process
+    # lock only needs to guard that case, not every translate run.
+    _gpu_ctx = (_gpu_lock(f"CLI translate --engine ollama ({len(dramas)} drama(s))")
+               if args.engine == "ollama" else contextlib.nullcontext(None))
+    with _gpu_ctx as _gpu_holder:
+        _run_batch(dramas, step, "translate")
 
 
 def cmd_dub(args):
@@ -371,12 +421,29 @@ def cmd_dub(args):
             max_speedup=getattr(args, "max_speedup", None) or dub_module.DUB_MAX_SPEEDUP,
             max_slowdown=getattr(args, "max_slowdown", None) or dub_module.DUB_MAX_SLOWDOWN)
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
-        out_path, dub_errors = build_fn(
-            lines, ddir, voice_map, character_clone_map=clone_map,
-            emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
-            progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
-            **stretch,
-        )
+
+        # Step 25w: same clone_map_uses_local_model check the Workspace tab's
+        # own Dub job uses to decide gpu_touching -- only some clone/TTS
+        # backends actually load a local model onto the GPU (GPT-SoVITS,
+        # OmniVoice, ...); edge-tts/cloud backends don't, and don't need to
+        # wait on the cross-process GPU lock at all.
+        _gpu_holder_box = [None]
+
+        def _progress(frac, did=d["id"]):
+            if _gpu_holder_box[0]:
+                db.heartbeat_gpu_lock(_gpu_holder_box[0])
+            print(f"  #{did}: {frac*100:.0f}%", end="\r")
+
+        _dub_gpu_ctx = (_gpu_lock(f"CLI dub #{d['id']}")
+                        if dub_module.clone_map_uses_local_model(clone_map)
+                        else contextlib.nullcontext(None))
+        with _dub_gpu_ctx as _gpu_holder_box[0]:
+            out_path, dub_errors = build_fn(
+                lines, ddir, voice_map, character_clone_map=clone_map,
+                emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
+                progress_cb=_progress,
+                **stretch,
+            )
         # Narration rewrites every line's timing to match its audio -- same
         # fields the Workspace tab saves after narration.
         db.save_lines(d["id"], lines,

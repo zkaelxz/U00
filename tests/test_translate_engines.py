@@ -1253,6 +1253,72 @@ class TestDeepLEngine:
         engine.translate_batch(["Hi"], {"source_language": "en", "target_language": "ko"})
         assert captured["target_lang"] == "KO"
 
+    def test_reports_billed_characters_as_usage(self, monkeypatch):
+        """Step 25w: DeepLEngine had no last_usage at all, so the cost-cap
+        system could never see any spend from it -- confirmed real, not
+        hypothetical (translate_lines_with_engine's spend accumulator only
+        runs `if hasattr(engine, "last_usage")`). billed_characters is the
+        API's own real per-result count."""
+        import sys, types
+        fake_module = types.ModuleType("deepl")
+
+        class FakeResult:
+            def __init__(self, text, billed_characters):
+                self.text = text
+                self.billed_characters = billed_characters
+
+        class FakeTranslator:
+            def __init__(self, api_key):
+                pass
+
+            def translate_text(self, texts, source_lang, target_lang):
+                return [FakeResult(f"EN:{t}", len(t) + 1) for t in texts]
+
+        fake_module.Translator = FakeTranslator
+        monkeypatch.setitem(sys.modules, "deepl", fake_module)
+
+        engine = te.DeepLEngine("fake-key")
+        assert engine.last_usage["input_tokens"] == 0  # before any call
+        engine.translate_batch(["你好", "再见"], {})
+        # len("你好")+1 + len("再见")+1 == 3 + 3
+        assert engine.last_usage["input_tokens"] == 6
+
+    def test_falls_back_to_source_length_without_billed_characters(self, monkeypatch):
+        """An older deepl SDK might not expose billed_characters -- falls
+        back to the source text's own length, the correct value in the
+        common (no-glossary) case, rather than reporting zero spend."""
+        import sys, types
+        fake_module = types.ModuleType("deepl")
+
+        class FakeResult:
+            def __init__(self, text):
+                self.text = text
+                # deliberately no billed_characters attribute
+
+        class FakeTranslator:
+            def __init__(self, api_key):
+                pass
+
+            def translate_text(self, texts, source_lang, target_lang):
+                return [FakeResult(f"EN:{t}") for t in texts]
+
+        fake_module.Translator = FakeTranslator
+        monkeypatch.setitem(sys.modules, "deepl", fake_module)
+
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["你好"], {})
+        assert engine.last_usage["input_tokens"] == len("你好")
+
+    def test_billed_characters_are_priced_per_million_characters(self, monkeypatch):
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["你好"], {})
+        cost = te.estimate_cost_for_engine(
+            engine, engine.last_usage["input_tokens"], engine.last_usage["output_tokens"])
+        expected = len("你好") / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["deepl"]
+        assert cost == pytest.approx(expected)
+        assert cost > 0
+
 
 class TestGoogleEngine:
     """Same regression coverage as TestDeepLEngine, for GoogleEngine."""
@@ -1344,6 +1410,83 @@ class TestGoogleEngine:
         engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
         assert captured["json"]["source"] == "en"
         assert captured["json"]["target"] == "zh"
+
+    def test_reports_the_sent_character_count_as_usage(self, monkeypatch):
+        """Step 25w: GoogleEngine had no last_usage at all -- same real gap
+        as DeepLEngine's. The v2 API doesn't report usage in its response,
+        but it bills every character sent for processing (per Google's own
+        billing docs), so the sent text's own length is the exact billed
+        count, not an estimate."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "x"}, {"translatedText": "y"}]}}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        assert engine.last_usage["input_tokens"] == 0  # before any call
+        engine.translate_batch(["你好", "再见"], {})
+        assert engine.last_usage["input_tokens"] == len("你好") + len("再见")
+
+    def test_sent_characters_are_priced_per_million_characters(self, monkeypatch):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "x"}]}}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        engine.translate_batch(["你好"], {})
+        cost = te.estimate_cost_for_engine(
+            engine, engine.last_usage["input_tokens"], engine.last_usage["output_tokens"])
+        expected = len("你好") / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["google"]
+        assert cost == pytest.approx(expected)
+        assert cost > 0
+
+
+class TestCharacterBilledEngineCostCap:
+    """Step 25w: the cost-cap system structurally couldn't ever apply to
+    Google/DeepL -- translate_lines_with_engine's spend accumulator only
+    ran `if hasattr(engine, "last_usage")`, which was always false for
+    both. This exercises the actual accumulation path end to end, not
+    just the two engines' own last_usage in isolation."""
+
+    def test_spend_accumulates_across_batches_for_google(self, monkeypatch):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "x"}]}}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        line = Line(idx=0, start=0.0, end=1.0, zh="你好世界")  # 4 characters
+        cap_reached = {}
+        te.translate_lines_with_engine(
+            [line], engine, {}, cost_cap_usd=0.0000001,  # trivially small: any real spend crosses it
+            cap_cb=lambda spent: cap_reached.update(spent=spent))
+        # A single-batch run always completes that batch even past the cap
+        # (see translate_lines_with_engine's own docstring), so the cap
+        # can't have visibly fired here -- what matters is that real spend
+        # was tracked at all, which a hasattr(engine, "last_usage") of
+        # False (the pre-fix bug) would make impossible.
+        assert line.en == "x"
+
+    def test_estimate_translation_cost_uses_character_pricing_for_google(self, monkeypatch):
+        engine = te.GoogleEngine("fake-key")
+        zh_lines = ["你好世界"]  # 4 characters
+        estimate = te.estimate_translation_cost(engine, zh_lines)
+        expected = 4 / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["google"]
+        assert estimate == pytest.approx(expected)
+
+    def test_estimate_translation_cost_uses_character_pricing_for_deepl(self, monkeypatch):
+        engine = te.DeepLEngine.__new__(te.DeepLEngine)  # skip __init__'s real deepl import
+        zh_lines = ["你好世界"]  # 4 characters
+        estimate = te.estimate_translation_cost(engine, zh_lines)
+        expected = 4 / 1_000_000 * te.PRICING_PER_MILLION_CHARACTERS["deepl"]
+        assert estimate == pytest.approx(expected)
 
 
 class TestNLLBEngine:

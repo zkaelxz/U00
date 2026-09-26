@@ -83,13 +83,25 @@ def render_discover_tab():
         _find_key = st.session_state.get("settings_claude", "")
         zh_query = find_query
         if _find_key and not any("\u4e00" <= c <= "\u9fff" for c in find_query):
-            try:
-                _eng = translate_engines.get_engine("claude", _find_key)
-                zh_query = title_library.translate_query_to_zh(find_query, _eng)
-                if zh_query != find_query:
-                    st.caption(f"Searching Chinese platforms for: **{zh_query}**")
-            except Exception:
-                st.caption("Couldn't translate the query -- searching with your text as typed.")
+            # Step 25w: this used to call translate_query_to_zh unconditionally
+            # on every Streamlit rerun -- which fires on ANY widget interaction
+            # anywhere on the page, not just here -- burning one real translate
+            # call per unrelated interaction for as long as this box stayed
+            # populated. Cached by the exact query string instead, matching
+            # every other LLM call on this tab (all behind a button): an
+            # unchanged box now costs nothing on a rerun it didn't cause.
+            _find_cache = st.session_state.get("_find_query_zh_cache")
+            if _find_cache and _find_cache.get("query") == find_query:
+                zh_query = _find_cache["zh"]
+            else:
+                try:
+                    _eng = translate_engines.get_engine("claude", _find_key)
+                    zh_query = title_library.translate_query_to_zh(find_query, _eng)
+                    st.session_state["_find_query_zh_cache"] = {"query": find_query, "zh": zh_query}
+                except Exception:
+                    st.caption("Couldn't translate the query -- searching with your text as typed.")
+            if zh_query != find_query:
+                st.caption(f"Searching Chinese platforms for: **{zh_query}**")
 
         links = known_sites.build_search_links(zh_query, content_type=find_type or None)
         for l in links:

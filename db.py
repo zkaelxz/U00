@@ -11,6 +11,7 @@ import os
 import sqlite3
 import datetime
 import json
+import time
 from typing import List
 
 LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
@@ -520,6 +521,19 @@ def init_db():
         source_text TEXT NOT NULL,
         translated_text TEXT NOT NULL,
         created_at TEXT
+    );
+
+    -- Step 25w: cross-process "one GPU job at a time" guard. background_jobs.py's
+    -- own guard (Step 5c) is plain in-process module state, invisible to a
+    -- separate OS process -- this single-row table is the shared coordination
+    -- point so cli.py's GPU-touching commands and the live Streamlit UI can't
+    -- both hold the GPU at once. See try_acquire_gpu_lock/release_gpu_lock below.
+    CREATE TABLE IF NOT EXISTS gpu_lock (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        holder TEXT NOT NULL,
+        description TEXT,
+        acquired_at REAL NOT NULL,
+        heartbeat_at REAL NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
@@ -2192,6 +2206,80 @@ def get_month_spend(now: datetime.datetime = None) -> float:
         (month_start,)).fetchone()
     conn.close()
     return float(row["spent"])
+
+
+# Step 25w: how long a held gpu_lock row is trusted before it's treated as
+# abandoned (its holder process crashed or was killed without releasing
+# it) and given to whoever asks next. Comfortably longer than
+# background_jobs.py's own progress-poll cadence, so a live job's regular
+# heartbeat_gpu_lock() calls always land well inside this window.
+GPU_LOCK_STALE_SECONDS = 600
+
+
+def try_acquire_gpu_lock(holder: str, description: str = None) -> bool:
+    """Cross-process "one GPU job at a time" guard. background_jobs.py's
+    own guard (Step 5c) is plain in-process module state -- invisible to a
+    separate OS process, so a `cli.py` run and the live Streamlit UI could
+    each start their own GPU-touching job with neither ever seeing the
+    other. This single-row table in the shared library.db is the
+    coordination point instead (SQLite's own transaction handling makes
+    the read-then-write below atomic across processes), not a new
+    subsystem.
+
+    Returns True if the lock was free, already held by `holder` itself, or
+    abandoned (its holder's last heartbeat is older than
+    GPU_LOCK_STALE_SECONDS) -- and is now held by `holder`. Returns False
+    if someone else genuinely holds it right now."""
+    now = time.time()
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT holder, heartbeat_at FROM gpu_lock WHERE id = 1").fetchone()
+        if row and row["holder"] != holder and (now - row["heartbeat_at"]) < GPU_LOCK_STALE_SECONDS:
+            conn.execute("ROLLBACK")
+            return False
+        conn.execute("""
+            INSERT INTO gpu_lock (id, holder, description, acquired_at, heartbeat_at)
+            VALUES (1, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET holder = excluded.holder,
+                description = excluded.description, acquired_at = excluded.acquired_at,
+                heartbeat_at = excluded.heartbeat_at
+        """, (holder, description, now, now))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def heartbeat_gpu_lock(holder: str):
+    """Refreshes a held lock's heartbeat so a still-running job doesn't
+    look abandoned to another process partway through a long run."""
+    conn = get_conn()
+    conn.execute("UPDATE gpu_lock SET heartbeat_at = ? WHERE id = 1 AND holder = ?",
+                 (time.time(), holder))
+    conn.commit()
+    conn.close()
+
+
+def release_gpu_lock(holder: str):
+    """No-ops if `holder` isn't the current lock holder -- e.g. it already
+    went stale and was taken over by someone else, so releasing it now
+    would release the new holder's lock instead of this one's."""
+    conn = get_conn()
+    conn.execute("DELETE FROM gpu_lock WHERE id = 1 AND holder = ?", (holder,))
+    conn.commit()
+    conn.close()
+
+
+def gpu_lock_status():
+    """(holder, description) of whoever currently holds the cross-process
+    GPU lock, or (None, None) if it's free or the holder went stale."""
+    conn = get_conn()
+    row = conn.execute("SELECT holder, description, heartbeat_at FROM gpu_lock WHERE id = 1").fetchone()
+    conn.close()
+    if not row or (time.time() - row["heartbeat_at"]) >= GPU_LOCK_STALE_SECONDS:
+        return None, None
+    return row["holder"], row["description"]
 
 
 def get_usage_summary(drama_id: int = None):
