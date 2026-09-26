@@ -68,6 +68,7 @@ def _load_env_defaults(env_path: str = None):
         "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
         "ollama_url": ("BAIHE_OLLAMA_URL",),
         "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
+        "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
         "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
     }.items():
         if st.session_state.get(f"settings_{settings_key}"):
@@ -86,6 +87,7 @@ SETTINGS_KEYS = {
     "google": "Google Translate API key",
     "ollama_url": "Ollama base URL",
     "libretranslate_url": "LibreTranslate/LTEngine base URL",
+    "gpt_sovits_url": "GPT-SoVITS server URL (voice cloning; default http://127.0.0.1:9880)",
     "elevenlabs": "ElevenLabs API key",
     "hf_token": "Hugging Face token (diarization)",
 }
@@ -217,12 +219,19 @@ def render_settings_sidebar():
                     st.session_state["gemini_free_tier"] = st.checkbox(
                         "My Gemini key is free-tier",
                         value=st.session_state.get("gemini_free_tier", False),
-                        help="Free-tier Gemini keys are rate-limited (about "
-                             f"{translate_engines.GEMINI_FREE_TIER_MAX_PER_MINUTE} requests/minute "
-                             "on Flash) and Google may use the text you send to improve its "
-                             "products. Ticking this labels Gemini as free everywhere it's picked, "
-                             "and paces requests automatically to stay under the limit instead of "
-                             "hitting rate-limit errors.")
+                        help="Free-tier Gemini keys are rate-limited: Flash allows "
+                             f"{translate_engines.GEMINI_FREE_TIER_LIMITS['flash']['rpm']} "
+                             f"requests/min / {translate_engines.GEMINI_FREE_TIER_LIMITS['flash']['rpd']}"
+                             "/day, Flash-Lite allows "
+                             f"{translate_engines.GEMINI_FREE_TIER_LIMITS['flash-lite']['rpm']}"
+                             f"/min / {translate_engines.GEMINI_FREE_TIER_LIMITS['flash-lite']['rpd']}"
+                             "/day, with a shared "
+                             f"{translate_engines.GEMINI_FREE_TIER_TPM:,} tokens/minute ceiling "
+                             "across models -- Pro isn't available on the free tier at all. Google "
+                             "may use the text you send to improve its products. Ticking this "
+                             "labels Gemini as free everywhere it's picked, and paces requests "
+                             "automatically against all three limits instead of hitting rate-limit "
+                             "errors.")
             st.session_state["settings_ollama_num_ctx_override"] = st.number_input(
                 "Ollama context window override (num_ctx, optional)",
                 min_value=0, step=1024,

@@ -536,6 +536,99 @@ class TestTranscribeForTimingHallucinationFilter:
         assert len(result) == 6  # nothing collapsed
 
 
+class TestAutotuneSubprocessWorker:
+    """Step 6h: autotune_subprocess_worker() is the entry point
+    background_jobs.start_process_job() runs in its own OS process for
+    each auto-tune candidate, so a real mid-run Cancel can terminate it
+    (transcribe_for_timing() has no cancel checkpoint of its own).
+    Tested here as a plain function call against the same fakes used
+    elsewhere in this file -- background_jobs.py's own tests cover the
+    actual multiprocessing.Process/cancel machinery."""
+
+    def _stub_faster_whisper(self, texts):
+        import sys, types
+
+        class FakeSegment:
+            def __init__(self, start, end, text):
+                self.start, self.end, self.text = start, end, text
+
+        class FakeModel:
+            def __init__(self, *a, **k):
+                pass
+
+            def transcribe(self, audio_path, **kwargs):
+                def gen():
+                    for i, t in enumerate(texts):
+                        yield FakeSegment(float(i), float(i + 1), t)
+                return gen(), None
+
+        fake_fw = types.ModuleType("faster_whisper")
+        fake_fw.WhisperModel = lambda model_size, device="cpu", compute_type="int8": FakeModel()
+        sys.modules["faster_whisper"] = fake_fw
+
+    def test_matches_a_direct_transcribe_for_timing_call_on_success(self):
+        import queue
+        import core
+
+        core._whisper_model_cache.clear()
+        self._stub_faster_whisper(["你好", "世界"])
+        direct = core.transcribe_for_timing("/fake/audio.wav", "medium", language="zh",
+                                            min_silence_duration_ms=800)
+
+        core._whisper_model_cache.clear()
+        self._stub_faster_whisper(["你好", "世界"])
+        result_queue = queue.Queue()
+        core.autotune_subprocess_worker(
+            "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 800, 0.5, False,
+            result_queue)
+        outcome = result_queue.get_nowait()
+
+        assert outcome == ("ok", {"candidate_ms": 800, "segments": direct})
+
+    def test_uses_the_given_candidate_ms_as_min_silence_duration(self):
+        import queue
+        import core
+
+        core._whisper_model_cache.clear()
+        self._stub_faster_whisper(["a"])
+        seen = {}
+        real_transcribe = core.transcribe_for_timing
+
+        def spy(*a, **kw):
+            seen.update(kw)
+            return real_transcribe(*a, **kw)
+        core.transcribe_for_timing = spy
+        try:
+            result_queue = queue.Queue()
+            core.autotune_subprocess_worker(
+                "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 1500, 0.5, False,
+                result_queue)
+        finally:
+            core.transcribe_for_timing = real_transcribe
+
+        assert seen["min_silence_duration_ms"] == 1500
+
+    def test_reports_an_exception_instead_of_raising(self):
+        import queue
+        import core
+
+        core._whisper_model_cache.clear()
+
+        def _boom(*a, **k):
+            raise RuntimeError("model download failed")
+        core.transcribe_for_timing, real = _boom, core.transcribe_for_timing
+        try:
+            result_queue = queue.Queue()
+            core.autotune_subprocess_worker(
+                "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 300, 0.5, False,
+                result_queue)
+        finally:
+            core.transcribe_for_timing = real
+        outcome = result_queue.get_nowait()
+
+        assert outcome == ("error", "RuntimeError", "model download failed")
+
+
 class TestLineCoverageDiagnosis:
     """Regression cover built directly from a real uploaded file: several
     lines spanning many minutes with only a few characters of text each,

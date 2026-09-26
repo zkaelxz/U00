@@ -4,9 +4,13 @@
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
 deepl>=1.18             # DeepL
-transformers>=4.40      # local NLLB-200 engine -- genuinely free, fully
+transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
                          # offline, no API key ever. Downloads a model
                          # (2.4-5.2GB depending on size picked) on first use.
+                         # (bumped from >=4.40: also loads Scanlate's ML
+                         # bubble detector and PaddleOCR-VL-For-Manga --
+                         # both need RT-DETR-v2/current VLM support only
+                         # present in more recent releases.)
 sentencepiece>=0.2       # tokenizer NLLB-200 needs
 
 # --- download audio/video directly from a URL (video_download.py) ---
@@ -38,6 +42,24 @@ qwen-asr>=0.1          # recommends a clean Python 3.12 env. On Python
 # --- voice cloning ---
 f5-tts>=0.9             # local, GPU recommended
 elevenlabs>=1.0         # hosted, no GPU needed
+
+# Novel narration voices (optional, local; GPU strongly recommended). Pick
+# one per character in Workspace section 6; each downloads its own model on
+# first use. Left commented out because they can't all share one
+# environment: OmniVoice needs transformers>=5.3, Chatterbox pins
+# transformers==5.2.0 and torch==2.6.0, and TADA needs transformers<5 and
+# torch>=2.7 -- pip can't satisfy any two of them together. Uncomment the
+# one you want (or give each its own venv).
+# omnivoice>=0.2        # Apache-2.0: cloning from a 3-10s clip, and voice
+                         # design from a description (no clip needed)
+# chatterbox-tts>=0.1   # MIT: emotion-aware delivery. Adds an
+                         # imperceptible PerTh watermark to its audio.
+# hume-tada>=0.1        # code MIT; model weights under Meta's Llama 3.2
+                         # Community License -- accept it on Hugging Face and
+                         # `huggingface-cli login` before first use
+# GPT-SoVITS (MIT) isn't a pip package: download it from
+# https://github.com/RVC-Boss/GPT-SoVITS and run its own `python api_v2.py`
+# server; set its URL in Settings if it isn't http://127.0.0.1:9880.
 
 # --- vocal separation before transcription (audio_preprocess.py) ---
 # Strips background music from a music-bed source (audio dramas,
@@ -95,9 +117,26 @@ sudachidict_core>=20240716
 pykakasi>=2.3           # Japanese furigana
 kiwipiepy>=0.18         # Korean
 
-# --- scanlate: ML bubble detection ---
-ultralytics>=8.0
+# --- scanlate: ML bubble detection + inpainting ---
+# transformers (above) loads the bubble detector; torch+safetensors load
+# the LaMa-manga inpainting checkpoint. Neither was run end-to-end
+# against real weights in the environment this was built in -- see
+# scanlate.py's own docstrings; sanity-check on one page before relying
+# on either for a whole batch.
 huggingface_hub>=0.20
+torch>=2.0
+safetensors>=0.4
+
+# --- scanlate: PDF import (splits a PDF into per-page images) ---
+pypdf>=4.0
+
+# --- scanlate: manual erase/heal brush (freeform paint-to-erase) ---
+# PyPI shows no release in the past 12 months -- confirmed directly
+# while wiring this up: with this app's pinned streamlit>=1.49, its
+# component fails to load at all (StreamlitAPIException), not just a
+# hypothetical risk. The brush UI degrades to a clear message rather
+# than crashing when that happens.
+streamlit-drawable-canvas>=0.9
 
 # --- exports ---
 genanki>=0.13           # Anki decks

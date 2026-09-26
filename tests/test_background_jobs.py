@@ -452,6 +452,57 @@ class TestGpuJobGuard:
         bg.clear_job("gpu_i")
 
 
+class TestCancelQueued:
+    """Step 9f item 3: a queued job's own Cancel button used to call
+    clear_job() unconditionally, but _promote_next_queued_gpu_job() can
+    promote it to "running" (and spawn its thread) in the gap between the
+    render that showed Cancel and the click being processed -- clearing
+    the record in that case would leave the now-genuinely-running job
+    with nothing left for Stop/request_cancel to reach. cancel_queued()
+    re-checks status under the lock before deciding what to do."""
+
+    def test_a_still_queued_job_is_cleared_like_before(self):
+        release = threading.Event()
+        bg.start_job("cq_a", lambda: release.wait(timeout=2.0), gpu_touching=True)
+
+        calls = []
+        bg.start_job("cq_b", lambda: calls.append(1), gpu_touching=True)
+        assert bg.get_status("cq_b")["status"] == "queued"
+
+        assert bg.cancel_queued("cq_b") is True
+        assert bg.get_status("cq_b") is None
+
+        release.set()
+        _wait("cq_a")
+        time.sleep(0.1)  # give a wrongly-surviving queue entry a chance to fire
+        assert calls == []
+        bg.clear_job("cq_a")
+
+    def test_a_job_promoted_to_running_in_the_gap_is_not_cleared(self):
+        # Simulates the exact race: the record already flipped to
+        # "running" (as _promote_next_queued_gpu_job() would do) by the
+        # time the click is processed, even though the button that
+        # produced this click was rendered while it was still "queued".
+        with bg._lock:
+            bg._jobs["cq_c"] = {"status": "running", "progress": 0.0, "message": "",
+                                "error": None, "cancel_requested": False, "result": None,
+                                "gpu_touching": True, "started_at": time.time()}
+
+        assert bg.cancel_queued("cq_c") is False
+        # The record must survive -- it's the only thing a real "Stop"
+        # (request_cancel) has left to reach.
+        assert bg.get_status("cq_c") is not None
+        assert bg.get_status("cq_c")["status"] == "running"
+
+        bg.request_cancel("cq_c")
+        assert bg.is_cancel_requested("cq_c") is True
+        bg.clear_job("cq_c")
+
+    def test_a_job_that_no_longer_exists_is_a_no_op(self):
+        bg.clear_job("cq_missing")
+        assert bg.cancel_queued("cq_missing") is True  # nothing to reach either way
+
+
 class TestGpuSlot:
     """gpu_slot() is for GPU-touching work that runs synchronously in the
     calling thread (diarization, dub generation) instead of as its own
@@ -761,4 +812,75 @@ class TestProcessBasedJobs:
         status = _wait_for_status(job_id, "queued")
         assert status["status"] == "done"
         bg.clear_job("test_process_gpu_thread")
+        bg.clear_job(job_id)
+
+
+def _large_result_worker(size_bytes, result_queue):
+    """Real, top-level (picklable) worker for TestProcessWatcherLargeResult
+    -- must be a plain module-level function, not a closure, to cross a
+    real multiprocessing.Process boundary. Puts a single result well past
+    a typical OS pipe buffer (~64KB on Linux) onto the queue, then returns
+    immediately -- the exact shape of dub/re-segment/diarize/auto-tune's
+    real subprocess workers, which each return one item per line/turn/
+    segment and can add up to exactly this at real drama sizes (Step 4i)."""
+    result_queue.put(("ok", {"payload": "x" * size_bytes}))
+
+
+def _cancellable_large_result_worker(size_bytes, result_queue):
+    """Same shape as _large_result_worker, but sleeps first so a test can
+    cancel it before it ever reaches result_queue.put() -- confirms the
+    Step 4i fix didn't break real mid-run cancellation for a job that
+    would otherwise return a large result."""
+    time.sleep(5)
+    result_queue.put(("ok", {"payload": "x" * size_bytes}))
+
+
+class TestProcessWatcherLargeResult:
+    """Step 4i: a real, severe, confirmed bug -- _process_watcher() waited
+    for proc.is_alive() to go False before ever reading the result queue,
+    but a child process that has put() more onto the queue than fits in
+    one OS pipe buffer cannot exit until the parent reads from it. Parent
+    and child waited on each other forever. Uses a REAL
+    multiprocessing.Process (no _FakeProcess/_install_fake_process here,
+    deliberately) -- the fake process runs its target synchronously in
+    the test's own process/thread and never exercises a real OS pipe
+    boundary, which is exactly the mechanism this bug depends on."""
+
+    def test_a_large_result_completes_instead_of_hanging(self):
+        # 200KB of payload, past the ~64KB Linux pipe-buffer default this
+        # bug depends on (confirmed real at this app's own scale: any
+        # drama with roughly 250+ lines, per Line objects pickling to
+        # about 257 bytes each).
+        job_id = "test_process_large_result"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, _large_result_worker, args=(200_000,)) is True
+
+        status = _wait_for_status(job_id, "running", timeout=15.0)
+        assert status is not None
+        assert status["status"] == "done", (
+            f"expected 'done', got {status['status']!r} -- the large-result deadlock is back"
+            if status["status"] == "running" else status.get("error"))
+        assert len(status["result"]["payload"]) == 200_000
+        bg.clear_job(job_id)
+
+    def test_cancelling_still_works_after_the_fix(self):
+        """Step 4d/4e's existing real mid-run cancel guarantee, re-run
+        against the fixed watcher -- not just the new large-result case."""
+        job_id = "test_process_large_result_cancel"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(
+            job_id, _cancellable_large_result_worker, args=(200_000,)) is True
+
+        deadline = time.time() + 5
+        status = None
+        while time.time() < deadline:
+            status = bg.get_status(job_id)
+            if status and status["status"] == "running":
+                break
+            time.sleep(0.02)
+        assert status is not None and status["status"] == "running"
+
+        bg.request_cancel(job_id)
+        status = _wait_for_status(job_id, "running", timeout=10.0)
+        assert status["status"] == "cancelled"
         bg.clear_job(job_id)

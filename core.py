@@ -148,6 +148,11 @@ WHISPER_MODELS = {
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
 _TURBO_WEAK_LANGUAGES = {"ja", "ko"}
+# Step 6h: auto-tune's default candidate min_silence_duration_ms values --
+# spans the "Speech-splitting sensitivity" slider's real range meaningfully
+# (300 is the new default, 3000 the slider's max) without an unbounded
+# number of full re-transcriptions.
+DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
 
 
 def whisper_model_warning(model_size: str, language: str) -> str:
@@ -543,6 +548,38 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         raise
 
 
+def autotune_subprocess_worker(audio_path, model_size, language, use_gpu, local_model_path,
+                               hf_token, initial_prompt, beam_size, candidate_ms, vad_threshold,
+                               fast_mode, result_queue):
+    """Step 6h: entry point for running one auto-tune candidate's full
+    transcription in its own OS process via
+    background_jobs.start_process_job(), so Cancel can actually
+    terminate it mid-run -- transcribe_for_timing() has no cancel
+    checkpoint of its own (Step 4g's own scoping), but killing the
+    whole process works regardless of where inside the decode pass it
+    is, the same reasoning Step 4d already used for diarization.
+
+    Runs candidate_ms as this call's min_silence_duration_ms, holding
+    every other setting the caller is already using constant -- this is
+    exploring VAD merge sensitivity specifically, not re-testing the
+    rest of the transcription config. Must stay a plain, top-level,
+    picklable function; on_gpu_fallback/progress_cb can't cross the
+    process boundary, so neither is threaded through here -- a fallback
+    or per-chunk progress within one candidate isn't visible, only the
+    per-candidate progress the caller already reports between
+    candidates."""
+    try:
+        segments = transcribe_for_timing(
+            audio_path, model_size, language=language, use_gpu=use_gpu,
+            local_model_path=local_model_path, hf_token=hf_token,
+            initial_prompt=initial_prompt, beam_size=beam_size,
+            min_silence_duration_ms=candidate_ms, vad_threshold=vad_threshold,
+            fast_mode=fast_mode)
+        result_queue.put(("ok", {"candidate_ms": candidate_ms, "segments": segments}))
+    except Exception as exc:
+        result_queue.put(("error", type(exc).__name__, str(exc)))
+
+
 # ---------------------------------------------------------------------------
 # Step 2: align user transcript to Whisper timing
 # ---------------------------------------------------------------------------
@@ -570,6 +607,29 @@ def chunk_novel_text(raw_text: str, max_chars: int = 200):
             if buf:
                 chunks.append(buf)
     return chunks
+
+
+def novel_paragraph_ends(lines, source_text: str):
+    """Set of line idx whose line ends a paragraph of `source_text` -- the
+    novel text the lines were chunked from (chunk_novel_text only ever
+    splits a paragraph into pieces that join back into it). None when the
+    lines no longer match the source (edited, merged or re-split since),
+    rather than a guess that would put breaks in the wrong places."""
+    paragraphs = [re.sub(r"\s+", "", p) for p in re.split(r"\n+", source_text or "") if p.strip()]
+    ends, buf, p = set(), "", 0
+    for ln in lines:
+        piece = re.sub(r"\s+", "", ln.zh or "")
+        if not piece:
+            continue
+        if p >= len(paragraphs):
+            return None
+        buf += piece
+        if buf == paragraphs[p]:
+            ends.add(ln.idx)
+            buf, p = "", p + 1
+        elif not paragraphs[p].startswith(buf):
+            return None
+    return ends if p == len(paragraphs) and not buf else None
 
 
 def extract_audio_from_video(video_path: str, out_path: str):

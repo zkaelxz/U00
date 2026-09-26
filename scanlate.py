@@ -27,6 +27,9 @@ text in a table before final render -- see the Scanlate tab in app.py.
 """
 
 import os
+from dataclasses import dataclass, asdict
+from typing import Optional
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -139,61 +142,115 @@ def inset_box_for_ocr(box: dict, frac: float = 0.10, min_inset: int = 4, max_ins
     }
 
 
+_BUBBLE_ML_REPO = "ogkalu/comic-text-and-bubble-detector"
+_LAMA_ML_REPO = "mayocream/lama-manga"
+
+
 def detect_bubbles_ml(image_path: str, confidence: float = 0.25, hf_token: str = None):
     """
     Real trained bubble/text detector, as an upgrade over
-    detect_bubbles_cv()'s free heuristic. Uses a YOLO-family model
-    fine-tuned for comic/manga text-region detection (the same class
-    of model koharu and manga-image-translator use under the hood).
+    detect_bubbles_cv()'s free heuristic. Uses
+    ogkalu/comic-text-and-bubble-detector (Hugging Face, Apache-2.0, 3
+    classes: bubble / text-in-bubble / text-outside-bubble, boxes only
+    -- the same class of model koharu and manga-image-translator use
+    under the hood).
 
-    Requires: `pip install ultralytics huggingface_hub`
+    Requires: `pip install transformers huggingface_hub`
     Downloads the model checkpoint from Hugging Face on first use
     (needs internet once; cached locally after).
 
-    NOTE: written against the documented ultralytics/huggingface_hub
+    Step 11 real fix: this used to load the checkpoint through
+    `ultralytics.YOLO`, but the model itself is RT-DETR-v2, not a YOLO
+    architecture -- `ultralytics` can never load it (confirmed against
+    `requirements.txt`, which installed `ultralytics` for exactly this
+    function), which is plausibly why this hook was never actually
+    wired up before. Loads through `transformers`'s own RT-DETR-v2
+    support instead, which also means huggingface_hub's own
+    HF_TOKEN-from-environment handling covers auth for free.
+
+    NOTE: written against the documented transformers/huggingface_hub
     APIs but not run end-to-end in the environment this was built in
     (no network access there to download a model or test inference).
     Sanity-check on one page before relying on it for a whole batch --
-    if the specific checkpoint ID below has moved or been renamed,
-    swap in whatever comic/manga text-detection YOLO checkpoint you
-    find current on Hugging Face; the rest of this function (box
-    extraction, confidence filtering, reading-order sort) stays the same.
+    if the checkpoint ID below has moved or been renamed, swap in
+    whatever comic/manga text-detection checkpoint you find current on
+    Hugging Face; the rest of this function (box extraction, confidence
+    filtering, reading-order sort) stays the same.
     """
     import os as _os
-    from huggingface_hub import hf_hub_download
-    from ultralytics import YOLO
+    from PIL import Image as _PILImage
+    import torch
+    from transformers import AutoImageProcessor, AutoModelForObjectDetection
 
     # Same gap that hit Whisper's downloads: without a token, every request
     # is anonymous and rate-limited (the "unauthenticated requests" warning).
-    # hf_hub_download reads HF_TOKEN from the environment itself, so setting
-    # it here is enough -- no need to pass it through every call below.
+    # from_pretrained() reads HF_TOKEN from the environment itself if no
+    # explicit token is passed, so setting it here covers both paths.
     _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
     if _tok:
         _os.environ.setdefault("HF_TOKEN", _tok)
 
-    global _bubble_ml_model
+    global _bubble_ml_model, _bubble_ml_processor
     if "_bubble_ml_model" not in globals():
-        model_path = hf_hub_download(
-            repo_id="ogkalu/comic-text-and-bubble-detector",
-            filename="comic-text-and-bubble-detector.pt",
-        )
-        globals()["_bubble_ml_model"] = YOLO(model_path)
+        globals()["_bubble_ml_processor"] = AutoImageProcessor.from_pretrained(
+            _BUBBLE_ML_REPO, token=_tok)
+        model = AutoModelForObjectDetection.from_pretrained(_BUBBLE_ML_REPO, token=_tok)
+        model.eval()
+        globals()["_bubble_ml_model"] = model
 
     model = globals()["_bubble_ml_model"]
-    results = model.predict(image_path, conf=confidence, verbose=False)
+    processor = globals()["_bubble_ml_processor"]
+
+    image = _PILImage.open(image_path).convert("RGB")
+    inputs = processor(images=image, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+    # target_sizes takes (height, width); PIL's .size is (width, height).
+    results = processor.post_process_object_detection(
+        outputs, threshold=confidence, target_sizes=torch.tensor([image.size[::-1]])
+    )[0]
 
     boxes = []
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = box.xyxy[0].tolist()
-            boxes.append({
-                "x": int(x1), "y": int(y1),
-                "w": int(x2 - x1), "h": int(y2 - y1),
-                "confidence": float(box.conf[0]),
-            })
+    for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+        x1, y1, x2, y2 = [float(v) for v in box.tolist()]
+        boxes.append({
+            "x": int(x1), "y": int(y1),
+            "w": int(x2 - x1), "h": int(y2 - y1),
+            "confidence": float(score),
+            "label": model.config.id2label.get(int(label), str(int(label))),
+        })
 
     boxes.sort(key=lambda b: (b["y"] // 50, -b["x"]))
     return boxes
+
+
+def bubble_ml_weights_cached() -> bool:
+    """True if the ML bubble detector's weights are already in the local
+    Hugging Face cache. Lets detect_bubbles(backend="auto") (Step 11
+    item 5) pick the better backend automatically once someone's
+    installed it, without the auto mode itself ever triggering a
+    surprise first-run download -- that only happens when "ml" is
+    picked explicitly."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    for filename in ("model.safetensors", "pytorch_model.bin"):
+        hit = try_to_load_from_cache(repo_id=_BUBBLE_ML_REPO, filename=filename)
+        if isinstance(hit, str) and os.path.exists(hit):
+            return True
+    return False
+
+
+def lama_ml_weights_cached() -> bool:
+    """Same idea as bubble_ml_weights_cached(), for the LaMa-manga
+    inpainting checkpoint (Step 11 items 2 and 5)."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    hit = try_to_load_from_cache(repo_id=_LAMA_ML_REPO, filename="model.safetensors")
+    return isinstance(hit, str) and os.path.exists(hit)
 
 
 class BubbleModelUnavailable(RuntimeError):
@@ -206,9 +263,12 @@ class BubbleModelUnavailable(RuntimeError):
         self.fell_back_to_cv = fell_back_to_cv
 
 
-def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
-    """Dispatcher: backend='cv' (free, default) or 'ml' (trained model,
-    better accuracy, heavier install).
+def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
+    """Dispatcher: backend='cv' (free heuristic), 'ml' (trained model,
+    better accuracy, heavier install), or 'auto' (default, Step 11 item
+    5) -- use the ML model if its weights are already cached locally,
+    the free heuristic otherwise. 'auto' never triggers a fresh
+    multi-hundred-MB download on its own; pick 'ml' explicitly for that.
 
     If the ML backend can't run -- not installed, or the model can't be
     downloaded -- this falls back to the heuristic and raises
@@ -216,6 +276,8 @@ def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
     problem degrades to a working-but-rougher result rather than failing
     the page entirely.
     """
+    if backend == "auto":
+        backend = "ml" if bubble_ml_weights_cached() else "cv"
     if backend != "ml":
         return detect_bubbles_cv(image_path)
 
@@ -224,7 +286,7 @@ def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
     except ImportError as exc:
         raise BubbleModelUnavailable(
             "The ML detector needs extra packages:\n"
-            "    pip install ultralytics huggingface_hub\n\n"
+            "    pip install transformers huggingface_hub\n\n"
             "Falling back to the free heuristic for this page."
         ) from exc
     except Exception as exc:
@@ -244,11 +306,244 @@ def detect_bubbles(image_path: str, backend: str = "cv", **kwargs):
         ) from exc
 
 
-def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4):
-    """Removes text within `box` using OpenCV inpainting so the
-    translated text has a clean background. Returns the path to the
-    (possibly newly-created) cleaned image; if out_path is None,
-    overwrites nothing and returns a PIL Image instead."""
+class InpaintModelUnavailable(RuntimeError):
+    """The ML inpainting backend couldn't be loaded or run. Carries
+    whether plain OpenCV inpainting already ran as a fallback, matching
+    BubbleModelUnavailable's shape so callers can handle both the same
+    way."""
+
+    def __init__(self, message, fell_back_to_cv=True):
+        super().__init__(message)
+        self.fell_back_to_cv = fell_back_to_cv
+
+
+def _build_lama_generator():
+    """
+    Constructs the FFC-ResNet generator architecture LaMa's published
+    checkpoints use -- unchanged from the original saic-mdal/lama
+    paper's default config (ngf=64, 3 downsampling stages, 9 FFC
+    residual blocks, global-feature ratio 0.75), which is what every
+    public LaMa fine-tune this project found (including manga/anime
+    ones) keeps unchanged, only retraining weights.
+
+    NOTE, same honesty as detect_bubbles_ml()'s own docstring: written
+    against the published architecture, not verified against
+    mayocream/lama-manga's actual state_dict key names in this
+    environment (no network/GPU here to download the real checkpoint).
+    _load_lama_generator() loads with strict=False and refuses to use
+    the result if most of the checkpoint's weights don't match this
+    shape, so a naming mismatch fails loudly and falls back to plain
+    OpenCV inpainting rather than silently running with near-random
+    weights. If that happens, inspect the real checkpoint's state_dict
+    keys (`safetensors.torch.load_file(path).keys()`) and adjust the
+    module names below to match.
+
+    Lazily imports torch so nothing else in this file -- including
+    detect_bubbles_cv()/inpaint_region()'s OpenCV-only default path --
+    ever needs it installed at all.
+    """
+    import torch
+    import torch.nn as nn
+
+    class FourierUnit(nn.Module):
+        def __init__(self, channels):
+            super().__init__()
+            self.conv = nn.Conv2d(channels * 2, channels * 2, kernel_size=1, bias=False)
+            self.bn = nn.BatchNorm2d(channels * 2)
+            self.relu = nn.ReLU(inplace=True)
+
+        def forward(self, x):
+            b, c, h, w = x.shape
+            ffted = torch.fft.rfft2(x, norm="ortho")
+            ffted = torch.stack([ffted.real, ffted.imag], dim=-1)
+            ffted = ffted.permute(0, 1, 4, 2, 3).reshape(b, c * 2, *ffted.shape[2:4])
+            ffted = self.relu(self.bn(self.conv(ffted)))
+            ffted = ffted.reshape(b, c, 2, *ffted.shape[2:]).permute(0, 1, 3, 4, 2)
+            ffted = torch.complex(ffted[..., 0].contiguous(), ffted[..., 1].contiguous())
+            return torch.fft.irfft2(ffted, s=(h, w), norm="ortho")
+
+    class SpectralTransform(nn.Module):
+        def __init__(self, in_ch, out_ch):
+            super().__init__()
+            self.conv1 = nn.Sequential(
+                nn.Conv2d(in_ch, out_ch // 2, kernel_size=1, bias=False),
+                nn.BatchNorm2d(out_ch // 2), nn.ReLU(inplace=True))
+            self.fu = FourierUnit(out_ch // 2)
+            self.conv2 = nn.Conv2d(out_ch // 2, out_ch, kernel_size=1, bias=False)
+
+        def forward(self, x):
+            x = self.conv1(x)
+            return self.conv2(x + self.fu(x))
+
+    class FFC(nn.Module):
+        def __init__(self, in_ch, out_ch, ratio_gin, ratio_gout, kernel_size=3, padding=1):
+            super().__init__()
+            in_cg, in_cl = int(in_ch * ratio_gin), in_ch - int(in_ch * ratio_gin)
+            out_cg, out_cl = int(out_ch * ratio_gout), out_ch - int(out_ch * ratio_gout)
+            self.out_cl, self.out_cg = out_cl, out_cg
+            conv = (lambda ci, co: nn.Conv2d(ci, co, kernel_size, padding=padding, bias=False)
+                    if ci and co else None)
+            self.convl2l = conv(in_cl, out_cl)
+            self.convl2g = conv(in_cl, out_cg)
+            self.convg2l = conv(in_cg, out_cl)
+            self.convg2g = SpectralTransform(in_cg, out_cg) if in_cg and out_cg else None
+
+        def forward(self, x_l, x_g):
+            out_l = 0
+            if self.out_cl:
+                out_l = (self.convl2l(x_l) if self.convl2l else 0) + \
+                        (self.convg2l(x_g) if self.convg2l else 0)
+            out_g = 0
+            if self.out_cg:
+                out_g = (self.convl2g(x_l) if self.convl2g else 0) + \
+                        (self.convg2g(x_g) if self.convg2g else 0)
+            return out_l, out_g
+
+    class FFCBlock(nn.Module):
+        def __init__(self, channels, ratio=0.75):
+            super().__init__()
+            local_ch, global_ch = channels - int(channels * ratio), int(channels * ratio)
+            self.ffc1 = FFC(channels, channels, ratio, ratio)
+            self.bn_l1, self.bn_g1 = nn.BatchNorm2d(local_ch), nn.BatchNorm2d(global_ch)
+            self.ffc2 = FFC(channels, channels, ratio, ratio)
+            self.bn_l2, self.bn_g2 = nn.BatchNorm2d(local_ch), nn.BatchNorm2d(global_ch)
+            self.act = nn.ReLU(inplace=True)
+
+        def forward(self, x_l, x_g):
+            id_l, id_g = x_l, x_g
+            l, g = self.ffc1(x_l, x_g)
+            l, g = self.act(self.bn_l1(l)), self.act(self.bn_g1(g))
+            l, g = self.ffc2(l, g)
+            l, g = self.act(self.bn_l2(l)), self.act(self.bn_g2(g))
+            return id_l + l, id_g + g
+
+    class Generator(nn.Module):
+        def __init__(self, ngf=64, n_down=3, n_blocks=9, ratio=0.75):
+            super().__init__()
+            self.stem = nn.Sequential(
+                nn.ReflectionPad2d(3), nn.Conv2d(4, ngf, 7, bias=False),
+                nn.BatchNorm2d(ngf), nn.ReLU(inplace=True))
+            down, ch = [], ngf
+            for _ in range(n_down):
+                down += [nn.Conv2d(ch, ch * 2, 3, stride=2, padding=1, bias=False),
+                          nn.BatchNorm2d(ch * 2), nn.ReLU(inplace=True)]
+                ch *= 2
+            self.down = nn.Sequential(*down)
+            self.blocks = nn.ModuleList([FFCBlock(ch, ratio) for _ in range(n_blocks)])
+            up = []
+            for _ in range(n_down):
+                up += [nn.ConvTranspose2d(ch, ch // 2, 3, stride=2, padding=1, output_padding=1),
+                       nn.BatchNorm2d(ch // 2), nn.ReLU(inplace=True)]
+                ch //= 2
+            self.up = nn.Sequential(*up)
+            self.head = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(ch, 3, 7), nn.Sigmoid())
+            self._ratio = ratio
+
+        def forward(self, x):
+            x = self.down(self.stem(x))
+            split = x.shape[1] - int(x.shape[1] * self._ratio)
+            x_l, x_g = x[:, :split], x[:, split:]
+            for block in self.blocks:
+                x_l, x_g = block(x_l, x_g)
+            return self.head(self.up(torch.cat([x_l, x_g], dim=1)))
+
+    return Generator()
+
+
+def _load_lama_generator(hf_token: str = None):
+    """Downloads (or reuses the already-cached) LaMa-manga checkpoint and
+    loads it into _build_lama_generator()'s architecture. Raises
+    RuntimeError -- caught by inpaint_region()/inpaint_mask_region() and
+    turned into InpaintModelUnavailable -- if most of the checkpoint's
+    weights don't match, rather than silently returning a near-random
+    model."""
+    global _lama_model
+    if "_lama_model" in globals():
+        return globals()["_lama_model"]
+
+    import os as _os
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file as _load_safetensors
+
+    _tok = hf_token or _os.environ.get("HF_TOKEN") or _os.environ.get("HUGGINGFACE_TOKEN")
+    if _tok:
+        _os.environ.setdefault("HF_TOKEN", _tok)
+
+    ckpt_path = hf_hub_download(repo_id=_LAMA_ML_REPO, filename="model.safetensors", token=_tok)
+    state_dict = _load_safetensors(ckpt_path)
+
+    generator = _build_lama_generator()
+    own_keys = list(generator.state_dict().keys())
+    missing, unexpected = generator.load_state_dict(state_dict, strict=False)
+    if len(missing) > len(own_keys) * 0.1:
+        raise RuntimeError(
+            f"LaMa-manga checkpoint doesn't match the expected generator shape "
+            f"({len(missing)}/{len(own_keys)} weights unmatched, "
+            f"{len(unexpected)} unexpected keys in the checkpoint) -- "
+            f"_build_lama_generator() likely needs updating against this "
+            f"checkpoint's real state_dict key names."
+        )
+    generator.eval()
+    globals()["_lama_model"] = generator
+    return generator
+
+
+def _run_ml_inpaint(roi_bgr, mask_u8, hf_token: str = None):
+    """Runs LaMa-manga inpainting on one region-of-interest. roi_bgr: an
+    OpenCV BGR array. mask_u8: a same-size uint8 array, nonzero = erase
+    this pixel. Returns a BGR array the same size as roi_bgr, with only
+    the masked pixels replaced -- everywhere else stays byte-identical
+    to the input, same "only touch what was actually erased" discipline
+    as the OpenCV path below."""
+    import numpy as np
+    import torch
+    import cv2
+
+    generator = _load_lama_generator(hf_token=hf_token)
+    rgb = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2RGB).astype("float32") / 255.0
+    mask = (mask_u8 > 0).astype("float32")
+    # Zero out the masked area in the image channel first -- otherwise the
+    # model can "peek" at the very pixels it's meant to be reconstructing.
+    rgb_masked = rgb * (1 - mask[..., None])
+    inp = np.concatenate([rgb_masked, mask[..., None]], axis=-1)
+    tensor = torch.from_numpy(inp).permute(2, 0, 1).unsqueeze(0)
+
+    # Three stride-2 downsamples need both spatial dims divisible by 8.
+    h, w = tensor.shape[-2:]
+    pad_h, pad_w = (-h) % 8, (-w) % 8
+    if pad_h or pad_w:
+        tensor = torch.nn.functional.pad(tensor, (0, pad_w, 0, pad_h), mode="reflect")
+
+    with torch.no_grad():
+        out = generator(tensor)[0]
+    out = out[:, :h, :w].clamp(0, 1).permute(1, 2, 0).numpy()
+    out_bgr = cv2.cvtColor((out * 255).astype("uint8"), cv2.COLOR_RGB2BGR)
+
+    mask3 = np.repeat((mask_u8 > 0)[..., None], 3, axis=2)
+    return np.where(mask3, out_bgr, roi_bgr)
+
+
+def _resolve_inpaint_backend(backend: str) -> str:
+    if backend == "auto":
+        return "ml" if lama_ml_weights_cached() else "cv"
+    return backend
+
+
+def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: int = 4,
+                    backend: str = "auto", hf_token: str = None):
+    """Removes text within `box` so the translated text has a clean
+    background. Returns the path to the (possibly newly-created) cleaned
+    image; if out_path is None, overwrites nothing and returns an image
+    array instead.
+
+    backend='cv' (free, plain OpenCV inpainting), 'ml' (LaMa-manga,
+    Step 11 item 2 -- shape-aware, not just a rectangular inset), or
+    'auto' (default, Step 11 item 5) -- use LaMa-manga if its weights
+    are already cached locally, OpenCV otherwise. If the ML backend is
+    picked (explicitly or via auto) but can't actually run, this falls
+    back to OpenCV inpainting and raises InpaintModelUnavailable with
+    the cleaned image still attached, same fallback shape as
+    detect_bubbles()."""
     import cv2
     img = cv2.imread(image_path)
     h, w = img.shape[:2]
@@ -263,13 +558,119 @@ def inpaint_region(image_path: str, box: dict, out_path: str = None, padding: in
     _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY_INV)
     mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
 
-    inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
+    resolved = _resolve_inpaint_backend(backend)
+    inpainted_roi = None
+    fallback_error = None
+    if resolved == "ml":
+        try:
+            inpainted_roi = _run_ml_inpaint(roi, mask, hf_token=hf_token)
+        except ImportError as exc:
+            fallback_error = InpaintModelUnavailable(
+                "ML inpainting needs extra packages:\n"
+                "    pip install torch safetensors huggingface_hub\n\n"
+                "Falling back to plain OpenCV inpainting for this bubble."
+            )
+            fallback_error.__cause__ = exc
+        except Exception as exc:
+            fallback_error = InpaintModelUnavailable(
+                f"LaMa-manga inpainting failed: {type(exc).__name__}: {exc}\n\n"
+                "Falling back to plain OpenCV inpainting for this bubble."
+            )
+            fallback_error.__cause__ = exc
+
+    if inpainted_roi is None:
+        inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
     img[y:y + bh, x:x + bw] = inpainted_roi
 
     if out_path:
         cv2.imwrite(out_path, img)
-        return out_path
-    return img
+        result = out_path
+    else:
+        result = img
+
+    if fallback_error is not None:
+        fallback_error.fell_back_to_cv = True
+        # Attach the already-produced result so a caller that wants it
+        # doesn't have to redo the OpenCV pass itself.
+        fallback_error.result = result
+        raise fallback_error
+    return result
+
+
+def inpaint_mask_region(image_path: str, mask, out_path: str = None, padding: int = 4,
+                         backend: str = "auto", hf_token: str = None):
+    """Manual erase/heal brush (Step 11 item 10): inpaints exactly the
+    pixels the person painted, independent of any detected bubble box --
+    a sound effect, background text, or a stray detection artifact the
+    auto/manual bubble tools never touch.
+
+    mask: a 2D array the same height/width as the source image; any
+    nonzero pixel is erased (this is the raw brush-stroke mask -- unlike
+    inpaint_region(), there's no "text is dark pixels inside a light
+    bubble" heuristic here, because the person is manually choosing what
+    to remove, not detecting text). backend/hf_token: same as
+    inpaint_region(). Raises InpaintModelUnavailable the same way, with
+    the OpenCV-inpainted result still attached, if the ML backend can't
+    run."""
+    import cv2
+    import numpy as np
+
+    img = cv2.imread(image_path)
+    h, w = img.shape[:2]
+    mask = np.asarray(mask)
+    if mask.shape[:2] != (h, w):
+        raise ValueError(
+            f"mask shape {mask.shape[:2]} doesn't match the image {(h, w)}")
+
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        # Nothing painted -- return the image unchanged.
+        if out_path:
+            cv2.imwrite(out_path, img)
+            return out_path
+        return img
+
+    x0, x1 = max(0, int(xs.min()) - padding), min(w, int(xs.max()) + 1 + padding)
+    y0, y1 = max(0, int(ys.min()) - padding), min(h, int(ys.max()) + 1 + padding)
+    roi = img[y0:y1, x0:x1]
+    roi_mask = (mask[y0:y1, x0:x1] > 0).astype("uint8") * 255
+    roi_mask = cv2.dilate(roi_mask, np.ones((3, 3), np.uint8), iterations=1)
+
+    resolved = _resolve_inpaint_backend(backend)
+    inpainted_roi = None
+    fallback_error = None
+    if resolved == "ml":
+        try:
+            inpainted_roi = _run_ml_inpaint(roi, roi_mask, hf_token=hf_token)
+        except ImportError as exc:
+            fallback_error = InpaintModelUnavailable(
+                "ML inpainting needs extra packages:\n"
+                "    pip install torch safetensors huggingface_hub\n\n"
+                "Falling back to plain OpenCV inpainting for this brush stroke."
+            )
+            fallback_error.__cause__ = exc
+        except Exception as exc:
+            fallback_error = InpaintModelUnavailable(
+                f"LaMa-manga inpainting failed: {type(exc).__name__}: {exc}\n\n"
+                "Falling back to plain OpenCV inpainting for this brush stroke."
+            )
+            fallback_error.__cause__ = exc
+
+    if inpainted_roi is None:
+        inpainted_roi = cv2.inpaint(roi, roi_mask, 5, cv2.INPAINT_TELEA)
+    img[y0:y1, x0:x1] = inpainted_roi
+
+    if out_path:
+        cv2.imwrite(out_path, img)
+        result = out_path
+    else:
+        result = img
+
+    if fallback_error is not None:
+        fallback_error.fell_back_to_cv = True
+        fallback_error.result = result
+        raise fallback_error
+    return result
 
 
 # One of these three, matching sample_text_style()'s "suggested_style"
@@ -332,15 +733,87 @@ def _find_font(font_path: str = None, category: str = "regular", custom_fonts: d
     return None
 
 
+def _mask_band_span(mask, top: int, bottom: int):
+    """(left, right) of the widest run of columns that are inside `mask`
+    on EVERY row of [top, bottom) -- the horizontal room a line of text
+    drawn in that band actually has. None if the band leaves the mask or
+    has no room at all."""
+    if top < 0 or bottom > mask.shape[0] or bottom <= top:
+        return None
+    cols = np.all(mask[top:bottom], axis=0)
+    best, run_start = None, None
+    for i, inside in enumerate(list(cols) + [False]):
+        if inside and run_start is None:
+            run_start = i
+        elif not inside and run_start is not None:
+            if best is None or (i - run_start) > (best[1] - best[0]):
+                best = (run_start, i)
+            run_start = None
+    return best
+
+
+def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
+    """Shape-aware counterpart to render_text_in_box()'s rectangle layout
+    (Step 12d item 3): tries the largest font first, and for each size the
+    fewest lines first, centring the block vertically and giving each line
+    only the width the mask has at that line's height -- so text in an
+    oval bubble narrows toward the top and bottom instead of running into
+    the corners of its bounding rectangle. Returns (font, [(line, left,
+    right, top)]) or None if nothing fits even at the minimum size, in
+    which case the caller falls back to the plain rectangle layout."""
+    words = text.split()
+    if not words:
+        return None
+    mh = mask.shape[0]
+    for size in range(font_size, 7, -1):
+        font = load_font(size)
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        widths = {}
+
+        def width_of(t):
+            if t not in widths:
+                bb = draw.textbbox((0, 0), t, font=font)
+                widths[t] = bb[2] - bb[0]
+            return widths[t]
+
+        for n_lines in range(1, max(mh // line_height, 0) + 1):
+            top0 = (mh - line_height * n_lines) // 2
+            spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
+                     for i in range(n_lines)]
+            if any(sp is None for sp in spans):
+                continue
+            placed, wi = [], 0
+            for i, (left, right) in enumerate(spans):
+                cur = ""
+                while wi < len(words):
+                    trial = f"{cur} {words[wi]}".strip()
+                    if width_of(trial) > right - left:
+                        break
+                    cur, wi = trial, wi + 1
+                if not cur:
+                    break  # a word that doesn't fit this line at all
+                placed.append((cur, left, right, top0 + i * line_height))
+            if wi == len(words):
+                return font, placed
+    return None
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str = None, font_category: str = "regular",
-                        custom_fonts: dict = None, fill=(0, 0, 0), align="center"):
+                        custom_fonts: dict = None, fill=(0, 0, 0), align="center",
+                        mask=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     Auto-shrinks font_size until the wrapped text fits the box height;
     word-wraps to fit box width. Horizontal text layout only -- no
     vertical CJK rendering (that's koharu's specialty, not replicated
     here).
+
+    mask: optional boolean array the size of the box (h, w), True inside
+    the bubble's real shape -- see bubble_shape_mask(). When given, each
+    line's width follows the shape (Step 12d item 3) rather than the
+    bounding rectangle; if the text can't fit the shape at any size, this
+    falls back to the rectangle layout below rather than dropping text.
 
     font_path: an explicit per-bubble override (always wins). Otherwise
     font_category (one of FONT_CATEGORIES, normally auto-filled from
@@ -350,6 +823,22 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     """
     draw = ImageDraw.Draw(image)
     resolved_font_path = _find_font(font_path, category=font_category, custom_fonts=custom_fonts)
+
+    if mask is not None:
+        laid_out = _layout_in_mask(
+            draw, text, mask, font_size,
+            lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
+            else ImageFont.load_default())
+        if laid_out is not None:
+            font, placed = laid_out
+            for line, left, right, top in placed:
+                bbox = draw.textbbox((0, 0), line, font=font)
+                line_w = bbox[2] - bbox[0]
+                lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
+                # textbbox's own left offset, so the ink starts where it was measured
+                draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+            return image
+
     size = font_size
 
     def wrap_and_measure(sz):
@@ -388,7 +877,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
 
 
 def translate_page_with_context(texts, engine, drama_meta: dict, previous_context: str = "",
-                                 usage_cb=None):
+                                 usage_cb=None, glossary_terms=None):
     """
     Translates a page's bubble texts with awareness of what happened on
     prior pages, the way Torii's context-passing works for manga --
@@ -398,20 +887,30 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     previous_context: a short rolling summary carried from the last
     page's translate call (see below). Returns (translations, new_context)
     -- pass new_context into the next page's call to keep the chain going.
+
+    glossary_terms: rows from db.list_glossary_terms() for the drama's
+    series -- the same lookup Workspace's own translation uses (Step 12d
+    item 5), rendered through translation_guide.build_glossary_block() so
+    honorifics (category "honorific") and every other fixed term reach
+    comic translations under the same rules as subtitles.
     """
     from translate_engines import call_llm_json
+    from translation_guide import build_glossary_block
     import re, json
 
     if not getattr(engine, "supports_reference", False):
         # Pure-MT engines can't do context-aware translation or summarization
-        return engine.translate_batch(texts, {"drama_meta": drama_meta}), previous_context
+        return engine.translate_batch(texts, {"drama_meta": drama_meta,
+                                              "glossary_terms": glossary_terms}), previous_context
 
     context_block = f"\n\nContext from previous pages: {previous_context}" if previous_context else ""
+    glossary_block = build_glossary_block(glossary_terms)
+    glossary_block = f"\n\n{glossary_block}" if glossary_block else ""
     numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
     prompt = (
         "Translate these manga/comic speech bubble texts into natural English, in reading "
         "order, keeping character voice and plot consistent with the context below if any."
-        + context_block + f"\n\nBubbles on this page:\n{numbered}\n\n"
+        + glossary_block + context_block + f"\n\nBubbles on this page:\n{numbered}\n\n"
         'Return ONLY a JSON object: {"translations": ["...", ...], "context_summary": '
         '"1-2 sentence summary of what just happened, to carry into the next page"}. '
         "No preamble, no markdown fences."
@@ -486,13 +985,22 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     Returns (out_path, skipped) -- skipped lists bubbles that had no
     translated text, so the caller can warn about them rather than the
     person only discovering a blank spot after the fact.
+
+    A region classified as SFX is left alone unless its include_sfx
+    override is set (Step 12d item 6) -- see region_excluded_from_auto().
+    Speech/thought bubbles get their text fitted to the bubble's real
+    shape (bubble_shape_mask(), Step 12d item 3), not just its rectangle.
     """
     import shutil
 
-    def has_real_text(b):
-        return not b.get("skip") and b.get("translated_text", "").strip()
+    def in_auto_pass(b):
+        return not b.get("skip") and not region_excluded_from_auto(b)
 
-    skipped_blank = [b for b in bubbles if not b.get("skip") and not b.get("translated_text", "").strip()]
+    def has_real_text(b):
+        return in_auto_pass(b) and (b.get("translated_text") or "").strip()
+
+    skipped_blank = [b for b in bubbles
+                     if in_auto_pass(b) and not (b.get("translated_text") or "").strip()]
 
     working_path = out_path + ".tmp.png"
     shutil.copy(image_path, working_path)
@@ -505,10 +1013,12 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     for b in bubbles:
         if not has_real_text(b):
             continue
+        shape_mask = (bubble_shape_mask(image_path, b)
+                      if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
         render_text_in_box(pil_img, b, b["translated_text"],
                             font_size=b.get("font_size", 18), font_path=font_path,
                             font_category=b.get("font_category") or "regular",
-                            custom_fonts=custom_fonts)
+                            custom_fonts=custom_fonts, mask=shape_mask)
     pil_img.save(out_path)
     if os.path.exists(working_path):
         os.remove(working_path)
@@ -781,3 +1291,526 @@ def export_font_style_report(bubbles: list, out_path: str) -> str:
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     return out_path
+
+
+# ---------------------------------------------------------------------------
+# OCR backend auto-routing (Step 11 item 4) and manual-region OCR (item 8)
+# ---------------------------------------------------------------------------
+
+def auto_ocr_backend(source_language: str, prefer_paddle_vl_manga: bool = False) -> str:
+    """
+    Default OCR backend by source language, the way comic-translate does
+    but with maintained choices -- manga_ocr for Japanese (already a
+    Baihe dependency), paddle for Chinese, paddle for Korean too
+    (PaddleOCR supports both, unlike Tesseract-vs-nothing before this).
+    Explicitly not Pororo for Korean (comic-translate's own choice) --
+    checked its maintenance status directly: even a Hugging Face mirror
+    of just its OCR piece exists specifically because people are worried
+    about the main library's long-term upkeep, not worth taking on.
+
+    prefer_paddle_vl_manga: opt-in second Japanese backend
+    (jzhang533/PaddleOCR-VL-For-Manga) -- not a default swap, since its
+    own model card only benchmarks against base PaddleOCR-VL, not
+    against manga-ocr; which one's actually better for a given source is
+    a real head-to-head call, not something this function decides.
+
+    Always overridable manually -- this only picks the default; see
+    ocr_box_region()'s own `backend` parameter.
+    """
+    if source_language == "ja":
+        return "paddle_vl_manga" if prefer_paddle_vl_manga else "manga_ocr"
+    if source_language in ("zh", "ko"):
+        return "paddle"
+    return "tesseract"
+
+
+def ocr_box_region(image_path: str, box: dict, source_language: str, backend: str = None,
+                    chinese_script: str = "simplified", tesseract_cmd: str = None,
+                    prefer_paddle_vl_manga: bool = False) -> str:
+    """
+    Crops `box` out of image_path -- inset first via inset_box_for_ocr(),
+    same reason as auto-detected bubbles (OCRing a bubble's own border
+    can make some backends return nothing at all) -- and OCRs it with
+    the auto-routed backend for source_language, or an explicit
+    `backend` override.
+
+    Shared by auto-detected bubbles and Step 11 item 8's manual-region
+    OCR: draw/type a box the auto-detector missed and run OCR on it,
+    instead of requiring the translated text to be typed in by hand.
+    """
+    import ocr as ocr_module
+    import tempfile
+    from PIL import Image as _PILImage
+
+    resolved_backend = backend or auto_ocr_backend(source_language, prefer_paddle_vl_manga)
+    ocr_box = inset_box_for_ocr(box)
+    tmp_path = None
+    with _PILImage.open(image_path) as img:
+        crop = img.crop((ocr_box["x"], ocr_box["y"],
+                          ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"]))
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            crop.save(tmp.name)
+            tmp_path = tmp.name
+    try:
+        return ocr_module.extract_text_from_images(
+            [tmp_path], backend=resolved_backend, source_language=source_language,
+            chinese_script=chinese_script, tesseract_cmd=tesseract_cmd).strip()
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# PDF import/export (Step 11 item 7)
+# ---------------------------------------------------------------------------
+
+def pdf_to_page_images(pdf_path: str, out_dir: str, prefix: str = "page") -> tuple:
+    """
+    Splits a PDF into per-page images on import -- raws and finished
+    scanlations are commonly shared as PDFs (Torii added this for the
+    same reason, v2.0.6.1); Scanlate's own page uploader only ever took
+    png/jpg/jpeg before this.
+
+    Uses pypdf (BSD-3, genuinely permissive) to pull each page's
+    embedded raster image, which is what a scanned-manga PDF actually
+    contains -- one full-page image per PDF page, not vector content to
+    render. PyMuPDF/fitz would also do this (and can additionally
+    rasterize vector pages), but its own license is AGPL-3.0, not the
+    permissive license the roadmap step that asked for this assumed --
+    checked directly rather than taken on faith, and not pulled in.
+
+    A page with no embedded image (a text/vector-only PDF page) is
+    skipped, not a hard failure. Returns (image_paths, skipped_pages) --
+    skipped_pages is a list of 0-based page indices, so the caller can
+    say which pages didn't come through instead of silently losing them.
+    """
+    from pypdf import PdfReader
+
+    os.makedirs(out_dir, exist_ok=True)
+    reader = PdfReader(pdf_path)
+    image_paths, skipped_pages = [], []
+    for i, page in enumerate(reader.pages):
+        images = list(page.images)
+        if not images:
+            skipped_pages.append(i)
+            continue
+        # A scanned page sometimes carries a small embedded logo/watermark
+        # alongside the real page scan -- the largest image is the page.
+        largest = max(images, key=lambda im: im.image.size[0] * im.image.size[1])
+        out_path = os.path.join(out_dir, f"{prefix}_{i:04d}.png")
+        largest.image.convert("RGB").save(out_path)
+        image_paths.append(out_path)
+    return image_paths, skipped_pages
+
+
+def pages_to_pdf(image_paths: list, out_path: str) -> str:
+    """
+    "Download as PDF" alongside the existing per-page download and bulk
+    ZIP (Torii added PDF download for the same reason, v2.0.8.1). Uses
+    Pillow -- already a hard dependency here, no new install -- which
+    can write a multi-page PDF directly, no separate PDF library needed
+    for export.
+    """
+    from PIL import Image as _PILImage
+
+    if not image_paths:
+        raise ValueError("No pages to export.")
+    images = [_PILImage.open(p).convert("RGB") for p in image_paths]
+    images[0].save(out_path, "PDF", save_all=True, append_images=images[1:])
+    return out_path
+
+
+# ---------------------------------------------------------------------------
+# Bulk find-and-replace across a drama's saved bubble text (Step 11 item 9)
+# ---------------------------------------------------------------------------
+
+def bulk_find_replace_preview(bubbles: list, find: str, replace: str,
+                               case_sensitive: bool = False, use_regex: bool = False) -> list:
+    """
+    Previews a bulk find-and-replace across an already-translated
+    project's bubble text before anything is applied -- same "don't
+    silently overwrite" pattern used everywhere else in this app.
+    Distinct from the glossary (shapes *future* translations) and
+    translation memory (*suggests* reuse going forward): this
+    retroactively corrects text already saved across many pages at once
+    (a name translated inconsistently before a glossary entry existed,
+    a typo that repeats).
+
+    bubbles: dicts with at least "id" and "translated_text" (matches
+    db.list_bubbles_for_drama()'s shape). Returns only the bubbles that
+    actually change, each as {"id", "page_idx", "old_text", "new_text"}.
+    Nothing here touches the database -- the caller applies each match
+    by id (db.update_bubble_text()) only after the person reviews this
+    list, and only translated_text changes; x/y/w/h/source_text/skip/
+    font fields are never touched by this path.
+    """
+    import re
+
+    if not find:
+        return []
+    flags = 0 if case_sensitive else re.IGNORECASE
+    pattern = find if use_regex else re.escape(find)
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        raise ValueError(f"Invalid find pattern: {exc}") from exc
+
+    matches = []
+    for b in bubbles:
+        old_text = b.get("translated_text") or ""
+        if not compiled.search(old_text):
+            continue
+        new_text = compiled.sub(replace, old_text)
+        if new_text != old_text:
+            matches.append({
+                "id": b["id"], "page_idx": b.get("page_idx"),
+                "old_text": old_text, "new_text": new_text,
+            })
+    return matches
+
+
+# ---------------------------------------------------------------------------
+# Structured text regions, SFX handling, shape-aware fitting, and the shared
+# per-page / whole-chapter detect+OCR+translate pipeline (Step 12d)
+# ---------------------------------------------------------------------------
+
+# Region kinds whose text is fitted to the bubble's own outline rather than
+# its bounding rectangle. Narration boxes are rectangles already; signs and
+# SFX sit on artwork, where "the light region around the box" isn't a shape.
+SHAPE_FITTED_KINDS = ("bubble", "thought")
+
+_CJK_LANGUAGES = ("ja", "zh", "ko")
+
+
+def region_excluded_from_auto(region: dict) -> bool:
+    """True for a region the automated inpaint-and-replace pass (and the
+    translate call) leaves alone: an SFX region, unless the person set its
+    per-region include_sfx override. classify_text_regions()' own note is
+    the reason -- SFX lettering is usually part of the art -- so SFX is
+    flagged for manual review rather than painted over by default."""
+    return (region.get("kind") == "sfx") and not region.get("include_sfx")
+
+
+def detect_script_language(text: str, fallback: str) -> str:
+    """Best guess at a region's language from the script its OCR'd text is
+    written in: any kana means Japanese, any Hangul means Korean. Han-only
+    text is ambiguous between Chinese and all-kanji Japanese, so it keeps
+    the drama's own source language when that's either of those. Latin-only
+    text on a CJK-source page is most often English lettering (signs, SFX).
+    No text at all, or nothing recognisable, keeps `fallback`."""
+    import re
+    text = text or ""
+    if re.search(r"[\u3040-\u30ff]", text):
+        return "ja"
+    if re.search(r"[\uac00-\ud7af\u1100-\u11ff]", text):
+        return "ko"
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return fallback if fallback in ("ja", "zh") else "zh"
+    if re.search(r"[A-Za-z]", text) and fallback in _CJK_LANGUAGES:
+        return "en"
+    return fallback
+
+
+def _count_runs(profile, min_gap: int = 2) -> int:
+    """Number of separate ink runs in a 1-D projection profile, ignoring
+    gaps narrower than min_gap (anti-aliasing noise inside one glyph)."""
+    runs, gap, in_run = 0, min_gap, False
+    for has_ink in profile:
+        if has_ink:
+            if not in_run and gap >= min_gap:
+                runs += 1
+            in_run, gap = True, 0
+        else:
+            in_run = False
+            gap += 1
+    return runs
+
+
+def estimate_text_orientation(gray, box: dict, language: str) -> str:
+    """"vertical" or "horizontal" for the text inside `box` of a grayscale
+    page. Only CJK text is ever vertical; for those, the ink's projection
+    profile decides -- vertical text shows up as several separate columns
+    and one unbroken run top to bottom, horizontal text the other way
+    round. A tie falls back to the box's own shape (tall = vertical)."""
+    if language not in _CJK_LANGUAGES:
+        return "horizontal"
+    inner = inset_box_for_ocr(box)
+    h, w = gray.shape[:2]
+    x, y = max(0, inner["x"]), max(0, inner["y"])
+    roi = gray[y:min(h, y + inner["h"]), x:min(w, x + inner["w"])]
+    if roi.size:
+        ink = roi < 128 if roi.mean() >= 128 else roi > 128
+        col_runs = _count_runs(ink.any(axis=0))
+        row_runs = _count_runs(ink.any(axis=1))
+        if col_runs != row_runs:
+            return "vertical" if col_runs > row_runs else "horizontal"
+    return "vertical" if box["h"] > 1.2 * box["w"] else "horizontal"
+
+
+def _panel_for_box(box: dict, panels: list):
+    """Index of the panel (from detect_panels(), already in reading order)
+    that overlaps this box the most -- a bubble spilling across a gutter
+    still belongs to one beat. None if it overlaps no panel at all."""
+    best, best_area = None, 0
+    for i, p in enumerate(panels):
+        ox = min(box["x"] + box["w"], p["x"] + p["w"]) - max(box["x"], p["x"])
+        oy = min(box["y"] + box["h"], p["y"] + p["h"]) - max(box["y"], p["y"])
+        if ox > 0 and oy > 0 and ox * oy > best_area:
+            best, best_area = i, ox * oy
+    return best
+
+
+@dataclass
+class TextRegion:
+    """One detected text region as a single structured object (Step 12d
+    item 1), instead of fields scattered across detection, classification
+    and panel functions.
+
+    confidence is the detector's own score -- only the ML detector has
+    one; the free OpenCV heuristic leaves it None rather than inventing a
+    number. kind/kind_confidence come from classify_text_regions(),
+    panel_id from detect_panels() (None when no panel contains it),
+    orientation from estimate_text_orientation(), and language starts as
+    the drama's source language and is refined from the OCR'd text's
+    script once OCR has run (detect_script_language())."""
+    x: int
+    y: int
+    w: int
+    h: int
+    reading_order: int
+    language: str
+    confidence: Optional[float]
+    orientation: str
+    panel_id: Optional[int]
+    kind: str
+    kind_confidence: float
+    page_id: Optional[int] = None
+
+    @property
+    def bbox(self) -> tuple:
+        return (self.x, self.y, self.w, self.h)
+
+    def to_bubble(self) -> dict:
+        """The dict shape db.save_bubbles()/process_page() work with."""
+        d = asdict(self)
+        d.pop("page_id")
+        return d
+
+
+def analyze_page_regions(image_path: str, boxes: list, source_language: str,
+                         page_id: int = None) -> list:
+    """Turns raw detector boxes into TextRegion objects: classifies each
+    one (bubble/narration/sign/sfx/thought), assigns it to a panel, reads
+    its text orientation, and puts the lot in reading order -- panel by
+    panel (detect_panels() is already in manga reading order), keeping the
+    detector's own order within a panel. Regions outside every panel keep
+    their detector order after the panelled ones."""
+    import cv2
+
+    classified = classify_text_regions(image_path, boxes)
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    try:
+        panels = detect_panels(image_path)
+    except ValueError:
+        panels = []
+
+    staged = []
+    for i, b in enumerate(classified):
+        panel_id = _panel_for_box(b, panels)
+        orientation = (estimate_text_orientation(gray, b, source_language)
+                       if gray is not None else "horizontal")
+        staged.append((panel_id if panel_id is not None else len(panels), i, b, panel_id, orientation))
+    staged.sort(key=lambda t: (t[0], t[1]))
+
+    regions = []
+    for order, (_, _, b, panel_id, orientation) in enumerate(staged):
+        conf = b.get("confidence")
+        regions.append(TextRegion(
+            x=int(b["x"]), y=int(b["y"]), w=int(b["w"]), h=int(b["h"]),
+            reading_order=order, language=source_language,
+            confidence=float(conf) if conf is not None else None,
+            orientation=orientation, panel_id=panel_id,
+            kind=b.get("kind", "bubble"), kind_confidence=float(b.get("kind_confidence", 0.0)),
+            page_id=page_id))
+    return regions
+
+
+def bubble_shape_mask(image_path: str, box: dict, margin: int = 4):
+    """The bubble's real (often oval/irregular) interior inside `box`, as
+    a boolean (h, w) array for render_text_in_box(mask=...) -- found the
+    same way detect_bubbles_cv() finds bubbles (light threshold, close the
+    gaps text strokes punch through, take the connected region under the
+    box's centre, fill its holes), then eroded by `margin` px so text keeps
+    off the outline. None when there's no usable light region there (the
+    box sits on artwork, or the region covers under 30% of the box) --
+    callers then keep the plain rectangle layout."""
+    import cv2
+
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if gray is None or box["w"] <= 2 * margin or box["h"] <= 2 * margin:
+        return None
+    ph, pw = gray.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(pw, box["x"] + box["w"]), min(ph, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0:
+        return None
+    roi = gray[y0:y1, x0:x1]
+
+    otsu_val, _ = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, light = cv2.threshold(roi, max(otsu_val, 180), 255, cv2.THRESH_BINARY)
+    closed = cv2.morphologyEx(light, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=3)
+    _, labels = cv2.connectedComponents(closed, connectivity=8)
+    label = labels[labels.shape[0] // 2, labels.shape[1] // 2]
+    if label == 0:
+        return None
+    region = (labels == label).astype(np.uint8)
+    contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    filled = np.zeros_like(region)
+    cv2.drawContours(filled, contours, -1, 1, thickness=-1)
+    if margin > 0:
+        filled = cv2.erode(filled, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
+
+    mask = np.zeros((box["h"], box["w"]), dtype=bool)
+    mask[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = filled.astype(bool)
+    if mask.sum() < 0.3 * box["w"] * box["h"]:
+        return None
+    return mask
+
+
+def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
+                        hf_token: str = None, ocr_backend: str = None, tesseract_cmd: str = None,
+                        prefer_paddle_vl_manga: bool = False, page_id: int = None):
+    """Detect -> structure (analyze_page_regions) -> OCR -> font-style
+    sample for one page. Shared by the single-page Detect button and the
+    whole-chapter batch (batch_process_pages()), so both do exactly the
+    same thing per page.
+
+    Returns (bubbles, notes): bubbles are TextRegion.to_bubble() dicts with
+    source_text filled in and translated_text left empty for the translate
+    step; notes are (level, message) pairs -- "warning" when the ML
+    detector fell back to the heuristic, "error" when nothing was found --
+    for the caller to show."""
+    notes = []
+    try:
+        boxes = detect_bubbles(image_path, backend=detect_backend, hf_token=hf_token)
+    except BubbleModelUnavailable as exc:
+        notes.append(("warning", str(exc)))
+        boxes = detect_bubbles_cv(image_path)
+
+    if not boxes:
+        _, rejected = detect_bubbles_cv(image_path, debug=True)
+        reasons = {}
+        for r in rejected:
+            reasons[r[4]] = reasons.get(r[4], 0) + 1
+        detail = ("Rejected candidates: "
+                  + ", ".join(f"{n}× {why}" for why, n in
+                              sorted(reasons.items(), key=lambda x: -x[1]))
+                  ) if reasons else "No light enclosed regions found at all."
+        notes.append(("error",
+            "**No bubbles detected on this page.**\n\n"
+            f"{detail}\n\n"
+            "Detection looks for enclosed light regions that don't touch the page "
+            "edge. It struggles with borderless bubbles, dark/inverted panels, "
+            "very low-contrast scans, and text drawn straight onto artwork.\n\n"
+            "What to try: the ML backend if you can reach Hugging Face, or add "
+            "boxes by hand with '➕ Add a bubble manually' below."))
+        return [], notes
+
+    bubbles = []
+    for region in analyze_page_regions(image_path, boxes, source_language, page_id=page_id):
+        b = region.to_bubble()
+        # ocr_box_region() insets the box before cropping -- OCRing a
+        # bubble's own border can make some backends return nothing -- and
+        # routes to the right backend for the language (Step 11 item 4).
+        try:
+            b["source_text"] = ocr_box_region(
+                image_path, b, source_language, backend=ocr_backend,
+                tesseract_cmd=tesseract_cmd, prefer_paddle_vl_manga=prefer_paddle_vl_manga)
+        except Exception:
+            b["source_text"] = ""
+        b["language"] = detect_script_language(b["source_text"], b["language"])
+        # Classical-CV style guess (see sample_text_style()), reviewable
+        # per bubble before render.
+        style = sample_text_style(image_path, b)
+        b["font_category"] = style["suggested_style"]
+        b["ink_ratio"] = style.get("ink_ratio")
+        b["irregular"] = style.get("irregular")
+        b.update(translated_text="", font_size=18, skip=False, include_sfx=False)
+        bubbles.append(b)
+    return bubbles, notes
+
+
+def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
+                           glossary_terms=None, usage_cb=None) -> str:
+    """Translates a page's bubbles from their CURRENT source_text -- so an
+    OCR mistake fixed by hand in the review step (Step 12d item 2) is what
+    reaches the translation call, not the raw OCR output. Skipped regions
+    and SFX left out of the automated pass (region_excluded_from_auto())
+    aren't sent at all and keep whatever translated_text they had; neither
+    are regions with no source text.
+
+    Mutates `bubbles` in place and returns the new rolling context for the
+    next page. A result list whose length doesn't match what was sent is
+    rejected outright (ValueError) rather than assigned by position -- a
+    short or padded list would otherwise put a translation on the wrong
+    bubble."""
+    eligible = [b for b in bubbles
+                if not b.get("skip") and not region_excluded_from_auto(b)
+                and (b.get("source_text") or "").strip()]
+    if not eligible:
+        return previous_context
+    translations, new_context = translate_page_with_context(
+        [b["source_text"] for b in eligible], engine, drama_meta,
+        previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms)
+    if len(translations) != len(eligible):
+        raise ValueError(f"The translation came back with {len(translations)} result(s) for "
+                         f"{len(eligible)} bubble(s) -- not applied, since there's no safe way "
+                         f"to tell which result belongs to which bubble.")
+    for b, t in zip(eligible, translations):
+        b["translated_text"] = t or ""
+    return new_context
+
+
+def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
+                        drama_meta: dict = None, glossary_terms=None, previous_context: str = "",
+                        usage_cb=None, progress_cb=None, **detect_kwargs) -> dict:
+    """Detect + OCR + translate across a chapter's saved pages (Step 12d
+    item 4), reusing the exact per-page functions the single-page Detect
+    button uses, in page order, carrying the rolling prior-page context
+    from one page to the next.
+
+    pages: [{"id": page_id, "image_path": path}, ...] in reading order.
+    save_fn(page_id, bubbles) persists each page (db.save_bubbles in the
+    app). engine=None does detect+OCR only. detect_kwargs go to
+    detect_and_ocr_page() (detect_backend, hf_token, ocr_backend, ...).
+    progress_cb(done, total, page) is called after each page.
+
+    One page failing doesn't stop the rest (same per-page isolation as
+    bulk_render_pages()); a failed translation still saves that page's
+    OCR text. Returns {"processed": [{"page_id", "bubbles", "notes"}],
+    "errors": [{"page_id", "error"}], "context": final rolling context}."""
+    report = {"processed": [], "errors": [], "context": previous_context}
+    context = previous_context
+    for done, page in enumerate(pages, start=1):
+        try:
+            bubbles, notes = detect_and_ocr_page(
+                page["image_path"], source_language, page_id=page["id"], **detect_kwargs)
+            if engine is not None and bubbles:
+                try:
+                    context = translate_page_bubbles(
+                        bubbles, engine, drama_meta or {}, previous_context=context,
+                        glossary_terms=glossary_terms, usage_cb=usage_cb)
+                except Exception as exc:
+                    notes.append(("warning", f"Translation failed ({exc}) -- OCR text was "
+                                             f"still saved; retranslate this page from its "
+                                             f"review step."))
+            save_fn(page["id"], bubbles)
+            report["processed"].append({"page_id": page["id"], "bubbles": len(bubbles),
+                                        "notes": notes})
+        except Exception as exc:
+            report["errors"].append({"page_id": page["id"],
+                                     "error": f"{type(exc).__name__}: {exc}"})
+        if progress_cb:
+            progress_cb(done, len(pages), page)
+    report["context"] = context
+    return report

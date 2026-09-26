@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 
 import diarize
 import storage
@@ -32,6 +33,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "story_context.py", "storage.py", "universe_wiki.py", "background_jobs.py",
     "adaptive_style.py", "line_tools.py", "emotion.py", "ui_theme.py", "page_fetch.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
+    "app_help.py",
 ]
 EXPECTED_TABS_FILES = [
     "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
@@ -56,6 +58,17 @@ OPTIONAL_DEPENDENCIES = {
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     "f5_tts": ("f5_tts", "local voice cloning", "feature"),
     "elevenlabs": ("elevenlabs", "hosted voice cloning", "feature"),
+    # Keys are the real pip names -- Diagnostics' Install button runs
+    # `pip install <key>`. These three can't share one environment (see
+    # requirements.txt), which the descriptions say before anyone clicks.
+    "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice; can't share an "
+                               "install with Chatterbox/TADA)", "feature"),
+    "chatterbox-tts": ("chatterbox", "emotion-aware local voice (Chatterbox; adds a PerTh "
+                                     "watermark; can't share an install with OmniVoice/TADA)",
+                       "feature"),
+    "hume-tada": ("tada", "long-narration local voice (TADA; model weights under the Llama 3.2 "
+                          "Community License; can't share an install with OmniVoice/Chatterbox)",
+                  "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering", "required"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
@@ -66,8 +79,18 @@ OPTIONAL_DEPENDENCIES = {
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pykakasi": ("pykakasi", "Japanese furigana (Reader)", "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
-    "ultralytics": ("ultralytics", "ML bubble detection (Scanlate)", "feature"),
-    "huggingface_hub": ("huggingface_hub", "ML bubble detection, voice cloning model downloads", "feature"),
+    "transformers": ("transformers", "local NLLB-200 translation engine, ML bubble detection "
+                                     "(Scanlate), PaddleOCR-VL-For-Manga", "feature"),
+    "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
+                        "word-level realignment, several TTS/ASR backends", "feature"),
+    "safetensors": ("safetensors", "ML inpainting (Scanlate, LaMa-manga checkpoint)", "feature"),
+    "huggingface_hub": ("huggingface_hub", "ML bubble detection/inpainting, voice cloning model downloads",
+                        "feature"),
+    "pypdf": ("pypdf", "Scanlate PDF import (splitting a PDF into pages)", "feature"),
+    "streamlit_drawable_canvas": ("streamlit_drawable_canvas",
+                                  "Scanlate manual erase/heal brush -- confirmed incompatible "
+                                  "with this app's pinned streamlit>=1.49 as of this check "
+                                  "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao)", "feature"),
@@ -253,9 +276,9 @@ def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
 # ---------------------------------------------------------------------------
 # Step 9b.2: model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
-# list; several named there, like OmniVoice or PaddleOCR-VL-For-Manga,
-# aren't implemented yet and belong to later steps). No network call:
-# this only reports what pip already knows is installed locally.
+# list; several named there, like PaddleOCR-VL-For-Manga, aren't
+# implemented yet and belong to later steps). No network call: this only
+# reports what pip already knows is installed locally.
 # ---------------------------------------------------------------------------
 
 MODEL_ENGINE_REGISTRY = [
@@ -280,6 +303,15 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/facebookresearch/demucs"},
     {"name": "F5-TTS", "kind": "package", "package": "f5-tts",
      "url": "https://github.com/SWivid/F5-TTS"},
+    {"name": "OmniVoice", "kind": "package", "package": "omnivoice",
+     "url": "https://github.com/k2-fsa/OmniVoice"},
+    {"name": "GPT-SoVITS", "kind": "service",
+     "note": "separate local server (not pip-installed)",
+     "url": "https://github.com/RVC-Boss/GPT-SoVITS"},
+    {"name": "Chatterbox", "kind": "package", "package": "chatterbox-tts",
+     "url": "https://github.com/resemble-ai/chatterbox"},
+    {"name": "TADA", "kind": "package", "package": "hume-tada",
+     "url": "https://github.com/HumeAI/tada"},
     {"name": "edge-tts", "kind": "package", "package": "edge-tts",
      "url": "https://github.com/rany2/edge-tts"},
     {"name": "ElevenLabs (hosted)", "kind": "package", "package": "elevenlabs",
@@ -294,12 +326,15 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     heavy ML import-time cost just to check a version) -- "not installed"
     if it isn't present. A "repo" entry (a bare model checkpoint this
     app's own code names directly, not a pip-versioned package) shows its
-    Hugging Face repo id(s) as its identifier instead of a version number.
-    Makes no network call."""
+    Hugging Face repo id(s) as its identifier instead of a version number;
+    a "service" entry (an engine running as its own separate server)
+    shows its note. Makes no network call."""
     out = []
     for entry in MODEL_ENGINE_REGISTRY:
         if entry["kind"] == "repo":
             version = ", ".join(entry["repo_ids"])
+        elif entry["kind"] == "service":
+            version = entry["note"]
         else:
             try:
                 version = importlib.metadata.version(entry["package"])
@@ -419,3 +454,101 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
         "library_writable": check_library_writable(library_dir),
         "api_keys": api_keys_set,
     }
+
+
+# ---------------------------------------------------------------------------
+# Step 18c: in-app "Install" buttons for optional dependencies, run against
+# the CURRENTLY RUNNING interpreter (sys.executable) -- when this app was
+# launched via start.bat/portable.py's own venv activation, that's already
+# the venv's own python, never a bare system `pip`.
+# ---------------------------------------------------------------------------
+
+# Only these two tiers ever get a generic Install button -- "required" is
+# already installed by definition (the app wouldn't be running otherwise)
+# and "dev" (pytest) has nothing to do with a running app session.
+INSTALLABLE_TIERS = ("feature", "engine")
+
+
+def stream_pip_install(pip_args: list, python_executable: str = None):
+    """Yields {"line": str} for each line of combined stdout/stderr as
+    `<python> -m pip install <pip_args>` runs, then a final
+    {"done": True, "ok": bool, "returncode": int}. Never swallows a
+    failed install into a generic message -- the real pip error text is
+    exactly what's yielded, for the caller to show in full (confirmed
+    live during this session: a genuine `audio-separator` build failure
+    on a real machine is exactly the case this must not hide)."""
+    python_executable = python_executable or sys.executable
+    cmd = [python_executable, "-m", "pip", "install"] + list(pip_args)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    for line in proc.stdout:
+        yield {"line": line.rstrip("\n")}
+    returncode = proc.wait()
+    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+
+
+def stream_pip_uninstall(pip_args: list, python_executable: str = None):
+    """Same shape as stream_pip_install, for `<python> -m pip uninstall -y`."""
+    python_executable = python_executable or sys.executable
+    cmd = [python_executable, "-m", "pip", "uninstall", "-y"] + list(pip_args)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    for line in proc.stdout:
+        yield {"line": line.rstrip("\n")}
+    returncode = proc.wait()
+    yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+
+
+def gpu_torch_mismatch() -> bool:
+    """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
+    PATH) but the installed torch build can't see it -- the exact
+    CPU-only-wheel footgun Step 18 item 7 traces to a bare `pip install
+    torch` always resolving to PyPI's default (non-CUDA) wheel. A
+    minimal, self-contained version of the same nvidia-smi-on-PATH
+    detection Step 18 item 3's fuller GPU/VRAM display will also use --
+    that display doesn't exist yet, but this button (item 6) needs the
+    same signal regardless of which of the two lands first."""
+    if not shutil.which("nvidia-smi"):
+        return False
+    cuda = check_cuda()
+    return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
+
+
+# cu128, not cu124 -- confirmed directly against download.pytorch.org that
+# cu124's index only publishes wheels through cp313, nothing for cp314,
+# while cu128 already carries real Windows cp314 CUDA wheels (matches the
+# open pytorch/pytorch#169929 report of exactly this gap). Picked by the
+# running interpreter's own Python version below, not hardcoded to a
+# single value for every version, since CUDA-driver compatibility and
+# Python-ABI wheel availability vary independently.
+GPU_TORCH_CUDA_INDEX_BY_PYVER = {(3, 14): "cu128"}
+GPU_TORCH_CUDA_INDEX_DEFAULT = "cu128"
+
+
+def gpu_torch_cuda_index() -> str:
+    v = sys.version_info
+    return GPU_TORCH_CUDA_INDEX_BY_PYVER.get((v.major, v.minor), GPU_TORCH_CUDA_INDEX_DEFAULT)
+
+
+def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str = None):
+    """Uninstalls the CPU-only torch/torchaudio, then reinstalls both from
+    PyTorch's own CUDA index for the running interpreter's Python version.
+    Reuses constraints.txt's existing torch<3/torchaudio<3 caps via pip's
+    own `-c` flag (rather than duplicating those version numbers here) so
+    this reinstall can't drift outside the range the rest of the app
+    already assumes. Yields the same {"line": ...}/{"done": ...} items as
+    stream_pip_install, across both subprocess calls in sequence -- only
+    the LAST item has "done", so a caller can tell the whole sequence
+    (uninstall + install) apart from either step finishing early."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints_path = os.path.join(project_root, "constraints.txt")
+
+    for item in stream_pip_uninstall(["torch", "torchaudio"], python_executable):
+        if not item.get("done"):
+            yield item
+
+    index_url = f"https://download.pytorch.org/whl/{gpu_torch_cuda_index()}"
+    install_args = ["torch", "torchaudio", "--index-url", index_url]
+    if os.path.exists(constraints_path):
+        install_args += ["-c", constraints_path]
+    yield from stream_pip_install(install_args, python_executable)
