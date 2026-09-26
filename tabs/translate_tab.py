@@ -130,7 +130,8 @@ def render_translate_tab():
                 free_tier=engine_choice == "gemini" and _gemini_free_tier,
                 base_url=_ollama_base_url if engine_choice == "ollama" else None)
         except Exception as exc:
-            st.error(f"Couldn't set up the {engine_choice} engine: {exc}")
+            st.error(f"Couldn't set up the {engine_choice} engine: "
+                    f"{translate_engines.redact_secrets(str(exc))}")
         else:
             with st.spinner("Translating..."):
                 try:
@@ -139,7 +140,8 @@ def render_translate_tab():
                 except translate_engines.UnsupportedDirectionError as exc:
                     st.error(f"🚫 {exc}")
                 except Exception as exc:
-                    st.error(f"Translation failed: {exc}")
+                    st.error(f"Translation failed: "
+                            f"{translate_engines.redact_secrets(str(exc))}")
                 else:
                     st.session_state["translate_tab_output"] = output_text
                     st.session_state["translate_tab_output_source"] = source_text

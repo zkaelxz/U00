@@ -67,3 +67,49 @@ class TestTranslateTab:
         at = _run()
         [b for b in at.button if "Clear history" in b.label][0].click().run()
         assert isolated_db.list_translate_history() == []
+
+    def test_engine_setup_failure_never_shows_a_raw_key_in_the_error(self, isolated_db, monkeypatch):
+        """Regression: an engine-setup failure must run its exception text
+        through translate_engines.redact_secrets before showing it, the
+        same as every other error path in the app (e.g. workspace_tab's
+        bulk-submission errors) -- an invalid-key error can otherwise
+        echo the key straight back into the UI."""
+        import translate_engines as te
+
+        leaked_key = "sk-should-not-appear-1234567890"
+
+        def _boom(*a, **kw):
+            raise RuntimeError(f"invalid api key: {leaked_key}")
+
+        monkeypatch.setattr(te, "get_engine", _boom)
+
+        at = _run({"translate_tab_engine": "claude",
+                   "translate_tab_api_key_claude": "whatever-was-typed"})
+        at.text_area(key="translate_tab_text").set_value("你好").run()
+        [b for b in at.button if "Translate" in b.label][0].click().run()
+
+        assert not at.exception
+        assert not any(leaked_key in e.value for e in at.error)
+        assert any("[REDACTED]" in e.value for e in at.error)
+
+    def test_translation_failure_never_shows_a_raw_key_in_the_error(self, isolated_db, monkeypatch):
+        """Same regression as above, for a failure raised by
+        standalone_translate itself (e.g. the provider rejects the key
+        mid-request) rather than by get_engine."""
+        import translate_engines as te
+
+        leaked_key = "sk-should-not-appear-0987654321"
+
+        def _boom(*a, **kw):
+            raise RuntimeError(f"invalid api key: {leaked_key}")
+
+        monkeypatch.setattr(te, "standalone_translate", _boom)
+
+        at = _run({"translate_tab_engine": "claude",
+                   "translate_tab_api_key_claude": "whatever-was-typed"})
+        at.text_area(key="translate_tab_text").set_value("你好").run()
+        [b for b in at.button if "Translate" in b.label][0].click().run()
+
+        assert not at.exception
+        assert not any(leaked_key in e.value for e in at.error)
+        assert any("[REDACTED]" in e.value for e in at.error)
