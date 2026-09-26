@@ -1175,6 +1175,81 @@ class TestLineEditingNotLockedDuringAJob:
             _clear(f"translate_{did}")
 
 
+class TestChunkAndTagSpeakersHistorySnapshot:
+    """Step 25m: novel narration's "Chunk & Tag Speakers" replaced every
+    existing line via db.save_lines(picked_id, lines) with no history
+    snapshot taken first, unlike every comparable full-replace path
+    elsewhere in this file (transcription completion takes one, Step 25
+    item 3). The block's own on-screen warning literally tells the user to
+    "switch engines and re-run" -- doing exactly that used to wipe every
+    existing translation, flag, and hand-corrected speaker with nothing to
+    restore from."""
+
+    def _drama_with_existing_translated_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Narration Drama", media_type="novel",
+                                        content_mode="novel_narration", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="旧的文本", en="Old translation",
+                 speaker="Hero", speaker_manual=True),
+        ])
+        return did
+
+    def _run(self, did, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def _click_chunk_and_tag(self, did, **state):
+        at = self._run(did, **state)
+        [b] = [b for b in at.button if b.label == "▶ Chunk & Tag Speakers"]
+        b.click().run(timeout=30)
+        return at
+
+    def test_a_history_snapshot_exists_before_chunk_and_tag_replaces_lines(self, isolated_db):
+        did = self._drama_with_existing_translated_lines(isolated_db)
+        before_history = len(isolated_db.list_line_history(did))
+
+        self._click_chunk_and_tag(did, **{f"ocr_text_{did}": "有一天，天气很好。"})
+
+        after_history = isolated_db.list_line_history(did)
+        assert len(after_history) == before_history + 1
+        assert after_history[0]["label"] == "before chunk & tag speakers"
+
+    def test_existing_translation_is_recoverable_via_version_history_afterward(self, isolated_db):
+        did = self._drama_with_existing_translated_lines(isolated_db)
+
+        at = self._click_chunk_and_tag(did, **{f"ocr_text_{did}": "有一天，天气很好。"})
+
+        # The replace really did happen -- new chunked lines, old translation gone.
+        after = isolated_db.load_line_objects(did)
+        assert after[0].zh != "旧的文本"
+        assert after[0].en != "Old translation"
+
+        # Restoring the auto-taken snapshot (same "Version history" flow a
+        # user would use) brings the original translation and the hand-set
+        # speaker back.
+        snap = [h for h in isolated_db.list_line_history(did)
+                if h["label"] == "before chunk & tag speakers"][0]
+        [restore_btn] = [b for b in at.button if b.key == f"restore_{snap['id']}"]
+        restore_btn.click().run(timeout=30)
+
+        restored = isolated_db.load_line_objects(did)
+        assert restored[0].zh == "旧的文本"
+        assert restored[0].en == "Old translation"
+        assert restored[0].speaker == "Hero"
+        assert restored[0].speaker_manual is True
+
+
 class TestOllamaReachabilityGatesTranslateButton:
     """UI-level regression coverage for a real gap: Ollama is exempted
     from the API-key check entirely (_needs_key), with nothing in its

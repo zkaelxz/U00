@@ -3230,6 +3230,13 @@ def render_workspace_tab():
 
             st.session_state.lines = lines
             background_jobs.cancel_line_jobs(picked_id)
+            # Step 25m: this replaces every existing line (translations, flags,
+            # hand-corrected speakers included) -- same safety net Step 25
+            # item 3 already takes before transcription's own full replace.
+            _existing_lines_before = db.load_line_objects(picked_id)
+            if _existing_lines_before:
+                db.save_line_history_snapshot(
+                    picked_id, _existing_lines_before, "before chunk & tag speakers")
             db.save_lines(picked_id, lines)
             db.update_drama(picked_id, status="aligned")
             st.success(f"Prepared {len(lines)} narration chunks.")
