@@ -107,7 +107,11 @@ def render_live_tab():
     elif is_queued:
         st.info(job.get("message") or "Waiting -- GPU busy.")
         if st.button("✖️ Cancel"):
-            background_jobs.clear_job(_JOB_ID)
+            if not background_jobs.cancel_queued(_JOB_ID):
+                # Promoted to running in the gap between this render and
+                # the click -- same real stop path "Stop" uses below.
+                live_translate.bump_generation(_JOB_ID)
+                background_jobs.request_cancel(_JOB_ID)
             st.rerun()
     else:
         st.info(job.get("message") or "Running...")
