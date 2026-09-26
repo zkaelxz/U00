@@ -185,7 +185,7 @@ def render_diagnostics_tab():
         help_diag_results = st.session_state.get("diagnostics_results") or diagnostics.run_full_diagnostics(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), db.LIBRARY_DIR,
             {key: bool(st.session_state.get(f"settings_{key}"))
-             for key in ["claude", "deepseek", "gemini", "deepl", "google", "elevenlabs", "hf_token"]})
+             for key in ["claude", "deepseek", "gemini", "deepl", "google", "hf_token"]})
         help_diag_text = diagnostics.format_diagnostics_report(help_diag_results, hf_cache, model_versions)
         st.session_state["app_help_report_text"] = diagnostics.redact_for_support(
             app_help.format_help_report(last_question, last_answer, help_diag_text))
@@ -201,7 +201,7 @@ def render_diagnostics_tab():
         _report_results = st.session_state.get("diagnostics_results") or diagnostics.run_full_diagnostics(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))), db.LIBRARY_DIR,
             {key: bool(st.session_state.get(f"settings_{key}"))
-             for key in ["claude", "deepseek", "gemini", "deepl", "google", "elevenlabs", "hf_token"]})
+             for key in ["claude", "deepseek", "gemini", "deepl", "google", "hf_token"]})
         st.session_state["support_report_text"] = diagnostics.redact_for_support(
             diagnostics.format_diagnostics_report(_report_results, hf_cache, model_versions))
     if st.session_state.get("support_report_text"):
@@ -431,7 +431,7 @@ def render_diagnostics_tab():
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     api_keys_set = {
         key: bool(st.session_state.get(f"settings_{key}"))
-        for key in ["claude", "deepseek", "gemini", "deepl", "google", "elevenlabs", "hf_token"]
+        for key in ["claude", "deepseek", "gemini", "deepl", "google", "hf_token"]
     }
 
     if st.button("🔍 Run diagnostics", type="primary"):

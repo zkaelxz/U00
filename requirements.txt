@@ -65,9 +65,6 @@ pillow>=10.0
 # Offline TTS (optional, no internet/API needed):
 piper-tts>=1.2
 
-# Voice cloning alternative, hosted (optional, paid API, no GPU needed):
-elevenlabs>=1.0
-
 # Novel narration voices (optional, local; GPU strongly recommended). Pick
 # one per character in Workspace section 6; each downloads its own model on
 # first use. Left commented out because they can't all share one

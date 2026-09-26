@@ -332,8 +332,7 @@ def cmd_dub(args):
         chars = db.list_characters(d["id"])
         voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
         clone_map = dub_module.clone_map_from_characters(
-            chars, ddir, elevenlabs_key=args.elevenlabs_key or "",
-            gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
+            chars, ddir, gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
             ref_language=d.get("source_language") or "zh")
         speakers = sorted({ln.speaker for ln in lines if ln.speaker})
         if speakers and not voice_map:
@@ -341,11 +340,15 @@ def cmd_dub(args):
 
         is_narration = d.get("content_mode") == "novel_narration"
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
+        stretch = {} if is_narration else dict(
+            max_speedup=getattr(args, "max_speedup", None) or dub_module.DUB_MAX_SPEEDUP,
+            max_slowdown=getattr(args, "max_slowdown", None) or dub_module.DUB_MAX_SLOWDOWN)
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
         out_path, dub_errors = build_fn(
             lines, ddir, voice_map, character_clone_map=clone_map,
             emotion_map=db.load_emotions(d["id"]),
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
+            **stretch,
         )
         # Narration rewrites every line's timing to match its audio -- same
         # fields the Workspace tab saves after narration.
@@ -439,8 +442,14 @@ def main():
 
     p_dub = sub.add_parser("dub")
     p_dub.add_argument("--id", type=int, default=None)
-    p_dub.add_argument("--elevenlabs-key", default=None,
-                        help="Required only for characters cloned via ElevenLabs")
+    p_dub.add_argument("--max-speedup", type=float, default=None,
+                       help="Dub (not narration): the most a line may be sped up to fit its "
+                            f"original timing (default {dub_module.DUB_MAX_SPEEDUP}); past it the "
+                            "line runs over instead")
+    p_dub.add_argument("--max-slowdown", type=float, default=None,
+                       help="Dub (not narration): the most a short line may be slowed toward its "
+                            f"original timing (default {dub_module.DUB_MAX_SLOWDOWN}; 1 turns "
+                            "slowing off)")
     p_dub.add_argument("--gpt-sovits-url", default=None,
                        help="GPT-SoVITS server for characters using it "
                             f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")

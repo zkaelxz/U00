@@ -57,7 +57,6 @@ OPTIONAL_DEPENDENCIES = {
     "edge_tts": ("edge_tts", "free online dubbing", "feature"),
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     "f5_tts": ("f5_tts", "local voice cloning", "feature"),
-    "elevenlabs": ("elevenlabs", "hosted voice cloning", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
     # `pip install <key>`. These three can't share one environment (see
     # requirements.txt), which the descriptions say before anyone clicks.
@@ -314,8 +313,6 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/HumeAI/tada"},
     {"name": "edge-tts", "kind": "package", "package": "edge-tts",
      "url": "https://github.com/rany2/edge-tts"},
-    {"name": "ElevenLabs (hosted)", "kind": "package", "package": "elevenlabs",
-     "url": "https://elevenlabs.io"},
 ]
 
 

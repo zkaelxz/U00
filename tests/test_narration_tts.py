@@ -12,6 +12,7 @@ None of the engines, torch, soundfile, pydub or ffmpeg are needed: each is
 faked at its own import boundary, the same way tests/test_dub.py does.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,12 @@ from core import Line
 
 # --------------------------------------------------------------- fakes
 
+def _unsigned(name):
+    """A clip filename without its Step 11e content signature:
+    line_0000-0002_<hash>.wav -> line_0000-0002.wav."""
+    return re.sub(r"_[0-9a-f]{10}(?=\.wav$)", "", name)
+
+
 class FakeAudio:
     """Just enough of pydub.AudioSegment for build_narration_track: a clip's
     length comes from clip_lengths (default 1000ms)."""
@@ -48,7 +55,8 @@ class FakeAudio:
 
     @classmethod
     def from_file(cls, path):
-        return cls(cls.clip_lengths.get(os.path.basename(path), 1000))
+        # clip_lengths is keyed by the unsigned name ("line_0000-0002.wav")
+        return cls(cls.clip_lengths.get(_unsigned(os.path.basename(path)), 1000))
 
     def __add__(self, other):
         return FakeAudio(self.ms + other.ms)
@@ -342,11 +350,22 @@ class TestCloneMapFromCharacters:
         assert m["C"]["engine"] == "chatterbox" and m["C"]["ref_audio"] == os.path.join("/d", "c.wav")
         assert m["T"]["ref_language"] == "ja"
 
-    def test_elevenlabs_still_wins_over_a_clip(self):
+    def test_a_removed_hosted_clone_is_no_clone_at_all(self):
+        # Step 11d: a character cloned with the removed hosted engine falls
+        # back to plain TTS instead of crashing a dub job...
+        m = dub.clone_map_from_characters([self._char("A", elevenlabs_voice_id="v1")], "/d")
+        assert m == {}
+
+    def test_a_removed_hosted_clone_with_a_clip_uses_the_clip(self):
+        # ...and one that also has a clip clones it with its local engine.
         m = dub.clone_map_from_characters(
             [self._char("A", elevenlabs_voice_id="v1", ref_audio_filename="a.wav", clone_engine="omnivoice")],
-            "/d", elevenlabs_key="k")
-        assert m == {"A": {"engine": "elevenlabs", "voice_id": "v1", "api_key": "k"}}
+            "/d")
+        assert m == {"A": {"engine": "omnivoice", "ref_audio": os.path.join("/d", "a.wav"), "ref_text": ""}}
+
+    def test_a_removed_hosted_clone_says_so(self):
+        assert "has been removed" in dub.clone_removed_message(self._char("A", elevenlabs_voice_id="v1"))
+        assert dub.clone_removed_message(self._char("A")) is None
 
     def test_a_clip_wins_over_a_description(self):
         m = dub.clone_map_from_characters(
@@ -371,13 +390,12 @@ class TestCloneMapFromCharacters:
     def test_gpu_slot_only_for_local_engines(self):
         assert dub.clone_map_uses_local_model({"A": {"engine": "omnivoice", "instruct": "x"}})
         assert dub.clone_map_uses_local_model({"A": {"ref_audio": "a", "ref_text": ""}})  # legacy F5
-        assert not dub.clone_map_uses_local_model({"A": {"engine": "elevenlabs"}})
         assert not dub.clone_map_uses_local_model({})
 
 
 class TestEngineSelectionFollowsTheClonePattern:
-    """Same shape as test_dub.TestBuildDubTrackClonePriority's F5-TTS and
-    ElevenLabs cases, for each new engine, through both track builders."""
+    """Same shape as test_dub.TestBuildDubTrackClonePriority's F5-TTS
+    case, for each new engine, through both track builders."""
 
     @pytest.fixture
     def calls(self, monkeypatch):
@@ -505,7 +523,8 @@ class TestNarrationTTSUnits:
         assert lines[0].start == 0.0 and lines[2].end == 6.0
         assert lines[0].end == lines[1].start and lines[1].end == lines[2].start
         assert (lines[1].end - lines[1].start) < (lines[0].end - lines[0].start)
-        assert {ln.dub_filename for ln in lines} == {os.path.join("dub_clips", "line_0000-0002.wav")}
+        assert len({ln.dub_filename for ln in lines}) == 1
+        assert _unsigned(lines[0].dub_filename) == os.path.join("dub_clips", "line_0000-0002.wav")
 
     def test_speaker_change_starts_a_new_unit(self, synth_calls, fake_pydub, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
@@ -593,7 +612,8 @@ class TestParallelNarration:
             open(out_path, "w").close()
         monkeypatch.setattr(dub, "synthesize_line", fake)
         os.makedirs(tmp_path / "dub_clips")
-        (tmp_path / "dub_clips" / "line_0001.wav").write_text("from a previous run")
+        previous = f"line_0001_{dub.clip_signature('Line 1.', {'engine': 'edge_tts', 'voice': 'en-US-AvaNeural'})}.wav"
+        (tmp_path / "dub_clips" / previous).write_text("from a previous run")
 
         lines = self._alternating(8)
         _, errors = dub.build_narration_track(lines, str(tmp_path), {}, max_workers=4)
@@ -605,7 +625,7 @@ class TestParallelNarration:
         assert len(pool.instances) == 1 and pool.instances[0].max_workers == 4
         # assembly still follows line order, whatever order clips finished in
         assert [ln.start for ln in lines] == sorted(ln.start for ln in lines)
-        assert lines[1].dub_filename == os.path.join("dub_clips", "line_0001.wav")
+        assert lines[1].dub_filename == os.path.join("dub_clips", previous)
 
     def test_gpt_sovits_is_forced_single_threaded(self, pool, monkeypatch, fake_pydub, tmp_path):
         events = []

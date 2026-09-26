@@ -804,6 +804,36 @@ def _autotune_estimate_caption(audio_duration_seconds, num_candidates):
             f"hardware -- each candidate is a full re-transcription, one after another.")
 
 
+def _render_dub_pacing(lines, ddir, picked_id):
+    """Step 11c: each dubbed line's fit against its original timing, from
+    the last dub run -- 🟢 fits as translated, 🟡 sped up within the
+    limit (hover for the factor), 🔴 hit the limit and still runs over."""
+    pacing = dub_module.load_pacing(ddir)
+    rows = [(ln, rec) for ln in lines if (rec := dub_module.pacing_for_line(ln, pacing))]
+    if not rows:
+        return
+    counts = {s: sum(1 for _, r in rows if r["status"] == s) for s in dub_module.PACING_ICONS}
+    with st.expander(f"⏱️ Dub pacing -- {counts['fit']} 🟢 · {counts['stretched']} 🟡 · "
+                     f"{counts['overflow']} 🔴", expanded=bool(counts["overflow"])):
+        st.caption("🟢 fits its original timing · 🟡 sped up to fit (hover for how much) · "
+                   "🔴 needed more than the speed-up limit, so it runs over -- shorten it (section 7's "
+                   "pacing check) or edit the translation, then generate again.")
+        attention_only = st.checkbox("Show only 🟡/🔴 lines", value=True, key=f"pacing_attention_{picked_id}")
+        for ln, rec in rows:
+            if attention_only and rec["status"] == dub_module.PACING_FIT:
+                continue
+            factor = rec.get("factor") or 1.0
+            note = ""
+            if rec["status"] == dub_module.PACING_OVERFLOW:
+                over = rec["clip_ms"] / factor - rec["window_ms"]
+                note = f" -- runs {over / 1000:.1f}s over"
+            st.markdown(
+                f"{dub_module.PACING_ICONS[rec['status']]} **#{ln.idx + 1}** {ln.en}{note}",
+                help=(f"Played at {factor:.2f}× speed ({rec['clip_ms'] / 1000:.1f}s clip, "
+                      f"{rec['window_ms'] / 1000:.1f}s slot)" if factor != 1.0
+                      else f"{rec['clip_ms'] / 1000:.1f}s clip, {rec['window_ms'] / 1000:.1f}s slot"))
+
+
 def _copy_lines(lines):
     """Independent copies for a background job (it mutates its own list
     while the page keeps editing st.session_state's). dataclasses.replace
@@ -3312,6 +3342,9 @@ def render_workspace_tab():
                             st.success(f"'{name.strip()}' will be pickable for every future drama in this series.")
                             st.rerun()
 
+                    _removed_clone = dub_module.clone_removed_message(c)
+                    if _removed_clone:
+                        st.info(_removed_clone)
                     rc1, rc2 = st.columns([1, 2])
                     if c["ref_audio_filename"]:
                         rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
@@ -3386,26 +3419,6 @@ def render_workspace_tab():
                                    "your GPT-SoVITS folder first. Set its address under Settings -> "
                                    "API keys & endpoints if it isn't the default.")
 
-            with st.expander("☁️ Or use ElevenLabs cloning instead (hosted, no GPU needed)", expanded=False):
-                st.caption("Paid API with a limited free tier. Simpler to get working than F5-TTS since "
-                          "there's no local model to install -- worth trying first if F5-TTS gives you trouble.")
-                el_key = synced_api_key_input("ElevenLabs API key", "elevenlabs", f"el_key_{picked_id}")
-                for c in characters:
-                    if not c["ref_audio_filename"]:
-                        continue
-                    ec1, ec2 = st.columns([2, 1])
-                    label = c['character_name'] or c['speaker_label']
-                    if c.get("elevenlabs_voice_id"):
-                        ec1.caption(f"{label} — ✅ cloned (voice ID: {c['elevenlabs_voice_id']})")
-                    else:
-                        ec1.caption(label)
-                    if ec2.button(f"Clone via ElevenLabs", key=f"elclone_{c['speaker_label']}", disabled=not el_key):
-                        voice_id = dub_module.clone_voice_elevenlabs(
-                            el_key, c["character_name"] or c["speaker_label"],
-                            os.path.join(ddir, c["ref_audio_filename"]))
-                        db.upsert_character(picked_id, c["speaker_label"], elevenlabs_voice_id=voice_id)
-                        st.success(f"Cloned and saved. Voice ID: {voice_id}")
-                        st.rerun()
 
     # ---------------------------------------------------- Review & edit
     if st.session_state.lines:
@@ -4535,6 +4548,23 @@ def render_workspace_tab():
                 horizontal=False,
             )
             voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
+            max_speedup, max_slowdown = dub_module.DUB_MAX_SPEEDUP, dub_module.DUB_MAX_SLOWDOWN
+            if content_mode != "novel_narration":
+                # Step 11c: a clip that doesn't fit its line's original timing
+                # is sped up / slowed down to fit, within these limits.
+                sp1, sp2 = st.columns(2)
+                max_speedup = sp1.number_input(
+                    "Max speed-up to fit a line's timing", 1.0, 2.0, dub_module.DUB_MAX_SPEEDUP, 0.05,
+                    key=f"dub_max_speedup_{picked_id}",
+                    help="A dubbed line longer than the original's time slot is sped up (pitch "
+                         "kept) by at most this much. Past it the line runs over its slot rather "
+                         "than sounding chipmunked -- shorten those with the pacing check in "
+                         "section 7 instead.")
+                max_slowdown = sp2.number_input(
+                    "Max slow-down to fill a line's timing", 0.5, 1.0, dub_module.DUB_MAX_SLOWDOWN, 0.05,
+                    key=f"dub_max_slowdown_{picked_id}",
+                    help="A dubbed line shorter than its slot is slowed toward it by at most "
+                         "this much. 1.0 turns slowing off.")
             dub_button_label = "🎙️ Generate narration track" if content_mode == "novel_narration" else "🎙️ Generate dub track"
             _dub_job_id = f"dub_{picked_id}"
             _dub_job = background_jobs.get_status(_dub_job_id)
@@ -4542,20 +4572,18 @@ def render_workspace_tab():
             if st.button(dub_button_label, disabled=_dub_job_active):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
-                el_key_for_dub = st.session_state.get(f"el_key_{picked_id}", "") or st.session_state.get("settings_elevenlabs", "")
                 clone_map = dub_module.clone_map_from_characters(
-                    chars, ddir, elevenlabs_key=el_key_for_dub,
-                    gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
+                    chars, ddir, gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
                     ref_language=drama.get("source_language") or "zh")
                 # Only the local voice engines (F5-TTS, OmniVoice, GPT-SoVITS,
-                # Chatterbox, TADA) touch the GPU -- edge_tts and ElevenLabs are
-                # online services and "offline" fallback TTS is CPU-only, so
+                # Chatterbox, TADA) touch the GPU -- edge_tts is an online
+                # service and "offline" fallback TTS is CPU-only, so
                 # this only takes a GPU slot when it's actually needed.
                 background_jobs.start_process_job(
                     _dub_job_id, dub_module.build_track_subprocess_worker,
                     args=(_copy_lines(st.session_state.lines), ddir, voice_map, "en-US-AvaNeural",
                           clone_map, tts_engine, content_mode == "novel_narration",
-                          db.load_emotions(picked_id)),
+                          db.load_emotions(picked_id), max_speedup, max_slowdown),
                     gpu_touching=dub_module.clone_map_uses_local_model(clone_map),
                     description=f"Dub generation ({_drama_label(drama)})")
                 st.info("Generating in the background -- come back here for progress or to "
@@ -4606,6 +4634,9 @@ def render_workspace_tab():
                                             file_name=os.path.basename(_dub_out_path),
                                             key=f"dub_download_{picked_id}")
                     background_jobs.clear_job(_dub_job_id)
+
+            if content_mode != "novel_narration":
+                _render_dub_pacing(st.session_state.lines, ddir, picked_id)
 
         with st.expander("9. 💾 Export subtitles", expanded=False):
             _total_lines = len(st.session_state.lines)

@@ -14,6 +14,7 @@ UI can keep showing its existing specific, actionable messages instead of
 a generic error+traceback. run_hardsub_ocr_job follows the exact same
 pattern for the burned-in-caption OCR path.
 """
+import json
 import os
 import sys
 import threading
@@ -2968,7 +2969,7 @@ class TestDubGenerationRealMidRunStop:
         background_jobs.clear_job(job_id)
         background_jobs.start_process_job(
             job_id, dub_module.build_track_subprocess_worker,
-            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}),
+            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85),
             gpu_touching=False)
 
         at = self._run(did)
@@ -2999,7 +3000,7 @@ class TestDubGenerationRealMidRunStop:
             f.write(b"x")
 
         def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
-                        is_narration, emotion_map, result_queue):
+                        is_narration, emotion_map, max_speedup, max_slowdown, result_queue):
             lines[0].dub_filename = "dub_clips/line_0000.wav"
             result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
         monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)
@@ -4539,3 +4540,74 @@ class TestNarrationVoiceSetup:
         button.click().run(timeout=30)
         assert exported == [(1, "Novel")]
         assert not at.error
+
+
+class TestDubTimingAndRemovedCloneUI:
+    """Step 11c: section 8's time-stretch limits reach dub generation, and
+    each dubbed line's pacing shows as 🟢/🟡/🔴 with a 🟡 line's factor on
+    hover. Step 11d: a character cloned with the removed hosted engine
+    says so where its clone status is shown, and no option for it
+    remains."""
+
+    def _drama(self, isolated_db, dub_filename=None):
+        did = isolated_db.create_drama(title_en="Dubbed", media_type="audio_drama",
+                                        content_mode="audio_drama", status="dubbed")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello there", speaker="Hero",
+                 dub_filename=dub_filename),
+            Line(idx=1, start=1.0, end=2.0, zh="再见", en="Bye", speaker="Hero",
+                 dub_filename="dub_clips/line_0001_abc.wav")])
+        isolated_db.upsert_character(did, "Hero", character_name="Hero", elevenlabs_voice_id="v1")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_stretch_limits_reach_dub_generation(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), gpu_touching=False, description="":
+                            started.update(args=args) or True)
+        at = self._run(did)
+        [speedup] = [n for n in at.number_input if n.key == f"dub_max_speedup_{did}"]
+        assert speedup.value == dub_module.DUB_MAX_SPEEDUP
+        speedup.set_value(1.2).run(timeout=30)
+        [button] = [b for b in at.button if b.label == "🎙️ Generate dub track"]
+        button.click().run(timeout=30)
+        assert started["args"][8:] == (1.2, dub_module.DUB_MAX_SLOWDOWN)
+
+    def test_pacing_indicator_per_line(self, isolated_db):
+        stretched = "dub_clips/line_0000_abc_x1.200.wav"
+        did = self._drama(isolated_db, dub_filename=stretched)
+        clips = os.path.join(isolated_db.drama_dir(did), "dub_clips")
+        os.makedirs(clips, exist_ok=True)
+        with open(os.path.join(clips, dub_module.PACING_FILENAME), "w") as f:
+            json.dump({"0": {"status": "stretched", "factor": 1.2, "clip_ms": 1200, "window_ms": 1000,
+                             "dub_filename": stretched},
+                       "1": {"status": "overflow", "factor": 1.4, "clip_ms": 2800, "window_ms": 1000,
+                             "dub_filename": "dub_clips/line_0001_abc.wav"}}, f)
+        at = self._run(did)
+        assert any("⏱️ Dub pacing -- 0 🟢 · 1 🟡 · 1 🔴" in e.label for e in at.expander)
+        [yellow] = [m for m in at.markdown if m.value.startswith("🟡 **#1**")]
+        assert "1.20×" in yellow.proto.help
+        [red] = [m for m in at.markdown if m.value.startswith("🔴 **#2**")]
+        assert "runs 1.0s over" in red.value
+
+    def test_removed_hosted_clone_is_explained_and_not_offered(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert any(dub_module.REMOVED_CLONE_MESSAGE == i.value for i in at.info)
+        # the old hosted-cloning expander's key field and clone button are gone
+        assert not any(t.key == f"el_key_{did}" for t in at.text_input)
+        assert not any((b.key or "").startswith("elclone_") for b in at.button)
