@@ -3151,6 +3151,116 @@ class TestRawNovelToggleGatedByContentMode:
         assert [u for u in at.file_uploader if u.key == f"raw_novel_{did}"]
 
 
+class TestDestructiveActionsNeedConfirmation:
+    """Step 25z: "Delete this drama," "Remove current audio/video," and
+    "Remove raw novel context" used to fire on a single click with zero
+    confirmation of any kind, unlike every other destructive action in the
+    app (Library's full-reset type-to-confirm, Library's bulk-delete
+    checkbox, Step 25s's video-overwrite checkbox). Each button is now
+    disabled until its confirmation step is explicitly completed, and
+    still performs the real deletion/removal once it is."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if label in b.label]
+        assert matches, f"no button labeled {label!r}"
+        return matches[0]
+
+    def _plain_drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="not started")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def test_delete_drama_button_disabled_until_checkbox_and_typed_confirm(self, isolated_db):
+        did = self._plain_drama(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🗑️ Delete this drama").disabled
+
+        at.checkbox(key=f"confirm_delete_drama_{did}").set_value(True).run(timeout=30)
+        assert self._button(at, "🗑️ Delete this drama").disabled, \
+            "checking the box alone shouldn't enable it -- typing DELETE is also required"
+
+        at.text_input(key=f"delete_drama_typed_{did}").set_value("delete").run(timeout=30)
+        assert self._button(at, "🗑️ Delete this drama").disabled, \
+            "the typed confirmation must match DELETE exactly"
+
+        at.text_input(key=f"delete_drama_typed_{did}").set_value("DELETE").run(timeout=30)
+        assert not self._button(at, "🗑️ Delete this drama").disabled
+        assert isolated_db.get_drama(did) is not None
+
+    def test_delete_drama_button_deletes_once_confirmed(self, isolated_db):
+        did = self._plain_drama(isolated_db)
+        at = self._run(did)
+        at.checkbox(key=f"confirm_delete_drama_{did}").set_value(True).run(timeout=30)
+        at.text_input(key=f"delete_drama_typed_{did}").set_value("DELETE").run(timeout=30)
+        self._button(at, "🗑️ Delete this drama").click().run(timeout=30)
+        assert isolated_db.get_drama(did) is None
+
+    def _drama_with_audio(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好")])
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def test_remove_audio_button_disabled_until_confirmed(self, isolated_db):
+        did = self._drama_with_audio(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🗑️ Remove current audio/video").disabled
+        assert os.path.exists(os.path.join(isolated_db.drama_dir(did), "audio.wav"))
+
+    def test_remove_audio_button_removes_file_once_confirmed(self, isolated_db):
+        did = self._drama_with_audio(isolated_db)
+        ddir = isolated_db.drama_dir(did)
+        at = self._run(did)
+        at.checkbox(key=f"confirm_rm_audio_{did}").set_value(True).run(timeout=30)
+        assert not self._button(at, "🗑️ Remove current audio/video").disabled
+        self._button(at, "🗑️ Remove current audio/video").click().run(timeout=30)
+        assert not os.path.exists(os.path.join(ddir, "audio.wav"))
+        assert isolated_db.get_drama(did)["audio_filename"] is None
+
+    def _drama_with_raw_novel(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="not started")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "raw_novel_context.txt"), "w", encoding="utf-8") as f:
+            f.write("existing raw novel text")
+        return did
+
+    def test_remove_raw_novel_button_disabled_until_confirmed(self, isolated_db):
+        did = self._drama_with_raw_novel(isolated_db)
+        at = self._run(did)
+        assert self._button(at, "🗑️ Remove raw novel context").disabled
+        assert os.path.exists(os.path.join(isolated_db.drama_dir(did), "raw_novel_context.txt"))
+
+    def test_remove_raw_novel_button_removes_file_once_confirmed(self, isolated_db):
+        did = self._drama_with_raw_novel(isolated_db)
+        ddir = isolated_db.drama_dir(did)
+        at = self._run(did)
+        at.checkbox(key=f"confirm_rmraw_{did}").set_value(True).run(timeout=30)
+        assert not self._button(at, "🗑️ Remove raw novel context").disabled
+        self._button(at, "🗑️ Remove raw novel context").click().run(timeout=30)
+        assert not os.path.exists(os.path.join(ddir, "raw_novel_context.txt"))
+
+
 class TestDiarizationEstimateCaption:
     """Step 5b item 8: pyannote's pipeline makes one call and only returns
     a result at the end -- there's no incremental progress callback in its
