@@ -563,6 +563,113 @@ def stream_pip_uninstall(pip_args: list, python_executable: str = None):
     yield {"done": True, "ok": returncode == 0, "returncode": returncode}
 
 
+# ---------------------------------------------------------------------------
+# Step 27: "is this dependency outdated?" + an Upgrade action. Like
+# check_pyannote_gated_access above, this reaches the network (PyPI's own
+# public JSON API, a plain unauthenticated GET) -- so it must only ever run
+# from an explicit button click, never automatically on page load, and the
+# caller (tabs/diagnostics_tab.py) caches the result in session state
+# rather than re-querying on every rerun.
+# ---------------------------------------------------------------------------
+
+def get_installed_version(pip_name: str):
+    """The installed version of `pip_name` via importlib.metadata, or None
+    if no distribution is registered under that exact name. That covers
+    both "genuinely not installed" and the handful of OPTIONAL_DEPENDENCIES
+    entries whose dict key isn't the distribution name importlib.metadata
+    actually knows it by (e.g. "cv2"/"PIL" above are really distributed as
+    "opencv-python"/"pillow") -- either way, None means "can't determine",
+    never a wrong version."""
+    try:
+        return importlib.metadata.version(pip_name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
+    """The latest version PyPI's public JSON API reports for `pip_name`, or
+    None on any failure (network error, non-200 for a name PyPI doesn't
+    recognize, unexpected JSON shape) -- never raises, since one
+    dependency's lookup failing shouldn't break the whole check. Makes a
+    real network call every time it's called; callers gate this behind an
+    explicit button and cache the result (see check_dependency_versions)."""
+    import requests
+    try:
+        resp = requests.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout)
+        if resp.status_code != 200:
+            return None
+        return (resp.json().get("info") or {}).get("version") or None
+    except Exception:
+        return None
+
+
+def _version_sort_key(version: str):
+    """A best-effort, dependency-free ordering key for version strings, so
+    "1.10.0" correctly compares as newer than "1.9.0" (a plain string
+    compare gets that backwards). Splits on "." and "-" and reads the
+    leading digits of each segment; a segment with no leading digits (a
+    pre-release tag like "rc1") reads as 0 for that position rather than
+    failing the comparison outright. Not full PEP 440 semantics -- good
+    enough to flag "this is genuinely a newer release" without adding a
+    dependency on the optional `packaging` library just for this."""
+    key = []
+    for segment in re.split(r"[.\-]", version):
+        match = re.match(r"^(\d+)", segment)
+        key.append(int(match.group(1)) if match else 0)
+    return key
+
+
+def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
+    """For every dependency in `deps` (as returned by
+    check_all_dependencies()) that's actually installed, looks up its
+    latest PyPI version and compares it to the installed one. Returns
+    {name: {"installed_version", "latest_version", "outdated"}} --
+    "outdated" is None (not guessed) when either version couldn't be
+    determined, True/False otherwise. Makes one real PyPI request per
+    installed dependency -- call this only from an explicit button click,
+    never automatically."""
+    results = {}
+    for name, info in deps.items():
+        if not info.get("installed"):
+            continue
+        installed_version = get_installed_version(name)
+        latest_version = get_latest_pypi_version(name, timeout=timeout)
+        outdated = None
+        if installed_version and latest_version:
+            outdated = _version_sort_key(installed_version) < _version_sort_key(latest_version)
+        results[name] = {
+            "installed_version": installed_version,
+            "latest_version": latest_version,
+            "outdated": outdated,
+        }
+    return results
+
+
+def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
+    """pip args for `python -m pip install --upgrade <pip_name>`, adding
+    constraints.txt's existing version caps (pyannote.audio<5,
+    transformers<6, torch<3, streamlit<2, faster-whisper<2, ...) via pip's
+    own `-c` flag whenever the file exists -- the same mechanism
+    stream_gpu_torch_reinstall already uses for torch/torchaudio,
+    generalized here since an Upgrade click can just as easily target any
+    of constraints.txt's other pinned packages (e.g. transformers, which
+    OmniVoice/Chatterbox/TADA each need a specific range of -- see
+    OPTIONAL_DEPENDENCIES above). A constraint for a package not named in
+    the file is a no-op, so passing it unconditionally is always safe.
+    Note: this does NOT stop someone from upgrading OmniVoice, Chatterbox
+    and TADA into the same environment despite them documented above as
+    unable to share one -- no code anywhere enforces that today (the
+    existing Install button doesn't either, it's caption-text-only), so
+    Upgrade deliberately matches that existing behavior rather than
+    inventing a new guard for just this one action."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    constraints_path = os.path.join(project_root, "constraints.txt")
+    args = ["--upgrade", pip_name]
+    if os.path.exists(constraints_path):
+        args += ["-c", constraints_path]
+    return args
+
+
 def gpu_torch_mismatch() -> bool:
     """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
     PATH) but the installed torch build can't see it -- the exact
