@@ -277,37 +277,6 @@ def render_scanlate_tab():
                         except Exception as e:
                             st.warning(f"Translation failed ({e}) -- nothing was changed.")
 
-                with st.expander("➕ Add a bubble manually"):
-                    mc1, mc2, mc3, mc4 = st.columns(4)
-                    mx = mc1.number_input("x", value=0, key="manual_x")
-                    my = mc2.number_input("y", value=0, key="manual_y")
-                    mw = mc3.number_input("w", value=150, key="manual_w")
-                    mh = mc4.number_input("h", value=80, key="manual_h")
-                    if st.button("🔎 OCR this region", key="manual_ocr_button",
-                                 help="Runs OCR on the box above instead of requiring the "
-                                      "source text to be typed in by hand -- for text the "
-                                      "auto-detector missed."):
-                        try:
-                            ocr_text = scanlate.ocr_box_region(
-                                page_path, {"x": mx, "y": my, "w": mw, "h": mh}, sc_lang,
-                                backend=(None if sc_ocr_backend_choice == "auto"
-                                         else sc_ocr_backend_choice),
-                                tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None,
-                                prefer_paddle_vl_manga=sc_prefer_paddle_vl_manga)
-                            st.session_state["manual_source_text"] = ocr_text
-                            if not ocr_text:
-                                st.warning("OCR found no text in this region.")
-                        except Exception as e:
-                            st.warning(f"OCR failed: {e}")
-                    msource = st.text_input(
-                        "Source text (filled by OCR above, or type by hand)", key="manual_source_text")
-                    mtext = st.text_input("Translated text", key="manual_text")
-                    if st.button("Add bubble"):
-                        edited_bubbles.append({"x": mx, "y": my, "w": mw, "h": mh, "font_size": 18,
-                                               "source_text": msource, "translated_text": mtext,
-                                               "skip": False, "font_category": "regular",
-                                               "kind": "bubble", "language": sc_lang})
-
                 with st.expander("🔤 Custom fonts (optional)"):
                     st.caption(
                         "Upload a .ttf/.otf per style category to use instead of the system "
@@ -447,6 +416,41 @@ def render_scanlate_tab():
                                         help="Per-bubble box + font style, the same idea as "
                                              "BalloonsTranslator's font-detection export -- a "
                                              "reviewable record of what this page rendered with.")
+
+            import scanlate
+            with st.expander("➕ Add a bubble manually"):
+                mc1, mc2, mc3, mc4 = st.columns(4)
+                mx = mc1.number_input("x", value=0, key="manual_x")
+                my = mc2.number_input("y", value=0, key="manual_y")
+                mw = mc3.number_input("w", value=150, key="manual_w")
+                mh = mc4.number_input("h", value=80, key="manual_h")
+                if st.button("🔎 OCR this region", key="manual_ocr_button",
+                             help="Runs OCR on the box above instead of requiring the "
+                                  "source text to be typed in by hand -- for text the "
+                                  "auto-detector missed."):
+                    try:
+                        ocr_text = scanlate.ocr_box_region(
+                            page_path, {"x": mx, "y": my, "w": mw, "h": mh}, sc_lang,
+                            backend=(None if sc_ocr_backend_choice == "auto"
+                                     else sc_ocr_backend_choice),
+                            tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None,
+                            prefer_paddle_vl_manga=sc_prefer_paddle_vl_manga)
+                        st.session_state["manual_source_text"] = ocr_text
+                        if not ocr_text:
+                            st.warning("OCR found no text in this region.")
+                    except Exception as e:
+                        st.warning(f"OCR failed: {e}")
+                msource = st.text_input(
+                    "Source text (filled by OCR above, or type by hand)", key="manual_source_text")
+                mtext = st.text_input("Translated text", key="manual_text")
+                if st.button("Add bubble"):
+                    new_bubble = {"x": mx, "y": my, "w": mw, "h": mh, "font_size": 18,
+                                  "source_text": msource, "translated_text": mtext,
+                                  "skip": False, "font_category": "regular",
+                                  "kind": "bubble", "language": sc_lang}
+                    db.save_bubbles(page["id"], db.load_bubbles(page["id"]) + [new_bubble])
+                    st.success("Bubble added.")
+                    st.rerun()
 
         with st.expander("📦 Bulk render all pages", expanded=False):
             st.caption("Renders every page that has saved bubbles and zips the result -- for a whole "
