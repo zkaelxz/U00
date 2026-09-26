@@ -62,7 +62,12 @@ class FiftyTwoShukuSource(SourceAdapter):
     display_name = "52shuku.net"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
-    url_patterns = [r"52shuku\.(?:net|top|vip|org)/[^/]+/b/\d+"]
+    # A real, confirmed site change (2026-09-26 live check): the site's
+    # real book-URL shape is now `/<category>/<N>_b/<alnum-id>.html` (e.g.
+    # `/KeHuan/20_b/bkceK.html`), not the plain `/<category>/b/<id>` this
+    # pattern originally assumed -- the `(?:\d+_)?` and `[A-Za-z0-9]+`
+    # additions match both shapes.
+    url_patterns = [r"52shuku\.(?:net|top|vip|org)/[^/]+/(?:\d+_)?b/[A-Za-z0-9]+"]
     default_headers = {"Referer": BASE_URL + "/", "Accept-Language": "zh-CN,zh;q=0.9"}
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
@@ -118,7 +123,13 @@ class FiftyTwoShukuSource(SourceAdapter):
         path = chapter.url or f"{chapter.series_id}_{chapter.chapter_id}.html"
         html = self._get(path, f"Loading chapter {chapter.title}")
         soup = _soup(html)
-        container = soup.select_one("article.article-content div#text") or soup.select_one("div#text")
+        # `div.content.contentmargin` is the real container confirmed live
+        # (2026-09-26) -- the site moved off `article.article-content
+        # div#text`/`div#text`, which are kept as fallbacks rather than
+        # removed outright, in case an older template variant still uses them.
+        container = (soup.select_one("div.content.contentmargin")
+                    or soup.select_one("article.article-content div#text")
+                    or soup.select_one("div#text"))
         if container is None:
             raise LayoutChanged("the chapter text container")
         paragraphs = [p.get_text(strip=True) for p in container.find_all("p")]
@@ -128,12 +139,19 @@ class FiftyTwoShukuSource(SourceAdapter):
         return text
 
     def parse_url(self, url: str):
-        m = re.search(r"/([^/]+/b/\d+)_(\d+)\.html", url or "")
+        # Same real book-URL shape as `url_patterns` above -- and, a second,
+        # pre-existing bug fixed alongside it: the captured group never
+        # includes `.html`, but `_series_page()`/`get_series()`/
+        # `get_chapters()` all expect a series_id that does (matching the
+        # shape a real search or listing result would carry), so both
+        # branches append it back rather than returning a path that would
+        # 404 when fetched.
+        m = re.search(r"/([^/]+/(?:\d+_)?b/[A-Za-z0-9]+)_(\d+)\.html", url or "")
         if m:
-            series_id, chapter_id = m.group(1), m.group(2)
+            series_id, chapter_id = m.group(1) + ".html", m.group(2)
             return ("chapter", ChapterInfo(self.name, series_id, chapter_id, chapter_id, url))
-        m = re.search(r"/([^/]+/b/\d+)\.html", url or "")
-        return ("series", m.group(1)) if m else None
+        m = re.search(r"/([^/]+/(?:\d+_)?b/[A-Za-z0-9]+)\.html", url or "")
+        return ("series", m.group(1) + ".html") if m else None
 
     def capabilities(self):
         caps = super().capabilities()

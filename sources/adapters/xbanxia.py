@@ -16,22 +16,22 @@ read from lncrawl/lightnovel-crawler (MIT), `sources/zh/xbanxia.py`:
   chapter body   div#nr1                                plain server-rendered
                                                         HTML
 
-**A real, unresolved domain question, not smoothed over**: lncrawl's own
-source targets xbanxia.com/banxia.cc as its base URLs, not xbanxia.cc --
-the domain this project actually vetted (robots.txt/Cloudflare-posture
-check). A direct fetch of xbanxia.cc itself succeeded and looked
-consistent with being the same site family, but this was never confirmed
-by comparing raw HTML template fingerprints across the domains. This
-adapter targets xbanxia.cc (the domain actually vetted) and is written
-to be easy to repoint via base_url if that direct side-by-side check
-(still a pending manual check -- this sandbox has no network access to
-perform it) finds a different domain is correct. The div#nr1 selector
-itself also carries a real caveat: it's lncrawl's selector for the
-sibling domain, not independently re-derived against xbanxia.cc's own
-markup (a real fetch confirmed chapter text present in the raw HTML, but
-not the exact container id) -- get_chapter_text() falls back to the
-single largest text block on the page if #nr1 isn't found, rather than
-failing outright on a possible id mismatch.
+**The domain question is resolved (live-verified 2026-09-26)**: lncrawl's
+own source targets xbanxia.com/banxia.cc as its base URLs, not xbanxia.cc
+-- the domain this project actually vetted (robots.txt/Cloudflare-posture
+check). `xbanxia.com` returns HTTP 403 and `banxia.cc` redirects
+elsewhere; `xbanxia.cc` (which 301-redirects to `www.xbanxia.cc`) is
+confirmed the real, live, correct target -- a real book page, a real
+567-chapter list, and real chapter text (`div#nr1`, no fallback needed)
+were all read from it directly. `BASE_URL` now points at `www.xbanxia.cc`
+explicitly: POSTing `search()`'s form to the bare domain silently lost
+the request body, because `requests` downgrades a redirected POST to GET
+by default -- posting directly to the real host avoids the redirect
+entirely. The real book/chapter URL shape is also `/books/<id>.html` /
+`/books/<id>/<chapter>.html` (plural "books", confirmed against a real
+page) -- `url_patterns`/`parse_url`/the path-building helpers below all
+match this now, not the `/<id>/` shape an earlier, never-verified-live
+pass assumed.
 """
 
 import re
@@ -41,7 +41,7 @@ from ..base import SourceAdapter
 from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, SeriesInfo, SourceError
 from ..registry import register
 
-BASE_URL = "https://xbanxia.cc"
+BASE_URL = "https://www.xbanxia.cc"
 SEARCH_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
     "Cookie": "jieqiUserCharset=utf-8",
@@ -81,7 +81,7 @@ class XbanxiaSource(SourceAdapter):
     display_name = "xbanxia.cc"
     content_types = [ContentType.NOVEL.value]
     languages = ["zh"]
-    url_patterns = [r"xbanxia\.cc/(?:book|xiaoshuo)?/?\d+"]
+    url_patterns = [r"xbanxia\.cc/books/\d+"]
     default_headers = {"Referer": BASE_URL + "/"}
 
     def __init__(self, client=None, base_url: str = None, **client_kwargs):
@@ -100,6 +100,31 @@ class XbanxiaSource(SourceAdapter):
             headers=SEARCH_HEADERS, action=f"Searching xbanxia for {query!r}")
         soup = _soup(resp.text)
         out = []
+        seen = set()
+        # `li.pop-book2` is the real search-results container, confirmed
+        # live (2026-09-26) -- each entry carries two <a> tags sharing one
+        # href (a cover-image link and a title link), so results are
+        # deduplicated by series_id. The old selectors below never matched
+        # a real response and are kept only as a fallback.
+        for li in soup.select("li.pop-book2"):
+            a = li.select_one("a[href]")
+            if a is None:
+                continue
+            href = a.get("href", "")
+            m = re.search(r"/(\d+)/?$", href) or re.search(r"/(\d+)\.html", href)
+            if not m or m.group(1) in seen:
+                continue
+            title_el = li.select_one("h2.pop-tit")
+            title = (title_el.get_text(strip=True) if title_el is not None
+                     else a.get("title") or a.get_text(strip=True))
+            if not title:
+                continue
+            seen.add(m.group(1))
+            cover = li.select_one("img[data-original]")
+            out.append(SearchResult(self.name, m.group(1), title, urljoin(self.base_url, href),
+                                    cover.get("data-original", "") if cover is not None else ""))
+        if out:
+            return out
         for a in soup.select("div.book-list ul li a, div.result-list a, a.book-title"):
             href = a.get("href", "")
             m = re.search(r"/(\d+)/?$", href) or re.search(r"/(\d+)\.html", href)
@@ -113,7 +138,8 @@ class XbanxiaSource(SourceAdapter):
 
     def _series_page(self, series_id: str) -> str:
         if series_id not in self._series_pages:
-            self._series_pages[series_id] = self._get(f"/{series_id}/", f"Loading series {series_id}")
+            self._series_pages[series_id] = self._get(f"/books/{series_id}.html",
+                                                       f"Loading series {series_id}")
         return self._series_pages[series_id]
 
     def get_series(self, series_id: str):
@@ -126,7 +152,7 @@ class XbanxiaSource(SourceAdapter):
         genres_txt = _labelled_text(soup, "類型", "类型")
         return SeriesInfo(
             self.name, series_id, h1.get_text(strip=True),
-            urljoin(self.base_url, f"/{series_id}/"),
+            urljoin(self.base_url, f"/books/{series_id}.html"),
             cover.get("data-original") if cover is not None else "",
             genres=[g.strip() for g in genres_txt.split(",") if g.strip()] if genres_txt else [],
             content_type=ContentType.NOVEL.value, language="zh")
@@ -150,7 +176,7 @@ class XbanxiaSource(SourceAdapter):
         return chapters
 
     def get_chapter_text(self, chapter) -> str:
-        path = chapter.url or f"/{chapter.series_id}/{chapter.chapter_id}.html"
+        path = chapter.url or f"/books/{chapter.series_id}/{chapter.chapter_id}.html"
         html = self._get(path, f"Loading chapter {chapter.title}")
         soup = _soup(html)
         container = soup.select_one("div#nr1")
@@ -170,10 +196,10 @@ class XbanxiaSource(SourceAdapter):
         return text
 
     def parse_url(self, url: str):
-        m = re.search(r"/(\d+)/(\d+)\.html", url or "")
+        m = re.search(r"/books/(\d+)/(\d+)\.html", url or "")
         if m:
             return ("chapter", ChapterInfo(self.name, m.group(1), m.group(2), m.group(2), url))
-        m = re.search(r"/(\d+)/?$", url or "")
+        m = re.search(r"/books/(\d+)\.html", url or "")
         return ("series", m.group(1)) if m else None
 
     def capabilities(self):
@@ -182,14 +208,17 @@ class XbanxiaSource(SourceAdapter):
         caps.technical = {
             "extraction_method": "static server-rendered HTML, no JavaScript/decoding step",
             "browser_required": False,
-            "domain_caveat": "Targets xbanxia.cc, the domain actually vetted -- lncrawl's own "
-                             "reference source targets xbanxia.com/banxia.cc instead. Treated "
-                             "as the same service pending a direct side-by-side confirmation "
-                             "(still outstanding, no network access to perform it here).",
-            "chapter_selector_caveat": "div#nr1 is lncrawl's selector for the sibling domain, "
-                                       "not independently re-derived against xbanxia.cc's own "
-                                       "markup -- falls back to the largest text block if not "
-                                       "found.",
+            "domain_caveat": "Targets xbanxia.cc (via www.xbanxia.cc), the domain actually "
+                             "vetted -- lncrawl's own reference source targets "
+                             "xbanxia.com/banxia.cc instead. Confirmed live (2026-09-26) as the "
+                             "right target: xbanxia.com returns HTTP 403, banxia.cc redirects "
+                             "elsewhere, and xbanxia.cc is a real, working site with real search "
+                             "results, a real chapter list and real chapter text.",
+            "chapter_selector_caveat": "div#nr1 was confirmed live (2026-09-26) to match a real "
+                                       "chapter page directly -- no fallback needed -- resolving "
+                                       "the earlier caveat that it was only lncrawl's selector "
+                                       "for a sibling domain. The largest-text-block fallback is "
+                                       "kept regardless, in case that changes.",
             "reference": "lncrawl/lightnovel-crawler sources/zh/xbanxia.py (MIT)",
         }
         caps.terms = {

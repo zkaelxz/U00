@@ -114,6 +114,31 @@ class TestGetPagesIsBrowserRenderedOnly:
         with pytest.raises(SourceError):
             a.get_pages(chapter)
 
+    def test_refuses_clearly_when_pages_are_blob_urls(self):
+        """Real, confirmed live behavior (2026-09-26), not hypothetical:
+        this site's own readPic() writes real page images into the DOM as
+        blob: object URLs, which only exist inside that one browser tab's
+        memory and can never be independently re-downloaded. Before this
+        fix, every real candidate silently failed to download and got
+        filtered out, but the filter then kept unrelated leftover images
+        (other titles' cover thumbnails from the page's own recommendation
+        sidebar) instead of failing -- a live run actually returned those
+        wrong images with no error. This must refuse instead."""
+        rendered_html = ("<html><body><div class='reader'>"
+                         "<img src='blob:https://www.manhuaku.net/11111111-1111-1111-1111-111111111111'>"
+                         "<img src='https://img1.baipiaoguai.org/static/upload/book/cover/other.jpg'>"
+                         "</div></body></html>")
+        chapter_url = f"{BASE}/chapter/ch1.html"
+        rendered_fetch = lambda url: (rendered_html, "")
+        a, t = _adapter({}, rendered_fetch=rendered_fetch)
+        chapter = ChapterInfo("manhuaku", "test-slug", "ch1", "第1话", chapter_url)
+        with pytest.raises(SourceError) as exc_info:
+            a.get_pages(chapter)
+        assert "blob:" in str(exc_info.value)
+        # The wrong-content bug this replaces: the unrelated cover image
+        # must never be silently returned as a real page.
+        assert not t.calls
+
 
 class TestNoIndependentCryptoImplementation:
     """The roadmap's own exit condition: a structural check that

@@ -34,6 +34,14 @@ CHAPTER_PAGE = ("<html><body>"
 
 EMPTY_TOC_PAGE = "<html><body><div class='no-such-list'></div></body></html>"
 
+# The site's real, current book-URL shape (confirmed live 2026-09-26):
+# `/<category>/<N>_b/<alnum-id>.html`, not the plain `/<category>/b/<id>`
+# TOC_PAGE/CHAPTER_PAGE above use.
+REAL_SHAPE_CHAPTER_PAGE = ("<html><body>"
+                          "<div class='content contentmargin'>"
+                          "<p>这是新版页面的正文。</p>"
+                          "</div></body></html>")
+
 
 def _adapter(routes, clock=None, **kw):
     clock = clock or FakeClock()
@@ -87,6 +95,18 @@ class TestChapterText:
         with pytest.raises(SourceError):
             a.get_chapter_text(chapter)
 
+    def test_extracts_the_real_sites_current_container(self):
+        """Real, confirmed site change (2026-09-26): the text container
+        moved to div.content.contentmargin. The old article.article-content
+        div#text / div#text selectors stay as fallbacks, tried first here
+        still passing above."""
+        a, t = _adapter({f"{BASE}/KeHuan/20_b/bkceK_2.html": html(REAL_SHAPE_CHAPTER_PAGE)})
+        from sources.models import ChapterInfo
+        chapter = ChapterInfo("52shuku", "KeHuan/20_b/bkceK.html", "2", "第2页",
+                              f"{BASE}/KeHuan/20_b/bkceK_2.html")
+        text = a.get_chapter_text(chapter)
+        assert "这是新版页面的正文。" in text
+
 
 class TestConcurrencyDefault:
     def test_defaults_to_one_concurrent_request_even_with_a_more_permissive_global_setting(
@@ -118,3 +138,38 @@ class TestRegistration:
         adapter = registry.find_for_url("https://www.52shuku.net/romance/b/1001.html")
         assert adapter is not None
         assert adapter.name == "52shuku"
+
+    def test_registered_and_found_by_the_real_current_url_shape(self):
+        """Real, confirmed site change (2026-09-26): a real book URL is
+        shaped /<category>/<N>_b/<alnum-id>.html, not /<category>/b/<id>."""
+        from sources import registry
+        adapter = registry.find_for_url("https://www.52shuku.net/KeHuan/20_b/bkceK.html")
+        assert adapter is not None
+        assert adapter.name == "52shuku"
+
+
+class TestParseUrl:
+    """The site's real current URL shape (confirmed live 2026-09-26):
+    /<category>/<N>_b/<alnum-id>[_<n>].html -- and a second, pre-existing
+    bug fixed alongside it: parse_url used to return a series_id missing
+    the .html that get_series()/get_chapters() need to actually fetch it."""
+
+    def _adapter(self):
+        return fifty2shuku.FiftyTwoShukuSource(client=make_client("52shuku", ScriptedTransport({}, FakeClock()), FakeClock()))
+
+    def test_series_url(self):
+        a = self._adapter()
+        kind, series_id = a.parse_url("https://www.52shuku.net/KeHuan/20_b/bkceK.html")
+        assert (kind, series_id) == ("series", "KeHuan/20_b/bkceK.html")
+
+    def test_chapter_url(self):
+        a = self._adapter()
+        kind, chapter = a.parse_url("https://www.52shuku.net/KeHuan/20_b/bkceK_2.html")
+        assert kind == "chapter"
+        assert chapter.series_id == "KeHuan/20_b/bkceK.html"
+        assert chapter.chapter_id == "2"
+
+    def test_old_shape_url_still_parses(self):
+        a = self._adapter()
+        kind, series_id = a.parse_url("https://www.52shuku.net/romance/b/1001.html")
+        assert (kind, series_id) == ("series", "romance/b/1001.html")
