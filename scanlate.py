@@ -915,18 +915,29 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
         '"1-2 sentence summary of what just happened, to carry into the next page"}. '
         "No preamble, no markdown fences."
     )
+    # A failure to get a usable answer -- no response, unparseable JSON, or a
+    # response missing the "translations" key entirely -- is signaled as
+    # `None`, never as a same-length list of blanks. A same-length blank list
+    # would sail straight through translate_page_bubbles()'s length check
+    # (the lengths *do* match) and overwrite every eligible bubble's real
+    # translation with "", including a hand-edited one -- silently, with no
+    # error surfaced anywhere. `None` forces the caller to treat this the
+    # same "don't apply a result there's no safe way to trust" way it
+    # already treats a length mismatch. A genuinely empty `"translations":
+    # []` (the model legitimately found nothing to translate) is returned
+    # as-is, distinct from this failure signal.
     text = call_llm_json(engine, prompt, max_tokens=1500, fallback=None, usage_cb=usage_cb)
     if text is None:
-        return [""] * len(texts), previous_context
+        return None, previous_context
 
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         data = json.loads(text)
-        translations = data.get("translations", [""] * len(texts))
-        new_context = data.get("context_summary", previous_context)
     except json.JSONDecodeError:
-        translations, new_context = [""] * len(texts), previous_context
-    return translations, new_context
+        return None, previous_context
+    if "translations" not in data:
+        return None, previous_context
+    return data["translations"], data.get("context_summary", previous_context)
 
 
 def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
@@ -1757,7 +1768,10 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     next page. A result list whose length doesn't match what was sent is
     rejected outright (ValueError) rather than assigned by position -- a
     short or padded list would otherwise put a translation on the wrong
-    bubble."""
+    bubble. A translation service response that couldn't be parsed at all
+    (translate_page_with_context() returns `None` for that, never a
+    same-length list of blanks) is rejected the same way, for the same
+    reason -- no bubble is touched."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
@@ -1766,6 +1780,9 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     translations, new_context = translate_page_with_context(
         [b["source_text"] for b in eligible], engine, drama_meta,
         previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms)
+    if translations is None:
+        raise ValueError("The translation service returned a response that couldn't be read -- "
+                         "not applied, since there's no safe way to trust it.")
     if len(translations) != len(eligible):
         raise ValueError(f"The translation came back with {len(translations)} result(s) for "
                          f"{len(eligible)} bubble(s) -- not applied, since there's no safe way "
