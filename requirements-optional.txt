@@ -4,9 +4,13 @@
 # --- alternative translation engines ---
 openai>=1.30            # DeepSeek (OpenAI-compatible API)
 deepl>=1.18             # DeepL
-transformers>=4.40      # local NLLB-200 engine -- genuinely free, fully
+transformers>=4.46      # local NLLB-200 engine -- genuinely free, fully
                          # offline, no API key ever. Downloads a model
                          # (2.4-5.2GB depending on size picked) on first use.
+                         # (bumped from >=4.40: also loads Scanlate's ML
+                         # bubble detector and PaddleOCR-VL-For-Manga --
+                         # both need RT-DETR-v2/current VLM support only
+                         # present in more recent releases.)
 sentencepiece>=0.2       # tokenizer NLLB-200 needs
 
 # --- download audio/video directly from a URL (video_download.py) ---
@@ -113,9 +117,26 @@ sudachidict_core>=20240716
 pykakasi>=2.3           # Japanese furigana
 kiwipiepy>=0.18         # Korean
 
-# --- scanlate: ML bubble detection ---
-ultralytics>=8.0
+# --- scanlate: ML bubble detection + inpainting ---
+# transformers (above) loads the bubble detector; torch+safetensors load
+# the LaMa-manga inpainting checkpoint. Neither was run end-to-end
+# against real weights in the environment this was built in -- see
+# scanlate.py's own docstrings; sanity-check on one page before relying
+# on either for a whole batch.
 huggingface_hub>=0.20
+torch>=2.0
+safetensors>=0.4
+
+# --- scanlate: PDF import (splits a PDF into per-page images) ---
+pypdf>=4.0
+
+# --- scanlate: manual erase/heal brush (freeform paint-to-erase) ---
+# PyPI shows no release in the past 12 months -- confirmed directly
+# while wiring this up: with this app's pinned streamlit>=1.49, its
+# component fails to load at all (StreamlitAPIException), not just a
+# hypothetical risk. The brush UI degrades to a clear message rather
+# than crashing when that happens.
+streamlit-drawable-canvas>=0.9
 
 # --- exports ---
 genanki>=0.13           # Anki decks

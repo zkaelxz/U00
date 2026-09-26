@@ -66,8 +66,13 @@ def extract_text_tesseract(image_path: str, lang: str = "chi_sim", psm: int = 6,
                                         config=f"--psm {psm}")
 
 
-def extract_text_paddle(image_path: str) -> str:
-    """Higher-accuracy alternative for Chinese text specifically.
+_PADDLE_LANG_BY_SOURCE = {"zh": "ch", "ko": "korean"}
+
+
+def extract_text_paddle(image_path: str, lang: str = "ch") -> str:
+    """Higher-accuracy alternative to Tesseract for Chinese (lang="ch",
+    the default) and, since Step 11's OCR auto-routing added it as
+    Korean's own default backend, Korean (lang="korean") too.
     Requires: `pip install paddleocr paddlepaddle` (heavier install,
     downloads its own detection/recognition models on first use).
 
@@ -80,18 +85,67 @@ def extract_text_paddle(image_path: str) -> str:
     inference crash (NotImplementedError from the oneDNN backend on at
     least one tested CPU) -- costs some speed, but avoids failing outright
     on affected machines.
+
+    A separate PaddleOCR instance is cached per language, since the
+    language is fixed at construction time, not passed per call.
     """
     from paddleocr import PaddleOCR
-    global _paddle_instance
-    if "_paddle_instance" not in globals():
-        globals()["_paddle_instance"] = PaddleOCR(
+    global _paddle_instances
+    if "_paddle_instances" not in globals():
+        globals()["_paddle_instances"] = {}
+    instances = globals()["_paddle_instances"]
+    if lang not in instances:
+        instances[lang] = PaddleOCR(
             use_doc_orientation_classify=False, use_doc_unwarping=False,
-            use_textline_orientation=True, lang="ch", enable_mkldnn=False)
-    result = globals()["_paddle_instance"].predict(image_path)
+            use_textline_orientation=True, lang=lang, enable_mkldnn=False)
+    result = instances[lang].predict(image_path)
     lines = []
     for page in result:
         lines.extend(page.get("rec_texts", []))
     return "\n".join(lines)
+
+
+def extract_text_paddle_vl_manga(image_path: str) -> str:
+    """Opt-in second Japanese OCR backend: jzhang533/PaddleOCR-VL-For-Manga
+    (Hugging Face, Apache-2.0) -- a manga-specific fine-tune of
+    PaddleOCR-VL (1.0B params, BF16), aimed specifically at the
+    vertical-Japanese-text degradation that hurts general OCR models.
+    70% full-sentence accuracy on Manga109-s crops vs. base
+    PaddleOCR-VL's 27%, per its own model card -- but that card only
+    benchmarks against base PaddleOCR-VL, not against manga_ocr (already
+    Baihe's default Japanese backend), so this isn't a default swap; see
+    auto_ocr_backend()'s own docstring. A real head-to-head against
+    manga_ocr on your own pages is what decides whether to switch (see
+    the Scanlate tab's manual comparison).
+
+    Requires: `pip install transformers huggingface_hub torch`
+    Downloads the model on first use (needs internet once; cached after).
+
+    NOTE: same honesty as scanlate.detect_bubbles_ml()'s own docstring --
+    written against the documented `transformers` VLM-loading pattern
+    (AutoProcessor + AutoModelForCausalLM, trust_remote_code=True, the
+    common shape for a HF-hosted vision-language OCR model), not run
+    end-to-end in this environment (no network/GPU here). Sanity-check
+    against manga_ocr's output on a real page before relying on it.
+    """
+    from PIL import Image
+    from transformers import AutoModelForCausalLM, AutoProcessor
+
+    repo_id = "jzhang533/PaddleOCR-VL-For-Manga"
+    global _paddle_vl_manga_model, _paddle_vl_manga_processor
+    if "_paddle_vl_manga_model" not in globals():
+        globals()["_paddle_vl_manga_processor"] = AutoProcessor.from_pretrained(
+            repo_id, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(repo_id, trust_remote_code=True)
+        model.eval()
+        globals()["_paddle_vl_manga_model"] = model
+
+    model = globals()["_paddle_vl_manga_model"]
+    processor = globals()["_paddle_vl_manga_processor"]
+    image = Image.open(image_path).convert("RGB")
+    inputs = processor(images=image, text="OCR:", return_tensors="pt")
+    output_ids = model.generate(**inputs, max_new_tokens=256)
+    return processor.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
 
 
 def extract_text_manga_ocr(image_path: str) -> str:
@@ -118,8 +172,11 @@ def extract_text_from_images(image_paths, backend: str = "tesseract",
     ready to feed into the novel-narration pipeline."""
     if backend == "manga_ocr":
         fn = extract_text_manga_ocr
+    elif backend == "paddle_vl_manga":
+        fn = extract_text_paddle_vl_manga
     elif backend == "paddle":
-        fn = extract_text_paddle
+        paddle_lang = _PADDLE_LANG_BY_SOURCE.get(source_language, "ch")
+        fn = lambda p: extract_text_paddle(p, lang=paddle_lang)
     else:
         lang = resolve_tesseract_lang(source_language, chinese_script)
         fn = lambda p: extract_text_tesseract(p, lang=lang, tesseract_cmd=tesseract_cmd)

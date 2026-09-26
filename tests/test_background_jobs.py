@@ -452,6 +452,57 @@ class TestGpuJobGuard:
         bg.clear_job("gpu_i")
 
 
+class TestCancelQueued:
+    """Step 9f item 3: a queued job's own Cancel button used to call
+    clear_job() unconditionally, but _promote_next_queued_gpu_job() can
+    promote it to "running" (and spawn its thread) in the gap between the
+    render that showed Cancel and the click being processed -- clearing
+    the record in that case would leave the now-genuinely-running job
+    with nothing left for Stop/request_cancel to reach. cancel_queued()
+    re-checks status under the lock before deciding what to do."""
+
+    def test_a_still_queued_job_is_cleared_like_before(self):
+        release = threading.Event()
+        bg.start_job("cq_a", lambda: release.wait(timeout=2.0), gpu_touching=True)
+
+        calls = []
+        bg.start_job("cq_b", lambda: calls.append(1), gpu_touching=True)
+        assert bg.get_status("cq_b")["status"] == "queued"
+
+        assert bg.cancel_queued("cq_b") is True
+        assert bg.get_status("cq_b") is None
+
+        release.set()
+        _wait("cq_a")
+        time.sleep(0.1)  # give a wrongly-surviving queue entry a chance to fire
+        assert calls == []
+        bg.clear_job("cq_a")
+
+    def test_a_job_promoted_to_running_in_the_gap_is_not_cleared(self):
+        # Simulates the exact race: the record already flipped to
+        # "running" (as _promote_next_queued_gpu_job() would do) by the
+        # time the click is processed, even though the button that
+        # produced this click was rendered while it was still "queued".
+        with bg._lock:
+            bg._jobs["cq_c"] = {"status": "running", "progress": 0.0, "message": "",
+                                "error": None, "cancel_requested": False, "result": None,
+                                "gpu_touching": True, "started_at": time.time()}
+
+        assert bg.cancel_queued("cq_c") is False
+        # The record must survive -- it's the only thing a real "Stop"
+        # (request_cancel) has left to reach.
+        assert bg.get_status("cq_c") is not None
+        assert bg.get_status("cq_c")["status"] == "running"
+
+        bg.request_cancel("cq_c")
+        assert bg.is_cancel_requested("cq_c") is True
+        bg.clear_job("cq_c")
+
+    def test_a_job_that_no_longer_exists_is_a_no_op(self):
+        bg.clear_job("cq_missing")
+        assert bg.cancel_queued("cq_missing") is True  # nothing to reach either way
+
+
 class TestGpuSlot:
     """gpu_slot() is for GPU-touching work that runs synchronously in the
     calling thread (diarization, dub generation) instead of as its own

@@ -318,6 +318,17 @@ def render_library_tab():
                     parts.append(f"{len(r['errors'])} failed")
                 st.success("Bulk translation finished: " + ", ".join(parts) + ".")
                 background_jobs.clear_job(BULK_SERIES_TRANSLATE_JOB_ID)
+                # Step 9i: the same Step 9h staleness, triggered from a
+                # different tab -- if the drama open in Workspace right now
+                # is one of the ones just bulk-translated here, its
+                # st.session_state.lines (and cached en_<idx>/zh_<idx>
+                # widget values) are still the pre-translation snapshot
+                # until this reloads them, same as a regular Translate job
+                # completion already does.
+                if st.session_state.get("active_drama_id") in r.get("translated", []):
+                    import tabs.workspace_tab as workspace_tab
+                    st.session_state.lines = db.load_line_objects(st.session_state["active_drama_id"])
+                    workspace_tab._clear_line_widget_state()
             elif _bulk_job["status"] == "error":
                 st.error(f"Bulk translation failed: {_bulk_job['error']}")
                 background_jobs.clear_job(BULK_SERIES_TRANSLATE_JOB_ID)
