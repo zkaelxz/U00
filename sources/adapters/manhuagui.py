@@ -26,9 +26,12 @@ after the last one (stricter than Keiyoushi's 10-per-10s default).
 Image CDN requests use the normal 1-3s pace (well under Keiyoushi's 4/s).
 
 Adult-flagged works: the site hides their chapter list (an
-LZString-compressed #__VIEWSTATE) unless an `isAdult=1` cookie is sent.
-That cookie is OFF here and nothing in the UI turns it on; such a work
-fails with a clear ContentHidden message instead.
+LZString-compressed #__VIEWSTATE) unless an `isAdult=1` cookie is sent --
+the same thing its own "I'm an adult" switch sets in a browser. Off by
+default; the person turns it on per source in the Sources tab
+(`supports_adult_toggle`). Off, such a work fails with a ContentHidden
+message naming that toggle. The cookie only goes to the main site, never
+the image CDN (same as the extension's interceptor).
 """
 
 import json
@@ -153,9 +156,10 @@ class ManhuaguiSource(SourceAdapter):
         "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
     }
 
-    def __init__(self, client=None, allow_adult: bool = False, mirrors=None, **client_kwargs):
-        super().__init__(client, **client_kwargs)
-        self.allow_adult = allow_adult
+    supports_adult_toggle = True
+
+    def __init__(self, client=None, allow_adult: bool = None, mirrors=None, **client_kwargs):
+        super().__init__(client, allow_adult=allow_adult, **client_kwargs)
         self.mirrors = list(mirrors or MIRRORS)
         # get_series() and get_chapters() read the same page; one adapter
         # instance fetches it once rather than hitting the site twice.
@@ -240,9 +244,8 @@ class ManhuaguiSource(SourceAdapter):
         hidden = soup.select_one("#__VIEWSTATE")
         if hidden is not None:
             if not self.allow_adult:
-                raise ContentHidden(
-                    "manhuagui hides this work's chapter list behind its adult-content switch, "
-                    "which this app leaves off.", FailureReason.COOKIE_REQUIRED)
+                raise ContentHidden(self.adult_hidden_message("this work's chapter list"),
+                                    FailureReason.COOKIE_REQUIRED)
             decoded = decompress_from_base64(hidden.get("value") or "")
             if not decoded:
                 raise LayoutChanged("the hidden chapter list")
@@ -279,8 +282,8 @@ class ManhuaguiSource(SourceAdapter):
             f"/comic/{chapter.series_id}/{chapter.chapter_id}.html"
         html, base = self._get(path, f"Loading chapter {chapter.title}")
         if "erroraudit_show" in html and not self.allow_adult:
-            raise ContentHidden("manhuagui hides this chapter behind its adult-content switch, "
-                                "which this app leaves off.", FailureReason.COOKIE_REQUIRED)
+            raise ContentHidden(self.adult_hidden_message("this chapter"),
+                                FailureReason.COOKIE_REQUIRED)
         data = decode_image_data(html)
         files = data.get("files") or []
         if not files:
@@ -319,7 +322,8 @@ class ManhuaguiSource(SourceAdapter):
             "mirrors": MIRRORS,
             "image_servers": IMAGE_SERVERS,
             "notes": "Image URLs carry an e/m expiry token issued by the chapter page; used as "
-                     "issued. Adult-flagged works need an isAdult cookie this app doesn't send.",
+                     "issued. Adult-flagged works need the isAdult cookie, sent only when the "
+                     "Sources tab's adult toggle is on for this source.",
             "reference": "keiyoushi/extensions-source src/zh/manhuagui (Apache-2.0)",
         }
         caps.terms = {

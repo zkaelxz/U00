@@ -25,6 +25,7 @@ adapter automatically -- an adapter can't forget them.
 import re
 from urllib.parse import urlsplit
 
+from . import store
 from .http import PacingPolicy, SourceClient
 from .models import (NotSupportedError, SourceCapabilities)
 
@@ -48,13 +49,32 @@ class SourceAdapter:
     #: Whether login()/refresh_session() exist and are required.
     auth_supported = False
     auth_required = False
+    #: True if the site gates some works behind its own "I'm an adult"
+    #: switch (usually a cookie) and this adapter knows how to send it.
+    #: The Sources tab then shows a per-source toggle for it.
+    supports_adult_toggle = False
 
-    def __init__(self, client: SourceClient = None, **client_kwargs):
+    def __init__(self, client: SourceClient = None, allow_adult: bool = None, **client_kwargs):
         if client is None:
             client_kwargs.setdefault("policy", PacingPolicy.from_settings(self.host_min_interval))
             client_kwargs.setdefault("default_headers", dict(self.default_headers))
             client = SourceClient(self.name, **client_kwargs)
         self.client = client
+        # Off unless the person switched it on for this source in the
+        # Sources tab (or a caller passes it explicitly, e.g. tests).
+        if allow_adult is None:
+            allow_adult = self.supports_adult_toggle and store.adult_enabled(self.name)
+        self.allow_adult = bool(allow_adult) and self.supports_adult_toggle
+
+    def adult_hidden_message(self, what: str = "this work") -> str:
+        """The ContentHidden text for a work the site keeps behind its
+        adult switch -- names the exact setting that changes it."""
+        name = self.display_name or self.name
+        if self.supports_adult_toggle:
+            return (f"{name} keeps {what} behind its adult-content switch. To include "
+                    f"adult-flagged works, turn on \"🔞 Include adult-flagged works\" for "
+                    f"{name} under Sources → Sources, health & diagnostics.")
+        return f"{name} keeps {what} behind an adult-content switch this source can't send."
 
     # -- the interface -------------------------------------------------------
     def search(self, query: str, page: int = 1):

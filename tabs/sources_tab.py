@@ -362,6 +362,21 @@ def _render_sources_detail():
             if enabled != registry.is_enabled(name):
                 registry.set_enabled(name, enabled)
                 st.rerun()
+            if cls.supports_adult_toggle:
+                adult_on = src_store.adult_enabled(name)
+                adult = st.toggle(
+                    "🔞 Include adult-flagged works", value=adult_on, key=f"src_adult_{name}",
+                    help="This site keeps some works behind its own \"I'm an adult\" switch. "
+                         "Turning this on sends that same switch with this source's requests, "
+                         "so those works' chapters and pages can be listed and imported. "
+                         "Off by default; only affects this source.")
+                if adult != adult_on:
+                    src_store.set_adult_enabled(name, adult)
+                    # Chapter lists fetched with the old setting are stale now.
+                    for k in [k for k in st.session_state.keys()
+                              if str(k).startswith(f"src_series_data_{name}_")]:
+                        del st.session_state[k]
+                    st.rerun()
             st.caption(f"Content: {', '.join(caps.content_types)} · Languages: "
                        f"{', '.join(caps.languages)} · Technical status: {caps.technical_status}"
                        f" · Access method: {caps.access_method or 'not established yet'}")
