@@ -128,11 +128,18 @@ def _requests_transport(method, url, headers, data, timeout):
     # flattening it with dict()/.update() raises a real
     # requests.cookies.CookieConflictError the moment two different hosts
     # have ever set a same-named cookie (confirmed: mangaz.com's own two
-    # hosts, www.mangaz.com/vw.mangaz.com, share this session).
+    # hosts, www.mangaz.com/vw.mangaz.com, share this session). Iterate each
+    # jar's own Cookie objects directly rather than `dict.update(jar)`: a
+    # plain dict.update() against a RequestsCookieJar calls its __getitem__
+    # per key, and RequestsCookieJar._find_no_duplicates treats a falsy
+    # cookie value (an empty string) as "not found" and raises KeyError
+    # instead of returning it -- a real bug in `requests` itself, hit live
+    # by kuaikan's real site, which sets exactly such an empty-value cookie
+    # (`referer_name=""`) on every visit.
     cookies = {}
-    for hop in r.history:
-        cookies.update(hop.cookies)
-    cookies.update(r.cookies)
+    for hop in list(r.history) + [r]:
+        for cookie in hop.cookies:
+            cookies[cookie.name] = cookie.value
     return Response(status_code=r.status_code, headers=dict(r.headers), content=r.content,
                     url=r.url, cookies=cookies)
 

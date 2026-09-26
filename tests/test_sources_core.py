@@ -599,3 +599,20 @@ class TestRequestsTransport:
                             lambda: self._FakeSession(final, cookies=shared_session_cookies))
         resp = _requests_transport("GET", "https://vw.invalid/ticket", {}, None, 20)
         assert dict(resp.cookies) == {"session": "vw-value"}
+
+    def test_survives_an_empty_value_cookie(self, monkeypatch):
+        """A real, live regression: kuaikan's own site sets a real cookie
+        (`referer_name`) with an empty string value on every visit.
+        `dict.update(jar)` (the merge shape this class replaced) calls the
+        jar's own `__getitem__` per key, and some `requests` versions'
+        `RequestsCookieJar._find_no_duplicates` treat a falsy cookie value
+        as "not found" and raise `KeyError` instead of returning it (a real
+        bug hit with `requests` 2.33.1; not reproducible with every
+        installed version, so not asserted here -- only this fix's actual
+        behavior is). Iterating each jar's own Cookie objects directly
+        (this fix) never goes through that lookup path regardless."""
+        final = self._FakeResp(200, {}, b"ok", "https://kuaikan.invalid/page",
+                               cookies=_cookie_jar(**{"kuaikan.invalid": {"referer_name": ""}}))
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://kuaikan.invalid/page", {}, None, 20)
+        assert dict(resp.cookies) == {"referer_name": ""}
