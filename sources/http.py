@@ -122,7 +122,13 @@ def _requests_transport(method, url, headers, data, timeout):
     # cookie set on an intermediate redirect hop would otherwise be silently
     # dropped from the Response this function returns. Merge every hop's own
     # cookies, oldest first, so a later hop (including the final response)
-    # can still override an earlier same-named cookie.
+    # can still override an earlier same-named cookie. Deliberately never
+    # `session.cookies` -- that jar accumulates cookies from every request
+    # any adapter makes on this thread for the app's whole runtime, and
+    # flattening it with dict()/.update() raises a real
+    # requests.cookies.CookieConflictError the moment two different hosts
+    # have ever set a same-named cookie (confirmed: mangaz.com's own two
+    # hosts, www.mangaz.com/vw.mangaz.com, share this session).
     cookies = {}
     for hop in r.history:
         cookies.update(hop.cookies)
