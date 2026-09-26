@@ -2246,6 +2246,10 @@ Found by the same QC review; **independently re-verified by direct code read** �
 - A test confirms a drama with existing translations/flags/speaker corrections can have that data restored via Version history after running "Chunk & Tag Speakers" again.
 - Manual check: translate a novel-narration drama, then follow the on-screen "switch engines and re-run" instruction, and confirm the original translations are recoverable via Version history afterward.
 
+**Built and pushed (`claude/start-step-25m-krnlgm`), reviewed and approved by the planning session — real, well-built, exactly the fix this step's own text specified.** Independently verified: fetched fresh, confirmed genuinely current (merge-base equals the exact current `baihe-subtitler` tip). The diff (2 files, +82/-0) snapshots the drama's current lines — loaded fresh from the database via `db.load_line_objects`, not stale in-memory state — before the full replace, only when the drama already has lines (skips the snapshot for a genuinely empty/new drama, sensible). Ran the branch's own tests directly: 8 relevant tests in `test_workspace_tab.py`, all pass. Full combined trial-merge suite (with 25n/25r/25s together): 2490 passed, 46 skipped, 0 failed. Approved.
+
+**PR #104 opened by the planning session, awaiting CI before merge (content already fully verified above).**
+
 ### Step 25n — Fix: a failed Scanlate page translation silently blanks every bubble instead of showing an error
 Found by the same QC review; **independently re-verified by direct code read**, confirmed exact mechanism.
 
@@ -2258,6 +2262,10 @@ Found by the same QC review; **independently re-verified by direct code read**, 
 - A test confirms a malformed/unparseable LLM response does NOT overwrite existing bubble translations — either an exception is raised or the bubbles are left untouched, with a clear error shown.
 - A test confirms a genuinely empty `"translations": []` response (the LLM legitimately found nothing to translate) is still handled correctly, distinct from a parse failure.
 - Manual check: hand-edit a bubble's translation, then trigger a page translation in a way that forces a malformed response (a very low `max_tokens` on a text-heavy page is one way), and confirm the hand-edit survives rather than being silently blanked.
+
+**Built and pushed (`claude/step-25n-roadmap-wonrvh`), reviewed and approved by the planning session — real, well-built, exactly the fix this step's own text specified.** Independently verified: fetched fresh, confirmed genuinely current. The diff (2 files, +67/-6) makes `translate_page_with_context` return `None` on a genuine parse failure (no response, unparseable JSON, missing `"translations"` key), distinct from a real empty-translations result which still passes through unchanged, and `translate_page_bubbles` raises a clear `ValueError` before the length check when it sees `None` rather than applying a same-length blank list. Ran the branch's own tests directly: `test_scanlate_regions.py`, 38 passed, 0 failed. Full combined trial-merge suite (with 25m/25r/25s together): 2490 passed, 46 skipped, 0 failed. Approved.
+
+**PR #101 opened by the planning session, awaiting CI before merge (content already fully verified above).**
 
 ### Step 25o — Fix: Find & replace (Workspace and Scanlate) can misapply a stale match after the underlying lines/bubbles change
 Found by the same QC review; **independently re-verified by direct code read** for the Workspace case; the Scanlate case's DB-write mechanism confirmed directly, the follow-on widget-staleness claim taken at the review's own stated confidence (not independently traced end to end).
@@ -2326,6 +2334,10 @@ Each confirmed by direct code read, same "found while auditing, not caused by an
 
 **Exit:** N/A for most items, per this project's own established convention for bundled bug-tracking steps (Step 9e/9f/25d). Items 1 and 2 are real enough to be worth their own small regression test whenever picked up.
 
+**Built and pushed (`claude/step-25r-roadmap-dwuk8u`), reviewed and approved by the planning session — real, well-built, all four addressed items check out.** Independently verified: fetched fresh, confirmed genuinely current. The diff (6 files, +267/-39) fixes: item 1 (Add bubble now persists immediately via `db.save_bubbles` + rerun, and the section moved outside the `if bubbles:` gate); item 2 (the raw-novel uploader's write is now gated behind an explicit "💾 Save this novel upload" button); item 4 folded in as a real fix, not just flagged (imported-novel text from Sources now loads as narration's own fallback default when no OCR/EPUB text is already present); item 3's CLI parity fix correctly and honestly scoped — folds in the learned style profile and per-line emotion guidance (both DB-backed) while correctly leaving out the pronoun-default/genre-notes toggles (session-state-only, structurally unreachable from the CLI without a schema change), and defaults `--style-preset` to the same per-content-mode default Workspace uses; item 6's Retry button now wraps `front_door.preview` in the same `ChallengeDetected`/`SourceError` handling the rest of the tab uses. Ran the branch's own tests directly: 31 passed across `test_scanlate_tab.py`/`test_workspace_raw_novel.py`/`test_cli.py`/`test_sources_tab.py`, 0 failed. Full combined trial-merge suite (with 25m/25n/25s together): 2490 passed, 46 skipped, 0 failed. Approved.
+
+**PR #103 opened by the planning session, awaiting CI before merge (content already fully verified above).**
+
 ### Step 25s — Fix: Sources' "Import video" can silently overwrite an existing drama's audio with no confirmation
 Found by a second dispatched adversarial QC review (2026-09-27, scoped to areas the first pass covered lightly — `dub.py`, `background_jobs.py`, the newer source adapters, `cli.py`, and more), **independently re-verified by direct code read before writing this step** — not taken on the review's word. The most severe finding of that second pass.
 
@@ -2341,6 +2353,10 @@ Found by a second dispatched adversarial QC review (2026-09-27, scoped to areas 
 - A test confirms importing a video into a drama that already has `audio_filename` set requires an explicit confirmation step before the existing audio is touched.
 - A test confirms importing into a drama with no existing audio still works with no extra friction (the confirmation is conditional, not universal).
 - Manual check: pick an already-transcribed drama from Sources' "Into drama" list, attempt to import a different video into it, and confirm the app requires an explicit confirmation before overwriting the existing audio — then confirm declining leaves the drama's audio and lines untouched.
+
+**Built and pushed (`claude/step-25s-roadmap-vjvh63`), reviewed and approved by the planning session — real, well-built, both items 1 and 2 addressed.** Independently verified: fetched fresh, confirmed genuinely current. The diff (2 files, +62/-5) tags any drama with existing audio "⚠️ has audio" in the picker (item 2), and requires an explicit confirmation checkbox before "Import video" is enabled when the picked drama already has audio (item 1) — a drama with no existing audio needs no extra step. Ran the branch's own tests directly: `test_sources_tab.py`, 9 passed, 0 failed. Full combined trial-merge suite (with 25m/25n/25r together): 2490 passed, 46 skipped, 0 failed. Approved.
+
+**PR #102 opened by the planning session, awaiting CI before merge (content already fully verified above).**
 
 ### Step 26 — Voice bank: reuse a cloned voice across projects
 From a user request, explored on branch `claude/iqiyi-ai-vertical-shorts-mzim4n` (2026-09-26, `docs/handoff-voice-bank-translate-zh-narration.md`; nothing built there). Goal: sample voices from audio dramas already in the library, then reuse those clips for characters in other projects (mainly novel narration) without copying files and transcripts by hand.
@@ -2561,13 +2577,13 @@ From the same exploration session and handoff doc. Goal: novel narration read al
   | 25j — Fix: opening a drama from Library can carry the previous drama's line edits into it | `claude/step-25j-roadmap-tz2ivs` | ✅ Merged (PR #96) | ⏳ Pending |
   | 25k — Fix: "Restore from backup" destroys the library before checking the zip is valid | `claude/step-25k-roadmap-1yj5vo` | ✅ Merged (PR #97) | ⏳ Pending |
   | 25l — Fix: undoing a merge can attach notes/emotions/flags to the wrong line | `step-25l-merge-undo-notes` | ✅ Merged (PR #98) | ⏳ Pending |
-  | 25m — Fix: preparing novel narration replaces every line with no history snapshot | — | Not started | — |
-  | 25n — Fix: a failed Scanlate page translation silently blanks every bubble | — | Not started | — |
+  | 25m — Fix: preparing novel narration replaces every line with no history snapshot | `claude/start-step-25m-krnlgm` | 🔶 PR #104 open, awaiting CI | ⏳ Pending |
+  | 25n — Fix: a failed Scanlate page translation silently blanks every bubble | `claude/step-25n-roadmap-wonrvh` | 🔶 PR #101 open, awaiting CI | ⏳ Pending |
   | 25o — Fix: Find & replace can misapply a stale match after lines/bubbles change | — | Not started | — |
   | 25p — Fix: three more upload widgets leak content across drama switches | — | Not started | — |
   | 25q — Fix: two real ToS-enforcement gaps | `claude/step-25q-roadmap-hj7202` | ✅ Merged (PR #99) | ⏳ Pending |
-  | 25r — Smaller findings from the same QC review, bundled | — | Not started | — |
-  | 25s — Fix: Sources' "Import video" can overwrite an existing drama's audio with no confirmation | — | Not started | — |
+  | 25r — Smaller findings from the same QC review, bundled | `claude/step-25r-roadmap-dwuk8u` | 🔶 PR #103 open, awaiting CI | ⏳ Pending |
+  | 25s — Fix: Sources' "Import video" can overwrite an existing drama's audio with no confirmation | `claude/step-25s-roadmap-vjvh63` | 🔶 PR #102 open, awaiting CI | ⏳ Pending |
   | 26 — Voice bank (reuse a cloned voice across projects) | — | Not started | — |
   | 26b — Standalone translate section (kr/jp/cn ↔ English) | `claude/step-26b-roadmap-re56bo` | ✅ Merged (PR #100) | ⏳ Pending |
   | 26c — Narrate in the original language, bilingual subtitles | — | Not started | — |
