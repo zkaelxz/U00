@@ -31,6 +31,7 @@ DEFAULT_SETTINGS = {
     "demo_source_enabled": False,
     "disabled_sources": [],
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
+    "extraction_diagnostics": False,  # Step 23g: always show Review Extraction + diagnostics
 }
 
 
@@ -108,6 +109,14 @@ CREATE TABLE IF NOT EXISTS seen_images (
     sha256 TEXT NOT NULL,
     chapter_url TEXT NOT NULL,
     PRIMARY KEY (domain, sha256, chapter_url)
+);
+CREATE TABLE IF NOT EXISTS extraction_cache (
+    kind TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    url TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY (kind, content_hash)
 );
 """
 
@@ -295,3 +304,30 @@ def hashes_seen_elsewhere(domain: str, chapter_url: str, hashes) -> set:
                             f"AND chapter_url<>? AND sha256 IN ({marks})",
                             (domain, chapter_url, *hashes)).fetchall()
     return {r["sha256"] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Extraction-result cache (Step 23g item 6) -- keyed by a hash of what the
+# model read, so an unchanged page never costs a second LLM call. Separate
+# from the raw-content cache (cache_index), which is about not re-fetching.
+# ---------------------------------------------------------------------------
+
+def get_extraction(kind: str, content_hash: str):
+    with connect() as conn:
+        row = conn.execute("SELECT data FROM extraction_cache WHERE kind=? AND content_hash=?",
+                           (kind, content_hash)).fetchone()
+    return json.loads(row["data"]) if row else None
+
+
+def put_extraction(kind: str, content_hash: str, url: str, entry: dict):
+    with connect() as conn:
+        conn.execute("INSERT INTO extraction_cache(kind, content_hash, url, data, created_at) "
+                     "VALUES(?, ?, ?, ?, ?) ON CONFLICT(kind, content_hash) DO UPDATE SET "
+                     "url=excluded.url, data=excluded.data, created_at=excluded.created_at",
+                     (kind, content_hash, url, json.dumps(entry, ensure_ascii=False), time.time()))
+
+
+def delete_extraction(kind: str, content_hash: str):
+    with connect() as conn:
+        conn.execute("DELETE FROM extraction_cache WHERE kind=? AND content_hash=?",
+                     (kind, content_hash))
