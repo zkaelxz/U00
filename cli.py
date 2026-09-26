@@ -125,8 +125,8 @@ def cmd_export_video(args):
             print(f"#{d['id']} skipped: source video file missing on disk.")
             return
         rows = db.load_lines(d["id"])
-        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "")
-                 for r in rows]
+        lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
+                      sfx=bool(r.get("sfx"))) for r in rows]
 
         # A timed-but-textless subtitle track burns in fine and produces no
         # error -- it just looks broken in the finished video. Refuse rather

@@ -2,6 +2,7 @@
 tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.py.
 """
 import dataclasses
+import math
 
 from common import *
 import audio_preprocess
@@ -736,7 +737,7 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
-_LINE_WIDGET_KEY = re.compile(r"^(zh|en|start|end|speaker|rv_improved|rv_retrans)_\d+$")
+_LINE_WIDGET_KEY = re.compile(r"^(zh|en|start|end|speaker|sfx|rv_improved|rv_retrans)_\d+$")
 
 
 def _clear_line_widget_state():
@@ -1014,6 +1015,181 @@ def _line_audio_clip(audio_path, start, end, work_dir):
             os.remove(slice_path)
 
 
+def parse_timestamp(text):
+    """Step 12c's jump box: "mm:ss", "h:mm:ss" or raw seconds ("83",
+    "83.5") -> seconds as a float. None for anything else -- blank text,
+    a negative number, or an out-of-range field like "1:75"."""
+    parts = (text or "").strip().split(":")
+    if not parts[0] or len(parts) > 3:
+        return None
+    try:
+        nums = [float(p) for p in parts]
+    except ValueError:
+        return None
+    if any(n < 0 for n in nums) or any(n >= 60 for n in nums[1:]):
+        return None
+    seconds = 0.0
+    for n in nums:
+        seconds = seconds * 60 + n
+    return seconds
+
+
+def _review_media(drama, ddir):
+    """Step 12c: ("video"|"audio", path) for Review & edit's player -- the
+    same original media the Reader tab's "Watch / listen" plays: the
+    uploaded video if there is one, else the audio. None if neither is on
+    disk."""
+    for kind, key in (("video", "source_video_filename"), ("audio", "audio_filename")):
+        if drama.get(key):
+            p = os.path.join(ddir, drama[key])
+            if os.path.exists(p):
+                return kind, p
+    return None
+
+
+def _player_state_key(drama_id):
+    return f"rv_player_{drama_id}"
+
+
+def _line_at(lines, seconds):
+    return next((ln for ln in lines if ln.start <= seconds < ln.end), None)
+
+
+def _seek_player(drama_id, start, end=None, line_idx=None):
+    """Points Review & edit's player at `start`, stopping at `end` if given
+    ("Play current segment") or running on otherwise. Called from widget
+    callbacks, so it takes effect in the same rerun, before the player is
+    drawn. The counter re-creates the player under a new key, so asking
+    for the same spot twice still seeks and plays again."""
+    key = _player_state_key(drama_id)
+    prev = st.session_state.get(key) or {}
+    st.session_state[key] = {"start": max(float(start), 0.0), "end": end,
+                             "line_idx": line_idx, "n": prev.get("n", 0) + 1}
+
+
+def _seek_to_line(drama_id, line_idx, segment_only=False):
+    """Seeks to a line's start -- looked up in st.session_state.lines at
+    click time, so a just-edited start/end box is used -- and, for "Play
+    current segment", stops at its end rather than the file's."""
+    ln = next((x for x in st.session_state.lines if x.idx == line_idx), None)
+    if ln is not None:
+        _seek_player(drama_id, ln.start, ln.end if segment_only else None, line_idx=ln.idx)
+
+
+def _jump_to_typed_time(drama_id):
+    text = st.session_state.get(f"rv_jump_{drama_id}", "")
+    seconds = parse_timestamp(text)
+    if seconds is None:
+        st.session_state[f"rv_jump_error_{drama_id}"] = (
+            f"Couldn't read \"{text}\" as a time -- type mm:ss (e.g. 1:23) or seconds (e.g. 83).")
+        return
+    st.session_state.pop(f"rv_jump_error_{drama_id}", None)
+    ln = _line_at(st.session_state.lines, seconds)
+    _seek_player(drama_id, seconds, line_idx=ln.idx if ln else None)
+
+
+def _burn_preview_ass(lines, line, style_state, pad=2.0):
+    """Step 12c: (start, end, ass_text) for a short burned-subtitle preview
+    around `line` -- `pad` seconds either side -- styled with the Export
+    subtitles section's current settings (`style_state`, stashed there on
+    each render) and timed to the clip the same way the vertical export
+    is. Falls back to the "Clean" preset if that section hasn't rendered
+    yet this session."""
+    style_state = style_state or {}
+    start, end = max(line.start - pad, 0.0), line.end + pad
+    field = "en" if line.en.strip() else "zh"
+    clip_lines = subtitle_formats.lines_for_clip(
+        subtitle_formats.clamp_overlaps(lines)[0], start, end)
+    ass = subtitle_formats.lines_to_ass(
+        clip_lines, style_state.get("style") or subtitle_formats.ASS_PRESETS["Clean"], field,
+        speaker_colors=style_state.get("speaker_colors"),
+        speaker_names=style_state.get("speaker_names"),
+        wrap_chars=style_state.get("wrap_chars"))
+    return start, end, ass
+
+
+def _player_times(start, end):
+    """Streamlit's player takes whole seconds only (fractions are dropped),
+    so round outward: start at or just before `start`, stop at or just
+    after `end` -- a segment never gets its last fraction of a second cut
+    off. (Step 21's "▶️ Play this line" still plays the exact range.)"""
+    s = math.floor(start)
+    if end is None:
+        return s, None
+    return s, max(math.ceil(end), s + 1)
+
+
+def _render_review_player(picked_id, ddir, media, lines):
+    """Step 12c: Review & edit's persistent player, plus its jump box,
+    "Play current segment" and (video only) burned-subtitle preview. Seeks
+    by re-drawing Streamlit's own st.video/st.audio with start_time/
+    end_time -- the same file the Reader tab plays, through the same media
+    server, so no new media-serving code."""
+    kind, path = media
+    state = st.session_state.get(_player_state_key(picked_id)) or {
+        "start": 0.0, "end": None, "line_idx": None, "n": 0}
+    start_time, end_time = _player_times(state["start"], state["end"])
+    selected = next((ln for ln in lines if ln.idx == state["line_idx"]), None)
+
+    # The player sits in a form keyed on the seek counter: Streamlit only
+    # autoplays a given media element once, and the element's identity
+    # includes its form -- so each seek, even back to the same spot, gets
+    # a fresh element that starts playing on its own.
+    with st.form(key=f"rv_player_form_{picked_id}_{state['n']}", border=False):
+        (st.video if kind == "video" else st.audio)(
+            path, start_time=start_time, end_time=end_time, autoplay=state["n"] > 0)
+        jc1, jc2 = st.columns([3, 1], vertical_alignment="bottom")
+        jc1.text_input("Jump to time", key=f"rv_jump_{picked_id}", placeholder="mm:ss or seconds",
+                       help="e.g. 1:23, 1:02:03 or 83.5")
+        jc2.form_submit_button("⏩ Jump", on_click=_jump_to_typed_time, args=(picked_id,))
+    _jump_error = st.session_state.get(f"rv_jump_error_{picked_id}")
+    if _jump_error:
+        st.warning(_jump_error)
+    pc1, pc2 = st.columns([1, 2], vertical_alignment="center")
+    pc1.button("🔁 Play current segment", key=f"rv_play_segment_{picked_id}",
+               disabled=selected is None, on_click=_seek_to_line,
+               args=(picked_id, state["line_idx"]), kwargs={"segment_only": True},
+               help="Plays just the selected line, from its start to its end, then stops.")
+    if selected is not None:
+        pc2.caption(f"Selected: line #{selected.idx + 1} "
+                    f"({selected.start:.2f}s – {selected.end:.2f}s)")
+    else:
+        pc2.caption("Click ▶ next to a line below to select it and play from there.")
+
+    if kind != "video":
+        return
+    _burn_key = f"rv_burn_{picked_id}"
+    if st.button("🎞️ Preview burned subtitles (selected line)", key=f"rv_burn_btn_{picked_id}",
+                 disabled=selected is None,
+                 help="Burns the style from 9. Export subtitles over a few real seconds around "
+                      "the selected line, so you can see how it actually looks before a full "
+                      "export. Re-encodes with ffmpeg, so it takes a moment."):
+        import video_export
+        _style_state = st.session_state.get(f"sub_style_current_{picked_id}")
+        c_start, c_end, ass = _burn_preview_ass(lines, selected, _style_state)
+        out_path = os.path.join(ddir, "_burn_preview.mp4")
+        try:
+            with st.spinner("Rendering preview clip..."):
+                video_export.render_preview_clip(path, ass, out_path, c_start, c_end)
+            with open(out_path, "rb") as f:
+                st.session_state[_burn_key] = {"idx": selected.idx, "video": f.read(),
+                                               "style": (_style_state or {}).get("style")}
+        except Exception as e:
+            st.session_state.pop(_burn_key, None)
+            st.error(f"Couldn't render the preview: {e}. Check that ffmpeg (with libass) is "
+                     "installed.")
+        finally:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+    _burn = st.session_state.get(_burn_key)
+    if _burn:
+        _now_style = (st.session_state.get(f"sub_style_current_{picked_id}") or {}).get("style")
+        st.caption(f"Burned-subtitle preview around line #{_burn['idx'] + 1}"
+                   + (" -- the style has changed since; click Preview again to see it."
+                      if _burn["style"] != _now_style else "."))
+        st.video(_burn["video"])
+
+
 def _unsaved_line_count(drama_id, lines):
     """Step 21: how many of Review & edit's lines differ from what's
     actually in the database -- not from st.session_state.lines, which the
@@ -1035,7 +1211,8 @@ def _unsaved_line_count(drama_id, lines):
                 or round(ln.end, 2) != round(row["end"], 2)
                 or (ln.zh or "") != (row["zh"] or "")
                 or (ln.en or "") != (row["en"] or "")
-                or (ln.speaker or "") != (row["speaker"] or "")):
+                or (ln.speaker or "") != (row["speaker"] or "")
+                or bool(ln.sfx) != bool(row.get("sfx"))):
             n += 1
     return n + len(saved.keys() - seen)
 
@@ -3441,6 +3618,9 @@ def render_workspace_tab():
 
             all_lines = st.session_state.lines
 
+            _media = _review_media(drama, ddir)
+            if _media:
+                _render_review_player(picked_id, ddir, _media, all_lines)
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
@@ -3493,8 +3673,19 @@ def render_workspace_tab():
                 _speaker_changed = speaker != (ln.speaker or "")
                 zh = cols[3].text_area("zh", value=ln.zh, height=68, label_visibility="collapsed", key=f"zh_{ln.idx}")
                 en = cols[4].text_area("en", value=ln.en, height=68, label_visibility="collapsed", key=f"en_{ln.idx}")
-                cols[5].write(f"#{ln.idx + 1}")
+                cols[5].write(f"#{ln.idx + 1}" + (" 🔊" if ln.sfx else ""))
+                if _media:
+                    _player_line = (st.session_state.get(_player_state_key(picked_id)) or {}).get("line_idx")
+                    cols[5].button("▶", key=f"rvseek_{ln.idx}", on_click=_seek_to_line,
+                                   args=(picked_id, ln.idx),
+                                   type="primary" if _player_line == ln.idx else "secondary",
+                                   help="Select this line and play from it in the player above.")
                 with cols[6].popover("🔧"):
+                    sfx = st.checkbox(
+                        "🔊 Non-verbal / SFX cue", value=ln.sfx, key=f"sfx_{ln.idx}",
+                        help="For a sound cue like \"door slams\" rather than dialogue -- exported "
+                             "in [brackets] and styled apart from speech (italic; its own "
+                             "colour in ASS and burned-in video). Saved with 💾 Save edits.")
                     st.caption("Fix just this line -- cheaper and faster than redoing the "
                               "whole drama for one mistake.")
                     if api_key and st.button("✏️ Improve translation", key=f"rvimprove_{ln.idx}"):
@@ -3603,7 +3794,7 @@ def render_workspace_tab():
                                               speaker=(speaker or None) if _speaker_changed else ln.speaker,
                                               speaker_manual=ln.speaker_manual or _speaker_changed,
                                               dub_filename=ln.dub_filename,
-                                              flag=_still_flag, flag_note=_still_note,
+                                              flag=_still_flag, flag_note=_still_note, sfx=sfx,
                                               id=ln.id, orig=ln.orig, merged_ids=ln.merged_ids))
 
             # Splice the edited page back into the full list -- lines outside
@@ -4764,6 +4955,11 @@ def render_workspace_tab():
                               if c.get("character_name")}
             _sub_style, _speaker_colors = _subtitle_style_controls(
                 picked_id, st.session_state.lines, _speaker_names)
+            # Review & edit's burned-subtitle preview (Step 12c) renders above
+            # this section, so it reads the style from here via session state.
+            st.session_state[f"sub_style_current_{picked_id}"] = {
+                "style": _sub_style, "speaker_colors": _speaker_colors,
+                "speaker_names": _speaker_names, "wrap_chars": _wrap_chars}
 
             def _subtitle_text(field):
                 if _sub_format == "VTT":

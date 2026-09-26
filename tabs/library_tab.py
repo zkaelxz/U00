@@ -382,7 +382,8 @@ def render_library_tab():
                         for d in exportable:
                             rows = db.load_lines(d["id"])
                             lns = [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                         zh=r["zh"], en=r["en"] or "", speaker=r.get("speaker")) for r in rows]
+                                         zh=r["zh"], en=r["en"] or "", speaker=r.get("speaker"),
+                                         sfx=bool(r.get("sfx"))) for r in rows]
                             if not lns:
                                 continue
                             safe_title = re.sub(r"[^\w\- ]", "", d["title_en"] or d["title_zh"] or str(d["id"]))
