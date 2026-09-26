@@ -12,6 +12,52 @@ def cache_hit_share(usage: dict) -> float:
     return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
 
 
+def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
+    """Step 25k: validate an uploaded backup zip and swap it in for
+    library_dir, without ever destroying the existing library if the
+    upload turns out to be invalid.
+
+    Extracts to a staging directory first, and only after the zip is
+    confirmed to be a real, intact backup (opens as a zip, contains
+    library.db, no corrupt member) does it touch library_dir at all --
+    by renaming it aside and renaming the staging directory into its
+    place, restoring the original on any failure of that last step.
+    Raises (ValueError, zipfile.BadZipFile, OSError, ...) with nothing
+    yet deleted if validation fails.
+    """
+    import shutil
+    import tempfile
+
+    staging_dir = None
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            if "library.db" not in zf.namelist():
+                raise ValueError("This doesn't look like a Baihe library "
+                                  "backup (no library.db found inside the zip).")
+            if zf.testzip() is not None:
+                raise ValueError("Backup zip is corrupted.")
+            parent_dir = os.path.dirname(os.path.abspath(library_dir)) or "."
+            staging_dir = tempfile.mkdtemp(prefix=".restore_staging_", dir=parent_dir)
+            zf.extractall(staging_dir)
+
+        old_dir = None
+        if os.path.exists(library_dir):
+            old_dir = f"{library_dir}.pre_restore_{int(time.time())}"
+            os.rename(library_dir, old_dir)
+        try:
+            os.rename(staging_dir, library_dir)
+        except Exception:
+            if old_dir is not None:
+                os.rename(old_dir, library_dir)
+            raise
+        staging_dir = None
+        if old_dir is not None:
+            shutil.rmtree(old_dir, ignore_errors=True)
+    finally:
+        if staging_dir is not None:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
 BULK_SERIES_TRANSLATE_JOB_ID = "bulk_series_translate"
 
 
@@ -518,14 +564,8 @@ def render_library_tab():
             restore_file = st.file_uploader("Backup .zip to restore", type=["zip"], key="restore_upload")
             confirm_restore = st.checkbox("I understand this replaces all current library data", key="confirm_restore")
             if st.button("♻️ Restore from backup", disabled=not (restore_file and confirm_restore)):
-                import shutil
-                library_dir = db.LIBRARY_DIR
                 try:
-                    if os.path.exists(library_dir):
-                        shutil.rmtree(library_dir)
-                    os.makedirs(library_dir, exist_ok=True)
-                    with zipfile.ZipFile(io.BytesIO(restore_file.read())) as zf:
-                        zf.extractall(library_dir)
+                    restore_library_backup(restore_file.read(), db.LIBRARY_DIR)
                     st.success("Restored. Reload the app to see the restored library.")
                 except Exception as e:
                     st.error(f"Restore failed: {e}")
