@@ -92,8 +92,8 @@ def inject_dark_css():
       .stButton button:hover {{ border-color: {d['accent']} !important; color: {d['accent']} !important; }}
       .stButton button[kind="primary"] {{ background: {d['accent']} !important; color: #17131F !important; }}
 
-      .stTabs [data-baseweb="tab-list"] {{ border-bottom-color: {d['border']} !important; }}
-      .stTabs [data-baseweb="tab"] {{ color: {d['muted']} !important; }}
+      .stTabs [role="tablist"] {{ border-bottom-color: {d['border']} !important; }}
+      .stTabs [data-testid="stTab"] {{ color: {d['muted']} !important; }}
       .stTabs [aria-selected="true"] {{
           background: {d['accent_soft']} !important; color: {d['accent']} !important; }}
 
@@ -176,8 +176,8 @@ def inject_css():
       p, .stMarkdown {{ line-height: 1.62; }}
 
       /* --- tabs: quieter, less chrome --------------------------------- */
-      .stTabs [data-baseweb="tab-list"] {{ gap: 2px; border-bottom: 1px solid {BORDER}; }}
-      .stTabs [data-baseweb="tab"] {{
+      .stTabs [role="tablist"] {{ gap: 2px; border-bottom: 1px solid {BORDER}; }}
+      .stTabs [data-testid="stTab"] {{
           height: 42px; padding: 0 16px; background: transparent;
           border-radius: 8px 8px 0 0; font-size: 0.92rem; font-weight: 520;
           color: {MUTED};
