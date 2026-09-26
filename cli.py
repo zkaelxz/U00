@@ -49,6 +49,8 @@ import translate_engines
 import translation_guide as tguide
 import bulk_translate
 import raw_transcript
+import adaptive_style
+import emotion
 import dub as dub_module
 
 
@@ -271,9 +273,24 @@ def cmd_translate(args):
         glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else None
         series_chars = db.list_series_characters(d["series_id"]) if d.get("series_id") else []
         drama_chars = db.list_characters_with_series_names(d["id"])
+        # Step 25r: Workspace's own translate path also folds in the learned
+        # style profile and per-line emotion guidance -- both DB-backed, so
+        # (unlike the pronoun-default/genre-notes toggles, which only ever
+        # live in browser session state) there's no structural reason for the
+        # CLI to leave them out.
+        _scope = f"series:{d['series_id']}" if d.get("series_id") else "global"
+        _prof = db.get_style_profile(_scope)
+        _learned = adaptive_style.profile_to_prompt_block(_prof["profile"]) if _prof else ""
+        _emap = db.load_emotions(d["id"])
+        _emotion_block = emotion.build_emotion_guidance(
+            _emap, [ln.idx for ln in lines]) if _emap else ""
+        style_preset = args.style_preset or (
+            "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
         style_guidelines = tguide.build_style_guidelines(
-            style_preset=args.style_preset, glossary_terms=glossary_terms,
-            custom_notes=tguide.build_character_gender_hints(series_chars, drama_chars))
+            style_preset=style_preset, glossary_terms=glossary_terms,
+            custom_notes="\n\n".join(b for b in (
+                _learned, _emotion_block,
+                tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
         character_names = tguide.build_speaker_labels(drama_chars, series_chars)
         print(f"#{d['id']} translating {len(lines)} lines with {args.engine}"
               + (" (+ novel reference)" if novel_reference else "") + "...")
@@ -312,7 +329,7 @@ def cmd_translate(args):
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
         bulk_translate.finish_translation_run(
-            d["id"], lines, engine, args.engine, args.style_preset, glossary_terms, batch_errors)
+            d["id"], lines, engine, args.engine, style_preset, glossary_terms, batch_errors)
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")
@@ -423,10 +440,13 @@ def main():
     p_translate.add_argument("--api-key", required=True)
     p_translate.add_argument("--model", default=None)
     p_translate.add_argument("--style-note", default=None)
-    p_translate.add_argument("--style-preset", default="audio_drama",
+    p_translate.add_argument("--style-preset", default=None,
                               choices=list(tguide.STYLE_PRESETS),
                               help="Matches the Workspace tab's own style-guidance preset -- "
-                                   "affects phrasing/pacing guidance, not language or content.")
+                                   "affects phrasing/pacing guidance, not language or content. "
+                                   "Defaults to the same per-content-mode preset Workspace picks "
+                                   "(\"novel\" for a novel-narration drama, \"audio_drama\" "
+                                   "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
@@ -480,7 +500,7 @@ def main():
     # surfaced: cmd_run has always raised AttributeError the moment it
     # reached cmd_translate, since these were never defined here.
     p_run.add_argument("--status", default=None)
-    p_run.add_argument("--style-preset", default="audio_drama", choices=list(tguide.STYLE_PRESETS))
+    p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
     p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)

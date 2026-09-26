@@ -84,7 +84,14 @@ def _render_front_door():
         retry, cancel = _render_handoff(handoff, "src_fd", on_resume=resume)
         if retry:
             st.session_state.src_fd_handoff = None
-            st.session_state.src_fd_result = front_door.preview(handoff["url"])
+            try:
+                st.session_state.src_fd_result = front_door.preview(handoff["url"])
+            except ChallengeDetected as e:
+                st.session_state.src_fd_result = None
+                st.session_state.src_fd_handoff = {"url": e.url, "reason": e.reason.value}
+            except SourceError as e:
+                st.session_state.src_fd_result = None
+                st.error(f"{e.reason.value}: {e}")
             st.rerun()
         if cancel:
             st.session_state.src_fd_handoff = None
