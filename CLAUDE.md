@@ -1,9 +1,15 @@
 # U00 — rules for AI sessions working in this repo
 
 This repo is the **planning session** for the Baihe Subtitler project. It is
-docs-only — no application code lives here. The actual app is a separate
-repo, `baihe-subtitler`, worked on by a separate **implementing session** on
-its own per-step branches.
+docs-only — no application code lives here. **The actual app is not a
+separate repo — it's the `baihe-subtitler` branch of this same `zkaelxz/U00`
+repo.** (This was wrong in an earlier version of this file and caused a real
+mistake: don't try `add_repo`/a separate clone for it — this session already
+has full GitHub API access to it, same as this planning branch, because it's
+the same repo.) Separate **implementing sessions** work their own per-step
+branches (`step-<id>-<short-name>`, or a session's own auto-assigned branch
+name) off `baihe-subtitler`, open PRs into it, and this planning session
+reviews and merges them — see "What this session does and doesn't do" below.
 
 Read `docs/baihe-roadmap.md` before doing anything else in this repo. It is
 the single source of truth: every build step, its exit condition, the PR
@@ -17,6 +23,24 @@ external project checked so far.
 - **Never write application code.** If a request implies code changes to
   `baihe-subtitler` itself, that belongs in the implementing session — write
   the plan/step here, then say so, don't reach across.
+- **This session DOES review, test, and merge implementing-session PRs** —
+  that's not "writing application code," it's the review gate §5 describes.
+  For every PR: `git fetch`/clone for real (never trust a report or commit
+  message alone), read the actual diff, run the branch's own touched tests
+  yourself, and only then merge via the GitHub API once CI is green and the
+  review holds up. Steps 1e–10 run in autonomous mode (the implementing
+  session builds, tests, opens *and merges* its own PR, no gate) — this is
+  exactly why an ad hoc QC pass across that range once found two severe,
+  unreviewed bugs. Steps 11+ run gated (implementing session builds, tests,
+  pushes, stops, and waits for "create a PR for this step" — it opens the PR
+  but does not merge; this session reviews and merges).
+- **Verify a PR's real number via the GitHub API before citing it anywhere**
+  — an implementing session's own self-reported PR number has been wrong
+  more than once (reported #47/#48 when the real, already-merged PRs were
+  #45/#46; reported "#55" for one step when #55 actually belonged to a
+  different one, and the reporting branch had no PR open at all). Never
+  write a PR number into the roadmap without having fetched that exact PR
+  and confirmed its head branch/title match.
 - **Never assume roadmap/branch/PR state from memory.** Always `git fetch`
   and check real state (`git log`, `git merge-base --is-ancestor`, etc.)
   before updating the status table or the "NEXT" pointer at the top of the
@@ -56,8 +80,8 @@ external project checked so far.
 
 ## License rule
 
-- GPL-3.0/AGPL-3.0 code reuse is legitimately unlocked now that the
-  `baihe-subtitler` repo is private (GPL's copyleft trigger is
+- GPL-3.0/AGPL-3.0 code reuse is legitimately unlocked now that this repo
+  (and its `baihe-subtitler` branch) is private (GPL's copyleft trigger is
   distribution; AGPL adds a network-interaction trigger — neither applies
   to genuinely private, undistributed, single-user use). **But check for
   redundancy before adopting anything under these licenses**: if a
