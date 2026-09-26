@@ -94,6 +94,54 @@ work".
 | Known limits | This adapter's real value is a populated `SourceCapabilities` record (so a future pass doesn't have to re-derive these findings), source-health tracking, and the token-reuse extraction mechanism -- not a full Mihon-style browsing experience. A direct chapter URL still works via `parse_url()` + `get_pages()`, the same "paste one URL, get its pages" path the front door already offers a site with no dedicated adapter at all. The chapter-URL shape `parse_url()` matches is an explicitly-hedged guess, not independently confirmed against a real chapter URL. |
 | Tests | `tests/test_sources_bilibili_manga.py`. All fetches (static and rendered) are mocked fixtures; no real Bilibili or Playwright call is made. |
 
+## ToonKor (툰코) — `sources/adapters/toonkor.py`
+
+| | |
+|---|---|
+| URL patterns | `toonkor<digit?>.(org\|com\|net)/<slug>[.html]` -- anchored loosely on the site's own history of domain rotation, not a hardcoded current numeral |
+| Content type / language | manhwa, ko |
+| Status | `UNTESTED` until a real import or a Test Now button. Every selector and the decode step were independently re-verified against the live site while building this adapter (not just read from the reference extension or the roadmap). |
+| Access tier | `STATIC_HTTP` only. Plain server-rendered HTML; the page-image list is lightly obfuscated (see Extraction) but needs no JavaScript execution to recover. |
+| Auth | None observed. No `login()`. |
+| Extraction | **Search:** `/bbs/search.php?sfl=wr_subject\|\|wr_content&stx=<query>`, `div.section-item-inner` (shared with the popular-listing markup). **Series:** `table.bt_view1` (`td.bt_title`/`td.bt_over`/`td.bt_thumb img`). **Chapters:** `table.web_list`, rows carrying a `data-role` attribute on `td.content__title` for the chapter URL. **Pages:** a `<script>` tag's `var toon_img = '<base64>'` assignment -- Base64-decoded to an HTML fragment, then every `src="..."` in that fragment, in order. Confirmed end-to-end against a real chapter (128 real page images decoded correctly) while building this adapter. |
+| Domain rotation | **A real, confirmed history, not theoretical** -- this is why `base_url` is an overridable constructor argument (same pattern as `xbanxia.py`'s own domain caveat) rather than a hardcoded literal. `toonkor0.org` was re-confirmed live, current, and unchallenged immediately before writing this adapter. |
+| Terms, recorded separately | `robots.txt`: `User-agent: *` with `Allow: /` and no `Disallow` lines at all -- fully permissive. Cloudflare observed acting only as a CDN, not an active challenge. (Re-verified by direct fetch while building this adapter, not carried over from an earlier vetting pass.) The ToS has not been reviewed. |
+| Reference | `keiyoushi/extensions-source src/ko/toonkor` (Apache-2.0). Technique only, no code ported. |
+| Known limits | If the site changes its markup, the adapter reports "layout has changed" rather than guessing. If the domain rotates again, `base_url` needs updating (or passing explicitly) -- `url_patterns` is intentionally loose enough to still route a pasted URL from a same-shaped new domain, but discovery/registration still assumes `toonkor0.org` as the default. |
+| Tests | `tests/test_sources_toonkor.py`, including a full Base64-decode round-trip test. |
+
+## 瓜子漫画 Guazimanhua — `sources/adapters/guazimanhua.py`
+
+| | |
+|---|---|
+| URL patterns | `guazimanhua.com/comic.php?id=<id>`, `guazimanhua.com/chapter.php?id=<id>` |
+| Content type / language | manhua, zh |
+| Status | `UNTESTED` until a real import or a Test Now button. Every selector was independently re-verified against the live site while building this adapter. |
+| Access tier | `STATIC_HTTP` only. |
+| Auth | None observed. No `login()`. |
+| Extraction | **Search:** `/category.php?keyword=<query>`, `article.card`. **Listing:** same `article.card` shape (`a.cover-wrap` href, `img.cover` src, `h3 a` title, `div.meta` text). **Series:** `div.mobile-comic-title`, `img.mobile-comic-cover`, `p.mobile-comic-desc`, `p.mobile-comic-tags` (`/`-separated genres), `p.mobile-comic-meta` (连载/完结 status), `div.cinema-strip > div` (a `<span>作者</span>` sibling `<b>` for author). **Chapters:** `div.mobile-chapter-grid a`. **Pages:** `section.reader-images img[src]` -- plain, already-absolute image URLs directly in the server response. |
+| **A real, confirmed deviation from the roadmap** | The roadmap records this site as needing the browser-rendered tier for `get_pages()`, based on a direct check at vetting time that found chapter images populated only client-side against `chapter.php`/`api.php`. **Re-verifying against the live site while building this adapter found that no longer holds** -- a real chapter fetch now returns real `<img src=...>` page URLs directly inside `section.reader-images` in the raw HTML, matching what the current Keiyoushi extension source itself does (plain Jsoup parsing, no WebView). The site evidently changed between vetting and build time. `get_pages()` is implemented as plain `STATIC_HTTP` accordingly -- see the module's own docstring for the full reasoning, in case a future re-check finds the site has reverted. |
+| Terms, recorded separately | `robots.txt`: named bots (including `GPTBot`/`ClaudeBot` specifically) individually disallowed, with a separate, more permissive `User-agent: *` catch-all -- the same posture already accepted for manhuagui. (Re-verified by direct fetch while building this adapter.) The ToS has not been reviewed. |
+| Reference | `keiyoushi/extensions-source src/zh/guazimanhua` (Apache-2.0). Technique only, no code ported. |
+| Known limits | If the site reverts to client-side image population, `get_pages()` is the one function to change -- nothing else in this adapter assumes either way. |
+| Tests | `tests/test_sources_guazimanhua.py`, including a test that specifically asserts the plain-HTTP behavior (one request, no browser-rendering call) rather than the roadmap's original browser-tier expectation. |
+
+## 妙趣漫画 Miaoqumh — `sources/adapters/miaoqumh.py`
+
+| | |
+|---|---|
+| URL patterns | `miaoqumh.org/<series-slug>` (series), `miaoqumh.org/<series-folder-id>/<chapter-id>.html` (chapter) |
+| Content type / language | manhua, zh |
+| Status | `UNTESTED` until a real import or a Test Now button. The full page-data decode pipeline was run against a real, live chapter while building this adapter and produced correct image URLs. |
+| Access tier | `STATIC_HTTP` only. |
+| Auth | None observed. No `login()`. |
+| Extraction | **Series/chapters:** the mobile page (`m.miaoqumh.org/<slug>`), `.infobox` (`.title`, first `img`, `.tage` lines prefixed 作者：/类型：/更新于), `.text` for the description, `ul.list > li > a` for chapters. **Pages:** the chapter page's body contains `var DATA='<base64>'`; decoded as base64 → XOR (cyclic, one of 10 fixed 8-byte keys selected by `chapter_id % 10`) → base64 again → JSON `[{"id","url"}, ...]`. |
+| **`search()` deliberately left unsupported, not guessed at** | Three real checks were tried while building this adapter: the reference extension's own default search path, the site's own real "search by author" links (copied verbatim from its live markup, not constructed), and the same path on the mobile host. All three returned a plain HTTP 404 -- a currently broken/decommissioned endpoint on the site's own end, not a selector mistake here. |
+| Terms, recorded separately | `robots.txt` returned an HTTP 403 on direct fetch -- exact content unconfirmed, matching the roadmap's own earlier finding. The site's actual content pages are reachable and unchallenged regardless. Cloudflare observed acting only as a CDN. The ToS has not been reviewed. |
+| Reference | `keiyoushi/extensions-source src/zh/miaoqu/Miaoqu.kt`, built on the shared `MCCMSWeb` multisrc base class (Apache-2.0). Technique only, no code ported. |
+| Known limits | If the site's search endpoint is ever restored, this adapter's `search()` should be revisited -- it's currently the base class's `NotSupportedError` default, not a permanent design choice. |
+| Tests | `tests/test_sources_miaoqumh.py`, including a full base64/XOR/base64/JSON round-trip test across every key bucket (`chapter_id % 10` from 0 through 9) and a test confirming a mismatched key fails cleanly rather than silently returning wrong URLs. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -196,3 +244,23 @@ they've been tried against the real site.
   (e.g. mark an image as an ad), save it to the site's profile, and confirm
   the next chapter from that site uses the corrected profile, with the
   source content itself untouched.
+- [ ] **ToonKor, normal work:** search a real title on `toonkor0.org`,
+  open its chapter list, and download one chapter into a manhwa drama.
+  Confirm the pages show up in Scanlate.
+- [ ] **ToonKor, domain check:** confirm `toonkor0.org` is still the
+  correct, reachable domain at the time this is checked -- this site has
+  a real, confirmed history of moving.
+- [ ] **guazimanhua, normal work:** search a real title, open its chapter
+  list, and download one chapter into a manhua drama. Confirm the pages
+  show up in Scanlate, and specifically confirm they come back on the
+  first plain HTTP fetch (no browser-tier fallback needed) -- the check
+  that actually validates this adapter's own deviation from the roadmap's
+  original browser-tier expectation.
+- [ ] **miaoqumh, normal work:** open a real series's chapter list and
+  download one chapter into a manhua drama. Confirm the pages show up in
+  Scanlate, validating the base64/XOR/base64/JSON decode against real
+  (not just fixture) data.
+- [ ] **miaoqumh, search endpoint:** periodically re-check whether
+  `/search?key=<query>`-shaped requests still 404 on this site -- if the
+  endpoint is ever restored, `search()` should be implemented rather than
+  left as the unsupported default.
