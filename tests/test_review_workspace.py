@@ -275,3 +275,66 @@ class TestLineFindAndReplace:
         at.checkbox(key=f"lines_fr_regex_{did}").set_value(True).run()
         self._button(at, "🔍 Preview matches").click().run()
         assert any("Invalid find pattern" in e.value for e in at.error)
+
+    def test_apply_refuses_a_line_hand_edited_since_preview(self, isolated_db):
+        # Step 25o: Apply used to re-map preview matches onto whatever line
+        # currently sits at the previewed idx, with no check that its text
+        # still matches what was actually previewed -- a hand-edit made in
+        # between would be silently overwritten by the stale replacement.
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.text_input(key=f"lines_fr_find_{did}").set_value("Bob").run()
+        at.text_input(key=f"lines_fr_replace_{did}").set_value("Alice").run()
+        self._button(at, "🔍 Preview matches").click().run()
+
+        # Hand-edit line 1's translation in the Review & edit box below,
+        # simulating an edit made in between Preview and Apply.
+        at.text_area(key="en_1").set_value("Bob said something else").run()
+
+        self._button(at, "✅ Apply 2 change(s)").click().run()
+
+        assert at.text_area(key="en_0").value == "Hello Alice"  # untouched line still applies
+        assert at.text_area(key="en_1").value == "Bob said something else"  # stale match refused
+
+    def test_apply_survives_a_merge_shifting_idx_between_preview_and_apply(self, isolated_db):
+        # A merge/re-segmentation between Preview and Apply renumbers every
+        # idx after the merge point -- matching by idx alone would land the
+        # replacement on whatever unrelated line now sits at that position.
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.text_input(key=f"lines_fr_find_{did}").set_value("Bob").run()
+        at.text_input(key=f"lines_fr_replace_{did}").set_value("Alice").run()
+        self._button(at, "🔍 Preview matches").click().run()
+
+        original = at.session_state["lines"]
+        id1, id2 = original[1].id, original[2].id
+        # Simulate a merge: line 0 disappears, everything after it shifts
+        # down by one idx, but each surviving line keeps its own permanent id.
+        at.session_state["lines"] = [
+            Line(idx=0, start=0, end=2, zh="", en=original[1].en, id=id1),
+            Line(idx=1, start=2, end=3, zh="", en=original[2].en, id=id2),
+        ]
+
+        self._button(at, "✅ Apply 2 change(s)").click().run()
+
+        by_id = {ln.id: ln.en for ln in at.session_state["lines"]}
+        assert by_id[id1] == "Alice said hi"  # followed its id, not stale idx 1
+        assert by_id[id2] == "Nothing to see here"  # untouched
+        db_by_id = {ln.id: ln.en for ln in isolated_db.load_line_objects(did)}
+        assert db_by_id[id1] == "Alice said hi"
+
+    def test_apply_clears_the_line_widget_state(self, isolated_db):
+        # Step 25o: Apply never cleared en_<idx>, so the box kept showing
+        # the pre-replacement text until an unrelated refresh -- and a
+        # subsequent "Save edits" from that stale display would undo the
+        # replacement.
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert at.text_area(key="en_0").value == "Hello Bob"
+
+        at.text_input(key=f"lines_fr_find_{did}").set_value("Bob").run()
+        at.text_input(key=f"lines_fr_replace_{did}").set_value("Alice").run()
+        self._button(at, "🔍 Preview matches").click().run()
+        self._button(at, "✅ Apply 2 change(s)").click().run()
+
+        assert at.text_area(key="en_0").value == "Hello Alice"
