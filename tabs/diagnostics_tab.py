@@ -527,6 +527,15 @@ def render_diagnostics_tab():
                    "engine": "Translation engines",
                    "feature": "Optional features",
                    "dev": "Development"}
+
+    st.caption("Checks every installed dependency's version against PyPI's latest release -- "
+              "reaches the network (the only other check on this page that does, besides "
+              "pyannote access below) only when you click this button, never automatically.")
+    if st.button("🔍 Check for dependency updates", key="check_dep_versions_btn"):
+        with st.spinner("Checking PyPI..."):
+            st.session_state["dependency_version_results"] = diagnostics.check_dependency_versions(deps)
+    version_results = st.session_state.get("dependency_version_results") or {}
+
     for tier in tier_order:
         tier_deps = {k: v for k, v in deps.items() if v["tier"] == tier}
         if not tier_deps:
@@ -536,20 +545,51 @@ def render_diagnostics_tab():
             for name, info in sorted(tier_deps.items()):
                 icon = "✅" if info["installed"] else "❌"
                 installable = tier in diagnostics.INSTALLABLE_TIERS and not info["installed"]
-                if not installable:
-                    st.caption(f"{icon} **{name}** -- {info['powers']}")
+
+                version_suffix = ""
+                version_info = version_results.get(name)
+                upgradeable = False
+                if version_info:
+                    iv, lv = version_info["installed_version"], version_info["latest_version"]
+                    if version_info["outdated"] is True:
+                        version_suffix = f" -- 🔶 outdated (`{iv}` installed, `{lv}` latest)"
+                        upgradeable = tier in diagnostics.INSTALLABLE_TIERS
+                    elif version_info["outdated"] is False:
+                        version_suffix = f" -- 🟢 up to date (`{iv}`)"
+                    elif iv:
+                        version_suffix = f" -- `{iv}` (couldn't reach PyPI to check the latest)"
+
+                if not installable and not upgradeable:
+                    st.caption(f"{icon} **{name}** -- {info['powers']}{version_suffix}")
                     continue
                 dep_c1, dep_c2 = st.columns([5, 1])
-                dep_c1.caption(f"{icon} **{name}** -- {info['powers']}")
-                if dep_c2.button("⬇️ Install", key=f"install_dep_btn_{name}"):
-                    dep_result = _run_pip_stream(
-                        f"Installing {name}...", f"Installed {name}.",
-                        f"Install failed for {name} -- see output above.",
-                        diagnostics.stream_pip_install([name]))
-                    if dep_result["ok"]:
-                        st.session_state["diagnostics_results"] = diagnostics.run_full_diagnostics(
-                            project_root, db.LIBRARY_DIR, api_keys_set)
-                        st.rerun()
+                dep_c1.caption(f"{icon} **{name}** -- {info['powers']}{version_suffix}")
+                if installable:
+                    if dep_c2.button("⬇️ Install", key=f"install_dep_btn_{name}"):
+                        dep_result = _run_pip_stream(
+                            f"Installing {name}...", f"Installed {name}.",
+                            f"Install failed for {name} -- see output above.",
+                            diagnostics.stream_pip_install([name]))
+                        if dep_result["ok"]:
+                            st.session_state["diagnostics_results"] = diagnostics.run_full_diagnostics(
+                                project_root, db.LIBRARY_DIR, api_keys_set)
+                            st.rerun()
+                elif upgradeable:
+                    if dep_c2.button("⬆️ Upgrade", key=f"upgrade_dep_btn_{name}"):
+                        dep_result = _run_pip_stream(
+                            f"Upgrading {name}...", f"Upgraded {name}.",
+                            f"Upgrade failed for {name} -- see output above.",
+                            diagnostics.stream_pip_install(
+                                diagnostics.upgrade_pip_args(name, project_root)))
+                        if dep_result["ok"]:
+                            st.session_state["diagnostics_results"] = diagnostics.run_full_diagnostics(
+                                project_root, db.LIBRARY_DIR, api_keys_set)
+                            # The version we just upgraded past is now stale;
+                            # drop it rather than making another automatic
+                            # PyPI call to refresh it (this page's own "no
+                            # network call unless you click" rule).
+                            st.session_state.pop("dependency_version_results", None)
+                            st.rerun()
 
     missing_required = [k for k, v in deps.items() if v["tier"] == "required" and not v["installed"]]
     if missing_required:
