@@ -680,7 +680,15 @@ def apply_bulk_results(bulk_job_id: int, results) -> dict:
         db.save_translation_version(
             job["drama_id"], current, label=f"{job['engine']} bulk · {args.get('style_preset', '')}",
             engine=job["engine"], model=job["model"] or "", make_active=True)
-        db.update_drama(job["drama_id"], status="translated", translation_engine=job["engine"])
+        # Step 25d item 13: same root cause as item 4's -- a batch that
+        # applied SOME lines (dropped/flagged/kept-your-edit lines aside)
+        # used to mark the whole drama "translated" even with lines still
+        # missing, same as the CLI/Workspace bug Step 25c already fixed
+        # there via this same untranslated_line_count() == 0 gate.
+        _status = dict(translation_engine=job["engine"])
+        if untranslated_line_count(job["drama_id"]) == 0:
+            _status["status"] = "translated"
+        db.update_drama(job["drama_id"], **_status)
     return counts
 
 
@@ -973,7 +981,11 @@ def _apply_reflect_expressive(job: dict, results) -> dict:
         db.save_translation_version(
             job["drama_id"], current, label=f"{job['engine']} bulk reflect", engine=job["engine"],
             model=job["model"] or "", make_active=True)
-        db.update_drama(job["drama_id"], status="translated", translation_engine=job["engine"])
+        # Step 25d item 13: see apply_bulk_results' own comment above.
+        _status = dict(translation_engine=job["engine"])
+        if untranslated_line_count(job["drama_id"]) == 0:
+            _status["status"] = "translated"
+        db.update_drama(job["drama_id"], **_status)
     if notes:
         db.save_translation_notes(job["drama_id"], notes)
     return counts
@@ -1312,7 +1324,13 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float = None) -> d
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent))
     summary = {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
                "batch_errors": len(errors), "cap_reached": cap.get("spent")}
-    db.update_drama(job["drama_id"], status="translated", translation_engine=job["engine"])
+    # Step 25d item 13: see apply_bulk_results' own comment above -- a run
+    # with batch failures or skipped (source-changed) lines used to be
+    # marked "translated" anyway.
+    _status = dict(translation_engine=job["engine"])
+    if untranslated_line_count(job["drama_id"]) == 0:
+        _status["status"] = "translated"
+    db.update_drama(job["drama_id"], **_status)
     return summary
 
 
@@ -1466,10 +1484,21 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     lines that no longer exist."""
     enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
     if enforced:
-        for ln in lines:
+        # Step 25d item 5: this used to substitute into `lines` -- the
+        # job's own in-memory copies, which can be stale by the time the
+        # job actually finishes (a user can edit a line's English while
+        # the job is still running). Writing that back unconditionally
+        # meant a live edit could be clobbered by a substitution computed
+        # from a baseline that was no longer current, with no warning.
+        # Loading fresh here and substituting into *that* means this only
+        # ever overwrites whatever is actually in the database right now,
+        # and db.save_lines' own orig-comparison (see its docstring) then
+        # skips writing any line the substitution didn't actually change.
+        _fresh_lines = db.load_line_objects(drama_id)
+        for ln in _fresh_lines:
             if ln.en:
                 ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
-        db.save_lines(drama_id, lines, fields=("en",))
+        db.save_lines(drama_id, _fresh_lines, fields=("en",))
 
     # A translation too dense to read in the time it's on screen goes into
     # the review queue like any other flag (never replacing an existing one).

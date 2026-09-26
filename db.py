@@ -1532,6 +1532,15 @@ def save_translation_notes(drama_id: int, notes, id_by_idx: dict = None):
         if line_id is None:
             line_id = (id_by_idx.get(line_idx) if id_by_idx is not None
                        else _line_id_for_idx(conn, drama_id, line_idx))
+        if line_id is None:
+            # Step 25d item 11: the line this note was about no longer
+            # exists (same case save_emotions already skips) -- inserting
+            # it anyway with line_id = NULL used to accumulate orphaned
+            # duplicates forever, since SQLite treats every NULL as
+            # distinct for the (drama_id, line_id, term) uniqueness this
+            # ON CONFLICT relies on, so it never matched an earlier NULL
+            # row to update instead of insert.
+            continue
         conn.execute("""
             INSERT INTO translation_notes (drama_id, line_id, line_idx, term, note_type, note, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)

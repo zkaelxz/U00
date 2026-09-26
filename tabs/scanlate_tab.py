@@ -113,7 +113,20 @@ def render_scanlate_tab():
                     "scanlate_translate", inp, out,
                     translate_engines.estimate_cost_for_engine(engine, inp, out))
 
-            _sc_context_key = f"sc_context_{sc_drama['id']}"
+            # Step 25d item 12: this used to be a single key per DRAMA, so
+            # it held whichever page was processed most recently rather
+            # than the page actually before the one being processed --
+            # re-detecting an earlier page after a later one had already
+            # run would pick up the later page's context instead. Keyed
+            # per page now; a page's own "previous context" is always
+            # looked up from the page immediately before it in reading
+            # order (whichever one that page's own key was last set by),
+            # not from whatever was touched last.
+            def _sc_ctx_key(page_idx):
+                return f"sc_context_{sc_drama['id']}_{page_idx}"
+
+            _sc_prev_context = (st.session_state.get(_sc_ctx_key(page["idx"] - 1), "")
+                                if page["idx"] > 0 else "")
 
             if st.button("🔍 Detect bubbles + auto-clean + auto-translate"):
                 import scanlate
@@ -122,15 +135,16 @@ def render_scanlate_tab():
                         page_path, sc_lang, page_id=page["id"], **_sc_detect_kwargs)
                 # Persisted, because st.rerun() below would otherwise wipe these
                 # messages after about a second -- which is what made this look
-                # like a flicker rather than an explanation.
-                st.session_state[f"detect_notes_{picked_page_label}"] = _detect_notes
+                # like a flicker rather than an explanation. Keyed by page id
+                # (Step 25d item 12), not just the "Page N" label, which
+                # wasn't scoped by drama and could collide across dramas.
+                st.session_state[f"detect_notes_{page['id']}"] = _detect_notes
                 if sc_api_key and boxes:
                     with st.spinner("Translating (with context from prior pages)..."):
                         engine = _sc_engine()
                         try:
-                            st.session_state[_sc_context_key] = scanlate.translate_page_bubbles(
-                                boxes, engine, sc_drama,
-                                previous_context=st.session_state.get(_sc_context_key, ""),
+                            st.session_state[_sc_ctx_key(page["idx"])] = scanlate.translate_page_bubbles(
+                                boxes, engine, sc_drama, previous_context=_sc_prev_context,
                                 glossary_terms=_sc_glossary, usage_cb=_sc_usage_cb(engine))
                         except Exception as e:
                             st.warning(f"Translation failed ({e}) -- OCR text was still captured and "
@@ -157,21 +171,32 @@ def render_scanlate_tab():
                         {"id": p["id"], "image_path": os.path.join(sc_ddir, p["filename"])}
                         for p in pages
                         if not (sc_batch_skip_existing and db.load_bubbles(p["id"]))]
+                    _idx_by_id = {p["id"]: p["idx"] for p in pages}
                     if not _batch_pages:
                         st.info("Every page already has saved bubbles -- nothing to do.")
                     else:
                         _batch_engine = _sc_engine() if sc_api_key else None
                         _bar = st.progress(0.0, text=f"0 / {len(_batch_pages)} pages")
+                        # Seeded from the real predecessor of the batch's first
+                        # page, not whatever page was touched most recently
+                        # elsewhere (Step 25d item 12).
+                        _first_batch_idx = _idx_by_id[_batch_pages[0]["id"]]
+                        _batch_seed_context = (st.session_state.get(_sc_ctx_key(_first_batch_idx - 1), "")
+                                               if _first_batch_idx > 0 else "")
                         _report = scanlate.batch_process_pages(
                             _batch_pages, sc_lang, db.save_bubbles, engine=_batch_engine,
                             drama_meta=sc_drama, glossary_terms=_sc_glossary,
-                            previous_context=st.session_state.get(_sc_context_key, ""),
+                            previous_context=_batch_seed_context,
                             usage_cb=_sc_usage_cb(_batch_engine) if _batch_engine else None,
                             progress_cb=lambda done, total, _p: _bar.progress(
                                 done / total, text=f"{done} / {total} pages"),
                             **_sc_detect_kwargs)
-                        st.session_state[_sc_context_key] = _report["context"]
-                        _idx_by_id = {p["id"]: p["idx"] for p in pages}
+                        # Each processed page's own context is stored under its
+                        # own page-idx key, so a later out-of-order re-run of
+                        # any one of these pages still finds its real
+                        # predecessor's context (Step 25d item 12).
+                        for item in _report["processed"]:
+                            st.session_state[_sc_ctx_key(_idx_by_id[item["page_id"]])] = item["context"]
                         st.success(f"Processed {len(_report['processed'])} page(s).")
                         for item in _report["processed"]:
                             for _lvl, _msg in item["notes"]:
@@ -180,7 +205,7 @@ def render_scanlate_tab():
                         for err in _report["errors"]:
                             st.error(f"Page {_idx_by_id[err['page_id']] + 1} failed: {err['error']}")
 
-            for _lvl, _msg in st.session_state.get(f"detect_notes_{picked_page_label}", []):
+            for _lvl, _msg in st.session_state.get(f"detect_notes_{page['id']}", []):
                 (st.error if _lvl == "error" else st.warning)(_msg)
 
             bubbles = db.load_bubbles(page["id"])
@@ -266,9 +291,9 @@ def render_scanlate_tab():
                         _engine = _sc_engine()
                         try:
                             with st.spinner("Translating..."):
-                                st.session_state[_sc_context_key] = scanlate.translate_page_bubbles(
+                                st.session_state[_sc_ctx_key(page["idx"])] = scanlate.translate_page_bubbles(
                                     edited_bubbles, _engine, sc_drama,
-                                    previous_context=st.session_state.get(_sc_context_key, ""),
+                                    previous_context=_sc_prev_context,
                                     glossary_terms=_sc_glossary, usage_cb=_sc_usage_cb(_engine))
                             db.save_bubbles(page["id"], edited_bubbles)
                             # The text areas are keyed per bubble id and ids change on save,

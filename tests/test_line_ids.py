@@ -57,6 +57,26 @@ class TestIdsArePermanent:
         assert note["line_idx"] == 2  # line "b" is now third
         assert isolated_db.load_lines(did)[2]["zh"] == "b"
 
+    def test_a_note_for_a_line_that_no_longer_exists_is_not_saved_as_an_orphan(self, isolated_db):
+        """Step 25d item 11: this used to INSERT with line_id = NULL when
+        the target line couldn't be resolved -- save_emotions already
+        skipped that case, but save_translation_notes didn't, and since
+        SQLite treats every NULL as distinct, the (drama_id, line_id,
+        term) uniqueness this app relies on never caught the duplicates,
+        so they piled up indefinitely."""
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, _lines("a", short=False))
+        # line_idx 5 doesn't exist on this one-line drama.
+        isolated_db.save_translation_notes(did, [{"line_idx": 5, "term": "ghost", "note": "orphan"}])
+        isolated_db.save_translation_notes(did, [{"line_idx": 5, "term": "ghost", "note": "orphan again"}])
+        conn = db.get_conn()
+        rows = conn.execute(
+            "SELECT * FROM translation_notes WHERE drama_id = ? AND line_id IS NULL",
+            (did,)).fetchall()
+        conn.close()
+        assert rows == []
+        assert isolated_db.list_translation_notes(did) == []
+
 
 class TestMergeKeepsAttachments:
     """The roadmap's exit condition: after a merge, a note or flag that was

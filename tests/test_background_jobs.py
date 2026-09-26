@@ -297,6 +297,71 @@ class TestCancelLineJobs:
         bg.cancel_line_jobs(603)  # must not raise
 
 
+class TestAnyJobRunningForDrama:
+    """Step 25d item 8: any_job_running_for_drama() -- a broader check
+    than LINE_WRITING_JOB_PREFIXES/cancel_line_jobs above, for "is
+    anything still working on this drama at all?" before a destructive,
+    whole-drama action (deleting it) rather than the narrower "these jobs
+    are safe to run alongside each other" question those answer."""
+
+    def test_false_when_nothing_is_running(self):
+        assert bg.any_job_running_for_drama(701) is False
+
+    def test_true_while_a_line_writing_job_is_running(self):
+        release = threading.Event()
+        bg.start_job("translate_701", release.wait)
+        try:
+            assert bg.any_job_running_for_drama(701) is True
+        finally:
+            release.set()
+            _wait("translate_701")
+            bg.clear_job("translate_701")
+
+    def test_true_while_a_non_line_writing_job_is_running(self):
+        """transcribe_/consistency_/emotion_/etc. aren't in
+        LINE_WRITING_JOB_PREFIXES (they don't need to run alongside a
+        translate job the same way), but they still touch the drama and
+        must still block a delete."""
+        release = threading.Event()
+        bg.start_job("transcribe_702", release.wait)
+        try:
+            assert bg.any_job_running_for_drama(702) is True
+        finally:
+            release.set()
+            _wait("transcribe_702")
+            bg.clear_job("transcribe_702")
+
+    def test_true_while_queued_not_just_running(self):
+        bg.set_gpu_limit_enabled(True)
+        release = threading.Event()
+        bg.start_job("gpu_busy_703", release.wait, gpu_touching=True)
+        try:
+            bg.start_job("transcribe_703", release.wait, gpu_touching=True)  # queues behind it
+            assert bg.get_status("transcribe_703")["status"] == "queued"
+            assert bg.any_job_running_for_drama(703) is True
+        finally:
+            release.set()
+            _wait("gpu_busy_703")
+            bg.clear_job("gpu_busy_703")
+            bg.clear_job("transcribe_703")
+
+    def test_false_for_a_different_drama(self):
+        release = threading.Event()
+        bg.start_job("translate_704", release.wait)
+        try:
+            assert bg.any_job_running_for_drama(705) is False
+        finally:
+            release.set()
+            _wait("translate_704")
+            bg.clear_job("translate_704")
+
+    def test_false_once_the_job_is_done(self):
+        bg.start_job("translate_706", lambda: None)
+        _wait("translate_706")
+        assert bg.any_job_running_for_drama(706) is False
+        bg.clear_job("translate_706")
+
+
 class TestFailedJobIsLogged:
     """Before this, the app had no logging at all -- a background job's
     failure left only whatever happened to be on screen at the time.

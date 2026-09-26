@@ -60,26 +60,25 @@ def render_navigator_tab():
         st.info("Still needed: " + "; ".join(_nav_missing) + ".")
 
     if st.button("🧭 Translate page + get navigation steps", disabled=bool(_nav_missing)):
-        if True:
-            import navigator
-            engine = translate_engines.get_engine(
-                nav_engine_choice, nav_api_key,
-                free_tier=nav_engine_choice == "gemini" and _nav_gemini_free_tier,
-                base_url=(st.session_state.get("settings_ollama_url") or None)
-                if nav_engine_choice == "ollama" else None)
-            try:
-                with st.spinner("Fetching page labels..."):
-                    labels = navigator.fetch_visible_labels(nav_url)
-                with st.spinner("Translating labels..."):
-                    translated = navigator.translate_labels(labels, nav_target_lang, engine)
-                with st.spinner("Generating navigation steps..."):
-                    steps = navigator.generate_navigation_steps(
-                        nav_url, nav_goal, nav_target_lang, engine, translated_labels=translated)
-                st.subheader("Steps")
-                st.markdown(steps)
-                with st.expander("Translated page labels"):
-                    for orig, trans in translated.items():
-                        st.caption(f"{orig} → {trans}")
-            except Exception as e:
-                st.error(f"Couldn't fetch or process that page: {e}")
+        import navigator
+        engine = translate_engines.get_engine(
+            nav_engine_choice, nav_api_key,
+            free_tier=nav_engine_choice == "gemini" and _nav_gemini_free_tier,
+            base_url=(st.session_state.get("settings_ollama_url") or None)
+            if nav_engine_choice == "ollama" else None)
+        try:
+            with st.spinner("Fetching page labels..."):
+                labels = navigator.fetch_visible_labels(nav_url)
+            with st.spinner("Translating labels..."):
+                translated = navigator.translate_labels(labels, nav_target_lang, engine)
+            with st.spinner("Generating navigation steps..."):
+                steps = navigator.generate_navigation_steps(
+                    nav_url, nav_goal, nav_target_lang, engine, translated_labels=translated)
+            st.subheader("Steps")
+            st.markdown(steps)
+            with st.expander("Translated page labels"):
+                for orig, trans in translated.items():
+                    st.caption(f"{orig} → {trans}")
+        except Exception as e:
+            st.error(f"Couldn't fetch or process that page: {e}")
 
