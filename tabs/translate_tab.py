@@ -175,7 +175,8 @@ def render_translate_tab():
     else:
         hc1, hc2 = st.columns([4, 1])
         hc1.caption(f"{len(history)} saved translation(s), most recent first.")
-        if hc2.button("🗑️ Clear history"):
+        confirm_clear_history = hc2.checkbox("Confirm", key="confirm_clear_translate_history")
+        if hc2.button("🗑️ Clear history", disabled=not confirm_clear_history):
             db.clear_translate_history()
             st.rerun()
         for h in history:

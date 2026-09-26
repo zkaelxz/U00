@@ -1692,7 +1692,16 @@ def render_workspace_tab():
                              source_url=source_url)
             st.success("Saved.")
             st.rerun()
-        if st.button("🗑️ Delete this drama", type="secondary"):
+        st.caption("⚠️ Deletes this drama's database record and its entire on-disk folder "
+                  "(audio/video, dub tracks, page images, exports) -- this cannot be undone.")
+        confirm_delete_drama = st.checkbox(
+            "I understand this permanently deletes this drama and everything in its folder",
+            key=f"confirm_delete_drama_{picked_id}")
+        delete_drama_typed = st.text_input(
+            "Type DELETE to confirm", key=f"delete_drama_typed_{picked_id}",
+            disabled=not confirm_delete_drama)
+        if st.button("🗑️ Delete this drama", type="secondary",
+                      disabled=not (confirm_delete_drama and delete_drama_typed.strip() == "DELETE")):
             db.delete_drama(picked_id)
             st.session_state.active_drama_id = None
             st.session_state.lines = None
@@ -1800,7 +1809,9 @@ def render_workspace_tab():
                             st.error(str(e))
                     if _has_raw_novel:
                         st.caption(f"✅ Raw novel context saved (~{os.path.getsize(_raw_novel_path):,} bytes).")
-                        if st.button("🗑️ Remove raw novel context", key=f"rmraw_{picked_id}"):
+                        confirm_rmraw = st.checkbox("Confirm remove", key=f"confirm_rmraw_{picked_id}")
+                        if st.button("🗑️ Remove raw novel context", key=f"rmraw_{picked_id}",
+                                      disabled=not confirm_rmraw):
                             os.remove(_raw_novel_path)
                             st.rerun()
 
@@ -1820,7 +1831,9 @@ def render_workspace_tab():
                           f"({storage.format_bytes(os.path.getsize(existing_audio))})"
                           + (f" + video `{drama['source_video_filename']}`"
                              if drama.get("source_video_filename") else ""))
-                if st.button("🗑️ Remove current audio/video", key=f"rm_audio_{picked_id}"):
+                confirm_rm_audio = st.checkbox("Confirm remove", key=f"confirm_rm_audio_{picked_id}")
+                if st.button("🗑️ Remove current audio/video", key=f"rm_audio_{picked_id}",
+                              disabled=not confirm_rm_audio):
                     for _fname_field in ("audio_filename", "source_video_filename"):
                         _fname = drama.get(_fname_field)
                         if _fname:

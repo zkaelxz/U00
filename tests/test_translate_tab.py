@@ -62,9 +62,18 @@ class TestTranslateTab:
         assert any("libretranslate" in e.value.lower() for e in at.error)
         assert isolated_db.list_translate_history() == []
 
-    def test_clear_history_button_empties_it(self, isolated_db):
+    def test_clear_history_button_disabled_until_confirmed(self, isolated_db):
+        """Step 25z: destructive actions need an explicit confirmation step,
+        defaulting to unchecked, before the button itself is enabled."""
         isolated_db.save_translate_history("zh", "en", "claude", "a", "A")
         at = _run()
+        assert [b for b in at.button if "Clear history" in b.label][0].disabled
+        assert isolated_db.list_translate_history() != []
+
+    def test_clear_history_button_empties_it_once_confirmed(self, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "claude", "a", "A")
+        at = _run()
+        at.checkbox(key="confirm_clear_translate_history").set_value(True).run(timeout=30)
         [b for b in at.button if "Clear history" in b.label][0].click().run()
         assert isolated_db.list_translate_history() == []
 
