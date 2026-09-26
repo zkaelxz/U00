@@ -1123,26 +1123,6 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
     return slices
 
 
-def save_webtoon_slices(image_path: str, out_dir: str, target_height: int = 1600,
-                         overlap: int = 100):
-    """Writes the slices from split_webtoon_strip() to disk. Returns a
-    list of {"path", "y_start", "y_end", "index"}."""
-    import cv2
-    import os as _os
-
-    _os.makedirs(out_dir, exist_ok=True)
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Could not read image: {image_path}")
-    out = []
-    for s in split_webtoon_strip(image_path, target_height, overlap):
-        crop = img[s["y_start"]:s["y_end"], :]
-        p = _os.path.join(out_dir, f"strip_{s['index']:04d}.png")
-        cv2.imwrite(p, crop)
-        out.append({"path": p, **s})
-    return out
-
-
 # ---------------------------------------------------------------------------
 # Text region classification: bubbles vs signs vs SFX
 # ---------------------------------------------------------------------------
@@ -1171,7 +1151,6 @@ def classify_text_regions(image_path: str, boxes):
     silently.
     """
     import cv2
-    import numpy as np
 
     img = cv2.imread(image_path)
     if img is None:

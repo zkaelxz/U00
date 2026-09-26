@@ -190,16 +190,6 @@ class TestWebtoonSlicing:
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
-    def test_slices_written_to_disk(self):
-        d = tempfile.mkdtemp()
-        try:
-            saved = scanlate.save_webtoon_slices(self._strip(d), os.path.join(d, "out"),
-                                                  target_height=1600)
-            assert saved and all(os.path.exists(s["path"]) for s in saved)
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
-
-
 class TestTextRegionClassification:
     def test_returns_valid_kind(self):
         d = tempfile.mkdtemp()

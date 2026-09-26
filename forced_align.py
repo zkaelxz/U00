@@ -68,10 +68,6 @@ HARD_CAP_SECONDS = 300.0
 _aligner_model_cache = {}
 
 
-def is_language_supported(language: str) -> bool:
-    return language in LANGUAGE_NAMES
-
-
 def load_qwen3_aligner(use_gpu: bool = False):
     """Loads (and caches) the Qwen3-ForcedAligner model.
 
