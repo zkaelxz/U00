@@ -344,6 +344,10 @@ def render_reader_tab():
         if gram:
             st.dataframe(pd.DataFrame(gram), width='stretch', hide_index=True)
 
+        # Step 25c: generated rewrites/re-transcriptions are kept per line,
+        # not per drama -- keyed per drama, a result generated for one line
+        # was still showing (and applicable) after picking another line.
+        _pl_key = f"{rdrama['id']}_{pl.id if pl.id is not None else f'idx{pl.idx}'}"
         with st.expander("✏️ Improve this line"):
             issue = st.text_input("What's wrong with it? (optional)",
                                    placeholder="too stiff / loses the sarcasm",
@@ -353,8 +357,8 @@ def render_reader_tab():
                 with st.spinner("Rewriting..."):
                     improved = line_tools.improve_line(pl.zh, pl.en, eng, issue=issue,
                                                         source_language=rlang)
-                st.session_state[f"lt_improved_{rdrama['id']}"] = improved
-            improved = st.session_state.get(f"lt_improved_{rdrama['id']}")
+                st.session_state[f"lt_improved_{_pl_key}"] = improved
+            improved = st.session_state.get(f"lt_improved_{_pl_key}")
             if improved:
                 st.success(improved)
                 if st.button("Apply to this line"):
@@ -363,7 +367,7 @@ def render_reader_tab():
                         if ln.idx == pl.idx:
                             ln.en = improved
                     db.save_lines(rdrama["id"], rlines)
-                    st.session_state[f"lt_improved_{rdrama['id']}"] = None
+                    st.session_state[f"lt_improved_{_pl_key}"] = None
                     st.success("Applied.")
                     st.rerun()
 
@@ -391,8 +395,8 @@ def render_reader_tab():
                             finally:
                                 if os.path.exists(slice_path):
                                     os.remove(slice_path)
-                        st.session_state[f"lt_retranscribed_{rdrama['id']}"] = retext
-                retext = st.session_state.get(f"lt_retranscribed_{rdrama['id']}")
+                        st.session_state[f"lt_retranscribed_{_pl_key}"] = retext
+                retext = st.session_state.get(f"lt_retranscribed_{_pl_key}")
                 if retext is not None:
                     if retext:
                         st.success(retext)
@@ -401,7 +405,7 @@ def render_reader_tab():
                                 if ln.idx == pl.idx:
                                     ln.zh = retext
                             db.save_lines(rdrama["id"], rlines)
-                            st.session_state[f"lt_retranscribed_{rdrama['id']}"] = None
+                            st.session_state[f"lt_retranscribed_{_pl_key}"] = None
                             st.success("Applied. The English translation for this line is now "
                                       "stale -- re-translate it (Workspace, or Improve this "
                                       "line above) to match the corrected source text.")
