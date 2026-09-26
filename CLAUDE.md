@@ -88,6 +88,22 @@ external project checked so far.
   test/push/stop workflow — repeating that boilerplate in every handoff is
   redundant. Only add extra detail beyond the one-liner when the step name
   alone is genuinely ambiguous, or the user asks for more.
+- **"Build Queue" chart — a reusable good practice, kept fresh on request.**
+  When several steps are in flight across parallel implementing chats, a
+  published Artifact chart (three columns: **Assigned** — handed off,
+  grouped by autonomous batch vs. individually-gated one-liners, each card
+  naming its real file footprint and any known overlap risk; **Ready
+  now** — genuinely startable, not yet handed off; **Blocked/later** —
+  with the *real* reason, sequential dependency or a soft dependency on
+  another step's own hook, never just "not started") beats a status
+  message, because it's the one artifact that visibly answers "what's
+  moving, what's next, what's stuck, and why" at a glance. Keep it
+  updated by republishing the same file path/URL (never a new artifact)
+  whenever a recheck finds real state changed — a no-op recheck doesn't
+  need a republish. This pattern (chart the queue, verify real state
+  before updating it, name the actual blocking reason rather than a bare
+  status) generalizes past this project to any multi-agent build
+  coordinating several parallel or sequential workstreams.
 
 ## Research discipline
 
