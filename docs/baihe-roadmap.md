@@ -2052,7 +2052,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 12 — GUI polish and Streamlit performance | — | Not started | — |
   | 12b — Auto QC pass | — | Not started | — |
   | 12c — Workspace media preview & review linkage | — | Not started | — |
-  | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | `claude/admiring-fermi-ms122r` | Built and pushed (1,629 passed, 42 skipped) — no PR open yet, needs one opened | — |
+  | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | `claude/admiring-fermi-ms122r` | PR #58 open, CI running — independently reviewed and verified (342 passed, fresh clone with base merged in, no conflicts); merging once CI confirms green | — |
   | 12e — Project instructions & workflow presets | — | Not started | — |
   | 13 — UI foundation: components & project state | — | Not started | — |
   | 14 — Workspace shell rebuild | — | Not started | — |
