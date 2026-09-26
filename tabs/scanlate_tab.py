@@ -287,9 +287,15 @@ def render_scanlate_tab():
                     fonts_dir = os.path.join(sc_ddir, "fonts")
                     for cat in scanlate.FONT_CATEGORIES:
                         existing_font = os.path.join(fonts_dir, f"{cat}.ttf")
+                        # Step 25p: the key is scoped by drama id too (it was only
+                        # scoped by font category), and the write now needs an
+                        # explicit Save click -- it used to write on every render
+                        # a file was present, so switching dramas while a font was
+                        # still selected silently overwrote the new drama's font.
                         uploaded = st.file_uploader(f"{cat.capitalize()} font", type=["ttf", "otf"],
-                                                     key=f"font_upload_{cat}")
-                        if uploaded:
+                                                     key=f"font_upload_{cat}_{sc_drama['id']}")
+                        if uploaded and st.button(f"💾 Save as the {cat} font for this drama",
+                                                   key=f"font_save_{cat}_{sc_drama['id']}"):
                             os.makedirs(fonts_dir, exist_ok=True)
                             with open(existing_font, "wb") as f:
                                 f.write(uploaded.getbuffer())

@@ -2037,8 +2037,12 @@ def render_workspace_tab():
             with open(novel_path, "r", encoding="utf-8") as f:
                 existing_novel_text = f.read()
             st.caption(f"Novel reference already saved (~{len(existing_novel_text):,} chars).")
-        novel_file = st.file_uploader("Upload novel translation (.txt/.md)", type=["txt", "md"], key="novel_up")
-        novel_pasted = st.text_area("...or paste it here", height=100, key="novel_paste")
+        # Step 25p: keys are scoped by drama id -- a static key kept returning
+        # whatever was uploaded/pasted on a previously-viewed drama, silently
+        # feeding that drama's content into this drama's transcription/translation.
+        novel_file = st.file_uploader("Upload novel translation (.txt/.md)", type=["txt", "md"],
+                                       key=f"novel_up_{picked_id}")
+        novel_pasted = st.text_area("...or paste it here", height=100, key=f"novel_paste_{picked_id}")
 
         # ---- Build a glossary from the novel ----------------------------------
         with st.expander("📕 Build a glossary from this novel"):
@@ -2076,19 +2080,27 @@ def render_workspace_tab():
                               f"With both, terms are extracted as matched pairs -- capturing how "
                               f"each was actually rendered rather than inventing new wording. "
                               f"(Uploading it here also saves it for transcription priming above.)")
+                    # Step 25p: the key is scoped by drama id (a static key kept
+                    # returning a previously-viewed drama's upload), and the write
+                    # to raw_novel_context.txt now needs an explicit Save click --
+                    # it used to write on every render a file was present, the
+                    # same unconditional-write shape as the original EPUB bug.
                     orig_novel_file = st.file_uploader(
                         f"Original {source_language.upper()} novel", type=["txt", "md", "epub"],
-                        key="orig_novel_up")
+                        key=f"orig_novel_up_{picked_id}")
                     _orig_src = ""
                     if orig_novel_file is not None:
                         try:
                             _orig_src = core_module.load_novel_text_for_context(
                                 orig_novel_file.getvalue(), orig_novel_file.name)
-                            with open(_raw_context_path, "w", encoding="utf-8") as f:
-                                f.write(_orig_src)
-                            st.success(f"Saved -- also now feeding transcription priming above.")
                         except ImportError as e:
                             st.error(str(e))
+                        else:
+                            if st.button("💾 Save this as the original novel for this drama",
+                                         key=f"orig_novel_save_{picked_id}"):
+                                with open(_raw_context_path, "w", encoding="utf-8") as f:
+                                    f.write(_orig_src)
+                                st.success(f"Saved -- also now feeding transcription priming above.")
 
                 gl_key = st.session_state.get(f"settings_{drama.get('translation_engine') or 'claude'}", "")
                 if st.button("📖 Extract glossary from novel"):
