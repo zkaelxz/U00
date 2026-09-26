@@ -1976,11 +1976,21 @@ def render_workspace_tab():
 
             with st.expander("📚 Or import from an EPUB you own"):
                 st.caption("Requires `pip install ebooklib beautifulsoup4`.")
-                epub_file = st.file_uploader("Upload .epub", type=["epub"], key="epub_upload")
-                if epub_file:
-                    epub_path = os.path.join(ddir, "source.epub")
+                # Step 25i: the uploader's key is scoped by drama, and the file is only
+                # written on an explicit click. With a static key and a write on every
+                # render, switching dramas while a file was still selected silently
+                # overwrote the new drama's source.epub with the old drama's upload.
+                epub_file = st.file_uploader("Upload .epub", type=["epub"],
+                                             key=f"epub_upload_{picked_id}")
+                epub_path = os.path.join(ddir, "source.epub")
+                if epub_file and st.button("💾 Save this EPUB to this drama",
+                                           key=f"epub_save_{picked_id}"):
                     with open(epub_path, "wb") as f:
                         f.write(epub_file.getbuffer())
+                if os.path.exists(epub_path):
+                    if epub_file:
+                        st.caption("Chapters below come from this drama's saved EPUB -- "
+                                   "click Save above first if you haven't saved this upload yet.")
                     import epub_io
                     try:
                         n_chapters = epub_io.get_epub_chapter_count(epub_path)
@@ -2988,7 +2998,7 @@ def render_workspace_tab():
         force_retranslate = b2.checkbox(
             "Force re-translate everything (redoes lines that already have a "
             "translation too, not just what's missing)",
-            value=False, key="force_retranslate",
+            value=False, key=f"force_retranslate_{picked_id}",
             help="Unchecked (default): Translate only skips lines that don't have a "
                  "translation yet, leaving existing ones untouched -- the normal way to "
                  "pick up where you left off. Checked: every line gets re-translated from "
