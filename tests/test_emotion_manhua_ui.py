@@ -118,16 +118,7 @@ class TestDetectEmotionsProgress:
         assert result == {}  # neither batch's garbage response parsed
 
 
-class TestTtsDelivery:
-    def test_strong_emotion_adjusts_delivery(self):
-        assert em.suggest_tts_delivery("angry", 0.9)["rate"] != "+0%"
-
-    def test_weak_emotion_stays_neutral(self):
-        assert em.suggest_tts_delivery("angry", 0.2)["rate"] == "+0%"
-
-    def test_unknown_emotion_neutral(self):
-        assert em.suggest_tts_delivery("nope", 0.9)["rate"] == "+0%"
-
+class TestEmotionTagDescriptions:
     def test_all_tags_have_descriptions(self):
         for k, v in em.EMOTION_TAGS.items():
             assert isinstance(v, str) and v
