@@ -4438,6 +4438,74 @@ class TestMergeAndRestoreStaleIdSetSafety:
         assert [l.zh for l in after] == ["你", "好"]
 
 
+class TestRestoreAndActivateKeepSpeakerCorrections:
+    """Step 25c item 2: neither saved format recorded speaker_manual, so a
+    Restore/Activate reset a hand-corrected speaker; Activate also lacked
+    Restore's id-set guard. Both now share one restore path."""
+
+    _drama_with_two_mergeable_lines = TestMergeAndRestoreStaleIdSetSafety._drama_with_two_mergeable_lines
+    _run = TestMergeAndRestoreStaleIdSetSafety._run
+    _click = TestMergeAndRestoreStaleIdSetSafety._click
+
+    def _drama_with_a_corrected_speaker(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        lines[0].speaker, lines[0].speaker_manual = "Hero", True
+        isolated_db.save_lines(did, lines)
+        return did
+
+    def test_speaker_correction_survives_a_history_restore(self, isolated_db):
+        did = self._drama_with_a_corrected_speaker(isolated_db)
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "snap")
+        edited = isolated_db.load_line_objects(did)
+        edited[0].en = "changed later"
+        isolated_db.save_lines(did, edited)
+        at = self._run(did)
+
+        snap = [h for h in isolated_db.list_line_history(did) if h["label"] == "snap"][0]
+        self._click(at, key=f"restore_{snap['id']}")
+
+        assert not any(e for e in at.error)
+        first = isolated_db.load_line_objects(did)[0]
+        assert (first.en, first.speaker, first.speaker_manual) == ("You", "Hero", True)
+
+    def test_speaker_correction_survives_activating_a_translation_version(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v1")
+        isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v2",
+                                             make_active=True)
+        # Corrected after both versions were saved, along with a retranslation.
+        lines = isolated_db.load_line_objects(did)
+        lines[0].speaker, lines[0].speaker_manual, lines[0].en = "Hero", True, "Hey you"
+        isolated_db.save_lines(did, lines)
+        at = self._run(did)
+
+        self._click(at, key=f"actv_{vid}")
+
+        assert not any(e for e in at.error)
+        first = isolated_db.load_line_objects(did)[0]
+        assert (first.en, first.speaker, first.speaker_manual) == ("You", "Hero", True)
+        assert [v["is_active"] for v in isolated_db.list_translation_versions(did)
+                if v["id"] == vid] == [1]
+
+    def test_activate_refuses_when_the_database_changed_since_lines_were_loaded(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v1")
+        at = self._run(did)
+
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=2, start=2.0, end=3.0, zh="新的一行。"))
+        isolated_db.save_lines(did, lines)
+        before = isolated_db.load_line_objects(did)
+
+        self._click(at, key=f"actv_{vid}")
+
+        assert any("changed since they were last loaded" in e.value for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [(l.id, l.zh, l.en) for l in after] == [(l.id, l.zh, l.en) for l in before]
+        assert [v["is_active"] for v in isolated_db.list_translation_versions(did)] == [0]
+
+
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:
     """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
     features (consistency check, flagging, emotion detection, notes,

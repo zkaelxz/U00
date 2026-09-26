@@ -1745,7 +1745,8 @@ def save_translation_version(drama_id: int, lines, label: str, engine: str = "",
     with a different model never destroys the previous attempt."""
     payload = [{"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
                 "zh": ln.zh, "en": ln.en,
-                "speaker": getattr(ln, "speaker", None)} for ln in lines]
+                "speaker": getattr(ln, "speaker", None),
+                "speaker_manual": bool(getattr(ln, "speaker_manual", False))} for ln in lines]
     conn = get_conn()
     if make_active:
         conn.execute("UPDATE translation_versions SET is_active = 0 WHERE drama_id = ?", (drama_id,))
@@ -2039,7 +2040,8 @@ def save_line_history_snapshot(drama_id: int, lines, label: str, keep_last: int 
     snapshot = [
         {"id": getattr(ln, "id", None), "idx": ln.idx, "start": ln.start, "end": ln.end,
          "zh": ln.zh, "en": ln.en,
-         "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None)}
+         "speaker": getattr(ln, "speaker", None), "dub_filename": getattr(ln, "dub_filename", None),
+         "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
         for ln in lines
     ]
     conn = get_conn()
