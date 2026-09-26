@@ -254,6 +254,10 @@ ASS_PRESETS = {
 # line someone said.
 SFX_STYLE_NAME = "SFX"
 SFX_COLOR = "#B8C4CE"
+# style["sfx_alignment"] / style["notes_alignment"] (keys of ALIGNMENTS)
+# place SFX cues and separate-line notes somewhere other than the dialogue
+# -- e.g. at the top while speech stays at the bottom. Unset (None) keeps
+# them at the dialogue's own position.
 
 SPEAKER_PALETTE = ["#FFFFFF", "#FFE066", "#7FDBFF", "#FF9FF3", "#9BE564", "#FFB347", "#C7A8FF",
                    "#FF6B6B"]
@@ -312,7 +316,12 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
     6i -- instead of appending core._notes_suffix's note onto the same
     cue's Text (this format's own default, and SRT/VTT's only option),
     renders it as its own second Dialogue line right after the main one,
-    in a dedicated "Notes" style at ~70% of the main text size."""
+    in a dedicated "Notes" style at ~70% of the main text size.
+
+    SFX cues (Line.sfx) get their own italic "SFX" style. Both it and the
+    Notes style can be positioned apart from the dialogue via
+    style["sfx_alignment"] / style["notes_alignment"]; where they share a
+    position with other text, libass stacks them rather than overlapping."""
     speaker_colors = speaker_colors or {}
     style_for = {sp: f"Speaker {i + 1}" for i, sp in enumerate(sorted(speaker_colors))}
     header = [
@@ -331,9 +340,13 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         _style_line("Default", style, style["primary"]),
     ]
     header += [_style_line(style_for[sp], style, speaker_colors[sp]) for sp in sorted(speaker_colors)]
-    header.append(_style_line(SFX_STYLE_NAME, {**style, "italic": True}, SFX_COLOR))
+    header.append(_style_line(
+        SFX_STYLE_NAME,
+        {**style, "italic": True, "alignment": style.get("sfx_alignment") or style.get("alignment")},
+        SFX_COLOR))
     if notes_as_separate_line:
-        note_style = dict(style, size=max(1, round(style.get("size", 24) * 0.7)))
+        note_style = dict(style, size=max(1, round(style.get("size", 24) * 0.7)),
+                          alignment=style.get("notes_alignment") or style.get("alignment"))
         header.append(_style_line("Notes", note_style, style["primary"]))
     events = ["", "[Events]",
               "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
