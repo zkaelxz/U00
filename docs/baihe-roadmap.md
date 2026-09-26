@@ -696,6 +696,8 @@ At the user's direct request ("Can you make it possible to stop any check/proces
 - A test confirms cancelling a large-result job mid-run still works correctly after the fix (the existing Step 4d/4e cancel tests should be re-run against the fixed watcher, not just the new large-result test).
 - Manual check: run diarization or dub generation on a real drama with 250+ lines (or a long enough audio file for diarization's own turn count) and confirm the job actually completes, not just that Cancel can end it.
 
+**Built and merged (PR #59).** Confirmed directly against real git history, not a relayed report: the fix drains the result queue continuously while the process is still alive, applied once in `_process_watcher()` for all four affected worker types. The commit records reproducing the hang against the pre-fix code first (still "running" after 15s), then confirming the fix resolves it in under a second — verified the fix works, not just that it merged.
+
 ### Step 4j — Fix: switching dramas in Workspace doesn't reset the loaded lines — real, confirmed cross-drama data corruption
 **Found by the same independent QC review, pre-existing and not caused by any step in this session's own work** — confirmed present as far back as commit `55f142d`, still live on the current HEAD. Distinct from Step 9h/9i/6f's already-fixed stale-`st.session_state.lines` bugs (those were about a *job* not refreshing after completion); this one is about the drama *picker* itself.
 
@@ -710,6 +712,8 @@ At the user's direct request ("Can you make it possible to stop any check/proces
 - A test reproduces the original bug exactly: create two dramas with distinct real line content, switch the dropdown from one to the other, and confirm the second drama's own lines are shown, not the first's.
 - A test confirms clicking "Save edits" immediately after a drama switch (with no manual edit) does not alter the newly-selected drama's database rows at all.
 - Manual check: switch dramas in Workspace, confirm Review & edit shows the correct drama's content immediately, then repeat for merge/restore/translate actions and confirm each operates on the currently-selected drama, not whichever was open before.
+
+**Built and merged (PR #60).** Confirmed directly against real git history: the fix resets `st.session_state.lines` and clears the per-line widget cache the moment the dropdown's selection changes, using the same reload pattern already correct elsewhere. Kept to item 1's minimum required fix; item 2 (scoping widget keys to the drama id) was explicitly not done, since it's a much larger diff for a bug item 1 already closes completely. The commit records both new tests failing against the pre-fix code first (including reproducing the exact data-corruption case) before passing against the fix.
 
 ### Step 5 — R3-lite: Local-model defaults
 - Change the `OllamaEngine` default to **`qwen3:8b`** (checked directly against the originally-planned `qwen2.5:7b`, prompted by the user asking whether the current model choices are still the best available — Qwen3-8B is confirmed to outperform Qwen2.5-7B on translation specifically: FLORES+ COMET scores, e.g. Chinese→Arabic 19.74 vs. 17.39, and a literary-translation CEA100 score of 65.77 vs. 63.97, at essentially the same parameter count. A like-for-like swap, not a bigger model, so it doesn't reopen the "fewer options" question). Offer 14B as an opt-in labelled as not fitting cleanly in 8 GB, and add a request timeout. **VRAM footprint resolved (2026-09-26), no real hardware needed** — see the manual-check note in §2: `ollama pull qwen3:8b`'s bare tag defaults to Q4_K_M, and real per-quantization figures confirm that fits the 8GB-class budget this default was designed around.
@@ -2024,8 +2028,8 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 4f — Fix: "Expected number of speakers" always resets to 0 | `step-4f-expected-speakers-default` | ✅ Merged (PR #39) | ⏳ Pending |
   | 4g — Fix: vocal separation shows no real progress and no mid-run stop | `step-4g-vocal-separation-progress-cancel` | ✅ Merged (PR #40) | ⏳ Pending |
   | 4h — Fix: word-level realignment's dependency check and silent-failure path | `step-4h-word-align-deps-and-silent-failure` | ✅ Merged (PR #41) | ⏳ Pending |
-  | 4i — Fix: a process-based job with a large result hangs forever | — | Not started | — |
-  | 4j — Fix: switching dramas doesn't reset loaded lines (cross-drama data corruption) | — | Not started | — |
+  | 4i — Fix: a process-based job with a large result hangs forever | `step-4i-process-watcher-large-result-hang` | ✅ Merged (PR #59) | ⏳ Pending |
+  | 4j — Fix: switching dramas doesn't reset loaded lines (cross-drama data corruption) | `step-4j-drama-switch-data-corruption` | ✅ Merged (PR #60) | ⏳ Pending |
   | 5 — R3-lite local-model defaults | `step-5-local-model-defaults` | ✅ Merged (PR #10) | ✅ **Resolved (2026-09-26)** via real quantization-level VRAM research rather than hardware access — see manual-check note in §2. |
   | 5b — Bugs found during manual testing | `step-5b-bug-fixes` | ✅ Merged (PR #16) | ⏳ Pending |
   | 5c — Global GPU-job guard | `step-5c-gpu-job-guard` | ✅ Merged (PR #17) | ⏳ Pending |
