@@ -491,6 +491,51 @@ class TestChapterImport:
         assert result["cancelled"] and len(t.calls) == 1
         background_jobs.clear_job(job)
 
+    def test_a_real_text_source_lands_in_the_novel_import_path_unchanged(self, isolated_db):
+        """Step 23e's own manual-check pattern, run as a real automated
+        test instead: a text-content adapter's get_chapter_text() output
+        reaches Workspace's existing raw-novel file with no pipeline
+        changes needed -- the run_import_job "else" branch (as opposed to
+        the get_pages() branch every other test in this class exercises)
+        had no direct test coverage before this."""
+        import importlib
+        fifty2shuku = importlib.import_module("sources.adapters.52shuku")
+
+        toc_page = ("<html><head><title>A Novel - 52shuku</title></head><body>"
+                   "<ul class='list clearfix'>"
+                   "<li class='mulu'><a href='/x/b/1_1.html'>Chapter One</a></li>"
+                   "</ul></body></html>")
+        chapter_page = ("<html><body><article class='article-content'>"
+                       "<div class='book_con fix' id='text'>"
+                       "<p>Some imported chapter text.</p></div></article></body></html>")
+        base = fifty2shuku.BASE_URL
+        clock = FakeClock()
+        t = ScriptedTransport({f"{base}/x/b/1.html": html(toc_page),
+                              f"{base}/x/b/1_1.html": html(chapter_page)}, clock)
+        client = make_client("52shuku", t, clock)
+        adapter = fifty2shuku.FiftyTwoShukuSource(client=client)
+        chapters = adapter.get_chapters("x/b/1.html")
+
+        drama_id = isolated_db.create_drama(title_en="Imported Novel", media_type="novel",
+                                            content_mode="novel_narration")
+        import background_jobs
+        job = "source_import_text_test"
+        background_jobs.clear_job(job)
+        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                      "cancel_requested": False, "result": None}
+        pipeline.run_import_job(job, "52shuku", chapters, drama_id, adapter=adapter)
+
+        result = background_jobs.get_status(job)["result"]
+        assert result["chapters"] == [{"chapter_id": "1", "title": "Chapter One",
+                                       "ok": True, "chars": len("Some imported chapter text.")}]
+        saved_path = os.path.join(isolated_db.drama_dir(drama_id), pipeline.RAW_NOVEL_FILENAME)
+        assert os.path.exists(saved_path)
+        with open(saved_path, encoding="utf-8") as f:
+            saved_text = f.read()
+        assert "Some imported chapter text." in saved_text
+        assert "Chapter One" in saved_text  # the heading save_novel_text prepends
+        background_jobs.clear_job(job)
+
     def test_demo_source_pages_land_as_ordinary_scanlate_pages(self, isolated_db):
         from PIL import Image
         store.set_setting("demo_source_enabled", True)
