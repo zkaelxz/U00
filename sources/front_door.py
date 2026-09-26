@@ -129,6 +129,19 @@ def preview(url: str, client=None, rendered_fetch=None) -> Preview:
         elif parsed and parsed[0] == "chapter":
             p.chapter = parsed[1].title
             p.series_id = parsed[1].series_id
+        elif p.content_type == VIDEO and hasattr(adapter, "get_metadata"):
+            # Step 23d: a real VideoSource adapter (e.g. BilibiliSource) --
+            # metadata shown before any download, same guarantee item 2
+            # asks for, via extract_info(download=False) under the hood.
+            try:
+                meta = adapter.get_metadata(url)
+                p.title = meta.get("title") or ""
+                parts = adapter.get_parts(url) if hasattr(adapter, "get_parts") else []
+                if len(parts) > 1:
+                    p.chapter_count = len(parts)
+                    p.notes.append(f"Contains {len(parts)} parts.")
+            except SourceError as e:
+                p.notes.append(f"Couldn't load metadata yet: {e.reason.value}")
         return p
     if is_video_url(url):
         return Preview(url=url, content_type=VIDEO, platform=urlsplit(url).netloc,
@@ -145,16 +158,29 @@ def preview(url: str, client=None, rendered_fetch=None) -> Preview:
 
 def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=None,
                  cookies_browser: str = None, cookies_file: str = None) -> str:
-    """Routes a detected video URL into the existing download path -- the
-    same video_download.download call and the same drama updates as
-    Workspace's own "Video URL" option."""
+    """Routes a detected video URL into a download path -- a registered
+    VideoSource adapter (Step 23d's BilibiliSource) if one matches this
+    URL, otherwise the same generic video_download.download call and
+    drama updates as before, unchanged for every other video source
+    (YouTube etc., which have no dedicated adapter)."""
     import db
-    import video_download
     ddir = db.drama_dir(drama_id)
     fetched = {}
-    path = video_download.download(url, ddir, audio_only=audio_only, progress_cb=progress_cb,
-                                   title_cb=lambda t: fetched.setdefault("title", t),
-                                   cookies_browser=cookies_browser, cookies_file=cookies_file)
+
+    adapter = registry.find_for_url(url)
+    if adapter is not None and hasattr(adapter, "download") and ContentType.VIDEO.value in adapter.content_types:
+        options = {"quality": "Audio only" if audio_only else "Best available",
+                  "cookies_browser": cookies_browser, "cookies_file": cookies_file}
+        result = adapter.download(url, ddir, options=options)
+        path = result["path"]
+        if result.get("title"):
+            fetched["title"] = result["title"]
+    else:
+        import video_download
+        path = video_download.download(url, ddir, audio_only=audio_only, progress_cb=progress_cb,
+                                       title_cb=lambda t: fetched.setdefault("title", t),
+                                       cookies_browser=cookies_browser, cookies_file=cookies_file)
+
     drama = db.get_drama(drama_id) or {}
     update = {}
     if fetched.get("title") and not (drama.get("title_en") or drama.get("title_zh")):

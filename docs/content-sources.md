@@ -30,6 +30,22 @@ work".
 | Known limits | If the site changes its markup, the adapter reports "layout has changed" rather than guessing. |
 | Tests | `tests/test_sources_manhuagui.py`. The fixtures in `tests/manhuagui_fixtures.py` are built in the site's real shapes, and the packed-script fixture was checked against the page's own JavaScript unpacker. |
 
+## Bilibili — `sources/adapters/bilibili.py`
+
+| | |
+|---|---|
+| URL patterns | `bilibili.com/video/<BV.../av...>`, `bilibili.com/bangumi/play/...`, `b23.tv/<code>` short links |
+| Content type / language | video, zh |
+| Status | `VERIFIED`. Backed by yt-dlp's own maintained Bilibili extractor, which is exercised against millions of real downloads outside this project. |
+| Access tier | `STATIC_HTTP` -- yt-dlp replicates the same API calls Bilibili's own public web player makes to render a video for an ordinary browser visit (including WBI request signing), not a defeat of any anti-bot challenge. No CAPTCHA solving, no anti-bot-challenge defeat, no signing-system reimplementation happens here. |
+| Extraction | yt-dlp's `extract_info(download=False)` for metadata (title, uploader, upload date, description, duration, thumbnail, BVID) and formats before any download. Multipart/anthology videos are detected via yt-dlp's own multi-entry response; an explicit `?p=N` in the pasted URL downloads only that part. Quality (Best/1080p/720p/480p/360p/Audio only) is offered only for resolutions the video's own `list_formats()` result actually reports, falling back to the closest lower one with a plain message when a requested quality isn't available. Subtitle tracks (if any) are offered as an optional pre-transcription reference, tagged `human` or `ai_generated` so an ASR-sourced Bilibili subtitle is never shown as a verbatim human transcript. |
+| Auth | Cookie-based (browser selection or a cookie file), reusing Step 9b's planned mechanism -- never a hard-coded credential. A video needing login for higher quality or gated content shows "This video needs Bilibili login -- configure browser cookies in Settings" instead of failing silently. |
+| Pacing / retry | Not routed through `sources.http.SourceClient` -- yt-dlp manages its own HTTP end to end and isn't built to run through an injectable transport. Bilibili's own known transient risk-control responses (HTTP 412 and other 4xx/5xx codes) are retried at the adapter's own level instead, with a capped number of attempts and exponential backoff, matching this project's usual "conservative, capped retry" shape rather than aggressive re-hitting. |
+| Extraction backend | `yt-dlp` (unmaintained-by-this-project, actively maintained upstream). Not a hand-rolled scraper against Bilibili's private API/signing system -- re-implementing WBI signing/BVID resolution/DASH extraction independently would be fragile and duplicative for no gain. |
+| Terms, recorded separately | Not independently re-read for this adapter -- treating ordinary public-video access as supported rests on yt-dlp's own maintained extractor and its long track record, not a fresh reading of Bilibili's ToS. A video that needs authentication is refused with a clear message rather than worked around. |
+| Known limits | Multipart/quality/subtitle selection is only exposed through this adapter's own methods and the Sources tab's front door -- Workspace's separate, older "Video URL" quick-import field still calls the generic `video_download.download` path unchanged (same as any other video site with no dedicated adapter), since it isn't part of the Sources-tab front-door architecture Step 23 built. |
+| Tests | `tests/test_sources_bilibili.py`, plus `TestBilibiliRouting` in `tests/test_sources_workflows.py` for the front-door wiring. All yt-dlp calls are faked; no real network calls. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -44,10 +60,10 @@ work".
 
 ## Video URLs
 
-YouTube, Bilibili, Vimeo, Twitch VODs and clips, Niconico, TikTok,
-Dailymotion and MissEvan links go to the existing
-`video_download.download` (yt-dlp). This is the same path as Workspace's
-"Video URL" option, with the same cookie settings.
+Bilibili links go through the dedicated adapter above. YouTube, Vimeo,
+Twitch VODs and clips, Niconico, TikTok, Dailymotion and MissEvan links
+still go to the existing `video_download.download` (yt-dlp) -- the same
+path as Workspace's "Video URL" option, with the same cookie settings.
 
 ## Demo source (offline)
 
@@ -78,3 +94,8 @@ they've been tried against the real site.
   JavaScript-only page records a real result.
 - [ ] **Novel text:** confirm trafilatura's extraction quality on a real
   Chinese novel chapter page.
+- [ ] **Bilibili:** paste a real, publicly accessible Bilibili video URL
+  into the Sources tab, confirm metadata (title, duration) shows before
+  any download, download it, and send it into the existing transcription
+  pipeline with no changes needed there. Try a real multipart video too,
+  and confirm a `?p=2`-style URL downloads only that part.
