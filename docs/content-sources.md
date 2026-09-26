@@ -142,6 +142,40 @@ work".
 | Known limits | If the site's search endpoint is ever restored, this adapter's `search()` should be revisited -- it's currently the base class's `NotSupportedError` default, not a permanent design choice. |
 | Tests | `tests/test_sources_miaoqumh.py`, including a full base64/XOR/base64/JSON round-trip test across every key bucket (`chapter_id % 10` from 0 through 9) and a test confirming a mismatched key fails cleanly rather than silently returning wrong URLs. |
 
+## 包子漫画 Baozimh/GoDaManhua — `sources/adapters/baozimh.py`
+
+| | |
+|---|---|
+| URL patterns | `(baozimh.org\|godamh.com\|baozimh.one\|bzmh.org\|g-mh.org)/manga/<slug>` |
+| Content type / language | manhua, zh |
+| Status | `UNTESTED` until a real import or a Test Now button. Every selector, both real JSON API endpoints, and the image-decode step were run against the live site while building this adapter. |
+| Access tier | `STATIC_HTTP` only. Listing/search/series are plain HTML; the chapter list and chapter images come from two real JSON API endpoints on a separate, fixed host (`api-get-v3.mgsearcher.com`), not mirrored across the six content domains. |
+| Distinct from `baozimh.com` | The similarly-branded `baozimh.com` was confirmed blocked twice and was never built. This adapter targets the technically-open sibling family (`baozimh.org`/`godamh.com` and four more mirrors) the roadmap separately vetted -- don't conflate the two. |
+| Auth | None observed. No `login()`. |
+| Extraction | **Listing/search:** `.container .cardlist .pb-2 a` (`h3.cardtitle` title, `img.card` src). **Series:** `#mangachapters[data-mid]` for the internal numeric manga id; title/status/author/genre/description read via the site's own positional layout (an `<h1>`'s grandparent container's other `<div>`/`<p>` children, in a fixed order -- ported from the reference extension's own traversal, not guessed). **Chapters:** `GET api-get-v3.mgsearcher.com/api/manga/get?mid=<id>&mode=all`, a real JSON API returning chapters newest-first (reversed here to ascending order). **Pages:** `GET api-get-v3.mgsearcher.com/api/v2/chapter/getinfo?m=<mangaId>&c=<chapterId>`, whose image list is a custom-obfuscated string, decoded by a faithful port of the site's own `chapter-decoder.js` (`ChapterImageDecoder` in the adapter) -- strip a fixed prefix/suffix, reorder three body segments around two marker strings, reverse every second 7-character block, map through a custom base64url alphabet, base64url-decode, parse as JSON. **Run against a real chapter's real obfuscated payload while building this adapter** (17 real image URLs decoded correctly) -- not a guessed shape. |
+| Mirrors | Six real, confirmed-reachable domains (`baozimh.org`, `godamh.com`, `m.baozimh.one`, `bzmh.org`, `g-mh.org`, `m.g-mh.org`, all HTTP 200 on direct fetch while building this adapter) used as automatic fallback for the plain-HTML endpoints, same pattern as manhuagui's four mirrors. The two JSON API calls always go to the fixed API host regardless of which content mirror is active -- a real, hardcoded detail of the reference extension, not an oversight here. |
+| Terms, recorded separately | `robots.txt`: `User-agent: *` with only `/admin/` disallowed -- no Cloudflare/gatekeeper challenge on direct fetch. (Re-verified by direct fetch while building this adapter.) The ToS has not been reviewed. |
+| Reference | `keiyoushi/extensions-source src/zh/baozimhorg` + `lib-multisrc/goda` (Apache-2.0). Technique only, no code ported. |
+| Known limits | If the site changes its markup or either API's response shape, the adapter reports "layout has changed" rather than guessing. |
+| Tests | `tests/test_sources_baozimh.py`, including a full decode round-trip against a real-shaped obfuscated payload and a mirror-fallback test. |
+
+## 快看漫画 Kuaikan Manhua — `sources/adapters/kuaikan.py`
+
+| | |
+|---|---|
+| URL patterns | `kuaikanmanhua.com/web/topic/<id>` (series), `kuaikanmanhua.com/web/comic/<id>` or `/webs/comic-next/<id>` (chapter) |
+| Content type / language | manhua, zh |
+| Status | `UNTESTED` until a real import or a Test Now button. **No Keiyoushi/Mihon extension exists for this site** (the old one was removed as broken, upstream issue #507) -- unlike every other adapter built this session, everything here came from direct, repeated live verification, not ported technique. |
+| Access tier | `STATIC_HTTP` only -- **a real, confirmed correction to the roadmap**, which expected the browser-rendered tier for cover images. Direct verification found the *visible* DOM is genuinely client-populated (empty chapter lists, src-less cover `<img>` tags), but the page also embeds a `window.__NUXT__=(function(a,b,...){return {...}}(argA,argB,...))` legacy Nuxt.js SSR-state dump containing the *complete* real data -- series metadata, every chapter, and (on a chapter's own reader page) the real, already-signed page-image URLs. The catch is a real but bounded, non-JSON serialization trick (dedup identifiers plus a short list of `ident[n]=value` placeholder-mutation statements for shared substructures) -- not obfuscation, not a security boundary, just an old build tool's compaction trick. Decoded by a small, deterministic literal-plus-identifier parser (`_decode_nuxt_state` in the adapter) that never calls a function, evaluates an operator, or executes anything resembling general JavaScript. **Run against three independent real pages while building this adapter and cross-checked byte-for-byte against the same pages evaluated in a real, sandboxed Node.js `vm` used only for that verification** -- not a guessed shape. Net result: no browser-rendered tier is needed for this adapter at all. |
+| Auth | None observed for free chapters. Locked/paid chapters (`locked: true` in the embedded state, `comicImages` empty) raise `ContentHidden` naming that this adapter never bypasses a purchase/entitlement check -- confirmed against a real locked chapter while building this adapter. No `login()`. |
+| Extraction | **Series:** the topic page's embedded state, `topicInfo` (title/description/tags/cover/author/status). **Chapters:** the same state's `comics` array -- every chapter, already in ascending order, with real id/title/lock-status, no pagination or scroll-loading needed. **Pages:** the chapter reader page's own embedded state, `comicInfo.comicImages` -- real, already-signed CDN URLs, used exactly as issued (token reuse, never generation, the same principle already applied to Bilibili Manga's image tokens). |
+| **`search()` deliberately left unsupported** | No working search endpoint was found from static analysis -- a `/search/result?q=...`-shaped path returns only a content-free `{"code":200,...}` stub, and the visible search widget has no plain `href` to inspect. Left as the base class's default rather than guessed at. |
+| **What could not be verified this pass** | A real headless-browser render of this site could not be exercised in this build environment (a sandboxed outbound-network proxy real users' machines won't have) -- irrelevant to this adapter's own extraction path, which never depends on the rendered DOM, but recorded honestly rather than silently assumed. |
+| Terms, recorded separately | `robots.txt` permissive (blocks only a few admin paths and query-string URLs). ToS: recorded from the roadmap's own earlier direct read -- no AI/ML-use clause found (a confirmed absence, not an assumption); not re-read while building this adapter. |
+| Reference | None -- no Keiyoushi/Mihon extension exists for this site. Built entirely from direct, repeated live verification. |
+| Known limits | The Nuxt-state decode is specific to this one legacy serialization shape; if the site migrates off this Nuxt version, the adapter will need re-verifying, not just re-selecting. |
+| Tests | `tests/test_sources_kuaikan.py`, including direct tests of the state decoder (nested structures, the placeholder-mutation pattern, and a missing-state failure) built against a synthetic-but-grammar-accurate fixture, plus the locked-chapter `ContentHidden` path. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -264,3 +298,26 @@ they've been tried against the real site.
   `/search?key=<query>`-shaped requests still 404 on this site -- if the
   endpoint is ever restored, `search()` should be implemented rather than
   left as the unsupported default.
+- [ ] **baozimh/godamh, normal work:** search a real title, open its
+  chapter list, and download one chapter into a manhua drama. Confirm the
+  pages show up in Scanlate.
+- [ ] **baozimh/godamh, mirror fallback:** with one of the six mirrors
+  genuinely unreachable (or simulated via a hosts-file/firewall block),
+  confirm a real import still succeeds via the next configured mirror.
+- [ ] **Kuaikan, normal work:** open a real series's chapter list and
+  download one free chapter into a manhua drama. Confirm the pages show
+  up in Scanlate, validating the `window.__NUXT__` decode against real
+  (not just fixture) data.
+- [ ] **Kuaikan, locked-chapter message:** open a real locked/paid
+  chapter and confirm the adapter reports it as needing purchase/VIP
+  access rather than a generic layout error.
+- [ ] **Kuaikan, browser-tier double-check:** since this build environment
+  couldn't exercise a real headless-browser render of this site (a
+  sandboxed network proxy), confirm on a real machine that this adapter's
+  plain-HTTP-only approach genuinely never needs the browser-rendered
+  tier -- i.e. that the `window.__NUXT__` state described above is really
+  present on every ordinary page load, not just the ones fetched while
+  building this adapter.
+- [ ] **Kuaikan, search:** periodically re-check whether a real search
+  endpoint becomes discoverable (e.g. via a browser's network tab) -- if
+  so, `search()` should be implemented rather than left unsupported.
