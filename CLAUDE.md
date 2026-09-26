@@ -31,9 +31,19 @@ external project checked so far.
   review holds up. Steps 1e–10 run in autonomous mode (the implementing
   session builds, tests, opens *and merges* its own PR, no gate) — this is
   exactly why an ad hoc QC pass across that range once found two severe,
-  unreviewed bugs. Steps 11+ run gated (implementing session builds, tests,
-  pushes, stops, and waits for "create a PR for this step" — it opens the PR
-  but does not merge; this session reviews and merges).
+  unreviewed bugs. Steps 11+ run gated by default (implementing session
+  builds, tests, pushes, stops, and waits for "create a PR for this step" —
+  it opens the PR but does not merge; this session reviews and merges).
+  **Explicit exceptions, individually designated autonomous at the user's
+  request (2026-09-26) for their genuinely low blast-radius: Step 25e (dead
+  code only), Step 22b, Step 23c, and Steps 23d–23l (each a new, isolated
+  source adapter — a broken one fails safely without touching other data).**
+  A step must be explicitly named here (or in the roadmap's own NEXT
+  pointer) to run autonomous past Step 10 — gated is the default for
+  everything else, especially anything touching character/line/job data
+  integrity, where autonomous mode has already caused real, severe bugs
+  once. Still verify every autonomous merge same as any other, per this
+  file's own rules below — autonomous means no *gate*, not no review.
 - **Verify a PR's real number via the GitHub API before citing it anywhere**
   — an implementing session's own self-reported PR number has been wrong
   more than once (reported #47/#48 when the real, already-merged PRs were
