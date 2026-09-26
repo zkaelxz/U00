@@ -891,6 +891,47 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged)})
 
 
+def _line_audio_clip(audio_path, start, end, work_dir):
+    """Step 21: one line's [start, end) audio as WAV bytes, for Review &
+    edit's per-line player. Called only when that line's play button is
+    clicked -- never for every visible row on page load -- and the temp
+    slice is removed right after reading, same as re-transcribe's."""
+    slice_path = os.path.join(work_dir, "_play_slice.wav")
+    try:
+        core_module.extract_audio_slice(audio_path, start, end, slice_path)
+        with open(slice_path, "rb") as f:
+            return f.read()
+    finally:
+        if os.path.exists(slice_path):
+            os.remove(slice_path)
+
+
+def _unsaved_line_count(drama_id, lines):
+    """Step 21: how many of Review & edit's lines differ from what's
+    actually in the database -- not from st.session_state.lines, which the
+    page's splice-back updates on every rerun whether or not Save was
+    clicked. Timing is compared at the 2 decimals the start/end boxes
+    show, so a stored 1.2345 doesn't read as an edit of the box's 1.23.
+    A line with no id yet, or a saved line missing from `lines`, counts
+    as unsaved too."""
+    saved = {r["id"]: r for r in db.load_lines(drama_id)}
+    n = 0
+    seen = set()
+    for ln in lines:
+        row = saved.get(ln.id)
+        if row is None:
+            n += 1
+            continue
+        seen.add(ln.id)
+        if (round(ln.start, 2) != round(row["start"], 2)
+                or round(ln.end, 2) != round(row["end"], 2)
+                or (ln.zh or "") != (row["zh"] or "")
+                or (ln.en or "") != (row["en"] or "")
+                or (ln.speaker or "") != (row["speaker"] or "")):
+            n += 1
+    return n + len(saved.keys() - seen)
+
+
 def _apply_speaker_turns(drama_id, turns, overwrite_manual):
     """Re-merges stored diarization turns onto the drama's existing lines
     -- speakers only, never text or timing, and no ASR."""
@@ -3349,6 +3390,27 @@ def render_workspace_tab():
                             # just-accepted translation on the next rerun.
                             st.session_state.pop(f"en_{ln.idx}", None)
                             st.rerun()
+                    if drama.get("audio_filename"):
+                        # Only one line's clip is held at a time, and only
+                        # after its button is clicked -- extracting a clip for
+                        # every row on the page up front would be slow.
+                        _clip_key = f"rv_clip_{picked_id}"
+                        if st.button("▶️ Play this line", key=f"rvplay_{ln.idx}"):
+                            try:
+                                st.session_state[_clip_key] = {
+                                    "idx": ln.idx, "start": start, "end": end,
+                                    "audio": _line_audio_clip(
+                                        os.path.join(ddir, drama["audio_filename"]),
+                                        start, end, ddir)}
+                            except Exception as e:
+                                st.session_state.pop(_clip_key, None)
+                                st.error(f"Couldn't cut this line's audio: {e}")
+                        _clip = st.session_state.get(_clip_key)
+                        if _clip and _clip["idx"] == ln.idx:
+                            if (_clip["start"], _clip["end"]) != (start, end):
+                                st.caption("Timing changed since this clip was cut -- "
+                                           "click Play again to hear the new range.")
+                            st.audio(_clip["audio"], format="audio/wav")
                     if has_audio_pipeline and drama.get("audio_filename"):
                         if st.button("🎙️ Re-transcribe", key=f"rvretrans_{ln.idx}"):
                             _audio_path = os.path.join(ddir, drama["audio_filename"])
@@ -3421,16 +3483,31 @@ def render_workspace_tab():
                 edited_rows[_idx_to_pos[ln.idx]] = ln
             st.session_state.lines = edited_rows
 
-            if st.button("💾 Save edits (this page)"):
-                # Capture what you actually changed, so the style profile can learn
-                # from real edits rather than guesswork.
-                _prev = {r["idx"]: r.get("en") or "" for r in db.load_lines(picked_id)}
-                for ln in edited_page_rows:
-                    before = _prev.get(ln.idx, "")
-                    if before and ln.en and before.strip() != ln.en.strip():
-                        db.record_edit_sample(picked_id, ln.zh, before, ln.en)
-                db.save_lines(picked_id, edited_rows)
-                st.success("Saved.")
+            sv1, sv2 = st.columns([1, 3])
+            _save_status = sv2.empty()
+            _save_error = None
+            if sv1.button("💾 Save edits (this page)"):
+                _save_status.caption("⏳ Saving...")
+                try:
+                    # Capture what you actually changed, so the style profile can learn
+                    # from real edits rather than guesswork.
+                    _prev = {r["idx"]: r.get("en") or "" for r in db.load_lines(picked_id)}
+                    for ln in edited_page_rows:
+                        before = _prev.get(ln.idx, "")
+                        if before and ln.en and before.strip() != ln.en.strip():
+                            db.record_edit_sample(picked_id, ln.zh, before, ln.en)
+                    db.save_lines(picked_id, edited_rows)
+                except Exception as e:
+                    _save_error = str(e)
+            # Checked against the database, not session state, so leaving
+            # Review & edit and coming back still shows edits as unsaved.
+            _n_unsaved = _unsaved_line_count(picked_id, edited_rows)
+            if _save_error:
+                _save_status.error(f"Save failed: {_save_error}", icon="❌")
+            elif _n_unsaved:
+                _save_status.warning(f"Unsaved changes ({_n_unsaved} line(s))", icon="✏️")
+            else:
+                _save_status.caption("✅ Saved")
 
             with st.expander("🔍 Check line coverage (do this before translating)"):
                 st.caption(
