@@ -21,7 +21,7 @@ import copy
 import html
 import re
 
-from core import _notes_suffix
+from core import _notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
 
@@ -192,15 +192,22 @@ def _vtt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
-def _cue_text(ln, field, notes_by_idx, wrap_chars):
+def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True):
+    """italic_tags: whether an SFX cue gets <i> tags (VTT) or is left for
+    the caller to style (ASS's own "SFX" style)."""
+    sfx = getattr(ln, "sfx", False)
     if field == "bilingual":
         en = wrap_text(ln.en, wrap_chars.get("en")) if wrap_chars else ln.en
         zh = wrap_text(ln.zh, wrap_chars.get("zh")) if wrap_chars else ln.zh
-        text = f"{en}\n{zh}" if ln.en else zh
+        if sfx:
+            en, zh = sfx_cue_text(en, italic_tags), sfx_cue_text(zh, italic_tags)
+        text = f"{en}\n{zh}" if en else zh
     else:
         text = getattr(ln, field)
         if wrap_chars:
             text = wrap_text(text, wrap_chars.get(field))
+        if sfx:
+            text = sfx_cue_text(text, italic_tags)
     return text + _notes_suffix(ln.idx, notes_by_idx)
 
 
@@ -241,6 +248,16 @@ ASS_PRESETS = {
                       "primary": "#FFFFFF", "outline": "#000000", "outline_width": 4, "shadow": 1,
                       "alignment": "bottom-center"},
 }
+
+# Step 12c: SFX/non-verbal cues get their own ASS style -- the export's
+# style in italics, in a muted colour, so "[door slams]" never reads as a
+# line someone said.
+SFX_STYLE_NAME = "SFX"
+SFX_COLOR = "#B8C4CE"
+# style["sfx_alignment"] / style["notes_alignment"] (keys of ALIGNMENTS)
+# place SFX cues and separate-line notes somewhere other than the dialogue
+# -- e.g. at the top while speech stays at the bottom. Unset (None) keeps
+# them at the dialogue's own position.
 
 SPEAKER_PALETTE = ["#FFFFFF", "#FFE066", "#7FDBFF", "#FF9FF3", "#9BE564", "#FFB347", "#C7A8FF",
                    "#FF6B6B"]
@@ -299,7 +316,12 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
     6i -- instead of appending core._notes_suffix's note onto the same
     cue's Text (this format's own default, and SRT/VTT's only option),
     renders it as its own second Dialogue line right after the main one,
-    in a dedicated "Notes" style at ~70% of the main text size."""
+    in a dedicated "Notes" style at ~70% of the main text size.
+
+    SFX cues (Line.sfx) get their own italic "SFX" style. Both it and the
+    Notes style can be positioned apart from the dialogue via
+    style["sfx_alignment"] / style["notes_alignment"]; where they share a
+    position with other text, libass stacks them rather than overlapping."""
     speaker_colors = speaker_colors or {}
     style_for = {sp: f"Speaker {i + 1}" for i, sp in enumerate(sorted(speaker_colors))}
     header = [
@@ -318,18 +340,26 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         _style_line("Default", style, style["primary"]),
     ]
     header += [_style_line(style_for[sp], style, speaker_colors[sp]) for sp in sorted(speaker_colors)]
+    header.append(_style_line(
+        SFX_STYLE_NAME,
+        {**style, "italic": True, "alignment": style.get("sfx_alignment") or style.get("alignment")},
+        SFX_COLOR))
     if notes_as_separate_line:
-        note_style = dict(style, size=max(1, round(style.get("size", 24) * 0.7)))
+        note_style = dict(style, size=max(1, round(style.get("size", 24) * 0.7)),
+                          alignment=style.get("notes_alignment") or style.get("alignment"))
         header.append(_style_line("Notes", note_style, style["primary"]))
     events = ["", "[Events]",
               "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
     for ln in lines:
         cue_notes = None if notes_as_separate_line else notes_by_idx
-        text = _ass_escape(_cue_text(ln, field, cue_notes, wrap_chars))
-        name = _ass_field((speaker_names or {}).get(ln.speaker) or ln.speaker or "")
+        text = _ass_escape(_cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False))
         start, end = _ass_ts(ln.start), _ass_ts(ln.end)
-        events.append(f"Dialogue: 0,{start},{end},"
-                      f"{style_for.get(ln.speaker, 'Default')},{name if ln.speaker else ''},0,0,0,,{text}")
+        if getattr(ln, "sfx", False):
+            events.append(f"Dialogue: 0,{start},{end},{SFX_STYLE_NAME},,0,0,0,,{text}")
+        else:
+            name = _ass_field((speaker_names or {}).get(ln.speaker) or ln.speaker or "")
+            events.append(f"Dialogue: 0,{start},{end},"
+                          f"{style_for.get(ln.speaker, 'Default')},{name if ln.speaker else ''},0,0,0,,{text}")
         if notes_as_separate_line:
             note_text = _notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
             if note_text:

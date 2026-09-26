@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 # position (display order) -- it changes on every merge/split; `id` is the
 # permanent identity notes, emotions and background jobs attach to.
 LINE_FIELDS = ("idx", "start", "end", "zh", "en", "speaker", "dub_filename", "flag", "flag_note",
-               "speaker_manual")
+               "speaker_manual", "sfx")
 
 
 @dataclass
@@ -31,6 +31,9 @@ class Line:
     # speaker detection (diarize.merge_speakers) leaves it alone unless
     # told to overwrite corrections.
     speaker_manual: bool = False
+    # Step 12c: a non-verbal/SFX cue ("door slams") rather than dialogue --
+    # exported bracketed and styled apart from speech (see sfx_cue_text).
+    sfx: bool = False
     # Permanent row id (lines.id). None for a line not saved yet.
     id: int = field(default=None, compare=False)
     # Field values as last loaded from / saved to the database. db.save_lines
@@ -52,7 +55,7 @@ def line_from_row(row) -> "Line":
               en=row.get("en") or "", speaker=row.get("speaker"),
               dub_filename=row.get("dub_filename"), flag=row.get("flag"),
               flag_note=row.get("flag_note") or "", speaker_manual=bool(row.get("speaker_manual")),
-              id=row.get("id"))
+              sfx=bool(row.get("sfx")), id=row.get("id"))
     ln.orig = {f: getattr(ln, f) for f in LINE_FIELDS}
     return ln
 
@@ -67,7 +70,7 @@ def adopt_ids(restored, current) -> list:
     current line it replaces -- by id when the snapshot recorded one, else
     by position (snapshots from before Step 2 have no ids) -- so notes and
     emotions stay attached instead of being deleted with the old rows.
-    Fields a snapshot doesn't store (flag, flag_note, dub_filename) are
+    Fields a snapshot doesn't store (flag, flag_note, dub_filename, sfx) are
     carried over from the matched line rather than wiped."""
     by_id = {ln.id: ln for ln in current if getattr(ln, "id", None) is not None}
     by_idx = {ln.idx: ln for ln in current}
@@ -84,6 +87,7 @@ def adopt_ids(restored, current) -> list:
         for f in ("flag", "flag_note", "dub_filename"):
             if getattr(ln, f) in (None, ""):
                 setattr(ln, f, getattr(match, f))
+        ln.sfx = ln.sfx or match.sfx
     return restored
 
 
@@ -112,10 +116,26 @@ def _notes_suffix(line_idx: int, notes_by_idx: dict) -> str:
     return f"\n[{asides}]"
 
 
+def sfx_cue_text(text: str, italic_tags: bool = True) -> str:
+    """Step 12c: a non-verbal/SFX cue's subtitle text -- bracketed, so it
+    reads as "[door slams]" rather than as something a character said.
+    Already-bracketed text isn't double-bracketed. italic_tags wraps it in
+    <i>...</i>, which SRT/VTT players (and an SRT burn-in) render; ASS
+    passes False and styles the cue through its own "SFX" style instead."""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    inner = text[1:-1].strip() if (text[0], text[-1]) in (("[", "]"), ("(", ")")) else text
+    return f"<i>[{inner}]</i>" if italic_tags else f"[{inner}]"
+
+
 def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
-        text = getattr(ln, field) + _notes_suffix(ln.idx, notes_by_idx)
+        text = getattr(ln, field)
+        if getattr(ln, "sfx", False):
+            text = sfx_cue_text(text)
+        text += _notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
 
@@ -123,7 +143,10 @@ def lines_to_srt(lines, field="en", notes_by_idx: dict = None) -> str:
 def lines_to_bilingual_srt(lines, notes_by_idx: dict = None) -> str:
     out = []
     for i, ln in enumerate(lines, start=1):
-        text = f"{ln.en}\n{ln.zh}" if ln.en else ln.zh
+        en, zh = ln.en, ln.zh
+        if getattr(ln, "sfx", False):
+            en, zh = sfx_cue_text(en), sfx_cue_text(zh)
+        text = f"{en}\n{zh}" if en else zh
         text += _notes_suffix(ln.idx, notes_by_idx)
         out.append(f"{i}\n{fmt_ts(ln.start)} --> {fmt_ts(ln.end)}\n{text}\n")
     return "\n".join(out)
