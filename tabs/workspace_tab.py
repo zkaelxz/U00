@@ -434,8 +434,13 @@ def _render_bulk_jobs_panel(drama_id, monthly_cap):
     seen_key = f"bulk_applied_seen_{drama_id}"
     seen = st.session_state.setdefault(seen_key, {j["id"] for j in jobs if j["status"] == "applied"})
     if any(j["status"] == "applied" and j["id"] not in seen for j in jobs):
-        # A poller finished in the background -- show its lines.
+        # A poller finished in the background -- show its lines. Same Step
+        # 9h staleness this file's other job-completion handlers already
+        # guard against: a bulk-translate result landing here can update
+        # ln.en the same way the regular Translate button does, so the
+        # positional en_<idx>/zh_<idx> widget cache needs clearing too.
         st.session_state.lines = db.load_line_objects(drama_id)
+        _clear_line_widget_state()
         seen.update(j["id"] for j in jobs if j["status"] == "applied")
     pending = [j for j in jobs if j["status"] in ("submitting", "submitted", "scheduled",
                                                   "running", "auth_error")]
@@ -2866,6 +2871,14 @@ def render_workspace_tab():
                     st.rerun()
             elif _job["status"] == "done":
                 st.session_state.lines = db.load_line_objects(picked_id)
+                # Step 9h: the "en" text_area below is keyed by position
+                # (en_<idx>), and Streamlit ignores a widget's value= once
+                # st.session_state[key] already exists (cached as "" from
+                # every earlier render while the line was untranslated) --
+                # without clearing it, the box would keep showing stale
+                # empty text even though ln.en now holds the real
+                # translation, until a hard refresh wiped session state.
+                _clear_line_widget_state()
                 _errors = (_job.get("result") or {}).get("errors", [])
                 _cap_spent = (_job.get("result") or {}).get("cap_reached")
                 if _cap_spent is not None:
@@ -3552,12 +3565,25 @@ def render_workspace_tab():
                             if st.button("🔄 Refresh progress", key=f"refresh_ff_{picked_id}"):
                                 st.rerun()
                         elif _ffjob["status"] == "done":
+                            # Same Step 9h staleness: this job rewrites zh
+                            # and en for fixed lines, so the positional
+                            # zh_<idx>/en_<idx> widget cache needs clearing
+                            # too, not just a fresh st.session_state.lines.
                             st.session_state.lines = db.load_line_objects(picked_id)
+                            _clear_line_widget_state()
                             edited_rows = st.session_state.lines
                             _ff_result = _ffjob.get("result") or {}
                             st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
                                       f"{_ff_result.get('total_flagged', 0)} flagged line(s).")
                             background_jobs.clear_job(_fixflag_job_id)
+                            # This branch runs after the zh_<idx>/en_<idx>
+                            # boxes above (in the Review & edit loop) have
+                            # already been rendered for this same script
+                            # pass -- clearing their widget state here only
+                            # takes effect on the NEXT run, so force one
+                            # immediately instead of leaving it stale until
+                            # the next unrelated interaction.
+                            st.rerun()
                         elif _ffjob["status"] == "error":
                             st.error(f"Fixing flagged lines failed: {_ffjob['error']}")
                             with st.expander("Details"):

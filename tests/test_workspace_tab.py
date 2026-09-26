@@ -2167,6 +2167,120 @@ class TestImproveTranslationUseThisRefreshesTheEnBox:
         assert isolated_db.load_lines(did)[0]["en"] == "A much better line."
 
 
+class TestTranslateJobRefreshesStaleEnBoxes:
+    """Step 9h: a real, confirmed gap -- a translate job correctly writes
+    ln.en and reloads st.session_state.lines from the database before
+    rendering "Translation complete.", but the en_<idx> text_area is a
+    purely positional widget key. Streamlit ignores a widget's value=
+    once st.session_state[key] already exists (cached as "" from every
+    earlier render while the line was untranslated), so the box kept
+    showing stale empty text until a hard refresh wiped session state.
+    Same fix shape as Step 6d's merge/restore/improve-translation cases,
+    applied here to a background translate job's own completion path."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned",
+                                       translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_translated_text_shows_immediately_no_hard_refresh_needed(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        # The en_0 box exists (and its session-state value is cached as ""),
+        # same as a real page that's been open since before the line was
+        # translated -- the exact precondition that made this box go stale.
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == [""]
+
+        job_id = f"translate_{did}"
+        translated = isolated_db.load_line_objects(did)
+        translated[0].en = "Hello."
+        isolated_db.save_lines(did, translated, fields=("en",))
+        background_jobs._jobs[job_id] = {
+            "status": "done", "progress": 1.0, "message": "", "error": None,
+            "cancel_requested": False, "result": {"errors": [], "cap_reached": None},
+        }
+        at.run(timeout=30)
+
+        assert any("Translation complete." in s.value for s in at.success)
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hello."]
+        background_jobs.clear_job(job_id)
+
+    def test_bulk_jobs_panel_completion_also_refreshes_the_en_box(self, isolated_db):
+        """The same staleness applies to the Bulk jobs panel's own
+        poller-completion path, which also updates ln.en (a bulk-mode
+        translate result) without going through run_translate_job."""
+        did = self._drama(isolated_db)
+        line_id = isolated_db.load_line_objects(did)[0].id
+        job_row_id = isolated_db.create_bulk_job(
+            did, "claude", "claude-sonnet-5", "submitted", [(line_id, "req1", "hash1", "")])
+        at = self._run(did)
+        # Seen as "submitted, not yet applied" on this first render -- the
+        # panel's own seen-set tracking needs to observe the job BEFORE it
+        # flips to "applied" for the poller-completion branch to fire, same
+        # as a real pending-then-applied bulk job would be observed twice.
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == [""]
+
+        translated = isolated_db.load_line_objects(did)
+        translated[0].en = "Hi from bulk."
+        isolated_db.save_lines(did, translated, fields=("en",))
+        isolated_db.update_bulk_job(job_row_id, status="applied")
+        at.run(timeout=30)
+
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hi from bulk."]
+
+    def test_fix_flagged_lines_completion_also_refreshes_the_zh_and_en_boxes(self, isolated_db):
+        """A third real instance of the same gap, found during Step 9h's
+        own audit: "Fix flagged lines" rewrites both zh and en (and clears
+        the flag) for the lines it touches, and had the identical
+        stale-widget-cache bug. Verified via "Save edits," same as Step
+        6d's merge/restore tests -- reading a widget's rendered value back
+        out through the app's own save path is more robust here than
+        introspecting AppTest's ElementTree directly across a run where
+        the flagged-line warning/dismiss block appears and disappears."""
+        did = self._drama(isolated_db)
+        # "Fix flagged lines in bulk" only renders once at least one line
+        # is flagged -- the real precondition for this job to ever run.
+        flagged = isolated_db.load_line_objects(did)
+        flagged[0].flag, flagged[0].flag_note = "check", "sounds off"
+        isolated_db.save_lines(did, flagged, fields=("flag", "flag_note"))
+        at = self._run(did)
+
+        job_id = f"fixflag_{did}"
+        fixed = isolated_db.load_line_objects(did)
+        fixed[0].zh, fixed[0].en = "重新识别的文本", "Re-recognized text."
+        fixed[0].flag, fixed[0].flag_note = None, ""
+        isolated_db.save_lines(did, fixed, fields=("zh", "en", "flag", "flag_note"))
+        background_jobs._jobs[job_id] = {
+            "status": "done", "progress": 1.0, "message": "", "error": None,
+            "cancel_requested": False, "result": {"fixed_count": 1, "total_flagged": 1},
+        }
+        at.run(timeout=30)
+        at.run(timeout=30)
+
+        [b for b in at.button if b.label == "💾 Save edits (this page)"][0].click()
+        at.run(timeout=30)
+        saved = isolated_db.load_lines(did)[0]
+        assert saved["zh"] == "重新识别的文本"
+        assert saved["en"] == "Re-recognized text."
+        background_jobs.clear_job(job_id)
+
+
 class TestRawNovelToggleGatedByContentMode:
     """Step 5b item 6: the raw-novel uploader used to render unconditionally,
     above the content_mode radio, for every content mode including
