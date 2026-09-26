@@ -42,7 +42,7 @@ def _translate_args(**overrides):
 
 
 def _dub_args(**overrides):
-    defaults = dict(id=None, elevenlabs_key=None)
+    defaults = dict(id=None, elevenlabs_key=None, gpt_sovits_url=None, m4b=False)
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 
@@ -287,7 +287,11 @@ class TestCmdDubFlagPreservation:
                  flag="needs_review", flag_note="awkward phrasing"),
         ])
 
-        def fake_build_dub_track(lines, drama_dir, voice_map, character_clone_map=None, progress_cb=None):
+        calls = []
+
+        def fake_build_dub_track(lines, drama_dir, voice_map, character_clone_map=None,
+                                 progress_cb=None, emotion_map=None):
+            calls.append(lines)
             return "fake_dub.wav", []
         monkeypatch.setattr(dub_module, "build_dub_track", fake_build_dub_track)
         monkeypatch.setattr(dub_module, "assign_voices_to_characters", lambda speakers: {})
@@ -296,9 +300,57 @@ class TestCmdDubFlagPreservation:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(args)
 
+        assert len(calls) == 1  # the dub actually ran (a crash inside _run_batch is swallowed)
         rows = isolated_db.load_lines(did)
         assert rows[0]["flag"] == "needs_review"
         assert rows[0]["flag_note"] == "awkward phrasing"
+
+
+class TestCmdDubNarration:
+    """Step 11b: cmd_dub routes characters through the same
+    dub.clone_map_from_characters the Workspace tab uses, hands over the
+    drama's saved emotion tags, and -- like the Workspace tab -- saves the
+    new line timing a narration run produces."""
+
+    def _narration_drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Novel", content_mode="novel_narration",
+                                        status="translated", source_language="ja")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", en="One.", speaker="Hero"),
+                                     Line(idx=1, start=1.0, end=2.0, zh="二", en="Two.", speaker="Hero")])
+        isolated_db.upsert_character(did, "Hero", character_name="Hero", voice_design="male, low pitch")
+        isolated_db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": ""}})
+        return did
+
+    def test_saves_timing_and_passes_voices_and_emotions(self, isolated_db, monkeypatch):
+        did = self._narration_drama(isolated_db)
+        seen = {}
+
+        def fake_build_narration_track(lines, drama_dir, voice_map, character_clone_map=None,
+                                       progress_cb=None, emotion_map=None):
+            seen.update(clone_map=character_clone_map, emotion_map=emotion_map)
+            for i, ln in enumerate(lines):
+                ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
+            return "narration_track.wav", []
+        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did))
+
+        assert seen["clone_map"] == {"Hero": {"engine": "omnivoice", "instruct": "male, low pitch"}}
+        assert seen["emotion_map"][1]["emotion"] == "angry"
+        rows = isolated_db.load_lines(did)
+        assert [(r["start"], r["end"]) for r in rows] == [(10.0, 10.5), (11.0, 11.5)]
+
+    def test_m4b_flag_exports_the_audiobook(self, isolated_db, monkeypatch):
+        did = self._narration_drama(isolated_db)
+        monkeypatch.setattr(dub_module, "build_narration_track",
+                            lambda lines, *a, **k: ("narration_track.wav", []))
+        exported = []
+        monkeypatch.setattr(dub_module, "export_narration_m4b",
+                            lambda lines, ddir, title=None: exported.append(title) or "x.m4b")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did, m4b=True))
+        assert exported == ["Novel"]
 
 
 class TestCmdRunArgparseParity:
