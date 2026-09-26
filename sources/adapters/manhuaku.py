@@ -65,7 +65,7 @@ import re
 from urllib.parse import urljoin
 
 from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SeriesInfo, SourceError
+from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, SeriesInfo, SourceError
 from ..registry import register
 
 BASE_URL = "https://www.manhuaku.net"
@@ -174,6 +174,25 @@ class ManhuakuSource(SourceAdapter):
         candidates = generic_import.image_candidates(html, chapter.url)
         if not candidates:
             raise LayoutChanged("any page images on the rendered chapter page")
+        # A real, confirmed finding (2026-09-26 live check), not a
+        # hypothetical: this site's real `readPic()` writes the decrypted
+        # page images into the DOM as JS-created `blob:` object URLs, which
+        # exist only inside that one browser tab's memory and can never be
+        # independently re-`GET`ted the way every other candidate below is.
+        # Every real page-image candidate on such a chapter is therefore
+        # `blob:` and always fails the download-and-measure step further
+        # down -- refuse clearly here instead of silently falling through
+        # to whatever unrelated images (other titles' cover thumbnails from
+        # the page's own recommendation sidebar, confirmed live) happen to
+        # also be on the page and pass the filter below.
+        if any(c.url.startswith("blob:") for c in candidates):
+            raise ContentHidden(
+                f"{self.display_name}'s real chapter-reader images are written into the page "
+                "as browser-internal blob: URLs by its own decryption script -- this adapter "
+                "can't independently download them the way it does every other source's page "
+                "images. Reading them would need capturing the bytes from inside the rendered "
+                "page itself, which this adapter doesn't do yet.",
+                FailureReason.ENCRYPTED_RESOURCE)
         for c in candidates:
             try:
                 resp = self.client.get(c.url, classify_body=False, headers={"Referer": chapter.url},
