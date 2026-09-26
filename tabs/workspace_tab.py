@@ -231,6 +231,21 @@ def _subtitle_style_controls(picked_id, lines, speaker_names):
     return style, speaker_colors
 
 
+@st.fragment
+def _subtitle_style_fragment(picked_id, lines, speaker_names, notes_alignment, wrap_chars):
+    """The style controls and their live preview, as a fragment: moving a
+    slider or colour picker reruns just this block instead of the whole
+    Workspace tab. Anything outside it reads the current values from
+    `sub_style_current_<id>` in session state -- updated in place, not
+    replaced, so a download callable that captured that dict on the last
+    full run still sees a fragment-only change when it's clicked."""
+    style, speaker_colors = _subtitle_style_controls(picked_id, lines, speaker_names)
+    style["notes_alignment"] = notes_alignment
+    st.session_state.setdefault(f"sub_style_current_{picked_id}", {}).update(
+        {"style": style, "speaker_colors": speaker_colors,
+         "speaker_names": speaker_names, "wrap_chars": wrap_chars})
+
+
 def _jump_to_line_button(picked_id, line_idx, all_lines, key):
     """A button that lands on the right page of the Review & edit table
     for a specific line, instead of leaving a flagged-line list (pacing
@@ -5313,22 +5328,23 @@ def render_workspace_tab():
             _speaker_names = {c["speaker_label"]: c["character_name"]
                               for c in db.list_characters_with_series_names(picked_id)
                               if c.get("character_name")}
-            _sub_style, _speaker_colors = _subtitle_style_controls(
-                picked_id, st.session_state.lines, _speaker_names)
-            _sub_style["notes_alignment"] = _notes_alignment
+            _subtitle_style_fragment(picked_id, st.session_state.lines, _speaker_names,
+                                     _notes_alignment, _wrap_chars)
             # Review & edit's burned-subtitle preview (Step 12c) renders above
             # this section, so it reads the style from here via session state.
-            st.session_state[f"sub_style_current_{picked_id}"] = {
-                "style": _sub_style, "speaker_colors": _speaker_colors,
-                "speaker_names": _speaker_names, "wrap_chars": _wrap_chars}
+            _style_now = st.session_state[f"sub_style_current_{picked_id}"]
+            _sub_style, _speaker_colors = _style_now["style"], _style_now["speaker_colors"]
 
             def _subtitle_text(field):
                 if _sub_format == "VTT":
                     return subtitle_formats.lines_to_vtt(_export_lines, field, _notes_by_idx, _wrap_chars)
                 if _sub_format == "ASS":
+                    # Read at call time, not from _sub_style: the download
+                    # buttons below call this on click, which can come after
+                    # a fragment-only rerun of the style controls.
                     return subtitle_formats.lines_to_ass(
-                        _export_lines, _sub_style, field, _notes_by_idx,
-                        speaker_colors=_speaker_colors, speaker_names=_speaker_names,
+                        _export_lines, _style_now["style"], field, _notes_by_idx,
+                        speaker_colors=_style_now["speaker_colors"], speaker_names=_speaker_names,
                         wrap_chars=_wrap_chars, title=drama.get("title_en") or drama.get("title_zh") or "",
                         notes_as_separate_line=_notes_as_separate_line)
                 _src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
@@ -5338,11 +5354,11 @@ def render_workspace_tab():
 
             _ext = _sub_format.lower()
             c1, c2, c3 = st.columns(3)
-            c1.download_button(f"Download English .{_ext}", _subtitle_text("en"),
+            c1.download_button(f"Download English .{_ext}", lambda: _subtitle_text("en"),
                                 file_name=f"{_base_name}_english.{_ext}", disabled=(_en_filled == 0))
-            c2.download_button(f"Download Chinese .{_ext}", _subtitle_text("zh"),
+            c2.download_button(f"Download Chinese .{_ext}", lambda: _subtitle_text("zh"),
                                 file_name=f"{_base_name}_chinese.{_ext}", disabled=(_zh_filled == 0))
-            c3.download_button(f"Download Bilingual .{_ext}", _subtitle_text("bilingual"),
+            c3.download_button(f"Download Bilingual .{_ext}", lambda: _subtitle_text("bilingual"),
                                 file_name=f"{_base_name}_bilingual.{_ext}",
                                 disabled=(_zh_filled == 0 and _en_filled == 0))
 
@@ -5410,7 +5426,7 @@ def render_workspace_tab():
 
                 st.download_button(
                     f"📄 Download the matching .{_ext} subtitle file",
-                    _subtitle_text(_field_for[sub_language]),
+                    lambda: _subtitle_text(_field_for[sub_language]),
                     file_name=f"{_base_name}_subtitled_{sub_language.lower()}.{_ext}",
                     help="The exact subtitle content this video would use (same format, style "
                          "and language selected here) -- as its own file, without having to "

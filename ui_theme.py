@@ -34,6 +34,24 @@ STATUS_COLORS = {
 }
 
 
+# Step 12: a type scale for the tabs that aren't being rebuilt by the
+# redesign steps (Library, Scanlate, Live). 16px body and a ~1.25 ratio
+# between steps: caption -> body/sub-label -> tab heading. Scoped to
+# those tabs via type_scale_scope() for now; Step 13 applies the same
+# figures app-wide.
+TYPE_SCALE = {"caption": "0.875rem", "body": "1rem", "heading": "1.25rem"}
+
+
+def type_scale_scope():
+    """Opts the current tab into TYPE_SCALE. Drops an invisible marker the
+    stylesheet keys on with :has(), since a Streamlit tab panel has no
+    per-tab class of its own to target. st.html, not st.markdown: an
+    empty-looking markdown block is rendered as a placeholder and the
+    span never reaches the page."""
+    import streamlit as st
+    st.html('<span class="bh-typescale"></span>')
+
+
 DARK = {
     "bg": "#16161A", "surface": "#1E1E24", "ink": "#E8E8EC",
     "muted": "#9A9AA4", "border": "#2E2E36",
@@ -220,6 +238,18 @@ def inject_css():
       }}
       .bh-stage-done {{ background: {ACCENT_SOFT}; color: {ACCENT}; border-color: {ACCENT_SOFT}; }}
       .bh-stage-current {{ background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600; }}
+
+      /* --- type scale, for tabs that opt in via type_scale_scope() ---- */
+      div[data-testid="stElementContainer"]:has(.bh-typescale) {{ display: none; }}
+      [role="tabpanel"]:has(.bh-typescale) h3 {{
+          font-size: {TYPE_SCALE['heading']} !important; font-weight: 620 !important; }}
+      [role="tabpanel"]:has(.bh-typescale) p,
+      [role="tabpanel"]:has(.bh-typescale) li,
+      [role="tabpanel"]:has(.bh-typescale) div[data-testid="stExpander"] summary {{
+          font-size: {TYPE_SCALE['body']}; }}
+      [role="tabpanel"]:has(.bh-typescale) [data-testid="stCaptionContainer"],
+      [role="tabpanel"]:has(.bh-typescale) [data-testid="stCaptionContainer"] p {{
+          font-size: {TYPE_SCALE['caption']}; }}
     </style>
     """, unsafe_allow_html=True)
 

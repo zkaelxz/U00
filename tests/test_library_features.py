@@ -833,7 +833,7 @@ class TestLibrarySectionsAreCollapsible:
     def test_every_top_level_section_is_an_expander(self, isolated_db):
         at = self._run()
         labels = {e.label for e in at.expander}
-        for label in ("📊 Dashboard", "🎭 Series", "🔍 Search across all dramas", "Filter",
+        for label in ("📊 Dashboard", "🎭 Series", "🔍 Search across all dramas", "📚 All dramas",
                       "🗄️ Storage", "📜 Reading history", "💾 Backup & restore", "🎛️ Presets"):
             assert label in labels, f"missing expander: {label}"
 
@@ -842,7 +842,7 @@ class TestLibrarySectionsAreCollapsible:
         by_label = {e.label: e for e in at.expander}
         assert by_label["📊 Dashboard"].proto.expanded is True
         assert by_label["🔍 Search across all dramas"].proto.expanded is True
-        assert by_label["Filter"].proto.expanded is True
+        assert by_label["📚 All dramas"].proto.expanded is True
 
     def test_series_and_the_rest_default_collapsed(self, isolated_db):
         at = self._run()
