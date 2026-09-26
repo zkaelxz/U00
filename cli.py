@@ -47,6 +47,7 @@ from core import (
 )
 import translate_engines
 import translation_guide as tguide
+import bulk_translate
 import raw_transcript
 import dub as dub_module
 
@@ -305,7 +306,13 @@ def cmd_translate(args):
             cost_cap_usd=cost_cap,
             cap_cb=lambda spent: cap_reached.update(spent=spent),
         )
-        db.update_drama(d["id"], status="translated", translation_engine=args.engine)
+        # Same post-translate steps as the Workspace Translate job (Step 25c):
+        # enforce_exact glossary terms, density flags, a saved version,
+        # persisted batch errors -- and "translated" only once no line is
+        # left, so the retry suggested below (default --status aligned)
+        # still finds this drama.
+        bulk_translate.finish_translation_run(
+            d["id"], lines, engine, args.engine, args.style_preset, glossary_terms, batch_errors)
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")
@@ -331,6 +338,8 @@ def cmd_dub(args):
 
         chars = db.list_characters(d["id"])
         voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
+        offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
+                             if c.get("offline_voice")}
         clone_map = dub_module.clone_map_from_characters(
             chars, ddir, gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
             ref_language=d.get("source_language") or "zh")
@@ -346,7 +355,7 @@ def cmd_dub(args):
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
         out_path, dub_errors = build_fn(
             lines, ddir, voice_map, character_clone_map=clone_map,
-            emotion_map=db.load_emotions(d["id"]),
+            emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
             **stretch,
         )

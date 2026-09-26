@@ -3253,7 +3253,7 @@ class TestDubGenerationRealMidRunStop:
         background_jobs.clear_job(job_id)
         background_jobs.start_process_job(
             job_id, dub_module.build_track_subprocess_worker,
-            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85),
+            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85, None),
             gpu_touching=False)
 
         at = self._run(did)
@@ -3284,7 +3284,8 @@ class TestDubGenerationRealMidRunStop:
             f.write(b"x")
 
         def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
-                        is_narration, emotion_map, max_speedup, max_slowdown, result_queue):
+                        is_narration, emotion_map, max_speedup, max_slowdown, offline_voice_map,
+                        result_queue):
             lines[0].dub_filename = "dub_clips/line_0000.wav"
             result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
         monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)
@@ -4624,6 +4625,74 @@ class TestMergeAndRestoreStaleIdSetSafety:
         assert [l.zh for l in after] == ["你", "好"]
 
 
+class TestRestoreAndActivateKeepSpeakerCorrections:
+    """Step 25c item 2: neither saved format recorded speaker_manual, so a
+    Restore/Activate reset a hand-corrected speaker; Activate also lacked
+    Restore's id-set guard. Both now share one restore path."""
+
+    _drama_with_two_mergeable_lines = TestMergeAndRestoreStaleIdSetSafety._drama_with_two_mergeable_lines
+    _run = TestMergeAndRestoreStaleIdSetSafety._run
+    _click = TestMergeAndRestoreStaleIdSetSafety._click
+
+    def _drama_with_a_corrected_speaker(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        lines[0].speaker, lines[0].speaker_manual = "Hero", True
+        isolated_db.save_lines(did, lines)
+        return did
+
+    def test_speaker_correction_survives_a_history_restore(self, isolated_db):
+        did = self._drama_with_a_corrected_speaker(isolated_db)
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "snap")
+        edited = isolated_db.load_line_objects(did)
+        edited[0].en = "changed later"
+        isolated_db.save_lines(did, edited)
+        at = self._run(did)
+
+        snap = [h for h in isolated_db.list_line_history(did) if h["label"] == "snap"][0]
+        self._click(at, key=f"restore_{snap['id']}")
+
+        assert not any(e for e in at.error)
+        first = isolated_db.load_line_objects(did)[0]
+        assert (first.en, first.speaker, first.speaker_manual) == ("You", "Hero", True)
+
+    def test_speaker_correction_survives_activating_a_translation_version(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v1")
+        isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v2",
+                                             make_active=True)
+        # Corrected after both versions were saved, along with a retranslation.
+        lines = isolated_db.load_line_objects(did)
+        lines[0].speaker, lines[0].speaker_manual, lines[0].en = "Hero", True, "Hey you"
+        isolated_db.save_lines(did, lines)
+        at = self._run(did)
+
+        self._click(at, key=f"actv_{vid}")
+
+        assert not any(e for e in at.error)
+        first = isolated_db.load_line_objects(did)[0]
+        assert (first.en, first.speaker, first.speaker_manual) == ("You", "Hero", True)
+        assert [v["is_active"] for v in isolated_db.list_translation_versions(did)
+                if v["id"] == vid] == [1]
+
+    def test_activate_refuses_when_the_database_changed_since_lines_were_loaded(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v1")
+        at = self._run(did)
+
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=2, start=2.0, end=3.0, zh="新的一行。"))
+        isolated_db.save_lines(did, lines)
+        before = isolated_db.load_line_objects(did)
+
+        self._click(at, key=f"actv_{vid}")
+
+        assert any("changed since they were last loaded" in e.value for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [(l.id, l.zh, l.en) for l in after] == [(l.id, l.zh, l.en) for l in before]
+        assert [v["is_active"] for v in isolated_db.list_translation_versions(did)] == [0]
+
+
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:
     """Step 1d: DeepL/Google/NLLB/LibreTranslate can't run the LLM-only
     features (consistency check, flagging, emotion detection, notes,
@@ -5086,6 +5155,31 @@ class TestNarrationVoiceSetup:
         assert emotion_map[0]["emotion"] == "sad"
         assert started["gpu_touching"] is True
 
+    def test_offline_voice_is_its_own_setting_and_reaches_dub_generation(self, isolated_db, monkeypatch):
+        """Step 25c item 1: first render saves no edge-tts default, and the
+        offline engine gets the character's Piper voice, not tts_voice."""
+        did = self._drama(isolated_db)
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), gpu_touching=False, description="":
+                            started.update(args=args) or True)
+
+        at = self._run(did)
+        [c] = db.list_characters(did)
+        assert c["tts_voice"] is None and c["offline_voice"] is None
+        [offline] = [s for s in at.selectbox if s.key == f"coffline_{did}_Hero"]
+        assert offline.value == dub_module.DEFAULT_OFFLINE_VOICE_POOL[0]
+        offline.set_value("en_GB-alba-medium").run(timeout=30)
+        [c] = db.list_characters(did)
+        assert (c["tts_voice"], c["offline_voice"]) == (None, "en_GB-alba-medium")
+
+        [engine] = [r for r in at.radio if r.label.startswith("Fallback TTS engine")]
+        engine.set_value("offline").run(timeout=30)
+        [button] = [b for b in at.button if b.label == "🎙️ Generate narration track"]
+        button.click().run(timeout=30)
+        assert started["args"][5] == "offline"
+        assert started["args"][10] == {"Hero": "en_GB-alba-medium"}
+
     def test_m4b_export_needs_the_narration_then_exports_it(self, isolated_db, monkeypatch):
         did = self._drama(isolated_db)
         at = self._run(did)
@@ -5155,7 +5249,7 @@ class TestDubTimingAndRemovedCloneUI:
         speedup.set_value(1.2).run(timeout=30)
         [button] = [b for b in at.button if b.label == "🎙️ Generate dub track"]
         button.click().run(timeout=30)
-        assert started["args"][8:] == (1.2, dub_module.DUB_MAX_SLOWDOWN)
+        assert started["args"][8:10] == (1.2, dub_module.DUB_MAX_SLOWDOWN)
 
     def test_pacing_indicator_per_line(self, isolated_db):
         stretched = "dub_clips/line_0000_abc_x1.200.wav"
