@@ -180,29 +180,3 @@ def run_suite(cases: list, stage: str, **kwargs):
         result["case_id"] = case.get("id")
         results.append(result)
     return results
-
-
-def detect_regressions(previous_results: list, latest_results: list, threshold: float = 0.05):
-    """
-    Compares two runs of the SAME cases (matched by case_id) and flags any
-    case whose score dropped by more than `threshold` -- the actual
-    "don't accidentally make it worse" check. A case missing a score in
-    either run (no reference text, or it errored) is skipped, not treated
-    as a regression -- there's nothing comparable to flag.
-
-    Returns a list of {"case_id", "previous_score", "latest_score", "drop"}
-    for every case that got meaningfully worse, worst drop first.
-    """
-    previous_by_id = {r["case_id"]: r for r in previous_results if r.get("score") is not None}
-    regressions = []
-    for latest in latest_results:
-        case_id = latest.get("case_id")
-        prev = previous_by_id.get(case_id)
-        if prev is None or latest.get("score") is None:
-            continue
-        drop = prev["score"] - latest["score"]
-        if drop > threshold:
-            regressions.append({"case_id": case_id, "previous_score": prev["score"],
-                                "latest_score": latest["score"], "drop": drop})
-    regressions.sort(key=lambda r: -r["drop"])
-    return regressions

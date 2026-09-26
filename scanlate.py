@@ -1123,26 +1123,6 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
     return slices
 
 
-def save_webtoon_slices(image_path: str, out_dir: str, target_height: int = 1600,
-                         overlap: int = 100):
-    """Writes the slices from split_webtoon_strip() to disk. Returns a
-    list of {"path", "y_start", "y_end", "index"}."""
-    import cv2
-    import os as _os
-
-    _os.makedirs(out_dir, exist_ok=True)
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError(f"Could not read image: {image_path}")
-    out = []
-    for s in split_webtoon_strip(image_path, target_height, overlap):
-        crop = img[s["y_start"]:s["y_end"], :]
-        p = _os.path.join(out_dir, f"strip_{s['index']:04d}.png")
-        cv2.imwrite(p, crop)
-        out.append({"path": p, **s})
-    return out
-
-
 # ---------------------------------------------------------------------------
 # Text region classification: bubbles vs signs vs SFX
 # ---------------------------------------------------------------------------
@@ -1171,7 +1151,6 @@ def classify_text_regions(image_path: str, boxes):
     silently.
     """
     import cv2
-    import numpy as np
 
     img = cv2.imread(image_path)
     if img is None:
@@ -1424,25 +1403,27 @@ def pages_to_pdf(image_paths: list, out_path: str) -> str:
 # Bulk find-and-replace across a drama's saved bubble text (Step 11 item 9)
 # ---------------------------------------------------------------------------
 
-def bulk_find_replace_preview(bubbles: list, find: str, replace: str,
+def bulk_find_replace_preview(items: list, find: str, replace: str, text_field: str = "translated_text",
                                case_sensitive: bool = False, use_regex: bool = False) -> list:
     """
     Previews a bulk find-and-replace across an already-translated
-    project's bubble text before anything is applied -- same "don't
-    silently overwrite" pattern used everywhere else in this app.
-    Distinct from the glossary (shapes *future* translations) and
-    translation memory (*suggests* reuse going forward): this
-    retroactively corrects text already saved across many pages at once
-    (a name translated inconsistently before a glossary entry existed,
-    a typo that repeats).
+    project's text before anything is applied -- same "don't silently
+    overwrite" pattern used everywhere else in this app. Distinct from
+    the glossary (shapes *future* translations) and translation memory
+    (*suggests* reuse going forward): this retroactively corrects text
+    already saved across many rows at once (a name translated
+    inconsistently before a glossary entry existed, a typo that repeats).
 
-    bubbles: dicts with at least "id" and "translated_text" (matches
-    db.list_bubbles_for_drama()'s shape). Returns only the bubbles that
-    actually change, each as {"id", "page_idx", "old_text", "new_text"}.
+    items: dicts carrying whatever identifying fields the caller needs
+    (Scanlate: "id"/"page_idx" from db.list_bubbles_for_drama(); Step 23c
+    item 2's novel/workspace lines: "idx", or "id" once Line rows are
+    saved) plus text_field itself -- "translated_text" for a Scanlate
+    bubble (the default, unchanged from before this parameter existed),
+    "en" for a drama's translated lines. Returns only the items that
+    actually change, each as the original dict plus "old_text"/"new_text".
     Nothing here touches the database -- the caller applies each match
-    by id (db.update_bubble_text()) only after the person reviews this
-    list, and only translated_text changes; x/y/w/h/source_text/skip/
-    font fields are never touched by this path.
+    (by whichever id field it needs) only after the person reviews this
+    list.
     """
     import re
 
@@ -1456,16 +1437,16 @@ def bulk_find_replace_preview(bubbles: list, find: str, replace: str,
         raise ValueError(f"Invalid find pattern: {exc}") from exc
 
     matches = []
-    for b in bubbles:
-        old_text = b.get("translated_text") or ""
+    for item in items:
+        old_text = item.get(text_field) or ""
         if not compiled.search(old_text):
             continue
         new_text = compiled.sub(replace, old_text)
         if new_text != old_text:
-            matches.append({
-                "id": b["id"], "page_idx": b.get("page_idx"),
-                "old_text": old_text, "new_text": new_text,
-            })
+            match = dict(item)
+            match["old_text"] = old_text
+            match["new_text"] = new_text
+            matches.append(match)
     return matches
 
 

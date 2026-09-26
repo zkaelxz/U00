@@ -24,10 +24,6 @@ copy the URL of anything interesting, and use `import_title_from_url()`
 on it instead. That fallback path always works regardless of the API.
 """
 
-import re
-import json
-
-
 def translate_query_to_zh(query: str, engine) -> str:
     """Translates a search query into Chinese so it can be matched
     against a Chinese-language catalog. Returns the query unchanged if

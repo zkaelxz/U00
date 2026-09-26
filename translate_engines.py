@@ -1527,26 +1527,6 @@ ENGINES = {
 # fallback used to do the same before Step 1d made it raise instead).
 TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
 
-# Every other engine (Claude, DeepSeek, Gemini, Ollama, and Test mode)
-# is a real LLM (or a stand-in for one) and can run every feature below,
-# via call_llm_json or its own translate_batch/dispatch.
-LLM_CAPABLE_ENGINES = set(ENGINES.keys()) - TRANSLATION_ONLY_ENGINES
-
-# One small table: feature -> which engines can actually run it. Kept
-# here (not inferred purely from TRANSLATION_ONLY_ENGINES) so a future
-# engine that supports translation but not, say, Q&A has somewhere to
-# say so explicitly instead of being silently assumed capable.
-FEATURE_SUPPORTED_ENGINES = {
-    "translate": set(ENGINES.keys()),
-    "flag_review": LLM_CAPABLE_ENGINES,
-    "consistency_check": LLM_CAPABLE_ENGINES,
-    "emotion_detect": LLM_CAPABLE_ENGINES,
-    "translation_notes": LLM_CAPABLE_ENGINES,
-    "speaker_tagging": LLM_CAPABLE_ENGINES,
-    "pacing_rewrite": LLM_CAPABLE_ENGINES,
-    "qa": LLM_CAPABLE_ENGINES,
-}
-
 # Engines that are free to use every time, no conditions attached.
 # Gemini isn't here -- it uses the same engine/API for free and paid
 # keys, so whether a given run is "free" depends on the per-session

@@ -205,7 +205,6 @@ def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,
     Uses soundfile (not torchaudio) for the plain-WAV reads/writes here,
     same reasoning as Step 4c: no compiled-per-FFmpeg-version DLLs.
     """
-    import numpy as np
     import soundfile as sf
 
     info = sf.info(audio_path)

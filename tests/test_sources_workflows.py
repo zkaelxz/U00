@@ -325,13 +325,80 @@ class TestFrontDoor:
             return path
         monkeypatch.setattr(video_download, "download", fake_download)
         drama_id = isolated_db.create_drama(media_type="streamer_vod")
-        url = "https://www.bilibili.com/video/BV1xx411c7mD"
+        # A video URL with no dedicated adapter (unlike Bilibili as of Step
+        # 23d, which now routes through BilibiliSource -- see
+        # TestBilibiliRouting below) still falls through to this same
+        # generic yt-dlp path, unchanged.
+        url = "https://www.youtube.com/watch?v=abc123def45"
         assert front_door.preview(url).content_type == front_door.VIDEO
         front_door.import_video(url, drama_id)
         assert calls == [(url, isolated_db.drama_dir(drama_id), True)]
         d = isolated_db.get_drama(drama_id)
         assert d["audio_filename"] == "downloaded_audio.wav" and d["source_url"] == url
         assert d["title_zh"] == "A stream title"
+
+
+class TestBilibiliRouting:
+    """Step 23d: a Bilibili URL now routes through the real BilibiliSource
+    adapter instead of the generic video_download.download path."""
+
+    def _fake_ydl_factory(self, info):
+        import os as _os
+
+        class FakeYDL:
+            def __init__(self, opts):
+                self.opts = opts
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                if download:
+                    path = self.opts["outtmpl"].replace("%(ext)s", info.get("ext", "mp4"))
+                    _os.makedirs(_os.path.dirname(path), exist_ok=True)
+                    with open(path, "wb") as f:
+                        f.write(b"fake")
+                return info
+        return lambda opts: FakeYDL(opts)
+
+    def test_preview_shows_metadata_via_the_adapter_not_the_generic_video_branch(self, monkeypatch):
+        from sources.adapters.bilibili import BilibiliSource
+        info = {"id": "BV1xx411c7mD", "title": "A Real Bilibili Video",
+               "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+               "duration": 60, "formats": []}
+        monkeypatch.setattr(BilibiliSource, "_real_ydl_factory",
+                            staticmethod(self._fake_ydl_factory(info)))
+        p = front_door.preview("https://www.bilibili.com/video/BV1xx411c7mD")
+        assert p.content_type == front_door.VIDEO
+        assert p.adapter == "bilibili"
+        assert p.title == "A Real Bilibili Video"
+
+    def test_import_video_uses_the_adapters_download_not_the_generic_path(self, isolated_db, monkeypatch):
+        import video_download
+        from sources.adapters.bilibili import BilibiliSource
+
+        generic_calls = []
+        monkeypatch.setattr(video_download, "download",
+                            lambda *a, **k: generic_calls.append(1) or "/should/not/be/used")
+
+        info = {"id": "BV1xx411c7mD", "title": "A Real Bilibili Video",
+               "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+               "duration": 60, "formats": [], "ext": "wav"}
+        monkeypatch.setattr(BilibiliSource, "_real_ydl_factory",
+                            staticmethod(self._fake_ydl_factory(info)))
+
+        drama_id = isolated_db.create_drama(media_type="streamer_vod")
+        url = "https://www.bilibili.com/video/BV1xx411c7mD"
+        path = front_door.import_video(url, drama_id)
+
+        assert generic_calls == []
+        assert os.path.exists(path)
+        d = isolated_db.get_drama(drama_id)
+        assert d["source_url"] == url
+        assert d["title_zh"] == "A Real Bilibili Video"
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +489,51 @@ class TestChapterImport:
                                 adapter=adapter)
         result = background_jobs.get_status(job)["result"]
         assert result["cancelled"] and len(t.calls) == 1
+        background_jobs.clear_job(job)
+
+    def test_a_real_text_source_lands_in_the_novel_import_path_unchanged(self, isolated_db):
+        """Step 23e's own manual-check pattern, run as a real automated
+        test instead: a text-content adapter's get_chapter_text() output
+        reaches Workspace's existing raw-novel file with no pipeline
+        changes needed -- the run_import_job "else" branch (as opposed to
+        the get_pages() branch every other test in this class exercises)
+        had no direct test coverage before this."""
+        import importlib
+        fifty2shuku = importlib.import_module("sources.adapters.52shuku")
+
+        toc_page = ("<html><head><title>A Novel - 52shuku</title></head><body>"
+                   "<ul class='list clearfix'>"
+                   "<li class='mulu'><a href='/x/b/1_1.html'>Chapter One</a></li>"
+                   "</ul></body></html>")
+        chapter_page = ("<html><body><article class='article-content'>"
+                       "<div class='book_con fix' id='text'>"
+                       "<p>Some imported chapter text.</p></div></article></body></html>")
+        base = fifty2shuku.BASE_URL
+        clock = FakeClock()
+        t = ScriptedTransport({f"{base}/x/b/1.html": html(toc_page),
+                              f"{base}/x/b/1_1.html": html(chapter_page)}, clock)
+        client = make_client("52shuku", t, clock)
+        adapter = fifty2shuku.FiftyTwoShukuSource(client=client)
+        chapters = adapter.get_chapters("x/b/1.html")
+
+        drama_id = isolated_db.create_drama(title_en="Imported Novel", media_type="novel",
+                                            content_mode="novel_narration")
+        import background_jobs
+        job = "source_import_text_test"
+        background_jobs.clear_job(job)
+        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                      "cancel_requested": False, "result": None}
+        pipeline.run_import_job(job, "52shuku", chapters, drama_id, adapter=adapter)
+
+        result = background_jobs.get_status(job)["result"]
+        assert result["chapters"] == [{"chapter_id": "1", "title": "Chapter One",
+                                       "ok": True, "chars": len("Some imported chapter text.")}]
+        saved_path = os.path.join(isolated_db.drama_dir(drama_id), pipeline.RAW_NOVEL_FILENAME)
+        assert os.path.exists(saved_path)
+        with open(saved_path, encoding="utf-8") as f:
+            saved_text = f.read()
+        assert "Some imported chapter text." in saved_text
+        assert "Chapter One" in saved_text  # the heading save_novel_text prepends
         background_jobs.clear_job(job)
 
     def test_demo_source_pages_land_as_ordinary_scanlate_pages(self, isolated_db):

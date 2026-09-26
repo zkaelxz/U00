@@ -14,7 +14,6 @@ def render_discover_tab():
         "(title, author, tags, a short synopsis), not the actual works. Search in any language; "
         "results keep both the original title and an English rendering."
     )
-    import title_library
 
     existing_count = len(db.list_known_titles())
     if existing_count == 0:
