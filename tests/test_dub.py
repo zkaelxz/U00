@@ -690,7 +690,7 @@ class TestHostedCloningRemoved:
     character that was cloned with it."""
 
     ALLOWED = ("elevenlabs_voice_id", "previously cloned via ElevenLabs")
-    SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules"}
+    SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules", ".claude"}
 
     def test_no_references_remain(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
