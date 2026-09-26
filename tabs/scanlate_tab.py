@@ -5,6 +5,7 @@ from common import *
 
 
 def render_scanlate_tab():
+    ui_theme.type_scale_scope()
     st.subheader("Manga/comic typesetting")
     st.caption(
         "Hybrid workflow: auto-detect speech bubbles, clean the original text, "
@@ -212,7 +213,7 @@ def render_scanlate_tab():
             bubbles = db.load_bubbles(page["id"])
             if bubbles:
                 import scanlate
-                st.subheader("Review & adjust bubbles")
+                st.markdown("**Review & adjust bubbles**")
                 edited_bubbles = []
                 for b in bubbles:
                     with st.container(border=True):
@@ -433,7 +434,7 @@ def render_scanlate_tab():
                     db.save_bubbles(page["id"], edited_bubbles)
                     st.success("Saved.")
 
-                st.subheader("Preview / render")
+                st.markdown("**Preview / render**")
                 st.image(page_path, caption="Original", width=350)
                 if st.button("🎨 Render typeset page"):
                     import scanlate
@@ -474,94 +475,92 @@ def render_scanlate_tab():
                                              "BalloonsTranslator's font-detection export -- a "
                                              "reviewable record of what this page rendered with.")
 
-        st.divider()
-        st.subheader("📦 Bulk render all pages")
-        st.caption("Renders every page that has saved bubbles and zips the result -- for a whole "
-                  "chapter at once instead of one page at a time.")
-        if st.button("🎨 Render all pages + download ZIP"):
-            to_render = []
-            for p in pages:
-                p_bubbles = db.load_bubbles(p["id"])
-                if p_bubbles:
-                    p_path = os.path.join(sc_ddir, p["filename"])
-                    out_name = f"typeset_{p['idx']:04d}.png"
-                    to_render.append((p_path, p_bubbles, out_name))
-            if not to_render:
-                st.warning("No pages have saved bubbles yet -- detect/save at least one page first.")
-            else:
-                import scanlate
-                _bulk_fonts_dir = os.path.join(sc_ddir, "fonts")
-                _bulk_custom_fonts = {
-                    cat: os.path.join(_bulk_fonts_dir, f"{cat}.ttf")
-                    for cat in scanlate.FONT_CATEGORIES
-                    if os.path.exists(os.path.join(_bulk_fonts_dir, f"{cat}.ttf"))
-                }
-                with st.spinner(f"Rendering {len(to_render)} page(s)..."):
-                    zip_path, render_errors, blank_report = scanlate.bulk_render_pages(
-                        to_render, os.path.join(sc_ddir, "pages"), custom_fonts=_bulk_custom_fonts)
-                if render_errors:
-                    st.warning(f"{len(render_errors)} page(s) failed to render: "
-                              f"{[e['file'] for e in render_errors]}")
-                if blank_report:
-                    total_blank = sum(blank_report.values())
-                    st.warning(
-                        f"{total_blank} bubble(s) across {len(blank_report)} page(s) had no "
-                        f"translated text and were left as the original rather than blanked out -- "
-                        f"usually a sign bubble detection found the wrong region on those pages. "
-                        f"Affected: {', '.join(f'{f} ({n})' for f, n in blank_report.items())}")
-                with open(zip_path, "rb") as f:
-                    st.download_button(f"Download {len(to_render) - len(render_errors)} typeset pages (.zip)",
-                                        f.read(), file_name="typeset_pages.zip")
-                rendered_paths = [os.path.join(sc_ddir, "pages", name) for _, _, name in to_render
-                                  if os.path.exists(os.path.join(sc_ddir, "pages", name))]
-                if rendered_paths:
+        with st.expander("📦 Bulk render all pages", expanded=False):
+            st.caption("Renders every page that has saved bubbles and zips the result -- for a whole "
+                      "chapter at once instead of one page at a time.")
+            if st.button("🎨 Render all pages + download ZIP"):
+                to_render = []
+                for p in pages:
+                    p_bubbles = db.load_bubbles(p["id"])
+                    if p_bubbles:
+                        p_path = os.path.join(sc_ddir, p["filename"])
+                        out_name = f"typeset_{p['idx']:04d}.png"
+                        to_render.append((p_path, p_bubbles, out_name))
+                if not to_render:
+                    st.warning("No pages have saved bubbles yet -- detect/save at least one page first.")
+                else:
                     import scanlate
-                    pdf_path = os.path.join(sc_ddir, "pages", "typeset_pages.pdf")
-                    scanlate.pages_to_pdf(rendered_paths, pdf_path)
-                    with open(pdf_path, "rb") as f:
-                        st.download_button(f"Download {len(rendered_paths)} typeset pages (.pdf)",
-                                            f.read(), file_name="typeset_pages.pdf")
+                    _bulk_fonts_dir = os.path.join(sc_ddir, "fonts")
+                    _bulk_custom_fonts = {
+                        cat: os.path.join(_bulk_fonts_dir, f"{cat}.ttf")
+                        for cat in scanlate.FONT_CATEGORIES
+                        if os.path.exists(os.path.join(_bulk_fonts_dir, f"{cat}.ttf"))
+                    }
+                    with st.spinner(f"Rendering {len(to_render)} page(s)..."):
+                        zip_path, render_errors, blank_report = scanlate.bulk_render_pages(
+                            to_render, os.path.join(sc_ddir, "pages"), custom_fonts=_bulk_custom_fonts)
+                    if render_errors:
+                        st.warning(f"{len(render_errors)} page(s) failed to render: "
+                                  f"{[e['file'] for e in render_errors]}")
+                    if blank_report:
+                        total_blank = sum(blank_report.values())
+                        st.warning(
+                            f"{total_blank} bubble(s) across {len(blank_report)} page(s) had no "
+                            f"translated text and were left as the original rather than blanked out -- "
+                            f"usually a sign bubble detection found the wrong region on those pages. "
+                            f"Affected: {', '.join(f'{f} ({n})' for f, n in blank_report.items())}")
+                    with open(zip_path, "rb") as f:
+                        st.download_button(f"Download {len(to_render) - len(render_errors)} typeset pages (.zip)",
+                                            f.read(), file_name="typeset_pages.zip")
+                    rendered_paths = [os.path.join(sc_ddir, "pages", name) for _, _, name in to_render
+                                      if os.path.exists(os.path.join(sc_ddir, "pages", name))]
+                    if rendered_paths:
+                        import scanlate
+                        pdf_path = os.path.join(sc_ddir, "pages", "typeset_pages.pdf")
+                        scanlate.pages_to_pdf(rendered_paths, pdf_path)
+                        with open(pdf_path, "rb") as f:
+                            st.download_button(f"Download {len(rendered_paths)} typeset pages (.pdf)",
+                                                f.read(), file_name="typeset_pages.pdf")
 
-        st.divider()
-        st.subheader("🔎 Bulk find & replace")
-        st.caption(
-            "Retroactively corrects already-translated bubble text across every saved page of "
-            "this drama at once -- a name translated inconsistently before a glossary entry "
-            "existed, or a typo that repeats. Distinct from the glossary (shapes future "
-            "translations) and from translation memory (suggests reuse going forward). Every "
-            "match is shown before anything is applied."
-        )
-        fr1, fr2 = st.columns(2)
-        fr_find = fr1.text_input("Find", key="sc_fr_find")
-        fr_replace = fr2.text_input("Replace with", key="sc_fr_replace")
-        fr3, fr4 = st.columns(2)
-        fr_case_sensitive = fr3.checkbox("Case-sensitive", value=False, key="sc_fr_case")
-        fr_regex = fr4.checkbox("Regex", value=False, key="sc_fr_regex")
-        if st.button("🔍 Preview matches"):
-            import scanlate
-            if not fr_find:
-                st.warning("Enter something to find first.")
-            else:
-                try:
-                    matches = scanlate.bulk_find_replace_preview(
-                        db.list_bubbles_for_drama(sc_drama["id"]), fr_find, fr_replace,
-                        case_sensitive=fr_case_sensitive, use_regex=fr_regex)
-                except ValueError as e:
-                    matches = None
-                    st.error(str(e))
-                if matches is not None:
-                    st.session_state["sc_fr_matches"] = matches
-                    if not matches:
-                        st.info("No matches found.")
-                    else:
-                        st.write(f"{len(matches)} match(es):")
-                        st.table([{"Page": m["page_idx"] + 1, "Before": m["old_text"],
-                                   "After": m["new_text"]} for m in matches])
-        _fr_matches = st.session_state.get("sc_fr_matches") or []
-        if _fr_matches and st.button(f"✅ Apply {len(_fr_matches)} change(s)"):
-            for m in _fr_matches:
-                db.update_bubble_text(m["id"], m["new_text"])
-            st.session_state["sc_fr_matches"] = []
-            st.success(f"Applied {len(_fr_matches)} change(s). Re-render affected pages to see "
-                       f"them in the typeset output.")
+        with st.expander("🔎 Bulk find & replace", expanded=False):
+            st.caption(
+                "Retroactively corrects already-translated bubble text across every saved page of "
+                "this drama at once -- a name translated inconsistently before a glossary entry "
+                "existed, or a typo that repeats. Distinct from the glossary (shapes future "
+                "translations) and from translation memory (suggests reuse going forward). Every "
+                "match is shown before anything is applied."
+            )
+            fr1, fr2 = st.columns(2)
+            fr_find = fr1.text_input("Find", key="sc_fr_find")
+            fr_replace = fr2.text_input("Replace with", key="sc_fr_replace")
+            fr3, fr4 = st.columns(2)
+            fr_case_sensitive = fr3.checkbox("Case-sensitive", value=False, key="sc_fr_case")
+            fr_regex = fr4.checkbox("Regex", value=False, key="sc_fr_regex")
+            if st.button("🔍 Preview matches"):
+                import scanlate
+                if not fr_find:
+                    st.warning("Enter something to find first.")
+                else:
+                    try:
+                        matches = scanlate.bulk_find_replace_preview(
+                            db.list_bubbles_for_drama(sc_drama["id"]), fr_find, fr_replace,
+                            case_sensitive=fr_case_sensitive, use_regex=fr_regex)
+                    except ValueError as e:
+                        matches = None
+                        st.error(str(e))
+                    if matches is not None:
+                        st.session_state["sc_fr_matches"] = matches
+                        if not matches:
+                            st.info("No matches found.")
+                        else:
+                            st.write(f"{len(matches)} match(es):")
+                            st.table([{"Page": m["page_idx"] + 1, "Before": m["old_text"],
+                                       "After": m["new_text"]} for m in matches])
+            _fr_matches = st.session_state.get("sc_fr_matches") or []
+            if _fr_matches and st.button(f"✅ Apply {len(_fr_matches)} change(s)"):
+                for m in _fr_matches:
+                    db.update_bubble_text(m["id"], m["new_text"])
+                st.session_state["sc_fr_matches"] = []
+                st.success(f"Applied {len(_fr_matches)} change(s). Re-render affected pages to see "
+                           f"them in the typeset output.")
 

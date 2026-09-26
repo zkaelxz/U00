@@ -22,6 +22,7 @@ _JOB_ID = "live_capture"
 
 
 def render_live_tab():
+    ui_theme.type_scale_scope()
     st.subheader("🔴 Live (experimental)")
     st.caption(
         "Near-live translation of an ongoing stream, for watching along in "
@@ -142,7 +143,7 @@ def render_live_tab():
             st.rerun()
     elif job["status"] == "error":
         st.error(f"Live capture stopped with an error: {job['error']}")
-        with st.expander("Details"):
+        with st.expander("Error details"):
             st.code(job.get("traceback", ""), language="text")
     elif job["status"] == "done" and cues:
         st.success("Stopped. Start a new session above, or copy lines from the feed first.")

@@ -4,6 +4,26 @@ define (now persisted for vocab export), click-to-seek audio, series
 glossary display, and in-app Q&A grounded in the drama's transcript.
 """
 from common import *
+import subtitle_formats
+
+
+def caption_tracks(lines):
+    """The CC tracks for the Watch / listen video player, as
+    {label: WebVTT text}. Only languages with at least one non-empty line
+    get a track -- an all-blank English track would just be an empty menu
+    entry -- and Bilingual only when both sides have something to pair.
+
+    WebVTT rather than SRT: Streamlit sniffs SRT from the first 33 bytes
+    and rejects it outright when that cut lands mid-way through a CJK
+    character, which a short first cue of Chinese text easily does."""
+    tracks = {}
+    if any(ln.zh.strip() for ln in lines):
+        tracks["Source"] = subtitle_formats.lines_to_vtt(lines, "zh")
+    if any(ln.en.strip() for ln in lines):
+        tracks["English"] = subtitle_formats.lines_to_vtt(lines, "en")
+    if len(tracks) == 2:
+        tracks["Bilingual"] = subtitle_formats.lines_to_vtt(lines, "bilingual")
+    return tracks
 
 
 def render_reader_tab():
@@ -61,7 +81,14 @@ def render_reader_tab():
             if media_path:
                 kind, p = media_path
                 st.caption("Original")
-                (st.video if kind == "video" else st.audio)(p)
+                if kind == "video":
+                    # Built from this page load's lines, not an export file,
+                    # so Workspace edits show up here without re-exporting.
+                    # st.audio has no subtitles parameter, so audio-only
+                    # dramas get the plain player.
+                    st.video(p, subtitles=caption_tracks(rlines) or None)
+                else:
+                    st.audio(p)
             if os.path.exists(dub_path):
                 st.caption("AI dub")
                 st.audio(dub_path)
