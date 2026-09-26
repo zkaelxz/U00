@@ -252,9 +252,3 @@ def render_settings_sidebar():
                      "small as 2-4k tokens and silently truncates a longer prompt with no "
                      "error -- a value set here can only raise the window above the "
                      "automatic estimate, never below it, so it can't reintroduce that bug.")
-
-
-def get_default(key: str, fallback: str = "") -> str:
-    """Reads a setting saved via the sidebar panel, e.g. get_default('claude')."""
-    import streamlit as st_module
-    return st_module.session_state.get(f"settings_{key}", fallback)

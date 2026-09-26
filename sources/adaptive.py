@@ -301,7 +301,7 @@ def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_h
     """The generic novel import with the Step 23g ladder. Returns
     (NovelImportResult, report); raises NoContentFound (with `.report`)."""
     report = ExtractionReport(url, "novel")
-    lr = generic_import.fetch_page(url, generic_import._client(client), rendered_fetch, user_html)
+    lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html)
     _note_access(report, lr)
     if lr.handoff:
         report.reason = f"Stopped at a browser verification page ({lr.handoff['reason']}) -- handed to you."
@@ -482,7 +482,7 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
     """The generic comic import with the Step 23g ladder. Returns
     (ComicImportResult, report); raises NoContentFound (with `.report`)."""
     report = ExtractionReport(url, "comic")
-    client = generic_import._client(client)
+    client = generic_import._client(client, url)
     lr = generic_import.fetch_page(url, client, rendered_fetch, user_html)
     _note_access(report, lr)
     out = ComicImportResult(page_url=url, ladder=lr)

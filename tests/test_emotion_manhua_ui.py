@@ -190,6 +190,56 @@ class TestWebtoonSlicing:
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+class TestWebtoonUpload:
+    """Step 25g item 3: Scanlate's own uploader slices a tall strip
+    when asked to, and leaves ordinary pages alone."""
+
+    class _Upload:
+        def __init__(self, name, path):
+            self.name = name
+            with open(path, "rb") as fh:
+                self._data = fh.read()
+
+        def getbuffer(self):
+            return memoryview(self._data)
+
+    def _add(self, isolated_db, img, slice_strips):
+        from tabs.scanlate_tab import add_uploaded_pages
+        did = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        pages_dir = os.path.join(isolated_db.drama_dir(did), "pages")
+        os.makedirs(pages_dir, exist_ok=True)
+        d = tempfile.mkdtemp()
+        try:
+            p = os.path.join(d, "条漫.png")
+            cv2.imencode(".png", img)[1].tofile(p)
+            added, _ = add_uploaded_pages(did, pages_dir, [self._Upload("条漫.png", p)],
+                                          slice_strips=slice_strips)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        return added, isolated_db.list_pages(did)
+
+    def test_tall_strip_is_sliced_into_pages(self, isolated_db):
+        strip = TestWebtoonSlicing()._strip
+        d = tempfile.mkdtemp()
+        try:
+            img = cv2.imread(strip(d, 5000))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+        added, pages = self._add(isolated_db, img, slice_strips=True)
+        assert added > 1 and len(pages) == added
+        assert all(p["width"] == 800 and p["height"] < 5000 for p in pages)
+
+    def test_strip_is_kept_whole_when_slicing_is_off(self, isolated_db):
+        img = np.full((5000, 800, 3), 255, dtype=np.uint8)
+        added, pages = self._add(isolated_db, img, slice_strips=False)
+        assert added == 1 and pages[0]["height"] == 5000
+
+    def test_ordinary_page_is_never_sliced(self, isolated_db):
+        img = np.full((2400, 1700, 3), 255, dtype=np.uint8)
+        added, _ = self._add(isolated_db, img, slice_strips=True)
+        assert added == 1
+
+
 class TestTextRegionClassification:
     def test_returns_valid_kind(self):
         d = tempfile.mkdtemp()

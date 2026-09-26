@@ -202,6 +202,31 @@ class TestAssignVoicesToCharacters:
         assert result["A"] == dub.DEFAULT_VOICE_POOL[0]
 
 
+class TestFillMissingVoices:
+    """Step 25g item 4: the fallback both `cli.py dub` and Workspace
+    section 8 use for characters with no voice picked."""
+
+    def test_unvoiced_speakers_get_distinct_voices(self):
+        result = dub.fill_missing_voices({}, {"A", "B"}, voice_pool=["v1", "v2", "v3"])
+        assert result == {"A": "v1", "B": "v2"}
+
+    def test_picked_voices_are_kept_and_not_reused_while_the_pool_allows(self):
+        result = dub.fill_missing_voices({"A": "v1"}, {"A", "B", "C"}, voice_pool=["v1", "v2", "v3"])
+        assert result == {"A": "v1", "B": "v2", "C": "v3"}
+
+    def test_falls_back_to_the_whole_pool_once_it_is_used_up(self):
+        result = dub.fill_missing_voices({"A": "v1"}, {"A", "B"}, voice_pool=["v1"])
+        assert result == {"A": "v1", "B": "v1"}
+
+    def test_workspace_dub_button_uses_it_for_both_engines(self):
+        import inspect
+        from tabs import workspace_tab
+        src = inspect.getsource(workspace_tab)
+        assert "fill_missing_voices(voice_map, speakers)" in src
+        assert "fill_missing_voices(\n                    offline_voice_map, speakers, " \
+               "dub_module.DEFAULT_OFFLINE_VOICE_POOL)" in src
+
+
 class TestBuildDubTrackClonePriority:
     """The core routing logic in both build_dub_track and
     build_narration_track: F5-TTS clone > offline/

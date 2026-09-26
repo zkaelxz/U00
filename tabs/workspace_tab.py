@@ -5110,6 +5110,12 @@ def render_workspace_tab():
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
                 offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
                                      if c.get("offline_voice")}
+                # Same as `cli.py dub`: characters with no voice picked get
+                # distinct pool voices, not one shared fallback.
+                speakers = {ln.speaker for ln in st.session_state.lines if ln.speaker}
+                voice_map = dub_module.fill_missing_voices(voice_map, speakers)
+                offline_voice_map = dub_module.fill_missing_voices(
+                    offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
                 clone_map = dub_module.clone_map_from_characters(
                     chars, ddir, gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
                     ref_language=drama.get("source_language") or "zh")
