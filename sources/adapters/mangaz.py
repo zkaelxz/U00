@@ -239,8 +239,14 @@ def decrypt_page_manifest(private_key, encrypted: dict) -> dict:
         manifest = json.loads(plaintext.decode("utf-8"))
     except (UnicodeDecodeError, ValueError) as e:
         raise LayoutChanged(f"valid JSON in the decrypted page manifest ({e})") from None
-    if not manifest.get("Images") or not manifest.get("Location"):
-        raise LayoutChanged("Images/Location in the decrypted page manifest")
+    if not isinstance(manifest, dict):
+        raise LayoutChanged("a JSON object as the decrypted page manifest")
+    images = manifest.get("Images")
+    location = manifest.get("Location")
+    if not isinstance(images, list) or not images or not all(isinstance(im, dict) for im in images):
+        raise LayoutChanged("a well-formed Images list in the decrypted page manifest")
+    if not isinstance(location, dict):
+        raise LayoutChanged("a well-formed Location object in the decrypted page manifest")
     return manifest
 
 
@@ -325,6 +331,12 @@ class MangazSource(SourceAdapter):
             action = "Loading mangaz latest updates"
         resp = self.client.get(url, headers=headers, action=action)
         soup = _soup(resp.text)
+        # `addpage_renewal` is an AJAX partial: confirmed live (Step 25v)
+        # that it returns a bare sequence of `<li>` cards with no wrapping
+        # `<html>`/`<body>` at all, so `soup.body` is None and each `<li>`
+        # really is a direct child of the parsed fragment's own root --
+        # `soup.body or soup` deliberately falls back to that root as the
+        # "list container" `_parse_cards`'s non-recursive scan expects.
         body = soup.body or soup
         return self._parse_cards(body)
 

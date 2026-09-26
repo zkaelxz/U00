@@ -11,7 +11,7 @@ import pytest
 from sources import cache as cache_mod
 from sources import health, ladder, store
 from sources.base import SourceAdapter
-from sources.http import PacingPolicy, SourceClient, reset_pacing_state
+from sources.http import PacingPolicy, SourceClient, _requests_transport, reset_pacing_state
 from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, ChapterInfo,
                             ContentAccess, FailureReason, FetchFailed, NotSupportedError,
                             PageRef, SearchResult, SeriesInfo, SourceCapabilities,
@@ -496,3 +496,106 @@ class TestStaticChecks:
                             and not any(kw.arg == "timeout" for kw in node.keywords)):
                         problems.append(f"{f}:{node.lineno}")
         assert problems == []
+
+
+def _cookie_jar(**by_domain):
+    """A real `requests.cookies.RequestsCookieJar`, not a plain dict standing
+    in for one -- `by_domain` is {domain: {name: value}}. Used so these
+    tests exercise the real library's own conflict/merge behavior instead
+    of a fake that can't reproduce it."""
+    from requests.cookies import RequestsCookieJar
+    jar = RequestsCookieJar()
+    for domain, cookies in by_domain.items():
+        for name, value in cookies.items():
+            jar.set(name, value, domain=domain, path="/")
+    return jar
+
+
+class TestRequestsTransport:
+    """Step 25v bug 2, corrected after a real review round-trip: `requests`'
+    own `Response.cookies` only carries the *final* hop's Set-Cookie
+    headers -- a cookie set on an intermediate redirect hop is folded into
+    the session's cookiejar but never copied onto the final response
+    object. The first fix attempted here read from the shared thread-local
+    session's own accumulated jar (`dict(session.cookies)`) instead of the
+    per-call response chain -- that session is reused for every request any
+    adapter makes on this thread for the app's whole runtime, so flattening
+    it with `dict()` throws a real `requests.cookies.CookieConflictError`
+    the moment two different hosts have ever set a same-named cookie (mangaz
+    itself uses two hosts, `www.mangaz.com`/`vw.mangaz.com`, on one shared
+    session). The real fix merges only this one call's own response chain
+    (`r.history` + `r.cookies`), never the shared session jar. Tested here
+    directly against a fake `requests.Session`/`Response` using **real**
+    `RequestsCookieJar` objects (not plain dicts) for `.cookies`, so the
+    real conflict/merge semantics are actually exercised, not stood in for."""
+
+    class _FakeResp:
+        def __init__(self, status_code=200, headers=None, content=b"", url="",
+                     cookies=None, history=None):
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.content = content
+            self.url = url
+            self.cookies = cookies if cookies is not None else _cookie_jar()
+            self.history = history or []
+
+    class _FakeSession:
+        def __init__(self, response, cookies=None):
+            self._response = response
+            # The shared session-wide jar `_thread_session()` would really
+            # return -- deliberately seeded with a cross-host conflict so a
+            # fix that reads from here (instead of the per-call response
+            # chain) would blow up exactly like the real regression did.
+            self.cookies = cookies if cookies is not None else _cookie_jar()
+
+        def request(self, method, url, headers=None, data=None, timeout=None,
+                    allow_redirects=True):
+            return self._response
+
+    def test_merges_cookies_from_a_redirect_hop_into_the_final_response(self, monkeypatch):
+        hop = self._FakeResp(302, {"location": "/final"}, b"", "https://x.invalid/start",
+                             cookies=_cookie_jar(**{"x.invalid": {"virgo!__ticket": "tick-1"}}))
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final", history=[hop])
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://x.invalid/start", {}, None, 20)
+        assert dict(resp.cookies) == {"virgo!__ticket": "tick-1"}
+
+    def test_final_response_own_cookie_overrides_a_same_named_earlier_one(self, monkeypatch):
+        hop = self._FakeResp(302, {}, b"", "https://x.invalid/start",
+                             cookies=_cookie_jar(**{"x.invalid": {"session": "old"}}))
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final",
+                               cookies=_cookie_jar(**{"x.invalid": {"session": "new"}}),
+                               history=[hop])
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://x.invalid/start", {}, None, 20)
+        assert dict(resp.cookies) == {"session": "new"}
+
+    def test_no_redirect_still_returns_the_final_responses_own_cookies(self, monkeypatch):
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final",
+                               cookies=_cookie_jar(**{"x.invalid": {"a": "b"}}))
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://x.invalid/final", {}, None, 20)
+        assert dict(resp.cookies) == {"a": "b"}
+
+    def test_no_cookie_conflict_error_across_a_cross_host_redirect(self, monkeypatch):
+        """The exact shape of mangaz.com's own ticket flow: a redirect hop
+        on one host sets a cookie with the same name a *different* host has
+        already set on the shared session (e.g. `www.mangaz.com` and
+        `vw.mangaz.com` both setting a `session` cookie). Reading from the
+        shared session jar would raise CookieConflictError here; reading
+        from just this call's own response chain must not."""
+        hop = self._FakeResp(302, {}, b"", "https://vw.invalid/ticket",
+                             cookies=_cookie_jar(**{"vw.invalid": {"session": "vw-value"}}))
+        final = self._FakeResp(200, {}, b"ok", "https://vw.invalid/final", history=[hop])
+        # The shared session has already accumulated a same-named cookie
+        # from a wholly unrelated earlier request to a different host.
+        shared_session_cookies = _cookie_jar(**{"www.invalid": {"session": "www-value"}})
+        shared_session_cookies.update(hop.cookies)
+        with pytest.raises(Exception) as exc_info:
+            dict(shared_session_cookies)   # proves the rejected approach really does blow up
+        assert "CookieConflictError" in type(exc_info.value).__name__
+
+        monkeypatch.setattr("sources.http._thread_session",
+                            lambda: self._FakeSession(final, cookies=shared_session_cookies))
+        resp = _requests_transport("GET", "https://vw.invalid/ticket", {}, None, 20)
+        assert dict(resp.cookies) == {"session": "vw-value"}

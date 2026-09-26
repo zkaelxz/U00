@@ -116,8 +116,25 @@ def _requests_transport(method, url, headers, data, timeout):
     session = _thread_session()
     r = session.request(method, url, headers=headers, data=data, timeout=timeout,
                         allow_redirects=True)
+    # `r.cookies` alone only carries the *final* hop's own Set-Cookie headers
+    # (requests' HTTPAdapter.build_response extracts each response's cookies
+    # onto that same response object, not onto the ones before it) -- a
+    # cookie set on an intermediate redirect hop would otherwise be silently
+    # dropped from the Response this function returns. Merge every hop's own
+    # cookies, oldest first, so a later hop (including the final response)
+    # can still override an earlier same-named cookie. Deliberately never
+    # `session.cookies` -- that jar accumulates cookies from every request
+    # any adapter makes on this thread for the app's whole runtime, and
+    # flattening it with dict()/.update() raises a real
+    # requests.cookies.CookieConflictError the moment two different hosts
+    # have ever set a same-named cookie (confirmed: mangaz.com's own two
+    # hosts, www.mangaz.com/vw.mangaz.com, share this session).
+    cookies = {}
+    for hop in r.history:
+        cookies.update(hop.cookies)
+    cookies.update(r.cookies)
     return Response(status_code=r.status_code, headers=dict(r.headers), content=r.content,
-                    url=r.url, cookies=dict(r.cookies))
+                    url=r.url, cookies=cookies)
 
 
 _tls = threading.local()

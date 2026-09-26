@@ -24,14 +24,16 @@ from .sources_helpers import FakeClock, ScriptedTransport, html, make_client
 BASE = mangaz.BASE_URL
 VIRGO = mangaz.VIRGO_HOST
 
-LATEST_HTML = ("<html><body>"
-              "<li><div class='listBox'><div class='listBoxImg'><a href='/series/detail/101'>"
+# `title/addpage_renewal` is an AJAX partial: confirmed live (Step 25v)
+# that the real site returns a bare sequence of `<li>` cards with no
+# wrapping `<html>`/`<body>` at all, not a full page or a `<ul>`-wrapped
+# list -- this fixture matches that real shape rather than a guessed one.
+LATEST_HTML = ("<li><div class='listBox'><div class='listBoxImg'><a href='/series/detail/101'>"
               "<img data-src='https://img.example.invalid/101.webp'></a></div>"
               "<div class='listBoxDetail'><h4><a href='/series/detail/101'>Test Series</a></h4>"
               "<p class='author'>Author One</p></div></div></li>"
               "<li><div class='iconConsent'>pending</div>"
-              "<h4><a href='/series/detail/999'>Hidden</a></h4></li>"
-              "</body></html>")
+              "<h4><a href='/series/detail/999'>Hidden</a></h4></li>")
 
 SERIES_HTML = ("<html><body><div class='itemList'><div class='itemSort'><ul>"
               "<li class='item series_sort'><a href='/book/detail/103'><img></a>"
@@ -154,6 +156,28 @@ class TestPageDecryptionUnit:
         private_key = mangaz._generate_rsa_keypair()
         with pytest.raises(SourceError):
             mangaz.decrypt_page_manifest(private_key, {"not": "the right shape"})
+
+    def test_layout_changed_when_location_is_truthy_but_wrongly_shaped(self):
+        """Step 25v bug 3: a truthy-but-wrong-shape Location (a bare string
+        instead of {base, st}) used to pass the old `not manifest.get(...)`
+        check and crash `get_pages` with an uncaught AttributeError instead
+        of a clean adapter error."""
+        pytest.importorskip("cryptography")
+        private_key = mangaz._generate_rsa_keypair()
+        manifest = {"Images": [{"file": "a.jpg"}], "Location": "not-a-dict"}
+        encrypted = self._encrypt_manifest(private_key, manifest)
+        with pytest.raises(SourceError):
+            mangaz.decrypt_page_manifest(private_key, encrypted)
+
+    def test_layout_changed_when_images_are_truthy_but_wrongly_shaped(self):
+        """Same bug, the other field: Images present as a list of strings
+        instead of a list of {file} dicts."""
+        pytest.importorskip("cryptography")
+        private_key = mangaz._generate_rsa_keypair()
+        manifest = {"Images": ["001abc.jpg"], "Location": {"base": "x", "st": "y"}}
+        encrypted = self._encrypt_manifest(private_key, manifest)
+        with pytest.raises(SourceError):
+            mangaz.decrypt_page_manifest(private_key, encrypted)
 
     def test_wrong_key_produces_a_clean_failure_not_garbage(self):
         pytest.importorskip("cryptography")
