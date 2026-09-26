@@ -9,8 +9,8 @@ import os
 
 import pytest
 
-from sources import (chapter_check, chapter_order, front_door, generic_import, pipeline,
-                     registry, store)
+from sources import (adaptive, chapter_check, chapter_order, front_door, generic_import,
+                     pipeline, registry, store)
 from sources.base import SourceAdapter
 from sources.models import ChapterInfo, PageRef, SearchResult, SourceError, FailureReason
 
@@ -253,7 +253,8 @@ class TestGenericNovelImport:
             monkeypatch.setattr(builtins, "__import__", no_trafilatura)
         u = "https://novel.invalid/book/1/12.html"
         client = make_client("generic", ScriptedTransport({u: html(NOVEL_PAGE)}))
-        res = generic_import.import_novel_page(u, client=client)
+        res, report = adaptive.import_novel(u, client=client)
+        assert report.extraction_tier == "deterministic" and report.llm_calls == 0
         assert res.method == ("trafilatura" if use_trafilatura else "heuristic")
         assert "这是第0段正文" in res.text and "这是第39段正文" in res.text
         assert "排行榜" not in res.text and "Copyright" not in res.text
@@ -271,7 +272,7 @@ class TestGenericNovelImport:
         page = "<html><body><nav>首页 排行</nav><footer>© 2026</footer></body></html>"
         client = make_client("generic", ScriptedTransport({u: html(page)}))
         with pytest.raises(generic_import.NoContentFound):
-            generic_import.import_novel_page(u, client=client)
+            adaptive.import_novel(u, client=client)
 
     def test_append_keeps_earlier_chapters(self, isolated_db):
         drama_id = isolated_db.create_drama(title_zh="x", media_type="novel")
