@@ -2016,6 +2016,29 @@ class TestReflectTranslateBatch:
         assert translations == ["Final one.", "Final two."]
         assert critiques == ["reads awkwardly out loud", ""]  # line 2's draft needed no critique
 
+    def test_novel_reference_reaches_every_pass(self):
+        """Step 9e: reflect_translate_batch used to call
+        build_llm_instructions() directly, which never actually inserts
+        novel_reference anywhere -- only build_stable_prompt()'s own
+        novel_block does that. The instructions text told the model to
+        consult "the reference novel translation below," but nothing was
+        ever below it. Now goes through build_stable_prompt() like the
+        normal (non-Reflect) path already does."""
+        engine = _ScriptedReflectEngine([
+            '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
+        te.reflect_translate_batch(
+            engine, ["你好"], {"novel_reference": "Xiaoling always calls her 'sis'."})
+        for prompt in engine.prompts:
+            assert "Xiaoling always calls her 'sis'." in prompt
+            assert "REFERENCE NOVEL TRANSLATION" in prompt
+
+    def test_no_reference_block_when_none_is_given(self):
+        engine = _ScriptedReflectEngine([
+            '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
+        te.reflect_translate_batch(engine, ["你好"], {})
+        for prompt in engine.prompts:
+            assert "REFERENCE NOVEL TRANSLATION" not in prompt
+
     def test_each_pass_asks_for_something_different(self):
         engine = _ScriptedReflectEngine([
             '{"1": "Draft."}', '{"1": "critique"}', '{"1": "Final."}'])
