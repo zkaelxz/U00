@@ -396,6 +396,98 @@ class TestCmdTranslateRetryAndWorkspaceParity:
         assert isolated_db.list_translation_versions(did) == []
 
 
+class TestCmdAlignUsesDramaSettings:
+    """Step 25d item 10: this command used to always use args.whisper_size
+    (or its own hardcoded DEFAULT_WHISPER_SIZE), plain character-diff
+    alignment, and no recognition priming at all -- ignoring the drama's
+    own saved Whisper size / alignment method (Workspace's own "3.
+    Recognition accuracy" section) and its series glossary."""
+
+    def _drama_with_transcript(self, isolated_db, **kw):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="not started",
+                                       audio_filename="audio.wav", **kw)
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
+            f.write("你好")
+        return did
+
+    def _args(self, **overrides):
+        defaults = dict(id=None, whisper_size=None, fast=False)
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_uses_the_dramas_own_saved_whisper_size(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, whisper_size="large-v3")
+        seen = {}
+
+        def fake_transcribe(audio_path, model_size, **kw):
+            seen["model_size"] = model_size
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli, "transcribe_for_timing", fake_transcribe)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did))
+        assert seen["model_size"] == "large-v3"
+
+    def test_an_explicit_flag_still_overrides_the_dramas_saved_size(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, whisper_size="large-v3")
+        seen = {}
+
+        def fake_transcribe(audio_path, model_size, **kw):
+            seen["model_size"] = model_size
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli, "transcribe_for_timing", fake_transcribe)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did, whisper_size="small"))
+        assert seen["model_size"] == "small"
+
+    def test_glossary_terms_are_used_to_prime_recognition(self, isolated_db, monkeypatch):
+        sid = isolated_db.get_or_create_series("Test Series")
+        isolated_db.upsert_glossary_term(sid, "苏杉", "Su Shan")
+        did = self._drama_with_transcript(isolated_db, series_id=sid)
+        seen = {}
+
+        def fake_transcribe(audio_path, model_size, **kw):
+            seen["initial_prompt"] = kw.get("initial_prompt")
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli, "transcribe_for_timing", fake_transcribe)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did))
+        assert "苏杉" in (seen.get("initial_prompt") or "")
+
+    def test_qwen3_forced_align_is_used_when_saved_on_the_drama(self, isolated_db, monkeypatch):
+        did = self._drama_with_transcript(isolated_db, alignment_method="qwen3_forced_align")
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        import forced_align
+        calls = []
+
+        def fake_align_with_qwen3(audio_path, user_lines, segments, language):
+            calls.append(language)
+            return [Line(idx=0, start=0.0, end=1.0, zh="你好")]
+        monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align_with_qwen3)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did))
+        assert calls == ["zh"]
+
+    def test_default_whisper_diff_alignment_is_unaffected(self, isolated_db, monkeypatch):
+        """No alignment_method saved -- must still use the plain
+        character-diff aligner, same as before this fix."""
+        did = self._drama_with_transcript(isolated_db)
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._args(id=did))
+        assert isolated_db.load_lines(did)[0]["zh"] == "你好"
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+
+
 class TestCmdDubFlagPreservation:
     def test_flag_and_flag_note_survive_a_dub_run(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="Test", status="translated")
@@ -469,6 +561,32 @@ class TestCmdDubStretchLimits:
         assert (seen["max_speedup"], seen["max_slowdown"]) == (1.2, 1.0)
 
 
+class TestCmdDubTtsEngineFlag:
+    """Step 25d item 10: this command had no --tts-engine flag at all, so
+    it could only ever use edge-tts from the command line, regardless of
+    what's configured for the drama's characters -- Workspace's own
+    "8. AI dub / narration" section always lets you pick edge_tts or
+    offline/Piper as the fallback engine."""
+
+    def _run(self, isolated_db, monkeypatch, **overrides):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        seen = {}
+        monkeypatch.setattr(dub_module, "build_dub_track",
+                            lambda lines, *a, **k: seen.update(k) or ("fake_dub.wav", []))
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did, **overrides))
+        return seen
+
+    def test_defaults_to_edge_tts(self, isolated_db, monkeypatch):
+        seen = self._run(isolated_db, monkeypatch)
+        assert seen["tts_engine"] == "edge_tts"
+
+    def test_offline_flag_passes_through(self, isolated_db, monkeypatch):
+        seen = self._run(isolated_db, monkeypatch, tts_engine="offline")
+        assert seen["tts_engine"] == "offline"
+
+
 class TestCmdDubNarration:
     """Step 11b: cmd_dub routes characters through the same
     dub.clone_map_from_characters the Workspace tab uses, hands over the
@@ -489,7 +607,8 @@ class TestCmdDubNarration:
         seen = {}
 
         def fake_build_narration_track(lines, drama_dir, voice_map, character_clone_map=None,
-                                       progress_cb=None, emotion_map=None, offline_voice_map=None):
+                                       progress_cb=None, emotion_map=None, offline_voice_map=None,
+                                       tts_engine=None):
             seen.update(clone_map=character_clone_map, emotion_map=emotion_map)
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
@@ -660,3 +779,33 @@ class TestCliGpuLock:
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did))
         assert isolated_db.gpu_lock_status() == (None, None)  # acquired, then released
+
+
+class TestExportVideoClampsOverlappingCues:
+    """Step 25d item 6: Workspace's own export already promises "never
+    export an overlapping (invalid) cue" (subtitle_formats.clamp_overlaps)
+    -- cli.py export-video used to skip that clamp entirely."""
+
+    def test_overlapping_cues_are_clamped_before_burning(self, isolated_db, monkeypatch):
+        import os
+        did = isolated_db.create_drama(title_en="Test", status="translated",
+                                       source_video_filename="source.mp4")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "source.mp4"), "wb") as f:
+            f.write(b"x")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="a", en="Hello"),
+            Line(idx=1, start=1.5, end=3.0, zh="b", en="World"),
+        ])
+
+        import video_export
+        captured = {}
+        monkeypatch.setattr(video_export, "burn_subtitles",
+                            lambda video_path, srt_text, out_path: captured.update(srt=srt_text))
+
+        args = argparse.Namespace(id=did, style="hardsub", subs="english")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_export_video(args)
+
+        assert "00:00:00,000 --> 00:00:01,500" in captured["srt"]  # clamped
+        assert "00:00:00,000 --> 00:00:02,000" not in captured["srt"]  # original, overlapping

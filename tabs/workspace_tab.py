@@ -828,6 +828,23 @@ def _job_start_message(job_id, running_message):
     return running_message
 
 
+def _render_queued_job_panel(job, job_id, key_suffix):
+    """Step 25d item 2: a job queued behind Step 5c's GPU guard used to be
+    invisible in these panels -- they only handled the running/done/error
+    states, and the one st.info() that announces "queued" right after the
+    button click is immediately discarded by the st.rerun() that follows
+    it. Renders the same persistent "waiting" message live_tab.py's own
+    queued handling shows, plus a Cancel button (background_jobs.cancel_queued
+    already existed and worked; only live_tab.py was calling it)."""
+    st.info(job.get("message") or "⏳ Waiting -- GPU busy.")
+    if st.button("✖ Cancel", key=f"cancel_queued_{key_suffix}"):
+        if not background_jobs.cancel_queued(job_id):
+            # Promoted to running in the gap between this render and the
+            # click -- fall back to a real stop, same as live_tab.py does.
+            background_jobs.request_cancel(job_id)
+        st.rerun()
+
+
 def _diarization_estimate_caption(audio_duration_seconds):
     """pyannote's pipeline makes one call and only returns a result at the
     end -- no incremental progress callback exists in its public API, so
@@ -1053,46 +1070,68 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     fixed_count = 0
     spent = 0.0
     cap_reached = None
-    for i, ln in enumerate(flagged):
+    # Step 25d item 3: both stages below used to be able to lose every
+    # already-fixed line, not just the one that failed. The re-transcribe
+    # call had no `except` at all, so a real exception (e.g. a
+    # model-download failure partway through) escaped the loop entirely --
+    # and since db.save_lines() only ran once at the very end, that
+    # aborted the whole job before anything got saved. The translate call
+    # had an `except Exception: pass` that silently swallowed the error
+    # (including an auth/quota failure that would repeat for every
+    # remaining line), leaving the user with "Fixed 0 of N" and no
+    # explanation. Now every per-line failure is caught, recorded, and
+    # the line stays flagged, but the loop keeps going and the fixes made
+    # so far are saved in a `finally` so a later failure can't erase them
+    # (the Step 25w cost-cap break below is a clean, expected stop, not a
+    # failure, but the same `finally` covers it too).
+    errors = []
+    try:
+        for i, ln in enumerate(flagged):
+            if audio_path and os.path.exists(audio_path):
+                slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
+                try:
+                    core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
+                    segments = core_module.transcribe_for_timing(
+                        slice_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu)
+                    new_zh = " ".join(s["text"] for s in segments).strip()
+                    if new_zh:
+                        ln.zh = new_zh
+                except Exception as e:
+                    errors.append(translate_engines.redact_secrets(
+                        f"line {ln.idx + 1} re-transcription: {e}"))
+                finally:
+                    if os.path.exists(slice_path):
+                        os.remove(slice_path)
+            if ln.zh.strip():
+                try:
+                    translated = engine.translate_batch([ln.zh], {"source_language": source_language})[0]
+                    if hasattr(engine, "last_usage"):
+                        cost = translate_engines.estimate_cost_for_engine(
+                            engine, engine.last_usage.get("input_tokens", 0),
+                            engine.last_usage.get("output_tokens", 0))
+                        spent += cost
+                        db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
+                                     "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
+                                     engine.last_usage.get("output_tokens", 0), cost)
+                    if translated.strip():
+                        ln.en = translated
+                        ln.flag, ln.flag_note = None, ""
+                        fixed_count += 1
+                except Exception as e:
+                    # leave the line flagged rather than lose the source fix silently
+                    errors.append(translate_engines.redact_secrets(
+                        f"line {ln.idx + 1} translation: {e}"))
+            background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
+                                            f"Fixing flagged lines... {i + 1}/{len(flagged)}")
+            if cost_cap_usd is not None and spent >= cost_cap_usd and i + 1 < len(flagged):
+                cap_reached = spent
+                break
+    finally:
         if audio_path and os.path.exists(audio_path):
-            slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
-            try:
-                core_module.extract_audio_slice(audio_path, ln.start, ln.end, slice_path)
-                segments = core_module.transcribe_for_timing(
-                    slice_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu)
-                new_zh = " ".join(s["text"] for s in segments).strip()
-                if new_zh:
-                    ln.zh = new_zh
-            finally:
-                if os.path.exists(slice_path):
-                    os.remove(slice_path)
-        if ln.zh.strip():
-            try:
-                translated = engine.translate_batch([ln.zh], {"source_language": source_language})[0]
-                if hasattr(engine, "last_usage"):
-                    cost = translate_engines.estimate_cost_for_engine(
-                        engine, engine.last_usage.get("input_tokens", 0),
-                        engine.last_usage.get("output_tokens", 0))
-                    spent += cost
-                    db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
-                                 "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
-                                 engine.last_usage.get("output_tokens", 0), cost)
-                if translated.strip():
-                    ln.en = translated
-                    ln.flag, ln.flag_note = None, ""
-                    fixed_count += 1
-            except Exception:
-                pass  # leave the line flagged rather than lose the source fix silently
-        background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
-                                        f"Fixing flagged lines... {i + 1}/{len(flagged)}")
-        if cost_cap_usd is not None and spent >= cost_cap_usd and i + 1 < len(flagged):
-            cap_reached = spent
-            break
-    if audio_path and os.path.exists(audio_path):
-        core_module.release_gpu_models()  # re-transcription stage done
-    db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
+            core_module.release_gpu_models()  # re-transcription stage done
+        db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
     background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged),
-                                        "cap_reached": cap_reached})
+                                        "errors": errors[:20], "cap_reached": cap_reached})
 
 
 def _line_audio_clip(audio_path, start, end, work_dir):
@@ -1646,8 +1685,16 @@ def render_workspace_tab():
             if not _rk:
                 st.warning("Set an API key in the ⚙️ Settings sidebar first.")
             else:
+                _rom_engine_choice = drama.get("translation_engine") or "claude"
+                # Step 25d item 7: same gap Step 5b item 1 already fixed
+                # elsewhere -- without these, this call ignored a custom
+                # Ollama URL and always billed Gemini as paid-tier.
                 _eng_r = translate_engines.get_engine(
-                    drama.get("translation_engine") or "claude", _rk)
+                    _rom_engine_choice, _rk,
+                    free_tier=_rom_engine_choice == "gemini"
+                    and st.session_state.get("gemini_free_tier", False),
+                    base_url=st.session_state.get("settings_ollama_url") or None
+                    if _rom_engine_choice == "ollama" else None)
                 with st.spinner("Romanizing credits..."):
                     _rom = tguide.romanize_metadata(
                         {"author": author, "studio": studio, "director": director,
@@ -1692,8 +1739,16 @@ def render_workspace_tab():
                              source_url=source_url)
             st.success("Saved.")
             st.rerun()
+        # Step 25z added the checkbox-plus-type-DELETE confirmation below.
+        # Step 25d item 8 additionally blocks the button while a
+        # background job is still running for this drama -- the delete
+        # path had no such check before either fix landed.
+        _delete_job_running = background_jobs.any_job_running_for_drama(picked_id)
         st.caption("⚠️ Deletes this drama's database record and its entire on-disk folder "
                   "(audio/video, dub tracks, page images, exports) -- this cannot be undone.")
+        if _delete_job_running:
+            st.caption("⚠️ A background job is still running for this drama -- wait for it to "
+                      "finish (or cancel it above) before deleting.")
         confirm_delete_drama = st.checkbox(
             "I understand this permanently deletes this drama and everything in its folder",
             key=f"confirm_delete_drama_{picked_id}")
@@ -1701,7 +1756,8 @@ def render_workspace_tab():
             "Type DELETE to confirm", key=f"delete_drama_typed_{picked_id}",
             disabled=not confirm_delete_drama)
         if st.button("🗑️ Delete this drama", type="secondary",
-                      disabled=not (confirm_delete_drama and delete_drama_typed.strip() == "DELETE")):
+                      disabled=not (confirm_delete_drama and delete_drama_typed.strip() == "DELETE")
+                               or _delete_job_running):
             db.delete_drama(picked_id)
             st.session_state.active_drama_id = None
             st.session_state.lines = None
@@ -2370,6 +2426,20 @@ def render_workspace_tab():
                             background_jobs.clear_job(_autotune_job_id)
                             st.session_state.pop(_autotune_key, None)
                         elif _autotune_job["status"] == "done":
+                            if _autotune is None:
+                                # Step 25d item 4: the page was refreshed (a new
+                                # session, so st.session_state lost this run's
+                                # candidate list) while the background job was
+                                # still going -- the "running" branch above
+                                # already guards against this with `if _autotune
+                                # else 0`, but this branch indexed straight into
+                                # _autotune["results"] and crashed. Rebuilt with
+                                # just this one finished candidate; the rest of
+                                # the original candidate list is lost, same as
+                                # any other session-state-only state after a
+                                # refresh, but auto-tune no longer crashes.
+                                _autotune = {"candidates": _candidates, "results": [], "cancelled": False}
+                                st.session_state[_autotune_key] = _autotune
                             _result = _autotune_job.get("result") or {}
                             _segments = _result.get("segments") or []
                             _cand_lines = [Line(idx=i, start=s["start"], end=s["end"], zh=s["text"])
@@ -3317,6 +3387,8 @@ def render_workspace_tab():
                           "pass finishes (it has no mid-run checkpoint of its own yet) and just "
                           "skips the optional \"Split long merged lines\" step -- the transcript "
                           "itself is never discarded.")
+            elif _tjob["status"] == "queued":
+                _render_queued_job_panel(_tjob, _transcribe_job_id, f"tc_{picked_id}")
             elif _tjob["status"] == "done":
                 _tresult = _tjob.get("result") or {}
                 if _tresult.get("failed_reason") == "cancelled":
@@ -3658,6 +3730,8 @@ def render_workspace_tab():
                           "or close the browser tab. Come back and this will show current progress.")
                 if st.button("🔄 Refresh progress", key=f"refresh_tr_{picked_id}"):
                     st.rerun()
+            elif _job["status"] == "queued":
+                _render_queued_job_panel(_job, _translate_job_id, f"tr_{picked_id}")
             elif _job["status"] == "done":
                 st.session_state.lines = db.load_line_objects(picked_id)
                 # Step 9h: the "en" text_area below is keyed by position
@@ -4219,7 +4293,19 @@ def render_workspace_tab():
                 # "mark reviewed" click on top of the fix itself. Merely
                 # looking at it (no change) leaves the flag in place.
                 _still_flag, _still_note = (ln.flag, ln.flag_note) if en.strip() == ln.en.strip() else (None, "")
-                edited_page_rows.append(Line(idx=ln.idx, start=start, end=end, zh=zh, en=en,
+                # Step 25d item (minor finding): the start/end number_input
+                # widgets above are seeded with round(ln.start, 2) -- their
+                # only display precision -- so saving unconditionally
+                # rounded every line's timing to 2 decimal places on every
+                # save, even a line whose timing nobody touched this time.
+                # Keeping the original unrounded value whenever the widget's
+                # (necessarily 2-decimal) value still matches the original
+                # rounded to the same precision means only a timing actually
+                # typed in gets the rounded value; everything else keeps its
+                # real stored precision.
+                _saved_start = ln.start if round(start, 2) == round(ln.start, 2) else start
+                _saved_end = ln.end if round(end, 2) == round(ln.end, 2) else end
+                edited_page_rows.append(Line(idx=ln.idx, start=_saved_start, end=_saved_end, zh=zh, en=en,
                                               speaker=(speaker or None) if _speaker_changed else ln.speaker,
                                               speaker_manual=ln.speaker_manual or _speaker_changed,
                                               dub_filename=ln.dub_filename,
@@ -4386,6 +4472,8 @@ def render_workspace_tab():
                         st.progress(0.5, text="Checking...")
                         if st.button("🔄 Refresh progress", key=f"refresh_cc_{picked_id}"):
                             st.rerun()
+                    elif _cjob["status"] == "queued":
+                        _render_queued_job_panel(_cjob, _consistency_job_id, f"cc_{picked_id}")
                     elif _cjob["status"] == "done":
                         _count = (_cjob.get("result") or {}).get("issue_count", 0)
                         if _count:
@@ -4452,6 +4540,8 @@ def render_workspace_tab():
                         st.progress(_fjob["progress"], text=(_fjob.get("message") or "Checking...") + background_jobs.eta_text(_fjob))
                         if st.button("🔄 Refresh progress", key=f"refresh_fl_{picked_id}"):
                             st.rerun()
+                    elif _fjob["status"] == "queued":
+                        _render_queued_job_panel(_fjob, _flag_job_id, f"fl_{picked_id}")
                     elif _fjob["status"] == "done":
                         _count = (_fjob.get("result") or {}).get("flagged_count", 0)
                         st.session_state.lines = db.load_line_objects(picked_id)
@@ -4559,6 +4649,8 @@ def render_workspace_tab():
                             st.progress(_ffjob["progress"], text=(_ffjob.get("message") or "Fixing...") + background_jobs.eta_text(_ffjob))
                             if st.button("🔄 Refresh progress", key=f"refresh_ff_{picked_id}"):
                                 st.rerun()
+                        elif _ffjob["status"] == "queued":
+                            _render_queued_job_panel(_ffjob, _fixflag_job_id, f"ff_{picked_id}")
                         elif _ffjob["status"] == "done":
                             # Same Step 9h staleness: this job rewrites zh
                             # and en for fixed lines, so the positional
@@ -4568,6 +4660,7 @@ def render_workspace_tab():
                             _clear_line_widget_state()
                             edited_rows = st.session_state.lines
                             _ff_result = _ffjob.get("result") or {}
+                            _ff_errors = _ff_result.get("errors") or []
                             st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
                                       f"{_ff_result.get('total_flagged', 0)} flagged line(s).")
                             _ff_cap_spent = _ff_result.get("cap_reached")
@@ -4575,6 +4668,11 @@ def render_workspace_tab():
                                 st.warning(f"Stopped at your spending cap after about "
                                           f"${_ff_cap_spent:.2f} -- every line fixed so far was "
                                           "kept. Raise the cap and run this again to keep going.")
+                            if _ff_errors:
+                                st.warning(f"{len(_ff_errors)} line(s) couldn't be fixed and are "
+                                          "still flagged:")
+                                for _ff_err in _ff_errors:
+                                    st.caption(_ff_err)
                             background_jobs.clear_job(_fixflag_job_id)
                             # This branch runs after the zh_<idx>/en_<idx>
                             # boxes above (in the Review & edit loop) have
@@ -4646,6 +4744,8 @@ def render_workspace_tab():
                         st.progress(_ejob["progress"], text=(_ejob.get("message") or "Reading tone...") + background_jobs.eta_text(_ejob))
                         if st.button("🔄 Refresh progress", key=f"refresh_em_{picked_id}"):
                             st.rerun()
+                    elif _ejob["status"] == "queued":
+                        _render_queued_job_panel(_ejob, _emotion_job_id, f"em_{picked_id}")
                     elif _ejob["status"] == "done":
                         # Saved to the database inside run_emotion_job itself (see
                         # its docstring for why) -- reload from there rather than
@@ -4892,6 +4992,8 @@ def render_workspace_tab():
                         st.progress(0.5, text="Reviewing for idioms, wordplay, and allusions...")
                         if st.button("🔄 Refresh progress", key=f"refresh_nt_{picked_id}"):
                             st.rerun()
+                    elif _njob["status"] == "queued":
+                        _render_queued_job_panel(_njob, _notes_job_id, f"nt_{picked_id}")
                     elif _njob["status"] == "done":
                         _count = (_njob.get("result") or {}).get("note_count", 0)
                         if _count:

@@ -10,6 +10,8 @@ import os
 import json
 import zipfile
 
+import subtitle_formats
+
 
 def build_drama_export_package(db_module, drama_id: int, out_path: str,
                                 lines_to_srt_fn, lines_to_bilingual_srt_fn, line_cls):
@@ -49,6 +51,11 @@ def build_drama_export_package(db_module, drama_id: int, out_path: str,
                                zh=r["zh"], en=r.get("en") or "", speaker=r.get("speaker"),
                                sfx=bool(r.get("sfx")))
                      for r in rows]
+            # Step 25d item 6: Workspace's own export already promises "never
+            # export an overlapping (invalid) cue" -- this path skipped that
+            # clamp, so a line whose timing overlaps the next one (a manual
+            # edit or merge can produce this) could reach the zip unclamped.
+            lines, _ = subtitle_formats.clamp_overlaps(lines)
             zf.writestr("subtitles/english.srt", lines_to_srt_fn(lines, "en"))
             zf.writestr("subtitles/chinese.srt", lines_to_srt_fn(lines, "zh"))
             zf.writestr("subtitles/bilingual.srt", lines_to_bilingual_srt_fn(lines))

@@ -82,6 +82,25 @@ class TestDiagnostics:
         assert result["all_present"] is True, \
             f"missing: {result['missing_top_level']} {result['missing_tabs']}"
 
+    def test_expected_top_level_files_list_is_not_stale(self):
+        """Step 25d item 9: this list is hand-maintained on purpose (so a
+        missing file shows up as "missing" instead of silently not being
+        checked at all) -- pin that every real top-level .py file is
+        actually in it, so a newly added module can't again silently fall
+        outside what this health check covers."""
+        real_files = {f for f in os.listdir(PROJECT_ROOT)
+                     if f.endswith(".py") and os.path.isfile(os.path.join(PROJECT_ROOT, f))
+                     and f not in ("__init__.py", "conftest.py")}
+        missing_from_list = real_files - set(diagnostics.EXPECTED_TOP_LEVEL_FILES)
+        assert missing_from_list == set(), \
+            f"real top-level .py files missing from EXPECTED_TOP_LEVEL_FILES: {missing_from_list}"
+
+    def test_expected_tabs_files_list_is_not_stale(self):
+        real_files = {f for f in os.listdir(os.path.join(PROJECT_ROOT, "tabs")) if f.endswith(".py")}
+        missing_from_list = real_files - set(diagnostics.EXPECTED_TABS_FILES)
+        assert missing_from_list == set(), \
+            f"real tabs/*.py files missing from EXPECTED_TABS_FILES: {missing_from_list}"
+
     def test_file_completeness_reports_missing_in_empty_dir(self, tmp_path_str):
         result = diagnostics.check_file_completeness(tmp_path_str)
         assert result["all_present"] is False
@@ -176,6 +195,23 @@ class TestExportPackage:
             assert "source/source.mp3" in names
             assert "audio/dub_track.wav" in names
 
+    def test_overlapping_cues_are_clamped_before_export(self, isolated_db, tmp_path_str):
+        """Step 25d item 6: Workspace's own export already promises "never
+        export an overlapping (invalid) cue" (subtitle_formats.clamp_overlaps)
+        -- this path used to skip that clamp entirely."""
+        did = isolated_db.create_drama(title_en="Overlap Test")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="a", en="Hello"),
+            Line(idx=1, start=1.5, end=3.0, zh="b", en="World"),
+        ])
+        out_zip = os.path.join(tmp_path_str, "overlap.zip")
+        export_package.build_drama_export_package(
+            isolated_db, did, out_zip, lines_to_srt, lines_to_bilingual_srt, Line)
+        with zipfile.ZipFile(out_zip) as zf:
+            srt = zf.read("subtitles/english.srt").decode("utf-8")
+        assert "00:00:00,000 --> 00:00:01,500" in srt  # clamped to the next cue's start
+        assert "00:00:00,000 --> 00:00:02,000" not in srt  # the original, overlapping timing
+
     def test_metadata_includes_drama_and_characters(self, isolated_db, tmp_path_str):
         did = isolated_db.create_drama(title_en="Meta Test")
         isolated_db.upsert_character(did, "A", character_name="Someone")
@@ -215,6 +251,46 @@ class TestExportPackage:
         for m in manifest:
             if not m.startswith("("):
                 assert m in names
+
+
+class TestBenchmarkRunnerEnginePassesOllamaUrlAndFreeTier:
+    """Step 25d item 7: same gap Step 5b item 1 already fixed elsewhere --
+    this call used to always build the engine with no base_url/free_tier
+    at all, so it ignored a custom Ollama URL and always billed Gemini as
+    paid-tier."""
+
+    def _run(self, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_ollama_base_url_is_passed_through(self, isolated_db, monkeypatch):
+        import translate_engines
+        isolated_db.create_benchmark_case("Case", "translation", "audio_drama", source_text="你好")
+        seen = {}
+
+        def spy(engine_name, api_key, *a, **kw):
+            seen["engine"] = engine_name
+            seen["base_url"] = kw.get("base_url")
+            raise RuntimeError("stop before any real network call")
+        monkeypatch.setattr(translate_engines, "get_engine", spy)
+
+        at = self._run(settings_default_engine="ollama", settings_ollama="local",
+                       settings_ollama_url="http://myhost:11434")
+        [btn] = [b for b in at.button
+                if b.label == "▶️ Run all cases through the current pipeline"]
+        btn.click().run(timeout=30)
+
+        assert seen.get("engine") == "ollama"
+        assert seen.get("base_url") == "http://myhost:11434"
 
 
 class TestDescribeJob:
@@ -333,6 +409,81 @@ class TestHfCacheScanAndDelete:
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
         assert diagnostics.scan_hf_cache() == []
         assert diagnostics.delete_hf_cache_revision("x") is False
+
+
+class TestPiperVoiceScanAndDelete:
+    """Step 25d item 14: this disk-management panel only ever scanned the
+    Hugging Face model cache -- Piper voices (Step 25c item 1's
+    offline-voice picker) download to library/piper_voices instead, so
+    they were invisible to it and to whatever cleanup/disk-usage view
+    relies on it."""
+
+    def _make_voice(self, voices_dir, name, onnx_bytes=b"x" * 5000, with_json=True):
+        os.makedirs(voices_dir, exist_ok=True)
+        with open(os.path.join(voices_dir, f"{name}.onnx"), "wb") as f:
+            f.write(onnx_bytes)
+        if with_json:
+            with open(os.path.join(voices_dir, f"{name}.onnx.json"), "wb") as f:
+                f.write(b"{}")
+
+    def test_lists_voices_with_real_sizes_largest_first(self, tmp_path_str):
+        self._make_voice(tmp_path_str, "en_US-amy-medium", b"x" * 5000)
+        self._make_voice(tmp_path_str, "en_US-ryan-low", b"x" * 1000)
+        entries = diagnostics.scan_piper_voices(tmp_path_str)
+        assert [e["voice"] for e in entries] == ["en_US-amy-medium", "en_US-ryan-low"]
+        assert entries[0]["size_bytes"] >= 5000
+        assert entries[1]["size_bytes"] >= 1000
+
+    def test_empty_when_the_directory_does_not_exist_yet(self, tmp_path_str):
+        missing = os.path.join(tmp_path_str, "does_not_exist")
+        assert diagnostics.scan_piper_voices(missing) == []
+
+    def test_only_onnx_files_are_counted_as_voices(self, tmp_path_str):
+        self._make_voice(tmp_path_str, "en_US-amy-medium")
+        with open(os.path.join(tmp_path_str, "README.txt"), "w") as f:
+            f.write("not a voice")
+        entries = diagnostics.scan_piper_voices(tmp_path_str)
+        assert [e["voice"] for e in entries] == ["en_US-amy-medium"]
+
+    def test_delete_removes_both_the_model_and_its_config(self, tmp_path_str):
+        self._make_voice(tmp_path_str, "en_US-amy-medium")
+        assert diagnostics.delete_piper_voice("en_US-amy-medium", tmp_path_str) is True
+        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx"))
+        assert not os.path.exists(os.path.join(tmp_path_str, "en_US-amy-medium.onnx.json"))
+
+    def test_delete_of_an_unknown_voice_fails_cleanly(self, tmp_path_str):
+        assert diagnostics.delete_piper_voice("does-not-exist", tmp_path_str) is False
+
+
+class TestPiperVoicesPanelUI:
+    """UI-level: Diagnostics' disk-management panel actually surfaces
+    what scan_piper_voices() finds in the real library/piper_voices dir
+    (isolated_db redirects db.LIBRARY_DIR, same as everywhere else)."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_shows_a_downloaded_piper_voice(self, isolated_db):
+        import dub
+        voices_dir = dub.piper_voices_dir()
+        os.makedirs(voices_dir, exist_ok=True)
+        with open(os.path.join(voices_dir, "en_US-amy-medium.onnx"), "wb") as f:
+            f.write(b"x" * 5000)
+
+        at = self._run()
+        assert any("en_US-amy-medium" in c.value for c in at.caption)
+
+    def test_nothing_shown_when_no_piper_voices_downloaded(self, isolated_db):
+        at = self._run()
+        assert not any("Piper voices" in c.value for c in at.caption)
 
 
 class TestModelEngineVersions:

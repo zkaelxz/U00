@@ -505,6 +505,72 @@ class TestBulkSeriesTranslate:
         assert d2 not in result.get("skipped_running", [])
         assert not any(r["en"] for r in isolated_db.load_lines(d2))
 
+    def test_monthly_cap_already_reached_skips_the_drama_without_translating(self, isolated_db, monkeypatch):
+        """Step 25d item 1: this coordinator used to ignore the monthly
+        spending cap entirely -- Workspace's Translate button and
+        `cli.py translate` both already enforce it."""
+        d1 = self._drama(isolated_db, n=1, engine="claude")
+        isolated_db.log_usage(d1, "claude", "claude-sonnet-5", "translate", 1000, 500, 50.0)
+        status = self._run([d1], monkeypatch, api_keys={"claude": "sk-ant-fake"}, monthly_cap=5.0)
+        assert status["result"]["skipped_cap"] == [d1]
+        assert not any(r["en"] for r in isolated_db.load_lines(d1))
+
+    def test_monthly_cap_not_reached_still_translates(self, isolated_db, monkeypatch):
+        d1 = self._drama(isolated_db, n=1, engine="test_offline")
+        status = self._run([d1], monkeypatch, monthly_cap=100.0)
+        assert status["result"]["translated"] == [d1]
+
+    def test_a_novel_narration_drama_uses_the_novel_style_preset_not_audio_drama(
+            self, isolated_db, monkeypatch):
+        """Step 25d item 1: this used to hardcode "audio_drama" even for a
+        novel-narration drama -- same per-content-mode default Step 25c's
+        shared helper and `cli.py translate` already use."""
+        d1 = isolated_db.create_drama(title_en="Novel Drama", status="aligned",
+                                      content_mode="novel_narration",
+                                      translation_engine="test_offline")
+        isolated_db.save_lines(d1, [Line(idx=0, start=0, end=1, zh="句0")])
+
+        calls = []
+        real_start_job = background_jobs.start_job
+
+        def spy(job_id, target, *args, **kwargs):
+            if job_id == f"translate_{d1}":
+                calls.append(args)
+            return real_start_job(job_id, target, *args, **kwargs)
+        monkeypatch.setattr(background_jobs, "start_job", spy)
+
+        self._run([d1], monkeypatch)
+        assert calls, "the per-drama translate job was never started"
+        style_preset = calls[0][12]
+        assert style_preset == "novel"
+
+    def test_uses_the_settings_configured_model_not_the_engines_bare_default(
+            self, isolated_db, monkeypatch):
+        """Step 25d item 1: this used to always pass model=None, so every
+        drama got whichever model get_engine() defaults to, ignoring
+        whatever model Settings has configured for that engine."""
+        d1 = self._drama(isolated_db, n=1, engine="claude")
+        seen = {}
+        real_get_engine = translate_engines.get_engine
+
+        def spy(engine_name, api_key, model=None, **kw):
+            seen["model"] = model
+            return real_get_engine(engine_name, api_key, model, **kw)
+        monkeypatch.setattr(translate_engines, "get_engine", spy)
+
+        self._run([d1], monkeypatch, api_keys={"claude": "sk-ant-fake"},
+                 models={"claude": "claude-opus-4"})
+        assert seen["model"] == "claude-opus-4"
+
+    def test_an_ollama_drama_is_gpu_touching(self, isolated_db, monkeypatch):
+        """Step 25d item 1: this never set gpu_touching=True for an Ollama
+        engine, risking it running outside Step 5c's GPU-job guard."""
+        d1 = self._drama(isolated_db, n=1, engine="ollama")
+        self._run([d1], monkeypatch)
+        job = background_jobs.get_status(f"translate_{d1}")
+        assert job is not None and job.get("gpu_touching") is True
+        background_jobs.clear_job(f"translate_{d1}")
+
     def test_combined_progress_message_names_the_current_drama(self, isolated_db, monkeypatch):
         import tabs.library_tab as lt
         d1 = self._drama(isolated_db, n=1)
@@ -1062,3 +1128,41 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         lt.restore_library_backup(good_zip, library_dir)
 
         assert os.path.exists(os.path.join(library_dir, "library.db"))
+
+
+class TestBulkExportClampsOverlappingCues:
+    """Step 25d item 6: Workspace's own export already promises "never
+    export an overlapping (invalid) cue" (subtitle_formats.clamp_overlaps)
+    -- Library's "Export all" used to skip that clamp entirely."""
+
+    def test_overlapping_cues_are_clamped_before_srt_generation(self, isolated_db, monkeypatch):
+        from streamlit.testing.v1 import AppTest
+        import tabs.library_tab as lt
+
+        did = isolated_db.create_drama(title_en="Overlap Drama", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="a", en="Hello"),
+            Line(idx=1, start=1.5, end=3.0, zh="b", en="World"),
+        ])
+
+        calls = []
+        real_lines_to_srt = lt.lines_to_srt
+
+        def spy(lines, *a, **k):
+            calls.append(list(lines))
+            return real_lines_to_srt(lines, *a, **k)
+        monkeypatch.setattr(lt, "lines_to_srt", spy)
+
+        def _render():
+            import tabs.library_tab as lt2
+            lt2.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        [btn] = [b for b in at.button if b.label.startswith("📦 Export all")]
+        btn.click().run(timeout=30)
+
+        assert calls, "lines_to_srt was never called"
+        exported_lines = calls[0]
+        # Clamped to the next line's start, not the original overlapping end.
+        assert exported_lines[0].end == 1.5

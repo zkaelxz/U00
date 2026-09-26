@@ -5,6 +5,7 @@ import time
 
 from common import *
 from sources import store as src_store
+import subtitle_formats
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -63,7 +64,8 @@ BULK_SERIES_TRANSLATE_JOB_ID = "bulk_series_translate"
 
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
-                                  ollama_base_url: str = None, gemini_free_tier: bool = False):
+                                  ollama_base_url: str = None, gemini_free_tier: bool = False,
+                                  models: dict = None, monthly_cap: float = 0):
     """Step 9b.3: translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -84,10 +86,18 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     api_keys: {engine_name: api_key} gathered from Settings by the caller
     BEFORE starting this as a background job -- this function runs in a
     thread and must never touch st.session_state (background_jobs.py's
-    hard rule).
+    hard rule). models: {engine_name: model_id}, same reasoning -- the
+    Settings-configured default model for each engine, gathered by the
+    caller before this starts, rather than falling back to each engine's
+    own bare default (Step 25d item 1). monthly_cap: Settings' monthly
+    spending cap in USD, or 0/None for no cap -- re-checked against
+    db.get_month_spend() before each drama, same as Workspace's and
+    cli.py translate's own per-run cap resolution, since this was the one
+    translate path in the app that didn't enforce it at all.
     """
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
-               "skipped_no_lines": [], "errors": {}}
+               "skipped_no_lines": [], "skipped_cap": [], "errors": {}}
+    models = models or {}
     total = len(drama_ids) or 1
     for i, did in enumerate(drama_ids):
         if background_jobs.is_cancel_requested(job_id):
@@ -114,9 +124,26 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             continue
         if not api_key:
             api_key = "offline" if engine_choice == "test_offline" else "local"
+
+        # Same cap logic as Workspace's Translate button and `cli.py
+        # translate` -- only the engines that bill per token and report
+        # usage are subject to it, and it's re-resolved against the
+        # month's spend-so-far right before each drama, not just once for
+        # the whole batch, since earlier dramas in this same run add to
+        # that spend too.
+        cap_applies = (engine_choice in ("claude", "deepseek", "gemini")
+                       and not (engine_choice == "gemini" and gemini_free_tier))
+        cost_cap = None
+        if cap_applies and monthly_cap:
+            cost_cap, refusal = translate_engines.resolve_cost_cap(
+                None, monthly_cap, db.get_month_spend())
+            if refusal:
+                results["skipped_cap"].append(did)
+                continue
+
         try:
             engine = translate_engines.get_engine(
-                engine_choice, api_key, None,
+                engine_choice, api_key, models.get(engine_choice),
                 free_tier=engine_choice == "gemini" and gemini_free_tier,
                 base_url=ollama_base_url if engine_choice == "ollama" else None)
         except Exception as e:
@@ -128,8 +155,13 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         glossary_terms = db.list_glossary_terms(series_id) if series_id else None
         series_chars = db.list_series_characters(series_id) if series_id else []
         drama_chars = db.list_characters_with_series_names(did)
+        # Step 25d item 1: this used to always be "audio_drama", even for
+        # a novel-narration drama -- same per-content-mode default Step
+        # 25c's own shared translate-finishing helper and `cli.py
+        # translate` already use.
+        style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
         style_guidelines = tguide.build_style_guidelines(
-            style_preset="audio_drama", glossary_terms=glossary_terms,
+            style_preset=style_preset, glossary_terms=glossary_terms,
             custom_notes=tguide.build_character_gender_hints(series_chars, drama_chars))
         novel_reference = None
         if drama.get("novel_reference_filename"):
@@ -142,16 +174,34 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         background_jobs.start_job(
             per_job_id, workspace_tab.run_translate_job,
             per_job_id, did, lines, engine, drama, "", novel_reference, False, default_locale,
-            glossary_terms, style_guidelines, engine_choice, "audio_drama", 6, None)
+            glossary_terms, style_guidelines, engine_choice, style_preset, 6, None,
+            cost_cap_usd=cost_cap,
+            # Step 25d item 1: an Ollama-engine run touches the local GPU
+            # like every other Ollama translation job in the app, and
+            # needs the same GPU-job guard (Step 5c) so it can't run
+            # alongside another GPU-touching job.
+            gpu_touching=engine_choice == "ollama",
+            description=f"Ollama translation ({title})" if engine_choice == "ollama" else None)
 
-        while background_jobs.is_running(per_job_id):
-            if background_jobs.is_cancel_requested(job_id):
-                background_jobs.request_cancel(per_job_id)
+        while True:
+            # Step 25d item 1: an Ollama drama can now be queued behind
+            # Step 5c's GPU guard (see gpu_touching= above) instead of
+            # starting immediately -- is_running() alone would miss that
+            # state entirely and fall straight through to the "finished"
+            # check below while the job was still only queued.
             per_status = background_jobs.get_status(per_job_id) or {}
+            if per_status.get("status") not in ("running", "queued"):
+                break
+            if background_jobs.is_cancel_requested(job_id):
+                if per_status.get("status") == "queued":
+                    background_jobs.cancel_queued(per_job_id)
+                else:
+                    background_jobs.request_cancel(per_job_id)
             background_jobs.update_progress(
                 job_id, (i + (per_status.get("progress") or 0.0)) / total,
-                f"Translating {i + 1}/{len(drama_ids)} -- {title} "
-                f"({(per_status.get('progress') or 0.0) * 100:.0f}%)")
+                f"Translating {i + 1}/{len(drama_ids)} -- {title} -- "
+                + ("waiting for the GPU" if per_status.get("status") == "queued"
+                   else f"{(per_status.get('progress') or 0.0) * 100:.0f}%"))
             time.sleep(0.5)
 
         if background_jobs.is_cancel_requested(job_id):
@@ -370,12 +420,23 @@ def render_library_tab():
                               disabled=not untranslated_selected or bulk_translate_running):
                     api_keys = {engine: st.session_state.get(f"settings_{engine}")
                                for engine in translate_engines.ENGINES}
+                    # Step 25d item 1: the Settings-configured default model
+                    # per engine -- these three are the only engines with
+                    # their own model picker (see Workspace's "5. Translation"
+                    # section); every other engine has no per-engine model
+                    # setting to read, so get_engine's own bare default is
+                    # correct for those.
+                    models = {"claude": st.session_state.get("settings_claude_model"),
+                             "gemini": st.session_state.get("settings_gemini_model"),
+                             "ollama": st.session_state.get("settings_ollama_model")}
                     started = background_jobs.start_job(
                         BULK_SERIES_TRANSLATE_JOB_ID, run_bulk_series_translate_job,
                         BULK_SERIES_TRANSLATE_JOB_ID, untranslated_selected, api_keys,
                         default_locale=st.session_state.get("settings_default_locale", "en-US"),
                         ollama_base_url=st.session_state.get("settings_ollama_url") or None,
-                        gemini_free_tier=st.session_state.get("gemini_free_tier", False))
+                        gemini_free_tier=st.session_state.get("gemini_free_tier", False),
+                        models=models,
+                        monthly_cap=st.session_state.get("settings_monthly_cap_usd") or 0)
                     if started:
                         st.info("Bulk translation started -- queued one drama at a time. "
                                "Come back here any time to see progress.")
@@ -404,6 +465,8 @@ def render_library_tab():
                         parts.append(f"{len(r['skipped_no_key'])} skipped (no API key)")
                     if r.get("skipped_no_lines"):
                         parts.append(f"{len(r['skipped_no_lines'])} skipped (no lines)")
+                    if r.get("skipped_cap"):
+                        parts.append(f"{len(r['skipped_cap'])} skipped (monthly spending cap reached)")
                     if r.get("errors"):
                         parts.append(f"{len(r['errors'])} failed")
                     st.success("Bulk translation finished: " + ", ".join(parts) + ".")
@@ -436,6 +499,9 @@ def render_library_tab():
                                          sfx=bool(r.get("sfx"))) for r in rows]
                             if not lns:
                                 continue
+                            # Step 25d item 6: same clamp Workspace's own export
+                            # already applies -- never export an overlapping cue.
+                            lns, _ = subtitle_formats.clamp_overlaps(lns)
                             safe_title = re.sub(r"[^\w\- ]", "", d["title_en"] or d["title_zh"] or str(d["id"]))
                             zf.writestr(f"{safe_title}/english.srt", lines_to_srt(lns, "en"))
                             zf.writestr(f"{safe_title}/chinese.srt", lines_to_srt(lns, "zh"))
