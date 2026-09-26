@@ -1228,6 +1228,31 @@ class TestDeepLEngine:
         result = engine.translate_batch(["solo"], {})
         assert result == ["EN:solo"]
 
+    def test_defaults_to_english_target(self, monkeypatch):
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["你好"], {})
+        assert captured["target_lang"] == "EN-US"
+
+    def test_step_26b_english_source_and_chinese_target_reach_deepl(self, monkeypatch):
+        """Step 26b: the standalone translate tool's English -> zh/ja/ko
+        direction -- DeepL takes both ends of the pair explicitly, so
+        this is just wiring target_language through the same way
+        source_language already was."""
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
+        assert captured["source_lang"] == "EN"
+        assert captured["target_lang"] == "ZH"
+
+    def test_step_26b_japanese_and_korean_targets_reach_deepl(self, monkeypatch):
+        captured = self._install_fake_deepl(monkeypatch)
+        engine = te.DeepLEngine("fake-key")
+        engine.translate_batch(["Hi"], {"source_language": "en", "target_language": "ja"})
+        assert captured["target_lang"] == "JA"
+        engine.translate_batch(["Hi"], {"source_language": "en", "target_language": "ko"})
+        assert captured["target_lang"] == "KO"
+
 
 class TestGoogleEngine:
     """Same regression coverage as TestDeepLEngine, for GoogleEngine."""
@@ -1286,6 +1311,39 @@ class TestGoogleEngine:
         engine = te.GoogleEngine("fake-key")
         engine.translate_batch(["x"], {"source_language": "ko"})
         assert captured["json"]["source"] == "ko"
+
+    def test_defaults_to_english_target(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "x"}]}}
+
+        monkeypatch.setattr("requests.post",
+                             lambda url, headers=None, json=None, timeout=None:
+                                 captured.update(json=json) or FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        engine.translate_batch(["x"], {})
+        assert captured["json"]["target"] == "en"
+
+    def test_step_26b_english_source_and_cjk_target_reach_google(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"data": {"translations": [{"translatedText": "x"}]}}
+
+        monkeypatch.setattr("requests.post",
+                             lambda url, headers=None, json=None, timeout=None:
+                                 captured.update(json=json) or FakeResponse())
+        engine = te.GoogleEngine("fake-key")
+        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
+        assert captured["json"]["source"] == "en"
+        assert captured["json"]["target"] == "zh"
 
 
 class TestNLLBEngine:
@@ -1376,6 +1434,41 @@ class TestNLLBEngine:
     def test_is_registered_in_engines_and_notes(self):
         assert te.ENGINES["nllb"] is te.NLLBEngine
         assert "nllb" in te.ENGINE_NOTES
+
+    def test_defaults_to_english_target(self, monkeypatch):
+        captured = self._install_fake_pipeline(monkeypatch)
+        te.NLLBEngine().translate_batch(["你好"], {})
+        assert captured["tgt_lang"] == "eng_Latn"
+
+    def test_step_26b_english_source_and_chinese_target_reach_nllb(self, monkeypatch):
+        captured = self._install_fake_pipeline(monkeypatch)
+        engine = te.NLLBEngine()
+        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
+        assert captured["src_lang"] == "eng_Latn"
+        assert captured["tgt_lang"] == "zho_Hans"
+
+    def test_step_26b_reverse_pipeline_is_cached_separately_from_forward(self, monkeypatch):
+        """The (model, source, target) pair, not just source, decides
+        which cached pipeline is reused -- otherwise English -> Chinese
+        would collide with the existing Chinese -> English pipeline."""
+        import sys, types
+        build_calls = []
+
+        class FakePipeline:
+            def __call__(self, texts):
+                return [{"translation_text": f"OUT:{t}"} for t in texts]
+
+        fake_module = types.ModuleType("transformers")
+        fake_module.pipeline = lambda task, model, src_lang, tgt_lang: (
+            build_calls.append((src_lang, tgt_lang)) or FakePipeline())
+        monkeypatch.setitem(sys.modules, "transformers", fake_module)
+
+        engine = te.NLLBEngine()
+        engine.translate_batch(["你好"], {"source_language": "zh", "target_language": "en"})
+        engine.translate_batch(["Hello"], {"source_language": "en", "target_language": "zh"})
+        assert len(build_calls) == 2
+        assert ("zho_Hans", "eng_Latn") in build_calls
+        assert ("eng_Latn", "zho_Hans") in build_calls
 
 
 class TestFreeEngineLabelling:

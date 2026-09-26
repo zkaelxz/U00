@@ -1131,3 +1131,39 @@ class TestSnapshotDatabase:
         row = conn.execute("SELECT title_en FROM dramas WHERE id = ?", (did,)).fetchone()
         conn.close()
         assert row[0] == "Original"
+
+
+class TestTranslateHistory:
+    """Step 26b: history for the standalone translate tool -- a
+    library-level table (no drama_id), same shape as presets. Exit
+    condition: a completed translation is saved to history and appears
+    in a history listing."""
+
+    def test_save_and_list_roundtrips_every_field(self, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "claude", "你好", "Hello")
+        history = isolated_db.list_translate_history()
+        assert len(history) == 1
+        row = history[0]
+        assert row["source_language"] == "zh"
+        assert row["target_language"] == "en"
+        assert row["engine"] == "claude"
+        assert row["source_text"] == "你好"
+        assert row["translated_text"] == "Hello"
+        assert row["created_at"]
+
+    def test_list_is_most_recent_first(self, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "claude", "first", "First")
+        isolated_db.save_translate_history("en", "ja", "deepl", "second", "Second")
+        history = isolated_db.list_translate_history()
+        assert [h["source_text"] for h in history] == ["second", "first"]
+
+    def test_list_respects_limit(self, isolated_db):
+        for i in range(5):
+            isolated_db.save_translate_history("zh", "en", "claude", f"src{i}", f"out{i}")
+        assert len(isolated_db.list_translate_history(limit=3)) == 3
+
+    def test_clear_removes_every_row(self, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "claude", "a", "A")
+        isolated_db.save_translate_history("ja", "en", "deepseek", "b", "B")
+        isolated_db.clear_translate_history()
+        assert isolated_db.list_translate_history() == []
