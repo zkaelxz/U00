@@ -1205,6 +1205,8 @@ SYSTEM_FLAG_REASONS = {
     "timing_uncertain": "Timing uncertain -- forced alignment fell back to approximate timing",
     "timing_overlap": "Overlaps the next line -- exports trim it",
     "reading_speed": "Too fast to read -- too many characters for the time it's shown",
+    "factual_detail": ("Auto QC: a number, date, name, amount or unit differs between the "
+                       "source and the translation"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
 }
@@ -1362,8 +1364,9 @@ OLLAMA_DEFAULT_MODEL = "qwen3:8b"
 # is the cheapest capable LLM, Claude Sonnet the recommended default,
 # Claude Opus the highest quality.
 #
-# auto_qc is stored with the tier now but has no effect yet: the Auto QC
-# pass itself is Step 12b, not built at the time this was added.
+# auto_qc turns on Workspace's "Auto QC before export" check (auto_qc.py,
+# Step 12b) -- the export section then lists lines with a factual-detail
+# mismatch before anything is downloaded.
 WORKFLOW_TIERS = {
     "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
               "engine_model": None, "reflect": False, "auto_qc": False},

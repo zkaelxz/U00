@@ -6,6 +6,7 @@ import math
 
 from common import *
 import audio_preprocess
+import auto_qc
 import raw_transcript
 import resegment
 import sensevoice_tags
@@ -941,6 +942,24 @@ def run_sensevoice_job(job_id, drama_id, lines, audio_path, drama_dir, use_gpu):
         core_module.release_gpu_models()
     sensevoice_tags.save_audio_tags(drama_dir, tags)
     background_jobs.set_result(job_id, {"tagged": len(tags)})
+
+
+def _auto_qc_names(drama) -> list:
+    """The names Auto QC checks for this drama: its series' glossary name
+    terms and series characters (none for a drama outside a series)."""
+    sid = drama.get("series_id")
+    return auto_qc.build_name_list(db.list_glossary_terms(sid) if sid else [],
+                                   db.list_series_characters(sid) if sid else [])
+
+
+def _run_auto_qc(drama_id, drama, lines) -> dict:
+    """Step 12b: runs Auto QC's factual-detail check over `lines` in place
+    and saves only the flag fields if anything changed (the line text
+    itself is never touched). Returns auto_qc.run_auto_qc's counts."""
+    result = auto_qc.run_auto_qc(lines, _auto_qc_names(drama))
+    if result["flagged"] or result["cleared"]:
+        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+    return result
 
 
 def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
@@ -2984,10 +3003,12 @@ def render_workspace_tab():
                      "about 3x as much as a normal translation run.")
 
         b2.checkbox(
-            "🔎 Auto QC before export", key=f"auto_qc_{picked_id}", disabled=True,
-            help="Set by the Starting tier above (Release turns it on). The Auto QC pass "
-                 "itself isn't built yet, so this doesn't do anything for now -- it's saved "
-                 "with the tier so it starts working once that check is added.")
+            "🔎 Auto QC before export", key=f"auto_qc_{picked_id}",
+            help="Set by the Starting tier above (Release turns it on), or tick it yourself. "
+                 "When it's on, the Export section checks every translated line for a dropped "
+                 "or invented number, date, name, amount or unit, and lists any it finds "
+                 "before you download. It's free and uses no AI. You can also run it any time "
+                 "from Review queue in Review & edit.")
 
         bulk_mode = False
         if (engine_choice in bulk_translate.BULK_ENGINES
@@ -4338,6 +4359,36 @@ def render_workspace_tab():
                             st.code(_fjob.get("traceback", ""), language="text")
                         background_jobs.clear_job(_flag_job_id)
 
+                st.markdown("**🔢 Auto QC: numbers, dates, names, amounts, units**")
+                st.caption(
+                    "Compares each translated line with its source for numbers, dates, times, "
+                    "money amounts, measurements, and this series' glossary and character names. "
+                    "Flags a line where one of them was dropped, or where the translation has a "
+                    "number the source doesn't. Conversions are allowed (\"100 yuan\" can become "
+                    "\"about $14\"). It's free because no AI is used and nothing is sent anywhere. "
+                    "Re-run it after fixing lines: flags that no longer apply get cleared. To "
+                    "undo a bad translation it points at, use 🕓 Version history below.")
+                if st.button("🔢 Run Auto QC", key=f"run_auto_qc_{picked_id}"):
+                    st.session_state[f"auto_qc_result_{picked_id}"] = _run_auto_qc(
+                        picked_id, drama, edited_rows)
+                    st.rerun()
+                _qc = st.session_state.pop(f"auto_qc_result_{picked_id}", None)
+                if _qc is not None:
+                    if not _qc["checked"]:
+                        st.info("Nothing to check yet: no line has both a source and a translation.")
+                    elif _qc["flagged"]:
+                        st.warning(f"Auto QC flagged {_qc['flagged']} of {_qc['checked']} line(s). "
+                                   "Find them in the review table below, or turn on \"Show "
+                                   "flagged lines only\" to jump straight to them.")
+                    else:
+                        st.success(f"Auto QC checked {_qc['checked']} line(s) and found nothing.")
+                    if _qc["cleared"]:
+                        st.caption(f"Cleared {_qc['cleared']} earlier Auto QC flag(s) that no "
+                                   "longer apply.")
+                    if _qc["already_flagged"]:
+                        st.caption(f"{_qc['already_flagged']} more line(s) have a mismatch but "
+                                   "already carry a different flag, which was left in place.")
+
                 _n_flagged = sum(1 for ln in edited_rows if ln.flag)
                 if _n_flagged:
                     st.caption(f"{_n_flagged} line(s) currently flagged.")
@@ -5189,6 +5240,27 @@ def render_workspace_tab():
                         ln.flag_note = subtitle_formats.overlap_note(ln, _next_start[ln.idx])
                     db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
                     st.rerun()
+
+            # Step 12b: "Auto QC before export" (the Release tier's default).
+            # Read-only on render, same reason as the overlap check above --
+            # flagging needs the click.
+            if st.session_state.get(f"auto_qc_{picked_id}"):
+                _qc_issues = auto_qc.find_issues(st.session_state.lines, _auto_qc_names(drama))
+                _qc_new = [ln for ln, _ in _qc_issues if not ln.flag]
+                if _qc_issues:
+                    st.warning(f"🔎 Auto QC: {len(_qc_issues)} line(s) drop or add a number, date, "
+                               "name, amount or unit compared with the source: "
+                               + ", ".join(f"#{ln.idx + 1}" for ln, _ in _qc_issues[:8])
+                               + (" …" if len(_qc_issues) > 8 else "") + "."
+                               + (f" {len(_qc_new)} of them aren't flagged for review yet."
+                                  if _qc_new else ""))
+                    if _qc_new and st.button("🚩 Flag these for review",
+                                             key=f"flag_auto_qc_{picked_id}"):
+                        _run_auto_qc(picked_id, drama, st.session_state.lines)
+                        st.rerun()
+                else:
+                    st.caption("🔎 Auto QC: no dropped or invented numbers, dates, names, "
+                               "amounts or units found.")
 
             _dense = subtitle_formats.dense_lines(st.session_state.lines)
             if _dense:
