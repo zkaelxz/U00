@@ -1000,6 +1000,22 @@ def render_workspace_tab():
     picked_label = _picker_col.selectbox("Drama", list(options.keys()),
                                           index=list(options.keys()).index(default_label))
     picked_id = options[picked_label]
+    if picked_id is not None and picked_id != st.session_state.active_drama_id:
+        # Step 4j: switching the Drama dropdown used to leave the newly-
+        # picked drama's page showing the PREVIOUS drama's lines (nothing
+        # reset st.session_state.lines here -- only the "New drama" path
+        # and Library's own drama-switch handling did). Confirmed via
+        # direct reproduction: this wasn't just a display glitch --
+        # clicking "Save edits" afterward wrote the previous drama's line
+        # data into the newly-picked drama's database rows, and because
+        # the row count differed, deleted that drama's own real lines,
+        # notes, and emotion data. Reset here, the moment the selection
+        # itself actually changes, so every downstream section (Review &
+        # edit, merge, restore, translate) that reads st.session_state.lines
+        # this same render is already working with the right drama's data --
+        # same reload pattern the "New drama" path already uses correctly.
+        st.session_state.lines = None
+        _clear_line_widget_state()
     # Step 9i: a general-purpose escape hatch for any stale display this
     # app's several targeted reload fixes (Steps 6f, 9h, 9i item 1) didn't
     # catch -- cross-tab staleness in particular is hard to fully
