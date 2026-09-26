@@ -11,11 +11,11 @@ raw-novel upload put them, so nothing downstream changes.
 from common import *
 
 import background_jobs
-from sources import (adaptive, ai_extract, cache as src_cache, chapter_check, chapter_order,
-                     front_door, generic_import, health, ladder as src_ladder, pipeline,
-                     profiles as src_profiles, registry, store as src_store)
+from sources import (adaptive, ai_extract, auth_browser, cache as src_cache, chapter_check,
+                     chapter_order, front_door, generic_import, health, ladder as src_ladder,
+                     pipeline, profiles as src_profiles, registry, store as src_store)
 from sources.models import (AccessTier, CHALLENGE_HANDOFF_MESSAGE, ChallengeDetected,
-                            NotSupportedError, SourceError, TermsProhibited)
+                            FailureReason, NotSupportedError, SourceError, TermsProhibited)
 
 _COMIC_MEDIA = ("manhua", "manga", "manhwa")
 
@@ -219,9 +219,79 @@ def _render_front_door():
             for line in p.ladder.summary_lines():
                 st.caption(line)
     report = st.session_state.get("src_fd_report")
+    if p.content_type != front_door.VIDEO and not p.series_id:
+        needs = bool(p.ladder is not None and not p.ladder.ok and
+                     set(p.ladder.reasons) & _SIGN_IN_HINTS) or bool(
+            report is not None and report.url == p.url and report.access_tier is None and
+            (report.access.get("authentication_required") or report.access.get("purchase_required")))
+        with st.expander("🔐 Sign in to this site", expanded=needs):
+            if _render_sign_in(p.url, "src_fd"):
+                st.session_state.src_fd_result = front_door.preview(p.url)
+                st.rerun()
     if report is not None and report.url == p.url:
         with st.expander("🩺 Source diagnostics", expanded=_diagnostics_mode()):
             _render_report(report)
+
+
+# ---------------------------------------------------------------------------
+# Step 23k: signing in through a real browser window
+# ---------------------------------------------------------------------------
+
+_SIGN_IN_HINTS = {FailureReason.AUTHENTICATION_REQUIRED, FailureReason.PURCHASE_REQUIRED,
+                  FailureReason.COOKIE_REQUIRED, FailureReason.EMPTY_SPA_SHELL}
+
+
+def _render_sign_in(url: str, key: str, source: str = None) -> bool:
+    """Item 2's manual-login flow. Returns True right after a sign-in
+    that the app then confirmed can see the page."""
+    source = source or auth_browser.source_for(url)
+    saved = auth_browser.has_profile(url, source)
+    st.info(auth_browser.LOGIN_PROMPT)
+    st.caption("You sign in yourself, in a real browser window on the computer running Baihe "
+               "Studio -- the app never sees your password, never solves a CAPTCHA or MFA for "
+               "you, and never gets around a purchase check. Close the window once the chapter "
+               "is open; the app then checks it can really see that page before importing "
+               "anything. Your sign-in stays in this site's own browser profile (never shown, "
+               "logged, sent to an AI engine, or put in a library backup), so later imports "
+               "don't ask again.")
+    if saved:
+        st.caption("✅ A saved sign-in exists for this site -- its pages are already read "
+                   "through it.")
+    c1, c2 = st.columns(2)
+    confirmed = False
+    if c1.button("🔐 Open browser to sign in", key=f"{key}_login"):
+        with st.spinner("Waiting for you in the browser window -- close it once the chapter "
+                        "is open. There's no time limit."):
+            try:
+                cls = registry.adapter_class_for_url(url)
+                check = cls().login(url) if cls else auth_browser.manual_login(url, source)
+            except TermsProhibited as e:
+                st.error(str(e))
+                return False
+            except ImportError as e:
+                st.error(str(e))
+                return False
+            except Exception as e:
+                st.error(translate_engines.redact_secrets(f"The sign-in window failed: {e}"))
+                return False
+        st.session_state[f"{key}_login_check"] = check
+        confirmed = check.ok
+    check = st.session_state.get(f"{key}_login_check")
+    if check is not None and check.url == url:
+        (st.success if check.ok else st.warning)(check.message)
+        for line in check.lines:
+            st.caption(f"· {line}")
+    if saved and c2.button("🗑️ Forget this site's sign-in", key=f"{key}_forget",
+                           help="Deletes the saved browser profile. Imports go back to "
+                                "reading the site signed out."):
+        try:
+            auth_browser.forget(url, source)
+        except Exception as e:
+            st.error(str(e))
+        else:
+            st.session_state.pop(f"{key}_login_check", None)
+            st.rerun()
+    return confirmed
 
 
 # ---------------------------------------------------------------------------
@@ -284,12 +354,26 @@ def _render_report(report):
     st.caption(adaptive.describe_profile(report.profile))
     if report.protection:
         st.caption("Protection detected: " + ", ".join(report.protection))
+    _render_access_facts(report.access, report.resource_types)
     if report.reason:
         st.caption(f"Why: {report.reason}")
     for line in report.access_lines + report.lines:
         st.caption(f"· {line}")
     if report.data:
         _render_confidence(report.data)
+
+
+def _render_access_facts(access: dict, resource_types):
+    """Step 23k item 6: each fact on its own line, in its own words."""
+    if not access:
+        return
+    st.caption(f"Authentication: {access.get('authentication')}")
+    st.caption(f"Entitlement/purchase: {access.get('entitlement')}")
+    st.caption("Resource types found: " + (", ".join(resource_types) if resource_types
+                                           else "none identified"))
+    st.caption(f"Technical protection: {access.get('technical_protection')}")
+    for line in access.get("protection_detail") or []:
+        st.caption(f"🔒 {line}")
 
 
 def _render_review_extraction(rv: dict):
@@ -648,6 +732,7 @@ def _render_generic_diagnostics():
         st.caption(f"AI calls: {a.get('llm_calls', 0)}"
                    + (" (cached result reused)" if a.get("cache_hit") else "")
                    + " · " + adaptive.describe_profile(a.get("profile") or {}))
+        _render_access_facts(a.get("access") or {}, a.get("resource_types") or [])
         if a.get("reason"):
             st.caption(f"Why: {a['reason']}")
         for line in a.get("lines") or []:
@@ -699,7 +784,8 @@ def _render_sources_detail():
                     st.rerun()
             st.caption(f"Content: {', '.join(caps.content_types)} · Languages: "
                        f"{', '.join(caps.languages)} · Technical status: {caps.technical_status}"
-                       f" · Access method: {caps.access_method or 'not established yet'}")
+                       f" · Resource types reached: {caps.content_access_status}")
+            st.caption(src_ladder.describe_capability_fields(caps))
             st.caption(f"Last success: {h['last_success'] or '—'} · last failure: "
                        f"{h['last_failure'] or '—'} ({h['last_error_type'] or '—'}) · latency: "
                        f"{(h['last_latency'] or 0):.2f}s")
@@ -718,21 +804,28 @@ def _render_sources_detail():
                                      help="Any real page on this source. Each button runs exactly "
                                           "one tier and updates only that tier's line above.")
             b = st.columns(5)
+            signed_in = bool(test_url.strip()) and auth_browser.has_profile(test_url.strip(), name)
             tier_fns = {
                 AccessTier.STATIC_HTTP: src_ladder.static_tier(adapter.client),
                 AccessTier.RENDERED_BROWSER: src_ladder.rendered_tier(adapter.client),
-                AccessTier.AUTHENTICATED_BROWSER: src_ladder.not_built_tier("23k"),
+                AccessTier.AUTHENTICATED_BROWSER: src_ladder.authenticated_tier(
+                    auth_browser.profile_dir(test_url.strip(), name), adapter.client),
             }
             for col, (tier, label) in zip(b, [(AccessTier.STATIC_HTTP, "Test Static"),
                                               (AccessTier.RENDERED_BROWSER, "Test Browser"),
                                               (AccessTier.AUTHENTICATED_BROWSER, "Test Authenticated")]):
+                # Testing the signed-in tier needs a sign-in first -- it would
+                # otherwise create an empty, signed-out profile.
                 if col.button(label, key=f"src_test_{name}_{tier.value}",
-                              disabled=not test_url.strip()):
+                              disabled=not test_url.strip() or (
+                                  tier == AccessTier.AUTHENTICATED_BROWSER and not signed_in)):
                     src_ladder.test_tier(name, tier, test_url.strip(), tier_fns[tier],
                                          adapter.capabilities())
                     st.rerun()
             if test_url.strip():
                 b[3].link_button("Open in Browser", test_url.strip())
+                with st.expander("🔐 Sign in to this source"):
+                    _render_sign_in(test_url.strip(), f"src_login_{name}", source=name)
             if caps.technical:
                 st.caption(f"Technical findings: {caps.technical}")
             if caps.terms:
