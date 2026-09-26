@@ -272,26 +272,37 @@ def build_style_guidelines(style_preset: str = "audio_drama", glossary_terms=Non
         parts.append(FEMALE_PRONOUN_DEFAULT_GUIDANCE)
 
     if glossary_terms:
-        # Group by policy so the instruction reads as rules, not a flat list
-        by_policy = {}
-        for t in glossary_terms:
-            policy = t.get("policy") or "keep_pinyin"
-            by_policy.setdefault(policy, []).append(t)
-
-        lines = ["TERM GLOSSARY -- these translations are fixed, use them exactly:"]
-        for policy, terms in by_policy.items():
-            pol = TERM_POLICIES.get(policy, TERM_POLICIES["keep_pinyin"])
-            lines.append(f"\n[{pol['label']}] {pol['guidance']}")
-            for t in terms:
-                cat = f" ({TERM_CATEGORIES.get(t.get('category'), '')})" if t.get("category") else ""
-                note = f" -- {t['notes']}" if t.get("notes") else ""
-                lines.append(f"  {t['term_original']} → {t['term_translation']}{cat}{note}")
-        parts.append("\n".join(lines))
+        parts.append(build_glossary_block(glossary_terms))
 
     if custom_notes.strip():
         parts.append(f"ADDITIONAL PROJECT NOTES:\n{custom_notes.strip()}")
 
     return "\n\n".join(parts)
+
+
+def build_glossary_block(glossary_terms) -> str:
+    """The TERM GLOSSARY section of build_style_guidelines(), on its own --
+    also used by Scanlate's translate call (scanlate.translate_page_with_context),
+    so honorifics and other glossary terms reach comic translations through the
+    same rules text as Workspace, not a second honorific system. Empty string
+    for no terms."""
+    if not glossary_terms:
+        return ""
+    # Group by policy so the instruction reads as rules, not a flat list
+    by_policy = {}
+    for t in glossary_terms:
+        policy = t.get("policy") or "keep_pinyin"
+        by_policy.setdefault(policy, []).append(t)
+
+    lines = ["TERM GLOSSARY -- these translations are fixed, use them exactly:"]
+    for policy, terms in by_policy.items():
+        pol = TERM_POLICIES.get(policy, TERM_POLICIES["keep_pinyin"])
+        lines.append(f"\n[{pol['label']}] {pol['guidance']}")
+        for t in terms:
+            cat = f" ({TERM_CATEGORIES.get(t.get('category'), '')})" if t.get("category") else ""
+            note = f" -- {t['notes']}" if t.get("notes") else ""
+            lines.append(f"  {t['term_original']} → {t['term_translation']}{cat}{note}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
