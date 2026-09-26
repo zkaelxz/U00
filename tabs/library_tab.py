@@ -157,10 +157,12 @@ def render_library_tab():
                     st.progress(min(1.0, (d.get("percent_complete") or 0) / 100.0),
                                 text=f"{d.get('percent_complete') or 0:.0f}%")
                     if st.button("Resume", key=f"resume_{d['id']}"):
+                        import tabs.workspace_tab as workspace_tab
                         st.session_state.active_drama_id = d["id"]
                         st.session_state["reader_jump_page"] = d.get("last_page") or 1
                         st.session_state["reader_resume_pending"] = d["id"]
                         st.session_state.lines = None
+                        workspace_tab._clear_line_widget_state()
                         # Streamlit's st.tabs has no API for switching tabs from
                         # Python, so this can only set the destination and say so
                         # plainly rather than pretending to navigate.
@@ -234,6 +236,7 @@ def render_library_tab():
                         if dcol3.button("Open", key=f"series_open_{_d['id']}"):
                             st.session_state.active_drama_id = _d["id"]
                             st.session_state.lines = None
+                            workspace_tab._clear_line_widget_state()
                             st.session_state["nav_notice"] = (
                                 f"**{_d['title_en'] or _d['title_zh']}** is open — switch to the "
                                 "**🛠️ Workspace** tab above to continue.")
