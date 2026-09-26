@@ -1484,7 +1484,7 @@ class TestVoiceMatchSuggestions:
     def test_accept_sets_the_character_name_and_updates_the_fingerprint(self, isolated_db):
         did, sc_id = self._drama(isolated_db)
         at = self._run(did)
-        accept = [b for b in at.button if b.key == f"voiceaccept_SPEAKER_00_{sc_id}"]
+        accept = [b for b in at.button if b.key == f"voiceaccept_{did}_SPEAKER_00_{sc_id}"]
         assert accept, "Accept button not found"
         accept[0].click().run(timeout=30)
 
@@ -1500,7 +1500,7 @@ class TestVoiceMatchSuggestions:
     def test_reject_dismisses_without_changing_anything(self, isolated_db):
         did, sc_id = self._drama(isolated_db)
         at = self._run(did)
-        reject = [b for b in at.button if b.key == f"voicereject_SPEAKER_00_{sc_id}"]
+        reject = [b for b in at.button if b.key == f"voicereject_{did}_SPEAKER_00_{sc_id}"]
         assert reject, "Reject button not found"
         reject[0].click().run(timeout=30)
 
@@ -1516,7 +1516,7 @@ class TestVoiceMatchSuggestions:
     def test_rejecting_never_re_shows_that_pair(self, isolated_db):
         did, sc_id = self._drama(isolated_db)
         at = self._run(did)
-        reject = [b for b in at.button if b.key == f"voicereject_SPEAKER_00_{sc_id}"][0]
+        reject = [b for b in at.button if b.key == f"voicereject_{did}_SPEAKER_00_{sc_id}"][0]
         at = reject.click().run(timeout=30)
         assert not [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
 
@@ -2491,6 +2491,103 @@ class TestDramaSwitchResetsLoadedLines:
         assert [r["zh"] for r in after_b] == ["乙乙乙"]
         after_a = isolated_db.load_lines(did_a)
         assert [r["zh"] for r in after_a] == ["甲甲甲"]
+
+
+class TestDramaSwitchKeepsCharactersSeparate:
+    """Step 25b: section 6's per-character widgets were keyed by the
+    diarized speaker label alone (cname_SPEAKER_00, ...). Two unrelated
+    dramas that both have a SPEAKER_00 shared one widget key, so after a
+    switch Streamlit kept showing the previous drama's value, and the
+    "widget differs from what's saved" check wrote it into the new
+    drama's own character row."""
+
+    _FIELDS = ("character_name", "voice_actor", "tts_voice", "pronouns", "ref_text",
+               "clone_engine", "voice_design")
+
+    def _two_dramas(self, isolated_db):
+        did_a = isolated_db.create_drama(title_en="Drama A", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_a, [Line(idx=0, start=0.0, end=1.0, zh="甲甲甲", en="AAA",
+                                            speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did_a, "SPEAKER_00", character_name="Alice",
+                                     voice_actor="Actor A", tts_voice="en-US-EmmaNeural",
+                                     pronouns="she/her", ref_text="甲的参考", clone_engine="omnivoice",
+                                     voice_design="female, low pitch")
+        did_b = isolated_db.create_drama(title_en="Drama B", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_b, [Line(idx=0, start=0.0, end=1.0, zh="乙乙乙", en="BBB",
+                                            speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did_b, "SPEAKER_00", character_name="Bob",
+                                     voice_actor="Actor B", tts_voice="en-US-JennyNeural",
+                                     pronouns="he/him", ref_text="乙的参考", clone_engine="chatterbox",
+                                     voice_design="male, british accent")
+        return did_a, did_b
+
+    def _character(self, db_module, did):
+        row = next(c for c in db_module.list_characters(did) if c["speaker_label"] == "SPEAKER_00")
+        return {f: row[f] for f in self._FIELDS}
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _switch_to(self, at, did):
+        box = [b for b in at.selectbox if b.label == "Drama"][0]
+        label = next(l for l in box.options if l.startswith(f"#{did} "))
+        box.set_value(label).run(timeout=30)
+
+    def _name_box(self, at):
+        return [t for t in at.text_input if t.key and t.key.startswith("cname_")][0]
+
+    def test_switching_back_and_forth_never_leaks_character_data(self, isolated_db):
+        did_a, did_b = self._two_dramas(isolated_db)
+        before_a = self._character(isolated_db, did_a)
+        before_b = self._character(isolated_db, did_b)
+
+        at = self._run(did_a)
+        assert self._name_box(at).value == "Alice"
+
+        self._switch_to(at, did_b)
+        at.run(timeout=30)
+        assert self._name_box(at).value == "Bob"
+        assert self._character(isolated_db, did_b) == before_b
+
+        self._switch_to(at, did_a)
+        at.run(timeout=30)
+        assert self._name_box(at).value == "Alice"
+        assert self._character(isolated_db, did_a) == before_a
+        assert self._character(isolated_db, did_b) == before_b
+
+    def test_editing_a_field_right_after_switching_writes_only_the_new_dramas_data(
+            self, isolated_db):
+        did_a, did_b = self._two_dramas(isolated_db)
+        before_a = self._character(isolated_db, did_a)
+
+        at = self._run(did_a)
+        self._switch_to(at, did_b)
+
+        [t for t in at.text_input if t.key and t.key.startswith("cva_")][0] \
+            .set_value("New Actor B").run(timeout=30)
+
+        after_b = self._character(isolated_db, did_b)
+        assert after_b["voice_actor"] == "New Actor B"
+        assert after_b["character_name"] == "Bob"
+        assert after_b["tts_voice"] == "en-US-JennyNeural"
+        assert after_b["pronouns"] == "he/him"
+        assert after_b["ref_text"] == "乙的参考"
+        assert after_b["clone_engine"] == "chatterbox"
+        assert after_b["voice_design"] == "male, british accent"
+        assert self._character(isolated_db, did_a) == before_a
 
 
 class TestManualRefreshButton:
@@ -4689,10 +4786,10 @@ class TestNarrationVoiceSetup:
     def test_engine_and_voice_description_persist(self, isolated_db):
         did = self._drama(isolated_db)
         at = self._run(did)
-        [engine] = [s for s in at.selectbox if s.key == "cengine_Hero"]
+        [engine] = [s for s in at.selectbox if s.key == f"cengine_{did}_Hero"]
         assert engine.value == "f5tts"  # nothing stored yet: the pre-Step-11b default
         engine.set_value("chatterbox").run(timeout=30)
-        [design] = [t for t in at.text_input if t.key == "cdesign_Hero"]
+        [design] = [t for t in at.text_input if t.key == f"cdesign_{did}_Hero"]
         design.set_value("male, young adult, low pitch").run(timeout=30)
 
         [c] = db.list_characters(did)
