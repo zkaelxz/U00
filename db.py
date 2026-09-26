@@ -508,6 +508,20 @@ def init_db():
         updated_at TEXT
     );
 
+    -- Step 26b: history for the standalone translate tool -- not tied to
+    -- any drama/project (no drama_id), same "library-level" shape as
+    -- presets above, since a standalone translation doesn't belong to
+    -- any one drama.
+    CREATE TABLE IF NOT EXISTS translate_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_language TEXT NOT NULL,
+        target_language TEXT NOT NULL,
+        engine TEXT NOT NULL,
+        source_text TEXT NOT NULL,
+        translated_text TEXT NOT NULL,
+        created_at TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
     CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
     CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
@@ -523,6 +537,7 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_wiki_drama ON wiki_entries(drama_id);
     CREATE INDEX IF NOT EXISTS idx_edits_drama ON edit_samples(drama_id);
     CREATE INDEX IF NOT EXISTS idx_benchmark_runs_case ON benchmark_runs(case_id);
+    CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
     """)
     # Lightweight migrations for DBs created before these columns existed
     existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
@@ -2222,6 +2237,42 @@ def get_usage_by_drama():
     """).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Step 26b: standalone translate tool history
+# ---------------------------------------------------------------------------
+
+def save_translate_history(source_language: str, target_language: str, engine: str,
+                           source_text: str, translated_text: str) -> int:
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO translate_history (source_language, target_language, engine,
+                                        source_text, translated_text, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (source_language, target_language, engine, source_text, translated_text,
+          datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def list_translate_history(limit: int = 50) -> List[dict]:
+    """Most recent first."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM translate_history ORDER BY created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def clear_translate_history():
+    conn = get_conn()
+    conn.execute("DELETE FROM translate_history")
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------

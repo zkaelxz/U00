@@ -29,7 +29,7 @@ import ui_theme
 _tab_import_errors = {}
 for _name in ("settings_tab", "library_tab", "reader_tab", "scanlate_tab",
               "navigator_tab", "discover_tab", "workspace_tab", "live_tab",
-              "diagnostics_tab", "sources_tab"):
+              "diagnostics_tab", "sources_tab", "translate_tab"):
     try:
         __import__(f"tabs.{_name}")
     except Exception as _exc:
@@ -87,8 +87,8 @@ if "active_drama_id" not in st.session_state:
 if "lines" not in st.session_state:
     st.session_state.lines = None
 
-tab_library, tab_workspace, tab_reader, tab_scanlate, tab_sources, tab_navigator, tab_discover, tab_live, tab_diagnostics = st.tabs(
-    ["📚 Library", "🛠️ Workspace", "📖 Read & Watch", "🖼️ Scanlate", "🌐 Sources", "🧭 Navigator", "🔎 Discover", "🔴 Live", "🩺 Diagnostics"])
+tab_library, tab_workspace, tab_reader, tab_scanlate, tab_sources, tab_navigator, tab_discover, tab_translate, tab_live, tab_diagnostics = st.tabs(
+    ["📚 Library", "🛠️ Workspace", "📖 Read & Watch", "🖼️ Scanlate", "🌐 Sources", "🧭 Navigator", "🔎 Discover", "🌍 Translate", "🔴 Live", "🩺 Diagnostics"])
 
 with tab_library:
     _safe_render(tabs.library_tab.render_library_tab, "Library", "library_tab")
@@ -107,6 +107,9 @@ with tab_navigator:
 
 with tab_discover:
     _safe_render(tabs.discover_tab.render_discover_tab, "Discover", "discover_tab")
+
+with tab_translate:
+    _safe_render(tabs.translate_tab.render_translate_tab, "Translate", "translate_tab")
 
 with tab_workspace:
     _safe_render(tabs.workspace_tab.render_workspace_tab, "Workspace", "workspace_tab")
