@@ -79,6 +79,72 @@ class TestAss:
         assert len(set(colors.values())) == 3 and None not in colors
 
 
+class TestAssShadow:
+    """Step 6i: _style_line used to hardcode ASS's own Shadow field to
+    the literal "1", ignoring anything in the style dict -- a shadow
+    slider now threads a real value through instead."""
+
+    def test_shadow_value_reaches_the_style_line(self):
+        style = dict(sf.ASS_PRESETS["Clean"], shadow=4)
+        ass = sf.lines_to_ass(_lines(), style)
+        default_style = [l for l in ass.splitlines() if l.startswith("Style: Default,")][0]
+        assert default_style.split(",")[17] == "4"  # Shadow field
+
+    def test_missing_shadow_key_falls_back_to_1(self):
+        style = {k: v for k, v in sf.ASS_PRESETS["Clean"].items() if k != "shadow"}
+        ass = sf.lines_to_ass(_lines(), style)
+        default_style = [l for l in ass.splitlines() if l.startswith("Style: Default,")][0]
+        assert default_style.split(",")[17] == "1"
+
+    def test_both_presets_default_to_shadow_1(self):
+        assert sf.ASS_PRESETS["Clean"]["shadow"] == 1
+        assert sf.ASS_PRESETS["Streamer clip"]["shadow"] == 1
+
+
+class TestAssNotesAsSeparateLine:
+    """Step 6i: an opt-in toggle so a translation note renders as its own
+    smaller second Dialogue line instead of being appended inline to the
+    same cue -- off by default (today's behavior), and SRT/VTT have no
+    such toggle at all (they always append inline)."""
+
+    def _lines_with_note(self):
+        lines = _lines()
+        notes_by_idx = {0: [{"term": "Qijutang", "note": "lit. 'Hall of Sitting Together'"}]}
+        return lines, notes_by_idx
+
+    def test_off_by_default_keeps_the_inline_suffix(self):
+        lines, notes_by_idx = self._lines_with_note()
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], notes_by_idx=notes_by_idx)
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+        assert len(dialogue) == 2  # no extra note line
+        assert "Qijutang" in dialogue[0]
+
+    def test_on_produces_a_second_smaller_dialogue_line(self):
+        lines, notes_by_idx = self._lines_with_note()
+        style = sf.ASS_PRESETS["Clean"]
+        ass = sf.lines_to_ass(lines, style, notes_by_idx=notes_by_idx, notes_as_separate_line=True)
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+        assert len(dialogue) == 3  # line 0's main + its note, then line 1's main
+        assert "Qijutang" not in dialogue[0]  # main cue stays clean
+        assert dialogue[1].split(",")[3] == "Notes"
+        assert "Qijutang" in dialogue[1]
+        note_style = [l for l in ass.splitlines() if l.startswith("Style: Notes,")][0]
+        assert note_style.split(",")[2] == str(round(style["size"] * 0.7))  # Fontsize
+
+    def test_a_line_with_no_note_gets_no_extra_dialogue_line(self):
+        lines, notes_by_idx = self._lines_with_note()
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], notes_by_idx=notes_by_idx,
+                              notes_as_separate_line=True)
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+        assert len(dialogue) == 3  # line 0's note, but nothing extra for line 1
+
+    def test_srt_and_vtt_have_no_such_toggle_and_always_stay_inline(self):
+        lines, notes_by_idx = self._lines_with_note()
+        srt = lines_to_srt(lines, "en", notes_by_idx=notes_by_idx)
+        vtt = sf.lines_to_vtt(lines, "en", notes_by_idx=notes_by_idx)
+        assert "Qijutang" in srt and "Qijutang" in vtt
+
+
 class TestLongLines:
     def test_splits_at_a_clause_boundary(self):
         text = "I told you already, you should never go back there alone."

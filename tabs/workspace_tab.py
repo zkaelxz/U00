@@ -176,6 +176,10 @@ def _subtitle_style_controls(picked_id, lines, speaker_names):
             if font_choice == _other else font_choice)
     size = c2.slider("Size", 12, 60, base["size"], key=f"sub_size_{k}")
     outline_width = c2.slider("Outline width", 0, 10, base["outline_width"], key=f"sub_outline_w_{k}")
+    shadow = c2.slider("Shadow", 0, 5, base.get("shadow", 1), key=f"sub_shadow_{k}",
+                       help="ASS's own drop-shadow depth, in pixels on the 288-line canvas below "
+                            "-- 0 turns it off. SRT/VTT playback has no shadow concept, so this "
+                            "only affects .ass files and burned-in video.")
     c3, c4, c5, c6 = st.columns(4)
     bold = c3.checkbox("Bold", value=base["bold"], key=f"sub_bold_{k}")
     italic = c3.checkbox("Italic", value=base["italic"], key=f"sub_italic_{k}")
@@ -187,7 +191,8 @@ def _subtitle_style_controls(picked_id, lines, speaker_names):
     st.caption("A font that isn't common must be installed on the computer doing the export or "
                "burn-in -- otherwise it silently falls back to a default font.")
     style = {"font": font, "size": size, "bold": bold, "italic": italic, "primary": primary,
-             "outline": outline, "outline_width": outline_width, "alignment": alignment}
+             "outline": outline, "outline_width": outline_width, "shadow": shadow,
+             "alignment": alignment}
 
     speaker_colors = {}
     speakers = sorted({ln.speaker for ln in lines if ln.speaker})
@@ -567,7 +572,7 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                         local_model_path, hf_token, initial_prompt, beam_size,
                         min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False,
                         realign_long_segments=False, chinese_script="simplified", fast_mode=False,
-                        separation_backend="auto"):
+                        separation_backend="auto", use_groq=False, groq_api_key=None):
     """
     Runs just the Whisper speech-recognition pass in a background thread,
     same reasoning as run_translate_job above: this is the step that
@@ -590,6 +595,14 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
     Whisper model-download failure below, not raised, since it's an
     expected/common outcome (an optional dependency the person hasn't
     installed) rather than a bug.
+
+    use_groq: Step 6i -- sends audio_path to Groq's hosted cloud Whisper
+    API (core.transcribe_with_groq) instead of running local Whisper at
+    all. whisper_size/beam_size/vad_threshold/fast_mode have no effect
+    on this path -- Groq's own hosted model and its own VAD produce
+    segments directly. A failure here (bad key, network, rate limit) is
+    recorded via failed_reason="groq", the same "expected outcome, not a
+    bug" treatment as a local model-download failure below.
 
     realign_long_segments: EXPERIMENTAL, off by default -- runs
     word_align.realign_oversized_segments() on the transcript afterward,
@@ -639,19 +652,30 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
         return
 
     gpu_fallback_msg = []
-    try:
-        segments = transcribe_for_timing(
-            audio_path, whisper_size, language=language, use_gpu=use_gpu,
-            local_model_path=local_model_path, hf_token=hf_token,
-            initial_prompt=initial_prompt, beam_size=beam_size,
-            min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
-            on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
-            progress_cb=lambda frac: background_jobs.update_progress(
-                job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
-            fast_mode=fast_mode)
-    except core_module.ModelDownloadError as exc:
-        background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
-        return
+    if use_groq:
+        background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
+        try:
+            segments = core_module.transcribe_with_groq(
+                audio_path, language, groq_api_key,
+                progress_cb=lambda frac: background_jobs.update_progress(
+                    job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
+        except core_module.GroqTranscriptionError as exc:
+            background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
+            return
+    else:
+        try:
+            segments = transcribe_for_timing(
+                audio_path, whisper_size, language=language, use_gpu=use_gpu,
+                local_model_path=local_model_path, hf_token=hf_token,
+                initial_prompt=initial_prompt, beam_size=beam_size,
+                min_silence_duration_ms=min_silence_duration_ms, vad_threshold=vad_threshold,
+                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
+                progress_cb=lambda frac: background_jobs.update_progress(
+                    job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
+                fast_mode=fast_mode)
+        except core_module.ModelDownloadError as exc:
+            background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
+            return
 
     if not segments:
         background_jobs.set_result(job_id, {"failed_reason": "empty"})
@@ -1822,6 +1846,18 @@ def render_workspace_tab():
             help="Runs several stretches of speech through the model at once. Same model and "
                  "settings, just quicker -- it needs more GPU memory while it runs, so turn it "
                  "off if transcription runs out of memory.")
+        use_groq = st.checkbox(
+            "☁️ Transcribe via Groq's cloud API instead (paid, sends audio to Groq)", value=False,
+            key=f"use_groq_{picked_id}", disabled=content_mode == "novel_narration",
+            help="Groq hosts the same Whisper Large-v3-Turbo model family this app defaults to "
+                 "locally, at ~$0.04/hour of audio -- fast, no local GPU needed, at the cost of "
+                 "sending your audio to a third party and needing a Groq API key. Off by "
+                 "default; every local setting above and below this (model size, fast mode, "
+                 "search width, VAD sensitivity) only applies to the local Whisper path and has "
+                 "no effect when this is on.")
+        groq_api_key = None
+        if use_groq:
+            groq_api_key = synced_api_key_input("Groq API key", "groq", f"groq_key_{picked_id}")
 
         with st.expander("🎯 Recognition accuracy (free — worth doing)"):
             st.caption(
@@ -2754,6 +2790,7 @@ def render_workspace_tab():
                     realign_long_segments, chinese_script,
                     st.session_state.get(f"whisper_fast_mode_{picked_id}", False),
                     st.session_state.get(f"separation_backend_{picked_id}", "auto"),
+                    use_groq, groq_api_key,
                     gpu_touching=True, description=f"Transcription ({_drama_label(drama)})")
                 if started:
                     st.info(_job_start_message(
@@ -2845,6 +2882,13 @@ def render_workspace_tab():
                               "Turn off \"Remove background music\" above to transcribe the original "
                               "audio instead, or fix the reported issue (often a missing "
                               "`pip install audio-separator` or `pip install demucs`) and press the button again.")
+                elif _tresult.get("failed_reason") == "groq":
+                    st.error("Groq's cloud transcription API couldn't be reached, or returned an error.")
+                    st.code(_tresult.get("detail", ""), language="text")
+                    st.caption("Nothing was lost -- your audio, transcript and settings are saved. "
+                              "Check your Groq API key and connection, or turn off \"Transcribe via "
+                              "Groq's cloud API\" above to use local Whisper instead, then press the "
+                              "button again.")
                 else:
                     segments = _tresult["segments"]
                     audio_path = existing_audio
@@ -4659,6 +4703,16 @@ def render_workspace_tab():
                 help="SRT plays everywhere. VTT is for web players. ASS carries the style below "
                      "(font, colours, one colour per speaker) -- for styled subtitles in players "
                      "like mpv/VLC, or burned into the video.")
+            _notes_as_separate_line = False
+            if _sub_format == "ASS" and _include_notes_inline:
+                _notes_as_separate_line = st.checkbox(
+                    "Show notes as their own smaller subtitle line (ASS only)", value=False,
+                    key=f"sub_notes_separate_{picked_id}",
+                    help="Instead of appending a note to the same cue as the line it's about, "
+                         "renders it as its own second Dialogue line underneath, at about 70% "
+                         "size -- keeps the translation itself uncluttered while the note is "
+                         "still visible. SRT/VTT have no concept of a second styled line, so "
+                         "those always keep the note appended inline regardless of this.")
             _wrap_chars = None
             if st.checkbox("Split long lines", value=False, key=f"sub_wrap_{picked_id}",
                            help="Breaks a long subtitle onto several lines at a sentence or clause "
@@ -4687,7 +4741,8 @@ def render_workspace_tab():
                     return subtitle_formats.lines_to_ass(
                         _export_lines, _sub_style, field, _notes_by_idx,
                         speaker_colors=_speaker_colors, speaker_names=_speaker_names,
-                        wrap_chars=_wrap_chars, title=drama.get("title_en") or drama.get("title_zh") or "")
+                        wrap_chars=_wrap_chars, title=drama.get("title_en") or drama.get("title_zh") or "",
+                        notes_as_separate_line=_notes_as_separate_line)
                 _src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
                 if field == "bilingual":
                     return lines_to_bilingual_srt(_src, notes_by_idx=_notes_by_idx)
@@ -4763,6 +4818,14 @@ def render_workspace_tab():
                                + (" -- as ASS, so each speaker keeps their own colour."
                                   if _sub_format == "ASS" else
                                   " (pick ASS there for one colour per speaker)."))
+
+                st.download_button(
+                    f"📄 Download the matching .{_ext} subtitle file",
+                    _subtitle_text(_field_for[sub_language]),
+                    file_name=f"{_base_name}_subtitled_{sub_language.lower()}.{_ext}",
+                    help="The exact subtitle content this video would use (same format, style "
+                         "and language selected here) -- as its own file, without having to "
+                         "render the video first.")
 
                 if st.button("🎬 Generate subtitled episode"):
                     import video_export
