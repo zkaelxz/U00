@@ -199,6 +199,50 @@ class TestEditedSourceTextIsTranslated:
 
 
 # ---------------------------------------------------------------------------
+# Step 25n: a failed page translation must not silently blank every bubble
+# ---------------------------------------------------------------------------
+
+class TestFailedTranslationDoesNotBlankBubbles:
+    def _bubbles_with_a_hand_edit(self):
+        return [{"source_text": "师姐", "translated_text": "Senior Sister (hand-edited)"}]
+
+    def test_unparseable_json_is_not_applied(self, monkeypatch):
+        monkeypatch.setattr(translate_engines, "call_llm_json",
+                            lambda *a, **kw: "not json at all, truncated by max_tok")
+        bubbles = self._bubbles_with_a_hand_edit()
+        with pytest.raises(ValueError):
+            scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
+        assert bubbles[0]["translated_text"] == "Senior Sister (hand-edited)"
+
+    def test_response_missing_the_translations_key_is_not_applied(self, monkeypatch):
+        monkeypatch.setattr(translate_engines, "call_llm_json",
+                            lambda *a, **kw: json.dumps({"context_summary": "s"}))
+        bubbles = self._bubbles_with_a_hand_edit()
+        with pytest.raises(ValueError):
+            scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
+        assert bubbles[0]["translated_text"] == "Senior Sister (hand-edited)"
+
+    def test_no_response_at_all_is_not_applied(self, monkeypatch):
+        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **kw: None)
+        bubbles = self._bubbles_with_a_hand_edit()
+        with pytest.raises(ValueError):
+            scanlate.translate_page_bubbles(bubbles, _FakeLLM(), {})
+        assert bubbles[0]["translated_text"] == "Senior Sister (hand-edited)"
+
+    def test_genuinely_empty_translations_list_is_distinct_from_a_parse_failure(self, monkeypatch):
+        # A well-formed response the model legitimately returned with nothing
+        # to translate is not a failure -- translate_page_with_context()
+        # returns it as-is, unlike the None sentinel the failure cases above
+        # return. (It still won't be silently applied here: the length
+        # mismatch against the one bubble that was actually sent is caught
+        # by the existing, separate length check.)
+        monkeypatch.setattr(translate_engines, "call_llm_json",
+                            lambda *a, **kw: json.dumps({"translations": []}))
+        translations, _ = scanlate.translate_page_with_context(["师姐"], _FakeLLM(), {})
+        assert translations == []
+
+
+# ---------------------------------------------------------------------------
 # Item 3: text fitted to the bubble's real shape
 # ---------------------------------------------------------------------------
 
