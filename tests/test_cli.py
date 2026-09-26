@@ -542,6 +542,7 @@ class TestCmdRunArgparseParity:
         p_run.add_argument("--force", action="store_true")
         return p
 
+
     def test_run_namespace_has_every_attribute_cmd_translate_needs(self):
         p = self._build_parser()
         args = p.parse_args(["run", "--id", "1", "--api-key", "fake-key"])
@@ -549,3 +550,113 @@ class TestCmdRunArgparseParity:
         # raises AttributeError before this session's fix.
         for attr in ("status", "force", "style_preset", "locale", "style_note", "model"):
             assert hasattr(args, attr), f"p_run is missing --{attr.replace('_', '-')}"
+
+
+class TestCliGpuLock:
+    """Step 25w: cli.py never imported background_jobs.py at all, so its
+    "one GPU job at a time" guard (Step 5c) never covered a CLI run --
+    confirmed real: an overnight `cli.py` batch and a GPU-touching job
+    started from the live UI could run concurrently, competing for the
+    same VRAM. cli.py's own _gpu_lock() is the fix, sharing the gpu_lock
+    table in the shared library.db with background_jobs.py's guard."""
+
+    class _OllamaEngine:
+        name = "ollama"
+        supports_reference = True
+        model = "qwen3:8b"
+
+        def __init__(self):
+            self.calls = 0
+            self.last_usage = {}
+
+        def translate_batch(self, zh_lines, context):
+            self.calls += 1
+            return [f"EN:{z}" for z in zh_lines]
+
+    class _ClaudeEngine(_OllamaEngine):
+        name = "claude"
+
+    def _drama(self, isolated_db, n=2):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(n)])
+        return did
+
+    def test_ollama_translate_acquires_and_releases_the_gpu_lock(self, isolated_db, monkeypatch):
+        engine = self._OllamaEngine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        did = self._drama(isolated_db)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, engine="ollama", cost_cap=None, monthly_cap=None))
+        assert engine.calls == 1
+        assert isolated_db.gpu_lock_status() == (None, None)  # released when done
+
+    def test_ollama_translate_waits_for_an_externally_held_lock(self, isolated_db, monkeypatch):
+        """Simulates the live UI already holding the GPU (as
+        background_jobs.py's _gpu_slot_available_locked would record it)
+        -- the CLI run must not proceed until it's released."""
+        import threading
+        import time as time_module
+
+        _real_sleep = time_module.sleep
+        monkeypatch.setattr(cli.time, "sleep", lambda s: _real_sleep(0.01))
+        engine = self._OllamaEngine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        did = self._drama(isolated_db)
+        assert isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription") is True
+
+        done = threading.Event()
+
+        def run():
+            with contextlib.redirect_stdout(io.StringIO()):
+                cli.cmd_translate(_translate_args(id=did, engine="ollama",
+                                                  cost_cap=None, monthly_cap=None))
+            done.set()
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        _real_sleep(0.1)
+        assert not done.is_set(), "must not translate while the UI holds the GPU lock"
+        assert engine.calls == 0
+
+        isolated_db.release_gpu_lock("ui:live_job")
+        assert done.wait(timeout=2.0), "should proceed once the external lock is released"
+        t.join(timeout=2.0)
+        assert engine.calls == 1
+        assert isolated_db.gpu_lock_status() == (None, None)
+
+    def test_non_ollama_translate_never_touches_the_gpu_lock(self, isolated_db, monkeypatch):
+        """Every other translate engine is a remote API call, not a
+        GPU-touching one -- it must run immediately even while something
+        else holds the GPU lock, and must not release someone else's."""
+        engine = self._ClaudeEngine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        did = self._drama(isolated_db)
+        isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription")
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, engine="claude", cost_cap=None, monthly_cap=None))
+
+        assert engine.calls == 1  # ran immediately, no waiting
+        # Still the other holder's -- untouched by the non-GPU translate run.
+        assert isolated_db.gpu_lock_status() == ("ui:live_job", "Transcription")
+
+    def test_dub_only_locks_when_the_clone_map_uses_a_local_model(self, isolated_db, monkeypatch):
+        """Same clone_map_uses_local_model check the Workspace tab's own
+        Dub job uses to decide gpu_touching -- an edge-tts/cloud-only dub
+        run doesn't need to wait on the GPU at all."""
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        monkeypatch.setattr(dub_module, "build_dub_track",
+                            lambda lines, *a, **k: ("fake_dub.wav", []))
+
+        monkeypatch.setattr(dub_module, "clone_map_uses_local_model", lambda clone_map: False)
+        isolated_db.try_acquire_gpu_lock("ui:live_job", "Transcription")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did))  # must not block despite the held lock
+        assert isolated_db.gpu_lock_status() == ("ui:live_job", "Transcription")  # untouched
+        isolated_db.release_gpu_lock("ui:live_job")
+
+        monkeypatch.setattr(dub_module, "clone_map_uses_local_model", lambda clone_map: True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did))
+        assert isolated_db.gpu_lock_status() == (None, None)  # acquired, then released
