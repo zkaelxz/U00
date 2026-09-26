@@ -23,7 +23,6 @@ adapter automatically -- an adapter can't forget them.
 """
 
 import re
-from urllib.parse import urlsplit
 
 from . import store
 from .http import PacingPolicy, SourceClient
@@ -109,8 +108,9 @@ class SourceAdapter:
         base = getattr(SourceAdapter, method, None)
         return mine is not None and mine is not base
 
-    def matches_url(self, url: str) -> bool:
-        return any(re.search(p, url or "") for p in self.url_patterns)
+    @classmethod
+    def matches_url(cls, url: str) -> bool:
+        return any(re.search(p, url or "") for p in cls.url_patterns)
 
     def parse_url(self, url: str):
         """Optional: map a pasted URL to ("series", series_id) or
@@ -124,7 +124,3 @@ class SourceAdapter:
             platform=self.display_name or self.name,
             content_types=list(self.content_types), languages=list(self.languages),
             auth_required=self.auth_required, auth_supported=self.auth_supported)
-
-    @staticmethod
-    def host_of(url: str) -> str:
-        return urlsplit(url).netloc

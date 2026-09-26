@@ -84,7 +84,6 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         style_guidelines = tguide.build_style_guidelines(
             style_preset="audio_drama", glossary_terms=glossary_terms,
             custom_notes=tguide.build_character_gender_hints(series_chars, drama_chars))
-        character_names = tguide.build_speaker_labels(drama_chars, series_chars)
         novel_reference = None
         if drama.get("novel_reference_filename"):
             novel_path = os.path.join(db.drama_dir(did), drama["novel_reference_filename"])

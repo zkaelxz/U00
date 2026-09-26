@@ -337,13 +337,13 @@ def schedule_offpeak_translation(drama_id: int, lines, engine_choice: str, model
 # request here is provider.build_prompt_request(key, prompt), not
 # provider.build_request(key, context, numbered).
 
-# Every kind here numbers its prompt by permanent line id (id_fn=lambda
+# Every generic kind (flag, consistency, emotion, translation_notes)
+# numbers its prompt by permanent line id (id_fn=lambda
 # ln: ln.id on the id-aware builders; consistency's own prompt has no
 # per-line id at all -- see build_consistency_prompt's docstring), never
 # by ln.idx -- exactly the reason Step 2 moved translation off idx in the
 # first place: a bulk result can land hours later, by which point a
 # position could point at a completely different line.
-GENERIC_KINDS = ("flag", "consistency", "emotion", "translation_notes")
 
 
 def build_generic_bulk_requests(drama_id: int, provider, batches: list, max_tokens: int = 3000):
@@ -363,7 +363,7 @@ def submit_generic_bulk_job(drama_id: int, kind: str, provider, batches: list, e
                             model: str, state_fn=None, translate_args: dict = None,
                             stage: str = None, pipeline_id: str = None,
                             max_tokens: int = 3000) -> int:
-    """Shared submission path for every kind in GENERIC_KINDS plus each
+    """Shared submission path for every generic kind above plus each
     Reflect stage. state_fn(ln), if given, snapshots whatever field(s)
     this kind is about to write, as they stand right now -- so its own
     apply step can tell "the user already changed this since submission"

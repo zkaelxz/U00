@@ -14,7 +14,7 @@ from sources import (adaptive, chapter_check, chapter_order, front_door, generic
 from sources.base import SourceAdapter
 from sources.models import ChapterInfo, PageRef, SearchResult, SourceError, FailureReason
 
-from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, image, make_client, png
+from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, image, make_client
 
 
 class FakeComicSource(SourceAdapter):

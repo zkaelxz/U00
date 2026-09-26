@@ -63,13 +63,9 @@ def enabled_adapters(**client_kwargs) -> list:
     return [cls(**client_kwargs) for name, cls in adapter_classes().items() if is_enabled(name)]
 
 
-def _matches(cls, url: str) -> bool:
-    return any(re.search(p, url or "") for p in cls.url_patterns)
-
-
 def find_for_url(url: str, **client_kwargs):
     for name, cls in adapter_classes().items():
-        if is_enabled(name) and _matches(cls, url):
+        if is_enabled(name) and cls.matches_url(url):
             return cls(**client_kwargs)
     return None
 
@@ -77,7 +73,7 @@ def find_for_url(url: str, **client_kwargs):
 def adapter_class_for_url(url: str):
     """The adapter class whose URL patterns match, enabled or not -- a
     switched-off source's terms still apply to a link pasted for it."""
-    return next((cls for cls in adapter_classes().values() if _matches(cls, url)), None)
+    return next((cls for cls in adapter_classes().values() if cls.matches_url(url)), None)
 
 
 # ---------------------------------------------------------------------------
