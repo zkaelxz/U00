@@ -47,6 +47,7 @@ from core import (
 )
 import translate_engines
 import translation_guide as tguide
+import bulk_translate
 import raw_transcript
 import dub as dub_module
 
@@ -305,7 +306,13 @@ def cmd_translate(args):
             cost_cap_usd=cost_cap,
             cap_cb=lambda spent: cap_reached.update(spent=spent),
         )
-        db.update_drama(d["id"], status="translated", translation_engine=args.engine)
+        # Same post-translate steps as the Workspace Translate job (Step 25c):
+        # enforce_exact glossary terms, density flags, a saved version,
+        # persisted batch errors -- and "translated" only once no line is
+        # left, so the retry suggested below (default --status aligned)
+        # still finds this drama.
+        bulk_translate.finish_translation_run(
+            d["id"], lines, engine, args.engine, args.style_preset, glossary_terms, batch_errors)
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")

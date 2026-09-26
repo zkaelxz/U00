@@ -301,40 +301,15 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cache_read_tokens=cache_read),
     )
 
-    enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    if enforced:
-        for ln in lines:
-            if ln.en:
-                ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
-        db.save_lines(drama_id, lines, fields=("en",))
-
-    # A translation too dense to read in the time it's on screen goes into
-    # the review queue like any other flag (never replacing an existing one).
-    if subtitle_formats.flag_dense_lines(lines):
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-
-    _job_line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
-    if _job_line_ids and not db.line_ids_exist(drama_id, _job_line_ids):
-        # Every line this job was translating has been replaced (e.g. a new
-        # transcription finished meanwhile) -- its writes were no-ops, and
-        # recording a version or a "translated" status would describe lines
-        # that no longer exist.
+    # Shared with `cli.py translate` (Step 25c): glossary enforcement,
+    # density flags, the version, persisted errors, and a "translated"
+    # status only once nothing is left untranslated.
+    if not bulk_translate.finish_translation_run(
+            drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
+            cancelled=background_jobs.is_cancel_requested(job_id)):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent")})
         return
-
-    _version_label = f"{engine_choice} · {style_preset}"
-    if (engine_choice in translate_engines.FREE_ENGINES
-            or getattr(engine, "free_tier", False)):
-        _version_label = f"[testing: {engine_choice}] {_version_label}"
-    db.save_translation_version(
-        drama_id, lines, label=_version_label,
-        engine=engine_choice, model=getattr(engine, "model", ""), make_active=True)
-    # Persisted, not just handed to the ephemeral job-status dict: if the app
-    # restarts or the completion rerun is missed, the record of what failed
-    # (and why some lines are untranslated) must not vanish with it.
-    db.update_drama(drama_id, status="translated", translation_engine=engine_choice,
-                     last_translate_errors=json.dumps(errors, ensure_ascii=False) if errors else None)
 
     background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent")})
 

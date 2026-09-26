@@ -23,6 +23,8 @@ import argparse
 import io
 import contextlib
 
+import json
+
 import pytest
 import db
 import translate_engines
@@ -277,6 +279,121 @@ class TestCmdTranslateSpendingCaps:
                 pass
         assert engine.calls == 0
         assert not any(r["en"] for r in isolated_db.load_lines(did))
+
+
+class TestCmdTranslateRetryAndWorkspaceParity:
+    """Step 25c item 4: the CLI marked a drama "translated" even after a
+    batch failure or a cost-cap stop, so its own suggested re-run (default
+    --status aligned) skipped it; and it skipped the post-translate steps
+    Workspace does. Both now run bulk_translate.finish_translation_run."""
+
+    class _Engine(TestCmdTranslateSpendingCaps._Engine):
+        def translate_batch(self, zh_lines, context):
+            super().translate_batch(zh_lines, context)
+            return [f"Lin Mo says {z}" for z in zh_lines]
+
+    def test_the_suggested_retry_after_a_cost_cap_stop_translates_the_rest(self, isolated_db, monkeypatch):
+        engine = self._Engine()
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(_translate_args(cost_cap=3.0, monthly_cap=None))
+        assert "stopped at the spending cap" in out.getvalue()
+        assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 40
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+
+        # The same command again, as the message suggests (a higher cap).
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(cost_cap=None, monthly_cap=None))
+        assert all(r["en"] for r in isolated_db.load_lines(did))
+        assert engine.calls == 3
+        assert isolated_db.get_drama(did)["status"] == "translated"
+
+    def test_batch_failures_are_persisted_and_the_drama_stays_retryable(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一"),
+                                     Line(idx=1, start=1, end=2, zh="二")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+
+        def half_translated(lines, engine, **kwargs):
+            lines[0].en = "One"
+            kwargs["save_cb"](lines)
+            return lines, [{"lines": [1], "error": "boom"}]
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", half_translated)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_translate(_translate_args(id=did))
+
+        d = isolated_db.get_drama(did)
+        assert d["status"] == "aligned"
+        assert json.loads(d["last_translate_errors"]) == [{"lines": [1], "error": "boom"}]
+        assert "re-run this command" in out.getvalue()
+        assert [x["id"] for x in isolated_db.list_dramas(status="aligned")] == [did]
+
+    def test_enforces_exact_glossary_terms_and_saves_a_version_like_workspace(self, isolated_db, monkeypatch):
+        import background_jobs
+        from tabs.workspace_tab import run_translate_job
+
+        series_id = isolated_db.get_or_create_series("Test Series")
+        isolated_db.upsert_glossary_term(series_id, "林默", "Lin Mo", notes="Lin Mo|Lim Mo",
+                                         enforce_exact=True)
+        engine = self._Engine()
+        engine.translate_batch = lambda zh_lines, context: [f"Lim Mo says {z}" for z in zh_lines]
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+
+        def drama():
+            did = isolated_db.create_drama(title_en="Test", series_id=series_id, status="aligned")
+            isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="林默来了")])
+            return did
+
+        cli_did, ui_did = drama(), drama()
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=cli_did))
+        job_id = "test_cli_ui_finish_parity"
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        run_translate_job(job_id, ui_did, isolated_db.load_line_objects(ui_did), engine,
+                          isolated_db.get_drama(ui_did), "", None, False, "en-US",
+                          isolated_db.list_glossary_terms(series_id), "", "claude", "audio_drama")
+        background_jobs._jobs.pop(job_id, None)
+
+        for did in (cli_did, ui_did):
+            assert [r["en"] for r in isolated_db.load_lines(did)] == ["Lin Mo says 林默来了"]
+            versions = isolated_db.list_translation_versions(did)
+            assert [(v["label"], v["is_active"]) for v in versions] == [("claude · audio_drama", 1)]
+            assert isolated_db.get_drama(did)["status"] == "translated"
+
+
+    def test_a_cancelled_workspace_run_saves_no_version_and_stays_untranslated(self, isolated_db, monkeypatch):
+        """Cancelling marked the drama "translated" and saved an active
+        version, dropping it out of Library's untranslated selection."""
+        import background_jobs
+        from tabs.workspace_tab import run_translate_job
+
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])
+        job_id = "test_cancelled_translate_run"
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        engine = self._Engine()
+
+        def translate_then_cancel(zh_lines, context):
+            background_jobs.request_cancel(job_id)  # the user clicks Cancel mid-run
+            return self._Engine.translate_batch(engine, zh_lines, context)
+        engine.translate_batch = translate_then_cancel
+
+        run_translate_job(job_id, did, isolated_db.load_line_objects(did), engine,
+                          isolated_db.get_drama(did), "", None, False, "en-US", None, "",
+                          "claude", "audio_drama")
+        background_jobs._jobs.pop(job_id, None)
+
+        assert sum(1 for r in isolated_db.load_lines(did) if r["en"]) == 20
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+        assert isolated_db.list_translation_versions(did) == []
 
 
 class TestCmdDubFlagPreservation:
