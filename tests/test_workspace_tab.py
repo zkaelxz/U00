@@ -2060,20 +2060,35 @@ class TestSpendingCapUI:
         at = self._run(did)
         assert not [n for n in at.number_input if n.key == f"cost_cap_{did}"]
 
-    def test_cap_input_now_shown_for_google_and_deepl(self, isolated_db):
+    def _assert_cap_shown(self, isolated_db, engine):
+        did = self._drama(isolated_db, engine=engine)
+        at = self._run(did, **{f"settings_{engine}": "fake-key"})
+        assert not at.exception
+        assert [n for n in at.number_input if n.key == f"cost_cap_{did}"], \
+            f"{engine} should show the cost-cap input now that it reports usage"
+        assert any(f"Estimated cost for 1 line(s)" in c.value for c in at.caption), \
+            f"{engine} should show a cost estimate now that it's priced per character"
+
+    def test_cap_input_now_shown_for_google(self, isolated_db):
         """Step 25w Bug 2: the cost-cap system structurally couldn't ever
         apply to Google/DeepL -- _cap_applies explicitly excluded both, so
         a user with a monthly cap set got zero enforcement translating
         through either. Now that both report real usage (see
-        GoogleEngine/DeepLEngine.last_usage), the cap UI covers them too."""
-        for engine in ("google", "deepl"):
-            did = self._drama(isolated_db, engine=engine)
-            at = self._run(did, **{f"settings_{engine}": "fake-key"})
-            assert not at.exception
-            assert [n for n in at.number_input if n.key == f"cost_cap_{did}"], \
-                f"{engine} should show the cost-cap input now that it reports usage"
-            assert any(f"Estimated cost for 1 line(s)" in c.value for c in at.caption), \
-                f"{engine} should show a cost estimate now that it's priced per character"
+        GoogleEngine/DeepLEngine.last_usage), the cap UI covers them too.
+        GoogleEngine only needs `requests` (a core dependency), so this
+        runs unconditionally -- see the deepl variant below for why that
+        one is gated on the optional package being installed."""
+        self._assert_cap_shown(isolated_db, "google")
+
+    def test_cap_input_now_shown_for_deepl(self, isolated_db):
+        """Same as the google case above, for DeepLEngine. Needs the real
+        `deepl` package importable (requirements-optional.txt, not a core
+        dependency) -- DeepLEngine.__init__ does `import deepl` for real
+        here, unlike TestDeepLEngine's own tests, which inject a fake
+        module into sys.modules before constructing the engine directly
+        and so don't need the real package installed at all."""
+        pytest.importorskip("deepl")
+        self._assert_cap_shown(isolated_db, "deepl")
 
     def test_the_cap_reaches_the_background_job(self, isolated_db, monkeypatch):
         captured = {}
