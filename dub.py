@@ -146,20 +146,35 @@ def offline_voice_for(offline_voice_map: dict, speaker) -> str:
 
 
 def _synthesize_edge_tts_with_piper_fallback(text: str, voice: str, out_path: str,
-                                              offline_voice_map: dict, speaker):
+                                              offline_voice_map: dict, speaker) -> bool:
     """Tries edge-tts; if Microsoft blocks the request (EdgeTTSBlockedError),
     falls back to Piper automatically when it's installed, rather than
     leaving the line silent over an upstream block outside anyone's
     control. Re-raises the original error if Piper isn't available, so
-    the line is still recorded as failed the normal way."""
+    the line is still recorded as failed the normal way. Returns True if
+    Piper's fallback voice actually rendered out_path, False if edge-tts
+    did -- callers use this to keep a fallback-rendered clip from being
+    cached indistinguishably from a real edge-tts one (see
+    _piper_fallback_path)."""
     try:
         synthesize_line(text, voice, out_path)
+        return False
     except EdgeTTSBlockedError as blocked:
         try:
             import piper  # noqa: F401 -- just checking it's installed
         except ImportError:
             raise blocked
         synthesize_line_offline(text, offline_voice_for(offline_voice_map, speaker), out_path)
+        return True
+
+
+def _piper_fallback_path(clip_path: str) -> str:
+    """A cache path for a clip actually rendered by the Piper fallback,
+    distinct from the path its edge-tts signature would otherwise give
+    it -- so it's never reused indistinguishably from a real edge-tts
+    clip, and a later run retries edge-tts instead of reusing stale
+    Piper audio forever once the block lifts."""
+    return clip_path[:-len(".wav")] + ".piper_fallback.wav"
 
 
 # ---------------------------------------------------------------------------
@@ -708,16 +723,27 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
             except Exception:
                 pass  # corrupt leftover clip -- fall through and regenerate it
         if clip is None:
+            # Written under a temporary name and renamed once complete, so a
+            # kill mid-synthesis (Cancel, Ctrl-C) never leaves a corrupted-
+            # but-loadable clip -- e.g. a zero-frame WAV whose header
+            # wave/soundfile already wrote before being killed -- at
+            # clip_path for the "already exists" check above to reuse.
+            partial = clip_path[:-len(".wav")] + ".partial.wav"
             try:
                 if clone:
-                    call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, clip_path, exaggeration))
+                    call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, partial, exaggeration))
                 elif tts_engine == "offline":
-                    call_with_backoff(lambda: synthesize_line_offline(ln.en, voice, clip_path))
+                    call_with_backoff(lambda: synthesize_line_offline(ln.en, voice, partial))
                 else:
-                    call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
-                        ln.en, voice, clip_path, offline_voice_map, ln.speaker))
+                    used_piper = call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
+                        ln.en, voice, partial, offline_voice_map, ln.speaker))
+                    if used_piper:
+                        clip_path = _piper_fallback_path(clip_path)
+                os.replace(partial, clip_path)
                 clip = AudioSegment.from_file(clip_path)
             except Exception as e:
+                if os.path.exists(partial):
+                    os.remove(partial)
                 errors.append({"line_idx": ln.idx, "error": str(e)})
                 if progress_cb:
                     progress_cb((i + 1) / n)
@@ -886,7 +912,10 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
-    def synthesize(unit, clip_path):
+    def synthesize(unit, clip_path) -> bool:
+        """Returns True if Piper's fallback voice actually rendered
+        clip_path instead of the intended engine (see
+        _synthesize_edge_tts_with_piper_fallback)."""
         text, speaker = unit["text"], unit["speaker"]
         if unit["clone"] and unit["exaggeration"] is not None:
             _synthesize_cloned(unit["clone"], text, clip_path, unit["exaggeration"])
@@ -895,9 +924,10 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
         elif tts_engine == "offline":
             synthesize_line_offline(text, offline_voice_for(offline_voice_map, speaker), clip_path)
         else:
-            _synthesize_edge_tts_with_piper_fallback(
+            return _synthesize_edge_tts_with_piper_fallback(
                 text, character_voice_map.get(speaker, default_voice), clip_path,
                 offline_voice_map, speaker)
+        return False
 
     def generate(unit):
         """Runs in a pool thread for parallel-safe engines -- returns an
@@ -908,7 +938,12 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
         # next run's "already exists" check to reuse.
         partial = unit["clip_path"][:-len(".wav")] + ".partial.wav"
         try:
-            call_with_backoff(lambda: synthesize(unit, partial))
+            used_piper = call_with_backoff(lambda: synthesize(unit, partial))
+            if used_piper:
+                # Cached under a path its edge-tts signature doesn't own, so
+                # a later run -- once edge-tts is unblocked again -- retries
+                # it instead of reusing the stale Piper audio forever.
+                unit["clip_path"] = _piper_fallback_path(unit["clip_path"])
             os.replace(partial, unit["clip_path"])
             return None
         except Exception as e:

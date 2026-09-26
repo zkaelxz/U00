@@ -187,6 +187,26 @@ class TestSynthesizeEdgeTTSWithPiperFallback:
             dub._synthesize_edge_tts_with_piper_fallback(
                 "hello", "en-US-AvaNeural", out_path, {}, "SPEAKER_00")
 
+    def test_reports_when_piper_actually_rendered_it(self, monkeypatch, tmp_path):
+        """Step 29 bug 2: callers need to know which engine actually
+        produced the audio, not just which one was intended -- see
+        _piper_fallback_path."""
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
+        monkeypatch.setattr(dub, "synthesize_line_offline",
+                             lambda text, voice, out_path: open(out_path, "w").close())
+
+        used_piper = dub._synthesize_edge_tts_with_piper_fallback(
+            "hello", "en-US-AvaNeural", str(tmp_path / "out.wav"), {}, "SPEAKER_00")
+
+        assert used_piper is True
+
+    def test_reports_false_when_edge_tts_itself_succeeded(self, monkeypatch, tmp_path):
+        _install_fake_edge_tts(monkeypatch)
+        used_piper = dub._synthesize_edge_tts_with_piper_fallback(
+            "hello", "en-US-AvaNeural", str(tmp_path / "out.wav"), {}, "SPEAKER_00")
+        assert used_piper is False
+
 
 class TestAssignVoicesToCharacters:
     def test_round_robins_through_the_pool(self):
@@ -698,6 +718,36 @@ class TestClipCacheFollowsTheText:
         assert timed.synth == ["Line 0.", "Line 1.", "Line 2.", "Line 3."]  # 0 and 1 reused
         assert all(ln.dub_filename for ln in fresh)
 
+    def test_a_kill_after_partial_bytes_still_leaves_no_corrupted_cache_file(
+            self, timed, monkeypatch, tmp_path):
+        """Not the test above (which raises before any file exists at all)
+        -- this covers the real Step 29 bug shape: the synth call has
+        already written some bytes (e.g. a wave/soundfile placeholder
+        header) to its out_path before being killed. Before the fix, that
+        landed straight on clip_path and survived as a corrupted-but-
+        loadable clip; now it can only ever land on a .partial.wav."""
+        fixture_synth = dub.synthesize_line  # the timed fixture's fake, restored below
+
+        def killed_after_writing_a_header(text, voice, out_path):
+            with open(out_path, "w") as f:
+                f.write("only-a-header")
+            raise _Killed()
+        monkeypatch.setattr(dub, "synthesize_line", killed_after_writing_a_header)
+
+        lines = [_line(0, "Hello")]
+        with pytest.raises(_Killed):
+            dub.build_dub_track(lines, str(tmp_path), {})
+
+        clips_dir = tmp_path / "dub_clips"
+        assert all(f.endswith(".partial.wav") for f in os.listdir(clips_dir))
+
+        monkeypatch.setattr(dub, "synthesize_line", fixture_synth)
+        fresh = [_line(0, "Hello")]
+        _, errors = dub.build_dub_track(fresh, str(tmp_path), {})
+        assert errors == []
+        assert timed.synth == ["Hello"]  # retried for real, not reused as the corrupted clip
+        assert fresh[0].dub_filename is not None
+
     def test_an_edited_narration_unit_is_re_voiced_too(self, timed, tmp_path):
         lines = [Line(idx=0, start=0, end=0, zh="x", en="Helo.", speaker="N")]
         dub.build_narration_track(lines, str(tmp_path), {})
@@ -706,6 +756,53 @@ class TestClipCacheFollowsTheText:
         assert timed.synth == ["Helo.", "Hello."]
         dub.build_narration_track(lines, str(tmp_path), {})
         assert timed.synth == ["Helo.", "Hello."]  # unchanged -- reused
+
+
+class TestPiperFallbackClipCaching:
+    """Step 29 bug 2: a clip actually rendered by the Piper fallback must
+    be cached under a path distinct from its edge-tts signature, so a
+    later run retries edge-tts instead of reusing the stale Piper audio
+    forever once the block lifts."""
+
+    def test_dub_track_retries_edge_tts_once_it_recovers(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
+        monkeypatch.setattr(dub, "synthesize_line_offline",
+                             lambda text, voice, out_path: open(out_path, "w").close())
+
+        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
+        _, errors = dub.build_dub_track(lines, str(tmp_path), {})
+        assert errors == []
+        piper_clip = lines[0].dub_filename
+        assert piper_clip.endswith(".piper_fallback.wav")
+
+        # edge-tts recovers -- must be retried, not served the stale Piper clip.
+        _install_fake_edge_tts(monkeypatch)  # no save_exception this time
+        fresh = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
+        _, errors2 = dub.build_dub_track(fresh, str(tmp_path), {})
+        assert errors2 == []
+        assert not fresh[0].dub_filename.endswith(".piper_fallback.wav")
+        assert fresh[0].dub_filename != piper_clip
+        # the old Piper clip is simply left behind, not deleted or reused
+        assert os.path.exists(os.path.join(str(tmp_path), piper_clip))
+
+    def test_narration_track_retries_edge_tts_once_it_recovers(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
+        monkeypatch.setattr(dub, "synthesize_line_offline",
+                             lambda text, voice, out_path: open(out_path, "w").close())
+
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="Hello there.", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {})
+        piper_clip = lines[0].dub_filename
+        assert piper_clip.endswith(".piper_fallback.wav")
+
+        _install_fake_edge_tts(monkeypatch)
+        fresh = [Line(idx=0, start=0, end=0, zh="x", en="Hello there.", speaker="A")]
+        dub.build_narration_track(fresh, str(tmp_path), {})
+        assert not fresh[0].dub_filename.endswith(".piper_fallback.wav")
 
 
 class TestHostedCloningRemoved:
