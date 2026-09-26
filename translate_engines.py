@@ -282,6 +282,23 @@ _MEDIUM_DESCRIPTIONS = {
 }
 
 
+def build_project_instructions_block(drama_meta: dict) -> str:
+    """The persisted per-series and per-drama instructions (Step 12e), as
+    one prompt block -- series first, then the drama's own, which is more
+    specific and so gets the last word. Empty string when neither is set."""
+    parts = []
+    for label, key in [("For every drama in this series", "series_instructions"),
+                       ("For this drama specifically", "project_instructions")]:
+        text = (drama_meta.get(key) or "").strip()
+        if text:
+            parts.append(f"{label}:\n{text}")
+    if not parts:
+        return ""
+    return ("- Project instructions from the person running this translation -- follow "
+            "them unless they conflict with the output format below:\n"
+            + "\n".join(parts) + "\n")
+
+
 def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, locale: str = "en-US",
                             glossary_terms=None, style_guidelines: str = ""):
     """The STABLE part of every translation prompt for one drama/job --
@@ -289,7 +306,13 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
     (Claude cache_control, Gemini implicit caching, DeepSeek prefix
     caching) can hit on it. Anything that changes per batch belongs in
     build_batch_context() instead, which goes after this, in the user
-    message."""
+    message.
+
+    Step 12e: drama_meta's series_instructions (inherited by every drama
+    in a series) and project_instructions (this drama only) -- both
+    persisted, multi-line, per project -- go in as their own block, in
+    addition to style_note (the single-line global Settings default),
+    never replacing it."""
     meta_lines = []
     for label, key in [("Title", "title_en"), ("Original title", "title_zh"),
                         ("Author", "author"), ("Studio", "studio"),
@@ -347,6 +370,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
         "- If a line has no clear match in the reference, translate it naturally while "
         "staying consistent with the established voice.\n"
         + (f"- Additional style notes: {style_note}\n" if style_note else "")
+        + build_project_instructions_block(drama_meta)
         + "- Return ONLY a JSON object mapping each line's number (as a string) to its "
         "translation, e.g. {\"1\": \"...\", \"2\": \"...\"} -- include EVERY number you "
         "were given, and no numbers you weren't. No preamble, no markdown fences, no "
@@ -1330,6 +1354,27 @@ _OLLAMA_ID_KEYED_JSON_SCHEMA = {"type": "object", "additionalProperties": {"type
 # don't fit cleanly alongside everything else in 8 GB of VRAM, so Ollama
 # offloads part of it to the CPU and it runs much slower there.
 OLLAMA_DEFAULT_MODEL = "qwen3:8b"
+# Step 12e: Draft / Standard / Release starting tiers -- sensible starting
+# points for engine + Step 7's Reflect mode + Step 12b's Auto QC pass,
+# applied in one click. Built-in and fixed, layered on top of (not
+# replacing) Step 9c's saved presets, which stay the way to keep a
+# customized set of values. Engines follow §7.2's price ordering: DeepSeek
+# is the cheapest capable LLM, Claude Sonnet the recommended default,
+# Claude Opus the highest quality.
+#
+# auto_qc is stored with the tier now but has no effect yet: the Auto QC
+# pass itself is Step 12b, not built at the time this was added.
+WORKFLOW_TIERS = {
+    "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
+              "engine_model": None, "reflect": False, "auto_qc": False},
+    "standard": {"label": "Standard -- balanced", "translation_engine": "claude",
+                 "engine_model": "claude-sonnet-5", "reflect": False, "auto_qc": False},
+    "release": {"label": "Release -- best quality, checked before export",
+                "translation_engine": "claude", "engine_model": "claude-opus-4-8",
+                "reflect": True, "auto_qc": True},
+}
+
+
 OLLAMA_MODELS = {
     "qwen3:8b": "Qwen3 8B -- recommended default, fits a typical 8 GB GPU",
     "qwen2.5:14b": "Qwen2.5 14B -- may not fit in 8 GB; expect CPU offload (much slower)",
