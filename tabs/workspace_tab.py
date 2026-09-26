@@ -210,7 +210,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         notes_cb=lambda notes: db.save_translation_notes(
             drama_id, notes, id_by_idx=_id_by_idx(lines)),
         progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Translating... {frac*100:.0f}%"),
+            job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
         # the user's own edits can run alongside without being overwritten.
         save_cb=lambda ls: db.save_lines(drama_id, ls, fields=("en",)),
@@ -2243,6 +2243,10 @@ def render_workspace_tab():
                      "erroring, check ai.google.dev/gemini-api/docs/models for what's "
                      "currently available.")
             st.session_state["settings_gemini_model"] = engine_model
+            if _gemini_free_tier and engine_model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
+                st.error("⚠️ Pro isn't available on the Gemini free tier anymore (removed "
+                         "April 2026) -- pick Flash or Flash-Lite above, or turn off \"My "
+                         "Gemini key is free-tier\" in Settings.")
         elif engine_choice == "ollama":
             _model_keys = list(translate_engines.OLLAMA_MODELS.keys())
             _saved_model = st.session_state.get("settings_ollama_model", _model_keys[0])
@@ -2262,6 +2266,10 @@ def render_workspace_tab():
                 help="Downloads once, then runs fully offline -- no API key, no per-line cost. "
                      "600M is the practical default on CPU; 1.3B is a real quality step up if "
                      "you have the RAM/disk/patience for the heavier download and slower runs.")
+
+        _gemini_free_tier_pro_blocked = (
+            engine_choice == "gemini" and _gemini_free_tier
+            and engine_model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)
 
         _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate", "nllb")
         if engine_choice == "test_offline":
@@ -2384,7 +2392,8 @@ def render_workspace_tab():
 
         run_translate = b2.button("🌐 Translate all lines",
                                    disabled=st.session_state.lines is None or not api_key
-                                            or _ollama_unreachable or bool(_monthly_refusal))
+                                            or _ollama_unreachable or bool(_monthly_refusal)
+                                            or _gemini_free_tier_pro_blocked)
         force_retranslate = b2.checkbox(
             "Force re-translate everything (redoes lines that already have a "
             "translation too, not just what's missing)",
@@ -3382,7 +3391,8 @@ def render_workspace_tab():
                         help="Half price via Claude/Gemini's own batch API -- most finish within "
                              "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
                              "instead of here.")
-                if st.button("Check consistency", disabled=_translation_only_engine) and api_key:
+                if st.button("Check consistency",
+                             disabled=_translation_only_engine or _gemini_free_tier_pro_blocked) and api_key:
                     engine = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
@@ -3448,7 +3458,8 @@ def render_workspace_tab():
                         help="Half price via Claude/Gemini's own batch API -- most finish within "
                              "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
                              "instead of here.")
-                if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
+                if st.button("Find lines to flag",
+                             disabled=_translation_only_engine or _gemini_free_tier_pro_blocked) and api_key:
                     engine_f = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
@@ -3822,7 +3833,8 @@ def render_workspace_tab():
                         help="Half price via Claude/Gemini's own batch API -- most finish within "
                              "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
                              "instead of here.")
-                if st.button("Generate translation notes", disabled=_translation_only_engine) and api_key:
+                if st.button("Generate translation notes",
+                             disabled=_translation_only_engine or _gemini_free_tier_pro_blocked) and api_key:
                     engine_n = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
