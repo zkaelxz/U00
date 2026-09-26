@@ -10,15 +10,17 @@
 >
 > **The 23-series adapter batch (Step 23 → 23l) is done.** Every planned source adapter is built and merged; nothing further is queued in that series.
 >
-> **Currently out, no report back yet**: **25d** (twelve-bug bundle — sent as soon as 25p cleared `workspace_tab.py`) and **Step 13** (UI foundation/shared components — the user asked to queue it independently; confirmed no file overlap with 25d, safe to build in parallel).
+> **Currently out, no report back yet**: **25d** (twelve-bug bundle — sent as soon as 25p cleared `workspace_tab.py`) — the only thing left unmerged anywhere in the 25-series.
 >
-> **A fourth adversarial pass (2026-09-27), scoped by the user's own three explicit questions** (dead ends? does new data populate live or need a refresh? any bugs?) **found no dead ends** (checked directly — no orphaned imports, every backend module named has a real caller) but **3 real, independently-confirmed findings, written up as three new small steps**: **25x** (Reader's "Why this?"/Alternatives/Grammar results stay keyed by drama only, not by line — the exact bug class Step 25c already fixed for the sibling "Improve this line" feature one function below, just never extended to these three); **25y** (EPUB export never calls `html.escape()` on line text, producing invalid XHTML on any line containing `&`/`<`/`>` — a real regression against this same codebase's own convention, correctly applied in `reader.py`/`subtitle_formats.py` but missed here); **25z** (four destructive actions — "Delete this drama," "Remove current audio/video," "Remove raw novel context," "Clear translate history" — have zero confirmation step at all, violating this project's own standing guardrail rule that every other destructive action in the app already follows).
+> **Step 13 is merged (PR #115)** — the UI/UX redesign's scaffolding layer (`ui/project_state.py`/`workflow.py`/`project_header.py`/`status.py`) is in, purely additive, no visible behavior change yet. This unblocks **Step 14** (Workspace shell rebuild, "the single biggest change in this redesign") to be sent whenever wanted — it's the first step where the redesign's actual direction becomes visible.
 >
-> **Ready to send now**: **25x, 25y, 25z** are all small, independent, and non-overlapping with 25d/13 or each other (`reader_tab.py`, `epub_io.py`, and `workspace_tab.py`+`translate_tab.py` respectively) — safe to send alongside what's already out.
+> **A fourth adversarial pass (2026-09-27), scoped by the user's own three explicit questions** (dead ends? does new data populate live or need a refresh? any bugs?) found no dead ends but 3 real findings — **all three now merged**: **25x** (PR #113 — Reader's Why-this/Alternatives/Grammar results stay keyed by drama only, not by line); **25y** (PR #114 — EPUB export never escaped line text, producing invalid XHTML); **25z** (PR #116 — four destructive actions had zero confirmation step, violating this project's own standing guardrail rule).
+>
+> **Ready to send now**: **Step 14** (Workspace shell rebuild — needs Step 13, now landed).
 >
 > **Unblocked, ready to send once 25d lands**: **Step 24** (translation memory/benchmark/library status — needs an Opus confirmation stop, shares `workspace_tab.py`), **26** (voice bank — same overlap), **26c** (original-language narration — shares `dub.py`/`workspace_tab.py`).
 >
-> **Waits on Step 13 landing**: **Step 17** (Navigator/Discover merge, needs Step 13's typographic scale) and **Steps 14–20** (each builds on Step 13's own new `ui/` layer).
+> **Waits on Step 14+ progressing**: **Step 17** (Navigator/Discover merge, needs Step 13's typographic scale, already landed — can start once Step 14 is underway per the roadmap's own sequencing) and **Steps 15–20** (each builds on the prior step's own new structure).
 >
 > **Unblocked, ready to send once 25p lands**: **25d** (twelve-bug bundle), **Step 24** (translation memory/benchmark/library status — needs an Opus confirmation stop, shares `workspace_tab.py`/`library_tab.py`), **Step 17** (Navigator/Discover merge — its prerequisite, `navigator.py`, is long since restored; sequenced after Step 13 in practice since it uses Step 13's typographic scale, so hold until 13 starts), **26** (voice bank — same `workspace_tab.py`/`library_tab.py` overlap as 24), **26c** (original-language narration — shares `dub.py`/`workspace_tab.py`).
 >
@@ -1437,6 +1439,8 @@ Prompted by the user's request for a full information-architecture audit and red
 - A test shows the new `st.session_state.project` model round-trips `drama_id`/`current_stage` correctly and that reading/writing it doesn't touch any of the narrowly-scoped keys listed above.
 - Manual check: Library's dashboard shows each drama's real per-stage progress via the shared stepper component, not just the existing percent-complete metric.
 
+**Merged as PR #115** — opened and merged directly by this planning session after independent verification: base was exactly current `baihe-subtitler` tip, diff confirmed purely additive (6 new files, +741/-0, zero existing files touched — `library_tab.py` genuinely never opened, matching the deferred item 4 below), all four new `ui/` modules read in full and confirmed correct (`ui/workflow.py` reuses `ui_theme.py`'s existing `bh-stage`/`bh-stage-item`/`bh-stage-done`/`bh-stage-current` CSS classes rather than duplicating them, adding the checkmark/dot/circle markers the roadmap asked for; `ui/status.py`'s failure card matches its exit condition exactly), 32 new tests pass, full suite clean (2650 passed, 47 skipped, 0 failed — one CI run hit the same pre-existing `test_background_jobs.py::TestNotifyOnCompletion` order-dependent flake seen elsewhere this session, confirmed unrelated since this diff never touches `background_jobs.py`, cleared on re-run). Item 4 (wiring the stepper into Library's dashboard) is correctly deferred until Step 25d lands, so its own manual-check bullet above remains open until then. One real, minor finding from re-verifying the audit: the app now has 10 top-level tabs, not 8 (`sources_tab.py`/`translate_tab.py` were added since this step's text was written) — doesn't affect this step's correctness, worth a note whenever the audit text is next touched.
+
 ### Step 14 — Workspace shell rebuild: stage tabs instead of a 10-expander scroll
 The single biggest change in this redesign — replaces Workspace's 2,899-line, 10-`st.expander` vertical scroll (confirmed in Step 12/13's audits: Step 1 breaks the expander pattern, Step 10 is mis-nested inside Step 9) with a stage-based workspace. **Needs Step 13's `ui/` layer and project-state model.** Re-verify against the current file before starting — Step 12 may have already changed the expander numbering/nesting this step assumed at audit time.
 
@@ -2468,6 +2472,8 @@ Found by a fourth, broader adversarial pass explicitly scoped to hunt for stalen
 - A test confirms each of the three results is still shown correctly when re-selecting a line that was previously inspected (not just cleared and never shown again).
 - Manual check: on a real drama with 2+ lines, click all three buttons for line 1, switch to line 2, and confirm none of the three results sections show line 1's content.
 
+**Merged as PR #113** — opened and merged directly by this planning session after independent verification: base was exactly current `baihe-subtitler` tip, diff read in full (`_pl_key` computation moved earlier and applied to all four caches, exactly the mechanical fix asked for), both new tests pass, full suite clean (2628 passed, 46 skipped, 0 failed). Also independently confirmed this session's own note about `main`/`baihe-subtitler` being genuinely unrelated git histories (no common ancestor), validating why the implementing session had to branch directly off `origin/baihe-subtitler` rather than its originally-assigned branch.
+
 ### Step 25y — Fix: EPUB export doesn't escape line text, producing invalid XHTML on lines containing `&`/`<`/`>`
 Found by the same fourth adversarial pass. **Independently re-verified by direct code read** against the real merged `epub_io.py`, and cross-checked against this codebase's own established convention for the same class of embedding.
 
@@ -2480,6 +2486,8 @@ Found by the same fourth adversarial pass. **Independently re-verified by direct
 - A test confirms a line containing `&`, `<`, and `>` characters, once exported, produces valid, parseable XHTML content (parse the generated chapter content with an XML parser and confirm it doesn't raise).
 - A test confirms the existing `[[IMG:filename]]` image-embedding still works correctly on a line that also contains the special characters above.
 - Manual check: export a drama with narration text containing an ampersand or angle bracket to EPUB and open the result in a strict e-reader (or validate with `epubcheck`) to confirm no XHTML parse errors.
+
+**Merged as PR #114** — opened and merged directly by this planning session after independent verification: base was exactly current `baihe-subtitler` tip, diff read in full (exactly the `html.escape()` fix asked for), all 10 tests in `test_epub_io.py` pass against a real `ebooklib` install (a real environment-contamination false alarm was caught and corrected during this review — a stale pre-fix `epub_io.py` this session had left directly in `/tmp` was shadowing the real fixed file under pytest's rootdir mechanics; once cleaned up, the fix verified correctly the first time), full suite clean (2608 passed, 46 skipped, 0 failed).
 
 ### Step 25z — Fix: four destructive actions have no confirmation step, violating this project's own established guardrail rule
 Found by the same fourth adversarial pass. **Independently re-verified by direct code read** against the real merged code for all four; each confirmed exactly as a single click with zero confirmation. This project's own standing rule (set by the Uninstaller design, restated in this repo's `CLAUDE.md`): "Destructive or data-affecting actions need a separate, explicit confirmation, defaulting to No." Every other destructive action already in this codebase follows it — Library's "Reset the entire library" requires a checkbox *and* typing `RESET`; Library's bulk-delete requires a "Confirm delete" checkbox; Sources' video-import-overwrite (Step 25s) requires an explicit "I understand this replaces..." checkbox — these four are the ones that don't.
@@ -2495,6 +2503,8 @@ Found by the same fourth adversarial pass. **Independently re-verified by direct
 - A test confirms each of the four destructive buttons is disabled (or hidden) until its confirmation step is explicitly completed.
 - A test confirms completing the confirmation step and then clicking still performs the real deletion/removal (the guardrail doesn't silently break the underlying action).
 - Manual check: for each of the four, attempt the action without confirming (confirm nothing happens), then confirm and complete it, verifying the expected data is actually removed.
+
+**Merged as PR #116** — opened and merged directly by this planning session after independent verification: base was exactly current `baihe-subtitler` tip, diff read in full for all four (item 1 correctly uses the heavier checkbox-plus-type-DELETE pattern, items 2-4 use the checkbox-only pattern), all 16 new/touched tests pass (disabled-until-confirmed and performs-the-real-action-once-confirmed for each), full suite clean (2633 passed, 46 skipped, 0 failed).
 
 ### Step 26 — Voice bank: reuse a cloned voice across projects
 From a user request, explored on branch `claude/iqiyi-ai-vertical-shorts-mzim4n` (2026-09-26, `docs/handoff-voice-bank-translate-zh-narration.md`; nothing built there). Goal: sample voices from audio dramas already in the library, then reuse those clips for characters in other projects (mainly novel narration) without copying files and transcripts by hand.
@@ -2676,7 +2686,7 @@ From the same exploration session and handoff doc. Goal: novel narration read al
   | 12c — Workspace media preview & review linkage | `claude/media-preview-player-x3udcb` | ✅ Merged (PR #77) | ⏳ Pending |
   | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | `claude/admiring-fermi-ms122r` | ✅ Merged (PR #58) | ⏳ Pending |
   | 12e — Project instructions & workflow presets | `step-12e-project-instructions-presets` | ✅ Merged (PR #67) | ⏳ Pending |
-  | 13 — UI foundation: components & project state | — | Not started | — |
+  | 13 — UI foundation: components & project state | `step-13-ui-foundation` | ✅ Merged (PR #115; item 4 deferred until 25d lands) | ⏳ Pending |
   | 14 — Workspace shell rebuild | — | Not started | — |
   | 15 — Reader tab declutter | — | Not started | — |
   | 16 — Settings consolidation | — | Not started | — |
@@ -2726,9 +2736,9 @@ From the same exploration session and handoff doc. Goal: novel narration read al
   | 25u — Fix: Navigator/Discover baihehub search requires an API key even for Ollama | `claude/step-25u-roadmap-9sudde` | ✅ Merged (PR #109) | ⏳ Pending |
   | 25v — Fix: two real bugs in the just-merged mangaz.com adapter (Step 23l) | `step-25v-mangaz-fixes` | ✅ Merged (PR #111; first submission `fix-23l-review-findings` sent back over a real regression, corrected resubmission approved) | ⏳ Pending |
   | 25w — Fix: uncached Discover translation call, two cost-cap bypasses (Google/DeepL, bulk flag-fix), GPU-guard has no effect on cli.py | `claude/step-25w-zq1e58` | ✅ Merged (PR #112) | ⏳ Pending |
-  | 25x — Fix: Reader's Why-this/Alternatives/Grammar stay keyed by drama only, showing a stale line's results | — | Not started | — |
-  | 25y — Fix: EPUB export doesn't escape line text, producing invalid XHTML | — | Not started | — |
-  | 25z — Fix: four destructive actions have no confirmation step | — | Not started | — |
+  | 25x — Fix: Reader's Why-this/Alternatives/Grammar stay keyed by drama only, showing a stale line's results | `step-25x-reader-tool-cache-keys` | ✅ Merged (PR #113) | ⏳ Pending |
+  | 25y — Fix: EPUB export doesn't escape line text, producing invalid XHTML | `step-25y-epub-escape-xhtml` | ✅ Merged (PR #114) | ⏳ Pending |
+  | 25z — Fix: four destructive actions have no confirmation step | `claude/step-25z-roadmap-tgjmwj` | ✅ Merged (PR #116) | ⏳ Pending |
   | 26 — Voice bank (reuse a cloned voice across projects) | — | Not started | — |
   | 26b — Standalone translate section (kr/jp/cn ↔ English) | `claude/step-26b-roadmap-re56bo` | ✅ Merged (PR #100) | ⏳ Pending |
   | 26c — Narrate in the original language, bilingual subtitles | — | Not started | — |
