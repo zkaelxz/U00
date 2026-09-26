@@ -478,6 +478,19 @@ class TestHttpCallsHaveTimeouts:
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "dub.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
+    def test_navigator(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "navigator.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
+    def test_page_fetch(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "page_fetch.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
+    def test_title_library(self):
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "title_library.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
     def test_core(self):
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "core.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"

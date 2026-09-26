@@ -39,8 +39,10 @@ def render_navigator_tab():
                                          "or find the episode list for a show I already found",
                              key="nav_goal")
     nav_target_lang = st.text_input("Your language", value="English", key="nav_target_lang")
+    _nav_gemini_free_tier = st.session_state.get("gemini_free_tier", False)
     nav_engine_choice = st.selectbox(
         "Engine", [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
+        format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _nav_gemini_free_tier)}",
         key="nav_engine")
     nav_api_key = synced_api_key_input("API key *(required)*", nav_engine_choice, "nav_api_key")
 
@@ -57,7 +59,11 @@ def render_navigator_tab():
     if st.button("🧭 Translate page + get navigation steps", disabled=bool(_nav_missing)):
         if True:
             import navigator
-            engine = translate_engines.get_engine(nav_engine_choice, nav_api_key)
+            engine = translate_engines.get_engine(
+                nav_engine_choice, nav_api_key,
+                free_tier=nav_engine_choice == "gemini" and _nav_gemini_free_tier,
+                base_url=(st.session_state.get("settings_ollama_url") or None)
+                if nav_engine_choice == "ollama" else None)
             try:
                 with st.spinner("Fetching page labels..."):
                     labels = navigator.fetch_visible_labels(nav_url)
