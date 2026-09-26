@@ -65,3 +65,21 @@ class TestSourcesTab:
         assert store.get_setting("pace_min_delay") == 2.0
         assert store.get_setting("pace_max_delay") == 4.0
         assert store.get_setting("cache_mode") == "keep_originals"
+
+    def test_series_browser_fetches_the_chapter_list_once_across_reruns(self, isolated_db,
+                                                                       monkeypatch):
+        from sources import chapter_check, mock, store
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+        store.set_setting("demo_source_enabled", True)
+        calls = []
+        real = mock.DemoSource.get_chapters
+        monkeypatch.setattr(mock.DemoSource, "get_chapters",
+                            lambda self, sid: calls.append(sid) or real(self, sid))
+        isolated_db.create_drama(title_zh="演示", media_type="manhua")
+        at = _app(isolated_db, src_series=("demo", "1"))
+        at.run(timeout=30)
+        at.run(timeout=30)
+        assert calls == ["1"]
+        _button(at, "🔄 Reload chapter list").click()
+        at.run(timeout=30)
+        assert calls == ["1", "1"]

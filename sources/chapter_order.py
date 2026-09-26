@@ -122,3 +122,17 @@ def sort_chapters(chapters, key=lambda c: c.title):
         keyed.append((k, c))
     keyed.sort(key=lambda kc: kc[0])
     return [c for _, c in keyed]
+
+
+def sort_chapters_grouped(chapters):
+    """Like sort_chapters, but keeps a source's own sections (单话 /
+    单行本 / 番外篇...) together in the order the source lists them, and
+    sorts naturally within each -- so volume 1 doesn't get interleaved
+    with chapter 1."""
+    groups = {}
+    for c in chapters:
+        groups.setdefault(getattr(c, "group", ""), []).append(c)
+    out = []
+    for items in groups.values():
+        out.extend(sort_chapters(items))
+    return out

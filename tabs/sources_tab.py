@@ -206,20 +206,30 @@ def _render_series_browser():
         return
     source, series_id = picked
     adapter = registry.get_adapter(source)
-    try:
-        info = adapter.get_series(series_id) if adapter.supports("get_series") else None
-        chapters = chapter_order.sort_chapters(adapter.get_chapters(series_id))
-    except ChallengeDetected as e:
-        retry, cancel = _render_handoff({"url": e.url, "reason": e.reason.value}, "src_series")
-        if cancel:
-            st.session_state.src_series = None
-            st.rerun()
-        if retry:
-            st.rerun()
-        return
-    except (SourceError, NotSupportedError) as e:
-        st.error(f"{source}: {e}")
-        return
+    # Streamlit re-runs this on every click; the chapter list is fetched
+    # once and kept, so ticking checkboxes never re-hits the source.
+    cache_key = f"src_series_data_{source}_{series_id}"
+    if st.button("🔄 Reload chapter list", key="src_series_reload",
+                 help="Fetches the series page again from the source."):
+        st.session_state.pop(cache_key, None)
+    if cache_key not in st.session_state:
+        try:
+            with st.spinner("Loading the series (paced like every other request)..."):
+                info = adapter.get_series(series_id) if adapter.supports("get_series") else None
+                chapters = chapter_order.sort_chapters_grouped(adapter.get_chapters(series_id))
+        except ChallengeDetected as e:
+            retry, cancel = _render_handoff({"url": e.url, "reason": e.reason.value}, "src_series")
+            if cancel:
+                st.session_state.src_series = None
+                st.rerun()
+            if retry:
+                st.rerun()
+            return
+        except (SourceError, NotSupportedError) as e:
+            st.error(f"{source}: {e}")
+            return
+        st.session_state[cache_key] = (info, chapters)
+    info, chapters = st.session_state[cache_key]
     st.markdown(f"**{info.title if info else series_id}** · {source} · {len(chapters)} chapter(s)")
     if info and info.description:
         st.caption(info.description[:400])
