@@ -58,6 +58,17 @@ OPTIONAL_DEPENDENCIES = {
     "pydub": ("pydub", "dub/narration track mixing", "feature"),
     "f5_tts": ("f5_tts", "local voice cloning", "feature"),
     "elevenlabs": ("elevenlabs", "hosted voice cloning", "feature"),
+    # Keys are the real pip names -- Diagnostics' Install button runs
+    # `pip install <key>`. These three can't share one environment (see
+    # requirements.txt), which the descriptions say before anyone clicks.
+    "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice; can't share an "
+                               "install with Chatterbox/TADA)", "feature"),
+    "chatterbox-tts": ("chatterbox", "emotion-aware local voice (Chatterbox; adds a PerTh "
+                                     "watermark; can't share an install with OmniVoice/TADA)",
+                       "feature"),
+    "hume-tada": ("tada", "long-narration local voice (TADA; model weights under the Llama 3.2 "
+                          "Community License; can't share an install with OmniVoice/Chatterbox)",
+                  "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
     "PIL": ("PIL", "OCR, Scanlate rendering", "required"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
@@ -265,9 +276,9 @@ def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
 # ---------------------------------------------------------------------------
 # Step 9b.2: model/engine version panel -- one row per AI model/engine
 # actually wired into the app today (not the roadmap's full aspirational
-# list; several named there, like OmniVoice or PaddleOCR-VL-For-Manga,
-# aren't implemented yet and belong to later steps). No network call:
-# this only reports what pip already knows is installed locally.
+# list; several named there, like PaddleOCR-VL-For-Manga, aren't
+# implemented yet and belong to later steps). No network call: this only
+# reports what pip already knows is installed locally.
 # ---------------------------------------------------------------------------
 
 MODEL_ENGINE_REGISTRY = [
@@ -292,6 +303,15 @@ MODEL_ENGINE_REGISTRY = [
      "url": "https://github.com/facebookresearch/demucs"},
     {"name": "F5-TTS", "kind": "package", "package": "f5-tts",
      "url": "https://github.com/SWivid/F5-TTS"},
+    {"name": "OmniVoice", "kind": "package", "package": "omnivoice",
+     "url": "https://github.com/k2-fsa/OmniVoice"},
+    {"name": "GPT-SoVITS", "kind": "service",
+     "note": "separate local server (not pip-installed)",
+     "url": "https://github.com/RVC-Boss/GPT-SoVITS"},
+    {"name": "Chatterbox", "kind": "package", "package": "chatterbox-tts",
+     "url": "https://github.com/resemble-ai/chatterbox"},
+    {"name": "TADA", "kind": "package", "package": "hume-tada",
+     "url": "https://github.com/HumeAI/tada"},
     {"name": "edge-tts", "kind": "package", "package": "edge-tts",
      "url": "https://github.com/rany2/edge-tts"},
     {"name": "ElevenLabs (hosted)", "kind": "package", "package": "elevenlabs",
@@ -306,12 +326,15 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
     heavy ML import-time cost just to check a version) -- "not installed"
     if it isn't present. A "repo" entry (a bare model checkpoint this
     app's own code names directly, not a pip-versioned package) shows its
-    Hugging Face repo id(s) as its identifier instead of a version number.
-    Makes no network call."""
+    Hugging Face repo id(s) as its identifier instead of a version number;
+    a "service" entry (an engine running as its own separate server)
+    shows its note. Makes no network call."""
     out = []
     for entry in MODEL_ENGINE_REGISTRY:
         if entry["kind"] == "repo":
             version = ", ".join(entry["repo_ids"])
+        elif entry["kind"] == "service":
+            version = entry["note"]
         else:
             try:
                 version = importlib.metadata.version(entry["package"])

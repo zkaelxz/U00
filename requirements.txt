@@ -68,6 +68,24 @@ piper-tts>=1.2
 # Voice cloning alternative, hosted (optional, paid API, no GPU needed):
 elevenlabs>=1.0
 
+# Novel narration voices (optional, local; GPU strongly recommended). Pick
+# one per character in Workspace section 6; each downloads its own model on
+# first use. Left commented out because they can't all share one
+# environment: OmniVoice needs transformers>=5.3, Chatterbox pins
+# transformers==5.2.0 and torch==2.6.0, and TADA needs transformers<5 and
+# torch>=2.7 -- pip can't satisfy any two of them together. Uncomment the
+# one you want (or give each its own venv).
+# omnivoice>=0.2        # Apache-2.0: cloning from a 3-10s clip, and voice
+                         # design from a description (no clip needed)
+# chatterbox-tts>=0.1   # MIT: emotion-aware delivery. Adds an
+                         # imperceptible PerTh watermark to its audio.
+# hume-tada>=0.1        # code MIT; model weights under Meta's Llama 3.2
+                         # Community License -- accept it on Hugging Face and
+                         # `huggingface-cli login` before first use
+# GPT-SoVITS (MIT) isn't a pip package: download it from
+# https://github.com/RVC-Boss/GPT-SoVITS and run its own `python api_v2.py`
+# server; set its URL in Settings if it isn't http://127.0.0.1:9880.
+
 # ML-based bubble detection + inpainting for Scanlate (optional, better
 # accuracy/quality than the free OpenCV heuristics, heavier install).
 # transformers (above) loads the bubble detector; torch+safetensors load

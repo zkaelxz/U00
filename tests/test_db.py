@@ -95,6 +95,21 @@ class TestCharacters:
         chars = isolated_db.list_characters(did)
         assert chars[0]["elevenlabs_voice_id"] == "abc123"
 
+    def test_voice_engine_and_description_persist_without_clobbering(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.upsert_character(did, "SPEAKER_00", clone_engine="omnivoice",
+                                      voice_design="female, low pitch")
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Aunt")  # both untouched
+        [c] = isolated_db.list_characters(did)
+        assert (c["clone_engine"], c["voice_design"]) == ("omnivoice", "female, low pitch")
+        isolated_db.upsert_character(did, "SPEAKER_00", voice_design="")  # "" clears
+        assert isolated_db.list_characters(did)[0]["voice_design"] == ""
+
+    def test_existing_characters_get_no_engine_so_they_keep_f5tts(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.upsert_character(did, "SPEAKER_00", ref_audio_filename="a.wav")
+        assert isolated_db.list_characters(did)[0]["clone_engine"] is None
+
     def test_series_character_id_persists(self, isolated_db):
         sid = isolated_db.get_or_create_series("A Streamer")
         isolated_db.upsert_series_character(sid, "Su Shan")

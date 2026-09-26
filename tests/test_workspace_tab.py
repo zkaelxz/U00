@@ -2757,7 +2757,7 @@ class TestDubGenerationRealMidRunStop:
         background_jobs.clear_job(job_id)
         background_jobs.start_process_job(
             job_id, dub_module.build_track_subprocess_worker,
-            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False),
+            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}),
             gpu_touching=False)
 
         at = self._run(did)
@@ -2788,7 +2788,7 @@ class TestDubGenerationRealMidRunStop:
             f.write(b"x")
 
         def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
-                        is_narration, result_queue):
+                        is_narration, emotion_map, result_queue):
             lines[0].dub_filename = "dub_clips/line_0000.wav"
             result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
         monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)
@@ -4032,3 +4032,89 @@ class TestApplyPresetOnNewDrama:
         assert at.session_state[f"locale_{new_id}"] == "en-GB"
         assert at.session_state[f"default_female_pronouns_{new_id}"] is True
         assert at.session_state[f"include_genre_notes_{new_id}"] is False
+
+
+class TestNarrationVoiceSetup:
+    """Step 11b: each character's voice engine and voice description
+    (section 6) persist, the dub button hands them -- plus the drama's
+    saved emotion tags -- to generation, taking the GPU slot for a local
+    engine; and a narration drama gets an M4B audiobook export (section 9)."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Novel", media_type="audio_drama",
+                                        content_mode="novel_narration", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello",
+                                          speaker="Hero")])
+        isolated_db.upsert_character(did, "Hero", character_name="Hero")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_engine_and_voice_description_persist(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [engine] = [s for s in at.selectbox if s.key == "cengine_Hero"]
+        assert engine.value == "f5tts"  # nothing stored yet: the pre-Step-11b default
+        engine.set_value("chatterbox").run(timeout=30)
+        [design] = [t for t in at.text_input if t.key == "cdesign_Hero"]
+        design.set_value("male, young adult, low pitch").run(timeout=30)
+
+        [c] = db.list_characters(did)
+        assert c["clone_engine"] == "chatterbox"
+        assert c["voice_design"] == "male, young adult, low pitch"
+        assert any("PerTh" in cap.value for cap in at.caption)  # watermark noted next to the option
+
+    def test_dub_button_passes_voices_emotions_and_takes_the_gpu(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        db.upsert_character(did, "Hero", voice_design="female, whisper")
+        db.save_emotions(did, {0: {"emotion": "sad", "intensity": 0.8, "note": ""}})
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), gpu_touching=False, description="":
+                            started.update(args=args, gpu_touching=gpu_touching) or True)
+
+        at = self._run(did)
+        [button] = [b for b in at.button if b.label == "🎙️ Generate narration track"]
+        button.click().run(timeout=30)
+
+        clone_map, is_narration, emotion_map = started["args"][4], started["args"][6], started["args"][7]
+        assert clone_map == {"Hero": {"engine": "omnivoice", "instruct": "female, whisper"}}
+        assert is_narration is True
+        assert emotion_map[0]["emotion"] == "sad"
+        assert started["gpu_touching"] is True
+
+    def test_m4b_export_needs_the_narration_then_exports_it(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [button] = [b for b in at.button if b.label == "🎧 Generate audiobook (.m4b)"]
+        assert button.disabled  # no narration_track.wav yet
+
+        ddir = db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        open(os.path.join(ddir, "narration_track.wav"), "wb").close()
+        m4b = os.path.join(ddir, "narration.m4b")
+        exported = []
+
+        def fake_export(lines, drama_dir, title=None):
+            exported.append((len(lines), title))
+            open(m4b, "wb").close()
+            return m4b
+        monkeypatch.setattr(dub_module, "export_narration_m4b", fake_export)
+
+        at = self._run(did)
+        [button] = [b for b in at.button if b.label == "🎧 Generate audiobook (.m4b)"]
+        assert not button.disabled
+        button.click().run(timeout=30)
+        assert exported == [(1, "Novel")]
+        assert not at.error
