@@ -96,6 +96,7 @@
 > **Re-checked against real branch state (2026-09-26) — was stale, corrected, not just assumed current.** `git log origin/baihe-subtitler` confirms **Steps 4d, 4e, 4f, 4g, and 4h are all now merged** (PRs #37–#41) — this pointer's earlier "start Step 4d next" note is now outdated; §4's status table corrected to match.
 > **Re-checked again (2026-09-26), same day — the main implementing chat moved fast.** `git log origin/baihe-subtitler` confirms **Steps 6f and 6g are also now merged** (PRs #42–#43) — both real fixes: 6f's data-corruption fix for re-segmentation's duplicate/orphaned rows, and 6g's speech-splitting-default change. §4 corrected to match. **Real current front line**: the next unstarted step in normal build order is **Step 6h** (auto-tune speech-splitting sensitivity) — Steps 5/5b/5c/6/6b/6c/6d/6d2/6e/6f/6g were already confirmed merged, and 6h/8b/9h/9i/10d/10e (plus the new items added to already-merged Steps 6b/10b/18/18c this session) are all real, `Not started` work queued after it. **The user has also started assigning four additional steps to separate parallel chats** (not yet confirmed via a pushed branch, so not marked as started in §4 until there's real evidence): Step 11 (Scanlate), Step 20b (richer Anki export), Step 18b (App Assistant), and Step 11b (novel narration TTS) — chosen specifically because none conflict with the main chat's `workspace_tab.py`-heavy queue or with each other; see the parallelization note below for the full file-overlap reasoning.
 > **Parallelization note (2026-09-26), at the user's request.** Multiple implementing sessions can work different steps at once — each step already lives on its own branch — but most of what's currently queued touches the same file (`workspace_tab.py`), often in nearby sections (6f, 6g, 6h, 9h, 9i, the new Step 6b item 9), so running those in parallel risks real merge conflicts. Steps that touch different files entirely and are safe to run alongside whatever's in `workspace_tab.py`: **Step 10d** (branch/CI-only, no app source), **Step 10e** (`start.bat`), **Step 10b's new Unicode-crash item** (`check_setup.py`), and — the best candidate for a genuinely separate, large parallel track — **Step 11** (Scanlate's ML detector/inpainting/OCR routing), which lives almost entirely in `scanlate.py`/`tabs/scanlate_tab.py`, a completely different file domain from every currently-queued Workspace fix.
+> **Re-checked against real GitHub state (2026-09-26), not assumed — a real PR-number mix-up caught and fixed.** `baihe-subtitler` turns out to be a branch of this same `zkaelxz/U00` repo, not a separate repo (corrected a wrong assumption made earlier this session). Confirmed via the GitHub API, not a report: **Steps 18b and 18c were already merged** (PR #45, #46) before a second, duplicate pair of PRs (#47, #48 — same head commits) got opened later and merged today as no-ops (nothing new landed, since the commits were already in the base). **Step 11 (PR #49) and Step 9e/9f/9h/9i (PRs #50–#54) are also confirmed merged.** **Step 11b is now merged too (PR #55)**, after this session's own independent test verification (a false-alarm cluster of `test_cli.py` failures traced to stray `/tmp/*.py` files shadowing the real modules in this session's own review sandbox, not a real bug — see Step 11b's own entry). **Step 12d (Scanlate structured regions/cleanup/batch/honorifics/SFX) is built and pushed** (`claude/admiring-fermi-ms122r`, 1,629 passed/42 skipped) but has **no PR open** despite an implementing-session report claiming one at #55 — that claim was simply wrong, confirmed by a repo-wide PR search finding nothing for that branch. **Real current front line**: Step 6h is still the next `Not started` step in normal build order; Step 12d needs a PR opened (by that session, or by the planning session if asked) before it can be reviewed/merged; Steps 4i and 4j (the two severe bugs found by the Opus QC review) have been handed to a fresh implementing-session prompt but not yet confirmed picked up via a pushed branch.
 > *(Kept accurate per §5 rule 1 — checked against real branch state, not
 > memory, as of 2026-09-26. If this line is stale, the status table below
 > it is the source of truth.)*
@@ -2044,14 +2045,14 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 10d — Push the already-known CI fix to old, already-merged branches | — | ✅ **Done** (2026-09-27) — direct pushes to 4 branches, no PR/merge involved; see step text for the CI-trigger dead end and why | — |
   | 10e — LAN client/server access: print the real network URL | — | Not started | — |
   | 11 — Scanlate ML detector/inpainting/OCR routing | `step-11-scanlate-detector-inpainting-ocr` | ✅ Merged (PR #49) | ⏳ Pending |
-  | 11b — Novel narration TTS quality | `claude/youthful-tesla-jl1o4f` (auto-assigned name, kept as-is) | Built, reviewed, tests independently verified clean (325 passed, 4 skipped) — approved, PR not yet opened, awaiting "create a PR for this step" | — |
+  | 11b — Novel narration TTS quality | `claude/youthful-tesla-jl1o4f` | ✅ Merged (PR #55) | ⏳ Pending |
   | 11c — Dub timing: clamped time-stretch fallback | — | Not started | — |
   | 11d — Remove ElevenLabs | — | Not started | — |
   | 11e — Fix: dubbed clip cached by line index alone, stale after a text edit | — | Not started | — |
   | 12 — GUI polish and Streamlit performance | — | Not started | — |
   | 12b — Auto QC pass | — | Not started | — |
   | 12c — Workspace media preview & review linkage | — | Not started | — |
-  | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | — | Not started | — |
+  | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | `claude/admiring-fermi-ms122r` | Built and pushed (1,629 passed, 42 skipped) — no PR open yet, needs one opened | — |
   | 12e — Project instructions & workflow presets | — | Not started | — |
   | 13 — UI foundation: components & project state | — | Not started | — |
   | 14 — Workspace shell rebuild | — | Not started | — |
@@ -2059,8 +2060,8 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 16 — Settings consolidation | — | Not started | — |
   | 17 — Discover/Navigator merge | — | Not started | — |
   | 18 — Diagnostics narrowing | — | Not started | — |
-  | 18b — App Assistant | `step-18b-app-assistant` | ✅ Merged (PR #45) | ⏳ Pending |
-  | 18c — In-app Install buttons for optional dependencies | `step-18c-install-buttons` | ✅ Merged (PR #46) | ⏳ Pending |
+  | 18b — App Assistant | `step-18b-app-assistant` | ✅ Merged (PR #45; a duplicate PR #47 off the same commit was later opened by mistake and merged today as a no-op — same head SHA, nothing new landed) | ⏳ Pending |
+  | 18c — In-app Install buttons for optional dependencies | `step-18c-install-buttons` | ✅ Merged (PR #46; same duplicate-PR situation — #48 off the same commit, merged today as a no-op) | ⏳ Pending |
   | 19 — Full click-through UX test | — | Not started | — |
   | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
   | 20b — Richer Anki export: sentence + audio | — | Not started | — |
