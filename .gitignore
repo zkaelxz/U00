@@ -15,6 +15,10 @@ venv/
 env/
 *.egg-info/
 
+# start.bat's own server output log, from its --ci/--server-only launch path
+streamlit_ci.log
+streamlit_ci_err.log
+
 # OS
 .DS_Store
 Thumbs.db
