@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
-from . import detect, generic_import, registry
+from . import detect, generic_import, ladder, registry
 from .models import ContentType, SourceError
 
 VIDEO = "video"
@@ -109,6 +109,7 @@ def preview(url: str, client=None, rendered_fetch=None) -> Preview:
     url = (url or "").strip()
     adapter = registry.find_for_url(url)
     if adapter is not None:
+        ladder.check_terms(adapter.name, adapter.capabilities())
         p = Preview(url=url, adapter=adapter.name, platform=adapter.display_name,
                     content_type=(ContentType(adapter.content_types[0]).value
                                   if adapter.content_types else UNKNOWN),

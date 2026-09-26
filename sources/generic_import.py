@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from statistics import median
 from urllib.parse import urljoin, urlsplit
 
-from . import ladder, store
+from . import ladder, registry, store
 from .http import SourceClient
 from .models import AccessTier, SourceError
 
@@ -290,23 +290,40 @@ def filter_page_images(candidates, page_url: str, seen_elsewhere=frozenset()) ->
     return kept, rejected
 
 
-def _client(client=None, **kw) -> SourceClient:
-    return client or SourceClient(GENERIC_SOURCE, **kw)
+def _client(client=None, url: str = "") -> SourceClient:
+    """A URL a registered adapter recognizes is fetched (and recorded)
+    under that adapter's source name, so its capability record -- and
+    its terms -- apply here too; anything else is GENERIC_SOURCE."""
+    if client is not None:
+        return client
+    cls = registry.adapter_class_for_url(url)
+    return SourceClient(cls.name if cls else GENERIC_SOURCE)
+
+
+def _default_capabilities(client: SourceClient):
+    cls = registry.adapter_classes().get(client.source)
+    return cls(client=client).capabilities() if cls else None
 
 
 def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None):
     """Runs the ladder for one URL: static HTTP, then a real browser if
     that failed (unless a challenge stopped everything). With `user_html`
     -- the page source the person saved after completing a verification
-    themselves -- the USER_ASSISTED tier is used instead of any request."""
-    client = _client(client)
+    themselves -- the USER_ASSISTED tier is used instead of any request.
+    Raises TermsProhibited, before anything is sent, when the source's
+    record says its terms forbid automated access; otherwise the run is
+    folded into that record."""
+    client = _client(client, url)
+    default = _default_capabilities(client)
+    ladder.check_terms(client.source, default)
     if user_html is not None:
         tiers = {AccessTier.USER_ASSISTED_BROWSER: ladder.user_assisted_tier(user_html)}
     else:
         tiers = {AccessTier.STATIC_HTTP: ladder.static_tier(client),
                  AccessTier.RENDERED_BROWSER: ladder.rendered_tier(client, rendered_fetch),
                  AccessTier.AUTHENTICATED_BROWSER: ladder.not_built_tier("23k")}
-    result = ladder.run_ladder(url, tiers, source=GENERIC_SOURCE)
+    result = ladder.run_ladder(url, tiers, source=client.source)
+    ladder.record_ladder_result(client.source, result, default)
     return result
 
 
@@ -342,7 +359,7 @@ def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str
     NoContentFound (with the ladder's per-tier lines in the message) when
     nothing usable is there; ChallengeDetected-shaped hand-offs come back
     via `result.ladder.handoff` with no images."""
-    client = _client(client)
+    client = _client(client, url)
     lr = fetch_page(url, client, rendered_fetch, user_html)
     out = ComicImportResult(page_url=url, ladder=lr)
     if lr.handoff:

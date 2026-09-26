@@ -343,9 +343,10 @@ def cmd_dub(args):
         clone_map = dub_module.clone_map_from_characters(
             chars, ddir, gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
             ref_language=d.get("source_language") or "zh")
-        speakers = sorted({ln.speaker for ln in lines if ln.speaker})
-        if speakers and not voice_map:
-            voice_map = dub_module.assign_voices_to_characters(speakers)
+        speakers = {ln.speaker for ln in lines if ln.speaker}
+        voice_map = dub_module.fill_missing_voices(voice_map, speakers)
+        offline_voice_map = dub_module.fill_missing_voices(
+            offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
 
         is_narration = d.get("content_mode") == "novel_narration"
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track

@@ -138,12 +138,3 @@ def evidence(status, headers, body, url, final_url="") -> dict:
         "text_length": len(visible_text(body)),
         "headers": {k: h[k] for k in keep if k in h},
     }
-
-
-def is_all_paths_gatekeeper(results) -> bool:
-    """A baozimh-shaped case: every path tried came back with the same
-    plain 403 and no challenge -- a gatekeeper in front of the whole site,
-    which may well be specific to this machine's IP rather than universal."""
-    results = list(results)
-    return len(results) >= 2 and all(
-        r == [FailureReason.ACCESS_DENIED] for r in results)
