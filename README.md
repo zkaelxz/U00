@@ -202,6 +202,29 @@ would need to bundle a full Python interpreter plus every ML dependency
 this app can use, multi-gigabytes either way, so that isn't what this
 does.
 
+### Running as a personal server (LAN access)
+
+Streamlit already binds to every network interface when `start.bat`
+launches it (`--server.headless true`), not just `localhost` -- so a
+Windows machine you leave running as an always-on personal server is
+already reachable from any other device on the same home network, no
+setup needed beyond starting the app there. `start.bat` now prints that
+address on every launch: "Also reachable from other devices on this
+network at: `http://<your-LAN-IP>:8501`". Open that from a browser on any
+other computer/phone on the same network and it's the same app, same
+library, same background jobs -- there's no separate client/server split
+to configure.
+
+If you're running that machine unattended and never want its own local
+Edge/Chrome window to pop up, use `start.bat --server-only` (same effect
+as setting the `BAIHE_SERVER_ONLY` environment variable).
+
+**This is LAN-only, single-user, by design** -- there's no login or
+access control, matching a personal home network where anyone on it is
+already trusted. Don't expose the port to the internet (e.g. via router
+port-forwarding) without adding your own authentication in front of it
+first.
+
 ## Usage
 
 ### Running the app
