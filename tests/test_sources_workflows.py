@@ -649,3 +649,44 @@ class TestTermsOfServiceBlocking:
         assert "TOS_PROHIBITED" in result["chapters"][0]["error"]
         assert t.calls == [] and isolated_db.list_pages(drama_id) == []
         background_jobs.clear_job(job)
+
+    def test_a_stale_stored_record_cant_clear_a_corrected_built_in_prohibition(self, isolated_db):
+        """Step 25q gap 1: an earlier import already stored a clean
+        record. The adapter's own built-in default has since been
+        corrected to prohibited -- the stale stored `False` must not
+        keep overriding it."""
+        from sources import ladder
+        from sources.models import SourceCapabilities, TermsProhibited
+        # A real earlier import recorded a clean, un-prohibited result.
+        ladder.record_ladder_result("fake_comic", ladder.LadderResult(
+            url="https://comic.invalid/read/1", tier="STATIC_HTTP",
+            technical_status="SUPPORTED", capability_status="VERIFIED"))
+        assert not ladder.load_capabilities("fake_comic").terms.get("tos_prohibited")
+        # The adapter's own built-in default is now corrected to prohibited.
+        corrected_default = SourceCapabilities(platform="Fake Comic",
+                                               terms={"tos_prohibited": True})
+        with pytest.raises(TermsProhibited):
+            ladder.check_terms("fake_comic", corrected_default)
+
+    def test_multi_search_skips_a_prohibited_source(self, isolated_db):
+        A = _named("A", "src_a")
+        B = _named("B", "src_b")
+        a = A(make_client("src_a", ScriptedTransport()), results=[("1", "Demo Comic")])
+        b = B(make_client("src_b", ScriptedTransport()), results=[("9", "Also Demo")])
+        self._prohibit("src_b")
+        out = registry.multi_search("demo", adapters=[a, b])
+        assert out.per_source_counts.get("src_a") == 1
+        assert out.per_source_counts.get("src_b", None) in (0, None)
+        assert [r.source for m in out.results for r in m.entries] == ["src_a"]
+        assert "src_b" in out.errors and "TOS_PROHIBITED" in out.errors["src_b"]
+
+    def test_tracked_series_checker_skips_a_prohibited_source(self, isolated_db, monkeypatch):
+        adapter = FakeComicSource(make_client("fake_comic", ScriptedTransport()),
+                                  chapters=[("c1", "第1话"), ("c2", "第2话")])
+        monkeypatch.setattr(registry, "is_enabled", lambda name: True)
+        store.track_series("fake_comic", "s1", "Series")
+        self._prohibit("fake_comic")
+        out = chapter_check.run_check_cycle(adapter_factory=lambda n: adapter)
+        assert out["checked"] == 0 and out["new"] == 0
+        assert "Series" in out["errors"] and "TOS_PROHIBITED" in out["errors"]["Series"]
+        assert adapter.chapters and store.list_notifications() == []

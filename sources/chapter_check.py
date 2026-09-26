@@ -15,7 +15,7 @@ import time
 
 import background_jobs
 
-from . import registry, store
+from . import ladder, registry, store
 from .models import SourceError
 
 CHECK_JOB_ID = "sources_chapter_check"
@@ -26,6 +26,7 @@ _scheduler_lock = threading.Lock()
 def check_series(adapter, row: dict) -> list:
     """Returns the ChapterInfo list of chapters that are new since the last
     check, and records them (known + a notification each)."""
+    ladder.check_terms(adapter.name, adapter.capabilities())
     chapters = adapter.get_chapters(row["series_id"])
     known = store.known_chapter_ids(row["source"], row["series_id"])
     new = [c for c in chapters if c.chapter_id not in known]

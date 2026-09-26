@@ -480,6 +480,7 @@ def _render_series_browser():
         st.session_state.pop(cache_key, None)
     if cache_key not in st.session_state:
         try:
+            src_ladder.check_terms(source, adapter.capabilities())
             with st.spinner("Loading the series (paced like every other request)..."):
                 info = adapter.get_series(series_id) if adapter.supports("get_series") else None
                 chapters = chapter_order.sort_chapters_grouped(adapter.get_chapters(series_id))

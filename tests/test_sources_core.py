@@ -14,8 +14,8 @@ from sources.base import SourceAdapter
 from sources.http import PacingPolicy, SourceClient, reset_pacing_state
 from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, ChapterInfo,
                             ContentAccess, FailureReason, FetchFailed, NotSupportedError,
-                            PageRef, SearchResult, SeriesInfo, SourceUnavailable,
-                            TechnicalStatus)
+                            PageRef, SearchResult, SeriesInfo, SourceCapabilities,
+                            SourceUnavailable, TechnicalStatus, TermsProhibited)
 
 from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, make_client
 
@@ -446,6 +446,26 @@ class TestCapabilitiesAndTestNow:
         assert caps.technical == {"browser_accessible": True}
         roundtrip = SourceCapabilities.from_dict(caps.to_dict())
         assert roundtrip.terms == caps.terms and roundtrip.tiers.keys() == caps.tiers.keys()
+
+    def test_stale_stored_record_cant_clear_a_corrected_built_in_prohibition(self, isolated_db):
+        """Step 25q gap 1: an earlier import saved a stored record saying
+        the source was fine. The adapter's own built-in default has since
+        been corrected to tos_prohibited=True -- the stale stored `False`
+        must not keep overriding it."""
+        stored = SourceCapabilities(platform="src", terms={"tos_prohibited": False})
+        ladder.save_capabilities("src", stored)
+        default = SourceCapabilities(platform="src", terms={"tos_prohibited": True})
+        with pytest.raises(TermsProhibited):
+            ladder.check_terms("src", default)
+
+    def test_stored_prohibition_survives_even_if_default_lacks_it(self, isolated_db):
+        """The reverse must still hold: a stored record that itself
+        recorded a prohibition isn't cleared just because the caller's
+        `default` (e.g. a generic-import fallback) doesn't carry one."""
+        stored = SourceCapabilities(platform="src", terms={"tos_prohibited": True})
+        ladder.save_capabilities("src", stored)
+        with pytest.raises(TermsProhibited):
+            ladder.check_terms("src", None)
 
 
 class TestStaticChecks:
