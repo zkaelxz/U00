@@ -56,3 +56,25 @@ Dailymotion and MissEvan links go to the existing
 | Name | `demo`. Hidden until **Sources → Source settings → Show the demo source** is turned on. |
 | What it is | A locally generated three-chapter comic, plus a "Challenge test" series that always answers like a Cloudflare challenge. It goes through the real paced client, so the status view and the hand-off can be tried without the network. |
 | Tests | `tests/test_sources_workflows.py`, `tests/test_sources_tab.py` |
+
+## Manual checks still to do
+
+These have only been run against offline fixtures. Tick them off once
+they've been tried against the real site.
+
+- [ ] **manhuagui, normal work:** search a real title, open its chapter
+  list, and import one chapter into a manhua drama. Confirm the pages
+  show up in Scanlate.
+- [ ] **manhuagui, adult-flagged work:** turn on **🔞 Include adult-flagged
+  works** for manhuagui. Open a work that was refused with it off, and
+  confirm its chapter list loads and a chapter imports. Turn the toggle
+  off again and confirm the same work is refused with the message that
+  names the toggle.
+- [ ] **Generic paste-a-URL:** paste a real chapter URL from a site with
+  no adapter, and confirm it either imports the pages or fails with a
+  clear message.
+- [ ] **Browser tier:** install Playwright (`pip install playwright` then
+  `playwright install chromium`), and confirm **Test Browser** on a
+  JavaScript-only page records a real result.
+- [ ] **Novel text:** confirm trafilatura's extraction quality on a real
+  Chinese novel chapter page.
