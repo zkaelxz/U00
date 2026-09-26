@@ -862,6 +862,20 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
     return [dict(r) for r in rows]
 
 
+def list_dramas_by_series(series_id: int):
+    """Every drama in a series, across every media_type -- Step 22's
+    series-level view: a manga project and a video project already share
+    one glossary/character list under the hood (series_characters and
+    glossary_terms are keyed by series_id, not drama_id/media_type); this
+    is the query that surfaces that sharing as one grouped list instead
+    of unrelated Library rows. Same order as list_dramas() (newest first)."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM dramas WHERE series_id = ? ORDER BY created_at DESC", (series_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def distinct_values(column: str) -> List[str]:
     conn = get_conn()
     rows = conn.execute(f"SELECT DISTINCT {column} FROM dramas WHERE {column} IS NOT NULL AND {column} != ''").fetchall()

@@ -179,6 +179,8 @@ def render_reader_tab():
     # ---------------------------------------------------- Series glossary
     if rdrama.get("series_id"):
         with st.expander("📖 Series glossary"):
+            st.caption("Shared across every drama in this series -- see 🎭 Series in "
+                      "📚 Library for the full list.")
             terms = db.list_glossary_terms(rdrama["series_id"])
             if terms:
                 for t in terms:
