@@ -1032,26 +1032,3 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
-
-
-def mux_dub_with_video_or_audio(original_media_path: str, dub_track_path: str, out_path: str,
-                                 original_volume_db: float = -100.0):
-    """
-    Replaces (or nearly-silences) the original audio and lays the dub
-    track on top. If original_media_path is a video, keeps the video
-    stream; if it's audio-only, just outputs the mixed audio.
-    Requires ffmpeg on PATH.
-    """
-    import subprocess
-    is_video = os.path.splitext(original_media_path)[1].lower() in (".mp4", ".mkv", ".mov", ".webm")
-    if is_video:
-        cmd = [
-            "ffmpeg", "-y", "-i", original_media_path, "-i", dub_track_path,
-            "-filter_complex",
-            f"[0:a]volume={original_volume_db}dB[orig];[orig][1:a]amix=inputs=2:duration=first[aout]",
-            "-map", "0:v", "-map", "[aout]", "-c:v", "copy", out_path,
-        ]
-    else:
-        cmd = ["ffmpeg", "-y", "-i", dub_track_path, "-c:a", "libmp3lame", out_path]
-    subprocess.run(cmd, check=True, capture_output=True)
-    return out_path

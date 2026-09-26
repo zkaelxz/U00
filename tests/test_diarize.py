@@ -284,18 +284,6 @@ class TestAssignSpeakerToLine:
         assert diarize.assign_speaker_to_line(0.0, 1.0, []) is None
 
 
-class TestLabelLinesWithSpeakers:
-    def test_mutates_lines_in_place(self):
-        from core import Line
-        lines = [Line(idx=0, start=0.0, end=1.0, zh="a"),
-                 Line(idx=1, start=5.0, end=6.0, zh="b")]
-        segments = [{"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
-                    {"start": 4.0, "end": 7.0, "speaker": "SPEAKER_01"}]
-        diarize.label_lines_with_speakers(lines, segments)
-        assert lines[0].speaker == "SPEAKER_00"
-        assert lines[1].speaker == "SPEAKER_01"
-
-
 class TestExtractSpeakerEmbeddings:
     """Step 8: pyannote.audio 4.x's DiarizeOutput.speaker_embeddings, one
     row per speaker in annotation.labels() order -- mapped to

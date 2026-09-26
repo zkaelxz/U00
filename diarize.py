@@ -165,15 +165,6 @@ def assign_speaker_to_line(line_start: float, line_end: float, speaker_segments)
     return best_speaker
 
 
-def label_lines_with_speakers(lines, speaker_segments):
-    """Mutates lines in place, setting .speaker on each -- for brand-new
-    lines straight out of transcription, where there's nothing manual to
-    protect. Re-running on existing lines goes through merge_speakers."""
-    for ln in lines:
-        ln.speaker = assign_speaker_to_line(ln.start, ln.end, speaker_segments)
-    return lines
-
-
 def manual_lines_that_would_change(lines, turns) -> list:
     """Lines whose speaker was set by hand (speaker_manual) and that a
     re-merge with `turns` would relabel -- what to name in a confirmation

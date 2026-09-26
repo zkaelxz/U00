@@ -168,20 +168,3 @@ class Qwen3ASRBackend:
                         os.unlink(slice_path)
                 out.append({"start": seg["start"], "end": seg["end"], "text": text})
         return out
-
-
-BACKENDS = {
-    "whisper": WhisperBackend,
-    "qwen3_asr": Qwen3ASRBackend,
-}
-
-BACKEND_NOTES = {
-    "whisper": "Current default. Mature, broad language support. Community benchmarks report "
-               "weaker performance on Japanese/Korean than purpose-built CJK models -- unverified "
-               "specifically on this project's content.",
-    "qwen3_asr": "Purpose-built for zh/ja/ko. Public benchmarks show a large accuracy advantage "
-                 "over Whisper on Mandarin (especially under noise) and Traditional/Taiwan "
-                 "Mandarin; no direct Japanese benchmark found. Needs `pip install qwen-asr torch` "
-                 "and re-transcribes each Whisper-segmented slice individually, so it's slower "
-                 "than one full-file Whisper pass.",
-}

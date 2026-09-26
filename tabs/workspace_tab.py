@@ -13,7 +13,7 @@ import sensevoice_tags
 import subtitle_formats
 import bulk_translate
 
-MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
+MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "anime", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
 
 
@@ -1518,6 +1518,20 @@ def render_workspace_tab():
         media_type = st.selectbox("Content type", MEDIA_TYPE_OPTIONS,
                                    format_func=_format_media_type)
 
+        # Step 22b: series assignment at creation time, not only via the
+        # ✏️ Edit metadata expander after the drama already exists -- same
+        # series_options/"+ New series..." shape and the same
+        # db.get_or_create_series/db.update_drama(series_id=...) calls
+        # _series_picker() makes, just applied once the new drama's id is
+        # known instead of through that helper (which is built to update
+        # an already-existing drama in place, not one still being created).
+        _existing_series = db.list_series()
+        _series_options = ["-- none --"] + [s["name"] for s in _existing_series] + ["+ New series..."]
+        _series_choice = st.selectbox("Series (optional)", _series_options)
+        _new_series_name = ""
+        if _series_choice == "+ New series...":
+            _new_series_name = st.text_input("New series name", key="new_drama_new_series_name")
+
         _all_presets = db.list_presets()
         _preset_options = {"-- none --": None}
         _preset_options.update({p["name"]: p for p in _all_presets})
@@ -1537,6 +1551,12 @@ def render_workspace_tab():
                    if _picked_preset and _picked_preset.get("translation_engine") else {}))
             if _picked_preset:
                 apply_preset_to_session(_picked_preset, new_id)
+            if _series_choice == "+ New series..." and _new_series_name:
+                sid = db.get_or_create_series(_new_series_name)
+                db.update_drama(new_id, series_id=sid)
+            elif _series_choice not in ("-- none --", "+ New series..."):
+                sid = next(s["id"] for s in _existing_series if s["name"] == _series_choice)
+                db.update_drama(new_id, series_id=sid)
             st.session_state.pop("autofill_metadata", None)
             st.session_state.active_drama_id = new_id
             st.session_state.lines = None
@@ -1885,7 +1905,7 @@ def render_workspace_tab():
                           "placement/styling, and only reads ONE caption region even if the video "
                           "has captions in two places at once (e.g. a header AND a bottom caption).")
                 _hardsub_backend_options = ["tesseract", "paddle"] if source_language == "zh" else ["tesseract"]
-                ocr_backend_choice = st.selectbox(
+                st.selectbox(
                     "OCR engine", _hardsub_backend_options,
                     index=(1 if source_language == "zh" else 0),
                     format_func=lambda b: "Tesseract (general-purpose)" if b == "tesseract"
@@ -1895,7 +1915,7 @@ def render_workspace_tab():
                          "(`pip install paddleocr paddlepaddle`). Switch to Tesseract if PaddleOCR "
                          "isn't installed and you'd rather not install it.",
                     key=f"hardsub_ocr_backend_{picked_id}")
-                sample_interval = st.slider(
+                st.slider(
                     "Sample every N seconds", 0.5, 3.0, 1.0, step=0.5,
                     key=f"hardsub_interval_{picked_id}",
                     help="Lower catches short-lived captions more reliably but takes longer to run.")
@@ -1956,7 +1976,9 @@ def render_workspace_tab():
                         ch_end = ec2.number_input("To chapter", value=min(5, n_chapters), min_value=1, max_value=n_chapters)
                         if st.button("Import chapters from EPUB"):
                             with st.spinner("Extracting text..."):
-                                extracted = epub_io.import_epub_text(epub_path, chapter_range=(ch_start - 1, ch_end))
+                                extracted = epub_io.import_epub_text(
+                                    epub_path, chapter_range=(ch_start - 1, ch_end),
+                                    images_dir=os.path.join(ddir, "epub_images"))
                             st.session_state[f"ocr_text_{picked_id}"] = extracted
                             st.success(f"Imported {len(extracted):,} characters from chapters {ch_start}-{ch_end}.")
                             st.rerun()
@@ -2319,7 +2341,7 @@ def render_workspace_tab():
                      "downloads its own model on first use. Skip this for already-clean "
                      "dialogue -- there's nothing for it to separate out. Needs "
                      "`pip install audio-separator` (preferred) or `pip install demucs`.")
-            separation_backend = st.selectbox(
+            st.selectbox(
                 "Music-removal model", list(audio_preprocess.SEPARATION_BACKENDS),
                 format_func=lambda b: audio_preprocess.SEPARATION_BACKENDS[b],
                 disabled=not separate_vocals_first, key=f"separation_backend_{picked_id}",
@@ -2659,6 +2681,20 @@ def render_workspace_tab():
                 else:
                     st.caption("No terms yet.")
 
+                if terms:
+                    st.caption("**Bulk actions**")
+                    _bulk_gl_pick = st.multiselect(
+                        "Select terms", [t["term_original"] for t in terms],
+                        key=f"bulk_glossary_pick_{sid}")
+                    if _bulk_gl_pick and st.button(
+                            f"🗑️ Delete {len(_bulk_gl_pick)} selected term(s)",
+                            key=f"bulk_glossary_delete_{sid}"):
+                        for t in terms:
+                            if t["term_original"] in _bulk_gl_pick:
+                                db.delete_glossary_term(t["id"])
+                        st.success(f"Deleted {len(_bulk_gl_pick)} term(s).")
+                        st.rerun()
+
                 with st.form(f"add_glossary_{sid}", clear_on_submit=True):
                     gc1, gc2 = st.columns(2)
                     g_orig = gc1.text_input("Original term")
@@ -2708,8 +2744,13 @@ def render_workspace_tab():
                                 label_visibility="collapsed",
                                 placeholder="Nicknames, speaking style, relationships (optional)")
                             _cur_pronouns = tguide.normalize_pronouns(sc.get("gender"))
+                            # Folds the current value into the key -- Step 23c item 5's new
+                            # bulk pronoun-set button below can change this character's gender
+                            # from OUTSIDE this widget; a plain static key would keep showing
+                            # whatever was picked here last instead of picking up that change,
+                            # same reasoning _series_picker() documents for the same pattern.
                             sc_pronouns = _pronoun_picker(
-                                "Pronouns", _cur_pronouns, key=f"scgender_{sc['id']}",
+                                "Pronouns", _cur_pronouns, key=f"scgender_{sc['id']}_{_cur_pronouns or 'none'}",
                                 help="Fixes this character's pronouns in translation, overriding "
                                      "both Whisper's transcribed 他/她/它 (unreliable -- they're "
                                      "homophones in speech) and the \"default to she/her\" toggle "
@@ -2721,6 +2762,25 @@ def render_workspace_tab():
                 else:
                     st.caption("None yet -- add someone below, or link an existing per-drama "
                               "character to a new series character in section 6.")
+
+                if series_chars:
+                    st.caption("**Bulk actions**")
+                    _bulk_sc_pick = st.multiselect(
+                        "Select people", [sc["character_name"] for sc in series_chars],
+                        key=f"bulk_sc_pick_{sid}")
+                    _bulk_sc_pronouns = _pronoun_picker(
+                        "Set pronouns for selected", "", key=f"bulk_sc_pronouns_{sid}")
+                    if _bulk_sc_pick and st.button(
+                            f"Set pronouns for {len(_bulk_sc_pick)} selected",
+                            key=f"bulk_sc_set_pronouns_{sid}"):
+                        for sc in series_chars:
+                            if sc["character_name"] in _bulk_sc_pick:
+                                db.upsert_series_character(
+                                    sid, sc["character_name"], aliases=sc["aliases"] or "",
+                                    notes=sc["notes"] or "", gender=_bulk_sc_pronouns)
+                        st.success(f"Updated {len(_bulk_sc_pick)} person/people.")
+                        st.rerun()
+
                 with st.form(f"add_series_char_{sid}", clear_on_submit=True):
                     new_char_name = st.text_input("Add a known character")
                     new_char_pronouns = _pronoun_picker(
@@ -2922,6 +2982,18 @@ def render_workspace_tab():
                  "scratch, overwriting anything already there -- use this after changing "
                  "the engine, style, or glossary and wanting the whole drama redone "
                  "consistently.")
+
+        review_glossary_first = False
+        if drama.get("series_id"):
+            review_glossary_first = b2.checkbox(
+                "📖 Review glossary before translating", value=False,
+                key=f"review_glossary_first_{picked_id}",
+                help="Step 23c item 3: before this run starts, extracts the glossary terms it "
+                     "would use from this drama's source text and lets you edit/reject them "
+                     "first, instead of the run just using whatever's already in the glossary. "
+                     "Most valuable before a big run -- a glossary mistake compounds across "
+                     "every line translated at once. Off by default: for a single-drama "
+                     "translate this is already easy enough to fix afterward.")
 
         reflect_mode = False
         if not _translation_only_engine:
@@ -3368,6 +3440,50 @@ def render_workspace_tab():
             if saved:
                 st.session_state.lines = core_module.lines_from_rows(saved)
 
+        _pending_gl_key = f"pretranslate_glossary_{picked_id}"
+        if run_translate and review_glossary_first and st.session_state.lines \
+                and _pending_gl_key not in st.session_state:
+            if not gl_key:
+                st.warning("Set an API key in the ⚙️ Settings sidebar first.")
+            else:
+                _gl_engine_name = drama.get("translation_engine") or "claude"
+                eng_gl = translate_engines.get_engine(
+                    _gl_engine_name, gl_key,
+                    free_tier=_gl_engine_name == "gemini" and _gemini_free_tier,
+                    base_url=_ollama_base_url if _gl_engine_name == "ollama" else None)
+                _sample_text = existing_novel_text or "\n".join(ln.zh for ln in st.session_state.lines)
+                with st.spinner("Extracting the glossary terms this run would use..."):
+                    st.session_state[_pending_gl_key] = tguide.extract_glossary_from_novel(
+                        _sample_text, eng_gl, source_language=source_language,
+                        known_terms=db.list_glossary_terms(drama["series_id"]))
+            run_translate = False  # show the review below instead of starting the job this render
+
+        _pending_gl = st.session_state.get(_pending_gl_key)
+        if _pending_gl is not None:
+            st.caption(f"Review {len(_pending_gl)} glossary term(s) this run would use before "
+                       "it starts -- uncheck anything wrong:")
+            if _pending_gl:
+                _pgl_df = pd.DataFrame(_pending_gl)
+                _pgl_df.insert(0, "Add", True)
+                _edited_pgl = st.data_editor(_pgl_df, width='stretch', hide_index=True,
+                                              key=f"pretranslate_gl_editor_{picked_id}")
+            else:
+                _edited_pgl = None
+                st.info("No new terms proposed -- the run will use the glossary as it already is.")
+            _pgc1, _pgc2 = st.columns(2)
+            if _pgc1.button("✅ Looks good — start translating", key=f"confirm_pretranslate_gl_{picked_id}"):
+                if _edited_pgl is not None:
+                    for row in _edited_pgl[_edited_pgl["Add"]].to_dict("records"):
+                        db.upsert_glossary_term(
+                            drama["series_id"], row.get("term", ""), row.get("suggested_translation", ""),
+                            notes=row.get("reason", ""), category=row.get("category"),
+                            policy=row.get("policy"))
+                del st.session_state[_pending_gl_key]
+                run_translate = True
+            if _pgc2.button("❌ Cancel", key=f"cancel_pretranslate_gl_{picked_id}"):
+                del st.session_state[_pending_gl_key]
+                run_translate = False
+
         _translate_job_id = f"translate_{picked_id}"
         _job = background_jobs.get_status(_translate_job_id)
 
@@ -3522,7 +3638,7 @@ def render_workspace_tab():
                             # the bottom of the character loop would read that
                             # as a user edit and immediately overwrite the
                             # ref_text we just saved back to "".
-                            st.session_state[f"reftext_{label}"] = matching_zh
+                            st.session_state[f"reftext_{picked_id}_{label}"] = matching_zh
                         else:
                             # Don't silently save "" -- indistinguishable from the
                             # field never having been touched. Leave whatever
@@ -3556,7 +3672,7 @@ def render_workspace_tab():
                             vc1.caption(f"🔊 **{sug['speaker_label']}** sounds like "
                                        f"**{sug['character_name']}** (similarity "
                                        f"{sug['similarity']:.2f}) -- experimental, please confirm.")
-                            if vc2.button("✅ Accept", key=f"voiceaccept_{sug['speaker_label']}_"
+                            if vc2.button("✅ Accept", key=f"voiceaccept_{picked_id}_{sug['speaker_label']}_"
                                                           f"{sug['series_character_id']}"):
                                 db.upsert_character(
                                     picked_id, sug["speaker_label"],
@@ -3567,12 +3683,17 @@ def render_workspace_tab():
                                     _voice_embeddings[sug["speaker_label"]])
                                 st.success(f"{sug['speaker_label']} set to {sug['character_name']}.")
                                 st.rerun()
-                            if vc3.button("❌ Reject", key=f"voicereject_{sug['speaker_label']}_"
+                            if vc3.button("❌ Reject", key=f"voicereject_{picked_id}_{sug['speaker_label']}_"
                                                           f"{sug['series_character_id']}"):
                                 db.dismiss_voice_suggestion(
                                     picked_id, sug["speaker_label"], sug["series_character_id"])
                                 st.rerun()
 
+            # Step 25b: every widget key below carries picked_id, not just the
+            # speaker label -- unrelated dramas commonly share a SPEAKER_00, and
+            # a label-only key made Streamlit carry the previous drama's value
+            # across a switch, which the "differs from saved" checks then wrote
+            # into this drama's character row.
             for c in characters:
                 with st.container(border=True):
                     if _series_chars:
@@ -3585,7 +3706,7 @@ def render_workspace_tab():
                         picked_known = st.selectbox(
                             f"Known characters in this series ({c['speaker_label']})", _known_options,
                             index=_known_options.index(_current) if _current in _known_options else 0,
-                            key=f"cknown_{c['speaker_label']}")
+                            key=f"cknown_{picked_id}_{c['speaker_label']}")
                         if picked_known != "-- type a new name below --":
                             _sc = next(sc for sc in _series_chars if sc["character_name"] == picked_known)
                             if c.get("series_character_id") != _sc["id"]:
@@ -3619,14 +3740,14 @@ def render_workspace_tab():
                     cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
                     cc1.write(c["speaker_label"])
                     name = cc2.text_input("name", value=c["character_name"] or "",
-                                           label_visibility="collapsed", key=f"cname_{c['speaker_label']}")
+                                           label_visibility="collapsed", key=f"cname_{picked_id}_{c['speaker_label']}")
                     va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
                                          placeholder="voice actor", label_visibility="collapsed",
-                                         key=f"cva_{c['speaker_label']}")
+                                         key=f"cva_{picked_id}_{c['speaker_label']}")
                     voice = cc4.selectbox("tts voice (fallback)", dub_module.DEFAULT_VOICE_POOL,
                                            index=dub_module.DEFAULT_VOICE_POOL.index(c["tts_voice"])
                                            if c["tts_voice"] in dub_module.DEFAULT_VOICE_POOL else 0,
-                                           label_visibility="collapsed", key=f"cvoice_{c['speaker_label']}")
+                                           label_visibility="collapsed", key=f"cvoice_{picked_id}_{c['speaker_label']}")
                     if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
                         db.upsert_character(picked_id, c["speaker_label"], character_name=name,
                                              voice_actor=va, tts_voice=voice)
@@ -3634,7 +3755,7 @@ def render_workspace_tab():
                     _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
                     c_pronouns = _pronoun_picker(
                         f"Pronouns ({name or c['speaker_label']})", _shown_pronouns,
-                        key=f"cpronouns_{c['speaker_label']}",
+                        key=f"cpronouns_{picked_id}_{c['speaker_label']}",
                         help=("Defaults to this person's pronouns under People & pronouns "
                               f"({_series_default}); setting it here overrides that for this "
                               "drama only." if _series_default else
@@ -3648,7 +3769,7 @@ def render_workspace_tab():
                         # clutter the series' cast list with one-off junk. This is
                         # the one moment a person decides "yes, remember them".
                         if st.checkbox(f"💾 Remember '{name.strip()}' as a known character in this series",
-                                       key=f"cremember_{c['speaker_label']}"):
+                                       key=f"cremember_{picked_id}_{c['speaker_label']}"):
                             db.upsert_series_character(drama["series_id"], name.strip())
                             _sc = next(sc for sc in db.list_series_characters(drama["series_id"])
                                        if sc["character_name"] == name.strip())
@@ -3677,11 +3798,11 @@ def render_workspace_tab():
                             rc1.caption(f"Closest available clip was {_skip_reason['closest_duration']:.1f}s "
                                        f"-- {_bound} for a clean reference.")
                     ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
-                                                    type=["wav", "mp3", "m4a"], key=f"refup_{c['speaker_label']}",
+                                                    type=["wav", "mp3", "m4a"], key=f"refup_{picked_id}_{c['speaker_label']}",
                                                     label_visibility="collapsed")
                     ref_text_input = st.text_input(
                         f"What's said in that clip (original language, for {name or c['speaker_label']})",
-                        value=c["ref_text"] or "", key=f"reftext_{c['speaker_label']}")
+                        value=c["ref_text"] or "", key=f"reftext_{picked_id}_{c['speaker_label']}")
                     if (not ref_text_input.strip() and c["speaker_label"] in
                             st.session_state.get(f"ref_text_match_failed_{picked_id}", set())):
                         # Step 8b item 3: same "silent empty result" shape as
@@ -3706,7 +3827,7 @@ def render_workspace_tab():
                         f"Voice engine ({name or c['speaker_label']})", _engine_options,
                         index=_engine_options.index(_stored_engine) if _stored_engine in _engine_options else 0,
                         format_func=lambda e: dub_module.CLONE_ENGINES[e],
-                        key=f"cengine_{c['speaker_label']}",
+                        key=f"cengine_{picked_id}_{c['speaker_label']}",
                         help="Which local engine clones this character's reference clip. Chatterbox "
                              "also works with no clip (its own built-in voice).")
                     if picked_engine != _stored_engine:
@@ -3714,7 +3835,7 @@ def render_workspace_tab():
                     design_input = ve2.text_input(
                         f"Or describe a voice ({name or c['speaker_label']}, no clip needed)",
                         value=c.get("voice_design") or "", placeholder="female, low pitch, british accent",
-                        key=f"cdesign_{c['speaker_label']}",
+                        key=f"cdesign_{picked_id}_{c['speaker_label']}",
                         help="OmniVoice voice design: gender, age, pitch, whisper, English accent, "
                              "comma-separated. Used only while no reference clip is set -- a clip "
                              "always wins.")
@@ -3758,6 +3879,54 @@ def render_workspace_tab():
             _media = _review_media(drama, ddir)
             if _media:
                 _render_review_player(picked_id, ddir, _media, all_lines)
+
+            with st.expander("🔎 Find & replace"):
+                st.caption(
+                    "Retroactively corrects already-translated text across every line of this "
+                    "drama at once -- a name translated inconsistently, or a typo that repeats. "
+                    "Distinct from the glossary (shapes future translations) and translation "
+                    "memory (suggests reuse going forward). Every match is shown before "
+                    "anything is applied. Same tool as Scanlate's own bulk find & replace, "
+                    "just pointed at line text instead of bubble text."
+                )
+                frl1, frl2 = st.columns(2)
+                fr_find_line = frl1.text_input("Find", key=f"lines_fr_find_{picked_id}")
+                fr_replace_line = frl2.text_input("Replace with", key=f"lines_fr_replace_{picked_id}")
+                frl3, frl4 = st.columns(2)
+                fr_case_line = frl3.checkbox("Case-sensitive", value=False, key=f"lines_fr_case_{picked_id}")
+                fr_regex_line = frl4.checkbox("Regex", value=False, key=f"lines_fr_regex_{picked_id}")
+                if st.button("🔍 Preview matches", key=f"lines_fr_preview_{picked_id}"):
+                    import scanlate
+                    if not fr_find_line:
+                        st.warning("Enter something to find first.")
+                    else:
+                        try:
+                            _fr_matches_line = scanlate.bulk_find_replace_preview(
+                                [{"idx": ln.idx, "en": ln.en} for ln in all_lines],
+                                fr_find_line, fr_replace_line, text_field="en",
+                                case_sensitive=fr_case_line, use_regex=fr_regex_line)
+                        except ValueError as e:
+                            _fr_matches_line = None
+                            st.error(str(e))
+                        if _fr_matches_line is not None:
+                            st.session_state[f"lines_fr_matches_{picked_id}"] = _fr_matches_line
+                            if not _fr_matches_line:
+                                st.info("No matches found.")
+                            else:
+                                st.write(f"{len(_fr_matches_line)} match(es):")
+                                st.table([{"Line": m["idx"] + 1, "Before": m["old_text"],
+                                           "After": m["new_text"]} for m in _fr_matches_line])
+                _fr_pending_line = st.session_state.get(f"lines_fr_matches_{picked_id}") or []
+                if _fr_pending_line and st.button(f"✅ Apply {len(_fr_pending_line)} change(s)",
+                                                   key=f"lines_fr_apply_{picked_id}"):
+                    _fr_by_idx = {m["idx"]: m["new_text"] for m in _fr_pending_line}
+                    for ln in all_lines:
+                        if ln.idx in _fr_by_idx:
+                            ln.en = _fr_by_idx[ln.idx]
+                    db.save_lines(picked_id, all_lines, fields=("en",))
+                    st.session_state[f"lines_fr_matches_{picked_id}"] = []
+                    st.success(f"Applied {len(_fr_pending_line)} change(s).")
+                    st.rerun()
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
@@ -5188,7 +5357,8 @@ def render_workspace_tab():
                     try:
                         epub_path = os.path.join(ddir, "translated.epub")
                         epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
-                                             drama.get("author", ""), epub_path, field="en")
+                                             drama.get("author", ""), epub_path, field="en",
+                                             images_dir=os.path.join(ddir, "epub_images"))
                         with open(epub_path, "rb") as f:
                             st.download_button("Download .epub", f.read(), file_name=f"{_base_name}.epub")
                     except Exception as e:

@@ -182,16 +182,55 @@ class TestLimitOneGpuJobToggle:
         import background_jobs
         at = self._run()
         assert self._checkbox(at).value is True
-        assert background_jobs.gpu_limit_enabled() is True
+        assert background_jobs._gpu_limit_enabled is True
 
     def test_turning_it_off_syncs_to_background_jobs(self):
         import background_jobs
         at = self._run()
         try:
             self._checkbox(at).set_value(False).run()
-            assert background_jobs.gpu_limit_enabled() is False
+            assert background_jobs._gpu_limit_enabled is False
         finally:
             background_jobs.set_gpu_limit_enabled(True)  # don't leak into other tests
+
+
+class TestNotifyOnJobDoneToggle:
+    """Step 23c item 4: the Settings toggle for a desktop notification
+    when a background job finishes, synced into background_jobs's own
+    module-level flag -- same pattern as TestLimitOneGpuJobToggle above,
+    since background_jobs deliberately doesn't import streamlit either."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.settings_tab import render_settings_sidebar
+            render_settings_sidebar()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _checkbox(self, at):
+        matches = [c for c in at.checkbox
+                   if c.label == "🔔 Desktop notification when a background job finishes"]
+        assert matches, "checkbox not found in the sidebar"
+        return matches[0]
+
+    def test_defaults_to_off(self):
+        import background_jobs
+        at = self._run()
+        assert self._checkbox(at).value is False
+        assert background_jobs._notify_on_completion is False
+
+    def test_turning_it_on_syncs_to_background_jobs(self):
+        import background_jobs
+        at = self._run()
+        try:
+            self._checkbox(at).set_value(True).run()
+            assert background_jobs._notify_on_completion is True
+        finally:
+            background_jobs.set_notify_on_completion(False)  # don't leak into other tests
 
 
 class TestCookieBasedLoginSettings:

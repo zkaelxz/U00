@@ -92,6 +92,8 @@ OPTIONAL_DEPENDENCIES = {
                                   "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
+    "plyer": ("plyer", "desktop notification when a background job finishes (Settings toggle, "
+                       "off by default)", "feature"),
     "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao; the "
                                  "Sources tab's browser tier)", "feature"),
     "trafilatura": ("trafilatura", "Sources tab: pulling a novel chapter's main text out of a "

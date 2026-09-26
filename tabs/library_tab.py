@@ -257,7 +257,7 @@ def render_library_tab():
         status_f = fc5.selectbox("Status", ["", "not started", "aligned", "translated", "dubbed", "exported"])
         lang_f = fc6.selectbox("Language", ["", "zh", "ja", "ko"],
                                 format_func=lambda l: {"": "All", "zh": "Chinese", "ja": "Japanese", "ko": "Korean"}[l])
-        media_f = fc7.selectbox("Type", ["", "audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua", "asmr", "other"],
+        media_f = fc7.selectbox("Type", ["", "audio_drama", "video_drama", "anime", "novel", "manhwa", "manga", "manhua", "asmr", "other"],
                                  format_func=lambda m: "All" if m == "" else m.replace("_", " ").title())
 
         all_tags = db.distinct_custom_tags()

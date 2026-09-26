@@ -16,19 +16,6 @@ import re
 import json
 
 
-def fetch_page_text(url: str, timeout: int = 20, allow_render: bool = True) -> str:
-    """Fetches a public page's visible text. Routes through page_fetch so
-    JavaScript-rendered pages are handled rather than silently returning
-    an empty shell. Raises RuntimeError with an explanation when the page
-    can't be read, instead of returning nothing and looking like an
-    empty page."""
-    import page_fetch
-    result = page_fetch.smart_fetch(url, allow_render=allow_render, timeout=timeout)
-    if result["method"] == "failed" or (result["needs_manual"] and not result["text"].strip()):
-        raise RuntimeError(result["message"])
-    return result["text"]
-
-
 def extract_metadata_llm(page_text: str, engine, max_chars: int = 6000):
     """Asks the translation engine's underlying LLM to pull structured
     bibliographic fields out of a page's visible text. Returns a dict

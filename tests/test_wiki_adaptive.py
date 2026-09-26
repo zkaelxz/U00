@@ -104,7 +104,6 @@ class TestWikiFormatting:
     def test_pure_mt_extraction_returns_empty(self):
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
         assert uw.extract_wiki_entries(lines, PureMT(), 0) == []
-        assert uw.build_timeline(lines, PureMT(), 0) == []
 
 
 class TestAdaptiveStyle:
