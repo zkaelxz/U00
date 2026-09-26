@@ -164,6 +164,17 @@ screenshot specifically if it wants one.
 ## Tests
 
 - Run with `python run_tests.py` (wraps `pytest`).
+- **Fresh environment:** `pytest` itself isn't preinstalled — `pip install
+  -r requirements.txt` covers it (it's listed there), or install it plus
+  `requirements-core.txt` directly if you're skipping the heavy optional
+  extras.
+- **Known false-failure gotcha:** if `tests/test_sources_mangaz.py`'s RSA
+  tests fail with `pyo3_runtime.PanicException: Python API call failed` /
+  `ModuleNotFoundError: No module named '_cffi_backend'`, that's a missing
+  `cffi` package (a runtime dependency of `cryptography` that a
+  system/apt-installed `cryptography` doesn't always pull in via pip), not
+  an app bug — `pip install cffi` fixes it. Confirmed by reproducing the
+  failure, installing `cffi`, and seeing all 20 tests in that file pass.
 - Tests are mocked throughout: fake model classes, no GPU, no real models,
   no network calls to AI services. Follow that pattern for new tests —
   don't add a test that needs a real API key, a GPU, or a downloaded
