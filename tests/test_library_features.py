@@ -814,6 +814,53 @@ class TestLibrarySeriesView:
         assert any("Workspace" in i.value for i in at.info)
 
 
+class TestLibraryEntryPointsClearStaleWidgetState:
+    """Step 25j: Library's "▶️ Resume" and a series' "Open" button both set
+    active_drama_id/lines directly instead of going through Workspace's own
+    drama-picker, so neither one triggered its _clear_line_widget_state()
+    call. By the time Workspace's picker later rendered, picked_id already
+    matched the newly-set active_drama_id, so its own "did the selection
+    change" guard never fired either -- a second, unpatched entry point to
+    the Step 4j stale-widget bug class."""
+
+    def _run(self, **session_state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        for k, v in session_state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_resume_button_clears_stale_line_widget_state(self, isolated_db):
+        did_a = isolated_db.create_drama(title_en="Drama A", media_type="audio_drama")
+        did_b = isolated_db.create_drama(title_en="Drama B", media_type="audio_drama")
+        isolated_db.save_progress(did_b, last_page=2, percent_complete=40.0)
+
+        at = self._run(active_drama_id=did_a, lines=None, zh_0="Drama A's stale text")
+        [b for b in at.button if b.key == f"resume_{did_b}"][0].click().run(timeout=30)
+
+        assert at.session_state.active_drama_id == did_b
+        assert at.session_state.lines is None
+        assert "zh_0" not in at.session_state
+
+    def test_series_open_button_clears_stale_line_widget_state(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Jump Series")
+        did_a = isolated_db.create_drama(title_en="First", series_id=sid)
+        did_b = isolated_db.create_drama(title_en="Second", series_id=sid)
+
+        at = self._run(active_drama_id=did_a, lines=None, zh_0="Drama A's stale text")
+        [b for b in at.button if b.key == f"series_open_{did_b}"][0].click().run(timeout=30)
+
+        assert at.session_state.active_drama_id == did_b
+        assert at.session_state.lines is None
+        assert "zh_0" not in at.session_state
+
+
 class TestLibrarySectionsAreCollapsible:
     """Step 22 item 5: Library's own sections are individually
     collapsible, Dashboard/Series-adjacent Search and Filter open by
