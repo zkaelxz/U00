@@ -3501,7 +3501,7 @@ def render_workspace_tab():
                             # the bottom of the character loop would read that
                             # as a user edit and immediately overwrite the
                             # ref_text we just saved back to "".
-                            st.session_state[f"reftext_{label}"] = matching_zh
+                            st.session_state[f"reftext_{picked_id}_{label}"] = matching_zh
                         else:
                             # Don't silently save "" -- indistinguishable from the
                             # field never having been touched. Leave whatever
@@ -3535,7 +3535,7 @@ def render_workspace_tab():
                             vc1.caption(f"🔊 **{sug['speaker_label']}** sounds like "
                                        f"**{sug['character_name']}** (similarity "
                                        f"{sug['similarity']:.2f}) -- experimental, please confirm.")
-                            if vc2.button("✅ Accept", key=f"voiceaccept_{sug['speaker_label']}_"
+                            if vc2.button("✅ Accept", key=f"voiceaccept_{picked_id}_{sug['speaker_label']}_"
                                                           f"{sug['series_character_id']}"):
                                 db.upsert_character(
                                     picked_id, sug["speaker_label"],
@@ -3546,12 +3546,17 @@ def render_workspace_tab():
                                     _voice_embeddings[sug["speaker_label"]])
                                 st.success(f"{sug['speaker_label']} set to {sug['character_name']}.")
                                 st.rerun()
-                            if vc3.button("❌ Reject", key=f"voicereject_{sug['speaker_label']}_"
+                            if vc3.button("❌ Reject", key=f"voicereject_{picked_id}_{sug['speaker_label']}_"
                                                           f"{sug['series_character_id']}"):
                                 db.dismiss_voice_suggestion(
                                     picked_id, sug["speaker_label"], sug["series_character_id"])
                                 st.rerun()
 
+            # Step 25b: every widget key below carries picked_id, not just the
+            # speaker label -- unrelated dramas commonly share a SPEAKER_00, and
+            # a label-only key made Streamlit carry the previous drama's value
+            # across a switch, which the "differs from saved" checks then wrote
+            # into this drama's character row.
             for c in characters:
                 with st.container(border=True):
                     if _series_chars:
@@ -3564,7 +3569,7 @@ def render_workspace_tab():
                         picked_known = st.selectbox(
                             f"Known characters in this series ({c['speaker_label']})", _known_options,
                             index=_known_options.index(_current) if _current in _known_options else 0,
-                            key=f"cknown_{c['speaker_label']}")
+                            key=f"cknown_{picked_id}_{c['speaker_label']}")
                         if picked_known != "-- type a new name below --":
                             _sc = next(sc for sc in _series_chars if sc["character_name"] == picked_known)
                             if c.get("series_character_id") != _sc["id"]:
@@ -3598,14 +3603,14 @@ def render_workspace_tab():
                     cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
                     cc1.write(c["speaker_label"])
                     name = cc2.text_input("name", value=c["character_name"] or "",
-                                           label_visibility="collapsed", key=f"cname_{c['speaker_label']}")
+                                           label_visibility="collapsed", key=f"cname_{picked_id}_{c['speaker_label']}")
                     va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
                                          placeholder="voice actor", label_visibility="collapsed",
-                                         key=f"cva_{c['speaker_label']}")
+                                         key=f"cva_{picked_id}_{c['speaker_label']}")
                     voice = cc4.selectbox("tts voice (fallback)", dub_module.DEFAULT_VOICE_POOL,
                                            index=dub_module.DEFAULT_VOICE_POOL.index(c["tts_voice"])
                                            if c["tts_voice"] in dub_module.DEFAULT_VOICE_POOL else 0,
-                                           label_visibility="collapsed", key=f"cvoice_{c['speaker_label']}")
+                                           label_visibility="collapsed", key=f"cvoice_{picked_id}_{c['speaker_label']}")
                     if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
                         db.upsert_character(picked_id, c["speaker_label"], character_name=name,
                                              voice_actor=va, tts_voice=voice)
@@ -3613,7 +3618,7 @@ def render_workspace_tab():
                     _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
                     c_pronouns = _pronoun_picker(
                         f"Pronouns ({name or c['speaker_label']})", _shown_pronouns,
-                        key=f"cpronouns_{c['speaker_label']}",
+                        key=f"cpronouns_{picked_id}_{c['speaker_label']}",
                         help=("Defaults to this person's pronouns under People & pronouns "
                               f"({_series_default}); setting it here overrides that for this "
                               "drama only." if _series_default else
@@ -3627,7 +3632,7 @@ def render_workspace_tab():
                         # clutter the series' cast list with one-off junk. This is
                         # the one moment a person decides "yes, remember them".
                         if st.checkbox(f"💾 Remember '{name.strip()}' as a known character in this series",
-                                       key=f"cremember_{c['speaker_label']}"):
+                                       key=f"cremember_{picked_id}_{c['speaker_label']}"):
                             db.upsert_series_character(drama["series_id"], name.strip())
                             _sc = next(sc for sc in db.list_series_characters(drama["series_id"])
                                        if sc["character_name"] == name.strip())
@@ -3656,11 +3661,11 @@ def render_workspace_tab():
                             rc1.caption(f"Closest available clip was {_skip_reason['closest_duration']:.1f}s "
                                        f"-- {_bound} for a clean reference.")
                     ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
-                                                    type=["wav", "mp3", "m4a"], key=f"refup_{c['speaker_label']}",
+                                                    type=["wav", "mp3", "m4a"], key=f"refup_{picked_id}_{c['speaker_label']}",
                                                     label_visibility="collapsed")
                     ref_text_input = st.text_input(
                         f"What's said in that clip (original language, for {name or c['speaker_label']})",
-                        value=c["ref_text"] or "", key=f"reftext_{c['speaker_label']}")
+                        value=c["ref_text"] or "", key=f"reftext_{picked_id}_{c['speaker_label']}")
                     if (not ref_text_input.strip() and c["speaker_label"] in
                             st.session_state.get(f"ref_text_match_failed_{picked_id}", set())):
                         # Step 8b item 3: same "silent empty result" shape as
@@ -3685,7 +3690,7 @@ def render_workspace_tab():
                         f"Voice engine ({name or c['speaker_label']})", _engine_options,
                         index=_engine_options.index(_stored_engine) if _stored_engine in _engine_options else 0,
                         format_func=lambda e: dub_module.CLONE_ENGINES[e],
-                        key=f"cengine_{c['speaker_label']}",
+                        key=f"cengine_{picked_id}_{c['speaker_label']}",
                         help="Which local engine clones this character's reference clip. Chatterbox "
                              "also works with no clip (its own built-in voice).")
                     if picked_engine != _stored_engine:
@@ -3693,7 +3698,7 @@ def render_workspace_tab():
                     design_input = ve2.text_input(
                         f"Or describe a voice ({name or c['speaker_label']}, no clip needed)",
                         value=c.get("voice_design") or "", placeholder="female, low pitch, british accent",
-                        key=f"cdesign_{c['speaker_label']}",
+                        key=f"cdesign_{picked_id}_{c['speaker_label']}",
                         help="OmniVoice voice design: gender, age, pitch, whisper, English accent, "
                              "comma-separated. Used only while no reference clip is set -- a clip "
                              "always wins.")
