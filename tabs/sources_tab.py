@@ -20,7 +20,7 @@ from sources.models import (AccessTier, CHALLENGE_HANDOFF_MESSAGE, ChallengeDete
 _COMIC_MEDIA = ("manhua", "manga", "manhwa")
 
 
-def _drama_picker(label, key, media_filter=None):
+def _drama_picker(label, key, media_filter=None, warn_audio=False):
     dramas = db.list_dramas()
     if media_filter:
         preferred = [d for d in dramas if d.get("media_type") in media_filter]
@@ -28,8 +28,12 @@ def _drama_picker(label, key, media_filter=None):
     if not dramas:
         st.info("Create a drama in the Workspace tab first -- imported content is filed under one.")
         return None
-    options = {f"#{d['id']} — {d['title_en'] or d['title_zh'] or '(untitled)'}"
-               f" ({d.get('media_type') or '?'})": d["id"] for d in dramas}
+    options = {}
+    for d in dramas:
+        tag = f" ({d.get('media_type') or '?'})"
+        if warn_audio and d.get("audio_filename"):
+            tag += " ⚠️ has audio"
+        options[f"#{d['id']} — {d['title_en'] or d['title_zh'] or '(untitled)'}" + tag] = d["id"]
     return options[st.selectbox(label, list(options.keys()), key=key)]
 
 
@@ -117,12 +121,21 @@ def _render_front_door():
             st.session_state.src_series = (p.adapter, p.series_id)
             st.rerun()
     elif p.content_type == front_door.VIDEO:
-        drama_id = _drama_picker("Into drama", "src_fd_video_drama")
+        drama_id = _drama_picker("Into drama", "src_fd_video_drama", warn_audio=True)
         audio_only = st.checkbox("Audio only (recommended)", value=True, key="src_fd_audio_only")
         target = p.url
         if not p.adapter and not front_door.is_video_url(p.url) and p.html:
             target = _render_media_identify(p) or p.url
-        if drama_id and st.button("⬇️ Import video", key="src_fd_import_video"):
+        existing_audio = (db.get_drama(drama_id) or {}).get("audio_filename") if drama_id else None
+        confirm_overwrite = True
+        if existing_audio:
+            confirm_overwrite = st.checkbox(
+                f"I understand this replaces drama #{drama_id}'s existing audio ({existing_audio}) "
+                "-- any transcription, translation or dub already done for it will no longer "
+                "match what's on disk",
+                key=f"src_fd_video_confirm_overwrite_{drama_id}")
+        if drama_id and st.button("⬇️ Import video", key="src_fd_import_video",
+                                  disabled=not confirm_overwrite):
             bar = st.progress(0.0)
             status = st.empty()
             try:
