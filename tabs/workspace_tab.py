@@ -996,9 +996,24 @@ def render_workspace_tab():
         for label, did in options.items():
             if did == st.session_state.active_drama_id:
                 default_label = label
-    picked_label = st.selectbox("Drama", list(options.keys()),
-                                 index=list(options.keys()).index(default_label))
+    _picker_col, _refresh_col = st.columns([5, 1])
+    picked_label = _picker_col.selectbox("Drama", list(options.keys()),
+                                          index=list(options.keys()).index(default_label))
     picked_id = options[picked_label]
+    # Step 9i: a general-purpose escape hatch for any stale display this
+    # app's several targeted reload fixes (Steps 6f, 9h, 9i item 1) didn't
+    # catch -- cross-tab staleness in particular is hard to fully
+    # enumerate, since any tab could in principle leave another tab's
+    # cached state behind. Does exactly what every one of those fixes
+    # already does: reload lines from the database, clear the positional
+    # per-line widget cache, then rerun.
+    _refresh_col.write("")  # vertical alignment with the selectbox above
+    if _refresh_col.button("🔄 Refresh", disabled=picked_id is None,
+                           help="Reload this drama's lines from the database -- fixes any "
+                                "stale display, whatever caused it."):
+        st.session_state.lines = db.load_line_objects(picked_id)
+        _clear_line_widget_state()
+        st.rerun()
 
     if picked_id is None:
         st.markdown("**New drama metadata**")
