@@ -120,6 +120,21 @@ class TestCanHandleAndNormalizeUrl:
         assert a.normalize_url("https://b23.tv/abc123") == \
             "https://www.bilibili.com/video/BV1xx411c7abcd"
 
+    def test_real_url_resolver_routes_through_the_shared_paced_transport(self):
+        """Step 28 gap 2: the real resolver used to make a bare
+        `requests.head()` call, bypassing sources/http.py's shared
+        SourceClient transport (and therefore its pacing) entirely."""
+        from sources.http import Response
+        from tests.sources_helpers import ScriptedTransport, make_client
+        short_url = "https://b23.tv/abc123"
+        resolved_url = "https://www.bilibili.com/video/BV1xx411c7abcd"
+        t = ScriptedTransport({short_url: Response(200, {}, b"", resolved_url)})
+        a = BilibiliSource(ydl_factory=_factory(lambda *a: SINGLE_VIDEO_INFO),
+                           client=make_client("bilibili", t))
+        assert a.normalize_url(short_url) == resolved_url
+        assert len(t.calls) == 1
+        assert t.calls[0]["method"] == "HEAD" and t.calls[0]["url"] == short_url
+
 
 class TestMultipart:
     def test_get_parts_returns_them_in_order_with_titles(self):

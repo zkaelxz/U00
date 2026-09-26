@@ -630,3 +630,22 @@ class TestPromptNeverCarriesSession:
         assert "chapter=12" in s and "page=3" in s
         for secret in ("abc", "K1", "deadbeef", "zzz"):
             assert f"={secret}" not in s
+
+    def test_prompt_safe_redacts_a_path_embedded_signed_token(self):
+        """Step 28 gap 3: _SENSITIVE_PARAM only matched a token shaped as a
+        `?key=value` query parameter -- a CDN carrying the same kind of
+        session-derived credential as a raw path segment (no `=` at all)
+        passed through untouched."""
+        token = "aB3dEf9012345678gH-token_SECRET"
+        s = ai_extract.prompt_safe(f"https://cdn.example.invalid/priv/{token}/page1.jpg")
+        assert token not in s
+        assert "https://cdn.example.invalid/priv/[REDACTED]/page1.jpg" == s
+
+    def test_prompt_safe_keeps_an_ordinary_chapter_or_page_slug(self):
+        """The same fix must not redact a real, non-token-shaped path
+        segment -- a slug never sits right after a segment literally named
+        token/auth/priv/etc., so it's never touched."""
+        s = ai_extract.prompt_safe(
+            "https://cdn.example.invalid/some-manga-title-chapter-104-full-release-eng/page-012.jpg")
+        assert "some-manga-title-chapter-104-full-release-eng" in s
+        assert "page-012.jpg" in s
