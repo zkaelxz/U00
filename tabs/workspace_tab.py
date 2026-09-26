@@ -160,6 +160,15 @@ def _pronoun_picker(label, current, key, unset_label="Unspecified (use the defau
     return custom.strip() or current
 
 
+# SFX cues' and separate-line notes' position options: None keeps them at
+# the dialogue's own position, as before Step 12c.
+_SEPARATE_POSITIONS = [None] + list(subtitle_formats.ALIGNMENTS)
+
+
+def _separate_position_label(a):
+    return "Same as the dialogue" if a is None else a.replace("-", " ")
+
+
 def _subtitle_style_controls(picked_id, lines, speaker_names):
     """Style controls for ASS export and burned-in video, with a live
     preview drawn from a real line of this drama. Widgets are keyed per
@@ -189,11 +198,17 @@ def _subtitle_style_controls(picked_id, lines, speaker_names):
     alignment = c6.selectbox("Position", list(sf.ALIGNMENTS), key=f"sub_align_{k}",
                              index=list(sf.ALIGNMENTS).index(base["alignment"]),
                              format_func=lambda a: a.replace("-", " "))
+    sfx_alignment = st.selectbox(
+        "🔊 SFX cue position", _SEPARATE_POSITIONS, key=f"sub_sfx_align_{k}",
+        format_func=_separate_position_label,
+        help="Where lines marked as a non-verbal/SFX cue go -- e.g. at the top, so \"[door "
+             "slams]\" never reads as something a character said. ASS only (the .ass file, and "
+             "burned-in video when ASS is the format above).")
     st.caption("A font that isn't common must be installed on the computer doing the export or "
                "burn-in -- otherwise it silently falls back to a default font.")
     style = {"font": font, "size": size, "bold": bold, "italic": italic, "primary": primary,
              "outline": outline, "outline_width": outline_width, "shadow": shadow,
-             "alignment": alignment}
+             "alignment": alignment, "sfx_alignment": sfx_alignment}
 
     speaker_colors = {}
     speakers = sorted({ln.speaker for ln in lines if ln.speaker})
@@ -1124,7 +1139,16 @@ def _render_review_player(picked_id, ddir, media, lines):
     "Play current segment" and (video only) burned-subtitle preview. Seeks
     by re-drawing Streamlit's own st.video/st.audio with start_time/
     end_time -- the same file the Reader tab plays, through the same media
-    server, so no new media-serving code."""
+    server, so no new media-serving code.
+
+    Deliberately not Reader's seekTo mechanism (reader.py), which embeds
+    the page's audio as a base64 data: URI inside the iframe HTML: that
+    works for audio only (no video), re-runs ffmpeg on every render, and
+    Streamlit re-sends the whole iframe HTML on every rerun (measured: an
+    unchanged ~4 MB embed was re-sent in full on each of three reruns).
+    Review & edit reruns on every line edit, so each edit would re-encode
+    and re-ship the page's audio. The cost of this route is whole-second
+    seek precision (see _player_times)."""
     kind, path = media
     state = st.session_state.get(_player_state_key(picked_id)) or {
         "start": 0.0, "end": None, "line_idx": None, "n": 0}
@@ -4935,6 +4959,13 @@ def render_workspace_tab():
                          "size -- keeps the translation itself uncluttered while the note is "
                          "still visible. SRT/VTT have no concept of a second styled line, so "
                          "those always keep the note appended inline regardless of this.")
+            _notes_alignment = None
+            if _notes_as_separate_line:
+                _notes_alignment = st.selectbox(
+                    "📝 Notes position", _SEPARATE_POSITIONS, key=f"sub_notes_align_{picked_id}",
+                    format_func=_separate_position_label,
+                    help="Where the separate note line goes -- e.g. at the top, apart from the "
+                         "dialogue it explains.")
             _wrap_chars = None
             if st.checkbox("Split long lines", value=False, key=f"sub_wrap_{picked_id}",
                            help="Breaks a long subtitle onto several lines at a sentence or clause "
@@ -4955,6 +4986,7 @@ def render_workspace_tab():
                               if c.get("character_name")}
             _sub_style, _speaker_colors = _subtitle_style_controls(
                 picked_id, st.session_state.lines, _speaker_names)
+            _sub_style["notes_alignment"] = _notes_alignment
             # Review & edit's burned-subtitle preview (Step 12c) renders above
             # this section, so it reads the style from here via session state.
             st.session_state[f"sub_style_current_{picked_id}"] = {

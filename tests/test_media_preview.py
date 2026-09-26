@@ -338,3 +338,50 @@ class TestSfxPersistence:
         new_lines, changed = resegment.resegment_lines([ln], "zh", max_chars=1)
         assert len(new_lines) == 2 and changed
         assert all(x.sfx for x in new_lines)
+
+
+class TestSfxAndNotesPositions:
+    """SFX cues, and notes shown on their own line (Step 6i's toggle), can
+    sit somewhere other than the dialogue in ASS."""
+    NOTES = {0: [{"term": "Qijutang", "note": "lit. 'Hall of Sitting Together'"}]}
+
+    def _ass(self, separate=True, **style_extra):
+        style = {**subtitle_formats.ASS_PRESETS["Clean"], **style_extra}
+        return subtitle_formats.lines_to_ass(SFX_LINES, style, "en", self.NOTES,
+                                             notes_as_separate_line=separate)
+
+    @staticmethod
+    def _styles(ass):
+        return {l.split(",")[0][7:]: l.split(",") for l in ass.splitlines()
+                if l.startswith("Style: ")}
+
+    def test_sfx_and_notes_get_their_own_positions(self):
+        styles = self._styles(self._ass(sfx_alignment="top-center", notes_alignment="top-left"))
+        assert styles["Default"][18] == "2"   # dialogue stays bottom-center
+        assert styles["SFX"][18] == "8"       # top-center
+        assert styles["Notes"][18] == "7"     # top-left
+
+    def test_unset_positions_keep_the_dialogues_own(self):
+        styles = self._styles(self._ass(alignment="top-right", sfx_alignment=None,
+                                        notes_alignment=None))
+        assert styles["SFX"][18] == styles["Notes"][18] == styles["Default"][18] == "9"
+
+    def test_notes_position_needs_the_separate_line_toggle(self):
+        """Off (Step 6i's default), notes stay inline on the dialogue cue and
+        there's no Notes style to position."""
+        ass = self._ass(separate=False, notes_alignment="top-left")
+        assert "Notes" not in self._styles(ass)
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+        assert dialogue[0].endswith("Hello\\N[Qijutang: lit. 'Hall of Sitting Together']")
+
+    def test_sfx_line_still_gets_its_separate_note(self):
+        notes = {1: [{"term": "砰", "note": "onomatopoeia"}]}
+        ass = subtitle_formats.lines_to_ass(SFX_LINES, subtitle_formats.ASS_PRESETS["Clean"],
+                                            "en", notes, notes_as_separate_line=True)
+        dialogue = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
+        assert dialogue[1].split(",")[3] == "SFX" and dialogue[1].endswith(",[door slams]")
+        assert dialogue[2].split(",")[3] == "Notes" and dialogue[2].endswith("[砰: onomatopoeia]")
+
+    def test_srt_and_vtt_keep_notes_inline(self):
+        assert "Hello\n[Qijutang:" in core_module.lines_to_srt(SFX_LINES, "en", self.NOTES)
+        assert "Hello\n[Qijutang:" in subtitle_formats.lines_to_vtt(SFX_LINES, "en", self.NOTES)
