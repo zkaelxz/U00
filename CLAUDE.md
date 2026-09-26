@@ -56,8 +56,10 @@ external project checked so far.
   "Not started" for merged work, across several separate sessions, because
   each check trusted an ancestor check or an old note instead of the full
   method below. The reliable way to confirm a PR's real status: `git log
-  origin/baihe-subtitler --format="%s" | grep -i "<step name or PR
-  number>"` (catches squash merges via their `(#N)` suffix) — or, for a
+  origin/baihe-subtitler --format="%s" | grep -i "<step name>"` for a name
+  search, or `grep -F "(#<N>)"` (the parens matter — a bare number search
+  false-matches unrelated PR numbers, dates, and line counts) for a PR
+  number — either catches squash merges via their `(#N)` suffix. Or, for a
   batch check, `git log origin/baihe-subtitler --merges --format="%s"`
   (regular merges) *combined with* a grep for `(#N)` suffixes in the full,
   non-merges log (squash merges), not either alone. When in doubt, use the

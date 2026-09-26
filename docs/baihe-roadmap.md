@@ -1,106 +1,14 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT:** Confirmed via `git log origin/baihe-subtitler` (2026-09-25) —
-> **seven more steps merged since the last check-in**: **PR #19** ("Step
-> 6d: clear stale per-line widget state after merge, restore and Improve
-> translation") and **PR #20** ("6d2: defer overlap-flag write behind a
-> click") together clear all three Step 6d bugs; **PR #21** ("Step 6e:
-> vertical/shorts export"); **PR #22** ("Step 7: Reflect translation
-> mode"); **PR #23** ("Step 7b: whole-document glossary sampling"); **PR
-> #24** ("Step 8: recurring-voice suggestions"); **PR #25** ("Step 9: cost
-> controls, bulk discounts, prompt caching, Gemini 3.1 Flash-Lite" — Opus
-> was used for this one per its own commit trailer, matching §4's
-> Opus-gate table). Steps 1d through 9 are now **all merged**.
-> **One real roadmap-correction flagged by the implementing session,
-> reviewed and fixed here**: Step 7b's own text assumed a two-step design
-> (a whole-document pass feeding into each chunk's *existing* per-chunk
-> extraction pass). The implementing session re-checked this against
-> current source before building and found that assumption doesn't hold —
-> `extract_terms_llm` has exactly one call site (`workspace_tab.py`'s
-> "Extract terms" button), a single call over a single sample, nothing
-> chunked. There's no second pass to feed into. What it built instead —
-> spreading that one sample across the whole drama instead of truncating
-> to a prefix — is still squarely the real bug Step 7b was written to fix,
-> just not the two-step shape originally described. Step 7b's text below
-> is corrected to match reality, not left describing a design that was
-> never actually there to begin with.
-> **Step 9b is now also merged** (PR #26): job ETAs, HF model-cache
-> diagnostics, the model/engine version panel, bulk series translate,
-> cookie-based downloads, and Live's generation-counter guard plus real
-> audio-overlap dedup (item 6, correctly run on Opus per its own commit
-> trailer, matching §4's Opus-gate table). **Two real findings relayed by
-> the implementing session alongside this PR, reviewed and added as Step
-> 9f**: a real, if narrow, race between cancelling a queued Live job and
-> GPU-slot promotion (confirmed directly against `background_jobs.py` —
-> `clear_job`'s own docstring already warns it's unsafe on a job that's
-> since started running), plus two harmless dead imports (`workspace_tab.py`'s
-> unused `_diarize`, `test_live_translate.py`'s unused `tempfile`), both
-> confirmed via a static unused-import check. Also confirmed the
-> implementing session's own explanation for why OmniVoice/GPT-SoVITS/
-> Chatterbox/the Scanlate models don't show up in the new version panel
-> yet: they genuinely aren't wired into the app (Step 11/11b haven't
-> built them), not a Step 9b bug — verified by direct grep, not taken on
-> faith.
-> **Three more steps merged since the last check-in, re-verified via a
-> fresh `git fetch origin baihe-subtitler` rather than trusted from
-> memory**: **PR #27** ("Step 9c: drama/project presets" — merged despite
-> its own CI run failing on the merged commit; the failure is Step 9b's
-> pre-existing `scan_hf_cache` bug, not caused by 9c's diff, now tracked
-> as Step 9f item 4 and bumped to higher priority there); **PR #28**
-> ("Step 9d: wire Bulk mode into flagging, consistency checks, emotion
-> detection, translation notes and Reflect mode"); **PR #29** ("Step 10:
-> one-click Windows launcher, portable mode, uninstaller"). Steps 1d
-> through 10 are now **all merged**.
-> **Step 10b added to the build order** (2026-09-27, at the user's
-> request): CI automation for the fresh-machine bootstrap check
-> Step 10's own exit list flagged as manual-only — confirmed `start.bat`
-> and the existing CI workflow directly before writing it, not assumed.
-> **Two more real merges since then, re-verified directly, not from
-> memory**: **PR #30** ("Step 9f item 4: skip `TestHfCacheScanAndDelete`
-> cleanly without `huggingface_hub`") — corrected this session's own
-> earlier `huggingface_hub>=0.20` version-drift hypothesis: CI's
-> core-only install never has `huggingface_hub` at all, so the tests hit
-> the real, correct no-op path and failed hard instead of skipping;
-> never a live bug, confirmed two independent ways (the real PR #27 CI
-> log, and the user's own Diagnostics screenshot showing real cached
-> models). **PR #31** ("Step 4b: fix `diarize()` torchcodec failure") —
-> the exact fix this session specced (pre-load via `torchaudio.load()`,
-> pass a `{"waveform", "sample_rate"}` dict instead of a bare path),
-> confirmed by reading the real diff, not just the commit message.
-> **Reprioritized (2026-09-27), at the user's explicit request: start
-> Step 4d next, ahead of Step 10b.** The implementing session correctly
-> followed the previous version of this note and picked up neither —
-> nothing here is a mistake on their part, this is a genuine, deliberate
-> reorder, not a correction of stale guidance. Step 4d (real mid-run stop
-> for speaker detection, via a subprocess so Cancel can actually
-> terminate the run rather than the cooperative-flag pattern every other
-> job uses) was queued in normal build order since it's a real feature
-> request, not a live bug the way 4b/4c were — the user asked to bump it
-> ahead anyway. Step 10b (CI automation for the fresh-machine bootstrap
-> check) stays queued, just no longer next. After Step 4d: Step 10b, then
-> Step 11 (Scanlate), then Steps 18b/18c (App Assistant, in-app Install
-> buttons) in their existing build-order position — still in the Steps
-> 1e–10 autonomous-mode window's aftermath; check §4's Opus-gate table for
-> each step's own gating status before starting.
-> **Manual checks still open, not chased further this session:** Steps
-> 5b/5c/6c/6d/6e/7/7b/8/9/9b/9c/9d/10's own manual-check rows (§2) are all
-> pending; Step 6b's mpv/VLC playback and live-preview checks still need
-> a person at a screen. **One concrete manual check worth prioritizing
-> over the others**: open Diagnostics and confirm whether the HF-cache
-> section shows real cached models or comes up empty — this is the check
-> that resolves whether Step 9f item 4's `scan_hf_cache` bug is a live
-> regression or just a stale test fixture (see Step 9f for the full
-> finding).
-> **Re-checked against real branch state (2026-09-26) before this next note, not assumed:** `git fetch origin baihe-subtitler` confirms the latest merge is still **PR #36** ("Step 4c follow-up: fix CI-red — skip `TestDiarize*` cleanly without torch"), already recorded above. Nothing further has merged since — Step 4d is still genuinely not started, so the reprioritization above still holds as the real next pickup.
-> **Step 18 flagged as ready to hand off, at the user's explicit request (2026-09-26) — a deliberate reprioritization, not a correction.** Step 18 (Diagnostics narrowing) now carries a concrete, user-confirmed item 2 refinement: hyperlink each "Model & engine versions" entry's own name instead of spelling the raw URL out in the visible text, and give installed vs. not-installed rows a real, consistent visual signal (a checkmark/version pairing vs. a muted "not installed," driven by an actual boolean rather than today's identical styling) — both checked directly against `diagnostics_tab.py`'s real render loop before being written up, not guessed. This doesn't reorder the queue ahead of Step 4d/4g (both real bugs, still the more urgent pickups) — it's flagged as ready *whenever* the implementing session reaches Diagnostics work, so it isn't missed or has to be re-derived from a vague "make it nicer" note later.
-> **Re-checked against real branch state (2026-09-26) — was stale, corrected, not just assumed current.** `git log origin/baihe-subtitler` confirms **Steps 4d, 4e, 4f, 4g, and 4h are all now merged** (PRs #37–#41) — this pointer's earlier "start Step 4d next" note is now outdated; §4's status table corrected to match.
-> **Re-checked again (2026-09-26), same day — the main implementing chat moved fast.** `git log origin/baihe-subtitler` confirms **Steps 6f and 6g are also now merged** (PRs #42–#43) — both real fixes: 6f's data-corruption fix for re-segmentation's duplicate/orphaned rows, and 6g's speech-splitting-default change. §4 corrected to match. **Real current front line**: the next unstarted step in normal build order is **Step 6h** (auto-tune speech-splitting sensitivity) — Steps 5/5b/5c/6/6b/6c/6d/6d2/6e/6f/6g were already confirmed merged, and 6h/8b/9h/9i/10d/10e (plus the new items added to already-merged Steps 6b/10b/18/18c this session) are all real, `Not started` work queued after it. **The user has also started assigning four additional steps to separate parallel chats** (not yet confirmed via a pushed branch, so not marked as started in §4 until there's real evidence): Step 11 (Scanlate), Step 20b (richer Anki export), Step 18b (App Assistant), and Step 11b (novel narration TTS) — chosen specifically because none conflict with the main chat's `workspace_tab.py`-heavy queue or with each other; see the parallelization note below for the full file-overlap reasoning.
-> **Parallelization note (2026-09-26), at the user's request.** Multiple implementing sessions can work different steps at once — each step already lives on its own branch — but most of what's currently queued touches the same file (`workspace_tab.py`), often in nearby sections (6f, 6g, 6h, 9h, 9i, the new Step 6b item 9), so running those in parallel risks real merge conflicts. Steps that touch different files entirely and are safe to run alongside whatever's in `workspace_tab.py`: **Step 10d** (branch/CI-only, no app source), **Step 10e** (`start.bat`), **Step 10b's new Unicode-crash item** (`check_setup.py`), and — the best candidate for a genuinely separate, large parallel track — **Step 11** (Scanlate's ML detector/inpainting/OCR routing), which lives almost entirely in `scanlate.py`/`tabs/scanlate_tab.py`, a completely different file domain from every currently-queued Workspace fix.
-> **Re-checked against real GitHub state (2026-09-26), not assumed — a real PR-number mix-up caught and fixed.** `baihe-subtitler` turns out to be a branch of this same `zkaelxz/U00` repo, not a separate repo (corrected a wrong assumption made earlier this session). Confirmed via the GitHub API, not a report: **Steps 18b and 18c were already merged** (PR #45, #46) before a second, duplicate pair of PRs (#47, #48 — same head commits) got opened later and merged today as no-ops (nothing new landed, since the commits were already in the base). **Step 11 (PR #49) and Step 9e/9f/9h/9i (PRs #50–#54) are also confirmed merged.** **Step 11b is now merged too (PR #55)**, after this session's own independent test verification (a false-alarm cluster of `test_cli.py` failures traced to stray `/tmp/*.py` files shadowing the real modules in this session's own review sandbox, not a real bug — see Step 11b's own entry). **Step 12d (Scanlate structured regions/cleanup/batch/honorifics/SFX) is built and pushed** (`claude/admiring-fermi-ms122r`, 1,629 passed/42 skipped) but has **no PR open** despite an implementing-session report claiming one at #55 — that claim was simply wrong, confirmed by a repo-wide PR search finding nothing for that branch. **Real current front line**: Step 6h is still the next `Not started` step in normal build order; Step 12d needs a PR opened (by that session, or by the planning session if asked) before it can be reviewed/merged; Steps 4i and 4j (the two severe bugs found by the Opus QC review) have been handed to a fresh implementing-session prompt but not yet confirmed picked up via a pushed branch.
-> **Full re-audit (2026-09-26), triggered by the user pointing out repeated staleness ("you keep telling me oh this is already done ... or it's not properly synced").** Every previous note in this section, including the "real current front line" claims, turned out to still be wrong in several places — not assumed this time, checked exhaustively: cross-referenced every remote branch against `baihe-subtitler`'s real commit log (`git log --merges` for regular-merge PRs, plus a check for squash-merged PRs, which append `(#N)` to the commit subject instead of creating a separate merge commit — the cause of several branches wrongly reading "not merged" on a naive ancestor check). **Found and corrected seven more §4 rows that said "Not started" despite being genuinely merged**: Step 1f (PR #51), Step 6h (PR #44), Step 8b (PR #50), Step 9h (PR #53), Step 9i (PR #54), Step 9e (PR #56), Step 10e (PR #57) — plus **Step 9f**, previously marked "Partial (items 1–3 still open)," whose items 1–3 were themselves merged via PR #52. Also corrected Step 10b's own §4 row, which still said its CI job "has never actually passed" after PR #61 had already fixed and confirmed it green. **Real current front line, now actually verified**: every step from 1 through 11b, plus 12d, 18b, and 18c, is merged. Step 20b was found built and pushed with no PR ever opened (recovered, PR #66 now open). The only genuinely `Not started` work is **Step 4k** (earliest in build order), then **11c/11d/11e** (the dub cluster, parallel-safe), then the 12/12b/12c/12e → 13–24 range.
-> *(Kept accurate per §5 rule 1 — checked against real branch state, not
-> memory, as of 2026-09-26. If this line is stale, the status table below
-> it is the source of truth.)*
+> **NEXT (2026-09-26), replacing a long chain of dated notes that had itself gone stale** — this section had accumulated ~25 historical entries, several of which were still making claims already contradicted by later merges (the risk this rewrite exists to close; each superseded entry's real content is preserved in this branch's own commit history, not lost). Verified fresh against `git log origin/baihe-subtitler` and the GitHub API, not carried over from any earlier note here:
+>
+> **Merged, all of it**: every step from 1 through 22, plus 12d, 18b, 18c, 20b, 21, 12e, and 4k. That covers the entire original autonomous-mode range (1e–10), everything Scanlate/TTS/Diagnostics-related, and every step handed to a parallel chat so far.
+>
+> **Real current front line — genuinely `Not started`, in build order**: **Step 6i** (four small post-merge additions to Steps 6/6b: Groq cloud ASR, ASS shadow slider, notes-as-separate-line, section-10 subtitle download) is earliest. After that: the **11c/11d/11e** dub cluster (all `dub.py`-scoped, parallel-safe together), then **12b** (Auto QC — no longer blocked, since 12e's disabled checkbox is already wired in waiting for it) and **12c** (media preview/player — safe now that Step 21 has landed, avoiding an earlier same-file conflict risk), then **12/13–20** and the **23-series adapters/24** beyond that.
+>
+> **Manual checks still open** (§2 has the full list; none block further building): Steps 5b/5c/6c/6d/6e/7/7b/8/9/9b/9c/9d/10/11/11b/12d/18b/18c/20b/21/22's own rows are pending a person at a real screen; Step 6b's mpv/VLC and live-preview checks specifically still need one too.
+>
+> *(Kept accurate per §5 rule 1 — checked against real branch state, not memory, as of 2026-09-26. If this line is stale, the status table below it is the source of truth — and if it drifts again, replace this whole note with a fresh one rather than appending another dated entry on top.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
 **planning** chat, and the **implementing** chat carries it out on
