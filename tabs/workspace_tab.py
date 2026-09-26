@@ -800,6 +800,29 @@ def _clear_line_widget_state():
         del st.session_state[key]
 
 
+def _restore_saved_lines(drama_id, rows, snapshot_label, translation_only=False) -> bool:
+    """Step 25c: the one path Restore (Version history) and Activate
+    (Translation versions) share -- before, two copies had drifted, and
+    Activate lacked Restore's guard. core.restore_saved_lines hands the
+    restored lines st.session_state.lines' ids; if those have gone stale
+    against the database's real id set (another edit or a background job
+    since they were loaded), db.save_lines would orphan/duplicate rows
+    (Step 6f), so refuse instead. Returns False when refused."""
+    if ({ln.id for ln in st.session_state.lines if ln.id is not None}
+            != db.load_line_ids(drama_id)):
+        st.error("This drama's lines changed since they were last loaded here -- refresh "
+                 "(switch dramas and back, or reload the page) before restoring, so nothing "
+                 "gets silently corrupted.")
+        return False
+    db.save_line_history_snapshot(drama_id, st.session_state.lines, snapshot_label)
+    restored = core_module.restore_saved_lines(rows, st.session_state.lines,
+                                               translation_only=translation_only)
+    db.save_lines(drama_id, restored)
+    st.session_state.lines = restored
+    _clear_line_widget_state()
+    return True
+
+
 def _drama_label(drama):
     return drama.get("title_en") or drama.get("title_zh") or f"drama #{drama['id']}"
 
@@ -4455,20 +4478,22 @@ def render_workspace_tab():
                         vc1.caption(f"**{v['label']}**{active} — {v['model'] or v['engine']} · {when}")
                         if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}"):
                             full = db.get_translation_version(v["id"])
-                            if full:
-                                db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                                               "before switching version")
-                                restored = core_module.adopt_ids(
-                                    [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                          zh=r["zh"], en=r["en"], speaker=r.get("speaker"),
-                                          id=r.get("id"))
-                                     for r in full["lines"]],
-                                    st.session_state.lines)
-                                db.save_lines(picked_id, restored)
-                                db.set_active_translation_version(picked_id, v["id"])
-                                st.session_state.lines = restored
-                                st.success(f"Activated '{v['label']}'.")
-                                st.rerun()
+                            if full is None:
+                                st.error("That version could not be read.")
+                            else:
+                                # Only the translation changes when the version was saved
+                                # over these same lines; see core.restore_saved_lines.
+                                same_lines = core_module.saved_matches_lines(
+                                    full["lines"], st.session_state.lines)
+                                if _restore_saved_lines(picked_id, full["lines"],
+                                                        "before switching version",
+                                                        translation_only=True):
+                                    db.set_active_translation_version(picked_id, v["id"])
+                                    st.success(f"Activated '{v['label']}'." if same_lines else
+                                               f"Activated '{v['label']}' -- it was saved before "
+                                               "these lines were merged/split, so its own lines "
+                                               "(timing, speakers) were restored with it.")
+                                    st.rerun()
                         if vc3.button("🗑️", key=f"delv_{v['id']}"):
                             db.delete_translation_version(v["id"])
                             st.rerun()
@@ -4830,28 +4855,7 @@ def render_workspace_tab():
                             snapshot = db.get_line_history_snapshot(h["id"])
                             if snapshot is None:
                                 st.error("That snapshot could not be read.")
-                            # Real safety check (Step 6f): adopt_ids below hands
-                            # restored lines the ids of st.session_state.lines --
-                            # if that's gone stale relative to the database's
-                            # actual current id set (another edit, a background
-                            # job finishing, since it was last refreshed),
-                            # db.save_lines would silently orphan/duplicate rows
-                            # the same way an un-checked "Apply merge"/"Apply
-                            # re-segmentation" used to. Refuse and ask for a
-                            # refresh instead of guessing.
-                            elif ({ln.id for ln in st.session_state.lines if ln.id is not None}
-                                    != db.load_line_ids(picked_id)):
-                                st.error("This drama's lines changed since they were last loaded "
-                                        "here -- refresh (switch dramas and back, or reload the "
-                                        "page) before restoring, so nothing gets silently corrupted.")
-                            else:
-                                db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                                               "before restore")
-                                restored = core_module.adopt_ids(
-                                    [Line(**s) for s in snapshot], st.session_state.lines)
-                                db.save_lines(picked_id, restored)
-                                st.session_state.lines = restored
-                                _clear_line_widget_state()
+                            elif _restore_saved_lines(picked_id, snapshot, "before restore"):
                                 st.success(f"Restored '{h['label']}'.")
                                 st.rerun()
 
