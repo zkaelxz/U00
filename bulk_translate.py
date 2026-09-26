@@ -1432,3 +1432,66 @@ def cancel_bulk_job(bulk_job_id: int, provider=None) -> str:
                     f"still arrive will be ignored. ({translate_engines.redact_secrets(str(e))})")
     db.update_bulk_job(bulk_job_id, status="cancelled", last_error=None)
     return note
+
+
+# ---------------------------------------------------------------------------
+# Step 25c: after a normal (non-bulk) whole-drama translation run
+# ---------------------------------------------------------------------------
+
+def untranslated_line_count(drama_id: int) -> int:
+    """Lines with source text but no translation yet, as saved right now."""
+    return sum(1 for r in db.load_lines(drama_id)
+               if (r.get("zh") or "").strip() and not (r.get("en") or "").strip())
+
+
+def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
+                           glossary_terms, errors, cancelled: bool = False) -> bool:
+    """What happens after translate_engines.translate_lines_with_engine
+    returns, shared by Workspace's run_translate_job and `cli.py translate`
+    so the two can't drift (the CLI used to skip most of it): applies
+    enforce_exact glossary terms, flags reading-speed-dense lines, saves
+    the run as the active translation version, and persists its batch
+    failures (dramas.last_translate_errors).
+
+    The drama is marked "translated" only once no line is left
+    untranslated. A run stopped short -- batch failures, the cost cap, a
+    cancel -- leaves the status as it was, so the drama stays in `cli.py
+    translate`'s default `--status aligned` retry and in Library's
+    untranslated selection. A cancelled run saves no version: it isn't a
+    finished translation to compare against.
+
+    Returns False, recording nothing, if every line this run translated
+    has since been replaced (e.g. a new transcription finished meanwhile)
+    -- its writes were no-ops, and a version or status would describe
+    lines that no longer exist."""
+    enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
+    if enforced:
+        for ln in lines:
+            if ln.en:
+                ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
+        db.save_lines(drama_id, lines, fields=("en",))
+
+    # A translation too dense to read in the time it's on screen goes into
+    # the review queue like any other flag (never replacing an existing one).
+    import subtitle_formats
+    if subtitle_formats.flag_dense_lines(lines):
+        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+
+    line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
+    if line_ids and not db.line_ids_exist(drama_id, line_ids):
+        return False
+
+    if not cancelled:
+        label = f"{engine_choice} · {style_preset}"
+        if engine_choice in translate_engines.FREE_ENGINES or getattr(engine, "free_tier", False):
+            label = f"[testing: {engine_choice}] {label}"
+        db.save_translation_version(drama_id, lines, label=label, engine=engine_choice,
+                                    model=getattr(engine, "model", ""), make_active=True)
+    # Persisted, not just shown once: if the app restarts, the record of
+    # what failed (and why some lines are untranslated) must not vanish.
+    fields = dict(translation_engine=engine_choice,
+                  last_translate_errors=json.dumps(errors, ensure_ascii=False) if errors else None)
+    if untranslated_line_count(drama_id) == 0:
+        fields["status"] = "translated"
+    db.update_drama(drama_id, **fields)
+    return True
