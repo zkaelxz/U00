@@ -13,7 +13,7 @@ import sqlite3
 import pytest
 
 import db
-from core import Line, merge_adjacent_short_lines, adopt_ids
+from core import Line, merge_adjacent_short_lines, adopt_ids, restore_saved_lines
 
 
 def _lines(*texts, short=True):
@@ -316,3 +316,47 @@ def test_translate_job_whose_lines_were_replaced_records_no_version(isolated_db,
     assert isolated_db.list_translation_versions(did) == []
     assert isolated_db.get_drama(did)["status"] == "aligned"
     background_jobs._jobs.pop(job_id, None)
+
+
+class TestRestoreSavedLines:
+    """Step 25c item 2: the one restore path Restore and Activate share."""
+
+    def _current(self):
+        a = Line(idx=0, start=0, end=1, zh="a", en="A now", speaker="Hero", speaker_manual=True, id=10)
+        b = Line(idx=1, start=1, end=2, zh="b", en="B now", speaker="SPEAKER_01", id=11)
+        return [a, b]
+
+    def test_a_snapshot_records_and_restores_speaker_manual(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, self._current()[:1])
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "s")
+        (h,) = isolated_db.list_line_history(did)
+        snap = isolated_db.get_line_history_snapshot(h["id"])
+        assert snap[0]["speaker_manual"] is True
+        vid = isolated_db.save_translation_version(did, isolated_db.load_line_objects(did), "v")
+        assert isolated_db.get_translation_version(vid)["lines"][0]["speaker_manual"] is True
+
+    def test_an_older_snapshot_without_the_field_keeps_a_same_speaker_correction(self):
+        old_rows = [{"id": 10, "idx": 0, "start": 0, "end": 1, "zh": "a", "en": "A then",
+                     "speaker": "Hero"},
+                    {"id": 11, "idx": 1, "start": 1, "end": 2, "zh": "b", "en": "B then",
+                     "speaker": "SPEAKER_01"}]
+        restored = restore_saved_lines(old_rows, self._current())
+        assert [(l.en, l.speaker, l.speaker_manual) for l in restored] == [
+            ("A then", "Hero", True), ("B then", "SPEAKER_01", False)]
+
+    def test_activate_on_the_same_lines_changes_only_the_translation(self):
+        version = [{"id": 10, "idx": 0, "start": 5, "end": 6, "zh": "old a", "en": "A v1",
+                    "speaker": "SPEAKER_00"},
+                   {"id": 11, "idx": 1, "start": 6, "end": 7, "zh": "old b", "en": "B v1",
+                    "speaker": "SPEAKER_00"}]
+        restored = restore_saved_lines(version, self._current(), translation_only=True)
+        assert [(l.id, l.start, l.zh, l.en, l.speaker, l.speaker_manual) for l in restored] == [
+            (10, 0, "a", "A v1", "Hero", True), (11, 1, "b", "B v1", "SPEAKER_01", False)]
+
+    def test_activate_over_a_different_line_structure_restores_the_whole_version(self):
+        version = [{"id": 10, "idx": 0, "start": 0, "end": 2, "zh": "ab", "en": "AB v1",
+                    "speaker": "Hero"}]
+        restored = restore_saved_lines(version, self._current(), translation_only=True)
+        assert [(l.id, l.end, l.zh, l.en, l.speaker_manual) for l in restored] == [
+            (10, 2, "ab", "AB v1", True)]

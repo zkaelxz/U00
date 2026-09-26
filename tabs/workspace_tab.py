@@ -302,40 +302,15 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cache_read_tokens=cache_read),
     )
 
-    enforced = [t for t in (glossary_terms or []) if t.get("enforce_exact")]
-    if enforced:
-        for ln in lines:
-            if ln.en:
-                ln.en = tguide.apply_hard_term_substitutions(ln.en, enforced)
-        db.save_lines(drama_id, lines, fields=("en",))
-
-    # A translation too dense to read in the time it's on screen goes into
-    # the review queue like any other flag (never replacing an existing one).
-    if subtitle_formats.flag_dense_lines(lines):
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-
-    _job_line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
-    if _job_line_ids and not db.line_ids_exist(drama_id, _job_line_ids):
-        # Every line this job was translating has been replaced (e.g. a new
-        # transcription finished meanwhile) -- its writes were no-ops, and
-        # recording a version or a "translated" status would describe lines
-        # that no longer exist.
+    # Shared with `cli.py translate` (Step 25c): glossary enforcement,
+    # density flags, the version, persisted errors, and a "translated"
+    # status only once nothing is left untranslated.
+    if not bulk_translate.finish_translation_run(
+            drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
+            cancelled=background_jobs.is_cancel_requested(job_id)):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent")})
         return
-
-    _version_label = f"{engine_choice} · {style_preset}"
-    if (engine_choice in translate_engines.FREE_ENGINES
-            or getattr(engine, "free_tier", False)):
-        _version_label = f"[testing: {engine_choice}] {_version_label}"
-    db.save_translation_version(
-        drama_id, lines, label=_version_label,
-        engine=engine_choice, model=getattr(engine, "model", ""), make_active=True)
-    # Persisted, not just handed to the ephemeral job-status dict: if the app
-    # restarts or the completion rerun is missed, the record of what failed
-    # (and why some lines are untranslated) must not vanish with it.
-    db.update_drama(drama_id, status="translated", translation_engine=engine_choice,
-                     last_translate_errors=json.dumps(errors, ensure_ascii=False) if errors else None)
 
     background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent")})
 
@@ -799,6 +774,29 @@ def _clear_line_widget_state():
     position."""
     for key in [k for k in st.session_state.keys() if _LINE_WIDGET_KEY.match(str(k))]:
         del st.session_state[key]
+
+
+def _restore_saved_lines(drama_id, rows, snapshot_label, translation_only=False) -> bool:
+    """Step 25c: the one path Restore (Version history) and Activate
+    (Translation versions) share -- before, two copies had drifted, and
+    Activate lacked Restore's guard. core.restore_saved_lines hands the
+    restored lines st.session_state.lines' ids; if those have gone stale
+    against the database's real id set (another edit or a background job
+    since they were loaded), db.save_lines would orphan/duplicate rows
+    (Step 6f), so refuse instead. Returns False when refused."""
+    if ({ln.id for ln in st.session_state.lines if ln.id is not None}
+            != db.load_line_ids(drama_id)):
+        st.error("This drama's lines changed since they were last loaded here -- refresh "
+                 "(switch dramas and back, or reload the page) before restoring, so nothing "
+                 "gets silently corrupted.")
+        return False
+    db.save_line_history_snapshot(drama_id, st.session_state.lines, snapshot_label)
+    restored = core_module.restore_saved_lines(rows, st.session_state.lines,
+                                               translation_only=translation_only)
+    db.save_lines(drama_id, restored)
+    st.session_state.lines = restored
+    _clear_line_widget_state()
+    return True
 
 
 def _drama_label(drama):
@@ -3744,13 +3742,29 @@ def render_workspace_tab():
                     va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
                                          placeholder="voice actor", label_visibility="collapsed",
                                          key=f"cva_{picked_id}_{c['speaker_label']}")
-                    voice = cc4.selectbox("tts voice (fallback)", dub_module.DEFAULT_VOICE_POOL,
-                                           index=dub_module.DEFAULT_VOICE_POOL.index(c["tts_voice"])
-                                           if c["tts_voice"] in dub_module.DEFAULT_VOICE_POOL else 0,
+                    # Step 25c: only an actual pick is saved -- auto-saving the
+                    # shown default on first render used to write an edge-tts
+                    # name into every new character.
+                    _edge_pool = dub_module.DEFAULT_VOICE_POOL
+                    _edge_shown = c["tts_voice"] if c["tts_voice"] in _edge_pool else _edge_pool[0]
+                    voice = cc4.selectbox("tts voice (fallback)", _edge_pool,
+                                           index=_edge_pool.index(_edge_shown),
                                            label_visibility="collapsed", key=f"cvoice_{picked_id}_{c['speaker_label']}")
-                    if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
+                    if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != _edge_shown:
                         db.upsert_character(picked_id, c["speaker_label"], character_name=name,
-                                             voice_actor=va, tts_voice=voice)
+                                             voice_actor=va,
+                                             tts_voice=voice if voice != _edge_shown else None)
+                    _offline_pool = dub_module.DEFAULT_OFFLINE_VOICE_POOL
+                    _offline_shown = (c.get("offline_voice") if c.get("offline_voice") in _offline_pool
+                                      else _offline_pool[0])
+                    offline_voice = st.selectbox(
+                        f"Offline / Piper voice ({name or c['speaker_label']})", _offline_pool,
+                        index=_offline_pool.index(_offline_shown), key=f"coffline_{picked_id}_{c['speaker_label']}",
+                        help="Used when section 8's engine is Offline / Piper, and when edge-tts is "
+                             "blocked and falls back to Piper. Separate from the edge-tts voice "
+                             "above -- Piper can't load those.")
+                    if offline_voice != _offline_shown:
+                        db.upsert_character(picked_id, c["speaker_label"], offline_voice=offline_voice)
                     _series_default = tguide.normalize_pronouns(c.get("series_pronouns"))
                     _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
                     c_pronouns = _pronoun_picker(
@@ -4659,20 +4673,22 @@ def render_workspace_tab():
                         vc1.caption(f"**{v['label']}**{active} — {v['model'] or v['engine']} · {when}")
                         if not v["is_active"] and vc2.button("Activate", key=f"actv_{v['id']}"):
                             full = db.get_translation_version(v["id"])
-                            if full:
-                                db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                                               "before switching version")
-                                restored = core_module.adopt_ids(
-                                    [Line(idx=r["idx"], start=r["start"], end=r["end"],
-                                          zh=r["zh"], en=r["en"], speaker=r.get("speaker"),
-                                          id=r.get("id"))
-                                     for r in full["lines"]],
-                                    st.session_state.lines)
-                                db.save_lines(picked_id, restored)
-                                db.set_active_translation_version(picked_id, v["id"])
-                                st.session_state.lines = restored
-                                st.success(f"Activated '{v['label']}'.")
-                                st.rerun()
+                            if full is None:
+                                st.error("That version could not be read.")
+                            else:
+                                # Only the translation changes when the version was saved
+                                # over these same lines; see core.restore_saved_lines.
+                                same_lines = core_module.saved_matches_lines(
+                                    full["lines"], st.session_state.lines)
+                                if _restore_saved_lines(picked_id, full["lines"],
+                                                        "before switching version",
+                                                        translation_only=True):
+                                    db.set_active_translation_version(picked_id, v["id"])
+                                    st.success(f"Activated '{v['label']}'." if same_lines else
+                                               f"Activated '{v['label']}' -- it was saved before "
+                                               "these lines were merged/split, so its own lines "
+                                               "(timing, speakers) were restored with it.")
+                                    st.rerun()
                         if vc3.button("🗑️", key=f"delv_{v['id']}"):
                             db.delete_translation_version(v["id"])
                             st.rerun()
@@ -5034,28 +5050,7 @@ def render_workspace_tab():
                             snapshot = db.get_line_history_snapshot(h["id"])
                             if snapshot is None:
                                 st.error("That snapshot could not be read.")
-                            # Real safety check (Step 6f): adopt_ids below hands
-                            # restored lines the ids of st.session_state.lines --
-                            # if that's gone stale relative to the database's
-                            # actual current id set (another edit, a background
-                            # job finishing, since it was last refreshed),
-                            # db.save_lines would silently orphan/duplicate rows
-                            # the same way an un-checked "Apply merge"/"Apply
-                            # re-segmentation" used to. Refuse and ask for a
-                            # refresh instead of guessing.
-                            elif ({ln.id for ln in st.session_state.lines if ln.id is not None}
-                                    != db.load_line_ids(picked_id)):
-                                st.error("This drama's lines changed since they were last loaded "
-                                        "here -- refresh (switch dramas and back, or reload the "
-                                        "page) before restoring, so nothing gets silently corrupted.")
-                            else:
-                                db.save_line_history_snapshot(picked_id, st.session_state.lines,
-                                                               "before restore")
-                                restored = core_module.adopt_ids(
-                                    [Line(**s) for s in snapshot], st.session_state.lines)
-                                db.save_lines(picked_id, restored)
-                                st.session_state.lines = restored
-                                _clear_line_widget_state()
+                            elif _restore_saved_lines(picked_id, snapshot, "before restore"):
                                 st.success(f"Restored '{h['label']}'.")
                                 st.rerun()
 
@@ -5074,7 +5069,6 @@ def render_workspace_tab():
                              "📴 Offline / Piper (fully local, no internet, lower quality)",
                 horizontal=False,
             )
-            voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
             max_speedup, max_slowdown = dub_module.DUB_MAX_SPEEDUP, dub_module.DUB_MAX_SLOWDOWN
             if content_mode != "novel_narration":
                 # Step 11c: a clip that doesn't fit its line's original timing
@@ -5099,6 +5093,8 @@ def render_workspace_tab():
             if st.button(dub_button_label, disabled=_dub_job_active):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
+                offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
+                                     if c.get("offline_voice")}
                 clone_map = dub_module.clone_map_from_characters(
                     chars, ddir, gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
                     ref_language=drama.get("source_language") or "zh")
@@ -5110,7 +5106,7 @@ def render_workspace_tab():
                     _dub_job_id, dub_module.build_track_subprocess_worker,
                     args=(_copy_lines(st.session_state.lines), ddir, voice_map, "en-US-AvaNeural",
                           clone_map, tts_engine, content_mode == "novel_narration",
-                          db.load_emotions(picked_id), max_speedup, max_slowdown),
+                          db.load_emotions(picked_id), max_speedup, max_slowdown, offline_voice_map),
                     gpu_touching=dub_module.clone_map_uses_local_model(clone_map),
                     description=f"Dub generation ({_drama_label(drama)})")
                 st.info("Generating in the background -- come back here for progress or to "
