@@ -3627,13 +3627,29 @@ def render_workspace_tab():
                     va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
                                          placeholder="voice actor", label_visibility="collapsed",
                                          key=f"cva_{picked_id}_{c['speaker_label']}")
-                    voice = cc4.selectbox("tts voice (fallback)", dub_module.DEFAULT_VOICE_POOL,
-                                           index=dub_module.DEFAULT_VOICE_POOL.index(c["tts_voice"])
-                                           if c["tts_voice"] in dub_module.DEFAULT_VOICE_POOL else 0,
+                    # Step 25c: only an actual pick is saved -- auto-saving the
+                    # shown default on first render used to write an edge-tts
+                    # name into every new character.
+                    _edge_pool = dub_module.DEFAULT_VOICE_POOL
+                    _edge_shown = c["tts_voice"] if c["tts_voice"] in _edge_pool else _edge_pool[0]
+                    voice = cc4.selectbox("tts voice (fallback)", _edge_pool,
+                                           index=_edge_pool.index(_edge_shown),
                                            label_visibility="collapsed", key=f"cvoice_{picked_id}_{c['speaker_label']}")
-                    if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != c["tts_voice"]:
+                    if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != _edge_shown:
                         db.upsert_character(picked_id, c["speaker_label"], character_name=name,
-                                             voice_actor=va, tts_voice=voice)
+                                             voice_actor=va,
+                                             tts_voice=voice if voice != _edge_shown else None)
+                    _offline_pool = dub_module.DEFAULT_OFFLINE_VOICE_POOL
+                    _offline_shown = (c.get("offline_voice") if c.get("offline_voice") in _offline_pool
+                                      else _offline_pool[0])
+                    offline_voice = st.selectbox(
+                        f"Offline / Piper voice ({name or c['speaker_label']})", _offline_pool,
+                        index=_offline_pool.index(_offline_shown), key=f"coffline_{picked_id}_{c['speaker_label']}",
+                        help="Used when section 8's engine is Offline / Piper, and when edge-tts is "
+                             "blocked and falls back to Piper. Separate from the edge-tts voice "
+                             "above -- Piper can't load those.")
+                    if offline_voice != _offline_shown:
+                        db.upsert_character(picked_id, c["speaker_label"], offline_voice=offline_voice)
                     _series_default = tguide.normalize_pronouns(c.get("series_pronouns"))
                     _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
                     c_pronouns = _pronoun_picker(
@@ -4879,7 +4895,6 @@ def render_workspace_tab():
                              "📴 Offline / Piper (fully local, no internet, lower quality)",
                 horizontal=False,
             )
-            voice_pool = dub_module.DEFAULT_VOICE_POOL if tts_engine == "edge_tts" else dub_module.DEFAULT_OFFLINE_VOICE_POOL
             max_speedup, max_slowdown = dub_module.DUB_MAX_SPEEDUP, dub_module.DUB_MAX_SLOWDOWN
             if content_mode != "novel_narration":
                 # Step 11c: a clip that doesn't fit its line's original timing
@@ -4904,6 +4919,8 @@ def render_workspace_tab():
             if st.button(dub_button_label, disabled=_dub_job_active):
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
+                offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
+                                     if c.get("offline_voice")}
                 clone_map = dub_module.clone_map_from_characters(
                     chars, ddir, gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
                     ref_language=drama.get("source_language") or "zh")
@@ -4915,7 +4932,7 @@ def render_workspace_tab():
                     _dub_job_id, dub_module.build_track_subprocess_worker,
                     args=(_copy_lines(st.session_state.lines), ddir, voice_map, "en-US-AvaNeural",
                           clone_map, tts_engine, content_mode == "novel_narration",
-                          db.load_emotions(picked_id), max_speedup, max_slowdown),
+                          db.load_emotions(picked_id), max_speedup, max_slowdown, offline_voice_map),
                     gpu_touching=dub_module.clone_map_uses_local_model(clone_map),
                     description=f"Dub generation ({_drama_label(drama)})")
                 st.info("Generating in the background -- come back here for progress or to "

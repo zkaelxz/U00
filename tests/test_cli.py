@@ -350,7 +350,7 @@ class TestCmdDubNarration:
         seen = {}
 
         def fake_build_narration_track(lines, drama_dir, voice_map, character_clone_map=None,
-                                       progress_cb=None, emotion_map=None):
+                                       progress_cb=None, emotion_map=None, offline_voice_map=None):
             seen.update(clone_map=character_clone_map, emotion_map=emotion_map)
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"

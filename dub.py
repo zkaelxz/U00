@@ -82,23 +82,71 @@ DEFAULT_OFFLINE_VOICE_POOL = [
     "en_US-kristin-medium", "en_GB-jenny_dioco-medium",
 ]
 
+# Piper's own voice-name shape, <lang>_<REGION>-<name>-<quality> -- the
+# pattern piper-tts's own downloader matches against. An edge-tts name
+# ("en-US-AvaNeural") never fits it.
+_PIPER_VOICE_NAME = re.compile(r"^[a-z]{2,3}_[A-Z]{2}-[^-]+-[^-]+$")
+
+
+def piper_voices_dir() -> str:
+    """Where downloaded Piper voice models (.onnx + .onnx.json) live --
+    inside the library folder, so a portable install carries them along."""
+    import db
+    return os.path.join(db.LIBRARY_DIR, "piper_voices")
+
+
+def piper_model_path(voice: str) -> str:
+    """Returns the local .onnx model path for Piper voice `voice`,
+    downloading it (model + config, needs internet once) on first use.
+    Covers both real piper-tts API generations: 1.3+ ships
+    piper.download_voices.download_voice; 1.2 ships piper.download's
+    get_voices/ensure_voice_exists instead."""
+    if not _PIPER_VOICE_NAME.match(voice or ""):
+        raise ValueError(f"'{voice}' isn't a Piper voice name (expected something like "
+                         f"'{DEFAULT_OFFLINE_VOICE_POOL[0]}') -- pick an offline voice in section 6.")
+    voices_dir = piper_voices_dir()
+    os.makedirs(voices_dir, exist_ok=True)
+    model_path = os.path.join(voices_dir, f"{voice}.onnx")
+    if not (os.path.exists(model_path) and os.path.exists(model_path + ".json")):
+        try:
+            from piper.download_voices import download_voice
+        except ImportError:
+            from piper.download import ensure_voice_exists, get_voices
+            ensure_voice_exists(voice, [voices_dir], voices_dir, get_voices(voices_dir))
+        else:
+            from pathlib import Path
+            download_voice(voice, Path(voices_dir))
+    return model_path
+
 
 def synthesize_line_offline(text: str, voice: str, out_path: str):
-    """Requires `pip install piper-tts`. First use of a given voice
-    downloads its model file (needs internet once); after that it's
-    fully offline. No per-line API cost, works without any network."""
+    """Requires `pip install piper-tts`. `voice` is a Piper voice name
+    (DEFAULT_OFFLINE_VOICE_POOL); its model is downloaded on first use
+    (needs internet once) and fully offline after that. No per-line API
+    cost."""
+    import wave
     from piper import PiperVoice
     with _piper_lock:
         if voice not in _piper_voices:
-            _piper_voices[voice] = PiperVoice.load(voice)
+            _piper_voices[voice] = PiperVoice.load(piper_model_path(voice))
         pv = _piper_voices[voice]
-        with open(out_path, "wb") as f:
-            pv.synthesize(text, f)
+        with wave.open(out_path, "wb") as wav_file:
+            if hasattr(pv, "synthesize_wav"):
+                pv.synthesize_wav(text, wav_file)  # piper-tts 1.3+
+            else:
+                pv.synthesize(text, wav_file)  # piper-tts 1.2
     return out_path
 
 
+def offline_voice_for(offline_voice_map: dict, speaker) -> str:
+    """A speaker's Piper voice: its own offline voice from section 6, else
+    the default. Only ever reads the offline map -- a character's edge-tts
+    voice is a different engine's name that Piper can't load."""
+    return (offline_voice_map or {}).get(speaker) or DEFAULT_OFFLINE_VOICE_POOL[0]
+
+
 def _synthesize_edge_tts_with_piper_fallback(text: str, voice: str, out_path: str,
-                                              character_voice_map: dict, speaker):
+                                              offline_voice_map: dict, speaker):
     """Tries edge-tts; if Microsoft blocks the request (EdgeTTSBlockedError),
     falls back to Piper automatically when it's installed, rather than
     leaving the line silent over an upstream block outside anyone's
@@ -111,8 +159,7 @@ def _synthesize_edge_tts_with_piper_fallback(text: str, voice: str, out_path: st
             import piper  # noqa: F401 -- just checking it's installed
         except ImportError:
             raise blocked
-        offline_voice = character_voice_map.get(speaker, DEFAULT_OFFLINE_VOICE_POOL[0])
-        synthesize_line_offline(text, offline_voice, out_path)
+        synthesize_line_offline(text, offline_voice_for(offline_voice_map, speaker), out_path)
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +625,7 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
                      default_voice: str = "en-US-AvaNeural", progress_cb=None,
                      character_clone_map: dict = None, tts_engine: str = "edge_tts",
                      emotion_map: dict = None, max_speedup: float = DUB_MAX_SPEEDUP,
-                     max_slowdown: float = DUB_MAX_SLOWDOWN):
+                     max_slowdown: float = DUB_MAX_SLOWDOWN, offline_voice_map: dict = None):
     """
     Synthesizes one clip per line, placed at its correct timestamp, and
     mixes them into a single dub track for the whole episode.
@@ -597,6 +644,10 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
     tts_engine: "edge_tts" (free online, more natural) or "offline"
     (Piper, fully local/no internet). Cloning (if a clone map entry
     exists for the speaker) always takes priority over either.
+
+    character_voice_map holds edge-tts voice names; offline_voice_map
+    ({speaker_label: Piper voice name}) is what the offline engine -- and
+    edge-tts's automatic Piper fallback -- uses instead.
 
     emotion_map: optional {line_idx: {"emotion", "intensity"}} (as
     db.load_emotions returns) -- sets Chatterbox's delivery per line.
@@ -629,7 +680,7 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
         if clone:
             voice = None
         elif tts_engine == "offline":
-            voice = character_voice_map.get(ln.speaker, DEFAULT_OFFLINE_VOICE_POOL[0])
+            voice = offline_voice_for(offline_voice_map, ln.speaker)
         else:
             voice = character_voice_map.get(ln.speaker, default_voice)
         signature = clip_signature(ln.en, _voice_for_signature(clone, tts_engine, voice, exaggeration))
@@ -650,7 +701,7 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
                     call_with_backoff(lambda: synthesize_line_offline(ln.en, voice, clip_path))
                 else:
                     call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
-                        ln.en, voice, clip_path, character_voice_map, ln.speaker))
+                        ln.en, voice, clip_path, offline_voice_map, ln.speaker))
                 clip = AudioSegment.from_file(clip_path)
             except Exception as e:
                 errors.append({"line_idx": ln.idx, "error": str(e)})
@@ -774,7 +825,7 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
                            default_voice: str = "en-US-AvaNeural", progress_cb=None,
                            character_clone_map: dict = None, gap_ms: int = 350,
                            tts_engine: str = "edge_tts", emotion_map: dict = None,
-                           max_workers: int = NARRATION_MAX_WORKERS):
+                           max_workers: int = NARRATION_MAX_WORKERS, offline_voice_map: dict = None):
     """
     For novel-narration mode: there's no pre-existing timing to sync
     to, so clips are generated and simply concatenated in order with a
@@ -814,10 +865,10 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
     units = [unit for kind, unit in steps if kind == "unit"]
     for unit in units:
         first, last = unit["lines"][0].idx, unit["lines"][-1].idx
-        voice = (DEFAULT_OFFLINE_VOICE_POOL[0] if tts_engine == "offline" else default_voice)
+        voice = (offline_voice_for(offline_voice_map, unit["speaker"]) if tts_engine == "offline"
+                 else character_voice_map.get(unit["speaker"], default_voice))
         signature = clip_signature(unit["text"], _voice_for_signature(
-            unit["clone"], tts_engine, character_voice_map.get(unit["speaker"], voice),
-            unit["exaggeration"]))
+            unit["clone"], tts_engine, voice, unit["exaggeration"]))
         span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
         unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
@@ -828,12 +879,11 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
         elif unit["clone"]:
             _synthesize_cloned(unit["clone"], text, clip_path)
         elif tts_engine == "offline":
-            synthesize_line_offline(text, character_voice_map.get(speaker, DEFAULT_OFFLINE_VOICE_POOL[0]),
-                                    clip_path)
+            synthesize_line_offline(text, offline_voice_for(offline_voice_map, speaker), clip_path)
         else:
             _synthesize_edge_tts_with_piper_fallback(
                 text, character_voice_map.get(speaker, default_voice), clip_path,
-                character_voice_map, speaker)
+                offline_voice_map, speaker)
 
     def generate(unit):
         """Runs in a pool thread for parallel-safe engines -- returns an
@@ -1004,7 +1054,7 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
 
 def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default_voice,
                                   character_clone_map, tts_engine, is_narration, emotion_map,
-                                  max_speedup, max_slowdown, result_queue):
+                                  max_speedup, max_slowdown, offline_voice_map, result_queue):
     """Step 4e: entry point for running build_dub_track()/build_narration_track()
     in its own OS process via background_jobs.start_process_job(), so
     Cancel can actually stop it. Confirmed safe to hard-stop: each clip
@@ -1020,10 +1070,13 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
     just out_path/errors. Must stay a plain, top-level, picklable
     function; lines are plain Line dataclasses, already picklable.
     max_speedup/max_slowdown: build_dub_track's time-stretch clamp (a
-    narration has no timing to fit, so it ignores them)."""
+    narration has no timing to fit, so it ignores them). offline_voice_map:
+    each speaker's Piper voice, separate from character_voice_map's
+    edge-tts names."""
     try:
         kwargs = dict(default_voice=default_voice, character_clone_map=character_clone_map,
-                      tts_engine=tts_engine, emotion_map=emotion_map)
+                      tts_engine=tts_engine, emotion_map=emotion_map,
+                      offline_voice_map=offline_voice_map)
         if is_narration:
             out_path, errors = build_narration_track(lines, drama_dir, character_voice_map, **kwargs)
         else:

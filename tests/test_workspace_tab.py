@@ -3066,7 +3066,7 @@ class TestDubGenerationRealMidRunStop:
         background_jobs.clear_job(job_id)
         background_jobs.start_process_job(
             job_id, dub_module.build_track_subprocess_worker,
-            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85),
+            args=([], "/fake/dir", {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85, None),
             gpu_touching=False)
 
         at = self._run(did)
@@ -3097,7 +3097,8 @@ class TestDubGenerationRealMidRunStop:
             f.write(b"x")
 
         def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
-                        is_narration, emotion_map, max_speedup, max_slowdown, result_queue):
+                        is_narration, emotion_map, max_speedup, max_slowdown, offline_voice_map,
+                        result_queue):
             lines[0].dub_filename = "dub_clips/line_0000.wav"
             result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
         monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)
@@ -4899,6 +4900,31 @@ class TestNarrationVoiceSetup:
         assert emotion_map[0]["emotion"] == "sad"
         assert started["gpu_touching"] is True
 
+    def test_offline_voice_is_its_own_setting_and_reaches_dub_generation(self, isolated_db, monkeypatch):
+        """Step 25c item 1: first render saves no edge-tts default, and the
+        offline engine gets the character's Piper voice, not tts_voice."""
+        did = self._drama(isolated_db)
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda job_id, target, args=(), gpu_touching=False, description="":
+                            started.update(args=args) or True)
+
+        at = self._run(did)
+        [c] = db.list_characters(did)
+        assert c["tts_voice"] is None and c["offline_voice"] is None
+        [offline] = [s for s in at.selectbox if s.key == f"coffline_{did}_Hero"]
+        assert offline.value == dub_module.DEFAULT_OFFLINE_VOICE_POOL[0]
+        offline.set_value("en_GB-alba-medium").run(timeout=30)
+        [c] = db.list_characters(did)
+        assert (c["tts_voice"], c["offline_voice"]) == (None, "en_GB-alba-medium")
+
+        [engine] = [r for r in at.radio if r.label.startswith("Fallback TTS engine")]
+        engine.set_value("offline").run(timeout=30)
+        [button] = [b for b in at.button if b.label == "🎙️ Generate narration track"]
+        button.click().run(timeout=30)
+        assert started["args"][5] == "offline"
+        assert started["args"][10] == {"Hero": "en_GB-alba-medium"}
+
     def test_m4b_export_needs_the_narration_then_exports_it(self, isolated_db, monkeypatch):
         did = self._drama(isolated_db)
         at = self._run(did)
@@ -4968,7 +4994,7 @@ class TestDubTimingAndRemovedCloneUI:
         speedup.set_value(1.2).run(timeout=30)
         [button] = [b for b in at.button if b.label == "🎙️ Generate dub track"]
         button.click().run(timeout=30)
-        assert started["args"][8:] == (1.2, dub_module.DUB_MAX_SLOWDOWN)
+        assert started["args"][8:10] == (1.2, dub_module.DUB_MAX_SLOWDOWN)
 
     def test_pacing_indicator_per_line(self, isolated_db):
         stretched = "dub_clips/line_0000_abc_x1.200.wav"
