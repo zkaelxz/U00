@@ -2100,7 +2100,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 18c — In-app Install buttons for optional dependencies | `step-18c-install-buttons` | ✅ Merged (PR #46; same duplicate-PR situation — #48 off the same commit, merged today as a no-op) | ⏳ Pending |
   | 19 — Full click-through UX test | — | Not started | — |
   | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
-  | 20b — Richer Anki export: sentence + audio | `step-20b-richer-anki-export` | PR #66 open, CI running — was built and pushed long ago but never got a PR or a status-table update; recovered, merged latest base, independently verified (118 passed) by the planning session | ⏳ Pending |
+  | 20b — Richer Anki export: sentence + audio | `step-20b-richer-anki-export` | ✅ Merged (PR #66) | ⏳ Pending |
   | 21 — Review workspace: per-line audio and save-status | — | Not started | — |
   | 22 — Series-level library view | — | Not started | — |
   | 23 — Source-adapter architecture (interface only) | — | Not started | — |
