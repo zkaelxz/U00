@@ -100,15 +100,10 @@ def render_discover_tab():
 
     st.divider()
     st.subheader("Search baihehub.com (Chinese titles)")
-    st.warning(
-        "**baihehub builds its pages with JavaScript, so automatic search usually returns "
-        "nothing.** This was verified directly: fetching their listing returns the page "
-        "furniture and the text \"共 0 条数据\" (0 items), with none of the actual titles.\n\n"
-        "Two things that do work:\n"
-        "1. Install Playwright (`pip install playwright` then `playwright install chromium`) "
-        "so the app can render the page properly, or\n"
-        "2. Use the fallback link below to search in your browser, then paste the page text "
-        "into the manual box — no dependencies, always works.")
+    st.caption(
+        "Searches baihehub's books, audio dramas and manhua through the same public "
+        "API its own search page uses. If nothing comes back, you'll get a link to run the "
+        "same search in your browser instead.")
     st.caption("English queries are translated to Chinese first, since baihehub is a "
               "Chinese-language database. All of this needs a working internet connection.")
     _discover_gemini_free_tier = st.session_state.get("gemini_free_tier", False)
@@ -135,7 +130,7 @@ def render_discover_tab():
                 st.markdown(f"- [{r['title']}]({r['url']}) — {r['snippet']}")
         else:
             fallback_url = title_library.search_url_fallback(zh_query)
-            st.warning(f"Automatic search unavailable. [Open this search in your browser]({fallback_url}) "
+            st.warning(f"No results from automatic search. [Open this search in your browser]({fallback_url}) "
                       "and paste any interesting result page's URL below.")
 
     st.subheader("📥 Bulk import from a tag/ranking listing page")

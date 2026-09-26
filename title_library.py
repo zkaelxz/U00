@@ -15,13 +15,12 @@ Chinese before searching a Chinese-language database like baihehub,
 so "give me the wandering princess story" can still find "流浪的公主"
 -- results keep both the original title and an English rendering.
 
-NOTE on baihehub.com specifically: its search page is a client-rendered
-app (React/Vue), so I can't verify its live JSON API from a static
-fetch in the environment this was built in. `search_baihehub()` tries
-a best-effort guess at the API and falls back cleanly to just handing
-you the human-browsable search URL if the guess is wrong -- open that,
-copy the URL of anything interesting, and use `import_title_from_url()`
-on it instead. That fallback path always works regardless of the API.
+NOTE on baihehub.com specifically: its pages are a client-rendered
+(Nuxt) app, but its search page reads from a public JSON API, which
+`search_baihehub()` calls directly -- no browser rendering needed. If
+that ever stops returning results, it falls back to handing you the
+human-browsable search URL -- open that, copy the URL of anything
+interesting, and use `import_title_from_url()` on it instead.
 """
 
 def translate_query_to_zh(query: str, engine) -> str:
@@ -37,43 +36,66 @@ def translate_query_to_zh(query: str, engine) -> str:
     return translated[0] if translated else query
 
 
-def search_baihehub(query: str, timeout: int = 15):
-    """Best-effort search against baihehub.com. Tries a couple of
-    plausible API endpoint shapes; returns a list of {title, url,
-    snippet} dicts on success, or None if none of the guesses worked
-    (caller should fall back to search_url_fallback() below)."""
+# baihehub.com's own search page queries this public Strapi API directly
+# from the browser (verified 2026-09-26 by reading the site's search-page
+# bundle and calling it): each collection is filtered with Strapi's
+# `filters[$or][n][field][$contains]` syntax, the response is
+# {"data": [...], "meta": {...}}, and each item's detail page on the site
+# is /<collection>/<documentId>.
+BAIHEHUB_API = "https://strapi.zhufree.fun/api"
+
+# (collection, fields the site's own search matches on, title field)
+_BAIHEHUB_COLLECTIONS = [
+    ("books", ["title", "searchKeyword"], "title"),
+    ("audio-dramas", ["name", "intro"], "name"),
+    ("manhuas", ["name", "intro"], "name"),
+]
+
+
+def _baihehub_items(data) -> list:
+    """The item list out of a baihehub API response: a Strapi
+    {"data": [...]} dict, or a bare list."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        items = data.get("data") or data.get("results") or []
+        return items if isinstance(items, list) else []
+    return []
+
+
+def search_baihehub(query: str, timeout: int = 15, limit: int = 10):
+    """Searches baihehub.com's books, audio dramas and manhua the same
+    way the site's own search page does. Returns a list of {title, url,
+    snippet} dicts, or None if nothing came back (caller should fall
+    back to search_url_fallback() below)."""
     import requests
     headers = {"User-Agent": "Mozilla/5.0 (compatible; TitleLibrary/1.0)", "Accept": "application/json"}
-    candidate_endpoints = [
-        f"https://baihehub.com/api/search?keyword={query}",
-        f"https://baihehub.com/api/v1/search?q={query}",
-        f"https://baihehub.com/api/search?q={query}",
-    ]
-    for url in candidate_endpoints:
+    results = []
+    for collection, fields, title_field in _BAIHEHUB_COLLECTIONS:
+        # requests URL-encodes the query (and the $/[] in the keys).
+        params = {f"filters[$or][{i}][{f}][$contains]": query for i, f in enumerate(fields)}
+        params["pagination[limit]"] = limit
         try:
-            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp = requests.get(f"{BAIHEHUB_API}/{collection}", params=params,
+                                headers=headers, timeout=timeout)
             if resp.status_code != 200:
                 continue
-            data = resp.json()
-            items = data.get("data") or data.get("results") or data if isinstance(data, list) else []
-            if not items:
-                continue
-            results = []
-            for item in items[:20]:
-                if not isinstance(item, dict):
-                    continue
-                title = item.get("title") or item.get("name") or ""
-                slug = item.get("id") or item.get("slug") or ""
-                results.append({
-                    "title": title,
-                    "url": item.get("url") or f"https://baihehub.com/audio-dramas/{slug}",
-                    "snippet": item.get("summary") or item.get("description") or "",
-                })
-            if results:
-                return results
-        except Exception:
+            items = _baihehub_items(resp.json())
+        except (requests.RequestException, ValueError):
             continue
-    return None
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            doc_id = item.get("documentId") or item.get("id")
+            if not doc_id:
+                continue
+            snippet = item.get("description") or item.get("intro") or item.get("summary") or ""
+            results.append({
+                "title": item.get(title_field) or item.get("title") or item.get("name") or "",
+                "url": f"https://baihehub.com/{collection}/{doc_id}",
+                "snippet": snippet[:200],
+            })
+    return results or None
 
 
 def search_url_fallback(query: str) -> str:
