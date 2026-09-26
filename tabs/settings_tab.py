@@ -65,6 +65,7 @@ def _load_env_defaults(env_path: str = None):
         "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
         "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
         "elevenlabs": ("BAIHE_ELEVENLABS_KEY", "ELEVENLABS_API_KEY"),
+        "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
         "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
         "ollama_url": ("BAIHE_OLLAMA_URL",),
         "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
@@ -89,6 +90,7 @@ SETTINGS_KEYS = {
     "libretranslate_url": "LibreTranslate/LTEngine base URL",
     "gpt_sovits_url": "GPT-SoVITS server URL (voice cloning; default http://127.0.0.1:9880)",
     "elevenlabs": "ElevenLabs API key",
+    "groq": "Groq API key (cloud speech recognition)",
     "hf_token": "Hugging Face token (diarization)",
 }
 
