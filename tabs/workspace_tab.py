@@ -584,6 +584,16 @@ def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
             background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
             return
 
+    # Step 4g: separate_vocals()'s own cancel_check_cb only fires between
+    # its internal chunks, so a cancel requested right at its tail (or,
+    # when separation is off/skipped, a cancel requested before this
+    # point is even reached) fell through this checkpoint-free gap and
+    # let the expensive Whisper pass start anyway, uninterrupted, on
+    # short files where separation has few or no chunk boundaries.
+    if background_jobs.is_cancel_requested(job_id):
+        background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+        return
+
     gpu_fallback_msg = []
     try:
         segments = transcribe_for_timing(
@@ -955,12 +965,25 @@ def _apply_diarization_job_result(picked_id, ddir, expected_speakers, job, pendi
     -- save the turns, then merge speaker labels onto whatever lines are
     currently saved (which may have been saved, by a caller elsewhere,
     AFTER this job was started -- diarize.merge_speakers matches by time
-    overlap, not by being the same in-memory list, so that's fine)."""
+    overlap, not by being the same in-memory list, so that's fine).
+
+    Step 4f: the saved num_speakers must be the count the job was
+    actually started with, not whatever the "Expected number of
+    speakers" widget currently shows -- that widget's value lives in
+    session state keyed only by drama id, so editing it after starting a
+    run (before that run's job reports "done") used to make this
+    function save the wrong num_speakers against a result that already
+    ran with the old count. The job's actual starting count is captured
+    into session state at start time (see _render_speaker_rerun and the
+    post-align auto-start), and read back here instead of trusting the
+    live `expected_speakers` argument."""
     import diarize
+    captured_key = f"diarize_job_expected_speakers_{picked_id}"
+    started_with = st.session_state.pop(captured_key, expected_speakers)
     result = job.get("result") or {}
     turns, model, embeddings = result.get("segments"), result.get("model"), result.get("embeddings", {})
     if turns is not None:
-        diarize.save_turns(ddir, turns, num_speakers=expected_speakers or None, model=model,
+        diarize.save_turns(ddir, turns, num_speakers=started_with or None, model=model,
                            embeddings=embeddings)
         st.session_state[f"speaker_segments_{picked_id}"] = turns
         conflicts = diarize.manual_lines_that_would_change(db.load_line_objects(picked_id), turns)
@@ -995,6 +1018,10 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
             args=(audio_path, hf_token, expected_speakers or None),
             gpu_touching=True, description=f"Diarization (drama #{picked_id})")
         if started:
+            # Step 4f: capture the count this run actually started with,
+            # so a later "Expected number of speakers" edit before the
+            # job finishes can't get saved against this run's result.
+            st.session_state[f"diarize_job_expected_speakers_{picked_id}"] = expected_speakers
             st.rerun()
 
     if job:
@@ -2895,6 +2922,9 @@ def render_workspace_tab():
                             f"diarize_{picked_id}", diarize.diarize_subprocess_worker,
                             args=(audio_path, hf_token, expected_speakers or None),
                             gpu_touching=True, description=f"Diarization ({_drama_label(drama)})")
+                        # Step 4f: see _apply_diarization_job_result -- capture
+                        # what this run actually started with.
+                        st.session_state[f"diarize_job_expected_speakers_{picked_id}"] = expected_speakers
                         st.info("Speaker detection started in the background -- see "
                                "'4. 🎙️ Speaker diarization' above for progress, or to cancel it.")
                 background_jobs.clear_job(_transcribe_job_id)
@@ -4156,18 +4186,37 @@ def render_workspace_tab():
                     # clicked.
                     merged_preview = merge_adjacent_short_lines(_copy_lines(edited_rows))
                     st.session_state[f"merge_preview_{picked_id}"] = merged_preview
+                    # Step 6f: same staleness snapshot re-segmentation's preview
+                    # takes, for the same reason -- see "Apply merge" below.
+                    st.session_state[f"merge_preview_source_ids_{picked_id}"] = {
+                        ln.id for ln in edited_rows if ln.id is not None}
                     st.info(f"{len(edited_rows)} lines -> {len(merged_preview)} lines after merging.")
                 merge_preview = st.session_state.get(f"merge_preview_{picked_id}")
                 if merge_preview:
                     if st.button("✅ Apply merge"):
-                        db.save_line_history_snapshot(picked_id, edited_rows, "before merge")
-                        db.save_lines(picked_id, merge_preview)
-                        st.session_state.lines = merge_preview
-                        st.session_state[f"merge_preview_{picked_id}"] = None
-                        _clear_line_widget_state()
-                        st.success("Merged and saved. (Previous version saved to history -- "
-                                  "see 'Version history' below if you want it back.)")
-                        st.rerun()
+                        # Real safety check (Step 6f): merge_preview is about to
+                        # fully replace this drama's line set, computed from a
+                        # snapshot taken back when Preview ran -- if the database's
+                        # actual current id set has since diverged (another edit, a
+                        # background job finishing, etc.), committing it anyway is
+                        # exactly what silently orphaned/duplicated rows before.
+                        # Refuse and ask for a fresh Preview instead of guessing,
+                        # same check "Apply re-segmentation" already makes.
+                        _merge_source_ids = st.session_state.get(f"merge_preview_source_ids_{picked_id}")
+                        if _merge_source_ids != db.load_line_ids(picked_id):
+                            st.error("This drama's lines changed since this preview was "
+                                    "computed -- re-run \"Preview merge\" before applying, so "
+                                    "nothing gets silently corrupted.")
+                        else:
+                            db.save_line_history_snapshot(picked_id, edited_rows, "before merge")
+                            db.save_lines(picked_id, merge_preview)
+                            st.session_state.lines = merge_preview
+                            st.session_state[f"merge_preview_{picked_id}"] = None
+                            st.session_state.pop(f"merge_preview_source_ids_{picked_id}", None)
+                            _clear_line_widget_state()
+                            st.success("Merged and saved. (Previous version saved to history -- "
+                                      "see 'Version history' below if you want it back.)")
+                            st.rerun()
 
             with st.expander("✂️ Re-segment long lines by meaning (optional)"):
                 _reseg_max = resegment.max_line_chars(source_language)
@@ -4355,7 +4404,23 @@ def render_workspace_tab():
                         hc1.caption(f"**{h['label']}** — {when}")
                         if hc2.button("Restore", key=f"restore_{h['id']}"):
                             snapshot = db.get_line_history_snapshot(h["id"])
-                            if snapshot:
+                            if snapshot is None:
+                                st.error("That snapshot could not be read.")
+                            # Real safety check (Step 6f): adopt_ids below hands
+                            # restored lines the ids of st.session_state.lines --
+                            # if that's gone stale relative to the database's
+                            # actual current id set (another edit, a background
+                            # job finishing, since it was last refreshed),
+                            # db.save_lines would silently orphan/duplicate rows
+                            # the same way an un-checked "Apply merge"/"Apply
+                            # re-segmentation" used to. Refuse and ask for a
+                            # refresh instead of guessing.
+                            elif ({ln.id for ln in st.session_state.lines if ln.id is not None}
+                                    != db.load_line_ids(picked_id)):
+                                st.error("This drama's lines changed since they were last loaded "
+                                        "here -- refresh (switch dramas and back, or reload the "
+                                        "page) before restoring, so nothing gets silently corrupted.")
+                            else:
                                 db.save_line_history_snapshot(picked_id, st.session_state.lines,
                                                                "before restore")
                                 restored = core_module.adopt_ids(
@@ -4365,8 +4430,6 @@ def render_workspace_tab():
                                 _clear_line_widget_state()
                                 st.success(f"Restored '{h['label']}'.")
                                 st.rerun()
-                            else:
-                                st.error("That snapshot could not be read.")
 
         with st.expander("8. 🎙️ AI dub / narration", expanded=False):
             st.caption(

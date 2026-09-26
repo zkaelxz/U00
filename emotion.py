@@ -218,28 +218,6 @@ def emotion_summary(emotion_map: dict) -> dict:
     return {"total": len(emotion_map), "by_emotion": by_emotion, "high_risk": high_risk}
 
 
-def suggest_tts_delivery(emotion: str, intensity: float) -> dict:
-    """Maps an emotional tag to TTS delivery parameters, so a dubbed
-    line is voiced with something closer to the right energy instead of
-    a flat read. edge-tts accepts rate/pitch adjustments."""
-    presets = {
-        "angry":            {"rate": "+12%", "pitch": "+8Hz"},
-        "suppressed_anger": {"rate": "-5%",  "pitch": "-4Hz"},
-        "sad":              {"rate": "-12%", "pitch": "-6Hz"},
-        "anxious":          {"rate": "+10%", "pitch": "+6Hz"},
-        "warm":             {"rate": "-4%",  "pitch": "+2Hz"},
-        "intimate":         {"rate": "-8%",  "pitch": "-2Hz"},
-        "playful":          {"rate": "+6%",  "pitch": "+6Hz"},
-        "flirtatious":      {"rate": "-3%",  "pitch": "+4Hz"},
-        "commanding":       {"rate": "+4%",  "pitch": "-2Hz"},
-        "sarcastic":        {"rate": "-2%",  "pitch": "+3Hz"},
-    }
-    base = presets.get(emotion, {"rate": "+0%", "pitch": "+0Hz"})
-    if intensity < 0.4:  # scale toward neutral for weakly-charged lines
-        return {"rate": "+0%", "pitch": "+0Hz"}
-    return base
-
-
 # Chatterbox's `exaggeration` dial: its README recommends 0.4-0.7, with 0.5
 # (its own default) as the neutral read.
 CHATTERBOX_EXAGGERATION_MIN = 0.4

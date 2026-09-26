@@ -503,78 +503,13 @@ class TestCancelQueued:
         assert bg.cancel_queued("cq_missing") is True  # nothing to reach either way
 
 
-class TestGpuSlot:
-    """gpu_slot() is for GPU-touching work that runs synchronously in the
-    calling thread (diarization, dub generation) instead of as its own
-    start_job() job -- it still has to participate in the same "one GPU
-    job at a time" accounting, or it would be invisible to the guard
-    above and defeat the point of Step 5c."""
+class TestGpuSlotRemoved:
+    """Step 4k: gpu_slot() had no real callers left -- diarization and dub
+    generation both moved onto start_job(gpu_touching=True) (Step 5c/8/9d
+    era), so the standalone blocking context manager was dead code."""
 
-    def setup_method(self):
-        bg.set_gpu_limit_enabled(True)
-
-    def teardown_method(self):
-        bg.set_gpu_limit_enabled(True)
-
-    def test_blocks_until_a_running_gpu_job_finishes(self):
-        release = threading.Event()
-        started = threading.Event()
-        bg.start_job("gpu_k", lambda: (started.set(), release.wait(timeout=2.0)),
-                     gpu_touching=True)
-        started.wait(timeout=2.0)
-
-        entered = threading.Event()
-
-        def use_slot():
-            with bg.gpu_slot("Diarization", poll_interval=0.02):
-                entered.set()
-
-        t = threading.Thread(target=use_slot)
-        t.start()
-        time.sleep(0.1)
-        assert not entered.is_set(), "gpu_slot must not enter while a GPU job is running"
-
-        release.set()
-        t.join(timeout=2.0)
-        assert entered.is_set()
-        _wait("gpu_k")
-        bg.clear_job("gpu_k")
-
-    def test_a_gpu_touching_start_job_queues_behind_an_active_gpu_slot(self):
-        entered = threading.Event()
-        release = threading.Event()
-
-        def hold_slot():
-            with bg.gpu_slot("Dub generation", poll_interval=0.02):
-                entered.set()
-                release.wait(timeout=2.0)
-
-        t = threading.Thread(target=hold_slot)
-        t.start()
-        entered.wait(timeout=2.0)
-
-        bg.start_job("gpu_l", lambda: None, gpu_touching=True)
-        assert bg.get_status("gpu_l")["status"] == "queued"
-
-        release.set()
-        t.join(timeout=2.0)
-        _wait("gpu_l")
-        assert bg.get_status("gpu_l")["status"] == "done"
-        bg.clear_job("gpu_l")
-
-    def test_off_toggle_lets_gpu_slot_run_immediately_alongside_a_gpu_job(self):
-        bg.set_gpu_limit_enabled(False)
-        release = threading.Event()
-        bg.start_job("gpu_m", lambda: release.wait(timeout=2.0), gpu_touching=True)
-
-        entered = threading.Event()
-        with bg.gpu_slot("Diarization", poll_interval=0.02):
-            entered.set()
-        assert entered.is_set()
-
-        release.set()
-        _wait("gpu_m")
-        bg.clear_job("gpu_m")
+    def test_gpu_slot_no_longer_exists(self):
+        assert not hasattr(bg, "gpu_slot")
 
 
 class TestEtaHelpers:
