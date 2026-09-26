@@ -1288,6 +1288,118 @@ class TestTranslateButtonUsesConfiguredOllamaUrl:
         assert captured.get("base_url") == "http://gpu-box:11434"
 
 
+class TestGlossaryReviewBeforeTranslating:
+    """Step 23c item 3: an optional review step before a translate run
+    starts -- shows the glossary terms Step 7b's extraction pass would
+    use, lets the user edit/reject them, and only then starts the job."""
+
+    def _drama(self, isolated_db, with_series=True):
+        sid = isolated_db.get_or_create_series("Test Series") if with_series else None
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="novel",
+                                        content_mode="novel_narration", status="aligned",
+                                        translation_engine="test_offline",
+                                        **({"series_id": sid} if sid else {}))
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="他是主角", en="")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_test_offline"] = "fake-key"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def _fake_terms(self):
+        return [{"term": "Zhu Jue", "suggested_translation": "Zhu Jue", "category": "name",
+                 "policy": "pinyin", "reason": "protagonist's name"}]
+
+    def test_checkbox_hidden_without_a_series(self, isolated_db):
+        did = self._drama(isolated_db, with_series=False)
+        at = self._run(did)
+        assert not [c for c in at.checkbox if c.key == f"review_glossary_first_{did}"]
+
+    def test_unchecked_by_default_job_starts_immediately(self, isolated_db, monkeypatch):
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+        assert started.get("ok") is True
+        assert not [c for c in at.caption if "glossary term(s)" in c.value]
+
+    def test_checked_shows_review_instead_of_starting_the_job(self, isolated_db, monkeypatch):
+        import translation_guide
+        monkeypatch.setattr(translation_guide, "extract_glossary_from_novel",
+                             lambda *a, **k: self._fake_terms())
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.checkbox(key=f"review_glossary_first_{did}").set_value(True).run()
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+
+        assert "ok" not in started
+        assert any("1 glossary term(s)" in c.value for c in at.caption)
+        assert self._button(at, "✅ Looks good — start translating")
+
+    def test_confirming_adds_the_term_and_starts_the_job(self, isolated_db, monkeypatch):
+        import translation_guide
+        monkeypatch.setattr(translation_guide, "extract_glossary_from_novel",
+                             lambda *a, **k: self._fake_terms())
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        sid = isolated_db.get_drama(did)["series_id"]
+        at = self._run(did)
+        at.checkbox(key=f"review_glossary_first_{did}").set_value(True).run()
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+        self._button(at, "✅ Looks good — start translating").click()
+        at.run(timeout=30)
+
+        assert started.get("ok") is True
+        terms = isolated_db.list_glossary_terms(sid)
+        assert len(terms) == 1
+        assert terms[0]["term_original"] == "Zhu Jue"
+
+    def test_cancel_starts_nothing_and_adds_no_terms(self, isolated_db, monkeypatch):
+        import translation_guide
+        monkeypatch.setattr(translation_guide, "extract_glossary_from_novel",
+                             lambda *a, **k: self._fake_terms())
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        sid = isolated_db.get_drama(did)["series_id"]
+        at = self._run(did)
+        at.checkbox(key=f"review_glossary_first_{did}").set_value(True).run()
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+        self._button(at, "❌ Cancel").click()
+        at.run(timeout=30)
+
+        assert "ok" not in started
+        assert isolated_db.list_glossary_terms(sid) == []
+
+
 class TestDownloadButtonUsesCookieSettings:
     """Step 9b.4: the Workspace URL-downloader button must thread the
     cookies setting from Settings into video_download.download(), not
@@ -1431,6 +1543,81 @@ class TestReflectModeUI:
         at.run(timeout=30)
 
         assert captured.get("reflect") is False
+
+
+class TestBulkGlossaryAndPronounActions:
+    """Step 23c item 5: multi-select delete over the glossary term list,
+    and multi-select pronoun-setting over the People & pronouns list --
+    two separate small controls (glossary terms have no gender field;
+    gender/pronouns live on series_characters instead), each replacing a
+    one-row-at-a-time-only path with a real bulk action."""
+
+    def _drama(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Test Series")
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="novel",
+                                        content_mode="novel_narration", status="aligned",
+                                        translation_engine="test_offline", series_id=sid)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello.")])
+        return did, sid
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_bulk_delete_removes_only_selected_glossary_terms(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "Zhu Jue", "Zhu Jue")
+        isolated_db.upsert_glossary_term(sid, "Keep Me", "Keep Me")
+        at = self._run(did)
+
+        at.multiselect(key=f"bulk_glossary_pick_{sid}").set_value(["Zhu Jue"]).run()
+        self._button(at, "🗑️ Delete 1 selected term(s)").click()
+        at.run(timeout=30)
+
+        terms = {t["term_original"] for t in isolated_db.list_glossary_terms(sid)}
+        assert terms == {"Keep Me"}
+
+    def test_no_bulk_actions_shown_with_no_glossary_terms(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        at = self._run(did)
+        assert not [m for m in at.multiselect if m.key == f"bulk_glossary_pick_{sid}"]
+
+    def test_bulk_set_pronouns_applies_to_only_selected_people(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_series_character(sid, "Su Shan", notes="protagonist")
+        isolated_db.upsert_series_character(sid, "Wei Chen", notes="rival")
+        at = self._run(did)
+
+        at.multiselect(key=f"bulk_sc_pick_{sid}").set_value(["Su Shan"]).run()
+        at.selectbox(key=f"bulk_sc_pronouns_{sid}").set_value("she/her").run()
+        self._button(at, "Set pronouns for 1 selected").click()
+        at.run(timeout=30)
+
+        chars = {c["character_name"]: c for c in isolated_db.list_series_characters(sid)}
+        assert chars["Su Shan"]["gender"] == "she/her"
+        assert not chars["Wei Chen"]["gender"]
+        # the other field this call always writes through must not be wiped
+        assert chars["Su Shan"]["notes"] == "protagonist"
+
+    def test_no_bulk_pronoun_control_shown_with_no_people(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        at = self._run(did)
+        assert not [m for m in at.multiselect if m.key == f"bulk_sc_pick_{sid}"]
 
 
 class TestVoiceMatchSuggestions:

@@ -189,3 +189,89 @@ class TestReviewAndEditUI:
         self._button(at, "💾 Save edits (this page)").click()
         at.run(timeout=30)
         assert self._status(at) == ["Save failed: disk full"]
+
+
+class TestLineFindAndReplace:
+    """Step 23c item 2: regex-capable find & replace for a novel/
+    workspace drama's translated lines, reusing scanlate.py's Scanlate-
+    bubble preview/apply logic (Step 11 item 9) via its text_field param."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Novel Drama", media_type="novel",
+                                        content_mode="novel_narration", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="", en="Hello Bob"),
+            Line(idx=1, start=1, end=2, zh="", en="Bob said hi"),
+            Line(idx=2, start=2, end=3, zh="", en="Nothing to see here"),
+        ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_preview_shows_every_match_without_saving_anything(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.text_input(key=f"lines_fr_find_{did}").set_value("Bob").run()
+        at.text_input(key=f"lines_fr_replace_{did}").set_value("Alice").run()
+        self._button(at, "🔍 Preview matches").click().run()
+
+        assert any("2 match(es)" in m.value for m in at.markdown)
+        lines = isolated_db.load_line_objects(did)
+        assert lines[0].en == "Hello Bob"  # preview only, database untouched
+
+    def test_apply_changes_only_matched_lines_en_field(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.text_input(key=f"lines_fr_find_{did}").set_value("Bob").run()
+        at.text_input(key=f"lines_fr_replace_{did}").set_value("Alice").run()
+        self._button(at, "🔍 Preview matches").click().run()
+        self._button(at, "✅ Apply 2 change(s)").click().run()
+
+        lines = isolated_db.load_line_objects(did)
+        assert lines[0].en == "Hello Alice"
+        assert lines[1].en == "Alice said hi"
+        assert lines[2].en == "Nothing to see here"  # untouched
+
+    def test_regex_mode(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Regex Drama", media_type="novel",
+                                        content_mode="novel_narration", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="", en="line1 line2")])
+        at = self._run(did)
+        at.text_input(key=f"lines_fr_find_{did}").set_value(r"line\d").run()
+        at.text_input(key=f"lines_fr_replace_{did}").set_value("X").run()
+        at.checkbox(key=f"lines_fr_regex_{did}").set_value(True).run()
+        self._button(at, "🔍 Preview matches").click().run()
+        self._button(at, "✅ Apply 1 change(s)").click().run()
+
+        lines = isolated_db.load_line_objects(did)
+        assert lines[0].en == "X X"
+
+    def test_no_find_text_warns_instead_of_previewing(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._button(at, "🔍 Preview matches").click().run()
+        assert any("Enter something to find" in w.value for w in at.warning)
+
+    def test_invalid_regex_shows_an_error(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.text_input(key=f"lines_fr_find_{did}").set_value("(unclosed").run()
+        at.checkbox(key=f"lines_fr_regex_{did}").set_value(True).run()
+        self._button(at, "🔍 Preview matches").click().run()
+        assert any("Invalid find pattern" in e.value for e in at.error)

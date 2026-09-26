@@ -1957,7 +1957,9 @@ def render_workspace_tab():
                         ch_end = ec2.number_input("To chapter", value=min(5, n_chapters), min_value=1, max_value=n_chapters)
                         if st.button("Import chapters from EPUB"):
                             with st.spinner("Extracting text..."):
-                                extracted = epub_io.import_epub_text(epub_path, chapter_range=(ch_start - 1, ch_end))
+                                extracted = epub_io.import_epub_text(
+                                    epub_path, chapter_range=(ch_start - 1, ch_end),
+                                    images_dir=os.path.join(ddir, "epub_images"))
                             st.session_state[f"ocr_text_{picked_id}"] = extracted
                             st.success(f"Imported {len(extracted):,} characters from chapters {ch_start}-{ch_end}.")
                             st.rerun()
@@ -2660,6 +2662,20 @@ def render_workspace_tab():
                 else:
                     st.caption("No terms yet.")
 
+                if terms:
+                    st.caption("**Bulk actions**")
+                    _bulk_gl_pick = st.multiselect(
+                        "Select terms", [t["term_original"] for t in terms],
+                        key=f"bulk_glossary_pick_{sid}")
+                    if _bulk_gl_pick and st.button(
+                            f"🗑️ Delete {len(_bulk_gl_pick)} selected term(s)",
+                            key=f"bulk_glossary_delete_{sid}"):
+                        for t in terms:
+                            if t["term_original"] in _bulk_gl_pick:
+                                db.delete_glossary_term(t["id"])
+                        st.success(f"Deleted {len(_bulk_gl_pick)} term(s).")
+                        st.rerun()
+
                 with st.form(f"add_glossary_{sid}", clear_on_submit=True):
                     gc1, gc2 = st.columns(2)
                     g_orig = gc1.text_input("Original term")
@@ -2709,8 +2725,13 @@ def render_workspace_tab():
                                 label_visibility="collapsed",
                                 placeholder="Nicknames, speaking style, relationships (optional)")
                             _cur_pronouns = tguide.normalize_pronouns(sc.get("gender"))
+                            # Folds the current value into the key -- Step 23c item 5's new
+                            # bulk pronoun-set button below can change this character's gender
+                            # from OUTSIDE this widget; a plain static key would keep showing
+                            # whatever was picked here last instead of picking up that change,
+                            # same reasoning _series_picker() documents for the same pattern.
                             sc_pronouns = _pronoun_picker(
-                                "Pronouns", _cur_pronouns, key=f"scgender_{sc['id']}",
+                                "Pronouns", _cur_pronouns, key=f"scgender_{sc['id']}_{_cur_pronouns or 'none'}",
                                 help="Fixes this character's pronouns in translation, overriding "
                                      "both Whisper's transcribed 他/她/它 (unreliable -- they're "
                                      "homophones in speech) and the \"default to she/her\" toggle "
@@ -2722,6 +2743,25 @@ def render_workspace_tab():
                 else:
                     st.caption("None yet -- add someone below, or link an existing per-drama "
                               "character to a new series character in section 6.")
+
+                if series_chars:
+                    st.caption("**Bulk actions**")
+                    _bulk_sc_pick = st.multiselect(
+                        "Select people", [sc["character_name"] for sc in series_chars],
+                        key=f"bulk_sc_pick_{sid}")
+                    _bulk_sc_pronouns = _pronoun_picker(
+                        "Set pronouns for selected", "", key=f"bulk_sc_pronouns_{sid}")
+                    if _bulk_sc_pick and st.button(
+                            f"Set pronouns for {len(_bulk_sc_pick)} selected",
+                            key=f"bulk_sc_set_pronouns_{sid}"):
+                        for sc in series_chars:
+                            if sc["character_name"] in _bulk_sc_pick:
+                                db.upsert_series_character(
+                                    sid, sc["character_name"], aliases=sc["aliases"] or "",
+                                    notes=sc["notes"] or "", gender=_bulk_sc_pronouns)
+                        st.success(f"Updated {len(_bulk_sc_pick)} person/people.")
+                        st.rerun()
+
                 with st.form(f"add_series_char_{sid}", clear_on_submit=True):
                     new_char_name = st.text_input("Add a known character")
                     new_char_pronouns = _pronoun_picker(
@@ -2923,6 +2963,18 @@ def render_workspace_tab():
                  "scratch, overwriting anything already there -- use this after changing "
                  "the engine, style, or glossary and wanting the whole drama redone "
                  "consistently.")
+
+        review_glossary_first = False
+        if drama.get("series_id"):
+            review_glossary_first = b2.checkbox(
+                "📖 Review glossary before translating", value=False,
+                key=f"review_glossary_first_{picked_id}",
+                help="Step 23c item 3: before this run starts, extracts the glossary terms it "
+                     "would use from this drama's source text and lets you edit/reject them "
+                     "first, instead of the run just using whatever's already in the glossary. "
+                     "Most valuable before a big run -- a glossary mistake compounds across "
+                     "every line translated at once. Off by default: for a single-drama "
+                     "translate this is already easy enough to fix afterward.")
 
         reflect_mode = False
         if not _translation_only_engine:
@@ -3367,6 +3419,50 @@ def render_workspace_tab():
             if saved:
                 st.session_state.lines = core_module.lines_from_rows(saved)
 
+        _pending_gl_key = f"pretranslate_glossary_{picked_id}"
+        if run_translate and review_glossary_first and st.session_state.lines \
+                and _pending_gl_key not in st.session_state:
+            if not gl_key:
+                st.warning("Set an API key in the ⚙️ Settings sidebar first.")
+            else:
+                _gl_engine_name = drama.get("translation_engine") or "claude"
+                eng_gl = translate_engines.get_engine(
+                    _gl_engine_name, gl_key,
+                    free_tier=_gl_engine_name == "gemini" and _gemini_free_tier,
+                    base_url=_ollama_base_url if _gl_engine_name == "ollama" else None)
+                _sample_text = existing_novel_text or "\n".join(ln.zh for ln in st.session_state.lines)
+                with st.spinner("Extracting the glossary terms this run would use..."):
+                    st.session_state[_pending_gl_key] = tguide.extract_glossary_from_novel(
+                        _sample_text, eng_gl, source_language=source_language,
+                        known_terms=db.list_glossary_terms(drama["series_id"]))
+            run_translate = False  # show the review below instead of starting the job this render
+
+        _pending_gl = st.session_state.get(_pending_gl_key)
+        if _pending_gl is not None:
+            st.caption(f"Review {len(_pending_gl)} glossary term(s) this run would use before "
+                       "it starts -- uncheck anything wrong:")
+            if _pending_gl:
+                _pgl_df = pd.DataFrame(_pending_gl)
+                _pgl_df.insert(0, "Add", True)
+                _edited_pgl = st.data_editor(_pgl_df, width='stretch', hide_index=True,
+                                              key=f"pretranslate_gl_editor_{picked_id}")
+            else:
+                _edited_pgl = None
+                st.info("No new terms proposed -- the run will use the glossary as it already is.")
+            _pgc1, _pgc2 = st.columns(2)
+            if _pgc1.button("✅ Looks good — start translating", key=f"confirm_pretranslate_gl_{picked_id}"):
+                if _edited_pgl is not None:
+                    for row in _edited_pgl[_edited_pgl["Add"]].to_dict("records"):
+                        db.upsert_glossary_term(
+                            drama["series_id"], row.get("term", ""), row.get("suggested_translation", ""),
+                            notes=row.get("reason", ""), category=row.get("category"),
+                            policy=row.get("policy"))
+                del st.session_state[_pending_gl_key]
+                run_translate = True
+            if _pgc2.button("❌ Cancel", key=f"cancel_pretranslate_gl_{picked_id}"):
+                del st.session_state[_pending_gl_key]
+                run_translate = False
+
         _translate_job_id = f"translate_{picked_id}"
         _job = background_jobs.get_status(_translate_job_id)
 
@@ -3762,6 +3858,54 @@ def render_workspace_tab():
             _media = _review_media(drama, ddir)
             if _media:
                 _render_review_player(picked_id, ddir, _media, all_lines)
+
+            with st.expander("🔎 Find & replace"):
+                st.caption(
+                    "Retroactively corrects already-translated text across every line of this "
+                    "drama at once -- a name translated inconsistently, or a typo that repeats. "
+                    "Distinct from the glossary (shapes future translations) and translation "
+                    "memory (suggests reuse going forward). Every match is shown before "
+                    "anything is applied. Same tool as Scanlate's own bulk find & replace, "
+                    "just pointed at line text instead of bubble text."
+                )
+                frl1, frl2 = st.columns(2)
+                fr_find_line = frl1.text_input("Find", key=f"lines_fr_find_{picked_id}")
+                fr_replace_line = frl2.text_input("Replace with", key=f"lines_fr_replace_{picked_id}")
+                frl3, frl4 = st.columns(2)
+                fr_case_line = frl3.checkbox("Case-sensitive", value=False, key=f"lines_fr_case_{picked_id}")
+                fr_regex_line = frl4.checkbox("Regex", value=False, key=f"lines_fr_regex_{picked_id}")
+                if st.button("🔍 Preview matches", key=f"lines_fr_preview_{picked_id}"):
+                    import scanlate
+                    if not fr_find_line:
+                        st.warning("Enter something to find first.")
+                    else:
+                        try:
+                            _fr_matches_line = scanlate.bulk_find_replace_preview(
+                                [{"idx": ln.idx, "en": ln.en} for ln in all_lines],
+                                fr_find_line, fr_replace_line, text_field="en",
+                                case_sensitive=fr_case_line, use_regex=fr_regex_line)
+                        except ValueError as e:
+                            _fr_matches_line = None
+                            st.error(str(e))
+                        if _fr_matches_line is not None:
+                            st.session_state[f"lines_fr_matches_{picked_id}"] = _fr_matches_line
+                            if not _fr_matches_line:
+                                st.info("No matches found.")
+                            else:
+                                st.write(f"{len(_fr_matches_line)} match(es):")
+                                st.table([{"Line": m["idx"] + 1, "Before": m["old_text"],
+                                           "After": m["new_text"]} for m in _fr_matches_line])
+                _fr_pending_line = st.session_state.get(f"lines_fr_matches_{picked_id}") or []
+                if _fr_pending_line and st.button(f"✅ Apply {len(_fr_pending_line)} change(s)",
+                                                   key=f"lines_fr_apply_{picked_id}"):
+                    _fr_by_idx = {m["idx"]: m["new_text"] for m in _fr_pending_line}
+                    for ln in all_lines:
+                        if ln.idx in _fr_by_idx:
+                            ln.en = _fr_by_idx[ln.idx]
+                    db.save_lines(picked_id, all_lines, fields=("en",))
+                    st.session_state[f"lines_fr_matches_{picked_id}"] = []
+                    st.success(f"Applied {len(_fr_pending_line)} change(s).")
+                    st.rerun()
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
@@ -5141,7 +5285,8 @@ def render_workspace_tab():
                     try:
                         epub_path = os.path.join(ddir, "translated.epub")
                         epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
-                                             drama.get("author", ""), epub_path, field="en")
+                                             drama.get("author", ""), epub_path, field="en",
+                                             images_dir=os.path.join(ddir, "epub_images"))
                         with open(epub_path, "rb") as f:
                             st.download_button("Download .epub", f.read(), file_name=f"{_base_name}.epub")
                     except Exception as e:
