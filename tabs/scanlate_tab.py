@@ -526,20 +526,27 @@ def render_scanlate_tab():
                         matches = None
                         st.error(str(e))
                     if matches is not None:
-                        st.session_state["sc_fr_matches"] = matches
+                        st.session_state[f"sc_fr_matches_{sc_drama['id']}"] = matches
                         if not matches:
                             st.info("No matches found.")
                         else:
                             st.write(f"{len(matches)} match(es):")
                             st.table([{"Page": m["page_idx"] + 1, "Before": m["old_text"],
                                        "After": m["new_text"]} for m in matches])
-            _fr_matches = st.session_state.get("sc_fr_matches") or []
+            _fr_matches = st.session_state.get(f"sc_fr_matches_{sc_drama['id']}") or []
             if _fr_matches and st.button(f"✅ Apply {len(_fr_matches)} change(s)"):
                 for m in _fr_matches:
                     db.update_bubble_text(m["id"], m["new_text"])
-                st.session_state["sc_fr_matches"] = []
+                    # The bubble text-area above is keyed by bubble id (btr_<id>) and
+                    # Streamlit ignores a widget's value= once session_state[key]
+                    # already exists -- without clearing it, the box on the current
+                    # page would keep showing the pre-replacement text, and a later
+                    # "Save bubble edits" from that stale widget would revert this.
+                    st.session_state.pop(f"btr_{m['id']}", None)
+                st.session_state[f"sc_fr_matches_{sc_drama['id']}"] = []
                 st.success(f"Applied {len(_fr_matches)} change(s). Re-render affected pages to see "
                            f"them in the typeset output.")
+                st.rerun()
 
 
 def add_uploaded_pages(drama_id: int, pages_dir: str, uploads, slice_strips: bool = False):

@@ -3965,7 +3965,7 @@ def render_workspace_tab():
                     else:
                         try:
                             _fr_matches_line = scanlate.bulk_find_replace_preview(
-                                [{"idx": ln.idx, "en": ln.en} for ln in all_lines],
+                                [{"id": ln.id, "idx": ln.idx, "en": ln.en} for ln in all_lines],
                                 fr_find_line, fr_replace_line, text_field="en",
                                 case_sensitive=fr_case_line, use_regex=fr_regex_line)
                         except ValueError as e:
@@ -3982,13 +3982,33 @@ def render_workspace_tab():
                 _fr_pending_line = st.session_state.get(f"lines_fr_matches_{picked_id}") or []
                 if _fr_pending_line and st.button(f"✅ Apply {len(_fr_pending_line)} change(s)",
                                                    key=f"lines_fr_apply_{picked_id}"):
-                    _fr_by_idx = {m["idx"]: m["new_text"] for m in _fr_pending_line}
+                    # Re-key by permanent line id, not preview-time idx -- idx is a
+                    # position that a merge/re-segmentation can shift between Preview
+                    # and Apply, which would otherwise land the replacement on
+                    # whatever unrelated line now sits at that position. Also
+                    # re-check each line's current text against the previewed
+                    # old_text, so a hand-edit made in between isn't silently
+                    # clobbered by a stale replacement.
+                    _fr_by_id = {m["id"]: (m["old_text"], m["new_text"]) for m in _fr_pending_line}
+                    _fr_applied, _fr_stale = 0, 0
                     for ln in all_lines:
-                        if ln.idx in _fr_by_idx:
-                            ln.en = _fr_by_idx[ln.idx]
-                    db.save_lines(picked_id, all_lines, fields=("en",))
+                        if ln.id not in _fr_by_id:
+                            continue
+                        old_text, new_text = _fr_by_id[ln.id]
+                        if ln.en != old_text:
+                            _fr_stale += 1
+                            continue
+                        ln.en = new_text
+                        _fr_applied += 1
+                    if _fr_applied:
+                        db.save_lines(picked_id, all_lines, fields=("en",))
                     st.session_state[f"lines_fr_matches_{picked_id}"] = []
-                    st.success(f"Applied {len(_fr_pending_line)} change(s).")
+                    _clear_line_widget_state()
+                    if _fr_applied:
+                        st.success(f"Applied {_fr_applied} change(s).")
+                    if _fr_stale:
+                        st.warning(f"Skipped {_fr_stale} change(s) -- the matched line's text "
+                                   "changed since Preview. Re-preview to see the current matches.")
                     st.rerun()
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
