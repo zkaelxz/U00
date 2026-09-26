@@ -4756,6 +4756,89 @@ class TestApplyPresetOnNewDrama:
         assert at.session_state[f"include_genre_notes_{new_id}"] is False
 
 
+class TestAnimeContentTypeAndSeriesAtCreation:
+    """Step 22b: "anime" as its own media_type, and assigning a series
+    directly from the "Create drama" form instead of needing a later
+    Edit metadata trip."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = None
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_anime_is_a_content_type_option(self, isolated_db):
+        at = self._run()
+        content_type = [s for s in at.selectbox if s.label == "Content type"][0]
+        assert "Anime" in content_type.options
+
+    def test_creating_a_drama_with_anime_media_type_saves_it(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("A Show").run()
+        [s for s in at.selectbox if s.label == "Content type"][0].select("anime").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["media_type"] == "anime"
+
+    def test_assigning_an_existing_series_at_creation(self, isolated_db):
+        sid = db.get_or_create_series("Existing Series")
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Episode 1").run()
+        [s for s in at.selectbox if s.label == "Series (optional)"][0].select("Existing Series").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["series_id"] == sid
+        assert dramas[0] in db.list_dramas_by_series(sid)
+
+    def test_creating_a_new_series_at_creation(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Episode 1").run()
+        [s for s in at.selectbox if s.label == "Series (optional)"][0].select("+ New series...").run()
+        [t for t in at.text_input if t.label == "New series name"][0].set_value("Brand New Series").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        series = db.list_series()
+        assert len(series) == 1
+        assert series[0]["name"] == "Brand New Series"
+        assert dramas[0]["series_id"] == series[0]["id"]
+
+    def test_leaving_series_unset_does_not_assign_one(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("No Series").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["series_id"] is None
+
+    def test_an_anime_movie_shares_a_series_with_the_shows_episodes_but_stays_its_own_drama(self, isolated_db):
+        sid = db.get_or_create_series("A Show")
+        episode_id = db.create_drama(title_en="Episode 1", media_type="anime", series_id=sid)
+
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("The Movie").run()
+        [s for s in at.selectbox if s.label == "Content type"][0].select("anime").run()
+        [s for s in at.selectbox if s.label == "Series (optional)"][0].select("A Show").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        in_series = db.list_dramas_by_series(sid)
+        assert {d["id"] for d in in_series} == {episode_id, at.session_state["active_drama_id"]}
+        assert len(db.list_dramas()) == 2
+
+
 class TestNarrationVoiceSetup:
     """Step 11b: each character's voice engine and voice description
     (section 6) persist, the dub button hands them -- plus the drama's
