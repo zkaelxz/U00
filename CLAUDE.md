@@ -42,11 +42,29 @@ external project checked so far.
   write a PR number into the roadmap without having fetched that exact PR
   and confirmed its head branch/title match.
 - **Never assume roadmap/branch/PR state from memory.** Always `git fetch`
-  and check real state (`git log`, `git merge-base --is-ancestor`, etc.)
-  before updating the status table or the "NEXT" pointer at the top of the
-  roadmap. This caught a real staleness bug once already (Steps 1c-pre/1c
-  showing "Not started" when they were actually reviewed and PR-pending) —
-  don't reintroduce it.
+  and check real state before updating the status table or the "NEXT"
+  pointer at the top of the roadmap. This caught a real staleness bug once
+  already (Steps 1c-pre/1c showing "Not started" when they were actually
+  reviewed and PR-pending) — don't reintroduce it.
+- **`git merge-base --is-ancestor <branch> baihe-subtitler` alone is NOT
+  enough to tell if a branch's work is merged — it misses squash merges.**
+  GitHub's "Squash and merge" creates one new commit (with `(#N)` appended
+  to its subject) instead of making the original branch commits ancestors
+  of the base — so a squash-merged branch will falsely read "not merged" on
+  a bare ancestor check. This caused a real, serious multi-step staleness
+  bug once already: seven §4 rows (Steps 1f, 6h, 8b, 9h, 9i, 9e, 10e) said
+  "Not started" for merged work, across several separate sessions, because
+  each check trusted an ancestor check or an old note instead of the full
+  method below. The reliable way to confirm a PR's real status: `git log
+  origin/baihe-subtitler --format="%s" | grep -i "<step name or PR
+  number>"` (catches squash merges via their `(#N)` suffix) — or, for a
+  batch check, `git log origin/baihe-subtitler --merges --format="%s"`
+  (regular merges) *combined with* a grep for `(#N)` suffixes in the full,
+  non-merges log (squash merges), not either alone. When in doubt, use the
+  GitHub API's `pull_request_read` `get` method on the specific PR number
+  and read its real `merged` field — never the `list_pull_requests` list
+  response's `merged` field, which has been observed to read `false` for
+  PRs that are, confirmed directly, actually merged.
 - **Keep the roadmap's three tracking structures in sync**: the `### Step`
   headers, the §4 status table, and the §2 manual-check table. Their counts
   must always match.
