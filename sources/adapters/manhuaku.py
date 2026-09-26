@@ -88,6 +88,8 @@ def _soup(html: str):
     return BeautifulSoup(html or "", "html.parser")
 
 
+
+
 @register
 class ManhuakuSource(SourceAdapter):
     name = "manhuaku"
@@ -101,6 +103,12 @@ class ManhuakuSource(SourceAdapter):
         self.base_url = base_url or BASE_URL
         self._rendered_fetch = rendered_fetch
         self._series_pages = {}
+        # A blob:-sourced page's bytes are only ever available once, during
+        # the same rendered-page visit that captured them (module docstring
+        # on get_pages()) -- cached here for the download_page() call that
+        # follows, the same pattern bilibili_manga.py already uses for its
+        # own short-lived signed image tokens.
+        self._blob_page_bytes = {}
 
     def _get(self, path: str, action: str) -> str:
         resp = self.client.get(urljoin(self.base_url, path), action=action)
@@ -159,41 +167,59 @@ class ManhuakuSource(SourceAdapter):
         static-then-render ladder would be wrong here specifically
         because the static tier would "succeed" (a real, non-shell page)
         without ever finding real images, so the ladder would never
-        escalate to rendering on its own."""
+        escalate to rendering on its own.
+
+        A real, confirmed finding (2026-09-26 live check): this site's own
+        `readPic()` writes the decrypted page images into the DOM as
+        JS-created `blob:` object URLs for some chapters (the ones served
+        from its own native, AES-protected backend, per the module
+        docstring's multi-source note) -- these only exist inside that one
+        browser tab's memory and can never be independently re-`GET`ted
+        the way a normal candidate below is. `fetch_rendered_resolving_blobs`
+        captures their real bytes from inside the page's own JS context,
+        via `fetch()`+`FileReader`, before the browser closes -- the same
+        "let the site's own legitimate execution path produce the result"
+        principle this module's docstring already applies to the AES key
+        itself, just extended one step further to the images it decrypts.
+        Chapters served from the site's baozimh-aggregated backend still
+        return plain, directly-fetchable URLs and are unaffected."""
         from .. import generic_import
         from ..models import PageRef
 
         def fetch(url):
             fn = self._rendered_fetch
-            if fn is None:
-                from page_fetch import fetch_rendered as fn
-            return fn(url)
+            if fn is not None:
+                result = fn(url)
+            else:
+                from page_fetch import fetch_rendered_resolving_blobs
+                result = fetch_rendered_resolving_blobs(url)
+            return result if len(result) == 3 else (*result, {})
 
-        html, _text = self.client.paced(fetch, chapter.url, "Browser session",
-                                        action=f"Rendering chapter {chapter.title}")
+        html, _text, blob_bytes = self.client.paced(fetch, chapter.url, "Browser session",
+                                                     action=f"Rendering chapter {chapter.title}")
         candidates = generic_import.image_candidates(html, chapter.url)
         if not candidates:
             raise LayoutChanged("any page images on the rendered chapter page")
-        # A real, confirmed finding (2026-09-26 live check), not a
-        # hypothetical: this site's real `readPic()` writes the decrypted
-        # page images into the DOM as JS-created `blob:` object URLs, which
-        # exist only inside that one browser tab's memory and can never be
-        # independently re-`GET`ted the way every other candidate below is.
-        # Every real page-image candidate on such a chapter is therefore
-        # `blob:` and always fails the download-and-measure step further
-        # down -- refuse clearly here instead of silently falling through
-        # to whatever unrelated images (other titles' cover thumbnails from
-        # the page's own recommendation sidebar, confirmed live) happen to
-        # also be on the page and pass the filter below.
-        if any(c.url.startswith("blob:") for c in candidates):
+        # A blob: candidate this pass couldn't capture (page.evaluate()
+        # failed, or -- for a mocked/injected rendered_fetch -- no blob
+        # capture ever ran) can never be independently re-downloaded like
+        # every other candidate below. Refuse clearly here instead of
+        # silently falling through to whatever unrelated images (other
+        # titles' cover thumbnails from the page's own recommendation
+        # sidebar, confirmed live) happen to also be on the page and pass
+        # the filter further down.
+        unresolved = [c for c in candidates if c.url.startswith("blob:") and c.url not in blob_bytes]
+        if unresolved:
             raise ContentHidden(
                 f"{self.display_name}'s real chapter-reader images are written into the page "
-                "as browser-internal blob: URLs by its own decryption script -- this adapter "
-                "can't independently download them the way it does every other source's page "
-                "images. Reading them would need capturing the bytes from inside the rendered "
-                "page itself, which this adapter doesn't do yet.",
+                "as browser-internal blob: URLs by its own decryption script, and this pass "
+                "couldn't capture their real bytes from inside the rendered page.",
                 FailureReason.ENCRYPTED_RESOURCE)
         for c in candidates:
+            if c.url.startswith("blob:"):
+                c.content = blob_bytes[c.url]
+                generic_import._measure(c)
+                continue
             try:
                 resp = self.client.get(c.url, classify_body=False, headers={"Referer": chapter.url},
                                        action=f"Checking image {c.order + 1}/{len(candidates)}")
@@ -204,9 +230,20 @@ class ManhuakuSource(SourceAdapter):
         kept, _rejected = generic_import.filter_page_images(candidates, chapter.url)
         if not kept:
             raise LayoutChanged("any real page images among the rendered page's image candidates")
-        return [PageRef(self.name, chapter.chapter_id, i, c.url) for i, c in enumerate(kept)]
+        refs = []
+        for i, c in enumerate(kept):
+            refs.append(PageRef(self.name, chapter.chapter_id, i, c.url))
+            if c.url.startswith("blob:"):
+                # _measure() (above) already sniffed the real extension
+                # from the decoded bytes themselves via PIL -- a blob: URL
+                # has none of its own to read one from.
+                self._blob_page_bytes[(chapter.chapter_id, i)] = (c.content, c.ext or ".jpg")
+        return refs
 
     def download_page(self, page):
+        cached = self._blob_page_bytes.pop((page.chapter_id, page.index), None)
+        if cached is not None:
+            return cached
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
                                action=f"Downloading page {page.index + 1}")
         name = page.url.split("?", 1)[0]

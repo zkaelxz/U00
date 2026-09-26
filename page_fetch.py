@@ -23,6 +23,7 @@ So this module does three things:
 import os
 import re
 import threading
+from contextlib import contextmanager
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -110,8 +111,72 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
     Returns (html, text). Raises ImportError with install instructions
     if Playwright isn't set up.
     """
-    sync_playwright = _require_playwright()
+    with _rendered_page(url, timeout, wait_selector, wait_ms) as page:
+        html = page.content()
+    return html, _visible_lines(html)
 
+
+# Resolves every `<img src="blob:...">` on the page into real bytes from
+# inside that page's own JS context, before the browser (and with it, the
+# blob's only storage) closes. Manhuaku's own real readPic() mechanism
+# (Step 23j) writes decrypted page images into the DOM exactly this way --
+# a blob: URL only exists in that one tab's memory and can never be
+# independently re-fetched afterward. Chunked base64 encoding avoids
+# blowing the call stack on a large image (a naive
+# String.fromCharCode(...spread) over a multi-MB Uint8Array can).
+_BLOB_RESOLVE_JS = """
+async () => {
+    const out = {};
+    const imgs = Array.from(document.querySelectorAll('img[src^="blob:"]'));
+    for (const img of imgs) {
+        try {
+            const resp = await fetch(img.src);
+            const buf = new Uint8Array(await resp.arrayBuffer());
+            let binary = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < buf.length; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, buf.subarray(i, i + chunkSize));
+            }
+            out[img.src] = btoa(binary);
+        } catch (e) {
+            // left out; the Python side treats a missing key as
+            // "couldn't capture", not an error
+        }
+    }
+    return out;
+}
+"""
+
+
+def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: str = None,
+                                   wait_ms: int = 2500):
+    """Like fetch_rendered(), but additionally resolves any `blob:` object
+    URLs found in `<img>` tags into real bytes before the browser closes.
+
+    Returns (html, text, blob_bytes) -- blob_bytes maps each `blob:` URL
+    string to the real bytes fetched from inside the page context. A blob
+    whose fetch/decode failed is simply left out of the dict, not raised
+    as an error here; the caller decides what a missing blob means.
+    """
+    import base64
+    with _rendered_page(url, timeout, wait_selector, wait_ms) as page:
+        html = page.content()
+        raw = page.evaluate(_BLOB_RESOLVE_JS) or {}
+    blob_bytes = {}
+    for blob_url, b64 in raw.items():
+        try:
+            blob_bytes[blob_url] = base64.b64decode(b64)
+        except (ValueError, TypeError):
+            continue
+    return html, _visible_lines(html), blob_bytes
+
+
+@contextmanager
+def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
+    """A rendered, settled page, open for the caller to read from --
+    closed automatically on exit. Shared by fetch_rendered() and
+    fetch_rendered_resolving_blobs() so both wait the same way."""
+    sync_playwright = _require_playwright()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
@@ -124,11 +189,9 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
                     pass  # selector guess was wrong; use whatever did render
             else:
                 page.wait_for_timeout(wait_ms)
-            html = page.content()
+            yield page
         finally:
             browser.close()
-
-    return html, _visible_lines(html)
 
 
 def _require_playwright():
