@@ -26,6 +26,13 @@ external project checked so far.
 - **Keep the roadmap's three tracking structures in sync**: the `### Step`
   headers, the §4 status table, and the §2 manual-check table. Their counts
   must always match.
+- **Handoff prompts to the implementing session should be one line**, e.g.
+  "Build Step 4k from the roadmap." Its own `docs/ai-setup/CLAUDE.md` (copied
+  into its repo root) already tells it to fetch this planning branch, read
+  the roadmap, find the matching step, and follow the gated-mode build/
+  test/push/stop workflow — repeating that boilerplate in every handoff is
+  redundant. Only add extra detail beyond the one-liner when the step name
+  alone is genuinely ambiguous, or the user asks for more.
 
 ## Research discipline
 
