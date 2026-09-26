@@ -2311,6 +2311,8 @@ Found by the same QC review; **independently re-verified by direct code read**, 
 - A test confirms drama B's own existing reference novel / raw novel context / custom font (if any) is what's actually used, not a false-positive pass from both being empty.
 - Manual check: for each of the three, upload or paste on one drama, switch to a different one, and confirm nothing from the first drama leaks into the second.
 
+**Merged as PR #110** — opened and merged directly by this planning session after independent verification: base was exactly current `baihe-subtitler` tip (no staleness), all three fixes read in full and confirmed to match this step's exact scope (reference-novel uploader/paste scoped by `picked_id`; glossary builder's "Original novel" uploader scoped by `picked_id` and gated behind an explicit Save button, the most severe of the three; Scanlate's font uploader scoped by drama id and also gated behind a Save button), no leftover references to the old unscoped keys anywhere in the file. Ran `tests/test_scanlate_tab.py` + `tests/test_workspace_tab.py` directly (215 passed), CI green.
+
 ### Step 25q — Fix: two real gaps in ToS enforcement — a frozen verdict, and automated requests search/browse/tracked-series-checking never check at all
 Found by the same QC review; **independently re-verified by direct code read**, both confirmed exactly.
 
@@ -2664,7 +2666,7 @@ From the same exploration session and handoff doc. Goal: novel narration read al
   | 25m — Fix: preparing novel narration replaces every line with no history snapshot | `claude/start-step-25m-krnlgm` | ✅ Merged (PR #104) | ⏳ Pending |
   | 25n — Fix: a failed Scanlate page translation silently blanks every bubble | `claude/step-25n-roadmap-wonrvh` | ✅ Merged (PR #101) | ⏳ Pending |
   | 25o — Fix: Find & replace can misapply a stale match after lines/bubbles change | `claude/step-25o-roadmap-cwqzwf` | ✅ Merged (PR #107) | ⏳ Pending |
-  | 25p — Fix: three more upload widgets leak content across drama switches | — | Not started | — |
+  | 25p — Fix: three more upload widgets leak content across drama switches | `claude/step-25p-roadmap-6z5qwx` | ✅ Merged (PR #110) | ⏳ Pending |
   | 25q — Fix: two real ToS-enforcement gaps | `claude/step-25q-roadmap-hj7202` | ✅ Merged (PR #99) | ⏳ Pending |
   | 25r — Smaller findings from the same QC review, bundled | `claude/step-25r-roadmap-dwuk8u` | ✅ Merged (PR #103) | ⏳ Pending |
   | 25s — Fix: Sources' "Import video" can overwrite an existing drama's audio with no confirmation | `claude/step-25s-roadmap-vjvh63` | ✅ Merged (PR #102; first CI run hit an unrelated pre-existing flake, re-run green) | ⏳ Pending |
