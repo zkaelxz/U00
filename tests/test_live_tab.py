@@ -107,3 +107,52 @@ class TestOverlapSettingReachesTheStartButton:
             monkeypatch, live_url="https://example.com/live", live_engine_choice="test_offline",
             live_overlap_seconds=0)
         assert captured.get("overlap_seconds") == 0
+
+
+class TestQueuedJobCancelButton:
+    """Step 9f item 3: cancelling a still-queued job clears it outright;
+    one that got promoted to running in the gap between the render and
+    the click falls back to the real "Stop" path instead of leaving it
+    running invisibly with no job record left to reach."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.live_tab as lt
+            lt.render_live_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_cancel_clears_a_still_queued_job(self):
+        background_jobs._jobs["live_capture"] = {
+            "status": "queued", "progress": 0.0, "message": "Waiting -- GPU busy.",
+            "error": None, "cancel_requested": False, "result": None,
+            "gpu_touching": True, "started_at": 0.0,
+        }
+        at = self._run()
+        [b for b in at.button if b.label == "✖️ Cancel"][0].click()
+        at.run(timeout=30)
+
+        assert background_jobs.get_status("live_capture") is None
+
+    def test_cancel_falls_back_to_a_real_stop_when_promoted_in_the_gap(self, monkeypatch):
+        import live_translate
+        background_jobs._jobs["live_capture"] = {
+            "status": "queued", "progress": 0.0, "message": "Waiting -- GPU busy.",
+            "error": None, "cancel_requested": False, "result": None,
+            "gpu_touching": True, "started_at": 0.0,
+        }
+        monkeypatch.setattr(background_jobs, "cancel_queued", lambda job_id: False)
+        bumped = []
+        monkeypatch.setattr(live_translate, "bump_generation", lambda job_id: bumped.append(job_id))
+
+        at = self._run()
+        [b for b in at.button if b.label == "✖️ Cancel"][0].click()
+        at.run(timeout=30)
+
+        assert bumped == ["live_capture"]
+        assert background_jobs.is_cancel_requested("live_capture") is True
+        background_jobs.clear_job("live_capture")

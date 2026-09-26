@@ -210,7 +210,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         notes_cb=lambda notes: db.save_translation_notes(
             drama_id, notes, id_by_idx=_id_by_idx(lines)),
         progress_cb=lambda frac: background_jobs.update_progress(
-            job_id, frac, f"Translating... {frac*100:.0f}%"),
+            job_id, frac, translate_engines.progress_message_with_rate_status(engine, frac)),
         # Translation owns `en` and nothing else -- a flag job, a merge or
         # the user's own edits can run alongside without being overwritten.
         save_cb=lambda ls: db.save_lines(drama_id, ls, fields=("en",)),
@@ -434,8 +434,13 @@ def _render_bulk_jobs_panel(drama_id, monthly_cap):
     seen_key = f"bulk_applied_seen_{drama_id}"
     seen = st.session_state.setdefault(seen_key, {j["id"] for j in jobs if j["status"] == "applied"})
     if any(j["status"] == "applied" and j["id"] not in seen for j in jobs):
-        # A poller finished in the background -- show its lines.
+        # A poller finished in the background -- show its lines. Same Step
+        # 9h staleness this file's other job-completion handlers already
+        # guard against: a bulk-translate result landing here can update
+        # ln.en the same way the regular Translate button does, so the
+        # positional en_<idx>/zh_<idx> widget cache needs clearing too.
         st.session_state.lines = db.load_line_objects(drama_id)
+        _clear_line_widget_state()
         seen.update(j["id"] for j in jobs if j["status"] == "applied")
     pending = [j for j in jobs if j["status"] in ("submitting", "submitted", "scheduled",
                                                   "running", "auth_error")]
@@ -991,9 +996,24 @@ def render_workspace_tab():
         for label, did in options.items():
             if did == st.session_state.active_drama_id:
                 default_label = label
-    picked_label = st.selectbox("Drama", list(options.keys()),
-                                 index=list(options.keys()).index(default_label))
+    _picker_col, _refresh_col = st.columns([5, 1])
+    picked_label = _picker_col.selectbox("Drama", list(options.keys()),
+                                          index=list(options.keys()).index(default_label))
     picked_id = options[picked_label]
+    # Step 9i: a general-purpose escape hatch for any stale display this
+    # app's several targeted reload fixes (Steps 6f, 9h, 9i item 1) didn't
+    # catch -- cross-tab staleness in particular is hard to fully
+    # enumerate, since any tab could in principle leave another tab's
+    # cached state behind. Does exactly what every one of those fixes
+    # already does: reload lines from the database, clear the positional
+    # per-line widget cache, then rerun.
+    _refresh_col.write("")  # vertical alignment with the selectbox above
+    if _refresh_col.button("🔄 Refresh", disabled=picked_id is None,
+                           help="Reload this drama's lines from the database -- fixes any "
+                                "stale display, whatever caused it."):
+        st.session_state.lines = db.load_line_objects(picked_id)
+        _clear_line_widget_state()
+        st.rerun()
 
     if picked_id is None:
         st.markdown("**New drama metadata**")
@@ -2243,6 +2263,10 @@ def render_workspace_tab():
                      "erroring, check ai.google.dev/gemini-api/docs/models for what's "
                      "currently available.")
             st.session_state["settings_gemini_model"] = engine_model
+            if _gemini_free_tier and engine_model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
+                st.error("⚠️ Pro isn't available on the Gemini free tier anymore (removed "
+                         "April 2026) -- pick Flash or Flash-Lite above, or turn off \"My "
+                         "Gemini key is free-tier\" in Settings.")
         elif engine_choice == "ollama":
             _model_keys = list(translate_engines.OLLAMA_MODELS.keys())
             _saved_model = st.session_state.get("settings_ollama_model", _model_keys[0])
@@ -2262,6 +2286,10 @@ def render_workspace_tab():
                 help="Downloads once, then runs fully offline -- no API key, no per-line cost. "
                      "600M is the practical default on CPU; 1.3B is a real quality step up if "
                      "you have the RAM/disk/patience for the heavier download and slower runs.")
+
+        _gemini_free_tier_pro_blocked = (
+            engine_choice == "gemini" and _gemini_free_tier
+            and engine_model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS)
 
         _needs_key = engine_choice not in ("test_offline", "ollama", "libretranslate", "nllb")
         if engine_choice == "test_offline":
@@ -2384,7 +2412,8 @@ def render_workspace_tab():
 
         run_translate = b2.button("🌐 Translate all lines",
                                    disabled=st.session_state.lines is None or not api_key
-                                            or _ollama_unreachable or bool(_monthly_refusal))
+                                            or _ollama_unreachable or bool(_monthly_refusal)
+                                            or _gemini_free_tier_pro_blocked)
         force_retranslate = b2.checkbox(
             "Force re-translate everything (redoes lines that already have a "
             "translation too, not just what's missing)",
@@ -2857,6 +2886,14 @@ def render_workspace_tab():
                     st.rerun()
             elif _job["status"] == "done":
                 st.session_state.lines = db.load_line_objects(picked_id)
+                # Step 9h: the "en" text_area below is keyed by position
+                # (en_<idx>), and Streamlit ignores a widget's value= once
+                # st.session_state[key] already exists (cached as "" from
+                # every earlier render while the line was untranslated) --
+                # without clearing it, the box would keep showing stale
+                # empty text even though ln.en now holds the real
+                # translation, until a hard refresh wiped session state.
+                _clear_line_widget_state()
                 _errors = (_job.get("result") or {}).get("errors", [])
                 _cap_spent = (_job.get("result") or {}).get("cap_reached")
                 if _cap_spent is not None:
@@ -2896,14 +2933,33 @@ def render_workspace_tab():
             if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
                 audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
                 if audio_path and os.path.exists(audio_path):
-                    import diarize as _diarize
-                    clips = dub_module.extract_reference_clips(audio_path, st.session_state.lines, speaker_segments, ddir)
+                    clips, skipped = dub_module.extract_reference_clips(
+                        audio_path, st.session_state.lines, speaker_segments, ddir)
+                    _ref_text_match_failed = set()
                     for label, info in clips.items():
                         matching_zh = next((ln.zh for ln in st.session_state.lines
                                              if ln.speaker == label and info["start"] <= ln.start <= info["end"] + 1), "")
                         db.upsert_character(picked_id, label,
-                                             ref_audio_filename=os.path.relpath(info["path"], ddir),
-                                             ref_text=matching_zh)
+                                             ref_audio_filename=os.path.relpath(info["path"], ddir))
+                        if matching_zh:
+                            db.upsert_character(picked_id, label, ref_text=matching_zh)
+                            # The ref_text text_input below is bound to this same
+                            # key -- without updating it too, its stale
+                            # (pre-auto-extract) widget value would win over the
+                            # `value=` we just changed on the very next rerun,
+                            # and the ref_text_input != c["ref_text"] check at
+                            # the bottom of the character loop would read that
+                            # as a user edit and immediately overwrite the
+                            # ref_text we just saved back to "".
+                            st.session_state[f"reftext_{label}"] = matching_zh
+                        else:
+                            # Don't silently save "" -- indistinguishable from the
+                            # field never having been touched. Leave whatever
+                            # ref_text was already there and explain the gap
+                            # instead (Step 8b item 3).
+                            _ref_text_match_failed.add(label)
+                    st.session_state[f"clip_skip_reasons_{picked_id}"] = skipped
+                    st.session_state[f"ref_text_match_failed_{picked_id}"] = _ref_text_match_failed
                     st.success(f"Extracted {len(clips)} reference clip(s).")
                     st.rerun()
 
@@ -2967,6 +3023,20 @@ def render_workspace_tab():
                                                      series_character_id=_sc["id"])
                                 st.rerun()
 
+                    # Step 8b item 1: a real sample of what this speaker actually
+                    # said, pulled straight from the transcript -- without this
+                    # there's no way to tell who SPEAKER_00 vs SPEAKER_01 is
+                    # without leaving this section to cross-reference Review & edit.
+                    _speaker_lines = [ln.zh for ln in st.session_state.lines
+                                     if ln.speaker == c["speaker_label"] and ln.zh.strip()]
+                    if _speaker_lines:
+                        _samples = [_speaker_lines[0]]
+                        if len(_speaker_lines) > 1:
+                            _samples.append(_speaker_lines[len(_speaker_lines) // 2])
+                        st.caption("💬 " + "  /  ".join(_samples))
+                    else:
+                        st.caption("No lines attributed to this speaker yet.")
+
                     cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
                     cc1.write(c["speaker_label"])
                     name = cc2.text_input("name", value=c["character_name"] or "",
@@ -3012,12 +3082,33 @@ def render_workspace_tab():
                         rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
                     else:
                         rc1.caption("No clone reference set")
+                        # Step 8b item 2: a missing clone ref isn't a bug, but
+                        # silence about WHY is -- name the specific reason
+                        # auto-extract found no eligible segment for this
+                        # speaker, instead of leaving this indistinguishable
+                        # from "auto-extract was never run."
+                        _skip_reason = st.session_state.get(
+                            f"clip_skip_reasons_{picked_id}", {}).get(c["speaker_label"])
+                        if _skip_reason:
+                            _bound = ("shorter than the 3s minimum" if _skip_reason["reason"] == "too_short"
+                                     else "longer than the 12s maximum")
+                            rc1.caption(f"Closest available clip was {_skip_reason['closest_duration']:.1f}s "
+                                       f"-- {_bound} for a clean reference.")
                     ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
                                                     type=["wav", "mp3", "m4a"], key=f"refup_{c['speaker_label']}",
                                                     label_visibility="collapsed")
                     ref_text_input = st.text_input(
                         f"What's said in that clip (original language, for {name or c['speaker_label']})",
                         value=c["ref_text"] or "", key=f"reftext_{c['speaker_label']}")
+                    if (not ref_text_input.strip() and c["speaker_label"] in
+                            st.session_state.get(f"ref_text_match_failed_{picked_id}", set())):
+                        # Step 8b item 3: same "silent empty result" shape as
+                        # item 2, in extract_reference_clips's own caller this
+                        # time -- a reference clip WAS found, but no transcript
+                        # line's speaker tag matched its time window.
+                        st.caption("A reference clip was found, but no transcript line's speaker "
+                                  "tag matched it -- try re-running speaker detection or "
+                                  "auto-extract again, or type the words said in the clip above.")
                     if ref_upload is not None:
                         ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
                         with open(os.path.join(ddir, ref_filename), "wb") as f:
@@ -3327,7 +3418,8 @@ def render_workspace_tab():
                         help="Half price via Claude/Gemini's own batch API -- most finish within "
                              "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
                              "instead of here.")
-                if st.button("Check consistency", disabled=_translation_only_engine) and api_key:
+                if st.button("Check consistency",
+                             disabled=_translation_only_engine or _gemini_free_tier_pro_blocked) and api_key:
                     engine = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
@@ -3393,7 +3485,8 @@ def render_workspace_tab():
                         help="Half price via Claude/Gemini's own batch API -- most finish within "
                              "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
                              "instead of here.")
-                if st.button("Find lines to flag", disabled=_translation_only_engine) and api_key:
+                if st.button("Find lines to flag",
+                             disabled=_translation_only_engine or _gemini_free_tier_pro_blocked) and api_key:
                     engine_f = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,
@@ -3487,12 +3580,25 @@ def render_workspace_tab():
                             if st.button("🔄 Refresh progress", key=f"refresh_ff_{picked_id}"):
                                 st.rerun()
                         elif _ffjob["status"] == "done":
+                            # Same Step 9h staleness: this job rewrites zh
+                            # and en for fixed lines, so the positional
+                            # zh_<idx>/en_<idx> widget cache needs clearing
+                            # too, not just a fresh st.session_state.lines.
                             st.session_state.lines = db.load_line_objects(picked_id)
+                            _clear_line_widget_state()
                             edited_rows = st.session_state.lines
                             _ff_result = _ffjob.get("result") or {}
                             st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
                                       f"{_ff_result.get('total_flagged', 0)} flagged line(s).")
                             background_jobs.clear_job(_fixflag_job_id)
+                            # This branch runs after the zh_<idx>/en_<idx>
+                            # boxes above (in the Review & edit loop) have
+                            # already been rendered for this same script
+                            # pass -- clearing their widget state here only
+                            # takes effect on the NEXT run, so force one
+                            # immediately instead of leaving it stale until
+                            # the next unrelated interaction.
+                            st.rerun()
                         elif _ffjob["status"] == "error":
                             st.error(f"Fixing flagged lines failed: {_ffjob['error']}")
                             with st.expander("Details"):
@@ -3767,7 +3873,8 @@ def render_workspace_tab():
                         help="Half price via Claude/Gemini's own batch API -- most finish within "
                              "an hour, some up to 24 hours. Tracked under 🐢 Bulk jobs below "
                              "instead of here.")
-                if st.button("Generate translation notes", disabled=_translation_only_engine) and api_key:
+                if st.button("Generate translation notes",
+                             disabled=_translation_only_engine or _gemini_free_tier_pro_blocked) and api_key:
                     engine_n = translate_engines.get_engine(
                         engine_choice, api_key, engine_model,
                         free_tier=engine_choice == "gemini" and _gemini_free_tier,

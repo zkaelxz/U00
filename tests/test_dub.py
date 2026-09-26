@@ -353,9 +353,10 @@ class TestExtractReferenceClips:
             {"speaker": "A", "start": 10.0, "end": 16.0},  # 6s -- exact target, should win
             {"speaker": "A", "start": 20.0, "end": 30.0},  # 10s -- 4s from target
         ]
-        result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
-        assert result["A"]["start"] == 10.0
-        assert result["A"]["end"] == 16.0
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert clips["A"]["start"] == 10.0
+        assert clips["A"]["end"] == 16.0
+        assert skipped == {}
 
     def test_ignores_clips_outside_the_duration_bounds(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -363,8 +364,8 @@ class TestExtractReferenceClips:
             {"speaker": "A", "start": 0.0, "end": 1.0},    # too short
             {"speaker": "A", "start": 5.0, "end": 25.0},   # too long
         ]
-        result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
-        assert "A" not in result
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert "A" not in clips
 
     def test_each_speaker_gets_their_own_best_clip(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -372,8 +373,27 @@ class TestExtractReferenceClips:
             {"speaker": "A", "start": 0.0, "end": 6.0},
             {"speaker": "B", "start": 10.0, "end": 15.0},
         ]
-        result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
-        assert set(result.keys()) == {"A", "B"}
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert set(clips.keys()) == {"A", "B"}
+        assert skipped == {}
+
+    def test_reports_a_specific_reason_for_a_speaker_with_no_eligible_segment(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        speaker_segments = [
+            {"speaker": "A", "start": 0.0, "end": 6.0},     # in range
+            {"speaker": "B", "start": 10.0, "end": 11.5},   # 1.5s -- too short, closest to the window
+            {"speaker": "B", "start": 20.0, "end": 21.0},   # 1.0s -- also too short but farther
+        ]
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert "B" not in clips
+        assert skipped == {"B": {"closest_duration": 1.5, "reason": "too_short"}}
+
+    def test_reports_too_long_when_the_closest_segment_exceeds_the_max(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        speaker_segments = [{"speaker": "A", "start": 0.0, "end": 20.0}]  # 20s -- too long
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert "A" not in clips
+        assert skipped == {"A": {"closest_duration": 20.0, "reason": "too_long"}}
 
 
 class TestBuildTrackSubprocessWorker:

@@ -42,7 +42,7 @@ import traceback
 import db
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
-    chunk_novel_text, extract_audio_from_video, lines_from_rows, release_gpu_models, WHISPER_MODELS,
+    chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
     DEFAULT_WHISPER_SIZE,
 )
 import translate_engines
