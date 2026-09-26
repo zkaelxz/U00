@@ -1770,7 +1770,12 @@ def render_workspace_tab():
                     raw_novel_file = st.file_uploader(
                         f"Upload the raw {source_language.upper()} novel (.txt/.md/.epub)",
                         type=["txt", "md", "epub"], key=f"raw_novel_{picked_id}")
-                    if raw_novel_file is not None:
+                    # Step 25r: write only on an explicit click, not on every render --
+                    # the uploader widget keeps holding the file after Remove's
+                    # st.rerun() below, so an unconditional write here recreated the
+                    # just-deleted file immediately.
+                    if raw_novel_file is not None and st.button(
+                            "💾 Save this novel upload", key=f"raw_novel_save_{picked_id}"):
                         try:
                             _raw_text = core_module.load_novel_text_for_context(
                                 raw_novel_file.getvalue(), raw_novel_file.name)
@@ -1973,6 +1978,18 @@ def render_workspace_tab():
                     st.success(f"Extracted {len(extracted):,} characters. Review below before using.")
 
             ocr_default = st.session_state.get(f"ocr_text_{picked_id}", "")
+            # Step 25r: chapters imported via the Sources tab land in this same
+            # raw_novel_context.txt (sources/pipeline.save_novel_text) that audio
+            # dramas use for Whisper priming -- nothing here loaded it for a
+            # novel-narration drama, so an import from Sources never actually
+            # reached the narration text. Only a fallback default (OCR/EPUB above
+            # still win once used) so it doesn't fight with those.
+            if not ocr_default:
+                _imported_novel_path = os.path.join(ddir, "raw_novel_context.txt")
+                if os.path.exists(_imported_novel_path):
+                    with open(_imported_novel_path, "r", encoding="utf-8") as f:
+                        ocr_default = f.read()
+                    st.caption("📥 Loaded chapters imported via the Sources tab -- edit below if needed.")
 
             with st.expander("📚 Or import from an EPUB you own"):
                 st.caption("Requires `pip install ebooklib beautifulsoup4`.")
