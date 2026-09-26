@@ -3725,6 +3725,209 @@ class TestTranscribeQueuesBehindAnotherGpuJob:
             background_jobs.clear_job(f"transcribe_{did}")
 
 
+class TestTranscribeJobInputsCapture:
+    """Direct unit coverage for the small read/write helpers Step 25's
+    fix is built on, separate from the full end-to-end AppTest scenarios
+    below."""
+
+    def test_round_trips_the_captured_fields(self, tmp_path):
+        import tabs.workspace_tab as wt
+        wt._write_transcribe_job_inputs(
+            str(tmp_path), transcript_mode="have_transcript", alignment_method="whisper_diff",
+            asr_backend_choice="whisper", run_diarize=True, expected_speakers=2)
+        assert wt._read_transcribe_job_inputs(str(tmp_path)) == {
+            "transcript_mode": "have_transcript", "alignment_method": "whisper_diff",
+            "asr_backend_choice": "whisper", "run_diarize": True, "expected_speakers": 2}
+
+    def test_missing_file_returns_an_empty_dict(self, tmp_path):
+        import tabs.workspace_tab as wt
+        assert wt._read_transcribe_job_inputs(str(tmp_path)) == {}
+
+    def test_corrupt_file_returns_an_empty_dict_rather_than_raising(self, tmp_path):
+        import tabs.workspace_tab as wt
+        with open(tmp_path / wt._TRANSCRIBE_JOB_INPUTS_NAME, "w") as f:
+            f.write("{not valid json")
+        assert wt._read_transcribe_job_inputs(str(tmp_path)) == {}
+
+    def test_a_later_click_overwrites_the_earlier_capture(self, tmp_path):
+        import tabs.workspace_tab as wt
+        wt._write_transcribe_job_inputs(str(tmp_path), transcript_mode="whisper")
+        wt._write_transcribe_job_inputs(str(tmp_path), transcript_mode="have_transcript")
+        assert wt._read_transcribe_job_inputs(str(tmp_path)) == {"transcript_mode": "have_transcript"}
+
+
+class TestTranscriptionCompletionDoesNotWipeExistingLines:
+    """Step 25: transcript_text is a plain st.text_area with no persisted
+    value -- the completion handler used to read it (and transcript_mode)
+    live from session_state/widgets when the job reported "done", instead
+    of what was actually there when the job was started. A transcription
+    that finished after the tab was closed and reopened as a new browser
+    session (session_state empty) -- or even just edited while the job
+    was still running in the same session -- silently produced zero
+    lines and wiped the drama's real line set, with no history snapshot.
+    Fixed by capturing the real inputs to disk at job-start time
+    (_write_transcribe_job_inputs / transcript.txt) and reading those
+    back at completion instead of live state, refusing to replace a
+    non-empty line set with zero lines, and snapshotting before any
+    completion-time replacement."""
+
+    def _drama_with_existing_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav", transcript_mode="have_transcript")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="原文", en="Original")])
+        return did
+
+    def _click_transcribe_in_a_real_session(self, did, monkeypatch, transcript_text,
+                                            transcribe_impl=None):
+        from streamlit.testing.v1 import AppTest
+        import tabs.workspace_tab as wt
+        monkeypatch.setattr(
+            wt, "transcribe_for_timing",
+            transcribe_impl or (lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}]))
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"tmode_{did}"] = "have_transcript"
+        at.session_state[f"transcript_{did}"] = transcript_text
+        at.run(timeout=30)
+        [button] = [b for b in at.button if b.label == "▶ Transcribe & Align"]
+        button.click()
+        at.run(timeout=30)
+        return at
+
+    def _render_in_a_fresh_session(self, did):
+        """A brand-new AppTest instance sharing none of a previous
+        session's session_state -- exactly what reopening the app in a
+        new browser tab/session looks like. background_jobs' own job
+        dict is server-side/global, so it still sees the same job."""
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _wait_for_job(self, did, timeout=3.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline and background_jobs.is_running(f"transcribe_{did}"):
+            time.sleep(0.02)
+
+    def test_a_job_finishing_in_a_new_session_does_not_wipe_the_dramas_lines(
+            self, isolated_db, monkeypatch):
+        release = threading.Event()
+        did = self._drama_with_existing_lines(isolated_db)
+        # A real, mocked-slow transcribe pass -- the job is still
+        # "running" by the time this ("closed-tab") session's own click
+        # handler finishes, exactly like a real multi-minute Whisper pass
+        # someone closed the tab on. release.set() below simulates the
+        # job finishing only *after* that tab is gone.
+        self._click_transcribe_in_a_real_session(
+            did, monkeypatch, "真实台词",
+            transcribe_impl=lambda *a, **k: (release.wait(timeout=5.0),
+                                             [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
+        assert background_jobs.get_status(f"transcribe_{did}")["status"] == "running"
+
+        release.set()
+        self._wait_for_job(did)
+
+        # A completely separate "session" (fresh session_state, no
+        # tmode/transcript widget values at all) is the one that first
+        # observes the job as "done".
+        self._render_in_a_fresh_session(did)
+
+        after = isolated_db.load_line_objects(did)
+        assert len(after) >= 1, "the drama's real lines were wiped"
+        background_jobs.clear_job(f"transcribe_{did}")
+
+    def test_the_captured_transcript_text_is_what_gets_used_not_an_empty_one(
+            self, isolated_db, monkeypatch):
+        release = threading.Event()
+        did = self._drama_with_existing_lines(isolated_db)
+        self._click_transcribe_in_a_real_session(
+            did, monkeypatch, "真实台词",
+            transcribe_impl=lambda *a, **k: (release.wait(timeout=5.0),
+                                             [{"start": 0.0, "end": 1.0, "text": "你好"}])[1])
+        assert background_jobs.get_status(f"transcribe_{did}")["status"] == "running"
+
+        release.set()
+        self._wait_for_job(did)
+        self._render_in_a_fresh_session(did)
+
+        after = isolated_db.load_line_objects(did)
+        assert [l.zh for l in after] == ["真实台词"]
+        background_jobs.clear_job(f"transcribe_{did}")
+
+    def test_editing_the_transcript_while_the_job_runs_in_the_same_session_is_ignored(
+            self, isolated_db, monkeypatch):
+        release = threading.Event()
+
+        def slow_transcribe(*a, **k):
+            release.wait(timeout=5.0)
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+
+        did = self._drama_with_existing_lines(isolated_db)
+        at = self._click_transcribe_in_a_real_session(did, monkeypatch, "原始文本",
+                                                       transcribe_impl=slow_transcribe)
+        assert background_jobs.get_status(f"transcribe_{did}")["status"] == "running"
+
+        # Edited in the SAME session while the job is still running --
+        # must not change what the already-running job processes.
+        [box] = [t for t in at.text_area if t.key == f"transcript_{did}"]
+        box.set_value("被修改的文本").run(timeout=30)
+        assert background_jobs.get_status(f"transcribe_{did}")["status"] == "running"
+
+        release.set()
+        self._wait_for_job(did)
+        at.run(timeout=30)
+
+        after = isolated_db.load_line_objects(did)
+        assert [l.zh for l in after] == ["原始文本"]
+        background_jobs.clear_job(f"transcribe_{did}")
+
+    def test_zero_lines_against_an_existing_non_empty_drama_is_refused_not_saved(
+            self, isolated_db, monkeypatch):
+        import tabs.workspace_tab as wt
+        did = self._drama_with_existing_lines(isolated_db)
+        # A real (non-blank) transcript, so the button isn't disabled --
+        # but alignment itself genuinely produces zero lines (a real
+        # possible outcome regardless of what caused it).
+        monkeypatch.setattr(wt, "align_transcript_to_timing", lambda *a, **k: [])
+        at = self._click_transcribe_in_a_real_session(did, monkeypatch, "真实台词")
+        self._wait_for_job(did)
+
+        after = isolated_db.load_line_objects(did)
+        assert [l.zh for l in after] == ["原文"]  # untouched
+        assert any("nothing was changed" in e.value for e in at.error)
+        background_jobs.clear_job(f"transcribe_{did}")
+
+    def test_a_history_snapshot_exists_before_a_legitimate_completion_replaces_lines(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_existing_lines(isolated_db)
+        before_history = len(isolated_db.list_line_history(did))
+
+        self._click_transcribe_in_a_real_session(did, monkeypatch, "真实台词")
+        self._wait_for_job(did)
+
+        after_history = isolated_db.list_line_history(did)
+        assert len(after_history) == before_history + 1
+        assert after_history[0]["label"] == "before re-transcribe"
+        background_jobs.clear_job(f"transcribe_{did}")
+
+
 class TestDiarizationAutoStartsAfterAlign:
     """Step 4d: the "Run speaker diarization during alignment" checkbox
     used to run diarize.diarize() synchronously inline, in the same

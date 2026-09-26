@@ -584,6 +584,41 @@ def _render_bulk_jobs_panel(drama_id, monthly_cap):
                     st.rerun()
 
 
+_TRANSCRIBE_JOB_INPUTS_NAME = "transcribe_job_inputs.json"
+
+
+def _write_transcribe_job_inputs(ddir, **fields):
+    """Step 25: a durable, on-disk snapshot of the completion-time inputs
+    that used to be re-read live from st.session_state/widgets once the
+    transcribe job reported "done" -- transcript_mode, alignment_method,
+    asr_backend_choice, run_diarize, expected_speakers. Written fresh
+    every time "Transcribe & Align" is clicked (overwritten, not
+    versioned like raw_transcript.py's own files -- this only ever needs
+    to reflect the most recently started job's real inputs).
+
+    Session state is exactly what's gone in the bug this fixes (closing
+    the tab and reopening it is, to Streamlit, a brand-new session with
+    empty session_state) -- a plain file next to the drama survives that
+    the same way transcript.txt (written alongside this) already does."""
+    with open(os.path.join(ddir, _TRANSCRIBE_JOB_INPUTS_NAME), "w", encoding="utf-8") as f:
+        json.dump(fields, f)
+
+
+def _read_transcribe_job_inputs(ddir):
+    """The most recently captured snapshot, or {} if a job somehow
+    completed without one having been written (shouldn't happen for any
+    job started after this fix, but never worth crashing the completion
+    handler over)."""
+    path = os.path.join(ddir, _TRANSCRIBE_JOB_INPUTS_NAME)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,
                         local_model_path, hf_token, initial_prompt, beam_size,
                         min_silence_duration_ms, vad_threshold=0.5, separate_vocals_first=False,
@@ -2990,6 +3025,16 @@ def render_workspace_tab():
 
             with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
                 f.write(transcript_text)
+            # Step 25: capture what this run actually started with, so a
+            # closed-tab-reopened-as-a-new-session (or an edit made to the
+            # transcript-mode radio/pasted text while this job is still
+            # running in the same session) can't get read back in place of
+            # it once the job reports "done" -- see the "elif _tjob['status']
+            # == 'done'" branch below, which reads this snapshot back.
+            _write_transcribe_job_inputs(
+                ddir, transcript_mode=transcript_mode, alignment_method=alignment_method,
+                asr_backend_choice=asr_backend_choice, run_diarize=bool(run_diarize),
+                expected_speakers=expected_speakers)
 
             if _hardsub_mode:
                 video_filename = drama.get("source_video_filename")
@@ -3142,7 +3187,18 @@ def render_workspace_tab():
                             "your transcript below is exactly as complete as it would be with this "
                             "experimental setting off.")
 
-                    _result_tmode = st.session_state.get(f"tmode_{picked_id}")
+                    # Step 25: read back what this job actually started with,
+                    # not whatever these now say live -- session_state is
+                    # exactly what's gone if the tab was closed and reopened
+                    # as a new session while the job was running, and even
+                    # within the same session these could have been edited
+                    # after the job started but before it reported "done".
+                    _job_inputs = _read_transcribe_job_inputs(ddir)
+                    _result_tmode = _job_inputs.get("transcript_mode")
+                    _captured_alignment_method = _job_inputs.get("alignment_method", alignment_method)
+                    _captured_asr_backend_choice = _job_inputs.get("asr_backend_choice", asr_backend_choice)
+                    _captured_run_diarize = _job_inputs.get("run_diarize", run_diarize)
+                    _captured_expected_speakers = _job_inputs.get("expected_speakers", expected_speakers)
                     # What actually produced the text, for raw_transcript.json.
                     _raw_backend, _raw_model = "whisper", whisper_size
                     if _result_tmode == "hardsub_ocr":
@@ -3165,7 +3221,7 @@ def render_workspace_tab():
                         # -- asr_backend_choice only affects which model's TEXT fills
                         # those segments. See asr_backend.py's module docstring for why
                         # that split is deliberate.
-                        if asr_backend_choice == "qwen3_asr":
+                        if _captured_asr_backend_choice == "qwen3_asr":
                             try:
                                 import asr_backend
                                 segments = asr_backend.Qwen3ASRBackend().transcribe(
@@ -3185,9 +3241,21 @@ def render_workspace_tab():
                                   "names and uncommon terms. Correct them in the review table below "
                                   "**before** translating -- mistakes here carry into the translation.")
                     else:
+                        # Step 25: the real transcript text as it was when
+                        # "Transcribe & Align" was actually clicked -- read
+                        # from disk (written unconditionally at job-start,
+                        # right alongside _write_transcribe_job_inputs above)
+                        # rather than the live transcript_text widget, which
+                        # renders empty in a reopened/new browser session and
+                        # can be edited mid-flight in the same one.
+                        _transcript_path = os.path.join(ddir, "transcript.txt")
+                        _captured_transcript_text = transcript_text
+                        if os.path.exists(_transcript_path):
+                            with open(_transcript_path, encoding="utf-8") as f:
+                                _captured_transcript_text = f.read()
                         with st.spinner("Aligning transcript to timing..."):
-                            user_lines = split_user_transcript(transcript_text)
-                            if alignment_method == "qwen3_forced_align":
+                            user_lines = split_user_transcript(_captured_transcript_text)
+                            if _captured_alignment_method == "qwen3_forced_align":
                                 try:
                                     import forced_align
                                     lines = forced_align.align_with_qwen3(
@@ -3209,35 +3277,59 @@ def render_workspace_tab():
                                 lines = align_transcript_to_timing(user_lines, segments)
 
                     core_module.release_gpu_models()  # text/alignment stage done
-                    _start_diarization_after_align = run_diarize and hf_token
+                    _start_diarization_after_align = _captured_run_diarize and hf_token
 
-                    st.session_state.lines = lines
-                    # A brand-new set of lines: a translate/flag job still
-                    # running on the old ones would only be spending money
-                    # on lines that no longer exist.
-                    background_jobs.cancel_line_jobs(picked_id)
-                    db.save_lines(picked_id, lines)
-                    # After the save, so each line's permanent id is recorded.
-                    # Written once and never touched again -- a later run gets
-                    # its own timestamped file.
-                    raw_transcript.write_raw_transcript(
-                        ddir, segments, lines, backend=_raw_backend, model=_raw_model,
-                        language=source_language,
-                        mode=_result_tmode if _result_tmode in ("hardsub_ocr", "whisper")
-                        else "aligned_transcript")
-                    db.update_drama(picked_id, status="aligned")
-                    st.success(f"Aligned {len(lines)} lines.")
-                    if _start_diarization_after_align:
-                        import diarize
-                        background_jobs.start_process_job(
-                            f"diarize_{picked_id}", diarize.diarize_subprocess_worker,
-                            args=(audio_path, hf_token, expected_speakers or None),
-                            gpu_touching=True, description=f"Diarization ({_drama_label(drama)})")
-                        # Step 4f: see _apply_diarization_job_result -- capture
-                        # what this run actually started with.
-                        st.session_state[f"diarize_job_expected_speakers_{picked_id}"] = expected_speakers
-                        st.info("Speaker detection started in the background -- see "
-                               "'4. 🎙️ Speaker diarization' above for progress, or to cancel it.")
+                    # Step 25 item 2: a real, confirmed bug had this
+                    # unconditionally overwrite an existing, non-empty line
+                    # set with zero lines (a stale/missing captured
+                    # transcript in a reopened browser session, or ASR
+                    # genuinely finding nothing) -- refuse rather than wipe.
+                    _existing_lines_before = db.load_line_objects(picked_id)
+                    if not lines and _existing_lines_before:
+                        st.error(
+                            "Transcription produced no lines, but this drama already has "
+                            f"{len(_existing_lines_before)} -- nothing was changed. This can happen "
+                            "if the pasted transcript wasn't available when this job finished (e.g. "
+                            "the browser tab was closed and reopened) or recognition genuinely found "
+                            "no speech in the audio. Check the transcript above and press the button "
+                            "again.")
+                    else:
+                        st.session_state.lines = lines
+                        # A brand-new set of lines: a translate/flag job still
+                        # running on the old ones would only be spending money
+                        # on lines that no longer exist.
+                        background_jobs.cancel_line_jobs(picked_id)
+                        # Step 25 item 3: recoverable via Version history even
+                        # when this completion is legitimate but produces an
+                        # unwanted result -- same safety net Step 4j-adjacent
+                        # flows (merge, re-segmentation) already take before
+                        # their own full line-list replacements.
+                        if _existing_lines_before:
+                            db.save_line_history_snapshot(
+                                picked_id, _existing_lines_before, "before re-transcribe")
+                        db.save_lines(picked_id, lines)
+                        # After the save, so each line's permanent id is recorded.
+                        # Written once and never touched again -- a later run gets
+                        # its own timestamped file.
+                        raw_transcript.write_raw_transcript(
+                            ddir, segments, lines, backend=_raw_backend, model=_raw_model,
+                            language=source_language,
+                            mode=_result_tmode if _result_tmode in ("hardsub_ocr", "whisper")
+                            else "aligned_transcript")
+                        db.update_drama(picked_id, status="aligned")
+                        st.success(f"Aligned {len(lines)} lines.")
+                        if _start_diarization_after_align:
+                            import diarize
+                            background_jobs.start_process_job(
+                                f"diarize_{picked_id}", diarize.diarize_subprocess_worker,
+                                args=(audio_path, hf_token, _captured_expected_speakers or None),
+                                gpu_touching=True, description=f"Diarization ({_drama_label(drama)})")
+                            # Step 4f: see _apply_diarization_job_result -- capture
+                            # what this run actually started with.
+                            st.session_state[f"diarize_job_expected_speakers_{picked_id}"] = (
+                                _captured_expected_speakers)
+                            st.info("Speaker detection started in the background -- see "
+                                   "'4. 🎙️ Speaker diarization' above for progress, or to cancel it.")
                 background_jobs.clear_job(_transcribe_job_id)
             elif _tjob["status"] == "error":
                 # This job slot is shared between the Whisper transcription
