@@ -20,6 +20,11 @@ None of that is per-site knowledge.
 
 Novel text: trafilatura when installed (a maintained main-content
 extractor), else a plain largest-text-block heuristic.
+
+Step 23g (sources/adaptive.py, sources/ai_extract.py) runs these same
+deterministic passes first and only asks an LLM when they come back
+empty or ambiguous; this module stays the deterministic tier and the
+resource downloader.
 """
 
 import hashlib
@@ -58,6 +63,14 @@ class ImageCandidate:
     height: int = 0
     sha256: str = ""
     reject_reason: str = ""
+    # Step 23g: where the URL came from and what surrounds it -- read by
+    # the AI-assisted classifier (sources/ai_extract.py), never used to
+    # download anything. `attr` is "srcset"/"data-src"/"src"/.../"manifest".
+    attr: str = ""
+    hint: str = ""
+    width_attr: int = 0
+    height_attr: int = 0
+    tag: object = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -102,15 +115,15 @@ def image_candidates(html: str, page_url: str) -> list:
     soup = BeautifulSoup(html or "", "html.parser")
     seen, out = set(), []
     for tag in soup.find_all(["img", "source"]):
-        url = ""
+        url, used = "", ""
         srcset = tag.get("srcset") or tag.get("data-srcset")
         if srcset:
-            url = _best_from_srcset(srcset)
+            url, used = _best_from_srcset(srcset), "srcset"
         if not url:
             for attr in _LAZY_ATTRS:
                 v = (tag.get(attr) or "").strip()
                 if v and not v.startswith("data:"):
-                    url = v
+                    url, used = v, attr
                     break
         if not url or url.startswith("data:") or url.lower().endswith(".svg"):
             continue
@@ -118,9 +131,72 @@ def image_candidates(html: str, page_url: str) -> list:
         if absolute in seen:
             continue
         seen.add(absolute)
-        out.append(ImageCandidate(url=absolute, order=len(out)))
+        out.append(ImageCandidate(url=absolute, order=len(out), attr=used, hint=_tag_hint(tag),
+                                  width_attr=_int_attr(tag, "width"),
+                                  height_attr=_int_attr(tag, "height"), tag=tag))
         if len(out) >= MAX_CANDIDATES:
             break
+    return out
+
+
+def _int_attr(tag, name: str) -> int:
+    m = re.match(r"\s*(\d+)", str(tag.get(name) or ""))
+    return int(m.group(1)) if m else 0
+
+
+def _tag_hint(tag) -> str:
+    """alt text plus the id/class chain of the tag and its nearest
+    ancestors, and where it links -- the context a person would use to
+    tell a page from a cover, an ad or a thumbnail."""
+    bits = []
+    if tag.get("alt"):
+        bits.append(f"alt={tag.get('alt')!r}")
+    node, chain = tag, []
+    for _ in range(4):
+        if node is None or node.name in (None, "[document]", "html", "body"):
+            break
+        ident = node.name + (f"#{node.get('id')}" if node.get("id") else "") + \
+            "".join(f".{c}" for c in (node.get("class") or []))
+        chain.append(ident)
+        node = node.parent
+    bits.append(" < ".join(chain))
+    link = tag.find_parent("a")
+    if link is not None and link.get("href"):
+        bits.append(f"links to {link.get('href')}")
+    return " | ".join(bits)[:240]
+
+
+# Image URLs sitting as text inside inline scripts (a reader's page
+# manifest, a JSON-LD block, a framework data blob) -- common on lazy
+# readers whose <img> tags are only filled in by script.
+_MANIFEST_URL = re.compile(
+    r"""(?:https?:)?(?:\\?/){2}[^\s"'<>()]+?\.(?:jpe?g|png|webp|gif|avif)(?:\?[^\s"'<>()]*)?""",
+    re.I)
+
+
+def manifest_candidates(html: str, page_url: str, skip=()) -> list:
+    """Image URLs found in <script> bodies, in document order, as
+    candidates with attr="manifest" (order numbers left for the caller to
+    assign). Nothing is decoded or executed -- only URLs already in the
+    page as plain text."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html or "", "html.parser")
+    seen, out = set(skip), []
+    for script in soup.find_all("script"):
+        body = script.string or script.get_text() or ""
+        for m in _MANIFEST_URL.finditer(body):
+            raw = m.group(0).replace("\\/", "/")
+            if raw.startswith("//"):
+                raw = (urlsplit(page_url).scheme or "https") + ":" + raw
+            absolute = urljoin(page_url, raw)
+            if absolute in seen:
+                continue
+            seen.add(absolute)
+            kind = f" type={script.get('type')}" if script.get("type") else ""
+            out.append(ImageCandidate(url=absolute, order=len(out), attr="manifest",
+                                      hint=f"listed inside <script{kind}>"))
+            if len(out) >= MAX_CANDIDATES:
+                return out
     return out
 
 
@@ -234,6 +310,32 @@ def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None
     return result
 
 
+def download_candidates(candidates, page_url: str, client) -> None:
+    """The resource downloader: fetches and measures each candidate not
+    fetched yet, through the paced client."""
+    for c in candidates:
+        if c.content or c.reject_reason:
+            continue
+        try:
+            resp = client.get(c.url, classify_body=False, headers={"Referer": page_url},
+                              action=f"Checking image {c.order + 1}/{len(candidates)}")
+            c.content = resp.content
+            _measure(c)
+        except SourceError as e:
+            c.reject_reason = f"couldn't download ({e.reason.value})"
+
+
+def filter_candidates(candidates, page_url: str, remember: bool = True) -> tuple:
+    """filter_page_images plus this site's cross-chapter image memory."""
+    domain = _domain(page_url)
+    hashes = [c.sha256 for c in candidates if c.sha256]
+    seen = store.hashes_seen_elsewhere(domain, page_url, hashes) if remember else set()
+    kept, rejected = filter_page_images(candidates, page_url, seen)
+    if remember:
+        store.remember_images(domain, page_url, hashes)
+    return kept, rejected
+
+
 def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str = None,
                       remember: bool = True) -> ComicImportResult:
     """Fetches a chapter URL and returns its page images, filtered. Raises
@@ -252,20 +354,8 @@ def import_comic_page(url: str, client=None, rendered_fetch=None, user_html: str
     if not candidates:
         raise NoContentFound("Couldn't find page images here -- the page has no image tags "
                              "this importer recognizes. Upload the pages manually instead.")
-    for c in candidates:
-        try:
-            resp = client.get(c.url, classify_body=False, headers={"Referer": url},
-                              action=f"Checking image {c.order + 1}/{len(candidates)}")
-            c.content = resp.content
-            _measure(c)
-        except SourceError as e:
-            c.reject_reason = f"couldn't download ({e.reason.value})"
-    domain = _domain(url)
-    hashes = [c.sha256 for c in candidates if c.sha256]
-    seen = store.hashes_seen_elsewhere(domain, url, hashes) if remember else set()
-    kept, rejected = filter_page_images(candidates, url, seen)
-    if remember:
-        store.remember_images(domain, url, hashes)
+    download_candidates(candidates, url, client)
+    kept, rejected = filter_candidates(candidates, url, remember)
     out.images, out.rejected = kept, rejected
     if not kept:
         raise NoContentFound("Couldn't find page images here -- every image on the page was "
@@ -332,18 +422,5 @@ def extract_main_text(html: str, url: str = "") -> tuple:
             return text.strip(), "trafilatura"
     return extract_main_text_heuristic(html).strip(), "heuristic"
 
-
-def import_novel_page(url: str, client=None, rendered_fetch=None,
-                      user_html: str = None) -> NovelImportResult:
-    from .detect import page_title
-    client = _client(client)
-    lr = fetch_page(url, client, rendered_fetch, user_html)
-    if lr.handoff:
-        return NovelImportResult(url, "", "", "", ladder=lr)
-    if not lr.ok:
-        raise NoContentFound("Couldn't load this page:\n" + "\n".join(lr.summary_lines()))
-    text, method = extract_main_text(lr.html, url)
-    if len(text) < MIN_NOVEL_CHARS:
-        raise NoContentFound("Couldn't find the main text on this page -- no block of prose "
-                             "long enough to be a chapter. Paste or upload the text instead.")
-    return NovelImportResult(url, page_title(lr.html), text, method, ladder=lr)
+# The novel import itself (fetch + this extractor + an AI fallback when
+# the result is ambiguous) is sources/adaptive.import_novel (Step 23g).
