@@ -11,9 +11,9 @@ raw-novel upload put them, so nothing downstream changes.
 from common import *
 
 import background_jobs
-from sources import (cache as src_cache, chapter_check, chapter_order, front_door,
-                     generic_import, health, ladder as src_ladder, pipeline, registry,
-                     store as src_store)
+from sources import (adaptive, ai_extract, cache as src_cache, chapter_check, chapter_order,
+                     front_door, generic_import, health, ladder as src_ladder, pipeline,
+                     profiles as src_profiles, registry, store as src_store)
 from sources.models import (AccessTier, CHALLENGE_HANDOFF_MESSAGE, ChallengeDetected,
                             NotSupportedError, SourceError)
 
@@ -112,13 +112,16 @@ def _render_front_door():
     elif p.content_type == front_door.VIDEO:
         drama_id = _drama_picker("Into drama", "src_fd_video_drama")
         audio_only = st.checkbox("Audio only (recommended)", value=True, key="src_fd_audio_only")
+        target = p.url
+        if not p.adapter and not front_door.is_video_url(p.url) and p.html:
+            target = _render_media_identify(p) or p.url
         if drama_id and st.button("⬇️ Import video", key="src_fd_import_video"):
             bar = st.progress(0.0)
             status = st.empty()
             try:
                 import video_download
                 front_door.import_video(
-                    p.url, drama_id, audio_only=audio_only,
+                    target, drama_id, audio_only=audio_only,
                     progress_cb=lambda f, m: (bar.progress(min(f, 1.0)), status.caption(m)),
                     cookies_browser=st.session_state.get("settings_cookies_browser"),
                     cookies_file=st.session_state.get("settings_cookies_file") or None)
@@ -128,18 +131,27 @@ def _render_front_door():
             except video_download.DownloadError as exc:
                 st.error(str(exc))
     elif p.content_type == front_door.COMIC:
+        engine = _ai_fallback_engine()
         drama_id = _drama_picker("Add pages to drama", "src_fd_comic_drama", _COMIC_MEDIA)
         if drama_id and st.button("➕ Import pages into Scanlate", key="src_fd_import_comic"):
             with st.spinner("Downloading and checking each image..."):
                 try:
-                    res = generic_import.import_comic_page(p.url, user_html=user_html)
+                    res, report = adaptive.import_comic(p.url, engine, user_html=user_html)
                 except generic_import.NoContentFound as e:
                     st.error(str(e))
+                    st.session_state.src_fd_report = getattr(e, "report", None)
                     res = None
             if res is not None and res.ladder.handoff:
                 st.session_state.src_fd_handoff = res.ladder.handoff
                 st.rerun()
             elif res is not None:
+                st.session_state.src_fd_report = report
+                if report.needs_review or _diagnostics_mode():
+                    st.session_state.src_fd_review = {
+                        "kind": "comic", "url": p.url, "html": res.ladder.html,
+                        "data": report.data, "report": report, "drama_id": drama_id,
+                        "candidates": res.images + res.rejected, "nonce": f"_{id(report)}"}
+                    st.rerun()
                 n = pipeline.add_page_images(drama_id, [(c.content, c.ext) for c in res.images])
                 st.success(f"Added {n} page(s) to the drama -- they're in the Scanlate tab now.")
                 if res.rejected:
@@ -147,19 +159,28 @@ def _render_front_door():
                         for c in res.rejected:
                             st.caption(f"{c.url} — {c.reject_reason}")
     elif p.content_type == front_door.NOVEL:
+        engine = _ai_fallback_engine()
         drama_id = _drama_picker("Save text to drama", "src_fd_novel_drama", ("novel",))
         append = st.checkbox("Append to the drama's existing raw novel text", value=True,
                              key="src_fd_append")
         if drama_id and st.button("📥 Import text", key="src_fd_import_novel"):
             try:
-                res = generic_import.import_novel_page(p.url, user_html=user_html)
+                res, report = adaptive.import_novel(p.url, engine, user_html=user_html)
             except generic_import.NoContentFound as e:
                 st.error(str(e))
+                st.session_state.src_fd_report = getattr(e, "report", None)
                 res = None
             if res is not None and res.ladder.handoff:
                 st.session_state.src_fd_handoff = res.ladder.handoff
                 st.rerun()
             elif res is not None:
+                st.session_state.src_fd_report = report
+                if report.needs_review or _diagnostics_mode():
+                    st.session_state.src_fd_review = {
+                        "kind": "novel", "url": p.url, "html": res.ladder.html,
+                        "data": report.data, "report": report, "drama_id": drama_id,
+                        "append": append, "nonce": f"_{id(report)}"}
+                    st.rerun()
                 pipeline.save_novel_text(drama_id, res.text, append=append, heading=res.title)
                 st.success(f"Saved {len(res.text):,} characters (extracted with {res.method}) as "
                            "the drama's raw novel text -- the same place Workspace's raw-novel "
@@ -169,10 +190,255 @@ def _render_front_door():
     else:
         st.info("Couldn't tell what this page is. If it's a comic or novel chapter, upload it "
                 "manually in Scanlate or Workspace instead.")
+    review = st.session_state.get("src_fd_review")
+    if review and review["url"] == p.url:
+        with st.container(border=True):
+            _render_review_extraction(review)
     if p.ladder is not None:
         with st.expander("How the page was reached"):
             for line in p.ladder.summary_lines():
                 st.caption(line)
+    report = st.session_state.get("src_fd_report")
+    if report is not None and report.url == p.url:
+        with st.expander("🩺 Source diagnostics", expanded=_diagnostics_mode()):
+            _render_report(report)
+
+
+# ---------------------------------------------------------------------------
+# Step 23g: AI-assisted fallback, Review Extraction, Source Diagnostics
+# ---------------------------------------------------------------------------
+
+_BUCKET_ICON = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🟠", "FAILED": "🔴"}
+
+
+def _diagnostics_mode() -> bool:
+    return bool(src_store.get_setting("extraction_diagnostics"))
+
+
+def _ai_fallback_engine():
+    """The optional engine for the AI tier. Off by default -- then the
+    ladder never makes an AI call and says so in diagnostics."""
+    names = ["off"] + [e for e, cls in translate_engines.ENGINES.items()
+                       if cls.supports_reference and e != "test_offline"]
+    with st.expander("🤖 AI-assisted fallback (optional)"):
+        st.caption("Only used when the normal extraction comes back empty or ambiguous: one AI "
+                   "call per page (cached), and the site's layout is saved as a profile so its "
+                   "next chapter needs none. The AI only points at parts of the page -- the text "
+                   "and images are always copied from the page itself, never rewritten.")
+        name = st.selectbox("Engine", names, key="src_ai_engine",
+                            format_func=lambda e: "Off (no AI calls)" if e == "off" else e)
+        if name == "off":
+            return None
+        key = "local" if name == "ollama" else synced_api_key_input(
+            "API key", name, "src_ai_key")
+        if not key:
+            st.caption("Needs an API key -- without one the AI tier is skipped.")
+            return None
+        try:
+            return translate_engines.get_engine(
+                name, key, base_url=(st.session_state.get("settings_ollama_url") or None)
+                if name == "ollama" else None)
+        except Exception as e:
+            st.warning(translate_engines.redact_secrets(f"Couldn't set up {name}: {e}"))
+            return None
+
+
+def _render_confidence(data: dict):
+    conf = (data or {}).get("confidence") or {}
+    o = ai_extract.overall(data or {})
+    st.markdown(f"**Overall: {_BUCKET_ICON.get(o['bucket'], '')} {o['bucket']}** "
+                f"({o['score']:.2f}) -- checked independently, not taken from the AI's own claim.")
+    for f in list(ai_extract.FIELDS) + ["media_resources"]:
+        c = conf.get(f)
+        if not c:
+            continue
+        value = (data or {}).get(f)
+        shown = "" if value is None or isinstance(value, (list, dict)) else f" = {str(value)[:60]}"
+        st.caption(f"{_BUCKET_ICON.get(c['bucket'], '')} {f}{shown}: {c['bucket']} ({c['score']:.2f})"
+                   + (f" — {'; '.join(c['checks'])}" if c["checks"] else ""))
+
+
+def _render_report(report):
+    st.markdown(f"**{report.headline()}**")
+    st.caption(f"AI calls: {report.llm_calls}" + (" (cached result reused)" if report.cache_hit else ""))
+    st.caption(adaptive.describe_profile(report.profile))
+    if report.protection:
+        st.caption("Protection detected: " + ", ".join(report.protection))
+    if report.reason:
+        st.caption(f"Why: {report.reason}")
+    for line in report.access_lines + report.lines:
+        st.caption(f"· {line}")
+    if report.data:
+        _render_confidence(report.data)
+
+
+def _render_review_extraction(rv: dict):
+    report = rv["report"]
+    st.markdown("#### 🔍 Review extraction")
+    st.caption("Shown because " + ("diagnostics mode is on." if _diagnostics_mode() and
+                                   not report.needs_review else
+                                   "the result's confidence is low.") +
+               " Corrections change which parts of the page are used and are saved as this "
+               "site's profile -- the source text and images themselves are never edited.")
+    _render_confidence(rv["data"])
+    if report.pending_profile and st.button("✅ Approve the suggested site profile",
+                                            key="src_rv_approve"):
+        try:
+            v = adaptive.approve_pending(report.pending_profile)
+            report.pending_profile = None
+            st.success(f"Saved as profile v{v['version']} for "
+                       f"{src_profiles.domain_of(rv['url'])}.")
+        except src_profiles.ProfileRejected as e:
+            st.error(str(e))
+    if rv["kind"] == "novel":
+        _review_novel(rv)
+    else:
+        _review_comic(rv)
+    if st.button("✖️ Close review", key="src_rv_close"):
+        st.session_state.src_fd_review = None
+        st.rerun()
+
+
+def _save_profile_button(rv, kind):
+    if rv.get("rules") and st.button("💾 Save these corrections as the site's profile",
+                                     key=f"src_rv_save_{kind}"):
+        try:
+            v = src_profiles.save_version(src_profiles.domain_of(rv["url"]), kind, rv["rules"],
+                                          rv["data"], origin="correction", approved=True)
+            st.success(f"Saved as profile v{v['version']} -- the next chapter from this site "
+                       "uses it" + (f"; v{v['replaces']} is kept for rollback." if v["replaces"] else "."))
+        except src_profiles.ProfileRejected as e:
+            st.error(str(e))
+
+
+def _review_novel(rv: dict):
+    data = rv["data"]
+    sfx = rv.get("nonce", "")      # fresh widget state for each new review
+    page = ai_extract.PageModel(rv["html"], rv["url"])
+    st.text_area("Extracted text (preview)", (data.get("content") or "")[:4000], height=200,
+                 disabled=True)
+    base = rv.get("rules") or src_profiles.infer_novel_rules(page, data) or {}
+    opts = src_profiles.container_options(page)
+    sels = [s for s, _n, _t in opts]
+    if base.get("content_selector") and base["content_selector"] not in sels:
+        sels.insert(0, base["content_selector"])
+    labels = {s: f"{s} — {n:,} chars — {t}" for s, n, t in opts}
+    if not sels:
+        st.caption("No containers on this page to choose from.")
+        return
+    content_sel = st.selectbox("The chapter text is inside", sels, key=f"src_rv_container{sfx}",
+                               index=sels.index(base["content_selector"])
+                               if base.get("content_selector") in sels else 0,
+                               format_func=lambda s: labels.get(s, s))
+    ex_opts = dict(src_profiles.exclusion_options(page, content_sel))
+    exclude = st.multiselect("Leave out (navigation, comments, ads)", list(ex_opts),
+                             default=[s for s in base.get("exclude_selectors") or [] if s in ex_opts],
+                             key=f"src_rv_exclude{sfx}", format_func=lambda s: f"{s} — {ex_opts[s]}")
+    heads = [b for b in page.blocks if b.tag in ai_extract.HEADING_TAGS
+             or b.id == data.get("chapter_title_block")][:20]
+    head_ids = [None] + [b.id for b in heads]
+    title_id = st.selectbox("Chapter title", head_ids, key=f"src_rv_title{sfx}",
+                            index=head_ids.index(data.get("chapter_title_block"))
+                            if data.get("chapter_title_block") in head_ids else 0,
+                            format_func=lambda i: "(none)" if i is None else page.block(i).text[:80])
+    link_ids = [None] + [l.id for l in page.links[:80]]
+
+    def link_label(i):
+        if i is None:
+            return "(none)"
+        l = page.link(i)
+        return f"{l.text or '(no text)'} → {l.url}"
+
+    def link_index(url):
+        return next((k for k, i in enumerate(link_ids) if i and page.link(i).url == url), 0)
+    next_id = st.selectbox("Next-chapter link", link_ids, key=f"src_rv_next{sfx}",
+                           index=link_index(data.get("next_url")), format_func=link_label)
+    prev_id = st.selectbox("Previous-chapter link", link_ids, key=f"src_rv_prev{sfx}",
+                           index=link_index(data.get("previous_url")), format_func=link_label)
+    number_from = st.radio("Chapter number comes from", ["title", "url"], horizontal=True,
+                           key=f"src_rv_numfrom{sfx}")
+    if st.button("🔁 Re-run with these corrections", key="src_rv_rerun"):
+        rules = src_profiles.novel_rules_from_choices(page, content_sel, exclude, title_id,
+                                                      next_id, prev_id, number_from)
+        new, why = src_profiles.apply_novel_rules(page, rules)
+        if new is None:
+            st.error(why)
+        else:
+            ai_extract.validate_novel(new, page)
+            rv["data"], rv["rules"] = new, rules
+            st.rerun()
+    _save_profile_button(rv, "novel")
+    if st.button("📥 Import this text", key="src_rv_import_novel",
+                 disabled=not (rv["data"].get("content") or "").strip()):
+        pipeline.save_novel_text(rv["drama_id"], rv["data"]["content"], append=rv.get("append", True),
+                                 heading=rv["data"].get("chapter_title") or "")
+        st.success(f"Saved {len(rv['data']['content']):,} characters as the drama's raw novel text.")
+
+
+def _review_comic(rv: dict):
+    data = rv["data"]
+    cands = rv["candidates"]
+    sfx = rv.get("nonce", "")
+    page = ai_extract.PageModel(rv["html"], rv["url"])
+    roles = {p["resource_url"]: p["role"] for p in data["pages"]}
+    pos = {p["resource_url"]: p["index"] for p in data["pages"] if p["role"] == "content"}
+    st.caption("Mark each image, and number the pages in reading order (0 = not a page).")
+    new_roles, new_pos = {}, {}
+    for i, c in enumerate(cands[:80]):
+        cols = st.columns([1, 4, 2, 1])
+        if c.content:
+            try:
+                cols[0].image(c.content, width=70)
+            except Exception:
+                cols[0].caption("(preview unavailable)")
+        cols[1].caption(f"{c.url}\n{c.attr or 'src'} · {c.width}x{c.height}"
+                        + (f" · {c.reject_reason}" if c.reject_reason else ""))
+        role = roles.get(c.url, "other")
+        new_roles[c.url] = cols[2].selectbox(
+            "Role", ai_extract.COMIC_ROLES, key=f"src_rv_role_{i}{sfx}", label_visibility="collapsed",
+            index=ai_extract.COMIC_ROLES.index(role) if role in ai_extract.COMIC_ROLES else 0)
+        new_pos[c.url] = cols[3].number_input("Page", min_value=0, value=pos.get(c.url, -1) + 1,
+                                              key=f"src_rv_pos_{i}{sfx}", label_visibility="collapsed")
+    if st.button("🔁 Apply these corrections", key="src_rv_apply_comic"):
+        order = {u: n for u, n in new_pos.items() if n > 0}
+        new = src_profiles.comic_data_from_roles(page, cands, new_roles, order)
+        ai_extract.validate_comic(new, page, adaptive.measured(cands))
+        rv["data"], rv["rules"] = new, src_profiles.infer_comic_rules(cands, new)
+        st.rerun()
+    _save_profile_button(rv, "comic")
+    kept, _ = adaptive.images_for(rv["data"], cands)
+    if st.button(f"➕ Import these {len(kept)} page(s)", key="src_rv_import_comic", disabled=not kept):
+        n = pipeline.add_page_images(rv["drama_id"], [(c.content, c.ext) for c in kept])
+        st.success(f"Added {n} page(s) to the drama -- they're in the Scanlate tab now.")
+
+
+def _render_media_identify(p):
+    """Step 23g item 3: list media resources on a page nothing else
+    recognizes, and let the person pick which one the existing video
+    download path should fetch. Returns the chosen resource URL."""
+    engine = _ai_fallback_engine()
+    if st.button("🔎 Identify media on this page", key="src_fd_identify"):
+        data, report = adaptive.identify_media(p.url, p.html, engine)
+        st.session_state.src_fd_media = (p.url, data)
+        st.session_state.src_fd_report = report
+    got = st.session_state.get("src_fd_media")
+    if not got or got[0] != p.url or not got[1]:
+        return None
+    data = got[1]
+    for pr in data.get("protection") or []:
+        st.warning(f"{pr} detected on this page -- a protected stream won't be decrypted.")
+    playable = [r for r in data["resources"] if r["kind"] in ("video", "audio", "manifest", "embed")]
+    if not playable:
+        return None
+    main = next((i for i, r in enumerate(playable) if r["role"] == "main"), 0)
+    pick = st.selectbox("Resource to import", range(len(playable)), index=main,
+                        key="src_fd_media_pick",
+                        format_func=lambda i: f"{playable[i]['role']} · {playable[i]['kind']} · "
+                                              f"{playable[i]['resource_url']}")
+    subs = [r for r in data["resources"] if r["kind"] == "subtitle"]
+    for r in subs:
+        st.caption(f"Subtitle ({r.get('language') or '?'}): {r['resource_url']}")
+    return playable[pick]["resource_url"]
 
 
 def _render_search():
@@ -349,7 +615,40 @@ def _render_notifications():
             st.rerun()
 
 
+def _render_generic_diagnostics():
+    """Source Diagnostics for pasted URLs with no dedicated adapter (Step
+    23g item 7): read from the same access-attempt log as every other
+    source, plus each site's saved extraction profiles with rollback."""
+    rows = adaptive.recent_extractions(limit=15)
+    if not rows:
+        st.caption("No pasted-URL imports yet.")
+    for a in rows:
+        st.markdown(f"**{a['url']}** — {a.get('content_type')} — {a.get('headline')}")
+        st.caption(f"AI calls: {a.get('llm_calls', 0)}"
+                   + (" (cached result reused)" if a.get("cache_hit") else "")
+                   + " · " + adaptive.describe_profile(a.get("profile") or {}))
+        if a.get("reason"):
+            st.caption(f"Why: {a['reason']}")
+        for line in a.get("lines") or []:
+            st.caption(f"  · {line}")
+    domains = src_profiles.list_domains()
+    if domains:
+        st.markdown("**Saved site profiles**")
+    for d in domains:
+        for v in src_profiles.versions(d):
+            fail = v.get("last_failure") or {}
+            c = st.columns([5, 1])
+            c[0].caption(f"{d} · {v['kind']} v{v['version']} · {v['status']} · from {v['origin']}"
+                         + (f" · last failed: {fail.get('reason')}" if fail else ""))
+            if v["status"] != "active" and c[1].button("Make active", key=f"src_prof_{d}_{v['kind']}_{v['version']}"):
+                src_profiles.rollback(d, v["kind"], v["version"])
+                st.rerun()
+
+
 def _render_sources_detail():
+    st.markdown("**Pasted-URL imports (no dedicated adapter)**")
+    _render_generic_diagnostics()
+    st.divider()
     classes = registry.adapter_classes()
     for name, cls in classes.items():
         if getattr(cls, "is_demo", False) and not src_store.get_setting("demo_source_enabled"):
@@ -457,10 +756,15 @@ def _render_settings():
         help="Off by default: new chapters are announced, not downloaded.")
     demo = st.checkbox("Show the demo source (offline, for trying the workflow)",
                        value=bool(s["demo_source_enabled"]), key="src_set_demo")
+    diag = st.checkbox("Extraction diagnostics mode", value=bool(s["extraction_diagnostics"]),
+                       key="src_set_diag",
+                       help="Always show the Review Extraction screen and the source diagnostics "
+                            "for pasted-URL imports. Off: they only appear when confidence is low.")
     if st.button("💾 Save source settings", key="src_set_save"):
         for k, v in {"pace_min_delay": lo, "pace_max_delay": max(lo, hi), "max_concurrent": conc,
                      "max_retries": retries, "cache_mode": mode, "check_interval_hours": interval,
-                     "auto_queue_new_chapters": auto, "demo_source_enabled": demo}.items():
+                     "auto_queue_new_chapters": auto, "demo_source_enabled": demo,
+                     "extraction_diagnostics": diag}.items():
             src_store.set_setting(k, v)
         from sources.http import reset_pacing_state
         reset_pacing_state()

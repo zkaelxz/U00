@@ -106,6 +106,24 @@ work".
 | Known limits | The first chapter from a site can't use the cross-chapter repeat check yet, so a page-sized logo that shares the pages' width can get through. Pages drawn on a canvas or assembled by scripts need the browser tier. trafilatura's CJK extraction hasn't been benchmarked. |
 | Tests | `tests/test_sources_workflows.py` |
 
+### Adaptive extraction (Step 23g) — `sources/adaptive.py`, `sources/ai_extract.py`, `sources/profiles.py`
+
+Order tried for a pasted novel/comic URL, stopping at the first that
+passes the independent checks:
+
+1. **Saved site profile** (`<library>/source_profiles/<domain>.json`) — 0 AI calls.
+2. **Deterministic extraction** (the trafilatura/heuristic extractor and the comic filter above) — 0 AI calls.
+3. **AI-assisted fallback**, only when step 2 is empty or ambiguous and an engine is picked under **🤖 AI-assisted fallback** (off by default) — one `call_llm_json` call, cached by a hash of what the model reads. The model answers only with block/link/image ids; text and images are always copied from the page, never written by the model.
+
+| | |
+|---|---|
+| Confidence | Per field (title, author, chapter title/number, content, next/previous link, page images, page order) as a score and HIGH/MEDIUM/LOW/FAILED. It's checked independently (length, repeat rate, text actually on the page, URL shape, image size and duplicates). The model's own score can only lower a field's confidence. |
+| Profiles | Generated from an AI result, or from a profile that stopped fitting. Re-run on the page and validated before saving. Auto-saved only at HIGH, otherwise held for approval. Versions are append-only; a failing version is marked, never deleted; any version can be made active again under **🩺 Sources, health & diagnostics**. |
+| Review Extraction | Shown under the import when confidence is low, or always with **Extraction diagnostics mode** (Source settings). Novel: choose the text container, leave out nav/comments/ads, pick the title and next/previous links. Comic: mark each image content/cover/ad/..., renumber pages. Corrections can be saved as the site's profile; the source content itself is never edited. |
+| Media on unknown pages | For a video page no adapter or yt-dlp shortcut recognizes: **🔎 Identify media on this page** lists video/audio/manifest/subtitle resources (identify only). The one you pick goes through the normal video import. DRM markers are named, never worked around. |
+| Diagnostics | Each attempt is added to the same access-attempt log as the ladder (source `generic`). It records which access tier and which extraction tier worked, how many AI calls were made, what happened with the profile, any protection detected, and the plain-language reason for a failure. |
+| Tests | `tests/test_adaptive_extraction.py` — mocked engine, no network. |
+
 ## Video URLs
 
 Bilibili links go through the dedicated adapter above. YouTube, Vimeo,
@@ -168,3 +186,13 @@ they've been tried against the real site.
   Required before this adapter is trusted for real use -- not just before
   it's marked done in the roadmap's sense (see the batch instruction that
   authorized merging this step with these two checks still pending).
+- [ ] **Step 23g, Source Diagnostics:** during a real pasted-URL import,
+  open **🩺 Source diagnostics** (and the list under **🩺 Sources, health &
+  diagnostics**) and confirm it shows which tier actually worked, whether
+  a profile was used or generated, and a plain-language reason on a
+  deliberately broken page.
+- [ ] **Step 23g, Review Extraction:** with a real AI engine picked,
+  import a genuinely ambiguous page, correct one misclassified element
+  (e.g. mark an image as an ad), save it to the site's profile, and confirm
+  the next chapter from that site uses the corrected profile, with the
+  source content itself untouched.
