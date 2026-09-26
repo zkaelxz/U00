@@ -46,7 +46,8 @@ def build_drama_export_package(db_module, drama_id: int, out_path: str,
         rows = db_module.load_lines(drama_id)
         if rows:
             lines = [line_cls(idx=r["idx"], start=r["start"], end=r["end"],
-                               zh=r["zh"], en=r.get("en") or "", speaker=r.get("speaker"))
+                               zh=r["zh"], en=r.get("en") or "", speaker=r.get("speaker"),
+                               sfx=bool(r.get("sfx")))
                      for r in rows]
             zf.writestr("subtitles/english.srt", lines_to_srt_fn(lines, "en"))
             zf.writestr("subtitles/chinese.srt", lines_to_srt_fn(lines, "zh"))

@@ -101,6 +101,27 @@ def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
     return out_path
 
 
+def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float):
+    """Step 12c: a short [start, end) cut of the source with `ass_text`
+    burned in -- for checking the current subtitle style over real video
+    before a full export. `ass_text` must already be timed to the clip
+    (subtitle_formats.lines_for_clip), the same contract as
+    render_vertical_clip, just without the 9:16 crop. Re-encoded at a fast
+    preset since it's thrown away after viewing."""
+    fd, ass_path = tempfile.mkstemp(suffix=".ass")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(ass_text)
+    try:
+        cmd = ["ffmpeg", "-y", "-ss", str(max(start, 0.0)), "-i", video_path,
+               "-t", str(max(end - start, 0.1)),
+               "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
+               "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out_path]
+        subprocess.run(cmd, check=True, capture_output=True)
+    finally:
+        os.unlink(ass_path)
+    return out_path
+
+
 def _write_srt_tempfile(srt_text: str) -> str:
     fd, path = tempfile.mkstemp(suffix=".srt")
     with os.fdopen(fd, "w", encoding="utf-8") as f:

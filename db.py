@@ -541,6 +541,10 @@ def init_db():
         # 1 once a line's speaker was set by hand; re-running speaker
         # detection won't overwrite it without confirmation (Step 4).
         conn.execute("ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
+    if "sfx" not in existing_cols:
+        # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
+        # bracketed and styled apart from dialogue (Step 12c).
+        conn.execute("ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
     drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
     if "translation_engine" not in drama_cols:
         conn.execute("ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
@@ -928,7 +932,7 @@ from core import LINE_FIELDS as _LINE_COLUMNS  # noqa: E402 -- core has no db de
 
 def _line_value(ln, f):
     v = getattr(ln, f, None)
-    if f == "speaker_manual":
+    if f in ("speaker_manual", "sfx"):
         return int(bool(v))
     return "" if (f == "flag_note" and v is None) else v
 
@@ -1030,8 +1034,8 @@ def _delete_line_refs(conn, line_id):
 def load_lines(drama_id: int):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, speaker_manual "
-        "FROM lines WHERE drama_id = ? ORDER BY idx, id",
+        "SELECT id, idx, start, end, zh, en, speaker, dub_filename, flag, flag_note, speaker_manual, "
+        "sfx FROM lines WHERE drama_id = ? ORDER BY idx, id",
         (drama_id,)
     ).fetchall()
     conn.close()
