@@ -2095,8 +2095,9 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
     ollama_num_ctx_override: optional Settings override for OllamaEngine's
     context-window size. Ignored by every other engine. OllamaEngine
     itself never lets this go below what the actual prompt needs --
-    see _estimate_ollama_num_ctx's docstring for why."""
-    """lines: list of objects with .zh and .en attributes (mutated in place).
+    see _estimate_ollama_num_ctx's docstring for why.
+
+    lines: list of objects with .zh and .en attributes (mutated in place).
 
     character_names: optional {speaker_label: character_name} (see
     db.list_characters) -- resolves each line's raw diarization label

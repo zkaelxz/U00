@@ -45,7 +45,8 @@ import db
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
-    DEFAULT_WHISPER_SIZE,
+    DEFAULT_WHISPER_SIZE, build_initial_prompt, combine_initial_prompt,
+    extract_novel_excerpt_for_prompt, ModelDownloadError,
 )
 import translate_engines
 import translation_guide as tguide
@@ -145,6 +146,7 @@ def cmd_narrate_prep(args):
 
 def cmd_export_video(args):
     import video_export
+    import subtitle_formats
     from core import lines_to_srt, lines_to_bilingual_srt
 
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
@@ -161,6 +163,9 @@ def cmd_export_video(args):
         rows = db.load_lines(d["id"])
         lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r["zh"], en=r.get("en") or "",
                       sfx=bool(r.get("sfx"))) for r in rows]
+        # Step 25d item 6: same clamp Workspace's own export already applies --
+        # never burn in an overlapping (invalid) cue.
+        lines, _ = subtitle_formats.clamp_overlaps(lines)
 
         # A timed-but-textless subtitle track burns in fine and produces no
         # error -- it just looks broken in the finished video. Refuse rather
@@ -269,17 +274,45 @@ def cmd_align(args):
             return
         with open(transcript_path, "r", encoding="utf-8") as f:
             transcript_text = f.read()
+        # UI parity (Step 25d item 10): this command used to always use
+        # args.whisper_size (or its own hardcoded default), plain
+        # character-diff alignment, and no recognition priming at all --
+        # ignoring the drama's own saved Whisper size / alignment method
+        # (Workspace's own "3. Recognition accuracy" section) and its
+        # series glossary. (asr_backend_choice, the other setting in that
+        # same section, only affects transcripts with no user-supplied
+        # script -- this command always requires transcript.txt, so it
+        # never applies here and there's nothing to read for it.)
+        whisper_size = args.whisper_size or d.get("whisper_size") or DEFAULT_WHISPER_SIZE
+        alignment_method = d.get("alignment_method") or "whisper_diff"
+        glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else []
+        initial_prompt = build_initial_prompt(glossary_terms)
+        raw_novel_path = os.path.join(ddir, "raw_novel_context.txt")
+        if os.path.exists(raw_novel_path):
+            with open(raw_novel_path, "r", encoding="utf-8") as f:
+                initial_prompt = combine_initial_prompt(
+                    initial_prompt, extract_novel_excerpt_for_prompt(f.read()))
         print(f"#{d['id']} aligning ({d['title_en'] or d['title_zh']})...")
         db.heartbeat_gpu_lock(_gpu_holder)
-        segments = transcribe_for_timing(audio_path, args.whisper_size, language=d.get("source_language") or "zh",
-                                         fast_mode=getattr(args, "fast", False))
+        segments = transcribe_for_timing(audio_path, whisper_size, language=d.get("source_language") or "zh",
+                                         fast_mode=getattr(args, "fast", False), initial_prompt=initial_prompt)
         user_lines = split_user_transcript(transcript_text)
-        lines = align_transcript_to_timing(user_lines, segments)
+        if alignment_method == "qwen3_forced_align":
+            try:
+                import forced_align
+                lines = forced_align.align_with_qwen3(
+                    audio_path, user_lines, segments, language=d.get("source_language") or "zh")
+            except (ImportError, ModelDownloadError, ValueError) as exc:
+                print(f"#{d['id']} Qwen3 forced alignment unavailable ({exc}) -- using the "
+                      "default character-alignment method for this run.")
+                lines = align_transcript_to_timing(user_lines, segments)
+        else:
+            lines = align_transcript_to_timing(user_lines, segments)
         release_gpu_models()
         db.save_lines(d["id"], lines)
         # Same untouched-output record the Workspace transcription writes.
         raw_transcript.write_raw_transcript(
-            ddir, segments, lines, backend="whisper", model=args.whisper_size,
+            ddir, segments, lines, backend="whisper", model=whisper_size,
             language=d.get("source_language") or "zh", mode="aligned_transcript")
         db.update_drama(d["id"], status="aligned")
         print(f"#{d['id']} aligned {len(lines)} lines.")
@@ -441,6 +474,7 @@ def cmd_dub(args):
             out_path, dub_errors = build_fn(
                 lines, ddir, voice_map, character_clone_map=clone_map,
                 emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
+                tts_engine=getattr(args, "tts_engine", None) or "edge_tts",
                 progress_cb=_progress,
                 **stretch,
             )
@@ -487,7 +521,10 @@ def main():
 
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
-    p_align.add_argument("--whisper-size", default=DEFAULT_WHISPER_SIZE, choices=list(WHISPER_MODELS))
+    p_align.add_argument("--whisper-size", default=None, choices=list(WHISPER_MODELS),
+                         help="Defaults to the drama's own saved choice (Workspace's own "
+                              f"'3. Recognition accuracy'), or '{DEFAULT_WHISPER_SIZE}' if it "
+                              "has none.")
     p_align.add_argument("--fast", action="store_true",
                          help="Batched decoding (~4x faster on a GPU, more VRAM)")
     p_align.set_defaults(func=cmd_align)
@@ -547,6 +584,11 @@ def main():
                        help="Dub (not narration): the most a short line may be slowed toward its "
                             f"original timing (default {dub_module.DUB_MAX_SLOWDOWN}; 1 turns "
                             "slowing off)")
+    p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
+                       help="Fallback TTS engine used where a character has no cloned voice "
+                            "reference set (same choice as Workspace's own 8. AI dub / "
+                            "narration section). Step 25d item 10: this command used to have "
+                            "no such flag at all, so it could only ever use edge-tts.")
     p_dub.add_argument("--gpt-sovits-url", default=None,
                        help="GPT-SoVITS server for characters using it "
                             f"(default {dub_module.GPT_SOVITS_DEFAULT_URL})")

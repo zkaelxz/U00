@@ -34,11 +34,21 @@ EXPECTED_TOP_LEVEL_FILES = [
     "adaptive_style.py", "line_tools.py", "emotion.py", "ui_theme.py", "page_fetch.py",
     "forced_align.py", "asr_backend.py", "asr_benchmark.py", "video_download.py",
     "app_help.py",
+    # Step 25d item 9: this list had drifted -- these were all real,
+    # hard-imported modules missing from it, which meant the missing-file
+    # health check below could no longer actually catch one of them going
+    # missing.
+    "applog.py", "audio_preprocess.py", "auto_qc.py", "benchmark.py",
+    "bulk_translate.py", "check_setup.py", "hardsub_ocr.py", "live_translate.py",
+    "navigator.py", "portable.py", "raw_transcript.py", "resegment.py",
+    "sensevoice_tags.py", "subtitle_formats.py", "voice_id.py", "word_align.py",
 ]
 EXPECTED_TABS_FILES = [
     "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
     "reader_tab.py", "scanlate_tab.py", "navigator_tab.py", "discover_tab.py",
     "diagnostics_tab.py",
+    # Step 25d item 9: same drift as EXPECTED_TOP_LEVEL_FILES above.
+    "live_tab.py", "sources_tab.py", "translate_tab.py",
 ]
 
 # name -> (import name, feature it powers, required vs optional)
@@ -277,6 +287,55 @@ def delete_hf_cache_revision(revision: str, cache_dir: str = None) -> bool:
         strategy.execute()
         return True
     except Exception:
+        return False
+
+
+def scan_piper_voices(voices_dir: str = None) -> list:
+    """[{"voice", "size_bytes"}, ...] for every downloaded Piper voice
+    model, largest first. Step 25d item 14: this panel only ever scanned
+    the Hugging Face model cache above -- Piper voices (Step 25c item 1's
+    offline-voice picker) download to `library/piper_voices` instead, so
+    they were invisible here and to whatever cleanup/disk-usage view
+    relies on this. [] if the directory doesn't exist yet -- never
+    raises, same reasoning as scan_hf_cache above."""
+    if voices_dir is None:
+        import dub
+        voices_dir = dub.piper_voices_dir()
+    try:
+        if not os.path.isdir(voices_dir):
+            return []
+        entries = []
+        for fname in os.listdir(voices_dir):
+            if not fname.endswith(".onnx"):
+                continue
+            onnx_path = os.path.join(voices_dir, fname)
+            size = os.path.getsize(onnx_path)
+            json_path = onnx_path + ".json"
+            if os.path.exists(json_path):
+                size += os.path.getsize(json_path)
+            entries.append({"voice": fname[:-len(".onnx")], "size_bytes": size})
+        return sorted(entries, key=lambda e: -e["size_bytes"])
+    except OSError:
+        return []
+
+
+def delete_piper_voice(voice: str, voices_dir: str = None) -> bool:
+    """Deletes one downloaded Piper voice's .onnx + .onnx.json. False,
+    not raised, if neither file exists or the delete fails for any
+    reason (permissions, a file already gone)."""
+    if voices_dir is None:
+        import dub
+        voices_dir = dub.piper_voices_dir()
+    onnx_path = os.path.join(voices_dir, f"{voice}.onnx")
+    json_path = onnx_path + ".json"
+    try:
+        deleted = False
+        for path in (onnx_path, json_path):
+            if os.path.exists(path):
+                os.remove(path)
+                deleted = True
+        return deleted
+    except OSError:
         return False
 
 
