@@ -8,7 +8,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from . import store
+from . import ladder, store
 from .models import NotSupportedError, SourceError
 
 _ADAPTERS = {}
@@ -121,6 +121,7 @@ def multi_search(query: str, adapters=None, max_workers: int = 4) -> MultiSearch
 
     def one(adapter):
         try:
+            ladder.check_terms(adapter.name, adapter.capabilities())
             return adapter.name, list(adapter.search(query)), None
         except NotSupportedError as e:
             return adapter.name, [], str(e)
