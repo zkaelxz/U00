@@ -126,6 +126,29 @@ def render_reader_tab():
 
     defs = st.session_state.get(cache_key, {})
 
+    if defs:
+        with st.expander("🎴 Queue words for a richer Anki export (sentence + audio)"):
+            st.caption(
+                "Pick specific words from this page's definitions to add a richer "
+                "card for -- front = the full sentence it appeared in (with an "
+                "audio clip, for a drama with a source audio track), back = the "
+                "line's translation plus the word's definition and reading. "
+                "Separate from the plain word-only export below, which still "
+                "covers every word looked up in this drama.")
+            already_rich = {r["word"] for r in db.list_vocab_lookups(rdrama["id"], rich_only=True)}
+            pick_words = st.multiselect(
+                "Words defined on this page", options=sorted(defs.keys()),
+                default=[], key=f"rich_pick_{rdrama['id']}_{page}")
+            if st.button("➕ Add to rich Anki export queue", key=f"rich_add_{rdrama['id']}_{page}"):
+                if pick_words:
+                    for w in pick_words:
+                        db.set_vocab_export_rich(rdrama["id"], w, True)
+                    st.success(f"Queued {len(pick_words)} word(s) for the richer export.")
+                else:
+                    st.warning("Pick at least one word first.")
+            if already_rich:
+                st.caption(f"{len(already_rich)} word(s) already queued for this drama.")
+
     audio_data_uri = None
     if embed_audio and media_path and media_path[0] == "audio" and page_lines:
         with st.spinner("Preparing audio clip for this page..."):
@@ -413,6 +436,27 @@ def render_reader_tab():
                     vocab, rdrama["title_en"] or rdrama["title_zh"] or "Baihe Vocab", out_path)
                 with open(out_path, "rb") as f:
                     st.download_button("Download .apkg", f.read(), file_name="vocab.apkg")
+            except ImportError:
+                st.warning("Needs `pip install genanki` for .apkg export -- CSV works without it.")
+
+        rich_vocab = db.list_vocab_lookups(rdrama["id"], rich_only=True)
+        st.divider()
+        st.caption(
+            f"{len(rich_vocab)} word(s) queued above for the richer sentence+audio card. "
+            + ("This drama has a source audio track, so those cards include an audio "
+               "clip of the sentence." if media_path else
+               "This drama has no source audio track, so those cards are text-only "
+               "(sentence + translation + definition), no audio clip."))
+        if rich_vocab and st.button("🎴 Generate rich Anki .apkg (sentence + audio)"):
+            try:
+                out_path = os.path.join(rddir, "vocab_sentence.apkg")
+                vocab_export.export_vocab_apkg_sentence(
+                    rich_vocab, rlines,
+                    (rdrama["title_en"] or rdrama["title_zh"] or "Baihe Vocab") + " (sentences)",
+                    out_path, audio_path=media_path[1] if media_path else None)
+                with open(out_path, "rb") as f:
+                    st.download_button("Download sentence .apkg", f.read(),
+                                        file_name="vocab_sentence.apkg")
             except ImportError:
                 st.warning("Needs `pip install genanki` for .apkg export -- CSV works without it.")
 
