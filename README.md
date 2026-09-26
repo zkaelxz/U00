@@ -795,18 +795,23 @@ dub/narration track. Lower voice quality than edge-tts, but works with
 zero API calls and no network once the voice models are downloaded —
 useful for fully offline batch runs or avoiding any cloud dependency.
 
+**Fitting a dubbed line to its original timing**: when a dubbed clip
+is longer than the original line's time slot, it's sped up (pitch kept,
+via ffmpeg) by at most 1.4×; a shorter one is slowed toward its slot by
+at most 0.85×. Past the speed-up limit the line is left to run over
+rather than sound chipmunked — shorten it first with the pacing check in
+Review & edit. Both limits are adjustable in section 8 (and via
+`--max-speedup`/`--max-slowdown` on `cli.py dub`). After generating,
+section 8 shows each line as 🟢 fits, 🟡 sped up (hover for the factor),
+or 🔴 still runs over. Editing a line's text (or changing its voice)
+and generating again re-voices just that line; unchanged lines reuse
+their existing clips. Novel narration has no timing to fit, so none of
+this applies there.
+
 **Voice cloning (F5-TTS)**: `pip install f5-tts`. For each character,
 provide:
 - A reference audio clip (a clean few seconds of just that voice)
 - The exact text spoken in that clip (needed to anchor the clone)
-
-**Voice cloning (ElevenLabs, hosted alternative)**: `pip install
-elevenlabs` + an ElevenLabs API key (paid, limited free tier). No GPU
-or local model needed — you upload the same reference clip, the app
-clones the voice via their API, and reuses the resulting voice ID for
-all of that character's lines. Worth trying first if F5-TTS gives you
-setup trouble, at the cost of being a paid cloud service instead of
-free/local.
 
 **More local voice engines, picked per character** (Workspace section 6,
 "Voice engine"):
@@ -836,8 +841,8 @@ Characters set up before these existed keep using F5-TTS.
 **Narration generation**: several consecutive lines from the same
 speaker (within one paragraph) are voiced in one TTS call, which gives
 more natural cross-sentence delivery. Each line is still its own
-subtitle cue. With edge-tts or ElevenLabs, clips are generated a few at
-a time in parallel. Local engines always run one clip at a time.
+subtitle cue. With edge-tts, clips are generated a few at a time in
+parallel. Local engines always run one clip at a time.
 
 **Audiobook export**: after generating a novel narration, **🎧 Generate
 audiobook (.m4b)** in Export subtitles builds an M4B with chapter
