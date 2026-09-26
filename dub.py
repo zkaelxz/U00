@@ -431,16 +431,28 @@ def extract_reference_clips(audio_path: str, lines, speaker_segments, drama_dir:
                              min_duration: float = 3.0, max_duration: float = 12.0):
     """For each detected speaker, finds one reasonably clean, isolated
     segment of their voice (not overlapping another speaker) to use as
-    a cloning reference clip. Returns {speaker_label: clip_path}.
-    Pair this with the matching line's Chinese text as `ref_text` when
-    calling synthesize_line_cloned -- the original audio's own words,
-    not the translation, since the clip is still in the original voice."""
+    a cloning reference clip. Returns (clips, skipped):
+
+    clips: {speaker_label: {"path", "start", "end"}} for every speaker
+    a suitable segment was found for. Pair this with the matching
+    line's Chinese text as `ref_text` when calling synthesize_line_cloned
+    -- the original audio's own words, not the translation, since the
+    clip is still in the original voice.
+
+    skipped: {speaker_label: {"closest_duration", "reason"}} for every
+    OTHER speaker who has segments but none in [min_duration,
+    max_duration] -- reason is "too_short" or "too_long", naming which
+    bound their closest available segment actually missed, so a caller
+    can explain the gap instead of a bare "no clone reference set" that
+    looks identical to auto-extract never having run at all."""
     from pydub import AudioSegment
     audio = AudioSegment.from_file(audio_path)
 
     best_by_speaker = {}
+    durations_by_speaker = {}
     for seg in speaker_segments:
         dur = seg["end"] - seg["start"]
+        durations_by_speaker.setdefault(seg["speaker"], []).append(dur)
         if not (min_duration <= dur <= max_duration):
             continue
         prev_best = best_by_speaker.get(seg["speaker"])
@@ -457,7 +469,15 @@ def extract_reference_clips(audio_path: str, lines, speaker_segments, drama_dir:
         clip_path = os.path.join(ref_clips_dir, f"{speaker}.wav")
         clip.export(clip_path, format="wav")
         out[speaker] = {"path": clip_path, "start": seg["start"], "end": seg["end"]}
-    return out
+
+    skipped = {}
+    for speaker, durations in durations_by_speaker.items():
+        if speaker in out:
+            continue
+        closest = min(durations, key=lambda d: (min_duration - d) if d < min_duration else (d - max_duration))
+        skipped[speaker] = {"closest_duration": closest,
+                            "reason": "too_short" if closest < min_duration else "too_long"}
+    return out, skipped
 
 
 def assign_voices_to_characters(speaker_labels, voice_pool=None):

@@ -369,8 +369,11 @@ class TestModelEngineVersions:
         assert rows["GPT-SoVITS"]["version"] == "separate local server (not pip-installed)"
 
     def test_step_11b_pip_engines_are_registered_dependencies(self):
-        for label in ("omnivoice", "chatterbox", "tada"):
-            assert label in diagnostics.OPTIONAL_DEPENDENCIES
+        # keyed by the real pip name, since the Install button runs `pip install <key>`
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        assert deps["omnivoice"][0] == "omnivoice"
+        assert deps["chatterbox-tts"][0] == "chatterbox"
+        assert deps["hume-tada"][0] == "tada"
 
     def test_ollama_tag_appended_only_when_given(self):
         assert not any(v["name"].startswith("Ollama") for v in diagnostics.get_model_engine_versions())

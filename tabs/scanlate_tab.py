@@ -24,20 +24,51 @@ def render_scanlate_tab():
         pages_dir = os.path.join(sc_ddir, "pages")
         os.makedirs(pages_dir, exist_ok=True)
 
-        new_pages = st.file_uploader("Upload page image(s)", type=["png", "jpg", "jpeg"],
-                                      accept_multiple_files=True, key="scanlate_upload")
+        new_pages = st.file_uploader(
+            "Upload page image(s) or a PDF", type=["png", "jpg", "jpeg", "pdf"],
+            accept_multiple_files=True, key="scanlate_upload",
+            help="A PDF is split into one page per embedded image -- the common shape "
+                 "for a scanned-raw or finished-scanlation PDF. A PDF page with no "
+                 "embedded image (text/vector-only) is skipped, not added blank.")
         if new_pages and st.button("➕ Add these pages"):
+            import shutil
+            import tempfile
+            import scanlate
             existing = db.list_pages(sc_drama["id"])
             next_idx = len(existing)
             from PIL import Image as PILImage
-            for i, f in enumerate(new_pages):
-                fname = f"page_{next_idx + i:04d}{os.path.splitext(f.name)[1]}"
-                fpath = os.path.join(pages_dir, fname)
-                with open(fpath, "wb") as out:
-                    out.write(f.getbuffer())
-                w, h = PILImage.open(fpath).size
-                db.create_page(sc_drama["id"], next_idx + i, os.path.join("pages", fname), w, h)
-            st.success(f"Added {len(new_pages)} page(s).")
+            added = 0
+            pdf_skipped_total = 0
+            for f in new_pages:
+                ext = os.path.splitext(f.name)[1].lower()
+                if ext == ".pdf":
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        tmp_pdf_path = os.path.join(tmp_dir, f.name)
+                        with open(tmp_pdf_path, "wb") as out:
+                            out.write(f.getbuffer())
+                        extracted, skipped = scanlate.pdf_to_page_images(tmp_pdf_path, tmp_dir)
+                        for p in extracted:
+                            fname = f"page_{next_idx + added:04d}.png"
+                            fpath = os.path.join(pages_dir, fname)
+                            shutil.copy(p, fpath)
+                            w, h = PILImage.open(fpath).size
+                            db.create_page(sc_drama["id"], next_idx + added,
+                                           os.path.join("pages", fname), w, h)
+                            added += 1
+                        pdf_skipped_total += len(skipped)
+                else:
+                    fname = f"page_{next_idx + added:04d}{ext}"
+                    fpath = os.path.join(pages_dir, fname)
+                    with open(fpath, "wb") as out:
+                        out.write(f.getbuffer())
+                    w, h = PILImage.open(fpath).size
+                    db.create_page(sc_drama["id"], next_idx + added,
+                                   os.path.join("pages", fname), w, h)
+                    added += 1
+            msg = f"Added {added} page(s)."
+            if pdf_skipped_total:
+                msg += f" {pdf_skipped_total} PDF page(s) had no embedded image and were skipped."
+            st.success(msg)
             st.rerun()
 
         pages = db.list_pages(sc_drama["id"])
@@ -56,11 +87,32 @@ def render_scanlate_tab():
                 key="sc_engine")
             sc_api_key = synced_api_key_input("API key", sc_engine_choice, "sc_api_key")
             sc_backend = st.radio(
-                "Bubble detection", ["cv", "ml"],
-                format_func=lambda b: "🆓 Free heuristic (OpenCV, works on clean white bubbles)"
-                             if b == "cv" else
-                             "🎯 ML model (better accuracy, needs ultralytics+huggingface_hub, downloads a model)",
-                horizontal=False, key="sc_backend")
+                "Bubble detection", ["auto", "cv", "ml"],
+                format_func=lambda b: {
+                    "auto": "🤖 Auto (recommended -- ML model if its weights are already "
+                            "cached locally, the free heuristic otherwise)",
+                    "cv": "🆓 Free heuristic (OpenCV, works on clean white bubbles)",
+                    "ml": "🎯 ML model (better accuracy, needs transformers+huggingface_hub, "
+                          "downloads a model)",
+                }[b], horizontal=False, key="sc_backend")
+            st.caption("Inpainting (cleaning the original text) auto-selects the same way -- "
+                       "LaMa-manga if its weights are cached, plain OpenCV inpainting otherwise.")
+
+            _ocr_backend_options = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
+            oc1, oc2 = st.columns([2, 3])
+            sc_ocr_backend_choice = oc1.selectbox(
+                "OCR backend", _ocr_backend_options,
+                format_func=lambda b: "🤖 Auto (by source language)" if b == "auto" else b,
+                key="sc_ocr_backend",
+                help="Auto picks manga_ocr for Japanese, paddle for Chinese/Korean, tesseract "
+                     "otherwise -- override to force one, e.g. to compare paddle_vl_manga "
+                     "against manga_ocr on a Japanese page.")
+            sc_prefer_paddle_vl_manga = oc2.checkbox(
+                "For Japanese, Auto prefers PaddleOCR-VL-For-Manga over manga_ocr",
+                value=False, key="sc_prefer_paddle_vl_manga",
+                help="Opt-in second Japanese backend -- only affects what Auto picks. Its own "
+                     "model card doesn't benchmark against manga_ocr, so leave this off until "
+                     "a real side-by-side on your own pages says it's actually better.")
 
             if st.button("🔍 Detect bubbles + auto-clean + auto-translate"):
                 import scanlate
@@ -97,24 +149,19 @@ def render_scanlate_tab():
                 # like a flicker rather than an explanation.
                 st.session_state[f"detect_notes_{picked_page_label}"] = _detect_notes
                 with st.spinner("Running OCR on each bubble..."):
-                    import ocr as ocr_module
+                    ocr_backend_override = (None if sc_ocr_backend_choice == "auto"
+                                             else sc_ocr_backend_choice)
                     for b in boxes:
-                        crop_path = os.path.join(sc_ddir, "_bubble_crop.png")
-                        from PIL import Image as PILImage
-                        # Inset slightly before cropping -- OCRing the box's own
-                        # border can make Tesseract return nothing at all or a
-                        # few stray characters instead of the real text.
-                        ocr_box = scanlate.inset_box_for_ocr(b)
-                        PILImage.open(page_path).crop(
-                            (ocr_box["x"], ocr_box["y"],
-                             ocr_box["x"] + ocr_box["w"], ocr_box["y"] + ocr_box["h"])
-                        ).save(crop_path)
-                        backend = "manga_ocr" if sc_lang == "ja" else "tesseract"
+                        # ocr_box_region() insets the box before cropping -- OCRing
+                        # a bubble's own border can make some backends return
+                        # nothing at all or a few stray characters instead of the
+                        # real text -- and routes to the right backend for
+                        # sc_lang (Step 11 item 4), or the manual override above.
                         try:
-                            b["source_text"] = ocr_module.extract_text_from_images(
-                                [crop_path], backend=backend, source_language=sc_lang,
-                                tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None
-                            ).strip()
+                            b["source_text"] = scanlate.ocr_box_region(
+                                page_path, b, sc_lang, backend=ocr_backend_override,
+                                tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None,
+                                prefer_paddle_vl_manga=sc_prefer_paddle_vl_manga)
                         except Exception:
                             b["source_text"] = ""
                         # Classical-CV style guess (stroke weight/irregularity,
@@ -212,11 +259,29 @@ def render_scanlate_tab():
                     my = mc2.number_input("y", value=0, key="manual_y")
                     mw = mc3.number_input("w", value=150, key="manual_w")
                     mh = mc4.number_input("h", value=80, key="manual_h")
+                    if st.button("🔎 OCR this region", key="manual_ocr_button",
+                                 help="Runs OCR on the box above instead of requiring the "
+                                      "source text to be typed in by hand -- for text the "
+                                      "auto-detector missed."):
+                        try:
+                            ocr_text = scanlate.ocr_box_region(
+                                page_path, {"x": mx, "y": my, "w": mw, "h": mh}, sc_lang,
+                                backend=(None if sc_ocr_backend_choice == "auto"
+                                         else sc_ocr_backend_choice),
+                                tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None,
+                                prefer_paddle_vl_manga=sc_prefer_paddle_vl_manga)
+                            st.session_state["manual_source_text"] = ocr_text
+                            if not ocr_text:
+                                st.warning("OCR found no text in this region.")
+                        except Exception as e:
+                            st.warning(f"OCR failed: {e}")
+                    msource = st.text_input(
+                        "Source text (filled by OCR above, or type by hand)", key="manual_source_text")
                     mtext = st.text_input("Translated text", key="manual_text")
                     if st.button("Add bubble"):
                         edited_bubbles.append({"x": mx, "y": my, "w": mw, "h": mh, "font_size": 18,
-                                               "source_text": "", "translated_text": mtext, "skip": False,
-                                               "font_category": "regular"})
+                                               "source_text": msource, "translated_text": mtext,
+                                               "skip": False, "font_category": "regular"})
 
                 with st.expander("🔤 Custom fonts (optional)"):
                     st.caption(
@@ -238,6 +303,80 @@ def render_scanlate_tab():
                         if os.path.exists(existing_font):
                             custom_fonts[cat] = existing_font
                             st.caption(f"✅ Using uploaded {cat} font.")
+
+                with st.expander("🖌️ Manual erase/heal brush"):
+                    st.caption(
+                        "Paint over anything the detector missed -- a sound effect, background "
+                        "text, or a stray artifact outside any bubble box -- and it's inpainted "
+                        "directly, no bubble/box required. Uses the same backend as the bubble "
+                        "inpainting above (LaMa-manga if its weights are cached, OpenCV otherwise)."
+                    )
+                    try:
+                        from streamlit_drawable_canvas import st_canvas
+                        from PIL import Image as PILImage
+                        _brush_src = PILImage.open(page_path).convert("RGB")
+                        _disp_w = min(500, _brush_src.width)
+                        _scale = _disp_w / _brush_src.width
+                        _disp_h = max(1, int(_brush_src.height * _scale))
+                        brush_size = st.slider("Brush size", 5, 60, 20, key="brush_size")
+                        canvas_result = st_canvas(
+                            fill_color="rgba(255, 0, 0, 0.4)", stroke_width=brush_size,
+                            stroke_color="#ff0000",
+                            background_image=_brush_src.resize((_disp_w, _disp_h)),
+                            update_streamlit=True, height=_disp_h, width=_disp_w,
+                            drawing_mode="freedraw", key="brush_canvas")
+                        if st.button("🩹 Erase brushed region"):
+                            _alpha = (canvas_result.image_data[:, :, 3]
+                                      if canvas_result.image_data is not None else None)
+                            if _alpha is None or not (_alpha > 0).any():
+                                st.warning("Paint over something first.")
+                            else:
+                                import cv2 as _cv2
+                                mask_small = (_alpha > 0).astype("uint8")
+                                mask_full = _cv2.resize(
+                                    mask_small, (_brush_src.width, _brush_src.height),
+                                    interpolation=_cv2.INTER_NEAREST)
+                                brush_out_path = os.path.join(
+                                    sc_ddir, "pages", f"typeset_{page['idx']:04d}.png")
+                                # Brush over the already-rendered typeset page when one
+                                # exists, so this doesn't undo prior bubble renders --
+                                # otherwise the original.
+                                base_for_brush = (brush_out_path
+                                                   if os.path.exists(brush_out_path) else page_path)
+                                try:
+                                    scanlate.inpaint_mask_region(
+                                        base_for_brush, mask_full, out_path=brush_out_path)
+                                    st.success("Erased.")
+                                except scanlate.InpaintModelUnavailable as exc:
+                                    st.warning(str(exc))
+                                db.update_page(page["id"], rendered_filename=os.path.join(
+                                    "pages", os.path.basename(brush_out_path)))
+                                st.rerun()
+                    except ImportError:
+                        st.info(
+                            "The manual erase/heal brush needs an extra package:\n\n"
+                            "    pip install streamlit-drawable-canvas\n\n"
+                            "(its PyPI page shows no release in the past 12 months -- a real "
+                            "maintenance-inactive flag, though the component itself is simple "
+                            "enough -- a Fabric.js wrapper -- that inactivity alone isn't "
+                            "disqualifying; worth a quick compatibility check against this "
+                            "app's pinned Streamlit version before relying on it.)"
+                        )
+                    except Exception as exc:
+                        # Confirmed directly while building this: streamlit-drawable-canvas
+                        # can fail at setup with a real incompatibility against a newer
+                        # Streamlit release (StreamlitAPIException, not ImportError) rather
+                        # than a missing package -- same maintenance-inactive risk flagged
+                        # above, now observed rather than just suspected. Caught broadly so
+                        # that shows as a clear message instead of crashing the whole tab.
+                        st.info(
+                            f"The manual erase/heal brush's component ("
+                            f"streamlit-drawable-canvas) failed to load: "
+                            f"{type(exc).__name__}: {exc}\n\n"
+                            "This looks like the package's own maintenance-inactive gap "
+                            "(no release in over a year) catching up with a newer Streamlit "
+                            "release -- check for an updated/alternative canvas component."
+                        )
 
                 if st.button("💾 Save bubble edits"):
                     db.save_bubbles(page["id"], edited_bubbles)
@@ -322,4 +461,56 @@ def render_scanlate_tab():
                 with open(zip_path, "rb") as f:
                     st.download_button(f"Download {len(to_render) - len(render_errors)} typeset pages (.zip)",
                                         f.read(), file_name="typeset_pages.zip")
+                rendered_paths = [os.path.join(sc_ddir, "pages", name) for _, _, name in to_render
+                                  if os.path.exists(os.path.join(sc_ddir, "pages", name))]
+                if rendered_paths:
+                    import scanlate
+                    pdf_path = os.path.join(sc_ddir, "pages", "typeset_pages.pdf")
+                    scanlate.pages_to_pdf(rendered_paths, pdf_path)
+                    with open(pdf_path, "rb") as f:
+                        st.download_button(f"Download {len(rendered_paths)} typeset pages (.pdf)",
+                                            f.read(), file_name="typeset_pages.pdf")
+
+        st.divider()
+        st.subheader("🔎 Bulk find & replace")
+        st.caption(
+            "Retroactively corrects already-translated bubble text across every saved page of "
+            "this drama at once -- a name translated inconsistently before a glossary entry "
+            "existed, or a typo that repeats. Distinct from the glossary (shapes future "
+            "translations) and from translation memory (suggests reuse going forward). Every "
+            "match is shown before anything is applied."
+        )
+        fr1, fr2 = st.columns(2)
+        fr_find = fr1.text_input("Find", key="sc_fr_find")
+        fr_replace = fr2.text_input("Replace with", key="sc_fr_replace")
+        fr3, fr4 = st.columns(2)
+        fr_case_sensitive = fr3.checkbox("Case-sensitive", value=False, key="sc_fr_case")
+        fr_regex = fr4.checkbox("Regex", value=False, key="sc_fr_regex")
+        if st.button("🔍 Preview matches"):
+            import scanlate
+            if not fr_find:
+                st.warning("Enter something to find first.")
+            else:
+                try:
+                    matches = scanlate.bulk_find_replace_preview(
+                        db.list_bubbles_for_drama(sc_drama["id"]), fr_find, fr_replace,
+                        case_sensitive=fr_case_sensitive, use_regex=fr_regex)
+                except ValueError as e:
+                    matches = None
+                    st.error(str(e))
+                if matches is not None:
+                    st.session_state["sc_fr_matches"] = matches
+                    if not matches:
+                        st.info("No matches found.")
+                    else:
+                        st.write(f"{len(matches)} match(es):")
+                        st.table([{"Page": m["page_idx"] + 1, "Before": m["old_text"],
+                                   "After": m["new_text"]} for m in matches])
+        _fr_matches = st.session_state.get("sc_fr_matches") or []
+        if _fr_matches and st.button(f"✅ Apply {len(_fr_matches)} change(s)"):
+            for m in _fr_matches:
+                db.update_bubble_text(m["id"], m["new_text"])
+            st.session_state["sc_fr_matches"] = []
+            st.success(f"Applied {len(_fr_matches)} change(s). Re-render affected pages to see "
+                       f"them in the typeset output.")
 
