@@ -94,3 +94,47 @@ class TestSourcesTab:
         at.toggle(key="src_adult_manhuagui").set_value(True)
         at.run(timeout=30)
         assert store.adult_enabled("manhuagui") and not store.adult_enabled("demo")
+
+    def _video_preview(self):
+        from sources import front_door
+        return front_door.Preview(url="https://www.youtube.com/watch?v=abc123def45",
+                                  content_type=front_door.VIDEO, platform="youtube")
+
+    def test_importing_video_into_a_drama_with_existing_audio_needs_confirmation(
+            self, isolated_db, monkeypatch):
+        from sources import chapter_check
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+        drama_id = isolated_db.create_drama(title_zh="已有音频", media_type="streamer_vod",
+                                            audio_filename="audio.wav")
+        at = _app(isolated_db, src_fd_result=self._video_preview())
+        picker = at.selectbox(key="src_fd_video_drama")
+        assert any("⚠️ has audio" in o for o in picker.options)
+        confirm = [c for c in at.checkbox if c.key == f"src_fd_video_confirm_overwrite_{drama_id}"]
+        assert confirm and confirm[0].value is False
+        assert _button(at, "⬇️ Import video").disabled
+
+    def test_importing_video_into_a_fresh_drama_needs_no_confirmation(self, isolated_db,
+                                                                       monkeypatch):
+        from sources import chapter_check
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+        isolated_db.create_drama(title_zh="空", media_type="streamer_vod")
+        at = _app(isolated_db, src_fd_result=self._video_preview())
+        picker = at.selectbox(key="src_fd_video_drama")
+        assert not any("⚠️ has audio" in o for o in picker.options)
+        assert not [c for c in at.checkbox if c.key.startswith("src_fd_video_confirm_overwrite_")]
+        assert not _button(at, "⬇️ Import video").disabled
+
+    def test_checking_the_confirmation_allows_importing_over_existing_audio(
+            self, isolated_db, monkeypatch):
+        from sources import chapter_check, front_door
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+        drama_id = isolated_db.create_drama(title_zh="已有音频", media_type="streamer_vod",
+                                            audio_filename="old_audio.wav")
+        calls = []
+        monkeypatch.setattr(front_door, "import_video",
+                            lambda *a, **k: calls.append((a, k)) or "/fake/path.wav")
+        at = _app(isolated_db, src_fd_result=self._video_preview())
+        at.checkbox(key=f"src_fd_video_confirm_overwrite_{drama_id}").set_value(True).run(timeout=30)
+        assert not _button(at, "⬇️ Import video").disabled
+        _button(at, "⬇️ Import video").click().run(timeout=30)
+        assert calls and calls[0][0][1] == drama_id
