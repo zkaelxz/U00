@@ -31,41 +31,14 @@ def render_scanlate_tab():
             help="A PDF is split into one page per embedded image -- the common shape "
                  "for a scanned-raw or finished-scanlation PDF. A PDF page with no "
                  "embedded image (text/vector-only) is skipped, not added blank.")
+        slice_strips = st.checkbox(
+            "✂️ Slice tall webtoon strips into pages", value=False, key="scanlate_slice_strips",
+            help="A long vertical strip (much taller than it is wide) is cut at the blank "
+                 "gaps between panels into page-sized slices, with a small overlap so a bubble "
+                 "on a cut isn't lost. Ordinary pages are added as they are.")
         if new_pages and st.button("➕ Add these pages"):
-            import shutil
-            import tempfile
-            import scanlate
-            existing = db.list_pages(sc_drama["id"])
-            next_idx = len(existing)
-            from PIL import Image as PILImage
-            added = 0
-            pdf_skipped_total = 0
-            for f in new_pages:
-                ext = os.path.splitext(f.name)[1].lower()
-                if ext == ".pdf":
-                    with tempfile.TemporaryDirectory() as tmp_dir:
-                        tmp_pdf_path = os.path.join(tmp_dir, f.name)
-                        with open(tmp_pdf_path, "wb") as out:
-                            out.write(f.getbuffer())
-                        extracted, skipped = scanlate.pdf_to_page_images(tmp_pdf_path, tmp_dir)
-                        for p in extracted:
-                            fname = f"page_{next_idx + added:04d}.png"
-                            fpath = os.path.join(pages_dir, fname)
-                            shutil.copy(p, fpath)
-                            w, h = PILImage.open(fpath).size
-                            db.create_page(sc_drama["id"], next_idx + added,
-                                           os.path.join("pages", fname), w, h)
-                            added += 1
-                        pdf_skipped_total += len(skipped)
-                else:
-                    fname = f"page_{next_idx + added:04d}{ext}"
-                    fpath = os.path.join(pages_dir, fname)
-                    with open(fpath, "wb") as out:
-                        out.write(f.getbuffer())
-                    w, h = PILImage.open(fpath).size
-                    db.create_page(sc_drama["id"], next_idx + added,
-                                   os.path.join("pages", fname), w, h)
-                    added += 1
+            added, pdf_skipped_total = add_uploaded_pages(sc_drama["id"], pages_dir, new_pages,
+                                                          slice_strips=slice_strips)
             msg = f"Added {added} page(s)."
             if pdf_skipped_total:
                 msg += f" {pdf_skipped_total} PDF page(s) had no embedded image and were skipped."
@@ -564,3 +537,46 @@ def render_scanlate_tab():
                 st.success(f"Applied {len(_fr_matches)} change(s). Re-render affected pages to see "
                            f"them in the typeset output.")
 
+
+def add_uploaded_pages(drama_id: int, pages_dir: str, uploads, slice_strips: bool = False):
+    """Saves uploaded images/PDFs as the drama's next pages. Returns
+    (pages added, PDF pages skipped for having no embedded image)."""
+    import shutil
+    import tempfile
+    import scanlate
+    from PIL import Image as PILImage
+    next_idx = len(db.list_pages(drama_id))
+    added = 0
+    pdf_skipped_total = 0
+
+    def add_copy(src_path, ext):
+        nonlocal added
+        fname = f"page_{next_idx + added:04d}{ext}"
+        fpath = os.path.join(pages_dir, fname)
+        shutil.copy(src_path, fpath)
+        with PILImage.open(fpath) as im:
+            w, h = im.size
+        db.create_page(drama_id, next_idx + added, os.path.join("pages", fname), w, h)
+        added += 1
+
+    for f in uploads:
+        ext = os.path.splitext(f.name)[1].lower()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # A fixed temp name: OpenCV can't open non-ASCII paths on Windows.
+            tmp_path = os.path.join(tmp_dir, "upload" + ext)
+            with open(tmp_path, "wb") as out:
+                out.write(f.getbuffer())
+            if ext == ".pdf":
+                extracted, skipped = scanlate.pdf_to_page_images(tmp_path, tmp_dir)
+                for p in extracted:
+                    add_copy(p, ".png")
+                pdf_skipped_total += len(skipped)
+                continue
+            with PILImage.open(tmp_path) as im:
+                size = im.size
+            if slice_strips and scanlate.is_webtoon_strip(*size):
+                for p in scanlate.slice_webtoon_to_files(tmp_path, tmp_dir):
+                    add_copy(p, ".png")
+            else:
+                add_copy(tmp_path, ext)
+    return added, pdf_skipped_total

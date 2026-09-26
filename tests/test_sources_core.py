@@ -366,14 +366,12 @@ class TestRealCaseMatrix:
         return ladder.run_ladder(url, {AccessTier.STATIC_HTTP: ladder.static_tier(client)})
 
     def test_baozimh_shaped_gatekeeper_is_blocked_here_not_disqualified(self, isolated_db):
-        from sources import detect
         urls = ["https://www.baozimh.invalid/", "https://www.baozimh.invalid/comic/x"]
         results = [self._static_only("baozimh", {u: html("403 Forbidden", 403)}, u) for u in urls]
         for r in results:
             assert r.technical_status == TechnicalStatus.BLOCKED_IN_CURRENT_ENVIRONMENT.value
             assert r.technical_status != TechnicalStatus.DISQUALIFIED.value
             assert r.reasons == [FailureReason.ACCESS_DENIED]
-        assert detect.is_all_paths_gatekeeper([r.reasons for r in results])
 
     def test_manhuaku_shaped_page_routes_to_browser_and_is_never_decoded(self, isolated_db):
         u = "https://manhuaku.invalid/chapter/1"

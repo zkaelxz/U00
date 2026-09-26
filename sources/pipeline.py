@@ -23,10 +23,10 @@ import time
 import background_jobs
 import db
 
-from . import registry
+from . import ladder, registry
 from .cache import RawCache
 from .http import Cancelled
-from .models import ChallengeDetected, ChapterInfo, SourceError
+from .models import ChallengeDetected, ChapterInfo, SourceError, TermsProhibited
 
 # Scanlate's uploader accepts these as-is; anything else (webp, avif,
 # gif...) is converted to PNG first so downstream code sees the same
@@ -130,6 +130,7 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
             state.update(chapter=i, page=0, pages=0)
             publish(adapter.client.snapshot())
             try:
+                ladder.check_terms(source, adapter.capabilities())
                 if adapter.supports("get_pages"):
                     pages = adapter.get_pages(ch)
                     state["pages"] = len(pages)
@@ -150,6 +151,10 @@ def run_import_job(job_id: str, source: str, chapters, drama_id: int, adapter=No
                 handoff = {"url": e.url, "reason": e.reason.value, "chapter": ch.title}
                 results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,
                                 "error": str(e)})
+                break
+            except TermsProhibited as e:
+                results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,
+                                "error": f"{e.reason.value}: {e}"})
                 break
             except SourceError as e:
                 results.append({"chapter_id": ch.chapter_id, "title": ch.title, "ok": False,

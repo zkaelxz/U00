@@ -15,7 +15,7 @@ from sources import (adaptive, ai_extract, cache as src_cache, chapter_check, ch
                      front_door, generic_import, health, ladder as src_ladder, pipeline,
                      profiles as src_profiles, registry, store as src_store)
 from sources.models import (AccessTier, CHALLENGE_HANDOFF_MESSAGE, ChallengeDetected,
-                            NotSupportedError, SourceError)
+                            NotSupportedError, SourceError, TermsProhibited)
 
 _COMIC_MEDIA = ("manhua", "manga", "manhwa")
 
@@ -137,7 +137,7 @@ def _render_front_door():
             with st.spinner("Downloading and checking each image..."):
                 try:
                     res, report = adaptive.import_comic(p.url, engine, user_html=user_html)
-                except generic_import.NoContentFound as e:
+                except (generic_import.NoContentFound, TermsProhibited) as e:
                     st.error(str(e))
                     st.session_state.src_fd_report = getattr(e, "report", None)
                     res = None
@@ -166,7 +166,7 @@ def _render_front_door():
         if drama_id and st.button("📥 Import text", key="src_fd_import_novel"):
             try:
                 res, report = adaptive.import_novel(p.url, engine, user_html=user_html)
-            except generic_import.NoContentFound as e:
+            except (generic_import.NoContentFound, TermsProhibited) as e:
                 st.error(str(e))
                 st.session_state.src_fd_report = getattr(e, "report", None)
                 res = None

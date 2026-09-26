@@ -61,6 +61,7 @@ class FailureReason(str, Enum):
     SIGNED_RESOURCE = "SIGNED_RESOURCE"
     NOT_INSTALLED = "NOT_INSTALLED"      # the tier's own tooling isn't set up here
     NOT_BUILT = "NOT_BUILT"              # the tier exists in the ladder but its step hasn't shipped
+    TOS_PROHIBITED = "TOS_PROHIBITED"    # refused before any request: the source's terms forbid it
     UNKNOWN = "UNKNOWN"
 
 
@@ -76,12 +77,6 @@ ENVIRONMENT_BLOCK_REASONS = {
     FailureReason.ACCESS_DENIED, FailureReason.IP_REPUTATION_BLOCK,
     FailureReason.GEO_RESTRICTION, FailureReason.CDN_RESTRICTION,
     FailureReason.CLOUDFLARE_CHALLENGE, FailureReason.BOT_CHALLENGE,
-}
-
-# Page needs JS/rendering -- the signal to try RENDERED_BROWSER next.
-NEEDS_BROWSER_REASONS = {
-    FailureReason.JAVASCRIPT_REQUIRED, FailureReason.EMPTY_SPA_SHELL,
-    FailureReason.ENCRYPTED_RESOURCE,
 }
 
 # Protected content. Recorded, never circumvented.
@@ -286,6 +281,14 @@ class SourceUnavailable(SourceError):
 
 class FetchFailed(SourceError):
     """A single request failed for a reason that isn't a challenge."""
+
+
+class TermsProhibited(SourceError):
+    """The source's own terms (its capability record's terms block)
+    prohibit automated access. Refused before any request is sent."""
+
+    def __init__(self, message: str):
+        super().__init__(message, FailureReason.TOS_PROHIBITED)
 
 
 class ContentHidden(SourceError):

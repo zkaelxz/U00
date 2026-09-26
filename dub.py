@@ -516,6 +516,20 @@ def assign_voices_to_characters(speaker_labels, voice_pool=None):
     return {label: voice_pool[i % len(voice_pool)] for i, label in enumerate(sorted(speaker_labels))}
 
 
+def fill_missing_voices(voice_map: dict, speaker_labels, voice_pool=None) -> dict:
+    """`voice_map` plus a distinct pool voice for every speaker it doesn't
+    cover -- so unvoiced characters don't all share one fallback voice.
+    Voices already picked for someone are skipped while the pool allows."""
+    voice_map = dict(voice_map or {})
+    missing = [s for s in speaker_labels if s and s not in voice_map]
+    if not missing:
+        return voice_map
+    pool = voice_pool or DEFAULT_VOICE_POOL
+    unused = [v for v in pool if v not in voice_map.values()] or pool
+    voice_map.update(assign_voices_to_characters(missing, unused))
+    return voice_map
+
+
 # Step 11e: a clip's filename carries a short signature of exactly what
 # it was synthesized from, not just the line's index -- otherwise a line
 # edited after dubbing silently reused its old audio, since a file already
