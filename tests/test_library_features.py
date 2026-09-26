@@ -872,6 +872,21 @@ class TestSeriesPickerSharedBetweenMetadataAndGlossary:
         meta_picker = [s for s in at.selectbox if s.key and s.key.startswith(f"meta_series_pick_{did}_")][0]
         assert meta_picker.value == "Shared Universe 2"
 
+    def test_series_instructions_render_once_and_save_with_two_pickers(self, isolated_db):
+        # Step 12e's series-instructions box is rendered by the glossary
+        # expander's caller, not inside _series_picker() -- so the second
+        # (✏️ Edit metadata) picker must not duplicate it.
+        sid = isolated_db.get_or_create_series("Instructed Series")
+        did = isolated_db.create_drama(title_en="A Drama")
+        isolated_db.update_drama(did, series_id=sid)
+        at = self._run(did)
+        assert not at.exception
+
+        boxes = [t for t in at.text_area if t.key == f"series_instructions_{sid}"]
+        assert len(boxes) == 1
+        boxes[0].input("Keep 师姐 as Shijie.").run(timeout=30)
+        assert isolated_db.get_drama(did)["series_instructions"] == "Keep 师姐 as Shijie."
+
 
 class TestSeriesSharingIndicators:
     """Step 22 item 2: a "shared from this series" note wherever a
