@@ -51,6 +51,7 @@ class TestRawNovelContextRemove:
         at = _run(did)
         assert not at.exception
 
+        at.checkbox(key=f"confirm_rmraw_{did}").set_value(True).run(timeout=30)
         remove_button = [b for b in at.button if b.label == "🗑️ Remove raw novel context"]
         assert remove_button, "Remove button not found -- expander may not have opened"
         remove_button[0].click().run(timeout=30)
@@ -81,6 +82,7 @@ class TestRawNovelContextRemove:
 
         # The uploader widget still holds the file (never explicitly cleared) --
         # this is exactly the state that used to make Remove a no-op.
+        at.checkbox(key=f"confirm_rmraw_{did}").set_value(True).run(timeout=30)
         remove_button = [b for b in at.button if b.label == "🗑️ Remove raw novel context"]
         remove_button[0].click().run(timeout=30)
 
