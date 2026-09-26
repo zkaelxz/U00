@@ -2,23 +2,19 @@
 
 > **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against the GitHub API and real git state, not carried over from any earlier note here:
 >
-> **Merged, all of it**: every step from 1 through 22, plus 12d, 18b, 18c, 20b, 21, 12e, 4k, 6i, 11c/11d/11e, 23/23b, 25, 12c, 25b, 25e, 22b, 23c, 23d, 23e, 25c, 23f, 12b, 23g, 25f, 12, 23h, 25g/25h, 23i, 25i, 23j, and **25j/25k/25l/25m/25n/25q/25r/25s (PRs #96–#104, opened and merged directly by the planning session — all independently verified before opening, CI green (PR #102 needed one re-run over an unrelated pre-existing `TestNotifyOnCompletion` flake), no separate re-review needed)**. The entire first-QC-pass series (25/25b/25c/25d-pending/25e through 25s) is now merged except **25d, 25o, 25p** — see below.
+> **Merged, all of it**: every step from 1 through 22, plus 12d, 18b, 18c, 20b, 21, 12e, 4k, 6i, 11c/11d/11e, 23/23b, 25, 12c, 25b, 25e, 22b, 23c, 23d, 23e, 25c, 23f, 12b, 23g, 25f, 12, 23h, 25g/25h, 23i, 25i, 23j, **25j/25k/25l/25m/25n/25q/25r/25s (PRs #96–#104)**, and — the entire 23-series autonomous adapter batch is now complete — **23k (PR #105) and 23l (PR #106, its final step)**, plus **25o/25t/25u (PRs #107/#108/#109, opened and merged directly by the planning session, all independently verified before opening, CI green on all three)**. The entire first-QC-pass series is now merged except **25d, 25p** — see below. Both previously-unnumbered flagged findings (25t, 25u) are also now merged.
 >
-> **A second adversarial QC pass (2026-09-27), scoped broader than the first** (dub.py, background_jobs.py, the newer source adapters, cli.py, translate_engines.py's other engines) **found 20 more issues.** Only the single most severe one — Sources' "Import video" overwriting an existing drama's audio — was independently re-verified before writing it up; that's **Step 25s, now merged** (see above). **A background re-verification agent is still running** to independently trace the other 19 (cost-cap bypasses, an always-broken/uncached-per-rerun Discover translation call, secret-redaction gaps in six more places, GPU-guard bypasses, and more) before any of them get written into the roadmap as confirmed steps — nothing should be added from that batch until its verdict comes back.
+> **The 23-series adapter batch (Step 23 → 23l) is done.** Every planned source adapter is built and merged; nothing further is queued in that series.
 >
-> **Sent to build, no report back yet**: **23k** (next autonomous adapter — needs an Opus confirmation stop, expect it to pause and ask before starting).
+> **A second adversarial QC pass (2026-09-27) found 20 issues; only the most severe (Step 25s) was written up and merged.** The background agent dispatched to re-verify the other 19 went **unreachable with no report ever delivered — treat that batch as lost, not pending.** A **fresh, independent third adversarial pass has just been dispatched** (broader scope: `dub.py`, `background_jobs.py`, `sources/`, `cli.py`, other translate engines, any not-yet-covered `tabs/*.py`), targeting the same recurring bug classes this project keeps finding. Nothing goes into the roadmap from either the lost batch or the new pass until independently verified here.
 >
-> **Ready to send now**: **25m/25n/25r/25s's own merges just cleared `workspace_tab.py`/`scanlate.py` — 25o and 25p are now unblocked.** Send one at a time (both still touch `workspace_tab.py`).
+> **Ready to send now**: **25o's merge just cleared `workspace_tab.py`/`scanlate.py` again — 25p is unblocked** (three more upload-widget leaks, same class as 25i).
 >
-> **Unblocked, ready to send once 25o/25p land**: **25d** (twelve-bug bundle), **Step 24** (translation memory/benchmark/library status — needs an Opus confirmation stop, shares `workspace_tab.py`/`library_tab.py`), **Step 17** (Navigator/Discover merge — its prerequisite, `navigator.py`, is long since restored; sequenced after Step 13 in practice since it uses Step 13's typographic scale, so hold until 13 starts), **26** (voice bank — same `workspace_tab.py`/`library_tab.py` overlap as 24), **26c** (original-language narration — shares `dub.py`/`workspace_tab.py`).
+> **Unblocked, ready to send once 25p lands**: **25d** (twelve-bug bundle), **Step 24** (translation memory/benchmark/library status — needs an Opus confirmation stop, shares `workspace_tab.py`/`library_tab.py`), **Step 17** (Navigator/Discover merge — its prerequisite, `navigator.py`, is long since restored; sequenced after Step 13 in practice since it uses Step 13's typographic scale, so hold until 13 starts), **26** (voice bank — same `workspace_tab.py`/`library_tab.py` overlap as 24), **26c** (original-language narration — shares `dub.py`/`workspace_tab.py`).
 >
-> **23l remains next in the autonomous batch after 23k.**
+> **Manual checks pending**: 23f (real Bilibili account), 23g (two real-site checks), 12 (five checks), 23h (four, in `docs/content-sources.md`), 23i (four more, same doc), 23j (one, same doc), 23k (one, real authenticated-source login flow), 23l (two, real zerosumonline.com/mangaz.com imports plus the five-generic-site check), 25g (two: ToS-prohibited import refused, two unvoiced characters get different dub voices), 25i (one, no browser was available to build it), 25j/25k/25l/25m/25n/25o/25q/25r/25s/25t/25u/26b (one each, all just merged, see §2). **13–20 stay gated, none started.**
 >
-> **Manual checks pending**: 23f (real Bilibili account), 23g (two real-site checks), 12 (five checks), 23h (four, in `docs/content-sources.md`), 23i (four more, same doc), 23j (one, same doc), 25g (two: ToS-prohibited import refused, two unvoiced characters get different dub voices), 25i (one, no browser was available to build it), 25j/25k/25l/25m/25n/25q/25r/25s/26b (one each, all just merged, see §2). **13–20 stay gated, none started.**
->
-> **The two previously-unnumbered flagged findings are now real steps, ready to send**: **25t** (`ui_theme.py`'s tab-bar CSS, dead on Streamlit 1.64 — Step 12's PR #89) and **25u** (Navigator/Discover baihehub search requiring an API key even for Ollama — Step 25f's PR #90). Both are small, independent, low-overlap fixes — safe alongside anything currently in flight.
->
-> **Three new steps written up: 26 (voice bank, not started), 26b (standalone translate section — sent back, see above), 26c (narrate in the original language, bilingual subtitles, not started)** — from the user's 2026-09-26 request (`docs/handoff-voice-bank-translate-zh-narration.md`). Full reasoning in each step's own text (§2, after Step 25r).
+> **Three new steps written up earlier: 26 (voice bank, not started), 26b (standalone translate section — sent back, see above), 26c (narrate in the original language, bilingual subtitles, not started)** — from the user's 2026-09-26 request (`docs/handoff-voice-bank-translate-zh-narration.md`). Full reasoning in each step's own text (§2, after Step 25r).
 >
 > **Manual checks still open** (§2 has the full list) — notably Steps 5b/5c/6c/6d/6e/6i/7/7b/8/9/9b/9c/9d/10/11/11b/11c/11d/11e/12d/18b/18c/20b/21/22/23/23b/25/25b/12c, plus Step 6b's mpv/VLC checks. **Step 23/23b's own checks are tracked in `docs/content-sources.md`.**
 >
@@ -2376,6 +2372,8 @@ Flagged by Step 12's own PR (#89) as a real, out-of-scope finding, confirmed dir
 **Exit:**
 - Manual check: open the app in both light and dark theme (Settings' theme toggle) and confirm the tab bar visibly picks up the intended custom styling in both, not Streamlit's stock appearance. No automated test is realistic here — this is a CSS-selector-against-Streamlit's-own-rendered-DOM fix, not app logic, consistent with how this project treats other CSS-only fixes.
 
+**Merged as PR #108** — opened and merged directly by this planning session after independent verification: confirmed the new `.stTabs [role="tablist"]` / `.stTabs [data-testid="stTab"]` selectors are genuinely emitted by the actual installed Streamlit 1.64.0 bundle (grepped the real minified JS at `/usr/local/lib/python3.11/dist-packages/streamlit/static/static/js/index.CcFifQPt.js` and found the literal `"data-testid":\`stTab\`` and `role:\`tablist\`` strings), not just a plausible guess. Trial-merged cleanly, CI green. Manual check (both themes) still pending — no automated test, per this step's own Exit condition.
+
 ### Step 25u — Fix: Navigator and Discover's baihehub search require an API key even when Ollama is selected
 Self-flagged in Step 25f's own PR (#90) as a real, out-of-scope finding, confirmed directly by the planning session, now given its own step.
 
@@ -2388,6 +2386,8 @@ Self-flagged in Step 25f's own PR (#90) as a real, out-of-scope finding, confirm
 - A test confirms Navigator's "🧭 Translate page + get navigation steps" button is enabled (not blocked on a missing API key) when Ollama is the selected engine.
 - A test confirms Discover's baihehub search still routes the query through translation when Ollama is selected with no API key set, rather than silently searching the untranslated query.
 - Manual check: select Ollama with no API key configured anywhere, confirm Navigator's button is usable and produces real translated labels/steps, and confirm a baihehub search still translates the query to Chinese before searching.
+
+**Merged as PR #109** — opened and merged directly by this planning session after independent verification: read the full diff (`_nav_needs_key`/`_bh_needs_key = engine_choice != "ollama"` gating both the missing-key block and the label text in both files, Discover still builds a real `engine` and still translates the query when Ollama is selected with no key), trial-merged cleanly, ran `tests/test_discover_tab.py` + `tests/test_navigator.py` directly (14/14 passed), CI green. Manual check still pending.
 
 ### Step 26 — Voice bank: reuse a cloned voice across projects
 From a user request, explored on branch `claude/iqiyi-ai-vertical-shorts-mzim4n` (2026-09-26, `docs/handoff-voice-bank-translate-zh-narration.md`; nothing built there). Goal: sample voices from audio dramas already in the library, then reuse those clips for characters in other projects (mainly novel narration) without copying files and transcripts by hand.
@@ -2615,8 +2615,8 @@ From the same exploration session and handoff doc. Goal: novel narration read al
   | 25q — Fix: two real ToS-enforcement gaps | `claude/step-25q-roadmap-hj7202` | ✅ Merged (PR #99) | ⏳ Pending |
   | 25r — Smaller findings from the same QC review, bundled | `claude/step-25r-roadmap-dwuk8u` | ✅ Merged (PR #103) | ⏳ Pending |
   | 25s — Fix: Sources' "Import video" can overwrite an existing drama's audio with no confirmation | `claude/step-25s-roadmap-vjvh63` | ✅ Merged (PR #102; first CI run hit an unrelated pre-existing flake, re-run green) | ⏳ Pending |
-  | 25t — Fix: `ui_theme.py`'s tab-bar styling is a dead selector on the installed Streamlit version | — | Not started | — |
-  | 25u — Fix: Navigator/Discover baihehub search requires an API key even for Ollama | — | Not started | — |
+  | 25t — Fix: `ui_theme.py`'s tab-bar styling is a dead selector on the installed Streamlit version | `claude/step-25t-roadmap-x620mx` | ✅ Merged (PR #108) | ⏳ Pending |
+  | 25u — Fix: Navigator/Discover baihehub search requires an API key even for Ollama | `claude/step-25u-roadmap-9sudde` | ✅ Merged (PR #109) | ⏳ Pending |
   | 26 — Voice bank (reuse a cloned voice across projects) | — | Not started | — |
   | 26b — Standalone translate section (kr/jp/cn ↔ English) | `claude/step-26b-roadmap-re56bo` | ✅ Merged (PR #100) | ⏳ Pending |
   | 26c — Narrate in the original language, bilingual subtitles | — | Not started | — |
