@@ -148,3 +148,11 @@ playwright>=1.40
 # Apache-2.0. Optional -- without it a simpler built-in extractor is used.
 # CJK extraction quality hasn't been benchmarked; spot-check on real pages.
 trafilatura>=2.0
+
+# Sources tab: mangaz.com adapter's session-scoped RSA+AES page decryption
+# (optional -- without it, every other source still works; see
+# sources/adapters/mangaz.py). RSA-512 keygen is this app's own code (the
+# site's own real, legacy-weak key size; mainstream libraries refuse to
+# *generate* below 1024 bits) -- every actual crypto operation still runs
+# through this library.
+cryptography>=41.0

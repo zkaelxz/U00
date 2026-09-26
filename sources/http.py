@@ -73,6 +73,12 @@ class Response:
     url: str
     from_cache: bool = False
     reasons: list = field(default_factory=list)
+    # Cookies the response actually set, read via requests' own cookiejar
+    # rather than a plain `headers` lookup: a response can carry several
+    # Set-Cookie lines, and plain-dict header merging (below) only keeps
+    # the last one -- mangaz.com's own login-ticket exchange (Step 23l)
+    # needs a specific cookie by name regardless of Set-Cookie order.
+    cookies: dict = field(default_factory=dict)
 
     @property
     def text(self) -> str:
@@ -111,7 +117,7 @@ def _requests_transport(method, url, headers, data, timeout):
     r = session.request(method, url, headers=headers, data=data, timeout=timeout,
                         allow_redirects=True)
     return Response(status_code=r.status_code, headers=dict(r.headers), content=r.content,
-                    url=r.url)
+                    url=r.url, cookies=dict(r.cookies))
 
 
 _tls = threading.local()
