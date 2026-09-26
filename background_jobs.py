@@ -112,15 +112,75 @@ def _other_gpu_job_running_locked(exclude_job_id):
 
 def gpu_busy_description():
     """The description of whichever GPU-touching job is currently running,
-    for a "Waiting -- GPU busy with <this>" message. None if the GPU is free."""
+    for a "Waiting -- GPU busy with <this>" message. None if the GPU is free.
+    Step 25w: also checks the cross-process lock (see _gpu_slot_available_locked)
+    so this can name a `cli.py` run holding the GPU, not just another job in
+    this same process."""
     with _lock:
         jid = _other_gpu_job_running_locked(None)
-        if jid is None:
-            return None
-        return _jobs[jid].get("description") or jid
+        if jid is not None:
+            return _jobs[jid].get("description") or jid
+    try:
+        import db
+        _, description = db.gpu_lock_status()
+        return description
+    except Exception:
+        # Best-effort only, same as _gpu_slot_available_locked below -- an
+        # unreachable library DB shouldn't break this status message.
+        return None
 
 
-def _spawn(job_id, target, args, kwargs):
+def _gpu_slot_available_locked(job_id, description):
+    """Caller must already hold _lock. True if job_id may actually start
+    running right now -- nothing else, in this process or (Step 25w)
+    another one, currently holds the GPU. background_jobs' own guard
+    (Step 5c) is plain in-process module state, invisible to a separate OS
+    process; `cli.py`'s GPU-touching commands never went through it at all
+    (confirmed: cli.py never imports this module), so a CLI run and a live
+    UI job could previously both hold the GPU at once. db.gpu_lock's
+    single-row table in the shared library.db is the cross-process
+    coordination point instead.
+
+    On True, this also claims that cross-process lock for job_id as a side
+    effect, the same moment the in-process side is about to mark job_id
+    "running" -- so a caller must be about to actually start the job right
+    after this returns True, not just probe.
+
+    Best-effort: this module is deliberately usable with no library DB at
+    all (plain in-process job tracking, per its own docstring, and several
+    tests exercise it standalone) -- if the DB isn't reachable for any
+    reason, this falls back to the in-process check alone rather than
+    blocking a job from starting."""
+    if _other_gpu_job_running_locked(job_id):
+        return False
+    try:
+        import db
+        return db.try_acquire_gpu_lock(f"ui:{job_id}", description)
+    except Exception:
+        return True
+
+
+def _release_gpu_slot(job_id, gpu_touching):
+    """Releases job_id's cross-process GPU lock, if it is gpu_touching and
+    actually still holds one -- a safe no-op otherwise (never held one,
+    already released, or went stale and was taken over by someone else).
+    Called whenever a GPU-touching job's real work actually ends, so
+    unlike the promotion helpers above this deliberately does NOT require
+    holding _lock first (it's independent in-process bookkeeping vs. a
+    separate cross-process record, and the job dict entry for job_id may
+    already be gone by the time this runs). Best-effort, same reasoning as
+    _gpu_slot_available_locked above -- never raises into a job's own
+    runner thread."""
+    if not gpu_touching:
+        return
+    try:
+        import db
+        db.release_gpu_lock(f"ui:{job_id}")
+    except Exception:
+        pass
+
+
+def _spawn(job_id, target, args, kwargs, gpu_touching=False):
     def runner():
         import applog
         from translate_engines import redact_secrets
@@ -151,6 +211,7 @@ def _spawn(job_id, target, args, kwargs):
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
             _notify_job_finished(_description, "error")
         finally:
+            _release_gpu_slot(job_id, gpu_touching)
             _promote_next_queued_gpu_job()
 
     threading.Thread(target=runner, daemon=True, name=f"job:{job_id}").start()
@@ -161,15 +222,30 @@ def _promote_next_queued_gpu_job():
     queued GPU-touching job, if the GPU is actually free and anything is
     still waiting. Skips (and drops) queue entries that were cleared out
     from under the queue in the meantime. Dispatches to the thread-based
-    or process-based starter depending on how that entry was queued."""
+    or process-based starter depending on how that entry was queued.
+
+    Step 25w: the GPU can also be free-in-this-process but still held
+    cross-process (a `cli.py` run) -- checked via _gpu_slot_available_locked,
+    same as start_job/start_process_job. If that's the case, this leaves
+    the entry at the head of the queue and returns rather than popping it;
+    there's no cross-process notification when the CLI later releases it,
+    so a still-queued job resumes the next time some other job's finish
+    triggers this function again, not immediately -- an accepted latency
+    for this same soft, best-effort guard, not a correctness gap (the GPU
+    is never actually shared, it just may sit idle a bit before the queued
+    job notices)."""
     while True:
         with _lock:
             if not _gpu_queue or _other_gpu_job_running_locked(None):
                 return
-            entry = _gpu_queue.pop(0)
+            entry = _gpu_queue[0]
             job_id = entry["job_id"]
             if job_id not in _jobs or _jobs[job_id]["status"] != "queued":
+                _gpu_queue.pop(0)
                 continue
+            if not _gpu_slot_available_locked(job_id, entry["description"]):
+                return
+            _gpu_queue.pop(0)
             if entry.get("kind") == "process":
                 proc, result_queue = _register_process_job(
                     job_id, entry["target"], entry["args"],
@@ -182,10 +258,10 @@ def _promote_next_queued_gpu_job():
             break
     if entry.get("kind") == "process":
         proc.start()
-        threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue),
+        threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, True),
                          daemon=True, name=f"job-watcher:{job_id}").start()
     else:
-        _spawn(job_id, target, args, kwargs)
+        _spawn(job_id, target, args, kwargs, gpu_touching=True)
 
 
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
@@ -208,7 +284,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
-        if gpu_touching and _gpu_limit_enabled and _other_gpu_job_running_locked(job_id):
+        if gpu_touching and _gpu_limit_enabled and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
                 "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
@@ -226,7 +302,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             "gpu_touching": gpu_touching, "description": description, "kind": "thread",
         }
 
-    _spawn(job_id, target, args, kwargs)
+    _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
     return True
 
 
@@ -257,7 +333,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
-        if gpu_touching and _gpu_limit_enabled and _other_gpu_job_running_locked(job_id):
+        if gpu_touching and _gpu_limit_enabled and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
                 "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
@@ -271,7 +347,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description)
     proc.start()
-    threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue),
+    threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, gpu_touching),
                      daemon=True, name=f"job-watcher:{job_id}").start()
     return True
 
@@ -295,7 +371,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description):
     return proc, result_queue
 
 
-def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
+def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -386,6 +462,7 @@ def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
             _description = _jobs[job_id].get("description")
         _notify_job_finished(_description, _final_status)
     finally:
+        _release_gpu_slot(job_id, gpu_touching)
         _promote_next_queued_gpu_job()
 
 
@@ -428,11 +505,24 @@ def update_progress(job_id: str, frac: float, message: str = ""):
     """Called FROM inside the background thread to report progress.
     Silently does nothing if the job was cleared (e.g. by a reset) out
     from under it, rather than raising into a background thread."""
+    _gpu_touching = False
     with _lock:
         if job_id in _jobs:
             _jobs[job_id]["progress"] = frac
             if message:
                 _jobs[job_id]["message"] = message
+            _gpu_touching = bool(_jobs[job_id].get("gpu_touching"))
+    if _gpu_touching:
+        # Step 25w: refreshes this job's cross-process GPU lock (see
+        # _gpu_slot_available_locked) so a long-running job's own regular
+        # progress updates keep it from looking abandoned to another
+        # process before it's actually done. Best-effort, same reasoning
+        # as _gpu_slot_available_locked -- never raises into a job thread.
+        try:
+            import db
+            db.heartbeat_gpu_lock(f"ui:{job_id}")
+        except Exception:
+            pass
 
 
 def set_result(job_id: str, result):

@@ -101,6 +101,22 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int,
     return (effective_input / 1_000_000 * rates["input"]) + (output_tokens / 1_000_000 * rates["output"])
 
 
+# DeepL and Google Cloud Translation bill per character sent, not per
+# token -- unlike every other engine here. USD per million characters,
+# checked against each provider's own pricing page in September 2026;
+# same "approximation, not a bill" caveat as PRICING_PER_MILLION_TOKENS
+# above. Google: Cloud Translation Basic (v2), $20/million characters
+# (the first 500k/month free tier isn't modeled here). DeepL: its current
+# per-character overage rate ($25-27.50/million depending on plan) --
+# priced at the higher end, same "never undercut a spending cap" direction
+# as CACHE_READ_PRICE_FACTOR above; a plan's own monthly base fee isn't
+# modeled here either.
+PRICING_PER_MILLION_CHARACTERS = {
+    "google": 20.0,
+    "deepl": 27.5,
+}
+
+
 def _empty_usage() -> dict:
     return {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
 
@@ -959,6 +975,7 @@ class DeepLEngine:
     def __init__(self, api_key: str):
         import deepl
         self.translator = deepl.Translator(api_key)
+        self.last_usage = _empty_usage()
 
     def translate_batch(self, zh_lines, context: dict):
         source_lang = _DEEPL_SOURCE_LANGS.get(context.get("source_language", "zh"), "ZH")
@@ -968,6 +985,19 @@ class DeepLEngine:
         )
         if not isinstance(results, list):
             results = [results]
+        # Step 25w: DeepL bills per character sent, not per token -- there
+        # was previously no last_usage at all here, so the cost-cap system
+        # could never see any spend from this engine. billed_characters is
+        # the API's own real per-result count; fall back to the source
+        # text's own length for an older SDK that doesn't expose it, since
+        # that's what's billed in the common (no-glossary) case. Stored in
+        # the "input_tokens" slot -- this engine has no separate input/
+        # output token concept, so estimate_cost_for_engine prices this
+        # value per-character instead of per-token.
+        self.last_usage = _empty_usage()
+        self.last_usage["input_tokens"] = sum(
+            getattr(r, "billed_characters", None) or len(z)
+            for r, z in zip(results, zh_lines))
         return [r.text for r in results]
 
 
@@ -983,6 +1013,7 @@ class GoogleEngine:
         # Uses the simple API-key REST endpoint rather than the full
         # google-cloud-translate SDK, to avoid needing service-account setup.
         self.api_key = api_key
+        self.last_usage = _empty_usage()
 
     def translate_batch(self, zh_lines, context: dict):
         import requests
@@ -998,6 +1029,15 @@ class GoogleEngine:
         }, timeout=60)
         resp.raise_for_status()
         data = resp.json()
+        # Step 25w: there was previously no last_usage at all here, so the
+        # cost-cap system could never see any spend from this engine. The
+        # v2 API doesn't report usage in its response, but it bills every
+        # character sent for processing (confirmed against Google's own
+        # billing docs) -- exactly the length of what was just sent, no
+        # estimate needed. Stored in "input_tokens" for the same reason as
+        # DeepLEngine above: priced per-character, not per-token.
+        self.last_usage = _empty_usage()
+        self.last_usage["input_tokens"] = sum(len(z) for z in zh_lines)
         return [t["translatedText"] for t in data["data"]["translations"]]
 
 
@@ -1775,19 +1815,31 @@ def estimate_cost_for_engine(engine, input_tokens: int, output_tokens: int,
                              cache_read_tokens: int = 0, cache_write_tokens: int = 0) -> float:
     """Same as estimate_cost, but $0 for a Gemini engine running under its
     free tier -- PRICING_PER_MILLION_TOKENS prices the paid tier, which
-    doesn't apply once free_tier is set on the engine instance."""
+    doesn't apply once free_tier is set on the engine instance.
+
+    DeepL and Google are pure per-character-billed MT engines with no
+    token concept of their own -- for those, `input_tokens` actually holds
+    the billed character count (see GoogleEngine/DeepLEngine.last_usage)
+    and is priced from PRICING_PER_MILLION_CHARACTERS instead."""
     if getattr(engine, "free_tier", False):
         return 0.0
+    name = getattr(engine, "name", "")
+    if name in PRICING_PER_MILLION_CHARACTERS:
+        return input_tokens / 1_000_000 * PRICING_PER_MILLION_CHARACTERS[name]
     return estimate_cost(getattr(engine, "model", ""), input_tokens, output_tokens,
                          cache_read_tokens, cache_write_tokens)
 
 
 def estimate_translation_cost(engine, zh_lines: list) -> float:
     """Rough pre-run estimate of a normal single-pass translation run,
-    from the lines' own character count (a tokenizer-free ~3.5
-    chars/token heuristic -- an order-of-magnitude estimate, not a
-    precise bill)."""
+    from the lines' own character count. For token-billed engines this
+    uses a tokenizer-free ~3.5 chars/token heuristic -- an
+    order-of-magnitude estimate, not a precise bill. For DeepL/Google
+    (billed per character, not per token) the character count itself is
+    passed straight through, since that's exactly what they bill."""
     chars = sum(len(z) for z in zh_lines)
+    if getattr(engine, "name", "") in PRICING_PER_MILLION_CHARACTERS:
+        return estimate_cost_for_engine(engine, chars, 0)
     input_tokens = int(chars / 3.5) + 300  # + a rough fixed cost for the instructions block
     output_tokens = int(chars / 2.5)  # English translations tend to run a bit longer than CJK source
     return estimate_cost_for_engine(engine, input_tokens, output_tokens)

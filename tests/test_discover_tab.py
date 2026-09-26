@@ -79,3 +79,67 @@ class TestBaihehubSearch:
         assert not at.exception
         assert len(translate_calls) == 1
         assert translate_calls[0][1] is not None
+
+
+def _run_find_a_title(monkeypatch, isolated_db):
+    """Step 25w: 'Find a title' translated find_query on every single
+    Streamlit rerun -- unlike every other LLM call on this tab, it wasn't
+    behind a button, so ANY unrelated widget interaction anywhere on the
+    page (Streamlit reruns the whole script on any of them) re-translated
+    an unchanged query, burning one real translate call each time."""
+    from streamlit.testing.v1 import AppTest
+
+    translate_calls = []
+
+    def fake_translate_query_to_zh(query, engine):
+        translate_calls.append(query)
+        return "翻译后的标题"
+    monkeypatch.setattr(title_library, "translate_query_to_zh", fake_translate_query_to_zh)
+
+    def fake_get_engine(name, api_key=None, model=None, free_tier=False, base_url=None):
+        return _LLMEngine()
+    monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
+
+    def _render():
+        import streamlit as st
+        st.session_state.setdefault("settings_claude", "test-key")
+        import tabs.discover_tab as dt
+        dt.render_discover_tab()
+
+    at = AppTest.from_function(_render)
+    at.run(timeout=30)
+    [query_box] = [t for t in at.text_input if t.key == "find_query"]
+    query_box.set_value("some english title")
+    at.run(timeout=30)
+    return at, translate_calls
+
+
+class TestFindATitleTranslationCaching:
+    def test_translates_once_for_a_new_query(self, monkeypatch, isolated_db):
+        at, translate_calls = _run_find_a_title(monkeypatch, isolated_db)
+        assert not at.exception
+        assert translate_calls == ["some english title"]
+        assert any("翻译后的标题" in c.value for c in at.caption)
+
+    def test_unrelated_rerun_does_not_retranslate_the_same_query(self, monkeypatch, isolated_db):
+        at, translate_calls = _run_find_a_title(monkeypatch, isolated_db)
+        assert len(translate_calls) == 1
+
+        # An unrelated widget interaction elsewhere on the page -- Streamlit
+        # reruns the whole script on ANY interaction, not just this box's
+        # own. The query text itself hasn't changed.
+        [format_picker] = [s for s in at.selectbox if s.key == "find_type"]
+        format_picker.set_value("novel")
+        at.run(timeout=30)
+
+        assert translate_calls == ["some english title"]  # not called again
+
+    def test_changing_the_query_translates_again(self, monkeypatch, isolated_db):
+        at, translate_calls = _run_find_a_title(monkeypatch, isolated_db)
+        assert len(translate_calls) == 1
+
+        [query_box] = [t for t in at.text_input if t.key == "find_query"]
+        query_box.set_value("a different english title")
+        at.run(timeout=30)
+
+        assert translate_calls == ["some english title", "a different english title"]

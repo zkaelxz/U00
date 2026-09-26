@@ -1167,3 +1167,72 @@ class TestTranslateHistory:
         isolated_db.save_translate_history("ja", "en", "deepseek", "b", "B")
         isolated_db.clear_translate_history()
         assert isolated_db.list_translate_history() == []
+
+
+class TestGpuLock:
+    """Step 25w: the cross-process "one GPU job at a time" guard.
+    background_jobs.py's own guard (Step 5c) is plain in-process module
+    state, invisible to a separate OS process -- a `cli.py` run and the
+    live Streamlit UI could each hold the GPU at once with neither seeing
+    the other. This single-row table in the shared library.db is the
+    coordination point both sides check."""
+
+    def test_free_lock_is_acquired(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+        holder, description = isolated_db.gpu_lock_status()
+        assert holder == "ui:job1"
+        assert description == "Transcription"
+
+    def test_held_lock_refuses_a_different_holder(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+        # Still job1's -- the failed attempt above must not have touched it.
+        holder, description = isolated_db.gpu_lock_status()
+        assert holder == "ui:job1"
+        assert description == "Transcription"
+
+    def test_same_holder_can_reacquire_its_own_lock(self, isolated_db):
+        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+        assert isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription") is True
+
+    def test_release_frees_it_for_someone_else(self, isolated_db):
+        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        isolated_db.release_gpu_lock("ui:job1")
+        assert isolated_db.gpu_lock_status() == (None, None)
+        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+
+    def test_releasing_the_wrong_holder_is_a_no_op(self, isolated_db):
+        """A lock that went stale and was taken over by someone else must
+        not be released out from under its new, legitimate holder by a
+        late release() call from whoever held it before."""
+        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        isolated_db.release_gpu_lock("cli:1234")  # never held it
+        holder, _ = isolated_db.gpu_lock_status()
+        assert holder == "ui:job1"
+
+    def test_stale_lock_is_taken_over(self, isolated_db):
+        """A holder that crashed without releasing shouldn't permanently
+        block the GPU -- a lock whose heartbeat is older than
+        GPU_LOCK_STALE_SECONDS is treated as abandoned."""
+        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        conn = isolated_db.get_conn()
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
+                    (isolated_db.GPU_LOCK_STALE_SECONDS + 1,))
+        conn.commit()
+        conn.close()
+        assert isolated_db.gpu_lock_status() == (None, None)
+        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is True
+
+    def test_heartbeat_keeps_a_long_running_holder_from_going_stale(self, isolated_db):
+        isolated_db.try_acquire_gpu_lock("ui:job1", "Transcription")
+        conn = isolated_db.get_conn()
+        conn.execute("UPDATE gpu_lock SET heartbeat_at = heartbeat_at - ? WHERE id = 1",
+                    (isolated_db.GPU_LOCK_STALE_SECONDS - 1,))
+        conn.commit()
+        conn.close()
+        isolated_db.heartbeat_gpu_lock("ui:job1")
+        # Refreshed -- still held, and a competing holder is still refused.
+        assert isolated_db.try_acquire_gpu_lock("cli:1234", "CLI dub") is False
+
+    def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
+        assert isolated_db.gpu_lock_status() == (None, None)

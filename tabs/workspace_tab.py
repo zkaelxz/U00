@@ -1030,7 +1030,7 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, so
 
 
 def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size, use_gpu,
-                               source_language, engine, engine_choice):
+                               source_language, engine, engine_choice, cost_cap_usd=None):
     """
     Bulk version of the single-line 🔧 tools in Review & edit: for every
     currently-flagged line, re-transcribes its own timing window from the
@@ -1041,9 +1041,18 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     currently selected in Workspace (3. Recognition accuracy / 5.
     Translation) -- the same ones "Transcribe" and "Translate all lines"
     themselves would use, not a separate hidden choice.
+
+    cost_cap_usd: same cap "Translate all lines" enforces (the tighter of
+    the per-job and monthly caps, resolved before the job starts) -- stop
+    cleanly once this run's real logged spend reaches it, leaving whatever
+    is still flagged untouched. Step 25w: this loop previously had no cap
+    check at all, so it could spend without limit regardless of a
+    configured monthly cap.
     """
     flagged = [ln for ln in lines if ln.flag]
     fixed_count = 0
+    spent = 0.0
+    cap_reached = None
     for i, ln in enumerate(flagged):
         if audio_path and os.path.exists(audio_path):
             slice_path = os.path.join(os.path.dirname(audio_path), f"_fixflag_slice_{ln.idx}.wav")
@@ -1061,13 +1070,13 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
             try:
                 translated = engine.translate_batch([ln.zh], {"source_language": source_language})[0]
                 if hasattr(engine, "last_usage"):
+                    cost = translate_engines.estimate_cost_for_engine(
+                        engine, engine.last_usage.get("input_tokens", 0),
+                        engine.last_usage.get("output_tokens", 0))
+                    spent += cost
                     db.log_usage(drama_id, engine_choice, getattr(engine, "model", engine_choice),
                                  "fix_flagged_line", engine.last_usage.get("input_tokens", 0),
-                                 engine.last_usage.get("output_tokens", 0),
-                                 translate_engines.estimate_cost_for_engine(
-                                     engine,
-                                     engine.last_usage.get("input_tokens", 0),
-                                     engine.last_usage.get("output_tokens", 0)))
+                                 engine.last_usage.get("output_tokens", 0), cost)
                 if translated.strip():
                     ln.en = translated
                     ln.flag, ln.flag_note = None, ""
@@ -1076,10 +1085,14 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
                 pass  # leave the line flagged rather than lose the source fix silently
         background_jobs.update_progress(job_id, (i + 1) / max(len(flagged), 1),
                                         f"Fixing flagged lines... {i + 1}/{len(flagged)}")
+        if cost_cap_usd is not None and spent >= cost_cap_usd and i + 1 < len(flagged):
+            cap_reached = spent
+            break
     if audio_path and os.path.exists(audio_path):
         core_module.release_gpu_models()  # re-transcription stage done
     db.save_lines(drama_id, lines, fields=("zh", "en", "flag", "flag_note"))
-    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged)})
+    background_jobs.set_result(job_id, {"fixed_count": fixed_count, "total_flagged": len(flagged),
+                                        "cap_reached": cap_reached})
 
 
 def _line_audio_clip(audio_path, start, end, work_dir):
@@ -3008,9 +3021,11 @@ def render_workspace_tab():
                 _ollama_unreachable = True
                 st.warning(f"⚠️ Can't reach Ollama at `{_ollama_check_url}` — is it running?")
 
-        # Step 9: spending caps apply to the engines that bill per token
-        # and report usage; a free-tier Gemini key costs nothing.
-        _cap_applies = (engine_choice in ("claude", "deepseek", "gemini")
+        # Step 9: spending caps apply to the engines that report usage;
+        # a free-tier Gemini key costs nothing. Step 25w: Google/DeepL now
+        # report usage too (billed characters, not tokens -- see
+        # GoogleEngine/DeepLEngine.last_usage), so they're covered here too.
+        _cap_applies = (engine_choice in ("claude", "deepseek", "gemini", "google", "deepl")
                         and not (engine_choice == "gemini" and _gemini_free_tier))
         _monthly_cap = st.session_state.get("settings_monthly_cap_usd") or 0
         _month_spend = db.get_month_spend() if (_cap_applies and _monthly_cap) else 0.0
@@ -4492,17 +4507,29 @@ def render_workspace_tab():
                         "picker first if you want a different engine or model. There's no audio "
                         "on this drama to re-transcribe, so only re-translation runs. Clears the "
                         "flag on any line this actually changes.")
-                    if st.button("🔁 Re-transcribe + re-translate flagged lines") and api_key:
+                    # Step 25w: same cap machinery as "Translate all lines"
+                    # (5. Translation, above) -- this used to call
+                    # engine.translate_batch directly with no cap check at
+                    # all, so it could spend without limit regardless of a
+                    # configured monthly cap.
+                    if _cap_applies and _monthly_refusal:
+                        st.warning(_monthly_refusal)
+                    if st.button("🔁 Re-transcribe + re-translate flagged lines",
+                                 disabled=bool(_cap_applies and _monthly_refusal)) and api_key:
                         engine_ff = translate_engines.get_engine(
                             engine_choice, api_key, engine_model,
                             free_tier=engine_choice == "gemini" and _gemini_free_tier,
                             base_url=_ollama_base_url if engine_choice == "ollama" else None)
                         _lines_copy_ff = _copy_lines(edited_rows)
+                        _ff_cost_cap = None
+                        if _cap_applies:
+                            _ff_cost_cap, _ = translate_engines.resolve_cost_cap(
+                                _job_cap, _monthly_cap, db.get_month_spend() if _monthly_cap else 0.0)
                         started = background_jobs.start_job(
                             _fixflag_job_id, run_fix_flagged_lines_job,
                             _fixflag_job_id, picked_id, _lines_copy_ff, _fixflag_audio_path,
                             whisper_size, st.session_state.get("use_gpu", False), source_language,
-                            engine_ff, engine_choice,
+                            engine_ff, engine_choice, cost_cap_usd=_ff_cost_cap,
                             gpu_touching=bool(_fixflag_audio_path) or engine_choice == "ollama",
                             description=f"Fixing flagged lines ({_drama_label(drama)})")
                         if started:
@@ -4530,6 +4557,11 @@ def render_workspace_tab():
                             _ff_result = _ffjob.get("result") or {}
                             st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
                                       f"{_ff_result.get('total_flagged', 0)} flagged line(s).")
+                            _ff_cap_spent = _ff_result.get("cap_reached")
+                            if _ff_cap_spent is not None:
+                                st.warning(f"Stopped at your spending cap after about "
+                                          f"${_ff_cap_spent:.2f} -- every line fixed so far was "
+                                          "kept. Raise the cap and run this again to keep going.")
                             background_jobs.clear_job(_fixflag_job_id)
                             # This branch runs after the zh_<idx>/en_<idx>
                             # boxes above (in the Review & edit loop) have

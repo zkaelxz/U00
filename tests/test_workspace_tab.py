@@ -895,7 +895,7 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
     assert loaded[0]["flag"] is None
     assert loaded[0]["flag_note"] == ""
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"fixed_count": 1, "total_flagged": 1}
+    assert result == {"fixed_count": 1, "total_flagged": 1, "cap_reached": None}
     summary = isolated_db.get_usage_summary(did)
     assert summary["input_tokens"] == 10
     assert summary["output_tokens"] == 4
@@ -943,7 +943,7 @@ def test_fix_flagged_job_leaves_flag_set_when_translation_fails(isolated_db):
     assert loaded[0]["flag"] == "mistranslation"
     assert loaded[0]["en"] == "old"
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"fixed_count": 0, "total_flagged": 1}
+    assert result == {"fixed_count": 0, "total_flagged": 1, "cap_reached": None}
     _clear(job_id)
 
 
@@ -962,7 +962,82 @@ def test_fix_flagged_job_ignores_unflagged_lines(isolated_db):
     loaded = isolated_db.load_lines(did)
     assert loaded[0]["en"] == "No problem."  # untouched
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"fixed_count": 0, "total_flagged": 0}
+    assert result == {"fixed_count": 0, "total_flagged": 0, "cap_reached": None}
+    _clear(job_id)
+
+
+class _CostedFixEngine:
+    """Step 25w: unlike FakeFixEngine (model="fake-model", priced at $0 by
+    estimate_cost_for_engine since it isn't in PRICING_PER_MILLION_TOKENS),
+    this reports usage against a real priced model so a cost cap can
+    actually be exercised -- $2/M input tokens, so 100_000 input tokens
+    per line costs exactly $0.20/line."""
+    model = "claude-sonnet-5"
+
+    def __init__(self):
+        self.calls = 0
+        self.last_usage = {"input_tokens": 0, "output_tokens": 0}
+
+    def translate_batch(self, lines, context):
+        self.calls += 1
+        self.last_usage = {"input_tokens": 100_000, "output_tokens": 0}
+        return [f"[translated] {lines[0]}"]
+
+
+def test_fix_flagged_job_stops_at_the_cost_cap_and_keeps_finished_lines(isolated_db):
+    """Step 25w Bug 3: "Fix flagged lines in bulk" called engine.translate_batch
+    directly with no cost_cap_usd parameter, no resolve_cost_cap call, and no
+    spend accumulation checked against any cap anywhere -- confirmed real: a
+    drama with many flagged lines, fixed repeatedly, had completely unbounded
+    spend regardless of the configured monthly cap. cost_cap_usd now stops the
+    loop cleanly, the same "every finished line kept" contract
+    translate_lines_with_engine already has."""
+    job_id = "test_fixflag_cap"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=f"句{i}", en="old",
+                   flag="mistranslation", flag_note="check")
+             for i in range(5)]
+    isolated_db.save_lines(did, lines)
+
+    engine = _CostedFixEngine()
+    # $0.20/line -- stops partway through 5 lines, not all-or-nothing.
+    run_fix_flagged_lines_job(job_id, did, lines, None, "medium", False, "zh", engine, "claude",
+                              cost_cap_usd=0.5)
+
+    assert engine.calls == 3  # 0.2, 0.4 (continues), 0.6 (crosses the cap, stops)
+    loaded = isolated_db.load_lines(did)
+    assert sum(1 for r in loaded if r["flag"] is None) == 3  # fixed lines cleared
+    assert sum(1 for r in loaded if r["flag"] == "mistranslation") == 2  # left for next time
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["fixed_count"] == 3
+    assert result["total_flagged"] == 5
+    assert result["cap_reached"] == pytest.approx(0.6)
+    _clear(job_id)
+
+
+def test_fix_flagged_job_with_no_cap_processes_every_flagged_line(isolated_db):
+    """No cost_cap_usd (the default) must behave exactly as before this
+    step -- no cap, no stopping partway through."""
+    job_id = "test_fixflag_nocap"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [Line(idx=i, start=float(i), end=i + 1.0, zh=f"句{i}", en="old",
+                   flag="mistranslation", flag_note="check")
+             for i in range(5)]
+    isolated_db.save_lines(did, lines)
+
+    engine = _CostedFixEngine()
+    run_fix_flagged_lines_job(job_id, did, lines, None, "medium", False, "zh", engine, "claude")
+
+    assert engine.calls == 5
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["fixed_count"] == 5
+    assert result["cap_reached"] is None
     _clear(job_id)
 
 
@@ -1985,6 +2060,36 @@ class TestSpendingCapUI:
         at = self._run(did)
         assert not [n for n in at.number_input if n.key == f"cost_cap_{did}"]
 
+    def _assert_cap_shown(self, isolated_db, engine):
+        did = self._drama(isolated_db, engine=engine)
+        at = self._run(did, **{f"settings_{engine}": "fake-key"})
+        assert not at.exception
+        assert [n for n in at.number_input if n.key == f"cost_cap_{did}"], \
+            f"{engine} should show the cost-cap input now that it reports usage"
+        assert any(f"Estimated cost for 1 line(s)" in c.value for c in at.caption), \
+            f"{engine} should show a cost estimate now that it's priced per character"
+
+    def test_cap_input_now_shown_for_google(self, isolated_db):
+        """Step 25w Bug 2: the cost-cap system structurally couldn't ever
+        apply to Google/DeepL -- _cap_applies explicitly excluded both, so
+        a user with a monthly cap set got zero enforcement translating
+        through either. Now that both report real usage (see
+        GoogleEngine/DeepLEngine.last_usage), the cap UI covers them too.
+        GoogleEngine only needs `requests` (a core dependency), so this
+        runs unconditionally -- see the deepl variant below for why that
+        one is gated on the optional package being installed."""
+        self._assert_cap_shown(isolated_db, "google")
+
+    def test_cap_input_now_shown_for_deepl(self, isolated_db):
+        """Same as the google case above, for DeepLEngine. Needs the real
+        `deepl` package importable (requirements-optional.txt, not a core
+        dependency) -- DeepLEngine.__init__ does `import deepl` for real
+        here, unlike TestDeepLEngine's own tests, which inject a fake
+        module into sys.modules before constructing the engine directly
+        and so don't need the real package installed at all."""
+        pytest.importorskip("deepl")
+        self._assert_cap_shown(isolated_db, "deepl")
+
     def test_the_cap_reaches_the_background_job(self, isolated_db, monkeypatch):
         captured = {}
         monkeypatch.setattr(background_jobs, "start_job",
@@ -2013,6 +2118,70 @@ class TestSpendingCapUI:
         self._translate_button(at).click()
         at.run(timeout=30)
         assert captured.get("cost_cap_usd") == pytest.approx(3.0)
+
+
+class TestFixFlaggedLinesCapUI:
+    """Step 25w Bug 3: "Fix flagged lines in bulk" called engine.translate_batch
+    directly per line, with no cost_cap_usd, no resolve_cost_cap call, and no
+    spend accumulation checked against any cap -- confirmed real: unlike
+    "Translate all lines" (Step 9) and the CLI, both of which already
+    resolve and enforce a cap, this button had none at all."""
+
+    def _drama(self, isolated_db, engine="claude"):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        translation_engine=engine)
+        lines = [Line(idx=0, start=0, end=1, zh="你好", flag="mistranslation", flag_note="check")]
+        isolated_db.save_lines(did, lines)
+        return did
+
+    def _run(self, did, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_claude"] = "sk-ant-fake"
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _fix_button(self, at):
+        return [b for b in at.button if b.label == "🔁 Re-transcribe + re-translate flagged lines"][0]
+
+    def test_monthly_cap_already_used_up_disables_the_fix_button_too(self, isolated_db):
+        did = self._drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "claude-sonnet-5", "translate", 1, 1, 12.0)
+        at = self._run(did, settings_monthly_cap_usd=10.0)
+        assert self._fix_button(at).disabled
+        assert any("already used up" in w.value for w in at.warning)
+
+    def test_the_jobs_cap_reaches_the_fix_flagged_background_job(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [n for n in at.number_input if n.key == f"cost_cap_{did}"][0].set_value(1.5).run()
+        self._fix_button(at).click()
+        at.run(timeout=30)
+        assert captured.get("cost_cap_usd") == pytest.approx(1.5)
+
+    def test_no_cap_set_passes_no_cap_to_the_fix_flagged_job(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(kw) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._fix_button(at).click()
+        at.run(timeout=30)
+        assert captured.get("cost_cap_usd") is None
 
 
 class _FakeBulkProvider:
