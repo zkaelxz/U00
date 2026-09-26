@@ -182,14 +182,14 @@ class TestLimitOneGpuJobToggle:
         import background_jobs
         at = self._run()
         assert self._checkbox(at).value is True
-        assert background_jobs.gpu_limit_enabled() is True
+        assert background_jobs._gpu_limit_enabled is True
 
     def test_turning_it_off_syncs_to_background_jobs(self):
         import background_jobs
         at = self._run()
         try:
             self._checkbox(at).set_value(False).run()
-            assert background_jobs.gpu_limit_enabled() is False
+            assert background_jobs._gpu_limit_enabled is False
         finally:
             background_jobs.set_gpu_limit_enabled(True)  # don't leak into other tests
 

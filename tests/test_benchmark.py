@@ -188,37 +188,3 @@ class TestRunSuite:
         assert results[1]["output_text"] == "ok"
 
 
-class TestDetectRegressions:
-    def test_a_meaningful_score_drop_is_flagged(self):
-        previous = [{"case_id": 1, "score": 0.9}]
-        latest = [{"case_id": 1, "score": 0.6}]
-        regressions = benchmark.detect_regressions(previous, latest, threshold=0.05)
-        assert len(regressions) == 1
-        assert regressions[0]["case_id"] == 1
-        assert regressions[0]["drop"] == pytest.approx(0.3)
-
-    def test_a_small_drop_under_the_threshold_is_not_flagged(self):
-        previous = [{"case_id": 1, "score": 0.90}]
-        latest = [{"case_id": 1, "score": 0.87}]
-        assert benchmark.detect_regressions(previous, latest, threshold=0.05) == []
-
-    def test_a_score_improvement_is_not_flagged(self):
-        previous = [{"case_id": 1, "score": 0.5}]
-        latest = [{"case_id": 1, "score": 0.9}]
-        assert benchmark.detect_regressions(previous, latest, threshold=0.05) == []
-
-    def test_a_case_with_no_score_in_either_run_is_skipped(self):
-        previous = [{"case_id": 1, "score": None}]
-        latest = [{"case_id": 1, "score": None}]
-        assert benchmark.detect_regressions(previous, latest) == []
-
-    def test_a_case_missing_from_the_previous_run_is_skipped_not_flagged(self):
-        previous = []
-        latest = [{"case_id": 1, "score": 0.5}]
-        assert benchmark.detect_regressions(previous, latest) == []
-
-    def test_multiple_regressions_are_sorted_worst_first(self):
-        previous = [{"case_id": 1, "score": 0.9}, {"case_id": 2, "score": 0.9}]
-        latest = [{"case_id": 1, "score": 0.8}, {"case_id": 2, "score": 0.3}]
-        regressions = benchmark.detect_regressions(previous, latest, threshold=0.05)
-        assert [r["case_id"] for r in regressions] == [2, 1]

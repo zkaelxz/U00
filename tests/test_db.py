@@ -280,12 +280,15 @@ class TestPresets:
     preset never changes a drama it was previously applied to; renaming
     only changes the name."""
 
+    def _get_preset(self, isolated_db, pid):
+        return next((p for p in isolated_db.list_presets() if p["id"] == pid), None)
+
     def test_save_preset_creates_and_captures_every_field(self, isolated_db):
         pid = isolated_db.save_preset(
             "Audio drama defaults", translation_engine="claude",
             engine_model="claude-sonnet-5", style_preset="audio_drama", locale="en-US",
             default_female_pronouns=True, include_genre_notes=False)
-        p = isolated_db.get_preset(pid)
+        p = self._get_preset(isolated_db, pid)
         assert p["name"] == "Audio drama defaults"
         assert p["translation_engine"] == "claude"
         assert p["engine_model"] == "claude-sonnet-5"
@@ -296,7 +299,7 @@ class TestPresets:
 
     def test_defaults_are_applied_when_not_given(self, isolated_db):
         pid = isolated_db.save_preset("Bare minimum")
-        p = isolated_db.get_preset(pid)
+        p = self._get_preset(isolated_db, pid)
         assert p["default_female_pronouns"] == 0
         assert p["include_genre_notes"] == 1  # matches the Workspace checkbox's own default
 
@@ -310,8 +313,8 @@ class TestPresets:
         pid = isolated_db.save_preset("My preset", translation_engine="claude", locale="en-US")
         pid2 = isolated_db.save_preset("My preset", translation_engine="gemini", locale="en-GB")
         assert pid2 == pid  # same row, not a second one
-        assert isolated_db.list_presets() == [isolated_db.get_preset(pid)]
-        p = isolated_db.get_preset(pid)
+        assert isolated_db.list_presets() == [self._get_preset(isolated_db, pid)]
+        p = self._get_preset(isolated_db, pid)
         assert p["translation_engine"] == "gemini"
         assert p["locale"] == "en-GB"
 
@@ -328,7 +331,7 @@ class TestPresets:
 
         isolated_db.delete_preset(pid)
 
-        assert isolated_db.get_preset(pid) is None
+        assert self._get_preset(isolated_db, pid) is None
         assert isolated_db.get_drama(did) == before
 
     def test_delete_preset_only_removes_that_one_preset(self, isolated_db):
@@ -342,11 +345,11 @@ class TestPresets:
             "Old name", translation_engine="claude", engine_model="claude-sonnet-5",
             style_preset="audio_drama", locale="en-AU", default_female_pronouns=True,
             include_genre_notes=False)
-        before = isolated_db.get_preset(pid)
+        before = self._get_preset(isolated_db, pid)
 
         isolated_db.rename_preset(pid, "New name")
 
-        after = isolated_db.get_preset(pid)
+        after = self._get_preset(isolated_db, pid)
         assert after["name"] == "New name"
         for field in ("translation_engine", "engine_model", "style_preset", "locale",
                       "default_female_pronouns", "include_genre_notes"):
@@ -356,7 +359,7 @@ class TestPresets:
         pid1 = isolated_db.save_preset("Preset one")
         pid2 = isolated_db.save_preset("Preset two")
         isolated_db.rename_preset(pid1, "Renamed")
-        assert isolated_db.get_preset(pid2)["name"] == "Preset two"
+        assert self._get_preset(isolated_db, pid2)["name"] == "Preset two"
 
 
 class TestSeriesCharacters:
@@ -831,7 +834,7 @@ class TestPagesAndBubbles:
         did = isolated_db.create_drama(title_en="Test")
         pid = isolated_db.create_page(did, 0, "pages/page_0000.png", 600, 400)
         isolated_db.update_page(pid, rendered_filename="pages/typeset_0000.png")
-        page = isolated_db.get_page(pid)
+        page = isolated_db.list_pages(did)[0]
         assert page["rendered_filename"] == "pages/typeset_0000.png"
 
     def test_list_bubbles_for_drama_spans_every_page(self, isolated_db):
