@@ -109,8 +109,26 @@ if not errorlevel 1 (
 
 REM --- Start the server ------------------------------------------------------
 echo Starting Baihe Subtitler on port %PORT% ...
+if defined BAIHE_CI goto :start_server_noninteractive
+if defined BAIHE_SERVER_ONLY goto :start_server_noninteractive
 start "Baihe Subtitler (server -- closing this window stops the app)" /min ^
     %PY% -m streamlit run app.py --server.headless true --server.port %PORT%
+goto :server_started
+
+:start_server_noninteractive
+REM Step 10b follow-up: `start`'s own new-console-window creation can
+REM fail with "ERROR: Input redirection is not supported, exiting the
+REM process immediately." when run from a shell with no real console
+REM attached -- exactly how GitHub Actions' Windows `cmd` shell runs this
+REM script (a real, confirmed failure on this project's own Windows CI
+REM job, not a hypothetical). PowerShell's Start-Process -NoNewWindow
+REM launches the same process without ever going through cmd.exe's
+REM `start` builtin, sidestepping that failure mode entirely -- used
+REM here for --ci/--server-only specifically, since neither one wants or
+REM needs a visible window anyway.
+powershell -NoProfile -Command ^
+    "Start-Process -FilePath '%VENV_DIR%\Scripts\python.exe' -ArgumentList '-m streamlit run app.py --server.headless true --server.port %PORT%' -NoNewWindow -RedirectStandardOutput 'streamlit_ci.log' -RedirectStandardError 'streamlit_ci_err.log'"
+:server_started
 
 REM Waits for the server to actually answer before opening a browser
 REM window, so the first thing you see isn't a "can't connect" page.
