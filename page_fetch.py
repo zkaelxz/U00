@@ -175,13 +175,28 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
     closed automatically on exit. Shared by fetch_rendered() and
-    fetch_rendered_resolving_blobs() so both wait the same way."""
+    fetch_rendered_resolving_blobs() so both wait the same way.
+
+    Scrolls to the bottom once after the initial load: a real, confirmed
+    need (manhuaku.net's chapter reader) for content some sites only
+    populate on a scroll/resize event (jquery.lazyload and similar), not
+    on the initial page load -- reproduced directly: the same chapter URL
+    rendered with zero real reader images without this scroll, and real
+    images consistently after it. Wrapped defensively, since a scroll can
+    itself trigger a navigation on some sites (also observed directly: a
+    responsive-redirect script reacting to the resulting resize event) --
+    that isn't fatal, just settled with another wait."""
     sync_playwright = _require_playwright()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
             page = browser.new_page(user_agent="Mozilla/5.0 (compatible; BaiheStudio/1.0)")
             page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_load_state("networkidle", timeout=timeout * 1000)
+            except Exception:
+                pass  # a scroll-triggered navigation or a slow settle isn't fatal
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)
