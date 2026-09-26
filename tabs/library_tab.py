@@ -4,6 +4,7 @@ tabs/library.py -- Library tab UI, extracted from the former monolithic app.py.
 import time
 
 from common import *
+from sources import store as src_store
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -505,7 +506,8 @@ def render_library_tab():
 
     with st.expander("💾 Backup & restore", expanded=False):
         st.caption("Backs up your whole library -- the database plus every drama's audio/video/dub "
-                  "files and reference clips. Worth doing before any big batch run.")
+                  "files and reference clips. Worth doing before any big batch run. Sites you've "
+                  "signed in to from Sources are never included -- sign in again after a restore.")
 
         bc1, bc2 = st.columns(2)
         with bc1:
@@ -544,7 +546,10 @@ def render_library_tab():
                     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                         for root, dirs, files in os.walk(library_dir, topdown=True):
                             if root == library_dir:
-                                dirs[:] = [d for d in dirs if d != "backups"]
+                                # Saved site sign-ins (Step 23k's browser
+                                # profiles) never go into a backup file.
+                                dirs[:] = [d for d in dirs if d not in
+                                           ("backups", src_store.BROWSER_PROFILES_DIRNAME)]
                             for fname in files:
                                 full_path = os.path.join(root, fname)
                                 if full_path in skip_paths:

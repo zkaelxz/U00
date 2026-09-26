@@ -16,8 +16,11 @@ Rules the ladder enforces, not just documents:
     the page they reached themselves (USER_ASSISTED_BROWSER).
   * Protected content (DRM, site-side decryption, signed tokens) is named
     and recorded, never decoded or worked around.
-  * AUTHENTICATED_BROWSER is Step 23k's tier; until that ships it reports
-    NOT_BUILT rather than silently pretending to have been tried.
+  * AUTHENTICATED_BROWSER (Step 23k) reads the page inside the persistent
+    browser profile the person signed in to themselves. It answers "can
+    this session see it" -- never "may the app extract it": a source whose
+    terms restrict automated access or AI/ML use is refused by
+    check_terms() before any tier runs, signed in or not.
   * OFFICIAL_API is checked before giving up. An API that only covers
     part of what was asked (e.g. metadata but not chapter text) is a real,
     partial result -- not a pass, and not UNAVAILABLE.
@@ -28,11 +31,11 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import detect, store
-from .models import (AccessTier, AttemptRecord, CapabilityStatus, CHALLENGE_REASONS,
-                     ChallengeDetected, ContentAccess, ENVIRONMENT_BLOCK_REASONS,
-                     FailureReason, PROTECTION_REASONS,
-                     SourceCapabilities, SourceError, TechnicalStatus, TermsProhibited,
-                     TierResult)
+from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
+                     CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
+                     ENVIRONMENT_BLOCK_REASONS, FailureReason, PROTECTION_REASONS, Requirement,
+                     SourceCapabilities, SourceError, TechnicalProtection, TechnicalStatus,
+                     TermsProhibited, TierResult, explain_protection)
 
 TIER_LABELS = {
     AccessTier.STATIC_HTTP: "Static HTTP",
@@ -69,6 +72,7 @@ class LadderResult:
     capability_status: str = CapabilityStatus.UNTESTED.value
     content_access: str = ContentAccess.UNKNOWN.value
     reasons: list = field(default_factory=list)     # every FailureReason seen, first = most telling
+    resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
 
     @property
     def ok(self) -> bool:
@@ -122,38 +126,56 @@ def rendered_tier(client=None, fetch_rendered=None):
         return fn(url)
 
     def run(url: str) -> TierOutcome:
-        try:
-            if client is not None:
-                html, _text = client.paced(fetch, url, "Browser session")
-            else:
-                html, _text = fetch(url)
-        except ImportError as e:
-            return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED],
-                               detail=str(e).splitlines()[0])
-        except Exception as e:
-            reason = FailureReason.TIMEOUT if "timeout" in type(e).__name__.lower() \
-                else FailureReason.UNKNOWN
-            return TierOutcome(False, reasons=[reason], detail=f"{type(e).__name__}: {e}"[:300])
-        reasons = detect.classify(200, {}, html, url, url)
-        # After a real render the page's own scripts have already run, so
-        # crypto/Vue markers still sitting in the markup don't by themselves
-        # mean the content is missing -- only a still-empty shell does.
-        if FailureReason.EMPTY_SPA_SHELL not in reasons:
-            reasons = [r for r in reasons if r not in (FailureReason.ENCRYPTED_RESOURCE,
-                                                       FailureReason.JAVASCRIPT_REQUIRED)]
-        ev = detect.evidence(200, {}, html, url, url)
-        if reasons:
-            return TierOutcome(False, html=html, reasons=reasons,
-                               detail=", ".join(r.value for r in reasons), evidence=ev)
-        return TierOutcome(True, html=html, evidence=ev)
+        return _browser_outcome(url, client, fetch, "Browser session")
     return run
 
 
-def not_built_tier(step: str):
+def authenticated_tier(profile_dir: str, client=None, fetch_with_profile=None):
+    """AUTHENTICATED_BROWSER (Step 23k): the page as the persistent
+    profile at `profile_dir` sees it -- i.e. with the person's own sign-in.
+    The same classification as RENDERED_BROWSER then doubles as the
+    "is the target content actually visible in this session" check: a page
+    still showing a login form, a purchase prompt or protection fails with
+    that specific reason, and nothing is extracted from it. Only the
+    rendered page comes back; the session itself never leaves the browser."""
+    def fetch(url):
+        fn = fetch_with_profile
+        if fn is None:
+            from page_fetch import fetch_with_profile as fn
+        return fn(url, profile_dir)
+
     def run(url: str) -> TierOutcome:
-        return TierOutcome(False, reasons=[FailureReason.NOT_BUILT],
-                           detail=f"This tier arrives in Step {step}.")
+        return _browser_outcome(url, client, fetch, "Signed-in browser session")
     return run
+
+
+def _browser_outcome(url, client, fetch, action) -> TierOutcome:
+    try:
+        if client is not None:
+            html, _text = client.paced(fetch, url, action)
+        else:
+            html, _text = fetch(url)
+    except ImportError as e:
+        return TierOutcome(False, reasons=[FailureReason.NOT_INSTALLED],
+                           detail=str(e).splitlines()[0])
+    except Exception as e:
+        from translate_engines import redact_secrets
+        reason = FailureReason.TIMEOUT if "timeout" in type(e).__name__.lower() \
+            else FailureReason.UNKNOWN
+        return TierOutcome(False, reasons=[reason],
+                           detail=redact_secrets(f"{type(e).__name__}: {e}")[:300])
+    reasons = detect.classify(200, {}, html, url, url)
+    # After a real render the page's own scripts have already run, so
+    # crypto/Vue markers still sitting in the markup don't by themselves
+    # mean the content is missing -- only a still-empty shell does.
+    if FailureReason.EMPTY_SPA_SHELL not in reasons:
+        reasons = [r for r in reasons if r not in (FailureReason.ENCRYPTED_RESOURCE,
+                                                   FailureReason.JAVASCRIPT_REQUIRED)]
+    ev = detect.evidence(200, {}, html, url, url)
+    if reasons:
+        detail = " ".join([", ".join(r.value for r in reasons)] + explain_protection(reasons))
+        return TierOutcome(False, html=html, reasons=reasons, detail=detail, evidence=ev)
+    return TierOutcome(True, html=html, evidence=ev)
 
 
 def user_assisted_tier(provided_html: str):
@@ -284,11 +306,18 @@ def load_capabilities(source: str, default: SourceCapabilities = None) -> Source
     if not raw:
         return default or SourceCapabilities(platform=source)
     caps = SourceCapabilities.from_dict(raw)
-    if default is not None and default.terms.get("tos_prohibited"):
+    if default is not None:
         # A stored record can't clear a prohibition the adapter's own
         # built-in default currently states -- ToS status is a property
-        # of the site, not of what an earlier import happened to observe.
-        caps.terms["tos_prohibited"] = True
+        # of the site, not of what an earlier import happened to observe
+        # (nor of whether that import was signed in).
+        if default.terms.get("tos_prohibited"):
+            caps.terms["tos_prohibited"] = True
+        for name, restricted in (("automation_permission",
+                                  AutomationPermission.EXPLICITLY_RESTRICTED.value),
+                                 ("ai_ml_use", AiMlUse.EXPLICITLY_RESTRICTED.value)):
+            if getattr(default, name) == restricted:
+                setattr(caps, name, restricted)
     return caps
 
 
@@ -298,22 +327,43 @@ def save_capabilities(source: str, caps: SourceCapabilities):
 
 def apply_terms(caps: SourceCapabilities) -> SourceCapabilities:
     """A written, specific anti-scraping/AI-use clause (recorded in the
-    terms block, quoted) is the only thing that makes a source
-    DISQUALIFIED -- a technical wall never does."""
+    terms block, quoted, or as automation_permission / ai_ml_use =
+    EXPLICITLY_RESTRICTED) is the only thing that makes a source
+    DISQUALIFIED -- a technical wall never does, and a successful sign-in
+    never clears it."""
     if caps.terms.get("tos_prohibited"):
+        caps.automation_permission = AutomationPermission.EXPLICITLY_RESTRICTED.value
+    if caps.terms_restrictions():
         caps.status = CapabilityStatus.TOS_PROHIBITED.value
         caps.technical_status = TechnicalStatus.DISQUALIFIED.value
     return caps
 
 
-def check_terms(source: str, default: SourceCapabilities = None):
-    """Raises TermsProhibited when the source's record carries a
-    written ToS prohibition -- called before an import sends anything."""
+def _refusal(caps: SourceCapabilities, name: str) -> TermsProhibited:
+    what = []
+    if "automation_permission" in caps.terms_restrictions():
+        what.append("prohibit automated access")
+    if "ai_ml_use" in caps.terms_restrictions():
+        what.append("restrict AI/ML use of its content")
+    return TermsProhibited(
+        f"{caps.platform or name}'s terms of service {' and '.join(what)}, so the app won't "
+        "import from it -- signing in doesn't change that. Save the pages yourself and upload "
+        "them manually instead.")
+
+
+def check_terms(source: str, default: SourceCapabilities = None, url: str = None):
+    """Raises TermsProhibited when the source's record -- or, with `url`,
+    that site's own entry in sources/site_terms -- carries a written
+    restriction. Called before an import sends anything, and before a
+    sign-in window is opened. Never depends on authentication status."""
     caps = apply_terms(load_capabilities(source, default))
     if caps.status == CapabilityStatus.TOS_PROHIBITED.value:
-        raise TermsProhibited(
-            f"{caps.platform or source}'s terms of service prohibit automated access, so the "
-            "app won't import from it. Save the pages yourself and upload them manually instead.")
+        raise _refusal(caps, source)
+    if url:
+        from . import site_terms
+        site = site_terms.capabilities_for(url)
+        if site is not None and apply_terms(site).status == CapabilityStatus.TOS_PROHIBITED.value:
+            raise _refusal(site, url)
 
 
 def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
@@ -359,6 +409,89 @@ def record_ladder_result(source: str, result: LadderResult,
     caps.technical["browser_accessible"] = any(
         a.ok for a in result.attempts if a.tier == AccessTier.RENDERED_BROWSER.value) or \
         caps.technical.get("browser_accessible", False)
+    _record_access_facts(caps, access_facts(result))
     apply_terms(caps)
     save_capabilities(source, caps)
     return caps
+
+
+# ---------------------------------------------------------------------------
+# Step 23k: per-attempt access facts (Source Diagnostics item 6)
+# ---------------------------------------------------------------------------
+
+_UNAUTHENTICATED = (AccessTier.STATIC_HTTP.value, AccessTier.RENDERED_BROWSER.value)
+
+
+def access_facts(result: LadderResult) -> dict:
+    """What one ladder run showed about sign-in, entitlement and
+    protection -- each its own fact, each with its specific wording."""
+    reasons = set(result.reasons)
+    auth_attempt = next((a for a in result.attempts
+                         if a.tier == AccessTier.AUTHENTICATED_BROWSER.value), None)
+    if auth_attempt is not None:
+        if auth_attempt.ok:
+            authentication = "Signed in: the target content is visible in your saved browser session."
+        elif auth_attempt.reason == FailureReason.AUTHENTICATION_REQUIRED.value:
+            authentication = ("Not signed in: the saved browser session still sees a login "
+                              "page. Sign in again with the browser window.")
+        else:
+            authentication = "Tried with your saved browser session."
+    elif FailureReason.AUTHENTICATION_REQUIRED in reasons:
+        authentication = "This page asks for a login -- no signed-in session was used."
+    elif result.ok and result.tier in _UNAUTHENTICATED:
+        authentication = "Not needed: reached without signing in."
+    else:
+        authentication = "Unknown."
+    if FailureReason.PURCHASE_REQUIRED in reasons:
+        entitlement = ("Purchase/entitlement required: the page asks for a purchase or unlock "
+                       "this session doesn't have. The app never works around that.")
+    elif result.ok:
+        entitlement = "No purchase prompt on the page reached."
+    else:
+        entitlement = "Unknown."
+    protections = [r for r in result.reasons if r in PROTECTION_REASONS]
+    if protections:
+        protection = TechnicalProtection.DETECTED.value
+    elif result.ok:
+        protection = TechnicalProtection.NONE.value
+    else:
+        protection = TechnicalProtection.UNKNOWN.value
+    return {
+        "authenticated_session": auth_attempt is not None,
+        "authentication": authentication,
+        # Only an observed login wall. A signed-in success alone doesn't
+        # show a sign-in was *needed* -- the signed-out tiers weren't run.
+        "authentication_required": FailureReason.AUTHENTICATION_REQUIRED in reasons,
+        "reached_without_auth": result.ok and result.tier in _UNAUTHENTICATED,
+        "entitlement": entitlement,
+        "purchase_required": FailureReason.PURCHASE_REQUIRED in reasons,
+        "technical_protection": protection,
+        "protection_detail": explain_protection(protections),
+    }
+
+
+def _record_access_facts(caps: SourceCapabilities, facts: dict):
+    """REQUIRED/DETECTED stick once seen (some content on the source
+    needed it); NOT_REQUIRED/NONE only fill an UNKNOWN."""
+    if facts["authentication_required"]:
+        caps.authentication_required = Requirement.REQUIRED.value
+    elif facts["reached_without_auth"] and \
+            caps.authentication_required == Requirement.UNKNOWN.value:
+        caps.authentication_required = Requirement.NOT_REQUIRED.value
+    if facts["purchase_required"]:
+        caps.purchase_required = Requirement.REQUIRED.value
+    if facts["technical_protection"] == TechnicalProtection.DETECTED.value:
+        caps.technical_protection = TechnicalProtection.DETECTED.value
+    elif facts["technical_protection"] == TechnicalProtection.NONE.value and \
+            caps.technical_protection == TechnicalProtection.UNKNOWN.value:
+        caps.technical_protection = TechnicalProtection.NONE.value
+
+
+def describe_capability_fields(caps: SourceCapabilities) -> str:
+    """One line with Step 23k's six separate fields, for the Sources tab."""
+    return (f"Access method: {caps.access_method or 'not established yet'} · "
+            f"Authentication: {caps.authentication_required} · "
+            f"Purchase: {caps.purchase_required} · "
+            f"Technical protection: {caps.technical_protection} · "
+            f"Automation permission: {caps.automation_permission} · "
+            f"AI/ML use: {caps.ai_ml_use}")

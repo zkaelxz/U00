@@ -350,12 +350,17 @@ class TestLadder:
         logged = store.recent_attempts("two")[0]
         assert "BOT_CHALLENGE" in logged["reasons"] and "blocked" not in " ".join(logged["lines"])
 
-    def test_authenticated_tier_is_reported_as_not_built_yet(self, isolated_db):
+    def test_authenticated_tier_names_a_still_signed_out_session(self, isolated_db):
+        """Step 23k's tier: a saved profile that still sees a login form
+        fails with that exact reason -- nothing is extracted from it."""
+        login = ('<html><body><form><p>Please log in</p><input type="password"></form>'
+                 '</body></html>')
+        seen = []
         r = ladder.run_ladder("https://x.invalid/", {
-            AccessTier.STATIC_HTTP: _tier(False, [FailureReason.ACCESS_DENIED]),
-            AccessTier.AUTHENTICATED_BROWSER: ladder.not_built_tier("23k")})
-        assert r.attempts[-1].reason == "NOT_BUILT"
-        assert "23k" in r.attempts[-1].detail
+            AccessTier.AUTHENTICATED_BROWSER: ladder.authenticated_tier(
+                "/profiles/x", fetch_with_profile=lambda u, d: (seen.append(d), (login, ""))[1])})
+        assert seen == ["/profiles/x"]
+        assert r.attempts[-1].reason == "AUTHENTICATION_REQUIRED" and not r.ok
 
 
 class TestRealCaseMatrix:

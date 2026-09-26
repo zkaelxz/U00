@@ -199,7 +199,7 @@ work".
 | URL patterns | Anything that isn't a registered source or a known video URL. |
 | Content type | Detected per page: comic (≥3 page-sized images), novel (a large main-text block), or video (`og:type` video or a `<video>` tag). |
 | Language | Guessed from the script used. |
-| Auth | None. A verification page is handed to you, and after completing it in your own browser you can paste the page source to continue. |
+| Auth | None by default. A verification page is handed to you, and after completing it in your own browser you can paste the page source to continue. For a page that needs your account, **🔐 Sign in to this site** opens a signed-in browser profile -- see "Signed-in browser sessions (Step 23k)" below. |
 | Extraction | **Comic:** every `<img>`/`<source>` in reading order, including `data-src`/`data-original`/`srcset`. The filter then removes images that are: too short to be pages; off the dominant width/aspect cluster; repeated on other chapters of the same site; or from a third-party domain. **Novel:** trafilatura if installed, otherwise the largest text block after nav, header, footer and comment areas are stripped. |
 | Known limits | The first chapter from a site can't use the cross-chapter repeat check yet, so a page-sized logo that shares the pages' width can get through. Pages drawn on a canvas or assembled by scripts need the browser tier. trafilatura's CJK extraction hasn't been benchmarked. |
 | Tests | `tests/test_sources_workflows.py` |
@@ -221,6 +221,47 @@ passes the independent checks:
 | Media on unknown pages | For a video page no adapter or yt-dlp shortcut recognizes: **🔎 Identify media on this page** lists video/audio/manifest/subtitle resources (identify only). The one you pick goes through the normal video import. DRM markers are named, never worked around. |
 | Diagnostics | Each attempt is added to the same access-attempt log as the ladder (source `generic`). It records which access tier and which extraction tier worked, how many AI calls were made, what happened with the profile, any protection detected, and the plain-language reason for a failure. |
 | Tests | `tests/test_adaptive_extraction.py` — mocked engine, no network. |
+
+## Signed-in browser sessions (Step 23k) — `sources/auth_browser.py`, `page_fetch.py`
+
+For pages that only show their content to a signed-in account. The app
+never asks for, sees or stores a password.
+
+| | |
+|---|---|
+| Flow | **🔐 Sign in to this site** (under a pasted URL, or per source under **🩺 Sources, health & diagnostics**): "Authentication required — a browser window will open. Log in normally and open the chapter you want." A real Chromium window opens on the computer running the app. You sign in (and pass any CAPTCHA/MFA) yourself; the app waits with no time limit until you close the window, then reads the page through that same profile and checks the content is really visible before anything is imported. |
+| Persistence | One Playwright persistent profile per source: `<library>/profiles/<source>/` (for a pasted URL no adapter covers, `<library>/profiles/<host>/`). Later imports from that source read through it, so you aren't asked to sign in again. What persists is the profile directory; the browser itself is started per read and closed afterwards. **Forget this site's sign-in** deletes the profile. |
+| Access tier | `AUTHENTICATED_BROWSER`. Once a source has a saved profile its pages are read only through it (so you see what your account sees, not a signed-out teaser); without one, the ordinary `STATIC_HTTP` → `RENDERED_BROWSER` tiers run as before. The Bilibili Manga adapter's chapter imports go through this path too. Kuaikan's own chapter imports are plain HTTP by design and don't use it; a pasted Kuaikan chapter URL does. |
+| Never | Solves a CAPTCHA, bypasses MFA, forges or refreshes a session, or gets around a purchase/entitlement check. A page still asking for a login, a purchase, or showing protection is reported as exactly that. |
+| Session data | Stays inside Chromium's profile. Nothing in the app reads cookies or storage state; they are never shown, logged, put in a library backup (the full-backup zip skips `profiles/`), or sent to an AI engine. The only prompt path in `sources/` (`ai_extract.ask_json`) additionally blanks credential-shaped URL parameters (`token=`, `auth_key=`, `sign=`, `X-Amz-*`...) that a signed-in page's image/link URLs can carry. |
+| Terms | Checked first, before any window opens or request is sent. Signing in answers "can I see this", never "may the app extract it". See the capability fields and the per-site table below. |
+| Tests | `tests/test_sources_auth_browser.py` — fake Playwright objects, no network, no real browser. |
+
+### Capability fields
+
+Each is a separate fact on a source's `SourceCapabilities` record, shown
+per source under **🩺 Sources, health & diagnostics**. Each attempt's own
+values (authentication, entitlement, resource types found, technical
+protection) are shown in that attempt's **🩺 Source diagnostics**.
+
+| Field | Values | Meaning |
+|---|---|---|
+| `access_method` | `STATIC_HTTP` / `RENDERED_BROWSER` / `AUTHENTICATED_BROWSER` / `USER_ASSISTED_BROWSER` / `OFFICIAL_API` | The access tier that actually worked. A dedicated adapter shows up as the source itself being a registered adapter, not as a separate tier value. |
+| `authentication_required` | `REQUIRED` / `NOT_REQUIRED` / `UNKNOWN` | Replaces the old `auth_required: bool` (older stored records migrate automatically). `REQUIRED` once any attempt saw a login wall. |
+| `purchase_required` | `REQUIRED` / `NOT_REQUIRED` / `UNKNOWN` | `REQUIRED` once any attempt saw a purchase/unlock prompt. |
+| `technical_protection` | `NONE` / `DETECTED` / `UNKNOWN` | DRM, site-side decryption or signed tokens seen. A protected resource is reported as "Protected resource could not be processed without bypassing a technical control (...)", never as a bare "blocked". |
+| `automation_permission` | `PERMITTED` / `EXPLICITLY_RESTRICTED` / `UNKNOWN` | What the site's own terms say about automated access. Only a directly-read clause sets `EXPLICITLY_RESTRICTED`; unread terms stay `UNKNOWN`, never `PERMITTED` by default. `EXPLICITLY_RESTRICTED` (or the older `terms.tos_prohibited`) refuses every import, signed in or not. |
+| `ai_ml_use` | `ALLOWED_OR_NOT_IDENTIFIED` / `EXPLICITLY_RESTRICTED` / `UNKNOWN` | A clause restricting AI/ML use of the content. `EXPLICITLY_RESTRICTED` refuses imports too. |
+| `content_access_status` | `TEXT` / `IMAGES` / `VIDEO` / `AUDIO` / `SUBTITLES` / `MIXED` / ... | Resource types actually found on a page that was reached. |
+
+### Per-site terms for sites with no adapter — `sources/site_terms.py`
+
+| Site | `automation_permission` | What was read |
+|---|---|---|
+| Naver (`*.naver.com`: Series, Webtoon) | `EXPLICITLY_RESTRICTED` | Umbrella terms ban "automated means (e.g. macro programs, robots/bots, spiders, scrapers)" for collecting content. Webtoon is covered by inference from the umbrella terms. |
+| Novelpia (`novelpia.com`) | `EXPLICITLY_RESTRICTED` | Terms ban "computer programs, automated means, scripts, bots"; `robots.txt` disallows all clients except named search engines. |
+| JJWXC (`jjwxc.net`) | `EXPLICITLY_RESTRICTED` | §4.3 bans any crawling/scraping (爬取/抓取); §4.9 invokes criminal liability. Never attempted. |
+| KakaoPage (`page.kakao.com`) | `UNKNOWN` | Terms page is client-rendered; clause text couldn't be read. Not cleared. |
 
 ## Video URLs
 
@@ -347,3 +388,20 @@ they've been tried against the real site.
 - [ ] **manhuaku, search endpoint:** periodically re-check whether
   `/search/<query>` starts returning real results for well-known titles
   -- if so, `search()` should be implemented rather than left unsupported.
+- [ ] **Step 23k, signed-in session (pending a real account):** with a
+  real account on a source actually confirmed permitted (Bilibili Manga,
+  or a pasted Kuaikan chapter URL), use **🔐 Sign in to this site**:
+  complete the sign-in in the window, close it, and confirm the app
+  reports the page as visible. Import a second chapter and confirm no
+  sign-in window is needed. Confirm **🩺 Source diagnostics** shows
+  accurate authentication, entitlement/purchase, resource-type and
+  technical-protection lines, and that the source's record under
+  **🩺 Sources, health & diagnostics** shows the six capability fields.
+  Also confirm a Naver/Novelpia URL is refused at the capability check
+  even with a sign-in. Not verifiable in the build environment: no real
+  account was available, and real headless-browser rendering doesn't
+  work through that environment's network proxy, so only the mocked tests
+  in `tests/test_sources_auth_browser.py` have been run. Also unverified:
+  that closing the Chromium window fires Playwright's context `close`
+  event on every OS, and that a site accepts a session signed in on a
+  headed window when it is later read headless.
