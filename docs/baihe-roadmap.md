@@ -1083,7 +1083,9 @@ Reported by the implementing session alongside Step 9b's PR (#26), confirmed dir
 
 4. **✅ Resolved — PR #30, merged.** `diagnostics.scan_hf_cache()` returning `[]` against `TestHfCacheScanAndDelete`'s fixture was never a live bug. **The originally-suspected cause (a `huggingface_hub>=0.20` version drift changing `scan_cache_dir()`'s internals) was wrong, corrected by the implementing session's own direct check, not assumed away**: `huggingface_hub` lives in `requirements.txt`/`requirements-optional.txt`, not `requirements-core.txt` — CI's own core-only install never has it installed at all, so the three tests hit the real (and correct) `except ImportError: return []` branch and failed hard on an assertion instead of skipping cleanly, unlike every other optional-dependency test in the suite (pytesseract/cv2/jieba already follow the skip pattern). Confirmed two ways this wasn't a real feature bug: the CI job log for PR #27 never mentions `huggingface_hub` anywhere in its install step, and — independently, matching this session's own manual-check request — the user's real Diagnostics screenshot showed the HF-cache panel correctly listing real cached models (`Systran/faster-whisper-medium`, `pyannote/speaker-diarization-3.1`) with real sizes and hashes. **Fix applied**: `pytest.importorskip("huggingface_hub")` added to the three tests that need it, not the whole class (one sibling test that simulates "not installed" via `sys.modules` already passed correctly either way and would've lost real coverage if skipped along with the rest).
 
-**Exit:** N/A — this step exists to track findings, not to gate a manual check; items 1–4 above are addressed the next time `workspace_tab.py`/`test_live_translate.py`/`background_jobs.py`/`diagnostics.py` is touched.
+5. **Same missing-skip-guard bug as item 4, a different file — reported by the Step 21 implementing session, confirmed directly.** `tests/test_scanlate.py`'s `TestAutoBackendSelection` has four hard `import huggingface_hub` statements (lines 485, 493, 499, 507) with no `pytest.importorskip("huggingface_hub")` guard — same pattern item 4 already fixed once in `test_diagnostics_and_export.py`, just never applied here too. Fails hard instead of skipping cleanly on CI's core-only install. Confirmed directly: this session's own sandbox happened to have `huggingface_hub` installed from an earlier review, masking it locally, but the test file itself plainly lacks the guard. Same one-line-per-test fix as item 4.
+
+**Exit:** N/A — this step exists to track findings, not to gate a manual check; items 1–5 above are addressed the next time `workspace_tab.py`/`test_live_translate.py`/`background_jobs.py`/`diagnostics.py`/`test_scanlate.py` is touched.
 
 ### Step 9g — Un-nest "Save as preset" in Translation, at the user's request
 Confirmed a real, small discoverability issue by reading `tabs/workspace_tab.py` directly: "💾 Save current settings as a preset" (line 2130) is its own `st.expander`, **nested inside** the Translation section's own `st.expander("5. 🌐 Translation")` — two clicks deep (open Translation, then open the preset sub-expander) for something Step 9c intended as a one-click save. Asked the user directly whether to flatten it in place, move it out of Translation entirely, or just default the existing sub-expander open — **confirmed: flatten it in place**, since it captures Translation's own settings specifically (engine/model, style, locale, pronoun default, genre-guidance toggle) and belongs with them, not elsewhere.
@@ -2106,7 +2108,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 12b — Auto QC pass | — | Not started | — |
   | 12c — Workspace media preview & review linkage | — | Not started | — |
   | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | `claude/admiring-fermi-ms122r` | ✅ Merged (PR #58) | ⏳ Pending |
-  | 12e — Project instructions & workflow presets | — | Not started | — |
+  | 12e — Project instructions & workflow presets | `step-12e-project-instructions-presets` | ✅ Merged (PR #67) | ⏳ Pending |
   | 13 — UI foundation: components & project state | — | Not started | — |
   | 14 — Workspace shell rebuild | — | Not started | — |
   | 15 — Reader tab declutter | — | Not started | — |
@@ -2118,7 +2120,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 19 — Full click-through UX test | — | Not started | — |
   | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
   | 20b — Richer Anki export: sentence + audio | `step-20b-richer-anki-export` | ✅ Merged (PR #66) | ⏳ Pending |
-  | 21 — Review workspace: per-line audio and save-status | — | Not started | — |
+  | 21 — Review workspace: per-line audio and save-status | `claude/step-21-roadmap-sp7f31` | PR #68 open, CI running — independently reviewed and verified (16 passed on its own tests, 287 on the broader area, plus a clean test-merge alongside Step 12e confirming no real conflict despite both touching `workspace_tab.py`); merging once CI confirms green | ⏳ Pending |
   | 22 — Series-level library view | — | Not started | — |
   | 23 — Source-adapter architecture (interface only) | — | Not started | — |
   | 23b — First real source adapter: manhuagui (zh) | — | Not started | — |
