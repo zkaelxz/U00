@@ -2281,6 +2281,71 @@ class TestTranslateJobRefreshesStaleEnBoxes:
         background_jobs.clear_job(job_id)
 
 
+class TestDramaSwitchResetsLoadedLines:
+    """Step 4j: a real, confirmed cross-drama data-corruption bug --
+    switching the Drama dropdown left the newly-picked drama's page
+    showing the PREVIOUS drama's lines (nothing reset
+    st.session_state.lines here), and saving afterward would silently
+    overwrite the new drama's real rows with the old drama's data,
+    deleting its own lines/notes/emotions in the process."""
+
+    def _two_dramas(self, isolated_db):
+        did_a = isolated_db.create_drama(title_en="Drama A", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_a, [Line(idx=0, start=0.0, end=1.0, zh="甲甲甲", en="AAA")])
+        did_b = isolated_db.create_drama(title_en="Drama B", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_b, [Line(idx=0, start=0.0, end=1.0, zh="乙乙乙", en="BBB")])
+        return did_a, did_b
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _drama_box(self, at):
+        return [b for b in at.selectbox if b.label == "Drama"][0]
+
+    def _switch_to(self, at, did):
+        box = self._drama_box(at)
+        label = next(l for l in box.options if l.startswith(f"#{did} "))
+        box.set_value(label).run(timeout=30)
+
+    def test_switching_shows_the_new_dramas_own_lines_not_the_old_ones(self, isolated_db):
+        did_a, did_b = self._two_dramas(isolated_db)
+        at = self._run(did_a)
+        assert [ta.value for ta in at.text_area if ta.key == "zh_0"] == ["甲甲甲"]
+
+        self._switch_to(at, did_b)
+
+        assert at.session_state.active_drama_id == did_b
+        assert at.session_state.lines[0].zh == "乙乙乙"
+        assert [ta.value for ta in at.text_area if ta.key == "zh_0"] == ["乙乙乙"]
+
+    def test_save_edits_immediately_after_switching_does_not_corrupt_the_new_drama(
+            self, isolated_db):
+        did_a, did_b = self._two_dramas(isolated_db)
+        at = self._run(did_a)
+        self._switch_to(at, did_b)
+
+        [b for b in at.button if b.label == "💾 Save edits (this page)"][0].click()
+        at.run(timeout=30)
+
+        after_b = isolated_db.load_lines(did_b)
+        assert [r["zh"] for r in after_b] == ["乙乙乙"]
+        after_a = isolated_db.load_lines(did_a)
+        assert [r["zh"] for r in after_a] == ["甲甲甲"]
+
+
 class TestManualRefreshButton:
     """Step 9i item 2: a general-purpose escape hatch next to the drama
     picker -- reloads lines from the database and clears the same
