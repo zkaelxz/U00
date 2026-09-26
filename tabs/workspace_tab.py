@@ -58,6 +58,21 @@ def apply_preset_to_session(preset: dict, drama_id):
         st.session_state[_model_key] = preset["engine_model"]
 
 
+def apply_workflow_tier(tier: str, drama_id):
+    """Step 12e: applies one of translate_engines.WORKFLOW_TIERS (Draft /
+    Standard / Release) -- the engine goes onto the drama row, same place
+    Step 9c's presets put it; the model, Reflect mode and Auto QC go into
+    the session keys their widgets below read. A starting point, not a
+    lock: every one of them stays editable afterward."""
+    t = translate_engines.WORKFLOW_TIERS[tier]
+    db.update_drama(drama_id, translation_engine=t["translation_engine"])
+    _model_key = _ENGINE_MODEL_SESSION_KEY.get(t["translation_engine"])
+    if _model_key and t["engine_model"]:
+        st.session_state[_model_key] = t["engine_model"]
+    st.session_state[f"reflect_mode_{drama_id}"] = t["reflect"]
+    st.session_state[f"auto_qc_{drama_id}"] = t["auto_qc"]
+
+
 def _sanitize_filename(name: str, max_length: int = 80) -> str:
     """Strips characters Windows/macOS/Linux all disallow in a filename
     (a custom export name is free-typed text, not something to trust
@@ -1987,6 +2002,20 @@ def render_workspace_tab():
                     db.update_drama(picked_id, last_translate_errors=None)
                     st.rerun()
 
+        _tier_keys = list(translate_engines.WORKFLOW_TIERS)
+        _tc1, _tc2 = st.columns([3, 1])
+        _tier_choice = _tc1.selectbox(
+            "Starting tier", _tier_keys, index=_tier_keys.index("standard"),
+            format_func=lambda k: translate_engines.WORKFLOW_TIERS[k]["label"],
+            key=f"workflow_tier_choice_{picked_id}",
+            help="Sets the translation engine, Reflect mode and Auto QC together -- Draft: "
+                 "DeepSeek, no Reflect, no Auto QC. Standard: Claude Sonnet, no Reflect, no "
+                 "Auto QC. Release: Claude Opus, Reflect on, Auto QC on. Everything stays "
+                 "editable afterward; save your own mix with \"Save as preset\" below.")
+        if _tc2.button("Apply tier", key=f"apply_workflow_tier_btn_{picked_id}"):
+            apply_workflow_tier(_tier_choice, picked_id)
+            st.rerun()
+
         _all_presets = db.list_presets()
         if _all_presets:
             _preset_options = {"-- none --": None}
@@ -2048,9 +2077,26 @@ def render_workspace_tab():
                  "specific character's pronouns always win over this default -- set them under "
                  "📖 Series glossary → 👥 People & pronouns (for a series), or per drama in "
                  "6. Name your characters.")
-        custom_guide_notes = st.text_area(
-            "Project-specific translation notes (optional)", height=68,
-            placeholder="e.g. this character always speaks formally; keep the narrator distant")
+        # Step 12e: persisted per drama and sent with every translation of it
+        # (translate_engines.build_project_instructions_block, via drama_meta)
+        # -- this box used to be session-only, lost on every reload. Saved as
+        # soon as it changes, so text typed right before clicking Translate
+        # isn't lost; `drama` is updated in place so this same run uses it.
+        _instructions = st.text_area(
+            "Project instructions for this drama (sent to the translator)", height=68,
+            value=drama.get("project_instructions") or "",
+            key=f"project_instructions_{picked_id}",
+            placeholder="e.g. this character always speaks formally; keep the narrator distant",
+            help="Saved with this drama and included in every translation of it, alongside "
+                 "the style notes and anything set for the whole series (📖 Series glossary "
+                 "below). Unlike Personal notes, this is sent to the translation engine.")
+        if _instructions != (drama.get("project_instructions") or ""):
+            db.update_drama(picked_id, project_instructions=_instructions)
+            drama["project_instructions"] = _instructions
+        if (drama.get("series_instructions") or "").strip():
+            st.caption("Also applied, from this drama's series: "
+                       + drama["series_instructions"].strip()[:200]
+                       + ("…" if len(drama["series_instructions"].strip()) > 200 else ""))
 
         with st.expander("📖 Series glossary & term handling", expanded=False):
             existing_series = db.list_series()
@@ -2070,6 +2116,17 @@ def render_workspace_tab():
                 if sid != drama.get("series_id"):
                     db.update_drama(picked_id, series_id=sid)
                     st.rerun()
+
+                _series_instr_saved = drama.get("series_instructions") or ""
+                _series_instr = st.text_area(
+                    "Series instructions (every drama in this series)", height=68,
+                    value=_series_instr_saved, key=f"series_instructions_{sid}",
+                    help="Sent with every translation of every drama in this series, before "
+                         "each drama's own project instructions -- for choices that should stay "
+                         "consistent across the whole series. Saved as soon as it changes.")
+                if _series_instr != _series_instr_saved:
+                    db.update_series_instructions(sid, _series_instr)
+                    drama["series_instructions"] = _series_instr
 
                 st.markdown("**Auto-extract terms from the source text**")
                 st.caption("Scans for names, sects, titles, honorifics, and concepts needing "
@@ -2449,6 +2506,12 @@ def render_workspace_tab():
                      "same engine critiques that specific translation (saved as a translation "
                      "note you can review), then a final rewrite using that critique. Costs "
                      "about 3x as much as a normal translation run.")
+
+        b2.checkbox(
+            "🔎 Auto QC before export", key=f"auto_qc_{picked_id}", disabled=True,
+            help="Set by the Starting tier above (Release turns it on). The Auto QC pass "
+                 "itself isn't built yet, so this doesn't do anything for now -- it's saved "
+                 "with the tier so it starts working once that check is added.")
 
         bulk_mode = False
         if (engine_choice in bulk_translate.BULK_ENGINES
@@ -2843,10 +2906,7 @@ def render_workspace_tab():
                 style_preset, glossary_terms=glossary_terms,
                 include_genre_notes=include_genre_notes,
                 default_female_pronouns=st.session_state.get(f"default_female_pronouns_{picked_id}", False),
-                custom_notes=(custom_guide_notes
-                               + ("\n\n" + _learned if _learned else "")
-                               + ("\n\n" + _emotion_block if _emotion_block else "")
-                               + ("\n\n" + _gender_block if _gender_block else "")))
+                custom_notes="\n\n".join(b for b in (_learned, _emotion_block, _gender_block) if b))
 
             if bulk_mode and reflect_mode:
                 _kind, _msg = _start_bulk_reflect(

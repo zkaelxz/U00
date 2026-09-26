@@ -579,9 +579,18 @@ def init_db():
                           # app restart, so "I don't have a transcript" (and the
                           # model/backend picks) had to be re-selected every time.
                           ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
-                          ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT")]:
+                          ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
+                          # Step 12e: freeform, multi-line instructions that DO reach
+                          # the translation prompt (translate_engines.build_llm_instructions)
+                          # -- unlike personal_notes above, which is private and never
+                          # sent anywhere. The series-level counterpart is
+                          # series.instructions, inherited by every drama in the series.
+                          ("project_instructions", "TEXT")]:
         if col not in drama_cols:
             conn.execute(f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
+    series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
+    if "instructions" not in series_cols:
+        conn.execute("ALTER TABLE series ADD COLUMN instructions TEXT")
     char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
     if "ref_audio_filename" not in char_cols:
         conn.execute("ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
@@ -821,9 +830,19 @@ def delete_drama(drama_id: int):
         shutil.rmtree(d)
 
 
+# Every drama row also carries its series' instructions (Step 12e) as
+# series_instructions, so any drama_meta handed to the translation prompt
+# already has both levels -- Workspace, CLI and bulk translate all build
+# drama_meta from get_drama()/list_dramas(), and nothing else has to thread
+# the series lookup through. A subquery rather than a JOIN keeps every
+# existing unqualified column name in list_dramas' filters unambiguous.
+_DRAMA_SELECT = ("SELECT dramas.*, (SELECT series.instructions FROM series "
+                 "WHERE series.id = dramas.series_id) AS series_instructions FROM dramas")
+
+
 def get_drama(drama_id: int):
     conn = get_conn()
-    row = conn.execute("SELECT * FROM dramas WHERE id = ?", (drama_id,)).fetchone()
+    row = conn.execute(f"{_DRAMA_SELECT} WHERE id = ?", (drama_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -832,7 +851,7 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = ""):
     conn = get_conn()
-    query = "SELECT * FROM dramas WHERE 1=1"
+    query = f"{_DRAMA_SELECT} WHERE 1=1"
     params = []
     if search:
         query += " AND (title_zh LIKE ? OR title_en LIKE ? OR summary LIKE ?)"
@@ -1421,6 +1440,15 @@ def list_series():
     rows = conn.execute("SELECT * FROM series ORDER BY name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def update_series_instructions(series_id: int, instructions: str):
+    """Step 12e: the series-level project instructions every drama in the
+    series inherits (see _DRAMA_SELECT's series_instructions)."""
+    conn = get_conn()
+    conn.execute("UPDATE series SET instructions = ? WHERE id = ?", (instructions, series_id))
+    conn.commit()
+    conn.close()
 
 
 def upsert_glossary_term(series_id: int, term_original: str, term_translation: str, notes: str = "",
