@@ -10,6 +10,8 @@
 >
 > **Step 12b is built and pushed (`claude/step-12b-roadmap-1j48e1`), gated, awaiting review approval — real, functional, but with a significant self-reported test-count discrepancy.** The diff and design genuinely match the roadmap spec (a tolerant factual-detail checker for numbers/dates/names/currency/units, surfaced through the existing flag mechanism, opt-in button, reviewable via version history). Independently run by this session against the actual branch head: `test_auto_qc.py` (49 passed) and the full suite (**1950 passed, 56 skipped, 0 failed**) — genuinely clean, no failures. **But the report's own claimed "2139 passed, 46 skipped" is wrong by a large margin** (189 more passed than this branch actually has, confirmed via both `pytest --collect-only` — 2000 total tests — and an independent `grep` count of `def test_` across the tree — 1989). This is a bigger gap than any prior test-count discrepancy this session has caught — flag it back to the implementing session before final approval, even though the real, verified result is fully green.
 >
+> **New from a Discover/unused-code audit (2026-09-26): Step 25f is urgent** — Navigator's main button has crashed on every click since 2026-09-22 (`navigator.py` deleted in `4d25c9c`), and baihehub search can never return a result. 25g (built-but-unwired features, incl. ToS blocking never taking effect) and 25h (leftover dead code) follow. Step 25e is merged (PR #79).
+>
 > **After that, real current front line — genuinely `Not started`, in build order**: **25c/25d** (real bugs, still gated — data-integrity risk, kept under review) come first. **25e, 22b, 23c, and 23d–23l are now designated autonomous (2026-09-26, at the user's request)** — genuinely low blast-radius (dead code only; a small isolated form; five independent well-tested items; each a new, isolated source adapter that fails safely) — build/test/open/merge, no gate, same as Steps 1e–10. Handed to one chat to build sequentially in that exact order (25e → 22b → 23c → 23d → 23e → 23f → 23g → 23h → 23i → 23j → 23k → 23l) — single-chat sequential execution means no file-conflict risk between them, and none has a real dependency on another beyond Step 23's already-merged interface. **Step 23f (Bilibili Manga) will still land with a manual check pending** (needs a real Bilibili account to read the real ToS text and test free/paid chapter access) — autonomous mode covers the build, not that check. **12/13–20** stay gated, then **24** beyond that.
 >
 > **Manual checks still open** (§2 has the full list; none block further building): Steps 5b/5c/6c/6d/6e/6i/7/7b/8/9/9b/9c/9d/10/11/11b/11c/11d/11e/12d/18b/18c/20b/21/22/23/23b's own rows are pending a person at a real screen; Step 6b's mpv/VLC and live-preview checks specifically still need one too. **Step 23/23b's own manual checks are tracked in detail in `docs/content-sources.md`** (manhuagui real-site search/import, the adult-toggle end-to-end behavior, the generic paste-a-URL fallback, the Playwright browser tier, and `trafilatura`'s CJK extraction quality) — none of these have been run against a real network yet (manhuagui's `robots.txt` explicitly disallows this project's own crawler identity, so even development never sent it a real request).
@@ -255,6 +257,9 @@ Rules for every milestone:
 | 25c | No separate manual check — all four fixes are covered by their own regression tests (see the step's own exit criteria). |
 | 25d | No separate manual check for most items (documentation-only bundle); items 2/3/5/8 get their own regression test when picked up, per the step's own exit note. |
 | 25e | No manual check — verifiable entirely by tests plus a clean `vulture`/`ruff` pass on the touched files. |
+| 25f | Click Navigator's "🧭 Translate page + get navigation steps" on a real page with a real key and get translated labels + steps (not an error). Search baihehub for a known title and get either real results or only the browser-fallback link, with no Playwright advice if it doesn't apply. |
+| 25g | Import from a source whose capability record is ToS-prohibited and confirm it's refused. Dub a drama with two unvoiced characters from the Workspace tab and confirm they get different voices. |
+| 25h | No manual check — tests plus a clean `vulture`/`ruff` pass on the touched files. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -1434,8 +1439,18 @@ Fold Navigator's "known official platforms" reference material and translated-pa
 
 1. **Make Discover's sections collapsible, at the user's direct request — confirmed real and needed by reading `tabs/discover_tab.py` directly.** Today it's 7 flat `st.subheader` sections in one continuous scroll with no `st.expander`/collapse anywhere (Known titles library, Search, Find a title on the official platforms, Search baihehub.com, Bulk import from a tag/ranking listing page, Browse a site in-app, Import a title from a URL) — already long before this step folds Navigator's own sections in on top, which only makes the case stronger, not weaker. Wrap each section in `st.expander(...)`, same collapsible pattern Settings' grouped-expander structure already uses (Step 16) — default the most commonly-used sections open (Search, Import a title from a URL) and the rest collapsed, rather than everything expanded or everything collapsed by default. Use Step 13's typographic scale for each expander's own label, same reasoning as Step 14 item 6.
 
+2. **Restore the Navigator backend first — it's a hard prerequisite, not optional (see Step 25f item 1).** Today Navigator's main button crashes on `import navigator`; merging a broken feature into Discover would just move the crash. If Step 25f has already merged, this item is a no-op.
+3. **Remove Discover's own redundancy while merging, found by reading `tabs/discover_tab.py` directly (2026-09-26).** Scoped to this tab only:
+   - `db.list_known_titles()` is queried twice per render (lines 18 and 33) just to count; an empty library shows two separate "empty" notices (`st.info` at line 20 and again at line 36). Keep one count and one notice.
+   - Four separate engine + API-key pickers for the same job (baihehub search, bulk import, import-from-URL; and "Find a title" silently hard-codes the Claude key via `settings_claude` at line 82, ignoring the user's engine choice). Collapse to one shared engine/key picker at the top of the tab.
+   - "➕ Import to my Library" (line 51) has no duplicate check — clicking twice creates two dramas — and the known title is never marked as imported. Add a check (match on the drama title/source) and show "Already in your Library" instead.
+   - "🌐 Browse a site in-app"'s caption points users to Navigator's translated labels; reword once Navigator lives inside Discover.
+   - Decide explicitly how Discover's "Import a title from a URL" (catalog metadata only → `known_titles`) relates to Sources' "🚪 Paste any URL" (actual content, `sources/front_door.py`). Two URL boxes in two tabs doing different things is the same "one job split across tabs" problem this step exists to fix — at minimum, each should say in one line what it does and point to the other.
+   - `bulk_import.paginate_urls` (only tests call it) was built for exactly the bulk-import box, which instead makes the user paste every page URL by hand. Either add a "URL pattern with `{page}` + page range" input that uses it, or delete it and its test.
+
 **Exit:**
 - A test or manual check confirms every Navigator feature is still reachable from within Discover.
+- Discover renders one engine/key picker, one empty-library notice, and "Import to my Library" is idempotent (regression test).
 - Manual check: a user who previously used Navigator to find a platform link can complete the same task starting from Discover.
 - Manual check: each of Discover's sections (including the folded-in Navigator content) is individually collapsible, and the page no longer requires scrolling past every section to reach one further down.
 
@@ -2027,6 +2042,42 @@ Bundled cleanup, matching this project's own "remove what your own change makes 
 
 **Exit:** A test suite run shows no regressions after each deletion (each removed item's own tests, if any existed only to cover the dead code itself, are removed alongside it). No manual check needed — this is verifiable entirely by tests plus a static unused-code check (`vulture`/`ruff`) coming back clean on the touched files.
 
+
+### Step 25f — Fix: Navigator's main button always crashes, and baihehub search can never return a result — two real, confirmed bugs found in a Discover/unused-code audit (2026-09-26)
+Found by a read-only audit of `tabs/discover_tab.py`, `tabs/navigator_tab.py` and the modules they call, at the user's request. Both reproduced directly, not inferred.
+
+1. **Navigator's "🧭 Translate page + get navigation steps" raises `ModuleNotFoundError: No module named 'navigator'` every time.** `tabs/navigator_tab.py:59` does `import navigator`, but root-level `navigator.py` (the backend: `fetch_visible_labels`, `translate_labels`, `generate_navigation_steps`) was deleted in commit `4d25c9c` ("Declutter Workspace tab", 2026-09-22) alongside `discover.py`/`library.py`/`settings.py`/`workspace.py` — those four really were stale pre-`tabs/` copies, but `navigator.py` was not; it was the only implementation. The import sits outside the `try`, so `_safe_render` shows "The Navigator tab hit an error." No test imports it, which is why nothing caught this. **Fix:** restore it from history (`git show 4d25c9c^:navigator.py`), re-verify it against today's `translate_engines`/`page_fetch` APIs, add every `requests` call to the `timeout=` static check, and add a mocked test that the button's code path imports and runs. Also pass the Gemini free-tier / Ollama URL options to `get_engine` the way Discover's pickers do (Navigator currently doesn't).
+2. **"Search baihehub" can never return a result.** `title_library.py:57`: `data.get("data") or data.get("results") or data if isinstance(data, list) else []` parses as `(… or data) if isinstance(data, list) else []` — a dict response always yields `[]`, and a list response raises on `.get` and is swallowed by the bare `except`. Confirmed by running the expression. On top of that the three endpoints are unverified guesses ("plausible API endpoint shapes"), and the query isn't URL-encoded. The UI's own warning tells users to install Playwright "so the app can render the page properly," but this function never uses Playwright — misleading advice. **Fix:** correct the precedence and URL-encode the query; then either verify a real endpoint (or route through `page_fetch.smart_fetch` so the Playwright advice becomes true), or, if no real endpoint exists, remove the automatic search and keep only the browser-fallback link, with the warning text changed to match.
+
+**Exit:** Navigator's button runs end to end under a mocked engine/fetch (new test). A unit test feeds `search_baihehub` a mocked dict response and a mocked list response and gets results (or the function is removed and the UI shows only the fallback link). Manual check: click the Navigator button on a real page with a real key and see translated labels + steps.
+
+### Step 25g — Built but never wired in: decide wire-up or delete, case by case (from the same audit)
+Each of these is a finished backend with no real caller in the running app (grep + a reference graph across all non-test code, including `getattr`/registry-dict uses; tests excluded). Unlike Step 25e, several look like **abandoned partial features rather than dead code**, so each needs a decision, not a blind delete. Default recommendation given per item; the planning session decides.
+
+1. **Terms-of-service blocking never takes effect.** `sources/ladder.py:329 record_ladder_result` has zero callers, and it is the only caller of `apply_terms` (line 349). `sources/generic_import.py:233` runs `ladder.run_ladder` but never records the result; only the "Test Now" button (`test_tier`) writes capability records. So the `TOS_PROHIBITED`/`DISQUALIFIED` verdict the Sources design relies on never appears, and `tos_prohibited` is only ever set `False` (`sources/adapters/manhuagui.py:336`). *Recommend: wire in* — call `record_ladder_result` after `run_ladder` in `generic_import`. Highest priority of this step (policy boundary, same reasoning as 23k's review-care row).
+2. **`sources/detect.py:143 is_all_paths_gatekeeper`** ("whole site returns 403") — only tests call it; **`sources/ladder.py:277 needs_browser`** — no callers at all. *Recommend: wire `is_all_paths_gatekeeper` into detection if it's what 23g/23k expect; delete `needs_browser`.*
+3. **Webtoon long-strip slicing.** `scanlate.py:1071 split_webtoon_strip` is only called by tests, but `README.md:1112` advertises it; `tabs/scanlate_tab.py` never slices. *Recommend: wire in* (an option on tall-image import), or drop the README claim.
+4. **Automatic dub voice assignment is CLI-only.** `tabs/workspace_tab.py:4862` computes `voice_pool` (edge vs. offline pool) and never uses it; the UI falls back to `"en-US-AvaNeural"` for every character without a voice. `cli.py:339` uses `dub.assign_voices_to_characters` so each speaker gets a distinct voice. A CLI/UI parity gap per CLAUDE.md. *Recommend: wire in* — use `assign_voices_to_characters(..., voice_pool)` as the UI fallback.
+5. **`ui_theme.py` status helpers** — `status_pill`, `stage_indicator`, `empty_state`, `stage_for_drama`, `STATUS_COLORS` (lines 241–272). Deliberately kept by 25e. *Recommend: leave for Step 13's shared components*, and note there that they already exist so 13 reuses rather than rebuilds them.
+
+**Exit:** each item is either wired in with a test showing the real UI/CLI path calls it, or deleted with its now-orphaned tests, and the step summary says which. Manual check for item 1: import from a source whose capability record has `tos_prohibited=True` and confirm it's refused.
+
+### Step 25h — Small leftover dead code not covered by Step 25e (same audit)
+Confirmed zero real callers (vulture + ruff F401/F811/F841 + reference graph, tests excluded). Step 25e's own list is confirmed fully done (PR #79); these are extras it didn't list:
+- `tabs/settings_tab.py:246 get_default` — no callers.
+- `sources/base.py:112 matches_url` (its regex is duplicated inline at `sources/registry.py:68` — make the registry call it, or delete it) and `sources/base.py:129 host_of`.
+- `sources/models.py:23 ContentType.is_image`, `sources/models.py:72 RETRYABLE_REASONS`.
+- `sources/lzstring.py:109 compress_to_base64` plus `_compress`/`emit_bits` — the app only decompresses; tests use compress for round-trips, so keep only if those tests can't use fixed fixtures instead.
+- `tabs/library_tab.py:87 character_names` — assigned, never read (`run_translate_job` rebuilds it, `workspace_tab.py:278`).
+- `bulk_translate.py:346 GENERIC_KINDS` — only named in a docstring.
+- `sources/http.py:110` — redundant local `import requests`.
+- Low priority, keep unless trivial: `scanlate.py:1559 reading_order` / `1565 kind_confidence` dataclass fields stored but never read.
+- **Not dead, leave alone:** `db.configure_library_dir` (test hook by design); `sources/base.py` `login`/`refresh_session` stubs (placeholders for Step 23k); `common.py`'s re-exports (used via `from common import *`).
+
+Also checked, clean: every module is reachable from `app.py`/`cli.py` (plus the standalone `asr_benchmark.py`, `check_setup.py`, `run_tests.py`); all 28 `db.py` tables and 9 `sources/store.py` tables are both written and read; every package in `requirements*.txt` is imported somewhere or is a runtime companion (`sentencepiece`, `sudachidict_core`). Only note: `pytest` sits in main requirements though it's dev-only.
+
+**Exit:** full suite green; `vulture`/`ruff` clean on the touched files. No manual check.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -2165,7 +2216,10 @@ Bundled cleanup, matching this project's own "remove what your own change makes 
   | 25b — Fix: switching dramas can copy character names/voices into another drama | `claude/step-25b-roadmap-v6u7oj` | ✅ Merged (PR #78) | ⏳ Pending |
   | 25c — Fix four more QC findings (offline TTS broken, history restore loses corrections, Reader apply-to-wrong-line, CLI retry doesn't retry) | — | Not started | — |
   | 25d — Twelve smaller real bugs from the same QC review, bundled | — | Not started | — |
-  | 25e — Dead code cleanup from the same QC review | — | Not started | — |
+  | 25e — Dead code cleanup from the same QC review | `step-25e-dead-code-cleanup` | ✅ Merged (PR #79) | — |
+  | 25f — Fix: Navigator button crashes (deleted `navigator.py`); baihehub search can never return results | — | Not started | — |
+  | 25g — Built but never wired in: ToS blocking, webtoon slicing, UI dub voice pool, etc. — wire up or delete | — | Not started | — |
+  | 25h — Small leftover dead code not covered by 25e | — | Not started | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
