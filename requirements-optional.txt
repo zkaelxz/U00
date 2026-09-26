@@ -145,6 +145,11 @@ ebooklib>=0.18          # EPUB
 # --- JavaScript-rendered sites (baihehub, Fanjiao) ---
 playwright>=1.40        # then run: playwright install chromium
 
+# --- Sources tab: main-text extraction from a pasted novel-chapter URL ---
+# Apache-2.0. Optional -- without it a simpler built-in extractor is used.
+# CJK extraction quality hasn't been benchmarked; spot-check on real pages.
+trafilatura>=2.0
+
 # --- development ---
 pytest>=7.4
 

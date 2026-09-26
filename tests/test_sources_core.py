@@ -1,0 +1,475 @@
+"""
+tests/test_sources_core.py -- Step 23: the adapter interface, the paced
+client, health/backoff, the cache, the access ladder and diagnostics.
+
+All offline: a scripted transport stands in for the network, and a fake
+clock stands in for real waiting.
+"""
+
+import pytest
+
+from sources import cache as cache_mod
+from sources import health, ladder, store
+from sources.base import SourceAdapter
+from sources.http import PacingPolicy, SourceClient, reset_pacing_state
+from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, ChapterInfo,
+                            ContentAccess, FailureReason, FetchFailed, NotSupportedError,
+                            PageRef, SearchResult, SeriesInfo, SourceUnavailable,
+                            TechnicalStatus)
+
+from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, make_client
+
+
+# ---------------------------------------------------------------------------
+# The interface
+# ---------------------------------------------------------------------------
+
+class PartialAdapter(SourceAdapter):
+    """Implements only search/get_series/get_chapters/get_pages -- no
+    login, no download_page, no chapter text."""
+    name = "partial"
+    display_name = "Partial"
+    content_types = ["manhua"]
+
+    def search(self, query, page=1):
+        return [SearchResult(self.name, "s1", f"Result for {query}")]
+
+    def get_series(self, series_id):
+        return SeriesInfo(self.name, series_id, "Series One")
+
+    def get_chapters(self, series_id):
+        return [ChapterInfo(self.name, series_id, "c1", "第1话")]
+
+    def get_pages(self, chapter):
+        return [PageRef(self.name, chapter.chapter_id, 0, "https://x.invalid/1.png")]
+
+
+class TestAdapterInterface:
+    def test_partial_adapter_works_through_the_interface(self, isolated_db):
+        a = PartialAdapter(client=make_client("partial", ScriptedTransport()))
+        assert a.search("abc")[0].title == "Result for abc"
+        assert a.get_series("s1").title == "Series One"
+        chapters = a.get_chapters("s1")
+        assert [c.chapter_id for c in chapters] == ["c1"]
+        assert a.get_pages(chapters[0])[0].url.endswith("1.png")
+
+    def test_unimplemented_optional_methods_fail_cleanly(self, isolated_db):
+        a = PartialAdapter(client=make_client("partial", ScriptedTransport()))
+        for call in (lambda: a.login(), lambda: a.refresh_session(),
+                     lambda: a.download_page(None), lambda: a.get_chapter_text(None)):
+            with pytest.raises(NotSupportedError) as e:
+                call()
+            assert "Partial" in str(e.value)
+
+    def test_supports_reports_what_is_overridden(self, isolated_db):
+        a = PartialAdapter(client=make_client("partial", ScriptedTransport()))
+        assert a.supports("search") and a.supports("get_pages")
+        assert not a.supports("login") and not a.supports("download_page")
+
+    def test_capabilities_start_untested(self, isolated_db):
+        caps = PartialAdapter(client=make_client("partial", ScriptedTransport())).capabilities()
+        assert caps.status == CapabilityStatus.UNTESTED.value
+        assert all(not t.tested for t in caps.tiers.values())
+        assert caps.technical == {} and caps.terms == {}
+
+
+# ---------------------------------------------------------------------------
+# Pacing, retries, challenges
+# ---------------------------------------------------------------------------
+
+class TestPacing:
+    def test_default_pacing_is_applied_to_a_multi_page_fetch(self, isolated_db):
+        reset_pacing_state()
+        clock = FakeClock()
+        urls = [f"https://site.invalid/p{i}.png" for i in range(5)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        policy = PacingPolicy.from_settings()
+        assert (policy.min_delay, policy.max_delay, policy.max_concurrent, policy.max_retries) == \
+            (1.0, 3.0, 1, 3)
+        c = SourceClient("paced", policy=policy, transport=t, sleep=clock.sleep,
+                         clock=clock.clock, rng=FixedRng(0.5))
+        for u in urls:
+            c.get(u)
+        times = [call["t"] for call in t.calls]
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        assert gaps == pytest.approx([2.0] * 4)      # midpoint of the 1-3s default
+        assert c.snapshot()["requests"] == 5
+
+    def test_changing_settings_changes_the_pacing(self, isolated_db):
+        store.set_setting("pace_min_delay", 5.0)
+        store.set_setting("pace_max_delay", 5.0)
+        store.set_setting("max_retries", 1)
+        reset_pacing_state()
+        clock = FakeClock()
+        t = ScriptedTransport({"https://a.invalid/1": html("x"), "https://a.invalid/2": html("y")},
+                              clock)
+        c = SourceClient("paced2", policy=PacingPolicy.from_settings(), transport=t,
+                         sleep=clock.sleep, clock=clock.clock, rng=FixedRng(0.0))
+        c.get("https://a.invalid/1")
+        c.get("https://a.invalid/2")
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(5.0)
+        assert c.policy.max_retries == 1
+
+    def test_adapter_host_minimum_overrides_a_shorter_default(self, isolated_db):
+        clock = FakeClock()
+        t = ScriptedTransport({"https://slow.invalid/1": html("x"),
+                               "https://slow.invalid/2": html("y")}, clock)
+        c = make_client("slow", t, clock, min_delay=1.0, max_delay=1.0,
+                        host_min_interval={"slow.invalid": 10.0})
+        c.get("https://slow.invalid/1")
+        c.get("https://slow.invalid/2")
+        assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(10.0)
+
+    def test_429_and_5xx_retry_with_exponential_backoff_up_to_the_cap(self, isolated_db):
+        clock = FakeClock()
+        u = "https://busy.invalid/x"
+        t = ScriptedTransport({u: [html("slow down", 429), html("oops", 503), html("oops", 502),
+                                   html("oops", 500)]}, clock)
+        c = make_client("busy", t, clock, max_retries=3, backoff_base=2.0)
+        with pytest.raises(FetchFailed):
+            c.get(u)
+        assert len(t.calls) == 4                     # 1 try + 3 retries, then stop
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        assert gaps == pytest.approx([2.0, 4.0, 8.0])
+
+    def test_retry_then_success(self, isolated_db):
+        clock = FakeClock()
+        u = "https://busy.invalid/y"
+        t = ScriptedTransport({u: [html("slow down", 429), html("<p>ok</p>" * 100)]}, clock)
+        c = make_client("busy2", t, clock)
+        assert c.get(u).status_code == 200
+        assert len(t.calls) == 2
+
+    def test_challenge_stops_immediately_with_no_second_request(self, isolated_db):
+        clock = FakeClock()
+        u = "https://cf.invalid/chapter/1"
+        t = ScriptedTransport({u: html("<title>Just a moment...</title>", 403,
+                                       {"cf-mitigated": "challenge"})}, clock)
+        c = make_client("cf", t, clock, max_retries=3)
+        with pytest.raises(ChallengeDetected) as e:
+            c.get(u)
+        assert len(t.calls) == 1
+        assert e.value.reason == FailureReason.CLOUDFLARE_CHALLENGE
+        assert e.value.url == u
+
+    def test_every_request_has_a_timeout(self, isolated_db):
+        seen = []
+
+        def transport(method, url, headers, data, timeout):
+            seen.append(timeout)
+            return html("<p>ok</p>")
+        make_client("to", transport).get("https://t.invalid/")
+        assert seen and seen[0] > 0
+
+
+# ---------------------------------------------------------------------------
+# Health: 🔴 sources wait out their backoff
+# ---------------------------------------------------------------------------
+
+class TestHealth:
+    def test_red_source_is_not_retried_faster_than_its_backoff(self, isolated_db, monkeypatch):
+        now = {"t": 50_000.0}
+        monkeypatch.setattr("sources.health.time.time", lambda: now["t"])
+        store.set_setting("unavailable_backoff", 600.0)
+        u = "https://down.invalid/"
+        t = ScriptedTransport({u: html("down", 500)})
+        c = make_client("down", t, max_retries=0)
+        for _ in range(health.RED_AFTER):
+            with pytest.raises(FetchFailed):
+                c.get(u)
+        assert health.light("down") == health.RED
+        calls_before = len(t.calls)
+
+        now["t"] += 599
+        with pytest.raises(SourceUnavailable) as e:
+            c.get(u)
+        assert len(t.calls) == calls_before           # not contacted at all
+        assert e.value.retry_after == pytest.approx(1.0)
+
+        now["t"] += 2
+        with pytest.raises(FetchFailed):
+            c.get(u)                                   # allowed again, and still failing
+        assert len(t.calls) == calls_before + 1
+        # the next window is longer (doubling), not the same
+        assert health.retry_after("down") == pytest.approx(1200.0)
+
+    def test_success_turns_the_light_green(self, isolated_db):
+        health.record_failure("s", "HTTP_ERROR", "x", base_backoff=10)
+        assert health.light("s") == health.YELLOW
+        health.record_success("s", 0.2)
+        assert health.light("s") == health.GREEN
+
+
+# ---------------------------------------------------------------------------
+# Cache modes
+# ---------------------------------------------------------------------------
+
+class TestCache:
+    URL = "https://c.invalid/page1.png"
+
+    def _cycle(self, mode):
+        c = cache_mod.RawCache(mode)
+        c.put(self.URL, b"page-bytes")
+        during = c.get(self.URL)
+        c.release()
+        return during, cache_mod.RawCache(mode).get(self.URL)
+
+    def test_none_retains_nothing(self, isolated_db):
+        assert self._cycle("none") == (None, None)
+
+    def test_temporary_is_cleared_after_use(self, isolated_db):
+        assert self._cycle("temporary") == (b"page-bytes", None)
+
+    def test_keep_translated_clears_originals_after_use(self, isolated_db):
+        assert self._cycle("keep_translated") == (b"page-bytes", None)
+
+    @pytest.mark.parametrize("mode", ["keep_originals", "keep_both"])
+    def test_keep_modes_keep(self, isolated_db, mode):
+        assert self._cycle(mode) == (b"page-bytes", b"page-bytes")
+
+    def test_same_content_stored_once(self, isolated_db):
+        import os
+        c = cache_mod.RawCache("keep_originals")
+        c.put("https://a.invalid/1", b"same")
+        c.put("https://b.invalid/1", b"same")
+        files = [f for _, _, fs in os.walk(store.cache_dir()) for f in fs]
+        assert len(files) == 1
+        assert c.stats()["entries"] == 2
+
+    def test_client_serves_cache_hits_without_a_request(self, isolated_db):
+        u = "https://c.invalid/p.png"
+        t = ScriptedTransport({u: html("<p>x</p>")})
+        c = make_client("cached", t)
+        c.cache = cache_mod.RawCache("keep_originals")
+        c.get(u)
+        r = c.get(u)
+        assert r.from_cache and len(t.calls) == 1
+        assert c.snapshot()["cache_hits"] == 1
+
+    def test_unknown_mode_is_rejected(self, isolated_db):
+        with pytest.raises(ValueError):
+            cache_mod.RawCache("forever")
+
+
+# ---------------------------------------------------------------------------
+# The access ladder and diagnostics
+# ---------------------------------------------------------------------------
+
+def _tier(ok, reasons=(), html_text="", log=None, name=None, **kw):
+    def run(url):
+        if log is not None:
+            log.append(name)
+        return ladder.TierOutcome(ok, html=html_text, reasons=list(reasons), **kw)
+    return run
+
+
+class TestLadder:
+    def test_tries_each_level_in_order_and_stops_at_first_success(self, isolated_db):
+        log = []
+        tiers = {
+            AccessTier.OFFICIAL_API: _tier(True, log=log, name="api"),
+            AccessTier.AUTHENTICATED_BROWSER: _tier(True, log=log, name="auth"),
+            AccessTier.RENDERED_BROWSER: _tier(True, html_text="<p>ok</p>", log=log, name="render"),
+            AccessTier.STATIC_HTTP: _tier(False, [FailureReason.ACCESS_DENIED], log=log,
+                                          name="static"),
+        }
+        r = ladder.run_ladder("https://x.invalid/", tiers)
+        assert log == ["static", "render"]
+        assert r.tier == AccessTier.RENDERED_BROWSER.value
+        assert r.technical_status == TechnicalStatus.BROWSER_ACCESSIBLE.value
+
+    def test_static_failure_automatically_tries_the_browser(self, isolated_db):
+        u = "https://blocked.invalid/ch1"
+        t = ScriptedTransport({u: html("forbidden", 403)})
+        client = make_client("blocked", t, max_retries=0)
+        rendered = []
+
+        def fake_render(url):
+            rendered.append(url)
+            return "<html><body>" + "<p>real text</p>" * 80 + "</body></html>", "real text"
+        r = ladder.run_ladder(u, {
+            AccessTier.STATIC_HTTP: ladder.static_tier(client),
+            AccessTier.RENDERED_BROWSER: ladder.rendered_tier(client, fake_render)})
+        assert rendered == [u]
+        lines = r.summary_lines()
+        assert lines[0].startswith("Static HTTP: FAILED -- ACCESS_DENIED -- HTTP 403")
+        assert lines[1].startswith("Browser: SUCCESS")
+
+    def test_challenge_hands_off_and_never_runs_an_automated_browser(self, isolated_db):
+        u = "https://cf.invalid/x"
+        t = ScriptedTransport({u: html("<title>Just a moment...</title>", 403,
+                                       {"cf-mitigated": "challenge"})})
+        client = make_client("cf2", t)
+        rendered = []
+        r = ladder.run_ladder(u, {
+            AccessTier.STATIC_HTTP: ladder.static_tier(client),
+            AccessTier.RENDERED_BROWSER: ladder.rendered_tier(
+                client, lambda url: rendered.append(url) or ("", ""))})
+        assert r.handoff == {"tier": "STATIC_HTTP", "reason": "CLOUDFLARE_CHALLENGE", "url": u}
+        assert rendered == [] and len(t.calls) == 1
+        assert r.capability_status == CapabilityStatus.MANUAL_VERIFICATION_REQUIRED.value
+
+    def test_user_assisted_page_resumes_after_a_handoff(self, isolated_db):
+        page = "<html><body>" + "<p>chapter text</p>" * 60 + "</body></html>"
+        r = ladder.run_ladder("https://cf.invalid/x",
+                              {AccessTier.USER_ASSISTED_BROWSER: ladder.user_assisted_tier(page)})
+        assert r.ok and r.tier == AccessTier.USER_ASSISTED_BROWSER.value
+        still_challenge = ladder.run_ladder(
+            "https://cf.invalid/x", {AccessTier.USER_ASSISTED_BROWSER: ladder.user_assisted_tier(
+                '<html><div class="cf-turnstile"></div></html>')})
+        assert not still_challenge.ok
+
+    def test_metadata_only_official_api_is_a_partial_result(self, isolated_db):
+        r = ladder.run_ladder("https://ncode.invalid/n1", {
+            AccessTier.STATIC_HTTP: _tier(False, [FailureReason.JAVASCRIPT_REQUIRED,
+                                                  FailureReason.EMPTY_SPA_SHELL]),
+            AccessTier.RENDERED_BROWSER: _tier(False, [FailureReason.NOT_INSTALLED]),
+            AccessTier.OFFICIAL_API: _tier(True, partial=True,
+                                           content_access=ContentAccess.METADATA.value,
+                                           detail="metadata only; no chapter text"),
+        })
+        assert r.ok and r.partial
+        assert r.tier == AccessTier.OFFICIAL_API.value
+        assert r.technical_status == TechnicalStatus.PARTIALLY_SUPPORTED.value
+        assert r.capability_status == CapabilityStatus.PARTIALLY_SUPPORTED.value
+        assert r.content_access == ContentAccess.METADATA.value
+
+    def test_diagnostics_name_the_tier_and_reason(self, isolated_db):
+        u = "https://two.invalid/c"
+        t = ScriptedTransport({u: html("nope", 403)})
+        client = make_client("two", t, max_retries=0)
+        challenge_page = ('<html><head><title>Just a moment...</title></head>'
+                          '<body><div class="cf-turnstile"></div></body></html>')
+        r = ladder.run_ladder(u, {
+            AccessTier.STATIC_HTTP: ladder.static_tier(client),
+            AccessTier.RENDERED_BROWSER: ladder.rendered_tier(
+                client, lambda url: (challenge_page, ""))}, source="two")
+        assert r.handoff["tier"] == "RENDERED_BROWSER"
+        assert r.summary_lines()[-1] == \
+            "Stopped: BOT_CHALLENGE detected at Browser -- handed to you."
+        logged = store.recent_attempts("two")[0]
+        assert "BOT_CHALLENGE" in logged["reasons"] and "blocked" not in " ".join(logged["lines"])
+
+    def test_authenticated_tier_is_reported_as_not_built_yet(self, isolated_db):
+        r = ladder.run_ladder("https://x.invalid/", {
+            AccessTier.STATIC_HTTP: _tier(False, [FailureReason.ACCESS_DENIED]),
+            AccessTier.AUTHENTICATED_BROWSER: ladder.not_built_tier("23k")})
+        assert r.attempts[-1].reason == "NOT_BUILT"
+        assert "23k" in r.attempts[-1].detail
+
+
+class TestRealCaseMatrix:
+    """Shapes of the real cases the roadmap's vetting actually hit."""
+
+    def _static_only(self, source, routes, url, max_retries=0):
+        client = make_client(source, ScriptedTransport(routes), max_retries=max_retries)
+        return ladder.run_ladder(url, {AccessTier.STATIC_HTTP: ladder.static_tier(client)})
+
+    def test_baozimh_shaped_gatekeeper_is_blocked_here_not_disqualified(self, isolated_db):
+        from sources import detect
+        urls = ["https://www.baozimh.invalid/", "https://www.baozimh.invalid/comic/x"]
+        results = [self._static_only("baozimh", {u: html("403 Forbidden", 403)}, u) for u in urls]
+        for r in results:
+            assert r.technical_status == TechnicalStatus.BLOCKED_IN_CURRENT_ENVIRONMENT.value
+            assert r.technical_status != TechnicalStatus.DISQUALIFIED.value
+            assert r.reasons == [FailureReason.ACCESS_DENIED]
+        assert detect.is_all_paths_gatekeeper([r.reasons for r in results])
+
+    def test_manhuaku_shaped_page_routes_to_browser_and_is_never_decoded(self, isolated_db):
+        u = "https://manhuaku.invalid/chapter/1"
+        page = ('<html><head><script src="/js/crypto-js.min.js"></script>'
+                '<script src="/js/vue.min.js"></script></head><body><div id="app">'
+                '<img v-for="p in pages" :src="p"></div>'
+                '<script>var d=CryptoJS.AES.decrypt(enc,key);</script></body></html>')
+        client = make_client("manhuaku", ScriptedTransport({u: html(page)}))
+        rendered = []
+
+        def fake_render(url):
+            rendered.append(url)
+            return "<html><body>" + '<img src="/p1.jpg">' * 3 + "<p>x</p>" * 200 + "</body></html>", ""
+        r = ladder.run_ladder(u, {AccessTier.STATIC_HTTP: ladder.static_tier(client),
+                                  AccessTier.RENDERED_BROWSER: ladder.rendered_tier(client, fake_render)})
+        assert r.reasons[:2] == [FailureReason.ENCRYPTED_RESOURCE, FailureReason.JAVASCRIPT_REQUIRED]
+        assert rendered == [u]                       # routed to a real browser...
+        assert r.tier == AccessTier.RENDERED_BROWSER.value
+        import sources.detect as d                   # ...and nothing here knows how to decrypt
+        assert not any(hasattr(d, n) for n in ("decrypt", "aes_decrypt"))
+
+    def test_bilibili_manga_shaped_empty_shell(self, isolated_db):
+        u = "https://manga.bilibili.invalid/mc1/1"
+        page = ('<html><head>' + '<script src="/a.js"></script>' * 10 + '</head><body>'
+                '<div id="app"></div><noscript>We\'re sorry but this site doesn\'t work properly '
+                'without JavaScript enabled. Please enable JavaScript to continue.</noscript>'
+                + " " * 3000 + '</body></html>')
+        r = self._static_only("bilibili_manga", {u: html(page)}, u)
+        assert FailureReason.EMPTY_SPA_SHELL in r.reasons
+        assert FailureReason.JAVASCRIPT_REQUIRED in r.reasons
+
+    def test_newtoki_shaped_geo_restriction(self, isolated_db):
+        u = "https://newtoki.invalid/webtoon/1"
+        page = "<html><body><h1>해외 IP 차단</h1><p>해외에서는 접속하실 수 없습니다.</p></body></html>"
+        r = self._static_only("newtoki", {u: html(page, 403)}, u)
+        assert r.reasons[0] == FailureReason.GEO_RESTRICTION
+        assert r.technical_status == TechnicalStatus.BLOCKED_IN_CURRENT_ENVIRONMENT.value
+
+
+class TestCapabilitiesAndTestNow:
+    def test_test_now_runs_only_the_chosen_tier(self, isolated_db):
+        calls = []
+        tiers = {
+            AccessTier.STATIC_HTTP: _tier(False, [FailureReason.ACCESS_DENIED], log=calls,
+                                          name="static"),
+            AccessTier.RENDERED_BROWSER: _tier(True, html_text="<p>x</p>", log=calls,
+                                               name="render"),
+        }
+        caps = ladder.test_tier("src", AccessTier.RENDERED_BROWSER, "https://x.invalid/",
+                                tiers[AccessTier.RENDERED_BROWSER])
+        assert calls == ["render"]
+        assert caps.tiers["RENDERED_BROWSER"].tested and caps.tiers["RENDERED_BROWSER"].ok
+        for other in ("STATIC_HTTP", "AUTHENTICATED_BROWSER", "USER_ASSISTED_BROWSER",
+                      "OFFICIAL_API"):
+            assert not caps.tiers[other].tested
+
+        caps = ladder.test_tier("src", AccessTier.STATIC_HTTP, "https://x.invalid/",
+                                tiers[AccessTier.STATIC_HTTP])
+        assert calls == ["render", "static"]
+        assert caps.tiers["STATIC_HTTP"].reason == "ACCESS_DENIED"
+        assert caps.tiers["RENDERED_BROWSER"].ok        # earlier result untouched
+
+    def test_technical_and_terms_stay_separate(self, isolated_db):
+        from sources.models import SourceCapabilities
+        caps = SourceCapabilities(platform="x", technical={"browser_accessible": True},
+                                  terms={"read": "ToS §4", "tos_prohibited": False})
+        ladder.apply_terms(caps)
+        assert caps.technical_status != TechnicalStatus.DISQUALIFIED.value
+        caps.terms["tos_prohibited"] = True
+        ladder.apply_terms(caps)
+        assert caps.technical_status == TechnicalStatus.DISQUALIFIED.value
+        assert caps.technical == {"browser_accessible": True}
+        roundtrip = SourceCapabilities.from_dict(caps.to_dict())
+        assert roundtrip.terms == caps.terms and roundtrip.tiers.keys() == caps.tiers.keys()
+
+
+class TestStaticChecks:
+    def test_every_http_call_in_sources_passes_a_timeout(self):
+        """Same rule as tests/test_static_analysis.py's timeout checks,
+        extended to the sources package: any .get/.post/.request call on
+        requests or a session must carry timeout=."""
+        import ast
+        import os
+        root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sources")
+        problems = []
+        for dirpath, _, files in os.walk(root):
+            for f in files:
+                if not f.endswith(".py"):
+                    continue
+                path = os.path.join(dirpath, f)
+                tree = ast.parse(open(path, encoding="utf-8").read(), path)
+                for node in ast.walk(tree):
+                    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                            and node.func.attr in ("get", "post", "request")
+                            and isinstance(node.func.value, ast.Name)
+                            and node.func.value.id in ("requests", "session")
+                            and not any(kw.arg == "timeout" for kw in node.keywords)):
+                        problems.append(f"{f}:{node.lineno}")
+        assert problems == []
