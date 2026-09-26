@@ -12,7 +12,7 @@ import sensevoice_tags
 import subtitle_formats
 import bulk_translate
 
-MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "novel", "manhwa", "manga", "manhua",
+MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "anime", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
 
 
@@ -1499,6 +1499,20 @@ def render_workspace_tab():
         media_type = st.selectbox("Content type", MEDIA_TYPE_OPTIONS,
                                    format_func=_format_media_type)
 
+        # Step 22b: series assignment at creation time, not only via the
+        # ✏️ Edit metadata expander after the drama already exists -- same
+        # series_options/"+ New series..." shape and the same
+        # db.get_or_create_series/db.update_drama(series_id=...) calls
+        # _series_picker() makes, just applied once the new drama's id is
+        # known instead of through that helper (which is built to update
+        # an already-existing drama in place, not one still being created).
+        _existing_series = db.list_series()
+        _series_options = ["-- none --"] + [s["name"] for s in _existing_series] + ["+ New series..."]
+        _series_choice = st.selectbox("Series (optional)", _series_options)
+        _new_series_name = ""
+        if _series_choice == "+ New series...":
+            _new_series_name = st.text_input("New series name", key="new_drama_new_series_name")
+
         _all_presets = db.list_presets()
         _preset_options = {"-- none --": None}
         _preset_options.update({p["name"]: p for p in _all_presets})
@@ -1518,6 +1532,12 @@ def render_workspace_tab():
                    if _picked_preset and _picked_preset.get("translation_engine") else {}))
             if _picked_preset:
                 apply_preset_to_session(_picked_preset, new_id)
+            if _series_choice == "+ New series..." and _new_series_name:
+                sid = db.get_or_create_series(_new_series_name)
+                db.update_drama(new_id, series_id=sid)
+            elif _series_choice not in ("-- none --", "+ New series..."):
+                sid = next(s["id"] for s in _existing_series if s["name"] == _series_choice)
+                db.update_drama(new_id, series_id=sid)
             st.session_state.pop("autofill_metadata", None)
             st.session_state.active_drama_id = new_id
             st.session_state.lines = None
