@@ -113,15 +113,17 @@ def render_discover_tab():
         [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
         format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _discover_gemini_free_tier)}",
         key="bh_engine")
+    _bh_needs_key = bh_engine_choice != "ollama"
     bh_api_key = synced_api_key_input(
-        "API key *(required for translated search)*", bh_engine_choice, "bh_api_key")
+        "API key" + (" *(required for translated search)*" if _bh_needs_key else " (optional)"),
+        bh_engine_choice, "bh_api_key")
     if st.button("Search baihehub") and bh_query:
         engine = translate_engines.get_engine(
             bh_engine_choice, bh_api_key,
             free_tier=bh_engine_choice == "gemini" and _discover_gemini_free_tier,
             base_url=(st.session_state.get("settings_ollama_url") or None)
             if bh_engine_choice == "ollama" else None
-        ) if bh_api_key else None
+        ) if (bh_api_key or not _bh_needs_key) else None
         zh_query = title_library.translate_query_to_zh(bh_query, engine) if engine else bh_query
         st.caption(f"Searching for: {zh_query}")
         found = title_library.search_baihehub(zh_query)
