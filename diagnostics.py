@@ -105,6 +105,8 @@ OPTIONAL_DEPENDENCIES = {
     "funasr": ("funasr", "audio emotion & sound tags (SenseVoice; model weights under the "
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
+    "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
+                                     "decryption (Sources tab)", "feature"),
     "pytest": ("pytest", "running the test suite", "dev"),
 }
 

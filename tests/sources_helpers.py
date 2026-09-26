@@ -65,7 +65,8 @@ class ScriptedTransport:
             item = route
         if isinstance(item, Exception):
             raise item
-        return Response(item.status_code, dict(item.headers), item.content, item.url or url)
+        return Response(item.status_code, dict(item.headers), item.content, item.url or url,
+                        cookies=dict(getattr(item, "cookies", {}) or {}))
 
     def urls(self):
         return [c["url"] for c in self.calls]

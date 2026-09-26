@@ -192,6 +192,37 @@ work".
 | Known limits | **A real headless-browser render of this site (or of any real site) could not be exercised in this build environment** -- a sandboxed outbound-network proxy that timed out or failed on every real multi-resource page tried, including a plain-HTTP site with no JavaScript at all. This is a build-environment limitation, not something specific to manhuaku's own JS/AES scheme, and not something worked around -- see the manual check below. |
 | Tests | `tests/test_sources_manhuaku.py`, including a structural (AST-based) check that no AES/crypto-decryption code or library import exists anywhere in the module, and a `get_pages()` test mocked against a rendered-DOM fixture, never a raw-HTML one. |
 
+## ゼロサムオンライン Zero-Sum Online — `sources/adapters/zerosumonline.py`
+
+| | |
+|---|---|
+| URL patterns | `zerosumonline.com/detail/<slug>` (series; also used for chapters, since the real site has no separate per-chapter URL -- the reader is client-side-only inside the series page, matching the reference extension's own behavior). |
+| Content type / language | manga, ja |
+| Status | `UNTESTED` until a real import or a Test Now button. All three API endpoints and the schema below were decoded against real, live captured responses while building this adapter. |
+| Access tier | `STATIC_HTTP`. |
+| **Real protocol-level obstacle** | The content API (`api.<domain>/api/v1/...`) returns **Protocol Buffers, not JSON** -- confirmed by decoding real captured responses byte-for-byte, not trusted from the (mislabeled `content-type: application/json`) response header. A small, from-scratch, generic protobuf wire-format reader handles this (tag/varint/length-delimited only -- not a protoc-generated decoder, not a general-purpose library, and not a new dependency), general enough for this site's own small fixed schema. |
+| Extraction | `GET /list?category=series&sort=date` or `/search?keyword=<q>` -- `TitleListView` (repeated `ApiTitle`, fields: 2 slug, 3 name, 4 altTitle, 5 authors, 7 description, 8 thumbnail). `GET /title?tag=<slug>` -- `TitleDetailView` (field 2 title, field 3 repeated `ApiChapter`: 1 id, 2 name, 4 publishedAt). Chapters come back **newest-first** (confirmed against a real series) -- reversed to ascending. `POST /viewer?chapter_id=<id>` (empty body) -- `ViewerView` (field 5 repeated `ViewerImage`, field 1 url). |
+| Auth | None observed. No `login()`. |
+| Terms | `robots.txt` is a real HTTP 404 (this is a Next.js app; confirmed by content it's the app's own catch-all, not a proxy artifact) -- no crawl guidance exists. ToS genuinely unlocatable after real effort (site + Ichijinsha's corporate umbrella) -- stays a candidate on that basis, not a clearance. |
+| Reference | `keiyoushi/extensions-source` `src/ja/zerosumonline` (Apache-2.0). |
+| Tests | `tests/test_sources_zerosumonline.py` -- a test-only protobuf encoder (the exact inverse of the adapter's decoder) builds every fixture; no request reaches the real site. |
+
+## マンガ図書館Z Manga Toshokan Z — `sources/adapters/mangaz.py`
+
+| | |
+|---|---|
+| URL patterns | `mangaz.com/series/detail/<id>`, `mangaz.com/book/detail/<id>` |
+| Content type / language | manga, ja |
+| Status | `UNTESTED` until a real import or a Test Now button. Metadata selectors checked against the live site; the RSA+AES flow's protocol sequence, domains and a real ticket exchange were confirmed live, but a full live decrypt was not completed (see Known limits). |
+| Access tier | `STATIC_HTTP` for search/series/chapters; `get_pages()` runs the site's own real session-scoped RSA+AES exchange. |
+| **The most technically involved mechanism found this session** | A fresh 512-bit RSA keypair per session (the site's own real, legacy-weak choice); a ticket (`virgo!__ticket` cookie) + serial (embedded in real, live `app.js`) exchange; the RSA public key is POSTed and the response returns an RSA/PKCS1v1.5-wrapped AES key plus an AES-CBC/PKCS7-encrypted page manifest, decrypted locally. Ported exactly from the real reference extension's own `Crypto.kt`, never approximated. Python's mainstream crypto libraries refuse to *generate* an RSA key below 1024 bits, so this adapter generates the two ~256-bit primes itself with a standard Miller-Rabin test -- ordinary textbook keygen math, not a novel algorithm -- and hands them to `cryptography`'s own key-loading API; every actual crypto *operation* still runs through that real, audited library. |
+| Extraction | Search/latest: `GET /title/addpage_renewal` (`.itemList li` cards). Series: `GET /book/detail/<id>` (`.detailAuthor > li`, `.wordbreak`, `.inductionTags a`, `.GA4_booktitle`, `div.detailCover img` -- the last two are adaptations from the reference, which never extracts a standalone title/cover; see the module docstring). Chapters/volumes: `GET /series/detail/<id>` (`.itemList li`, a real CSS *descendant* selector -- `.itemList > .itemSort > ul > li`, not direct children). Pages: the RSA+AES flow above. |
+| Auth | None observed for the tier this adapter uses. No `login()`. |
+| Known limits | The `.iconContinues`/`.iconEnd` ongoing/completed status markers named in the reference extension were **not found on any real page checked here** (a real, confirmed site change) -- `status` stays `unknown` until the site restores them; not chased further, since it's cosmetic. **A full live RSA+AES decrypt of a real chapter's real encrypted payload was not completed** -- this session's own sandboxed-agent safety classifier stopped a further live request to the paid-content decrypt endpoint as resembling an attack pattern, before a real ciphertext was obtained. Not routed around. The real RSA-512/AES-CBC/PKCS7 mechanics are exercised end-to-end in tests against a locally-generated key and a locally-encrypted payload instead (see Tests). |
+| Terms | Real `robots.txt` `Crawl-delay: 120` for `User-agent: *` on both `www.mangaz.com` and `vw.mangaz.com` -- respected via `host_min_interval`. No AI/crawling-specific ToS clause found (roadmap's own finding). |
+| Reference | `keiyoushi/extensions-source` `src/ja/mangatoshokanz` + its own `Crypto.kt` (Apache-2.0). |
+| Tests | `tests/test_sources_mangaz.py`, including a full RSA+AES round trip: a real keypair, a real RSA/PKCS1v1.5 encrypt of a real AES key, and a real AES-CBC/PKCS7 encrypt of a real JSON manifest, all built by the test itself as the exact inverse of what the adapter decrypts. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -405,3 +436,28 @@ they've been tried against the real site.
   that closing the Chromium window fires Playwright's context `close`
   event on every OS, and that a site accepts a session signed in on a
   headed window when it is later read headless.
+- [ ] **zerosumonline, normal work:** search a real title, pull its
+  chapter list, and download one chapter into a manga drama through the
+  new adapter. Confirm the pipeline needs no changes given real
+  protobuf-decoded image URLs.
+- [ ] **mangaz, full RSA+AES round trip:** search a real title on
+  mangaz.com, pull its chapter/volume list, and download one chapter's
+  pages through the new adapter. This is the one check that could not be
+  performed at all while building this adapter -- a live decrypt of a
+  real chapter's real encrypted payload was never obtained (this
+  session's own sandboxed-agent safety classifier stopped a further live
+  request to the paid-content decrypt endpoint as resembling an attack
+  pattern; see the adapter's module docstring), so this is the first time
+  the real RSA+AES flow will run against genuine site data rather than a
+  locally-built mocked fixture.
+- [ ] **Mag-Comi, raw1001.net, novema.jp, Kakuyomu, Hameln -- generic
+  pipeline only, no dedicated adapter:** search a real title on each
+  through the existing generic paste-a-URL / adaptive-extraction flow
+  (Step 23/23g) and confirm all five work with zero site-specific code --
+  Mag-Comi's `#scramble`-flagged pages and Hameln's Cloudflare challenge
+  both resolve to the existing browser-rendered-tier routing decision;
+  raw1001.net's AJAX-delivered images resolve the same way; novema.jp and
+  Kakuyomu are plain HTML the deterministic tier already reads. This is
+  the check that actually validates the roadmap's own scope correction
+  for this step (originally a 7-site draft, narrowed to the two adapters
+  above once the other five were confirmed to need no dedicated code).
