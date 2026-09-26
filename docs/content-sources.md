@@ -176,6 +176,22 @@ work".
 | Known limits | The Nuxt-state decode is specific to this one legacy serialization shape; if the site migrates off this Nuxt version, the adapter will need re-verifying, not just re-selecting. |
 | Tests | `tests/test_sources_kuaikan.py`, including direct tests of the state decoder (nested structures, the placeholder-mutation pattern, and a missing-state failure) built against a synthetic-but-grammar-accurate fixture, plus the locked-chapter `ContentHidden` path. |
 
+## 漫画库 Manhuaku — `sources/adapters/manhuaku.py`
+
+| | |
+|---|---|
+| URL patterns | `manhuaku.net/<slug>` (series), `manhuaku.net/chapter/<id>.html` (chapter) |
+| Content type / language | manhua, zh |
+| Status | `UNTESTED` until a real import or a Test Now button. Series/chapter selectors were checked against the live site while building this adapter; `get_pages()`'s browser-rendered mechanism could not be exercised live in this build environment (see Known limits). |
+| Access tier | `STATIC_HTTP` for search/series/chapters. **`RENDERED_BROWSER` exclusively, and deliberately, for `get_pages()`** -- a real, confirmed stock MCCMS deployment whose chapter-reader image data is passed through a `readPic(...)` call wrapped in a commercial JS obfuscator (jsjiami.com.v7) and AES-encrypted with an embedded key (corroborated by public CVE-2025-50234 documenting the same scheme server-side in MCCMS's own code). **This adapter never deobfuscates that code or reimplements its AES decryption, even though the key is real and findable** -- the same "let the site's own legitimate execution path produce the result" principle already applied to Bilibili Manga's signed tokens. `get_pages()` calls `page_fetch.fetch_rendered` directly (not the ladder's own static-first escalation, since a static fetch here would "succeed" -- a real, non-shell page -- without ever finding real images, so the ladder would never know to escalate on its own), then scrapes real image URLs from the already-decrypted, rendered DOM. |
+| Auth | None observed. No `login()`. |
+| Extraction | **Series:** `div.cy_title h1` (title), `span.cy_author a` (author), `span.cy_type a` (genre), `span.cy_serialize font` (连载中/已完结 status), `#comic-description`, `div.cy_info_cover img` (cover). **Chapters:** `ul[id^=mh-chapter-list-ol] li.chapter__item a`. **Multi-source note:** this site aggregates some titles from more than one upstream source (a real "source" tab list was observed naming 催漫画网 and baozimh -- the same baozimh this project has its own dedicated adapter for); only the default/first source's chapter list is read, since other sources' lists appeared to load only on demand rather than being present in the static HTML. |
+| **`search()` deliberately left unsupported** | The site has a real, correctly-shaped search endpoint (`/search/<query>`) that renders a genuine "no results" page rather than a 404 or a stub -- but three separate plausible real queries, including a globally well-known title, all came back empty while building this adapter. Left unsupported rather than guessed at, matching this project's own precedent for a real-but-apparently-broken endpoint (`miaoqumh.py`). |
+| Terms, recorded separately | `robots.txt` returned a real HTTP 403 (openresty-served) on three separate direct fetches across this project's research and build passes -- reproduced again while building this adapter, not transient. Recorded as "crawl guidance is inaccessible," never as "no restrictions declared." The ToS has not been reviewed. |
+| Reference | `chshcms/mccms` (the real, public MCCMS platform source, for the general shape only -- this site's own template selectors are fully custom and were read directly from a live page, not from any Mihon/Keiyoushi extension, since none exists for this site). |
+| Known limits | **A real headless-browser render of this site (or of any real site) could not be exercised in this build environment** -- a sandboxed outbound-network proxy that timed out or failed on every real multi-resource page tried, including a plain-HTTP site with no JavaScript at all. This is a build-environment limitation, not something specific to manhuaku's own JS/AES scheme, and not something worked around -- see the manual check below. |
+| Tests | `tests/test_sources_manhuaku.py`, including a structural (AST-based) check that no AES/crypto-decryption code or library import exists anywhere in the module, and a `get_pages()` test mocked against a rendered-DOM fixture, never a raw-HTML one. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -321,3 +337,13 @@ they've been tried against the real site.
 - [ ] **Kuaikan, search:** periodically re-check whether a real search
   endpoint becomes discoverable (e.g. via a browser's network tab) -- if
   so, `search()` should be implemented rather than left unsupported.
+- [ ] **manhuaku, normal work:** search for a real title (or navigate to
+  one manually, given search is currently unsupported), pull its chapter
+  list, and download one chapter into a manhua drama through the new
+  adapter. Confirm real image URLs are obtained via the browser-rendered
+  tier -- this is the check that actually validates `get_pages()`'s core
+  design decision, since it could not be exercised in this build
+  environment at all.
+- [ ] **manhuaku, search endpoint:** periodically re-check whether
+  `/search/<query>` starts returning real results for well-known titles
+  -- if so, `search()` should be implemented rather than left unsupported.
