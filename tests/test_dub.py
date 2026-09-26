@@ -318,8 +318,10 @@ class TestBuildNarrationTrack:
         monkeypatch.setattr(dub, "synthesize_line",
                              lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
 
-        lines = [Line(idx=0, start=0, end=0, zh="x", en="First"),
-                 Line(idx=1, start=0, end=0, zh="y", en="Second")]
+        # Different speakers, so each line is its own TTS call (same-speaker
+        # lines would share one -- see TestNarrationTTSUnits).
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="First", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="y", en="Second", speaker="B")]
         dub.build_narration_track(lines, str(tmp_path), {}, gap_ms=350)
 
         assert lines[0].start == 0.0
@@ -353,9 +355,10 @@ class TestExtractReferenceClips:
             {"speaker": "A", "start": 10.0, "end": 16.0},  # 6s -- exact target, should win
             {"speaker": "A", "start": 20.0, "end": 30.0},  # 10s -- 4s from target
         ]
-        result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
-        assert result["A"]["start"] == 10.0
-        assert result["A"]["end"] == 16.0
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert clips["A"]["start"] == 10.0
+        assert clips["A"]["end"] == 16.0
+        assert skipped == {}
 
     def test_ignores_clips_outside_the_duration_bounds(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -363,8 +366,8 @@ class TestExtractReferenceClips:
             {"speaker": "A", "start": 0.0, "end": 1.0},    # too short
             {"speaker": "A", "start": 5.0, "end": 25.0},   # too long
         ]
-        result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
-        assert "A" not in result
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert "A" not in clips
 
     def test_each_speaker_gets_their_own_best_clip(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
@@ -372,8 +375,27 @@ class TestExtractReferenceClips:
             {"speaker": "A", "start": 0.0, "end": 6.0},
             {"speaker": "B", "start": 10.0, "end": 15.0},
         ]
-        result = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
-        assert set(result.keys()) == {"A", "B"}
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert set(clips.keys()) == {"A", "B"}
+        assert skipped == {}
+
+    def test_reports_a_specific_reason_for_a_speaker_with_no_eligible_segment(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        speaker_segments = [
+            {"speaker": "A", "start": 0.0, "end": 6.0},     # in range
+            {"speaker": "B", "start": 10.0, "end": 11.5},   # 1.5s -- too short, closest to the window
+            {"speaker": "B", "start": 20.0, "end": 21.0},   # 1.0s -- also too short but farther
+        ]
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert "B" not in clips
+        assert skipped == {"B": {"closest_duration": 1.5, "reason": "too_short"}}
+
+    def test_reports_too_long_when_the_closest_segment_exceeds_the_max(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        speaker_segments = [{"speaker": "A", "start": 0.0, "end": 20.0}]  # 20s -- too long
+        clips, skipped = dub.extract_reference_clips("/fake/audio.wav", [], speaker_segments, str(tmp_path))
+        assert "A" not in clips
+        assert skipped == {"A": {"closest_duration": 20.0, "reason": "too_long"}}
 
 
 class TestBuildTrackSubprocessWorker:
@@ -403,7 +425,7 @@ class TestBuildTrackSubprocessWorker:
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
             worker_lines, str(tmp_path), {"A": "en-US-AvaNeural"}, "en-US-AvaNeural",
-            {}, "edge_tts", False, result_queue)
+            {}, "edge_tts", False, {}, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
@@ -420,7 +442,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, result_queue)
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, {}, result_queue)
         outcome = result_queue.get_nowait()
 
         # only build_narration_track rewrites .start/.end onto the lines
@@ -437,7 +459,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, result_queue)
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "boom")

@@ -202,6 +202,29 @@ would need to bundle a full Python interpreter plus every ML dependency
 this app can use, multi-gigabytes either way, so that isn't what this
 does.
 
+### Running as a personal server (LAN access)
+
+Streamlit already binds to every network interface when `start.bat`
+launches it (`--server.headless true`), not just `localhost` -- so a
+Windows machine you leave running as an always-on personal server is
+already reachable from any other device on the same home network, no
+setup needed beyond starting the app there. `start.bat` now prints that
+address on every launch: "Also reachable from other devices on this
+network at: `http://<your-LAN-IP>:8501`". Open that from a browser on any
+other computer/phone on the same network and it's the same app, same
+library, same background jobs -- there's no separate client/server split
+to configure.
+
+If you're running that machine unattended and never want its own local
+Edge/Chrome window to pop up, use `start.bat --server-only` (same effect
+as setting the `BAIHE_SERVER_ONLY` environment variable).
+
+**This is LAN-only, single-user, by design** -- there's no login or
+access control, matching a personal home network where anyone on it is
+already trusted. Don't expose the port to the internet (e.g. via router
+port-forwarding) without adding your own authentication in front of it
+first.
+
 ## Usage
 
 ### Running the app
@@ -784,6 +807,43 @@ clones the voice via their API, and reuses the resulting voice ID for
 all of that character's lines. Worth trying first if F5-TTS gives you
 setup trouble, at the cost of being a paid cloud service instead of
 free/local.
+
+**More local voice engines, picked per character** (Workspace section 6,
+"Voice engine"):
+- **OmniVoice** (`pip install omnivoice`, Apache-2.0): clones from a
+  3-10 second clip. It also does **voice design**: type a description
+  like `female, low pitch, british accent` under "Or describe a voice"
+  and a character with no clip still gets its own voice.
+- **GPT-SoVITS** (MIT): clones from a 3-10 second clip. It isn't a pip
+  package. Download it from its GitHub page, run `python api_v2.py` in
+  its folder, and set the server URL in Settings if it isn't
+  `http://127.0.0.1:9880`.
+- **Chatterbox** (`pip install chatterbox-tts`, MIT): voices each line
+  with the emotion detected for it, so angry lines sound different from
+  calm ones. Run emotion detection first. Works with or without a clip.
+  Its audio carries Resemble AI's imperceptible PerTh watermark.
+- **TADA** (`pip install hume-tada`): built to stay on-script over long,
+  unattended runs. Its code is MIT, but the model weights are under
+  Meta's Llama 3.2 Community License. Accept that license on Hugging
+  Face and run `huggingface-cli login` before first use.
+
+⚠️ OmniVoice, Chatterbox and TADA pin conflicting `transformers`/`torch`
+versions, so pip can't install any two of them into the same
+environment. Install the one you want, or give each its own venv.
+
+Characters set up before these existed keep using F5-TTS.
+
+**Narration generation**: several consecutive lines from the same
+speaker (within one paragraph) are voiced in one TTS call, which gives
+more natural cross-sentence delivery. Each line is still its own
+subtitle cue. With edge-tts or ElevenLabs, clips are generated a few at
+a time in parallel. Local engines always run one clip at a time.
+
+**Audiobook export**: after generating a novel narration, **🎧 Generate
+audiobook (.m4b)** in Export subtitles builds an M4B with chapter
+markers. Chapters come from the novel's own headings (第一章 / Chapter 1),
+or one per paragraph when it has none. From the CLI, use
+`python cli.py dub --id N --m4b`.
 
 In the Workspace tab, use **"Auto-extract reference clips"** after
 diarizing an audio drama to pull clean per-character clips

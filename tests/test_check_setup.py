@@ -74,3 +74,76 @@ class TestPrintReport:
         import inspect
         source = inspect.getsource(check_setup)
         assert "sys.exit(0)" in source
+
+
+class _Cp1252Stream(io.TextIOBase):
+    """A stream that behaves like a real Windows cmd.exe console on its
+    legacy default codepage -- .encoding says "cp1252", and writing
+    anything cp1252 can't represent (⚠, ℹ, ✓ are all outside it) raises
+    UnicodeEncodeError exactly like the real console would, instead of
+    io.StringIO's always-permissive behavior."""
+    encoding = "cp1252"
+
+    def __init__(self):
+        self.parts = []
+
+    def write(self, s):
+        s.encode(self.encoding)  # raises UnicodeEncodeError, same as a real cp1252 console
+        self.parts.append(s)
+        return len(s)
+
+    def getvalue(self):
+        return "".join(self.parts)
+
+
+class TestPrintReportOnANonUnicodeConsole:
+    """Step 10b follow-up (2026-09-26): a real, confirmed crash on
+    Windows -- cp1252 (a real Windows console's legacy default codepage)
+    can't encode U+26A0 (⚠), so this report used to crash outright with
+    a UnicodeEncodeError before ever finishing. Found on this project's
+    own Windows CI job, not just a hypothetical console."""
+
+    def _report_cp1252(self, monkeypatch, **kwargs):
+        monkeypatch.setattr(diagnostics, "check_python_version",
+                            lambda: {"version": "3.11.0", "ok": kwargs.get("python_ok", True)})
+        monkeypatch.setattr(diagnostics, "check_ffmpeg",
+                            lambda: {"found": kwargs.get("ffmpeg_found", True), "path": None, "version": None})
+        monkeypatch.setattr(diagnostics, "check_js_runtime",
+                            lambda: {"found": kwargs.get("js_found", True), "name": None, "path": None})
+        monkeypatch.setattr(diagnostics, "check_cuda",
+                            lambda: {"torch_installed": kwargs.get("torch_installed", True),
+                                    "cuda_available": kwargs.get("cuda_available", True)})
+        stream = _Cp1252Stream()
+        check_setup._print_report(file=stream)  # would raise UnicodeEncodeError before the fix
+        return stream.getvalue()
+
+    def test_the_all_clear_line_does_not_crash_and_stays_readable(self, monkeypatch):
+        out = self._report_cp1252(monkeypatch)
+        assert "[OK]" in out
+        assert "ffmpeg" in out.lower()
+
+    def test_a_warning_does_not_crash_and_stays_readable(self, monkeypatch):
+        out = self._report_cp1252(monkeypatch, ffmpeg_found=False)
+        assert "[!]" in out
+        assert "ffmpeg not found" in out
+
+    def test_an_info_line_does_not_crash_and_stays_readable(self, monkeypatch):
+        out = self._report_cp1252(monkeypatch, torch_installed=False, cuda_available=None)
+        assert "[i]" in out
+        assert "torch isn't installed" in out
+
+    def test_utf8_console_still_gets_the_real_symbols(self, monkeypatch):
+        """The fallback is per-encoding, not a blanket downgrade -- a
+        console that CAN handle the real symbols still gets them."""
+        monkeypatch.setattr(diagnostics, "check_python_version", lambda: {"version": "3.11.0", "ok": True})
+        monkeypatch.setattr(diagnostics, "check_ffmpeg", lambda: {"found": False, "path": None, "version": None})
+        monkeypatch.setattr(diagnostics, "check_js_runtime", lambda: {"found": True, "name": None, "path": None})
+        monkeypatch.setattr(diagnostics, "check_cuda", lambda: {"torch_installed": True, "cuda_available": True})
+
+        class _Utf8Stream(io.StringIO):
+            encoding = "utf-8"
+
+        stream = _Utf8Stream()
+        check_setup._print_report(file=stream)
+        assert "⚠" in stream.getvalue()
+        assert "[!]" not in stream.getvalue()

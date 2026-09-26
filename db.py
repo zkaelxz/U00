@@ -166,6 +166,8 @@ def init_db():
         ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
         ref_text TEXT,           -- transcript of what's said in the reference clip
         elevenlabs_voice_id TEXT,-- cloned voice ID from ElevenLabs, if used instead of F5-TTS
+        clone_engine TEXT,       -- local voice engine (dub.CLONE_ENGINES key); NULL = F5-TTS
+        voice_design TEXT,       -- described voice (OmniVoice voice design) for a character with no clip
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
         UNIQUE(drama_id, speaker_label)
     );
@@ -587,6 +589,10 @@ def init_db():
         conn.execute("ALTER TABLE characters ADD COLUMN ref_text TEXT")
     if "elevenlabs_voice_id" not in char_cols:
         conn.execute("ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
+    if "clone_engine" not in char_cols:
+        conn.execute("ALTER TABLE characters ADD COLUMN clone_engine TEXT")
+    if "voice_design" not in char_cols:
+        conn.execute("ALTER TABLE characters ADD COLUMN voice_design TEXT")
     if "series_character_id" not in char_cols:
         # Links this drama's speaker to a persistent series_characters row,
         # so renaming/updating the series-level character (once) reflects
@@ -637,6 +643,21 @@ def init_db():
         # before render -- see scanlate.py's own docstring for why this
         # isn't a trained font-classifier model.
         conn.execute("ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
+    if "kind" not in bubble_cols:
+        # Step 12d: each bubble row is a structured text region (see
+        # scanlate.TextRegion) -- region type from classify_text_regions(),
+        # the detector's own confidence (NULL for the OpenCV heuristic,
+        # which has none), language, text orientation, and panel. Rows
+        # predating this are all speech bubbles, hence kind's default.
+        # include_sfx is the per-region override that puts an SFX region
+        # back into the automated inpaint-and-replace pass.
+        conn.execute("ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN confidence REAL")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN language TEXT")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN orientation TEXT")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
     bulk_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
     if "kind" not in bulk_job_cols:
         # Step 9d: see the `bulk_jobs` table's own comment above -- every
@@ -1024,15 +1045,18 @@ def upsert_character(drama_id: int, speaker_label: str, character_name: str = No
                       voice_actor: str = None, tts_voice: str = None,
                       ref_audio_filename: str = None, ref_text: str = None,
                       elevenlabs_voice_id: str = None, series_character_id: int = None,
-                      pronouns: str = None):
-    """pronouns: None leaves an existing value untouched; "" clears it."""
+                      pronouns: str = None, clone_engine: str = None, voice_design: str = None):
+    """pronouns/voice_design: None leaves an existing value untouched; ""
+    clears it."""
     conn = get_conn()
     conn.execute("""
         INSERT INTO characters (drama_id, speaker_label, character_name, voice_actor, tts_voice,
                                  ref_audio_filename, ref_text, elevenlabs_voice_id, series_character_id,
-                                 pronouns)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 pronouns, clone_engine, voice_design)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(drama_id, speaker_label) DO UPDATE SET
+            clone_engine = COALESCE(excluded.clone_engine, characters.clone_engine),
+            voice_design = COALESCE(excluded.voice_design, characters.voice_design),
             pronouns = COALESCE(excluded.pronouns, characters.pronouns),
             character_name = COALESCE(excluded.character_name, characters.character_name),
             voice_actor = COALESCE(excluded.voice_actor, characters.voice_actor),
@@ -1042,7 +1066,7 @@ def upsert_character(drama_id: int, speaker_label: str, character_name: str = No
             elevenlabs_voice_id = COALESCE(excluded.elevenlabs_voice_id, characters.elevenlabs_voice_id),
             series_character_id = COALESCE(excluded.series_character_id, characters.series_character_id)
     """, (drama_id, speaker_label, character_name, voice_actor, tts_voice, ref_audio_filename, ref_text,
-          elevenlabs_voice_id, series_character_id, pronouns))
+          elevenlabs_voice_id, series_character_id, pronouns, clone_engine, voice_design))
     conn.commit()
     conn.close()
 
@@ -1251,18 +1275,25 @@ def get_page(page_id: int):
 
 def save_bubbles(page_id: int, bubbles):
     """bubbles: list of dicts with x,y,w,h,source_text,translated_text,font_size,skip,
-    font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset).
-    Replaces all bubbles for this page."""
+    font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset), plus the
+    Step 12d region fields kind ("bubble" if unset), kind_confidence, confidence,
+    language, orientation, panel_id, include_sfx. List order is reading order (idx).
+    Replaces all bubbles for this page -- so a caller rebuilding the list must carry
+    every one of these fields through, or they're wiped."""
     conn = get_conn()
     try:
         conn.execute("BEGIN")
         conn.execute("DELETE FROM bubbles WHERE page_id = ?", (page_id,))
         conn.executemany(
             "INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, "
-            "font_size, skip, font_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "font_size, skip, font_category, kind, kind_confidence, confidence, language, "
+            "orientation, panel_id, include_sfx) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(page_id, i, b["x"], b["y"], b["w"], b["h"], b.get("source_text", ""),
               b.get("translated_text", ""), b.get("font_size", 18), int(b.get("skip", False)),
-              b.get("font_category") or "regular")
+              b.get("font_category") or "regular", b.get("kind") or "bubble",
+              b.get("kind_confidence"), b.get("confidence"), b.get("language"),
+              b.get("orientation"), b.get("panel_id"), int(bool(b.get("include_sfx"))))
              for i, b in enumerate(bubbles)]
         )
         conn.commit()
@@ -1278,6 +1309,36 @@ def load_bubbles(page_id: int):
     rows = conn.execute("SELECT * FROM bubbles WHERE page_id = ? ORDER BY idx", (page_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def list_bubbles_for_drama(drama_id: int):
+    """Every bubble across every saved page of a drama, each carrying its
+    page's idx as page_idx -- used by Scanlate's bulk find-and-replace
+    (Step 11 item 9), which needs to preview/apply across a whole
+    drama's saved pages at once, not just whichever page is currently
+    open in the tab."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT bubbles.*, pages.idx AS page_idx FROM bubbles "
+        "JOIN pages ON pages.id = bubbles.page_id "
+        "WHERE pages.drama_id = ? ORDER BY pages.idx, bubbles.idx", (drama_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_bubble_text(bubble_id: int, translated_text: str):
+    """Updates just one bubble's translated_text, nothing else -- unlike
+    save_bubbles() (which deletes and re-inserts every bubble on a
+    page), this is the safe, minimal-field write bulk find-and-replace
+    (Step 11 item 9) needs: touching only the field the operation is
+    actually about, so x/y/w/h/source_text/skip/font_category on every
+    other bubble -- and every OTHER bubble on the same page -- are never
+    at risk of being silently clobbered."""
+    conn = get_conn()
+    conn.execute("UPDATE bubbles SET translated_text = ? WHERE id = ?",
+                 (translated_text, bubble_id))
+    conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
