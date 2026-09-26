@@ -6278,8 +6278,27 @@ class TestWorkspaceStageIndex:
 
     STAGES = ["Source", "Transcript", "Diarize", "Translate", "Review", "Dub", "Export"]
 
-    def test_no_lines_yet_is_still_on_transcript(self, tmp_path):
+    def test_brand_new_drama_with_no_source_content_is_still_on_source(self, tmp_path):
+        # A drama that's just been created (content_mode picked, nothing
+        # uploaded yet) hasn't finished Source -- it shouldn't jump straight
+        # to Transcript just because it also has no lines yet.
         idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, None, str(tmp_path))
+        assert idx == 0
+
+    def test_source_uploaded_but_not_yet_transcribed_is_on_transcript(self, tmp_path):
+        idx = _compute_workspace_stage_index(
+            {"content_mode": "audio_drama", "audio_filename": "audio.mp3"}, None, str(tmp_path))
+        assert idx == 1
+
+    def test_novel_narration_with_no_saved_novel_text_is_still_on_source(self, tmp_path):
+        idx = _compute_workspace_stage_index(
+            {"content_mode": "novel_narration"}, None, str(tmp_path))
+        assert idx == 0
+
+    def test_novel_narration_with_saved_novel_text_is_on_transcript(self, tmp_path):
+        (tmp_path / "novel_narration_source.txt").write_text("some text")
+        idx = _compute_workspace_stage_index(
+            {"content_mode": "novel_narration"}, None, str(tmp_path))
         assert idx == 1
 
     def test_lines_with_no_speaker_yet_is_on_diarize(self, tmp_path):

@@ -1499,11 +1499,22 @@ def _compute_workspace_stage_index(drama, lines, ddir):
     either a dub track exists or the drama is marked exported, at which
     point it jumps straight to Export -- Dub only ever shows as done or
     not-started, never uniquely current.
+
+    No lines yet doesn't by itself mean Transcript is current -- a
+    brand-new drama with no audio/video (or, for novel narration, no
+    saved novel text) hasn't finished Source either, so that case checks
+    for real source content before advancing past it.
     """
-    if not lines:
-        return 1
     content_mode = (drama or {}).get("content_mode") or "audio_drama"
     has_audio_pipeline = content_mode in ("audio_drama", "streamer_vod")
+    if not lines:
+        if has_audio_pipeline:
+            _has_source = bool((drama or {}).get("audio_filename")
+                                or (drama or {}).get("source_video_filename"))
+        else:
+            _has_source = bool(ddir and os.path.exists(
+                os.path.join(ddir, "novel_narration_source.txt")))
+        return 1 if _has_source else 0
     if has_audio_pipeline and not any(getattr(ln, "speaker", None) for ln in lines):
         return 2
     if any(not (ln.en or "").strip() for ln in lines):
