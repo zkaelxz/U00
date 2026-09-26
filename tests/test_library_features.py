@@ -6,11 +6,14 @@ storage management, and time estimates.
 
 import sys
 import os
+import io
+import zipfile
 import tempfile
 import shutil
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import time
+import pytest
 
 import background_jobs
 import story_context as sc
@@ -937,3 +940,78 @@ class TestSeriesSharingIndicators:
         isolated_db.upsert_character(did, "SPEAKER_00", character_name="Someone")
         at = self._run_workspace(did)
         assert not any("Shared with other dramas in this series" in c.value for c in at.caption)
+
+
+class TestRestoreFromBackupValidatesBeforeDestroying:
+    """Step 25k: "Restore from backup" used to shutil.rmtree() the whole
+    library BEFORE checking whether the uploaded zip was even a real
+    backup, so a corrupted download or the wrong file entirely wiped the
+    existing library and then showed an error. restore_library_backup()
+    must validate (opens as a zip, contains library.db, no corrupt
+    member) and extract to a staging directory first, only touching the
+    real library_dir once that's confirmed good."""
+
+    def _make_zip_bytes(self, members: dict) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, content in members.items():
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_not_a_zip_at_all_leaves_existing_library_intact(self, tmp_path_str):
+        import tabs.library_tab as lt
+
+        marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as f:
+            f.write("original data")
+
+        with pytest.raises(Exception):
+            lt.restore_library_backup(b"this is not a zip file at all", tmp_path_str)
+
+        assert os.path.exists(marker)
+        with open(marker) as f:
+            assert f.read() == "original data"
+
+    def test_valid_zip_missing_library_db_leaves_existing_library_intact(self, tmp_path_str):
+        import tabs.library_tab as lt
+
+        marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as f:
+            f.write("original data")
+
+        bad_zip = self._make_zip_bytes({"some_random_file.txt": "not a real backup"})
+        with pytest.raises(ValueError, match="doesn't look like"):
+            lt.restore_library_backup(bad_zip, tmp_path_str)
+
+        assert os.path.exists(marker)
+        with open(marker) as f:
+            assert f.read() == "original data"
+
+    def test_valid_backup_zip_still_restores_correctly(self, tmp_path_str):
+        import tabs.library_tab as lt
+
+        marker = os.path.join(tmp_path_str, "dramas", "old_drama.txt")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as f:
+            f.write("stale data that should be replaced")
+
+        good_zip = self._make_zip_bytes({
+            "library.db": "fake sqlite bytes",
+            "dramas/new_drama.txt": "restored data",
+        })
+        lt.restore_library_backup(good_zip, tmp_path_str)
+
+        assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
+        assert os.path.exists(os.path.join(tmp_path_str, "dramas", "new_drama.txt"))
+        assert not os.path.exists(marker)
+
+    def test_restoring_into_a_library_dir_that_does_not_exist_yet_works(self, tmp_path_str):
+        import tabs.library_tab as lt
+
+        library_dir = os.path.join(tmp_path_str, "brand_new_library")
+        good_zip = self._make_zip_bytes({"library.db": "fake sqlite bytes"})
+        lt.restore_library_backup(good_zip, library_dir)
+
+        assert os.path.exists(os.path.join(library_dir, "library.db"))
