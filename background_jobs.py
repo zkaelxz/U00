@@ -563,6 +563,30 @@ def cancel_line_jobs(drama_id):
             request_cancel(f"{prefix}{drama_id}")
 
 
+# Step 25d item 8: every job id this app starts that's scoped to one
+# drama -- for "is anything still working on this drama?" checks before a
+# destructive, whole-drama action (deleting it) rather than the narrower
+# LINE_WRITING_JOB_PREFIXES above, which only covers jobs safe to run
+# alongside each other.
+DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
+    "transcribe_", "consistency_", "emotion_", "notes_", "resegment_",
+    "dub_", "autotune_", "sensevoice_", "diarize_",
+)
+
+
+def any_job_running_for_drama(drama_id) -> bool:
+    """True if any job scoped to this drama is currently running or
+    queued -- for warning before a destructive, whole-drama action (e.g.
+    deleting it) rather than letting that job error out against a drama
+    that no longer exists."""
+    with _lock:
+        for prefix in DRAMA_JOB_PREFIXES:
+            job = _jobs.get(f"{prefix}{drama_id}")
+            if job and job["status"] in ("running", "queued"):
+                return True
+        return False
+
+
 def request_cancel(job_id: str):
     """Sets the cancellation flag. For a thread-based job (start_job()),
     this is purely cooperative -- the job itself has to check

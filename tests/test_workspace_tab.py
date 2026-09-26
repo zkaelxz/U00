@@ -817,6 +817,12 @@ def test_translation_notes_job_persists_and_logs_usage(isolated_db):
                                       "error": None, "cancel_requested": False, "result": None}
     did = isolated_db.create_drama(title_en="Test")
     lines = [Line(idx=0, start=0, end=1, zh="画蛇添足", en="Gilding the lily")]
+    # Step 25d item 11: db.save_translation_notes now skips a note whose
+    # line can't be resolved (matching save_emotions), so this line has
+    # to actually exist in the database first -- same as it always would
+    # in real usage, where notes are only ever generated for a drama's
+    # already-persisted lines.
+    isolated_db.save_lines(did, lines)
 
     class FakeNotesEngine:
         supports_reference = True
@@ -895,7 +901,7 @@ def test_fix_flagged_job_retranscribes_and_retranslates_with_audio(isolated_db, 
     assert loaded[0]["flag"] is None
     assert loaded[0]["flag_note"] == ""
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"fixed_count": 1, "total_flagged": 1, "cap_reached": None}
+    assert result == {"fixed_count": 1, "total_flagged": 1, "errors": [], "cap_reached": None}
     summary = isolated_db.get_usage_summary(did)
     assert summary["input_tokens"] == 10
     assert summary["output_tokens"] == 4
@@ -943,7 +949,9 @@ def test_fix_flagged_job_leaves_flag_set_when_translation_fails(isolated_db):
     assert loaded[0]["flag"] == "mistranslation"
     assert loaded[0]["en"] == "old"
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"fixed_count": 0, "total_flagged": 1, "cap_reached": None}
+    assert result == {"fixed_count": 0, "total_flagged": 1,
+                       "errors": ["line 1 translation: translation API down"],
+                       "cap_reached": None}
     _clear(job_id)
 
 
@@ -962,7 +970,7 @@ def test_fix_flagged_job_ignores_unflagged_lines(isolated_db):
     loaded = isolated_db.load_lines(did)
     assert loaded[0]["en"] == "No problem."  # untouched
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"fixed_count": 0, "total_flagged": 0, "cap_reached": None}
+    assert result == {"fixed_count": 0, "total_flagged": 0, "errors": [], "cap_reached": None}
     _clear(job_id)
 
 
@@ -1038,6 +1046,62 @@ def test_fix_flagged_job_with_no_cap_processes_every_flagged_line(isolated_db):
     result = background_jobs.get_status(job_id)["result"]
     assert result["fixed_count"] == 5
     assert result["cap_reached"] is None
+    _clear(job_id)
+
+
+def test_fix_flagged_job_keeps_earlier_fixes_when_a_later_line_crashes(isolated_db, monkeypatch, tmp_path):
+    """Step 25d item 3: the re-transcription call used to sit in a bare
+    try/finally with no `except` -- a real exception there (e.g. a
+    model-download failure partway through) escaped the whole loop, and
+    since db.save_lines only ran once at the very end, that lost every
+    line already fixed before the crash, not just the one that failed."""
+    job_id = "test_fixflag_partial_crash"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    did = isolated_db.create_drama(title_en="Test")
+    lines = [
+        Line(idx=0, start=0.0, end=1.0, zh="stale zero", en="old zero",
+             flag="ambiguous_reference", flag_note="check"),
+        Line(idx=1, start=1.0, end=2.0, zh="stale one", en="old one",
+             flag="ambiguous_reference", flag_note="check"),
+    ]
+    isolated_db.save_lines(did, lines)
+
+    audio_path = str(tmp_path / "audio.wav")
+    with open(audio_path, "wb") as f:
+        f.write(b"x")
+
+    import tabs.workspace_tab as wt
+    monkeypatch.setattr(wt.core_module, "extract_audio_slice", lambda *a, **k: None)
+
+    def _fake_transcribe(slice_path, **kwargs):
+        if "_1.wav" in slice_path:
+            raise RuntimeError("model download failed partway through")
+        return [{"start": 0.0, "end": 1.0, "text": "重新转录"}]
+
+    monkeypatch.setattr(wt.core_module, "transcribe_for_timing", _fake_transcribe)
+
+    # Line 1's own translation would otherwise still succeed against its
+    # stale (un-re-transcribed) text and clear its flag -- failing that
+    # too keeps this test focused on line 0's fix surviving line 1's crash.
+    engine = FakeFixEngine(translations={"重新转录": "Re-transcribed."}, fail_for={"stale one"})
+    run_fix_flagged_lines_job(job_id, did, lines, audio_path, "medium", False, "zh",
+                               engine, "claude")
+
+    loaded = isolated_db.load_lines(did)
+    assert loaded[0]["zh"] == "重新转录"
+    assert loaded[0]["en"] == "Re-transcribed."
+    assert loaded[0]["flag"] is None
+    # Line 1's own fix failed, but it must not have taken line 0's fix
+    # down with it.
+    assert loaded[1]["zh"] == "stale one"
+    assert loaded[1]["flag"] == "ambiguous_reference"
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["fixed_count"] == 1
+    assert result["total_flagged"] == 2
+    assert any("model download failed" in e for e in result["errors"])
+    assert any("translation API down" in e for e in result["errors"])
     _clear(job_id)
 
 
@@ -4272,6 +4336,34 @@ class TestAutotuneRealMidRunStop:
         assert by_ms[1500]["total_lines"] == 1 and by_ms[1500]["long_lines"] == 1
         background_jobs.clear_job(job_id)
 
+    def test_page_refresh_while_a_result_is_ready_does_not_crash(self, isolated_db, monkeypatch):
+        """Step 25d item 4: the "job just finished" branch appended
+        straight into _autotune["results"] with no None-check -- the
+        "still running" branch right above it already had one. Refreshing
+        the page (a new session, so st.session_state lost the candidate
+        list built when Auto-tune was started) while a candidate's result
+        was sitting there "done" crashed instead of just rebuilding."""
+        did = self._drama_with_audio(isolated_db)
+        self._fake_process_factory(monkeypatch, alive_forever=True)
+        job_id = f"autotune_{did}"
+        background_jobs.clear_job(job_id)
+        background_jobs._jobs[job_id] = {
+            "status": "done", "progress": 1.0, "message": "", "error": None,
+            "cancel_requested": False, "finished_at": time.time(),
+            "result": {"candidate_ms": 300,
+                      "segments": [{"start": 0.0, "end": 1.0, "text": "你好"}]},
+        }
+        try:
+            # Deliberately NOT setting session_state[f"autotune_{did}"] --
+            # that's the "lost across a refresh" part being simulated.
+            at = self._run(did)
+            assert not at.exception, [repr(e) for e in at.exception]
+            state = at.session_state.get(f"autotune_{did}")
+            assert state is not None
+            assert state["results"] == [{"candidate_ms": 300, "long_lines": 0, "total_lines": 1}]
+        finally:
+            background_jobs.clear_job(job_id)
+
     def test_nothing_is_applied_until_the_user_explicitly_picks_one(self, isolated_db, monkeypatch):
         """Design requirement, not just a manual check: auto-tune must
         never silently apply a candidate -- the persisted slider value
@@ -4376,6 +4468,170 @@ class TestTranscribeQueuesBehindAnotherGpuJob:
         finally:
             release.set()
             background_jobs.clear_job(f"transcribe_{did}")
+
+
+class TestQueuedJobPanelVisibleAndCancellable:
+    """Step 25d item 2: a job queued behind Step 5c's GPU guard used to be
+    invisible in these panels -- they only ever handled the running/done/
+    error states, and the one st.info() that announces "queued" right
+    after the button click is immediately thrown away by the st.rerun()
+    straight after it. This drives the real click path and checks a
+    LATER rerun (e.g. the person reopening the page) still shows the
+    queued state, with a working Cancel button -- background_jobs.
+    cancel_queued already existed, but nothing outside live_tab.py called
+    it."""
+
+    def setup_method(self):
+        background_jobs.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        background_jobs.set_gpu_limit_enabled(True)
+        background_jobs.clear_job("gpu_busy_elsewhere_q2")
+
+    def _drama_with_audio_and_transcript(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="not started",
+                                        audio_filename="audio.wav", transcript_mode="have_transcript")
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state[f"tmode_{did}"] = "have_transcript"
+        at.session_state[f"transcript_{did}"] = "你好"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_queued_transcription_stays_visible_with_a_cancel_button_on_a_later_rerun(self, isolated_db):
+        release = threading.Event()
+        background_jobs.start_job("gpu_busy_elsewhere_q2", lambda: release.wait(timeout=5.0),
+                                   gpu_touching=True, description="Diarization (drama #999)")
+        try:
+            did = self._drama_with_audio_and_transcript(isolated_db)
+            at = self._run(did)
+            [btn] = [b for b in at.button if b.label == "▶ Transcribe & Align"]
+            btn.click().run(timeout=30)
+
+            assert background_jobs.get_status(f"transcribe_{did}")["status"] == "queued"
+
+            # A further rerun with nothing clicked -- the queued state must
+            # still be shown, not just on the render right after the click.
+            at.run(timeout=30)
+            assert any("GPU busy" in i.value or "Waiting" in i.value for i in at.info)
+            [cancel_btn] = [b for b in at.button if b.key == f"cancel_queued_tc_{did}"]
+            assert not cancel_btn.disabled
+
+            cancel_btn.click().run(timeout=30)
+            assert background_jobs.get_status(f"transcribe_{did}") is None
+        finally:
+            release.set()
+            background_jobs.clear_job(f"transcribe_{did}")
+
+class TestRomanizeCreditsEnginePassesOllamaUrlAndFreeTier:
+    """Step 25d item 7: same gap Step 5b item 1 already fixed elsewhere,
+    recurring here -- this call used to always build the engine with no
+    base_url/free_tier at all, so it ignored a custom Ollama URL and
+    always billed Gemini as paid-tier."""
+
+    def _run(self, did, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_ollama_base_url_is_passed_through(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", translation_engine="ollama", author="作者")
+        seen = {}
+
+        def spy(engine_name, api_key, *a, **kw):
+            seen["engine"] = engine_name
+            seen["base_url"] = kw.get("base_url")
+            raise RuntimeError("stop before any real network call")
+        monkeypatch.setattr(translate_engines, "get_engine", spy)
+
+        at = self._run(did, settings_ollama="anything", settings_ollama_url="http://myhost:11434")
+        [btn] = [b for b in at.button if b.key == f"roman_{did}"]
+        btn.click().run(timeout=30)
+
+        assert seen["engine"] == "ollama"
+        assert seen["base_url"] == "http://myhost:11434"
+
+    def test_gemini_free_tier_flag_is_passed_through(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", translation_engine="gemini", author="作者")
+        seen = {}
+
+        def spy(engine_name, api_key, *a, **kw):
+            seen["free_tier"] = kw.get("free_tier")
+            raise RuntimeError("stop before any real network call")
+        monkeypatch.setattr(translate_engines, "get_engine", spy)
+
+        at = self._run(did, settings_gemini="anything", gemini_free_tier=True)
+        [btn] = [b for b in at.button if b.key == f"roman_{did}"]
+        btn.click().run(timeout=30)
+
+        assert seen["free_tier"] is True
+
+
+class TestDeleteDramaBlockedByRunningJob:
+    """Step 25d item 8: "🗑️ Delete this drama" used to have no check for
+    a still-running job on this drama at all. Step 25z landed concurrently
+    on baihe-subtitler and separately added the checkbox-plus-type-DELETE
+    confirmation itself (see its own TestDestructiveActionsNeedConfirmation
+    for that mechanic, which this doesn't repeat) -- this covers the one
+    thing item 8 adds on top of it: the button staying disabled while a
+    job is running even once the confirmation is fully filled in."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def _delete_button(self, at):
+        [btn] = [b for b in at.button if b.label == "🗑️ Delete this drama"]
+        return btn
+
+    def test_delete_stays_disabled_while_a_job_is_running_even_when_confirmed(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Busy Drama")
+        release = threading.Event()
+        background_jobs.start_job(f"translate_{did}", release.wait)
+        try:
+            at = self._run(did)
+            at.checkbox(key=f"confirm_delete_drama_{did}").set_value(True).run(timeout=30)
+            at.text_input(key=f"delete_drama_typed_{did}").set_value("DELETE").run(timeout=30)
+            assert self._delete_button(at).disabled
+            assert any("still running" in c.value for c in at.caption)
+            assert isolated_db.get_drama(did) is not None
+        finally:
+            release.set()
+            background_jobs.clear_job(f"translate_{did}")
 
 
 class TestTranscribeJobInputsCapture:
@@ -5965,3 +6221,47 @@ class TestOriginalNovelForGlossaryDoesNotLeakAndNeedsExplicitSave:
         save.click().run(timeout=30)
         with open(self._raw_context_path(did), "rb") as f:
             assert f.read() == b"drama A's raw novel"
+
+
+class TestSaveEditsDoesNotRoundUntouchedTimestamps:
+    """Minor finding, Step 25d: the start/end number_input widgets in
+    Review & edit are seeded with round(ln.start, 2)/round(ln.end, 2) --
+    their only display precision -- and that rounded display value is
+    what got written back on every "Save edits" click, even for a line
+    whose timing nobody touched that time, silently losing precision."""
+
+    def _drama(self, isolated_db, start, end):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=start, end=end, zh="你好", en="Hello")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_untouched_timing_keeps_its_original_precision_on_save(self, isolated_db):
+        did = self._drama(isolated_db, start=1.234567, end=2.987654)
+        at = self._run(did)
+        [b for b in at.button if b.label == "💾 Save edits (this page)"][0].click().run(timeout=30)
+        saved = isolated_db.load_lines(did)[0]
+        assert saved["start"] == 1.234567
+        assert saved["end"] == 2.987654
+
+    def test_an_actually_edited_timing_is_saved_and_the_other_keeps_its_precision(self, isolated_db):
+        did = self._drama(isolated_db, start=1.234567, end=2.987654)
+        at = self._run(did)
+        [ni for ni in at.number_input if ni.key == "start_0"][0].set_value(5.5).run(timeout=30)
+        [b for b in at.button if b.label == "💾 Save edits (this page)"][0].click().run(timeout=30)
+        saved = isolated_db.load_lines(did)[0]
+        assert saved["start"] == 5.5
+        assert saved["end"] == 2.987654  # untouched -- keeps its original precision

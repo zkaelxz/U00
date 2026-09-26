@@ -1808,8 +1808,14 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
 
     One page failing doesn't stop the rest (same per-page isolation as
     bulk_render_pages()); a failed translation still saves that page's
-    OCR text. Returns {"processed": [{"page_id", "bubbles", "notes"}],
-    "errors": [{"page_id", "error"}], "context": final rolling context}."""
+    OCR text. Returns {"processed": [{"page_id", "bubbles", "notes",
+    "context"}], "errors": [{"page_id", "error"}], "context": final
+    rolling context}. Each processed entry's own "context" (Step 25d item
+    12) is the rolling context AS OF right after that page -- the
+    caller's own per-page context store should key off that, not just
+    the run's single final "context" value, so a later out-of-order
+    re-run of an earlier page in this same run can still find its real
+    predecessor's context instead of this whole run's last page's."""
     report = {"processed": [], "errors": [], "context": previous_context}
     context = previous_context
     for done, page in enumerate(pages, start=1):
@@ -1827,7 +1833,7 @@ def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
                                              f"review step."))
             save_fn(page["id"], bubbles)
             report["processed"].append({"page_id": page["id"], "bubbles": len(bubbles),
-                                        "notes": notes})
+                                        "notes": notes, "context": context})
         except Exception as exc:
             report["errors"].append({"page_id": page["id"],
                                      "error": f"{type(exc).__name__}: {exc}"})

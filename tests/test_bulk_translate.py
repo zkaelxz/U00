@@ -206,6 +206,11 @@ class TestApplyResults:
         assert summary["dropped_deleted"] == 1
         assert summary["flagged_source_changed"] == 1
         assert summary["applied"] == 5
+        # Step 25d item 13: the merge survivor above never got a
+        # translation applied (its source changed) -- the drama must not
+        # be marked "translated" while a line is still untranslated, same
+        # root cause and fix as Step 25c's CLI/Workspace guard.
+        assert isolated_db.get_drama(did)["status"] != "translated"
 
     def test_a_line_whose_source_was_edited_is_flagged_not_applied(self, isolated_db):
         engine = _claude_engine()
@@ -914,3 +919,52 @@ class TestBulkReflectPipeline:
         # Stage 1 (already applied, superseded) is not shown as its own
         # separate card -- only the pipeline's current stage is.
         assert not any("faithfulness pass" in m.value for m in at.markdown)
+
+
+class TestFinishTranslationRunGlossaryEnforcement:
+    """Step 25d item 5: the enforce_exact glossary substitution pass used
+    to substitute into (and save) the job's own possibly-stale in-memory
+    line copies -- if a user edited a line's English while the job was
+    still running, this pass's unconditional write won even though its
+    own baseline text was stale, silently clobbering the user's edit."""
+
+    _term = {"term_translation": "Xiao Ming", "notes": "Xiaoming", "enforce_exact": True}
+
+    def test_substitution_is_applied_to_the_current_db_text_not_a_stale_job_copy(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", status="aligned",
+                                       translation_engine="claude")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="一", en="Xiaoming went home"),
+        ])
+        # The job's own snapshot, taken when the run started.
+        job_lines = isolated_db.load_line_objects(did)
+        # The user edits the line's English while the job is still
+        # running, AFTER the job took its snapshot above -- a real write
+        # straight to the database, same as Review & edit's own Save.
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="一",
+                                          en="Xiaoming actually left already",
+                                          id=job_lines[0].id)], fields=("en",))
+
+        bt.finish_translation_run(did, job_lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=[self._term], errors=[])
+
+        saved = isolated_db.load_lines(did)[0]["en"]
+        # The user's edit survives, with the enforced term applied to IT --
+        # not the job's stale snapshot silently winning instead.
+        assert saved == "Xiao Ming actually left already"
+
+    def test_a_line_the_substitution_does_not_change_is_left_alone(self, isolated_db):
+        """No enforce_exact term matches this line -- its `en` must not be
+        rewritten at all (the old code rewrote every line unconditionally
+        whenever any enforce_exact term existed anywhere in the glossary)."""
+        did = isolated_db.create_drama(title_en="Test", status="aligned",
+                                       translation_engine="claude")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="二", en="Nothing to enforce here"),
+        ])
+        job_lines = isolated_db.load_line_objects(did)
+
+        bt.finish_translation_run(did, job_lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=[self._term], errors=[])
+
+        assert isolated_db.load_lines(did)[0]["en"] == "Nothing to enforce here"

@@ -252,3 +252,80 @@ class TestFontUploadDoesNotLeakAcrossDramas:
         save.click().run(timeout=30)
         with open(self._font_path(did), "rb") as f:
             assert f.read() == b"drama A's font"
+
+
+class TestPerPageContextDoesNotLeakAcrossPages:
+    """Step 25d item 12: the "previous page" context used to be a single
+    key per DRAMA, holding whichever page was processed most recently --
+    not the page actually right before the one being processed.
+    Re-detecting an earlier page after a later one has already run used
+    to pick up the later page's context instead of its own true
+    predecessor's (or "" when that predecessor was never processed)."""
+
+    def _drama_with_pages(self, isolated_db, n=3):
+        from PIL import Image as PILImage
+        did = isolated_db.create_drama(title_en="Test Manga", media_type="manhua",
+                                       content_mode="audio_drama", status="new")
+        ddir = isolated_db.drama_dir(did)
+        pages_dir = os.path.join(ddir, "pages")
+        os.makedirs(pages_dir, exist_ok=True)
+        for i in range(n):
+            path = os.path.join(pages_dir, f"page_{i:04d}.png")
+            PILImage.new("RGB", (600, 800), "white").save(path)
+            isolated_db.create_page(did, i, os.path.join("pages", f"page_{i:04d}.png"), 600, 800)
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.scanlate_tab as st_mod
+            st_mod.render_scanlate_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["scanlate_drama_pick"] = f"#{did} — Test Manga"
+        at.session_state["settings_claude"] = "sk-ant-fake"
+        at.run(timeout=30)
+        return at
+
+    def _select_page(self, at, label):
+        [sel] = [s for s in at.selectbox if s.label == "Page"]
+        return sel.set_value(label).run(timeout=30)
+
+    def _click_detect(self, at):
+        [btn] = [b for b in at.button
+                if b.label == "🔍 Detect bubbles + auto-clean + auto-translate"]
+        return btn.click().run(timeout=30)
+
+    def test_reprocessing_an_earlier_page_uses_its_own_predecessor_not_the_latest_touched(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_pages(isolated_db, n=3)
+
+        import scanlate
+        monkeypatch.setattr(
+            scanlate, "detect_and_ocr_page",
+            lambda *a, **k: ([{"x": 0, "y": 0, "w": 10, "h": 10, "source_text": "hi"}], []))
+
+        calls = []
+
+        def fake_translate(bubbles, engine, drama_meta, previous_context="", **kw):
+            calls.append(previous_context)
+            return f"ctx-after-call-{len(calls)}"
+        monkeypatch.setattr(scanlate, "translate_page_bubbles", fake_translate)
+
+        at = self._run(did)
+        at = self._select_page(at, "Page 2")
+        at = self._click_detect(at)
+
+        at = self._select_page(at, "Page 3")
+        at = self._click_detect(at)
+
+        # Back to page 2 -- its own real predecessor (page 1) was never
+        # processed, so this must still be "" again, not whatever page 3
+        # (the page touched most recently) just produced.
+        at = self._select_page(at, "Page 2")
+        self._click_detect(at)
+
+        assert calls[0] == ""                    # page 2, first time: no predecessor processed
+        assert calls[1] == "ctx-after-call-1"     # page 3: correctly picks up page 2's context
+        assert calls[2] == ""                     # page 2 again: NOT page 3's context

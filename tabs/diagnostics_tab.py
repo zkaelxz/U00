@@ -99,6 +99,23 @@ def render_diagnostics_tab():
                 else:
                     st.error("Delete failed -- see the log for details.")
 
+    # Step 25d item 14: Piper voices (Step 25c item 1's offline-voice
+    # picker) download to library/piper_voices instead of the Hugging
+    # Face cache above, so they were invisible to this whole panel.
+    piper_voices = diagnostics.scan_piper_voices()
+    if piper_voices:
+        st.caption(f"**Piper voices** (`library/piper_voices`): {len(piper_voices)} downloaded, "
+                  f"{storage.format_bytes(sum(e['size_bytes'] for e in piper_voices))} total.")
+        for entry in piper_voices:
+            pc1, pc2 = st.columns([5, 1])
+            pc1.caption(f"**{entry['voice']}** -- {storage.format_bytes(entry['size_bytes'])}")
+            if pc2.button("🗑️ Delete", key=f"piper_voice_del_{entry['voice']}"):
+                if diagnostics.delete_piper_voice(entry["voice"]):
+                    st.success(f"Deleted {entry['voice']}.")
+                    st.rerun()
+                else:
+                    st.error("Delete failed -- see the log for details.")
+
     st.divider()
     st.subheader("🧩 Model & engine versions")
     st.caption("What's actually installed/configured locally for every AI model or engine "
@@ -315,7 +332,16 @@ def render_diagnostics_tab():
                                 f"translation (no API key set for '{engine_choice}' -- "
                                 f"set one in ⚙️ Settings, or change the default engine there)")
                             continue
-                        kwargs["engine"] = translate_engines.get_engine(engine_choice, api_key or "local")
+                        # Step 25d item 7: same gap Step 5b item 1 already
+                        # fixed elsewhere -- without these, a custom Ollama
+                        # URL was ignored and Gemini was always billed as
+                        # paid-tier.
+                        kwargs["engine"] = translate_engines.get_engine(
+                            engine_choice, api_key or "local",
+                            free_tier=engine_choice == "gemini"
+                            and st.session_state.get("gemini_free_tier", False),
+                            base_url=st.session_state.get("settings_ollama_url") or None
+                            if engine_choice == "ollama" else None)
                     elif stage == "transcription":
                         kwargs["use_gpu"] = st.session_state.get("use_gpu", False)
 
