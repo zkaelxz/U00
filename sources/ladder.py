@@ -370,7 +370,10 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
               default: SourceCapabilities = None) -> SourceCapabilities:
     """Runs exactly one tier against `url` and updates only that tier's
     field on the source's record. Other tiers -- including UNTESTED ones
-    -- are left exactly as they were."""
+    -- are left exactly as they were. Raises TermsProhibited, before
+    anything is sent, for a source whose terms restrict automated access --
+    the same check every other network-touching action path already makes."""
+    check_terms(source, default, url=url)
     caps = load_capabilities(source, default)
     outcome = tier_fn(url)
     caps.tiers[tier.value] = TierResult(

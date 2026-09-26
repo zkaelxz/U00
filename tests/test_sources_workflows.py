@@ -690,3 +690,35 @@ class TestTermsOfServiceBlocking:
         assert out["checked"] == 0 and out["new"] == 0
         assert "Series" in out["errors"] and "TOS_PROHIBITED" in out["errors"]["Series"]
         assert adapter.chapters and store.list_notifications() == []
+
+    def test_test_tier_refuses_a_prohibited_source(self, isolated_db):
+        """Step 28 gap 1: the Sources tab's "Test Now" diagnostic buttons
+        went straight to the tier function with no check_terms() call --
+        the one network-touching action path in the package that didn't
+        already have one."""
+        from sources import ladder
+        from sources.models import AccessTier, TermsProhibited
+        self._prohibit("fake_comic")
+        t = ScriptedTransport(_comic_routes("1"))
+        with pytest.raises(TermsProhibited):
+            ladder.test_tier("fake_comic", AccessTier.STATIC_HTTP,
+                             "https://comic.invalid/read/1",
+                             ladder.static_tier(make_client("fake_comic", t)))
+        assert t.calls == []
+        caps = ladder.load_capabilities("fake_comic")
+        assert not caps.tiers.get("STATIC_HTTP") or not caps.tiers["STATIC_HTTP"].tested
+
+    def test_import_video_refuses_a_prohibited_video_adapter(self, isolated_db, monkeypatch):
+        """Step 28 gap 2: front_door.import_video() dispatched straight to
+        adapter.download() with no check_terms() call of its own, unlike
+        pipeline.run_import_job's per-chapter re-check."""
+        from sources.adapters.bilibili import BilibiliSource
+        from sources.models import TermsProhibited
+        self._prohibit("bilibili")
+        downloaded = []
+        monkeypatch.setattr(BilibiliSource, "download",
+                            lambda self, *a, **k: downloaded.append(1) or {"path": "/x"})
+        drama_id = isolated_db.create_drama(media_type="streamer_vod")
+        with pytest.raises(TermsProhibited):
+            front_door.import_video("https://www.bilibili.com/video/BV1xx411c7mD", drama_id)
+        assert downloaded == []

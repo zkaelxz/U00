@@ -95,6 +95,34 @@ class TestSourcesTab:
         at.run(timeout=30)
         assert store.adult_enabled("manhuagui") and not store.adult_enabled("demo")
 
+    def test_test_now_buttons_disabled_for_a_tos_prohibited_source(self, isolated_db, monkeypatch):
+        """Step 28 gap 1: the caps used to render/enable "Test Now" came
+        from load_capabilities() with no apply_terms() applied, so a
+        prohibited source's buttons weren't even conditionally disabled."""
+        from sources import chapter_check, registry
+        from sources.base import SourceAdapter
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+
+        class ProhibitedDemo(SourceAdapter):
+            name = "tos_prohibited_demo"
+            display_name = "ToS Prohibited Demo"
+            content_types = ["manhua"]
+            url_patterns = [r"tos-prohibited-demo\.invalid/"]
+
+            def capabilities(self):
+                caps = super().capabilities()
+                caps.terms = {"checked": True, "tos_prohibited": True}
+                return caps
+        monkeypatch.setitem(registry._ADAPTERS, "tos_prohibited_demo", ProhibitedDemo)
+        at = _app(isolated_db)
+        at.text_input(key="src_test_url_tos_prohibited_demo").set_value(
+            "https://tos-prohibited-demo.invalid/x")
+        at.run(timeout=30)
+        for tier in ("STATIC_HTTP", "RENDERED_BROWSER", "AUTHENTICATED_BROWSER"):
+            matches = [b for b in at.button if b.key == f"src_test_tos_prohibited_demo_{tier}"]
+            assert matches, f"button for {tier} not found"
+            assert matches[0].disabled
+
     def _video_preview(self):
         from sources import front_door
         return front_door.Preview(url="https://www.youtube.com/watch?v=abc123def45",

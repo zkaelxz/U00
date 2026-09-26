@@ -165,11 +165,12 @@ class BilibiliSource(SourceAdapter):
         import yt_dlp
         return yt_dlp.YoutubeDL(opts)
 
-    @staticmethod
-    def _real_url_resolver(url: str) -> str:
-        import requests
-        resp = requests.head(url, allow_redirects=True, timeout=10)
-        return resp.url
+    def _real_url_resolver(self, url: str) -> str:
+        """Expands a b23.tv short link through the shared, paced
+        SourceClient transport rather than a bare `requests.head()` call --
+        pacing/rate-limiting applies to this hop too, same as every other
+        real network call this adapter makes."""
+        return self.client.request("HEAD", url).url
 
     # -- URL handling ---------------------------------------------------------
 

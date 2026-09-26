@@ -170,6 +170,10 @@ def import_video(url: str, drama_id: int, audio_only: bool = True, progress_cb=N
 
     adapter = registry.find_for_url(url)
     if adapter is not None and hasattr(adapter, "download") and ContentType.VIDEO.value in adapter.content_types:
+        # Re-checked here, not just relied on from an earlier preview() call
+        # (Step 28 gap 2) -- same "gate the actual action, don't trust a
+        # prior UI step" pattern pipeline.run_import_job already follows.
+        ladder.check_terms(adapter.name, adapter.capabilities())
         options = {"quality": "Audio only" if audio_only else "Best available",
                   "cookies_browser": cookies_browser, "cookies_file": cookies_file}
         result = adapter.download(url, ddir, options=options)

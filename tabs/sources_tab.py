@@ -14,8 +14,9 @@ import background_jobs
 from sources import (adaptive, ai_extract, auth_browser, cache as src_cache, chapter_check,
                      chapter_order, front_door, generic_import, health, ladder as src_ladder,
                      pipeline, profiles as src_profiles, registry, store as src_store)
-from sources.models import (AccessTier, CHALLENGE_HANDOFF_MESSAGE, ChallengeDetected,
-                            FailureReason, NotSupportedError, SourceError, TermsProhibited)
+from sources.models import (AccessTier, CapabilityStatus, CHALLENGE_HANDOFF_MESSAGE,
+                            ChallengeDetected, FailureReason, NotSupportedError, SourceError,
+                            TermsProhibited)
 
 _COMIC_MEDIA = ("manhua", "manga", "manhwa")
 
@@ -146,6 +147,8 @@ def _render_front_door():
                     cookies_browser=st.session_state.get("settings_cookies_browser"),
                     cookies_file=st.session_state.get("settings_cookies_file") or None)
                 st.success("Downloaded -- open the drama in Workspace to transcribe it.")
+            except TermsProhibited as exc:
+                st.error(str(exc))
             except ImportError as exc:
                 st.error(str(exc))
             except video_download.DownloadError as exc:
@@ -760,7 +763,8 @@ def _render_sources_detail():
         if getattr(cls, "is_demo", False) and not src_store.get_setting("demo_source_enabled"):
             continue
         adapter = cls()
-        caps = src_ladder.load_capabilities(name, adapter.capabilities())
+        caps = src_ladder.apply_terms(src_ladder.load_capabilities(name, adapter.capabilities()))
+        tos_prohibited = caps.status == CapabilityStatus.TOS_PROHIBITED.value
         h = health.get(name)
         with st.expander(f"{health.light(name)} {cls.display_name or name} — {caps.status}"):
             enabled = st.toggle("Enabled", value=registry.is_enabled(name), key=f"src_en_{name}")
@@ -811,16 +815,22 @@ def _render_sources_detail():
                 AccessTier.AUTHENTICATED_BROWSER: src_ladder.authenticated_tier(
                     auth_browser.profile_dir(test_url.strip(), name), adapter.client),
             }
+            if tos_prohibited:
+                st.caption("🚫 This source's terms restrict automated access -- "
+                           "\"Test Now\" is disabled the same way real imports are.")
             for col, (tier, label) in zip(b, [(AccessTier.STATIC_HTTP, "Test Static"),
                                               (AccessTier.RENDERED_BROWSER, "Test Browser"),
                                               (AccessTier.AUTHENTICATED_BROWSER, "Test Authenticated")]):
                 # Testing the signed-in tier needs a sign-in first -- it would
                 # otherwise create an empty, signed-out profile.
                 if col.button(label, key=f"src_test_{name}_{tier.value}",
-                              disabled=not test_url.strip() or (
+                              disabled=tos_prohibited or not test_url.strip() or (
                                   tier == AccessTier.AUTHENTICATED_BROWSER and not signed_in)):
-                    src_ladder.test_tier(name, tier, test_url.strip(), tier_fns[tier],
-                                         adapter.capabilities())
+                    try:
+                        src_ladder.test_tier(name, tier, test_url.strip(), tier_fns[tier],
+                                             adapter.capabilities())
+                    except TermsProhibited as e:
+                        st.error(str(e))
                     st.rerun()
             if test_url.strip():
                 b[3].link_button("Open in Browser", test_url.strip())

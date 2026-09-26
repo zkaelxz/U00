@@ -323,12 +323,27 @@ _SENSITIVE_PARAM = re.compile(
     r"access|policy|expires|hmac|nonce|cookie|passport|key)[\w.\-]*|sid|uid|x-amz-[\w.\-]+)"
     r"=)[^&#\s\"'<>\\]*", re.I)
 
+# The same kind of session-derived credential also shows up as a raw path
+# segment with no `=` at all (a real CDN shape, e.g.
+# https://cdn.example/priv/<signed-token>/page1.jpg) -- _SENSITIVE_PARAM
+# above only catches the query-string-shaped case. Gated on a plausible
+# marker segment immediately before the token (the same keyword set as
+# above, plus priv/private/secure) so an ordinary chapter/page slug -- which
+# never sits right after a segment literally named "token"/"auth"/"priv" --
+# is never touched.
+_SENSITIVE_PATH_SEGMENT = re.compile(
+    r"((?:^|/)(?:token|sign(?:ed)?|auth|session|sess|secret|credential|ticket|jwt|access|"
+    r"policy|hmac|nonce|cookie|passport|key|priv(?:ate)?|secure)/)"
+    r"[\w-]{16,}(?=/|$|[?#])", re.I)
+
 
 def prompt_safe(prompt: str) -> str:
     """The prompt with credential-shaped URL parameter values blanked and
     anything else secret-shaped redacted."""
     from translate_engines import redact_secrets
-    return redact_secrets(_SENSITIVE_PARAM.sub(r"\1\2[REDACTED]", prompt or ""))
+    text = _SENSITIVE_PARAM.sub(r"\1\2[REDACTED]", prompt or "")
+    text = _SENSITIVE_PATH_SEGMENT.sub(r"\1[REDACTED]", text)
+    return redact_secrets(text)
 
 
 def ask_json(engine, prompt: str, max_tokens: int = 2000):
