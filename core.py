@@ -6,7 +6,7 @@ without pulling in a UI framework.
 
 import re
 import difflib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 
 # The per-line columns db.save_lines writes. `idx` is the line's current
@@ -88,7 +88,48 @@ def adopt_ids(restored, current) -> list:
             if getattr(ln, f) in (None, ""):
                 setattr(ln, f, getattr(match, f))
         ln.sfx = ln.sfx or match.sfx
+        # Snapshots/versions from before Step 25c didn't record
+        # speaker_manual -- restoring the same speaker the line has now
+        # keeps its hand-corrected mark instead of silently dropping it.
+        if ln.speaker == match.speaker:
+            ln.speaker_manual = ln.speaker_manual or match.speaker_manual
     return restored
+
+
+def lines_from_saved(rows) -> list:
+    """A saved line-history snapshot's or translation version's line dicts
+    (db.get_line_history_snapshot / get_translation_version) -> Lines."""
+    return [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
+                 en=r.get("en") or "", speaker=r.get("speaker"),
+                 dub_filename=r.get("dub_filename"),
+                 speaker_manual=bool(r.get("speaker_manual")), id=r.get("id"))
+            for r in rows]
+
+
+def saved_matches_lines(rows, current) -> bool:
+    """True when a saved snapshot/version was taken over exactly the current
+    lines (same permanent ids) -- no merge, split or re-segmentation since."""
+    saved_ids = [r.get("id") for r in rows]
+    current_ids = [ln.id for ln in current]
+    return (None not in saved_ids and None not in current_ids
+            and len(saved_ids) == len(current_ids) and set(saved_ids) == set(current_ids))
+
+
+def restore_saved_lines(rows, current, translation_only: bool = False) -> list:
+    """The one restore path Workspace's Restore (a line-history snapshot)
+    and Activate (a translation version) share, so the two can't drift.
+
+    translation_only (Activate): when the version was saved over exactly
+    the current lines, only each line's `en` changes -- speaker (and its
+    hand-corrected mark), source text and timing stay as they are now,
+    since activating a version picks a translation, not a rollback of the
+    whole line. A version saved over a different line structure (merged,
+    split, re-segmented since, or from before Step 2's ids) can only be
+    restored whole, since its translations belong to its own lines."""
+    if translation_only and saved_matches_lines(rows, current):
+        en_by_id = {r["id"]: r.get("en") or "" for r in rows}
+        return [replace(ln, en=en_by_id[ln.id]) for ln in current]
+    return adopt_ids(lines_from_saved(rows), current)
 
 
 def fmt_ts(seconds: float) -> str:
