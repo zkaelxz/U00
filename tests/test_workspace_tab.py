@@ -5289,3 +5289,122 @@ class TestDubTimingAndRemovedCloneUI:
         # the old hosted-cloning expander's key field and clone button are gone
         assert not any(t.key == f"el_key_{did}" for t in at.text_input)
         assert not any((b.key or "").startswith("elclone_") for b in at.button)
+
+
+class TestDramaSwitchDoesNotCarryUploadsOrForceRetranslate:
+    """Step 25i: the EPUB uploader used a static key ("epub_upload") and
+    wrote the selected file into the *current* drama's folder on every
+    render. Streamlit keeps returning an uploaded file until it's cleared,
+    so uploading on drama A and then switching to drama B silently
+    overwrote B's source.epub with A's file -- no click needed. The
+    "Force re-translate everything" checkbox had the same static-key shape,
+    so a check on A carried over to B."""
+
+    class _FakeUpload:
+        def __init__(self, data):
+            self._data = data
+
+        def getbuffer(self):
+            return memoryview(self._data)
+
+    def _fake_uploader(self, monkeypatch):
+        """Mimic st.file_uploader's persistence: once a file is "picked" in
+        the EPUB uploader, that widget key keeps returning it on every rerun
+        until cleared. Every other uploader behaves normally."""
+        import streamlit
+        real = streamlit.file_uploader
+        state = {"pending": None, "by_key": {}}
+
+        def fake(label, *args, key=None, **kwargs):
+            if key and key.startswith("epub_upload"):
+                if state["pending"] is not None:
+                    state["by_key"][key] = state["pending"]
+                    state["pending"] = None
+                return state["by_key"].get(key)
+            return real(label, *args, key=key, **kwargs)
+
+        monkeypatch.setattr(streamlit, "file_uploader", fake)
+        return state
+
+    def _novel_drama(self, db_module, title):
+        return db_module.create_drama(title_en=title, media_type="novel",
+                                      content_mode="novel_narration", status="not started")
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _switch_to(self, at, did):
+        box = [b for b in at.selectbox if b.label == "Drama"][0]
+        label = next(l for l in box.options if l.startswith(f"#{did} "))
+        box.set_value(label).run(timeout=30)
+
+    def _epub_path(self, db_module, did):
+        return os.path.join(db_module.drama_dir(did), "source.epub")
+
+    def test_switching_dramas_never_overwrites_the_new_dramas_epub(self, isolated_db, monkeypatch):
+        uploads = self._fake_uploader(monkeypatch)
+        did_a = self._novel_drama(isolated_db, "Drama A")
+        did_b = self._novel_drama(isolated_db, "Drama B")
+        os.makedirs(isolated_db.drama_dir(did_b), exist_ok=True)
+        with open(self._epub_path(isolated_db, did_b), "wb") as f:
+            f.write(b"drama B's own epub")
+
+        at = self._run(did_a)
+        uploads["pending"] = self._FakeUpload(b"drama A's epub")
+        at.run(timeout=30)
+
+        self._switch_to(at, did_b)
+        at.run(timeout=30)
+
+        with open(self._epub_path(isolated_db, did_b), "rb") as f:
+            assert f.read() == b"drama B's own epub"
+        assert not os.path.exists(self._epub_path(isolated_db, did_a))
+
+    def test_uploaded_epub_is_only_written_after_an_explicit_save(self, isolated_db, monkeypatch):
+        import epub_io
+        monkeypatch.setattr(epub_io, "get_epub_chapter_count", lambda path: 3)
+        uploads = self._fake_uploader(monkeypatch)
+        did = self._novel_drama(isolated_db, "Drama A")
+
+        at = self._run(did)
+        uploads["pending"] = self._FakeUpload(b"drama A's epub")
+        at.run(timeout=30)
+        assert not os.path.exists(self._epub_path(isolated_db, did))
+        assert not [b for b in at.button if b.label == "Import chapters from EPUB"]
+
+        [save] = [b for b in at.button if b.key == f"epub_save_{did}"]
+        save.click().run(timeout=30)
+        with open(self._epub_path(isolated_db, did), "rb") as f:
+            assert f.read() == b"drama A's epub"
+        assert [b for b in at.button if b.label == "Import chapters from EPUB"]
+
+    def test_force_retranslate_does_not_carry_over_to_another_drama(self, isolated_db):
+        did_a = isolated_db.create_drama(title_en="Drama A", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_a, [Line(idx=0, start=0.0, end=1.0, zh="甲", en="A")])
+        did_b = isolated_db.create_drama(title_en="Drama B", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_b, [Line(idx=0, start=0.0, end=1.0, zh="乙", en="B")])
+
+        def _force_box(at):
+            [box] = [c for c in at.checkbox if c.label.startswith("Force re-translate everything")]
+            return box
+
+        at = self._run(did_a)
+        _force_box(at).check().run(timeout=30)
+        assert _force_box(at).value is True
+
+        self._switch_to(at, did_b)
+        at.run(timeout=30)
+        assert _force_box(at).value is False
