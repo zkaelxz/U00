@@ -11,7 +11,7 @@ import pytest
 from sources import cache as cache_mod
 from sources import health, ladder, store
 from sources.base import SourceAdapter
-from sources.http import PacingPolicy, SourceClient, reset_pacing_state
+from sources.http import PacingPolicy, SourceClient, _requests_transport, reset_pacing_state
 from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, ChapterInfo,
                             ContentAccess, FailureReason, FetchFailed, NotSupportedError,
                             PageRef, SearchResult, SeriesInfo, SourceCapabilities,
@@ -496,3 +496,56 @@ class TestStaticChecks:
                             and not any(kw.arg == "timeout" for kw in node.keywords)):
                         problems.append(f"{f}:{node.lineno}")
         assert problems == []
+
+
+class TestRequestsTransport:
+    """Step 25v bug 2: `requests`' own `Response.cookies` only carries the
+    *final* hop's Set-Cookie headers -- a cookie set on an intermediate
+    redirect hop is folded into the session's cookiejar but never copied
+    onto the final response object. `_requests_transport` is the one place
+    this app talks to the real `requests` library, so it's tested directly
+    here against a fake `requests.Session`/`Response` shaped exactly like
+    the real library's redirect history, rather than through the
+    ScriptedTransport fake every other test uses (which stands in for this
+    function, not for what's inside it)."""
+
+    class _FakeResp:
+        def __init__(self, status_code=200, headers=None, content=b"", url="",
+                     cookies=None, history=None):
+            self.status_code = status_code
+            self.headers = headers or {}
+            self.content = content
+            self.url = url
+            self.cookies = cookies or {}
+            self.history = history or []
+
+    class _FakeSession:
+        def __init__(self, response):
+            self._response = response
+
+        def request(self, method, url, headers=None, data=None, timeout=None,
+                    allow_redirects=True):
+            return self._response
+
+    def test_merges_cookies_from_a_redirect_hop_into_the_final_response(self, monkeypatch):
+        hop = self._FakeResp(302, {"location": "/final"}, b"", "https://x.invalid/start",
+                             cookies={"virgo!__ticket": "tick-1"})
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final",
+                               cookies={}, history=[hop])
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://x.invalid/start", {}, None, 20)
+        assert resp.cookies == {"virgo!__ticket": "tick-1"}
+
+    def test_final_response_own_cookie_overrides_a_same_named_earlier_one(self, monkeypatch):
+        hop = self._FakeResp(302, {}, b"", "https://x.invalid/start", cookies={"session": "old"})
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final",
+                               cookies={"session": "new"}, history=[hop])
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://x.invalid/start", {}, None, 20)
+        assert resp.cookies == {"session": "new"}
+
+    def test_no_redirect_still_returns_the_final_responses_own_cookies(self, monkeypatch):
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/final", cookies={"a": "b"})
+        monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
+        resp = _requests_transport("GET", "https://x.invalid/final", {}, None, 20)
+        assert resp.cookies == {"a": "b"}
