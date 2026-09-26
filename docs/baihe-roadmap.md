@@ -2288,6 +2288,8 @@ Found by the same QC review; **independently re-verified by direct code read** f
 - A test confirms Scanlate's Apply either clears the affected bubbles' widget state or that a subsequent "Save bubble edits" doesn't revert an applied replacement.
 - Manual check: preview a Workspace find-and-replace, merge two unrelated lines before clicking Apply, and confirm the replacement lands only on the originally-matched line's real content, not whatever now sits at its old position.
 
+**Merged as PR #107** — opened and merged directly by this planning session after independent verification: read the full diff (Workspace re-keys by permanent line `id` instead of `idx`, re-checks each line's current text against the previewed `old_text` before applying and skips+warns on any that changed; Scanlate re-keys `sc_fr_matches` by drama id and clears each edited bubble's `btr_<id>` widget state before rerun), trial-merged cleanly against the tip at merge time, ran `tests/test_review_workspace.py` + `tests/test_scanlate_tab.py` directly (30/30 passed), CI green.
+
 ### Step 25p — Fix: three more upload widgets leak content across drama switches, same class as Step 25i's EPUB bug
 Found by the same QC review; **independently re-verified by direct code read**, all three confirmed exactly. Same root cause and same fix pattern as Step 25i (already built and approved) — bundled here because each is a small, independent, same-shape fix, not because they're related features.
 
@@ -2608,7 +2610,7 @@ From the same exploration session and handoff doc. Goal: novel narration read al
   | 25l — Fix: undoing a merge can attach notes/emotions/flags to the wrong line | `step-25l-merge-undo-notes` | ✅ Merged (PR #98) | ⏳ Pending |
   | 25m — Fix: preparing novel narration replaces every line with no history snapshot | `claude/start-step-25m-krnlgm` | ✅ Merged (PR #104) | ⏳ Pending |
   | 25n — Fix: a failed Scanlate page translation silently blanks every bubble | `claude/step-25n-roadmap-wonrvh` | ✅ Merged (PR #101) | ⏳ Pending |
-  | 25o — Fix: Find & replace can misapply a stale match after lines/bubbles change | — | Not started | — |
+  | 25o — Fix: Find & replace can misapply a stale match after lines/bubbles change | `claude/step-25o-roadmap-cwqzwf` | ✅ Merged (PR #107) | ⏳ Pending |
   | 25p — Fix: three more upload widgets leak content across drama switches | — | Not started | — |
   | 25q — Fix: two real ToS-enforcement gaps | `claude/step-25q-roadmap-hj7202` | ✅ Merged (PR #99) | ⏳ Pending |
   | 25r — Smaller findings from the same QC review, bundled | `claude/step-25r-roadmap-dwuk8u` | ✅ Merged (PR #103) | ⏳ Pending |
