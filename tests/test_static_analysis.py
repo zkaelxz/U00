@@ -213,6 +213,9 @@ class TestNoUseBeforeDefinition:
     def test_live_tab(self):
         self._assert_clean("live_tab.py")
 
+    def test_translate_tab(self):
+        self._assert_clean("translate_tab.py")
+
 
 class TestScannerItself:
     """The checker needs its own tests -- a static analyzer that's wrong
@@ -395,6 +398,9 @@ class TestNoUndefinedNames:
 
     def test_live_tab(self):
         self._assert_clean("live_tab.py")
+
+    def test_translate_tab(self):
+        self._assert_clean("translate_tab.py")
 
 
 class TestUndefinedNameCheckerItself:

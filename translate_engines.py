@@ -411,11 +411,45 @@ def build_batch_context(recent_context=None, upcoming_lines=None) -> str:
     return "\n".join(parts)
 
 
+def build_standalone_instructions(source_language: str, target_language: str) -> str:
+    """Step 26b's system prompt for the standalone translate tool -- plain
+    prose translation with no subtitle formatting, genre assumption, or
+    drama metadata, unlike build_llm_instructions above (kept exactly as
+    it was for drama translation; this is a separate prompt, not a
+    variant of it)."""
+    source_name = "English" if source_language == "en" else LANGUAGE_NAMES.get(source_language, source_language)
+    target_name = "English" if target_language == "en" else LANGUAGE_NAMES.get(target_language, target_language)
+    return (
+        f"You are translating text from {source_name} to {target_name}. You will be "
+        "given numbered chunks of text to translate in each request.\n\n"
+        "Rules:\n"
+        "- Translate naturally and idiomatically -- favor clear, readable "
+        f"{target_name} over a literal word-for-word rendering.\n"
+        "- Preserve the original meaning, tone, and register as closely as natural "
+        "phrasing allows.\n"
+        "- Keep names, terms, and phrasing consistent across chunks.\n"
+        "- Preserve paragraph breaks within a chunk.\n"
+        "- Return ONLY a JSON object mapping each chunk's number (as a string) to its "
+        "translation, e.g. {\"1\": \"...\", \"2\": \"...\"} -- include EVERY number you "
+        "were given, and no numbers you weren't. No preamble, no markdown fences, no "
+        "commentary."
+    )
+
+
 def build_stable_prompt(context: dict):
     """(instructions, novel_reference_block) -- the two stable pieces of
     a translation prompt, in cache order: instructions (style guide and
     glossary included), then the reference novel. novel_reference_block
-    is "" when there's no reference."""
+    is "" when there's no reference.
+
+    context["standalone"] routes to Step 26b's generic, non-drama prompt
+    instead (build_standalone_instructions) -- the only place that flag
+    is checked, so every existing drama-translation call site (which
+    never sets it) is completely unaffected."""
+    if context.get("standalone"):
+        instructions = build_standalone_instructions(
+            context.get("source_language", "zh"), context.get("target_language", "en"))
+        return instructions, ""
     instructions, _ = build_llm_instructions(
         context.get("style_note", ""), context.get("drama_meta", {}),
         context.get("novel_reference"), locale=context.get("locale", "en-US"),
@@ -909,7 +943,13 @@ class GeminiEngine:
 # hardcoding "ZH" regardless of the drama's actual source language was a
 # real bug: a Japanese or Korean drama translated through DeepL was
 # silently telling DeepL its audio was Chinese the whole time.
-_DEEPL_SOURCE_LANGS = {"zh": "ZH", "ja": "JA", "ko": "KO"}
+_DEEPL_SOURCE_LANGS = {"zh": "ZH", "ja": "JA", "ko": "KO", "en": "EN"}
+# DeepL's target codes -- separate table since English needs a regional
+# variant as a target (EN-US) but not as a source (plain EN). Step 26b:
+# added so the standalone translate tool can go English -> zh/ja/ko too,
+# defaulting to "en" everywhere else keeps every existing drama call
+# (which never sets target_language) landing on EN-US exactly as before.
+_DEEPL_TARGET_LANGS = {"zh": "ZH", "ja": "JA", "ko": "KO", "en": "EN-US"}
 
 
 class DeepLEngine:
@@ -922,8 +962,9 @@ class DeepLEngine:
 
     def translate_batch(self, zh_lines, context: dict):
         source_lang = _DEEPL_SOURCE_LANGS.get(context.get("source_language", "zh"), "ZH")
+        target_lang = _DEEPL_TARGET_LANGS.get(context.get("target_language", "en"), "EN-US")
         results = self.translator.translate_text(
-            zh_lines, source_lang=source_lang, target_lang="EN-US"
+            zh_lines, source_lang=source_lang, target_lang=target_lang
         )
         if not isinstance(results, list):
             results = [results]
@@ -953,7 +994,7 @@ class GoogleEngine:
         # DeepLEngine's: a Japanese/Korean drama silently mistranslated.
         resp = requests.post(url, headers={"X-Goog-Api-Key": self.api_key}, json={
             "q": zh_lines, "source": context.get("source_language", "zh"),
-            "target": "en", "format": "text",
+            "target": context.get("target_language", "en"), "format": "text",
         }, timeout=60)
         resp.raise_for_status()
         data = resp.json()
@@ -965,20 +1006,25 @@ class GoogleEngine:
 # ---------------------------------------------------------------------------
 
 # NLLB-200's own language codes for the three source languages this app
-# supports. zh always maps to Simplified here (NLLB has a separate
-# zho_Hant code for Traditional) -- see NLLBEngine's docstring for why
-# that's a real, currently-unaddressed limitation rather than an oversight.
-_NLLB_LANG_CODES = {"zh": "zho_Hans", "ja": "jpn_Jpan", "ko": "kor_Hang"}
+# supports, plus English (Step 26b: needed as a target for zh/ja/ko ->
+# English, the app's existing default, and as a source for the standalone
+# tool's new English -> zh/ja/ko direction). zh always maps to Simplified
+# here (NLLB has a separate zho_Hant code for Traditional) -- see
+# NLLBEngine's docstring for why that's a real, currently-unaddressed
+# limitation rather than an oversight.
+_NLLB_LANG_CODES = {"zh": "zho_Hans", "ja": "jpn_Jpan", "ko": "kor_Hang", "en": "eng_Latn"}
 
 NLLB_MODELS = {
     "facebook/nllb-200-distilled-600M": "600M -- fastest, lightest download (~2.4GB), practical on CPU",
     "facebook/nllb-200-distilled-1.3B": "1.3B -- better quality, slower, heavier download (~5.2GB)",
 }
 
-# Keyed by (model_name, source_language) -- NLLB bakes src_lang into the
-# pipeline object itself, so a drama that mixes source languages across
-# runs needs a separate pipeline per language, same shape as Whisper's own
-# _whisper_model_cache in core.py.
+# Keyed by (model_name, source_language, target_language) -- NLLB bakes
+# both src_lang and tgt_lang into the pipeline object itself, so a drama
+# that mixes source languages across runs (or Step 26b's standalone tool,
+# which can ask for either direction) needs a separate pipeline per
+# language pair, same shape as Whisper's own _whisper_model_cache in
+# core.py.
 _nllb_pipeline_cache = {}
 
 
@@ -1017,17 +1063,19 @@ class NLLBEngine:
         # signature across engines -- NLLB needs no key at all).
         self.model_name = model
 
-    def _get_pipeline(self, source_language: str):
-        cache_key = (self.model_name, source_language)
+    def _get_pipeline(self, source_language: str, target_language: str = "en"):
+        cache_key = (self.model_name, source_language, target_language)
         if cache_key not in _nllb_pipeline_cache:
             from transformers import pipeline
             src_lang = _NLLB_LANG_CODES.get(source_language, "zho_Hans")
+            tgt_lang = _NLLB_LANG_CODES.get(target_language, "eng_Latn")
             _nllb_pipeline_cache[cache_key] = pipeline(
-                "translation", model=self.model_name, src_lang=src_lang, tgt_lang="eng_Latn")
+                "translation", model=self.model_name, src_lang=src_lang, tgt_lang=tgt_lang)
         return _nllb_pipeline_cache[cache_key]
 
     def translate_batch(self, zh_lines, context: dict):
-        pipe = self._get_pipeline(context.get("source_language", "zh"))
+        pipe = self._get_pipeline(context.get("source_language", "zh"),
+                                  context.get("target_language", "en"))
         results = pipe(list(zh_lines))
         return [r["translation_text"] for r in results]
 
@@ -1526,6 +1574,116 @@ ENGINES = {
 # `supports_reference` guard already declines quietly; call_llm_json's
 # fallback used to do the same before Step 1d made it raise instead).
 TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
+
+
+class UnsupportedDirectionError(Exception):
+    """Raised by standalone_translate (Step 26b) when the requested engine
+    can't handle the requested translation direction -- see
+    standalone_direction_support for which engines/directions this
+    applies to and why."""
+
+
+def standalone_direction_support(engine_name: str, source_language: str, target_language: str):
+    """(ok, message) for whether engine_name can translate FROM
+    source_language TO target_language in Step 26b's standalone translate
+    tool. ok=False means refuse outright -- the caller must not call
+    translate_batch at all. ok=True with a message means attempt it but
+    show the message as a warning; ok=True with message=None means no
+    caveat.
+
+    zh/ja/ko -> English is this app's existing, well-tested direction --
+    every engine already does this and keeps doing it unchanged. English
+    -> zh/ja/ko is new (Step 26b item 6):
+      - DeepL/Google/NLLB take an explicit source+target pair in their own
+        API/pipeline, so they're just as capable in either direction.
+      - Claude/DeepSeek/Gemini/test_offline are prompted for the direction
+        directly (build_standalone_instructions), same as any other LLM
+        instruction.
+      - Ollama's real capability depends entirely on whichever local model
+        is loaded, which this app has no way to verify -- attempted, but
+        flagged as a warning rather than assumed reliable.
+      - LibreTranslate/LTEngine's own translate_batch has no source-
+        language parameter at all (see its docstring -- self-hosted
+        language-pair coverage varies and isn't discoverable from here),
+        so English -> zh/ja/ko is refused for it rather than silently
+        attempted and possibly mistranslated or empty.
+    """
+    if source_language != "en":
+        return True, None
+    if engine_name == "ollama":
+        target_name = LANGUAGE_NAMES.get(target_language, target_language)
+        return True, (
+            f"Ollama's quality translating English -> {target_name} depends entirely on "
+            "which local model you have loaded -- some handle it well, some not at all. "
+            "Check the output carefully.")
+    if engine_name == "libretranslate":
+        return False, (
+            "This app can't confirm your LibreTranslate/LTEngine server has an English "
+            "source model installed for this pair -- pick a different engine, or check "
+            "your server's supported language pairs first.")
+    return True, None
+
+
+def chunk_standalone_text(text: str, max_chars_per_chunk: int = 1500) -> list:
+    """Splits text into paragraph-based chunks for Step 26b's standalone
+    translate tool, keeping paragraph breaks intact so translated chunks
+    can be rejoined the same way. Consecutive short paragraphs are grouped
+    up to max_chars_per_chunk; a single paragraph longer than that is kept
+    whole rather than cut mid-sentence."""
+    paragraphs = [p for p in re.split(r"\n\s*\n", text.strip()) if p.strip()]
+    if not paragraphs:
+        return []
+    chunks = []
+    current = []
+    current_len = 0
+    for p in paragraphs:
+        if current and current_len + len(p) > max_chars_per_chunk:
+            chunks.append("\n\n".join(current))
+            current = []
+            current_len = 0
+        current.append(p)
+        current_len += len(p)
+    if current:
+        chunks.append("\n\n".join(current))
+    return chunks
+
+
+def standalone_translate(text: str, engine, source_language: str, target_language: str,
+                         batch_size: int = 8) -> str:
+    """Step 26b's standalone translate tool: translates arbitrary pasted
+    text -- not tied to any drama/project -- from source_language to
+    target_language (one side of which is always "en"). Chunks long text
+    with chunk_standalone_text, sent in groups of batch_size per
+    translate_batch call (same reasoning as translate_lines_with_engine's
+    own batch_size, just simpler since there's no cross-batch context
+    window here), and reassembled using each engine's own translate_batch
+    -- which already resolves a response back to its own chunk by id
+    rather than by position (see _request_translations_with_retry's own
+    docstring for the exact bug that protects against) -- built once
+    there, not reimplemented here.
+
+    Raises UnsupportedDirectionError if standalone_direction_support
+    refuses this engine/direction combination; callers should check that
+    first (to show a live warning/refusal in the UI) but this checks
+    again itself so it's never silently skipped by a caller that forgets.
+    """
+    ok, message = standalone_direction_support(engine.name, source_language, target_language)
+    if not ok:
+        raise UnsupportedDirectionError(message)
+    chunks = chunk_standalone_text(text)
+    if not chunks:
+        return ""
+    context = {
+        "source_language": source_language,
+        "target_language": target_language,
+        "standalone": True,
+    }
+    translated_chunks = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        translated_chunks.extend(engine.translate_batch(batch, context))
+    return "\n\n".join(t or "" for t in translated_chunks)
+
 
 # Engines that are free to use every time, no conditions attached.
 # Gemini isn't here -- it uses the same engine/API for free and paid
