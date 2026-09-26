@@ -7,8 +7,7 @@ fixed voice list). Assign a different TTS voice per character (via the
 
 VOICE CLONING (matching the original actors' actual voices) IS wired up,
 via a per-character local engine -- F5-TTS, OmniVoice, GPT-SoVITS,
-Chatterbox or TADA (see CLONE_ENGINES) -- or ElevenLabs (hosted, no GPU
-needed -- see clone_voice_elevenlabs()/synthesize_line_elevenlabs()).
+Chatterbox or TADA (see CLONE_ENGINES).
 Reference clips can be auto-extracted per speaker from the original audio
 (extract_reference_clips()) or set manually. A character with no clip can
 still get its own voice from a plain description (OmniVoice voice design),
@@ -23,7 +22,9 @@ characters with none. Wired into the UI at Workspace section 6
 
 import os
 import re
+import json
 import asyncio
+import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -43,9 +44,9 @@ class EdgeTTSBlockedError(RuntimeError):
     losing the line."""
 
 
-async def _edge_tts_synthesize(text: str, voice: str, out_path: str, rate: str = "+0%"):
+async def _edge_tts_synthesize(text: str, voice: str, out_path: str):
     import edge_tts
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
+    communicate = edge_tts.Communicate(text, voice)
     try:
         await communicate.save(out_path)
     except Exception as e:
@@ -59,9 +60,9 @@ async def _edge_tts_synthesize(text: str, voice: str, out_path: str, rate: str =
         raise
 
 
-def synthesize_line(text: str, voice: str, out_path: str, rate: str = "+0%"):
+def synthesize_line(text: str, voice: str, out_path: str):
     """Single hook point: swap this out for a voice-cloning backend later."""
-    asyncio.run(_edge_tts_synthesize(text, voice, out_path, rate))
+    asyncio.run(_edge_tts_synthesize(text, voice, out_path))
 
 
 # ---------------------------------------------------------------------------
@@ -97,14 +98,14 @@ def synthesize_line_offline(text: str, voice: str, out_path: str):
 
 
 def _synthesize_edge_tts_with_piper_fallback(text: str, voice: str, out_path: str,
-                                              character_voice_map: dict, speaker, rate: str = "+0%"):
+                                              character_voice_map: dict, speaker):
     """Tries edge-tts; if Microsoft blocks the request (EdgeTTSBlockedError),
     falls back to Piper automatically when it's installed, rather than
     leaving the line silent over an upstream block outside anyone's
     control. Re-raises the original error if Piper isn't available, so
     the line is still recorded as failed the normal way."""
     try:
-        synthesize_line(text, voice, out_path, rate=rate)
+        synthesize_line(text, voice, out_path)
     except EdgeTTSBlockedError as blocked:
         try:
             import piper  # noqa: F401 -- just checking it's installed
@@ -112,35 +113,6 @@ def _synthesize_edge_tts_with_piper_fallback(text: str, voice: str, out_path: st
             raise blocked
         offline_voice = character_voice_map.get(speaker, DEFAULT_OFFLINE_VOICE_POOL[0])
         synthesize_line_offline(text, offline_voice, out_path)
-
-
-# ---------------------------------------------------------------------------
-# Voice cloning (ElevenLabs) -- hosted API alternative to F5-TTS. No GPU,
-# no local model download; you upload a reference clip once per
-# character to create a cloned voice, then reuse its voice_id. Paid
-# service (has a free tier with limits) but much more likely to "just
-# work" on the first try than a local model.
-# ---------------------------------------------------------------------------
-
-def clone_voice_elevenlabs(api_key: str, character_name: str, ref_audio_path: str) -> str:
-    """One-time setup per character: uploads a reference clip and
-    returns a voice_id to reuse for all of that character's lines.
-    Requires `pip install elevenlabs`."""
-    from elevenlabs.client import ElevenLabs
-    client = ElevenLabs(api_key=api_key)
-    voice = client.voices.ivc.create(name=character_name, files=[open(ref_audio_path, "rb")])
-    return voice.voice_id
-
-
-def synthesize_line_elevenlabs(api_key: str, text: str, voice_id: str, out_path: str,
-                                model: str = "eleven_multilingual_v2"):
-    from elevenlabs.client import ElevenLabs
-    client = ElevenLabs(api_key=api_key)
-    audio = client.text_to_speech.convert(voice_id=voice_id, text=text, model_id=model)
-    with open(out_path, "wb") as f:
-        for chunk in audio:
-            f.write(chunk)
-    return out_path
 
 
 # ---------------------------------------------------------------------------
@@ -198,14 +170,14 @@ DEFAULT_CLONE_ENGINE = "f5tts"
 LOCAL_MODEL_ENGINES = {"f5tts", "omnivoice", "gpt_sovits", "chatterbox", "tada"}
 
 # Engines whose calls may overlap in build_narration_track's thread pool:
-# the network services (edge-tts, ElevenLabs), which is where the waiting
-# is. Everything local stays single-threaded: one shared model on one GPU
+# the network service (edge-tts), which is where the waiting is.
+# Everything local stays single-threaded: one shared model on one GPU
 # gains nothing from threads, and Chatterbox is confirmed unsafe -- its
 # generate() stores the reference voice and exaggeration on the model
 # itself (self.conds), so two overlapping calls could swap voices.
 # GPT-SoVITS's server handles one request at a time (VideoLingo forces it
 # single-threaded for the same reason); Piper is serialized by _piper_lock.
-PARALLEL_SAFE_ENGINES = {"edge_tts", "elevenlabs"}
+PARALLEL_SAFE_ENGINES = {"edge_tts"}
 
 
 def _cuda_available() -> bool:
@@ -367,8 +339,6 @@ def _synthesize_cloned(clone: dict, text: str, out_path: str, exaggeration: floa
     """Routes one character_clone_map entry to its engine. An entry with
     no "engine" key is F5-TTS (the shape that predates Step 11b)."""
     engine = clone.get("engine", DEFAULT_CLONE_ENGINE)
-    if engine == "elevenlabs":
-        return synthesize_line_elevenlabs(clone["api_key"], text, clone["voice_id"], out_path)
     if engine == "omnivoice":
         return synthesize_line_omnivoice(text, out_path, ref_audio_path=clone.get("ref_audio"),
                                          ref_text=clone.get("ref_text"), instruct=clone.get("instruct"))
@@ -385,28 +355,26 @@ def _synthesize_cloned(clone: dict, text: str, out_path: str, exaggeration: floa
     return synthesize_line_cloned(text, clone["ref_audio"], clone["ref_text"], out_path)
 
 
-def clone_map_from_characters(characters, drama_dir: str, elevenlabs_key: str = "",
+def clone_map_from_characters(characters, drama_dir: str,
                               gpt_sovits_url: str = None, ref_language: str = "zh") -> dict:
     """{speaker_label: clone entry} for build_dub_track/build_narration_track,
     from db.list_characters() rows -- shared by the Workspace tab and
     cli.py's dub command so both route every character the same way.
     Per character, first match wins:
-      1. an ElevenLabs voice id;
-      2. a reference clip, cloned with the character's clone_engine;
-      3. a voice description (OmniVoice voice design, no clip needed);
-      4. Chatterbox picked with no clip (its built-in voice, still
+      1. a reference clip, cloned with the character's clone_engine;
+      2. a voice description (OmniVoice voice design, no clip needed);
+      3. Chatterbox picked with no clip (its built-in voice, still
          emotion-aware).
     A character matching none isn't in the map, so it gets the plain TTS
-    voice. ref_language: the drama's source language -- the language
-    spoken in its reference clips."""
+    voice. A character's elevenlabs_voice_id (hosted cloning, removed in
+    Step 11d) is ignored -- see clone_removed_message(). ref_language:
+    the drama's source language -- the language spoken in its reference
+    clips."""
     out = {}
     for c in characters:
         label = c["speaker_label"]
         engine = c.get("clone_engine") or DEFAULT_CLONE_ENGINE
-        if c.get("elevenlabs_voice_id"):
-            out[label] = {"engine": "elevenlabs", "voice_id": c["elevenlabs_voice_id"],
-                          "api_key": elevenlabs_key or ""}
-        elif c.get("ref_audio_filename"):
+        if c.get("ref_audio_filename"):
             entry = {"engine": engine, "ref_audio": os.path.join(drama_dir, c["ref_audio_filename"]),
                      "ref_text": c.get("ref_text") or ""}
             if engine in ("gpt_sovits", "tada"):
@@ -419,6 +387,20 @@ def clone_map_from_characters(characters, drama_dir: str, elevenlabs_key: str = 
         elif engine == "chatterbox":
             out[label] = {"engine": "chatterbox", "ref_audio": None}
     return out
+
+
+# Step 11d: hosted cloning was removed, but characters cloned with it keep
+# their stored voice id (the column stays, as the record of how their
+# already-generated audio was made) -- they're simply not cloned any more.
+REMOVED_CLONE_MESSAGE = ("This character was previously cloned via ElevenLabs, which has been "
+                         "removed. Re-clone via OmniVoice or GPT-SoVITS to keep using a cloned "
+                         "voice for them.")
+
+
+def clone_removed_message(character):
+    """REMOVED_CLONE_MESSAGE for a db.list_characters() row that was
+    cloned with the removed hosted engine, else None."""
+    return REMOVED_CLONE_MESSAGE if character.get("elevenlabs_voice_id") else None
 
 
 def clone_map_uses_local_model(character_clone_map: dict) -> bool:
@@ -487,23 +469,116 @@ def assign_voices_to_characters(speaker_labels, voice_pool=None):
     return {label: voice_pool[i % len(voice_pool)] for i, label in enumerate(sorted(speaker_labels))}
 
 
-def _speed_rate_for_line(text: str, duration: float) -> str:
-    """Rough heuristic: estimate needed speaking rate so the dubbed line
-    fits the original line's time slot, so it stays roughly in sync."""
-    if duration <= 0:
-        return "+0%"
-    est_seconds = max(len(text.split()) / 2.5, 0.5)  # ~150 wpm baseline
-    ratio = est_seconds / duration
-    if ratio <= 1.05:
-        return "+0%"
-    pct = min(int((ratio - 1) * 100), 60)  # cap speedup at +60%
-    return f"+{pct}%"
+# Step 11e: a clip's filename carries a short signature of exactly what
+# it was synthesized from, not just the line's index -- otherwise a line
+# edited after dubbing silently reused its old audio, since a file already
+# existed at that path. Unchanged lines keep the same name, so a cancelled
+# run still resumes from every clip it already finished (Step 4e).
+def clip_signature(text: str, voice: dict) -> str:
+    """Short hash of the text sent to TTS plus the voice/engine settings
+    (a character_clone_map entry, or the plain TTS engine and voice)."""
+    voice = {k: v for k, v in voice.items() if k != "base_url"}  # where a server runs isn't the voice
+    blob = json.dumps([text, voice], sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:10]
+
+
+def _voice_for_signature(clone, tts_engine, voice, exaggeration=None) -> dict:
+    if clone:
+        out = dict(clone)
+        if clone.get("engine", DEFAULT_CLONE_ENGINE) == "chatterbox":
+            out["exaggeration"] = exaggeration
+        return out
+    return {"engine": tts_engine, "voice": voice}
+
+
+# Step 11c: a dubbed clip that doesn't match its line's original time
+# window is time-stretched to fit -- pitch-preserving (ffmpeg's atempo),
+# but never faster than DUB_MAX_SPEEDUP (past that it sounds chipmunked)
+# or slower than DUB_MAX_SLOWDOWN. A line needing more speed-up than the
+# cap gets the cap and is allowed to overflow its window rather than be
+# crushed to fit. This is the fallback after the pacing rewrite
+# (translate_engines.rewrite_for_pacing_llm), not a replacement for it --
+# a rewritten, shorter line simply needs less stretch. Starting values are
+# youtube-auto-dub's own defaults; both are adjustable per run.
+DUB_MAX_SPEEDUP = 1.4
+DUB_MAX_SLOWDOWN = 0.85
+_STRETCH_TOLERANCE = 1e-3
+
+PACING_FIT, PACING_STRETCHED, PACING_OVERFLOW = "fit", "stretched", "overflow"
+PACING_ICONS = {PACING_FIT: "🟢", PACING_STRETCHED: "🟡", PACING_OVERFLOW: "🔴"}
+PACING_FILENAME = "pacing.json"  # in dub_clips/, written by build_dub_track
+
+
+def stretch_for_window(clip_ms: float, window_ms: float, max_speedup: float = DUB_MAX_SPEEDUP,
+                       max_slowdown: float = DUB_MAX_SLOWDOWN):
+    """(factor, status) for a clip clip_ms long placed in a window
+    window_ms long. factor is the playback speed to apply (1.0 = leave
+    the clip alone), rounded to 3 decimals. status:
+      PACING_FIT       -- fits its window without being sped up (a clip
+                          shorter than its window may still be slowed
+                          toward it, down to max_slowdown);
+      PACING_STRETCHED -- sped up, within max_speedup, to fit;
+      PACING_OVERFLOW  -- needed more than max_speedup, so it gets the cap
+                          and still runs over its window."""
+    if window_ms <= 0:
+        return 1.0, PACING_OVERFLOW if clip_ms > 0 else PACING_FIT
+    needed = clip_ms / window_ms
+    if needed < 1.0:
+        factor, status = max(needed, max_slowdown), PACING_FIT
+    elif needed <= max_speedup:
+        factor, status = needed, PACING_STRETCHED
+    else:
+        factor, status = max_speedup, PACING_OVERFLOW
+    if abs(factor - 1.0) <= _STRETCH_TOLERANCE:
+        factor = 1.0
+        if status == PACING_STRETCHED:
+            status = PACING_FIT
+    return round(factor, 3), status
+
+
+def time_stretch(in_path: str, out_path: str, factor: float):
+    """Changes a clip's speed by factor without changing its pitch, via
+    ffmpeg's atempo filter (one filter covers 0.5-2.0, wider than any
+    sensible clamp). Written under a temporary name first, so a Cancel
+    mid-write never leaves a partial clip for the next run to reuse."""
+    import subprocess
+    partial = out_path[:-len(".wav")] + ".partial.wav"
+    try:
+        subprocess.run(["ffmpeg", "-y", "-i", in_path, "-filter:a", f"atempo={factor:.3f}", partial],
+                       check=True, capture_output=True)
+        os.replace(partial, out_path)
+    finally:
+        if os.path.exists(partial):
+            os.remove(partial)
+    return out_path
+
+
+def load_pacing(drama_dir: str) -> dict:
+    """{line_idx: {"status", "factor", "clip_ms", "window_ms",
+    "dub_filename"}} from the last build_dub_track run, or {} if there
+    isn't one (or it can't be read)."""
+    try:
+        with open(os.path.join(drama_dir, "dub_clips", PACING_FILENAME), encoding="utf-8") as f:
+            return {int(k): v for k, v in json.load(f).items()}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def pacing_for_line(ln, pacing: dict):
+    """The line's pacing record, only while it still describes the clip
+    the line currently points at -- None once the line was re-dubbed or
+    its clip cleared since."""
+    rec = pacing.get(ln.idx)
+    if rec and ln.dub_filename and rec.get("dub_filename") == ln.dub_filename:
+        return rec
+    return None
 
 
 def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
                      default_voice: str = "en-US-AvaNeural", progress_cb=None,
                      character_clone_map: dict = None, tts_engine: str = "edge_tts",
-                     emotion_map: dict = None):
+                     emotion_map: dict = None, max_speedup: float = DUB_MAX_SPEEDUP,
+                     max_slowdown: float = DUB_MAX_SLOWDOWN):
     """
     Synthesizes one clip per line, placed at its correct timestamp, and
     mixes them into a single dub track for the whole episode.
@@ -525,6 +600,11 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
 
     emotion_map: optional {line_idx: {"emotion", "intensity"}} (as
     db.load_emotions returns) -- sets Chatterbox's delivery per line.
+
+    max_speedup/max_slowdown: the time-stretch clamp (see
+    stretch_for_window). Each line's resulting pacing -- fit / stretched
+    / still overflowing, and the factor applied -- is written to
+    dub_clips/pacing.json (load_pacing reads it back).
     """
     from pydub import AudioSegment
     from translate_engines import call_with_backoff
@@ -539,48 +619,69 @@ def build_dub_track(lines, drama_dir: str, character_voice_map: dict,
     total_end = max((ln.end for ln in lines), default=0.0)
     track = AudioSegment.silent(duration=int(total_end * 1000) + 2000)
 
+    pacing = {}
     n = len(lines)
     for i, ln in enumerate(lines):
         if not ln.en.strip():
             continue
-        clip_path = os.path.join(clips_dir, f"line_{ln.idx:04d}.wav")
+        clone = character_clone_map.get(ln.speaker)
+        exaggeration = chatterbox_exaggeration(emotion_map.get(ln.idx)) if clone else None
+        if clone:
+            voice = None
+        elif tts_engine == "offline":
+            voice = character_voice_map.get(ln.speaker, DEFAULT_OFFLINE_VOICE_POOL[0])
+        else:
+            voice = character_voice_map.get(ln.speaker, default_voice)
+        signature = clip_signature(ln.en, _voice_for_signature(clone, tts_engine, voice, exaggeration))
+        clip_path = os.path.join(clips_dir, f"line_{ln.idx:04d}_{signature}.wav")
+
+        clip = None
         # already-generated clips (e.g. from a prior partial run) are reused, not re-synthesized
         if os.path.exists(clip_path):
             try:
                 clip = AudioSegment.from_file(clip_path)
-                track = track.overlay(clip, position=int(ln.start * 1000))
-                ln.dub_filename = os.path.relpath(clip_path, drama_dir)
-                if progress_cb:
-                    progress_cb((i + 1) / n)
-                continue
             except Exception:
                 pass  # corrupt leftover clip -- fall through and regenerate it
+        if clip is None:
+            try:
+                if clone:
+                    call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, clip_path, exaggeration))
+                elif tts_engine == "offline":
+                    call_with_backoff(lambda: synthesize_line_offline(ln.en, voice, clip_path))
+                else:
+                    call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
+                        ln.en, voice, clip_path, character_voice_map, ln.speaker))
+                clip = AudioSegment.from_file(clip_path)
+            except Exception as e:
+                errors.append({"line_idx": ln.idx, "error": str(e)})
+                if progress_cb:
+                    progress_cb((i + 1) / n)
+                continue  # this line stays silent in the mix; everything else proceeds
 
-        clone = character_clone_map.get(ln.speaker)
-        try:
-            if clone:
-                exaggeration = chatterbox_exaggeration(emotion_map.get(ln.idx))
-                call_with_backoff(lambda: _synthesize_cloned(clone, ln.en, clip_path, exaggeration))
-            elif tts_engine == "offline":
-                voice = character_voice_map.get(ln.speaker, DEFAULT_OFFLINE_VOICE_POOL[0])
-                call_with_backoff(lambda: synthesize_line_offline(ln.en, voice, clip_path))
-            else:
-                voice = character_voice_map.get(ln.speaker, default_voice)
-                rate = _speed_rate_for_line(ln.en, ln.end - ln.start)
-                call_with_backoff(lambda: _synthesize_edge_tts_with_piper_fallback(
-                    ln.en, voice, clip_path, character_voice_map, ln.speaker, rate=rate))
-        except Exception as e:
-            errors.append({"line_idx": ln.idx, "error": str(e)})
-            if progress_cb:
-                progress_cb((i + 1) / n)
-            continue  # this line stays silent in the mix; everything else proceeds
-
-        ln.dub_filename = os.path.relpath(clip_path, drama_dir)
-        clip = AudioSegment.from_file(clip_path)
+        clip_ms, window_ms = len(clip), int(round((ln.end - ln.start) * 1000))
+        factor, status = stretch_for_window(clip_ms, window_ms, max_speedup, max_slowdown)
+        placed_path = clip_path
+        if factor != 1.0:
+            stretched_path = clip_path[:-len(".wav")] + f"_x{factor:.3f}.wav"
+            try:
+                if not os.path.exists(stretched_path):
+                    time_stretch(clip_path, stretched_path, factor)
+                clip = AudioSegment.from_file(stretched_path)
+                placed_path = stretched_path
+            except Exception:
+                # No ffmpeg, or it failed: the unstretched clip still beats a
+                # silent line -- recorded as what it actually is.
+                factor = 1.0
+                status = PACING_FIT if clip_ms <= window_ms else PACING_OVERFLOW
+        ln.dub_filename = os.path.relpath(placed_path, drama_dir)
         track = track.overlay(clip, position=int(ln.start * 1000))
+        pacing[ln.idx] = {"status": status, "factor": factor, "clip_ms": clip_ms,
+                          "window_ms": window_ms, "dub_filename": ln.dub_filename}
         if progress_cb:
             progress_cb((i + 1) / n)
 
+    with open(os.path.join(clips_dir, PACING_FILENAME), "w", encoding="utf-8") as f:
+        json.dump(pacing, f)
     out_path = os.path.join(drama_dir, "dub_track.wav")
     track.export(out_path, format="wav")
     return out_path, errors
@@ -713,8 +814,12 @@ def build_narration_track(lines, drama_dir: str, character_voice_map: dict,
     units = [unit for kind, unit in steps if kind == "unit"]
     for unit in units:
         first, last = unit["lines"][0].idx, unit["lines"][-1].idx
-        name = f"line_{first:04d}.wav" if first == last else f"line_{first:04d}-{last:04d}.wav"
-        unit["clip_path"] = os.path.join(clips_dir, name)
+        voice = (DEFAULT_OFFLINE_VOICE_POOL[0] if tts_engine == "offline" else default_voice)
+        signature = clip_signature(unit["text"], _voice_for_signature(
+            unit["clone"], tts_engine, character_voice_map.get(unit["speaker"], voice),
+            unit["exaggeration"]))
+        span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
+        unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
 
     def synthesize(unit, clip_path):
         text, speaker = unit["text"], unit["speaker"]
@@ -899,7 +1004,7 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
 
 def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default_voice,
                                   character_clone_map, tts_engine, is_narration, emotion_map,
-                                  result_queue):
+                                  max_speedup, max_slowdown, result_queue):
     """Step 4e: entry point for running build_dub_track()/build_narration_track()
     in its own OS process via background_jobs.start_process_job(), so
     Cancel can actually stop it. Confirmed safe to hard-stop: each clip
@@ -913,13 +1018,17 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
     per line, and build_narration_track also rewrites .start/.end to the
     clip's actual timing -- since the caller needs those values, not
     just out_path/errors. Must stay a plain, top-level, picklable
-    function; lines are plain Line dataclasses, already picklable."""
+    function; lines are plain Line dataclasses, already picklable.
+    max_speedup/max_slowdown: build_dub_track's time-stretch clamp (a
+    narration has no timing to fit, so it ignores them)."""
     try:
-        build_fn = build_narration_track if is_narration else build_dub_track
-        out_path, errors = build_fn(
-            lines, drama_dir, character_voice_map, default_voice=default_voice,
-            character_clone_map=character_clone_map, tts_engine=tts_engine,
-            emotion_map=emotion_map)
+        kwargs = dict(default_voice=default_voice, character_clone_map=character_clone_map,
+                      tts_engine=tts_engine, emotion_map=emotion_map)
+        if is_narration:
+            out_path, errors = build_narration_track(lines, drama_dir, character_voice_map, **kwargs)
+        else:
+            out_path, errors = build_dub_track(lines, drama_dir, character_voice_map, **kwargs,
+                                               max_speedup=max_speedup, max_slowdown=max_slowdown)
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))
