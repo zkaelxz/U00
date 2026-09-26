@@ -272,6 +272,7 @@ def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
     import applog
     logger = applog.get_logger()
     try:
+        outcome = None
         while True:
             with _lock:
                 job = _jobs.get(job_id)
@@ -290,21 +291,38 @@ def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
                 logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
                            f"(subprocess terminated)")
                 return
+            # Step 4i: drain the queue continuously while the process is
+            # still alive, not only after it exits. A child that has put()
+            # more onto the queue than fits in one OS pipe buffer (~64KB on
+            # Linux) cannot exit until this side actually reads from it --
+            # waiting on proc.is_alive() first deadlocks both sides forever
+            # on any result past that size (real at this app's own scale:
+            # any drama with roughly 250+ lines, in dub/re-segment/diarize/
+            # auto-tune's subprocess workers, all of which return one item
+            # per line/turn/segment). Reusing poll_interval as the get()
+            # timeout keeps the same cancel-latency and CPU-use profile the
+            # previous plain time.sleep(poll_interval) had.
+            try:
+                outcome = result_queue.get(timeout=poll_interval)
+                break
+            except queue.Empty:
+                pass
             if not proc.is_alive():
                 break
-            time.sleep(poll_interval)
 
-        try:
-            # Not get_nowait(): multiprocessing.Queue.put() hands the
-            # pickled item to an internal feeder thread rather than
-            # writing it synchronously, so a process that exits right
-            # after put()ing its result can have already exited (proc.is_alive()
-            # already False, as checked above) before that item is actually
-            # readable from this end -- a real, documented race, not just a
-            # test timing quirk. A short blocking get gives it time to land.
-            outcome = result_queue.get(timeout=1)
-        except queue.Empty:
-            outcome = None
+        if outcome is None:
+            try:
+                # Not get_nowait(): multiprocessing.Queue.put() hands the
+                # pickled item to an internal feeder thread rather than
+                # writing it synchronously, so a process that exits right
+                # after put()ing its result can have already exited
+                # (proc.is_alive() already False, as checked above) before
+                # that item is actually readable from this end -- a real,
+                # documented race, not just a test timing quirk. A short
+                # blocking get gives it time to land.
+                outcome = result_queue.get(timeout=1)
+            except queue.Empty:
+                outcome = None
         with _lock:
             if job_id not in _jobs:
                 return
