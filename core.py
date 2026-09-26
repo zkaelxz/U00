@@ -71,15 +71,28 @@ def adopt_ids(restored, current) -> list:
     by position (snapshots from before Step 2 have no ids) -- so notes and
     emotions stay attached instead of being deleted with the old rows.
     Fields a snapshot doesn't store (flag, flag_note, dub_filename, sfx) are
-    carried over from the matched line rather than wiped."""
+    carried over from the matched line rather than wiped.
+
+    Positional fallback only applies to a line whose snapshot never
+    recorded an id at all (pre-Step-2). A line whose id *was* recorded but
+    no longer resolves -- it was merged away since the snapshot was taken
+    -- must not fall back to matching by position: idx numbering shifts
+    after a merge, so that would silently reattach the snapshot's notes,
+    emotions and flags to whatever unrelated line now sits at that
+    position. Such a line gets a fresh id instead (below)."""
     by_id = {ln.id: ln for ln in current if getattr(ln, "id", None) is not None}
     by_idx = {ln.idx: ln for ln in current}
     used = set()
     for ln in restored:
-        match = by_id.get(ln.id) if ln.id is not None else None
-        if match is None or match.id in used:
+        id_was_recorded = ln.id is not None
+        match = by_id.get(ln.id) if id_was_recorded else None
+        if match is not None and match.id in used:
+            match = None
+        if match is None and not id_was_recorded:
             match = by_idx.get(ln.idx)
-        if match is None or match.id in used:
+            if match is not None and match.id in used:
+                match = None
+        if match is None:
             ln.id = None
             continue
         used.add(match.id)
