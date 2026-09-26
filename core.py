@@ -548,6 +548,57 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         raise
 
 
+GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_DEFAULT_MODEL = "whisper-large-v3-turbo"
+
+
+class GroqTranscriptionError(RuntimeError):
+    """Raised when Groq's cloud transcription API can't be reached or
+    returns an error, so callers can show a useful message instead of a
+    raw requests/HTTP exception."""
+
+
+def transcribe_with_groq(audio_path: str, language: str, api_key: str,
+                         model: str = GROQ_DEFAULT_MODEL, progress_cb=None):
+    """
+    Step 6i: an opt-in, paid cloud alternative to transcribe_for_timing's
+    local faster-whisper path -- sends the whole file to Groq's hosted
+    Whisper Large-v3-Turbo API (the same model family this app defaults
+    to locally, at ~$0.04/hour of audio) and returns the identical
+    [{"start", "end", "text"}, ...] segment shape, so the result flows
+    into the exact same downstream pipeline (alignment, diarization
+    hand-off) as a local Whisper result -- callers don't need to know
+    which one produced it.
+
+    One blocking HTTP call, not a stream -- progress_cb (if given) is
+    only ever called once, with 1.0, right before returning; there's no
+    partial-progress signal available during the request itself.
+    """
+    import os as _os
+    import requests
+    import translate_engines
+    try:
+        with open(audio_path, "rb") as f:
+            resp = requests.post(
+                GROQ_TRANSCRIBE_URL,
+                headers={"Authorization": f"Bearer {api_key}"},
+                files={"file": (_os.path.basename(audio_path), f)},
+                data={"model": model, "language": language,
+                      "response_format": "verbose_json", "timestamp_granularities[]": "segment"},
+                timeout=600)
+    except requests.RequestException as exc:
+        raise GroqTranscriptionError(translate_engines.redact_secrets(str(exc))) from None
+    if resp.status_code != 200:
+        raise GroqTranscriptionError(translate_engines.redact_secrets(
+            f"Groq API returned {resp.status_code}: {resp.text[:300]}"))
+    data = resp.json()
+    result = [{"start": seg["start"], "end": seg["end"], "text": seg["text"].strip()}
+              for seg in data.get("segments", []) if seg.get("text", "").strip()]
+    if progress_cb:
+        progress_cb(1.0)
+    return result
+
+
 def autotune_subprocess_worker(audio_path, model_size, language, use_gpu, local_model_path,
                                hf_token, initial_prompt, beam_size, candidate_ms, vad_threshold,
                                fast_mode, result_queue):
