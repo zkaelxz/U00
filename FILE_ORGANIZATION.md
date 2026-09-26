@@ -120,6 +120,7 @@ baihe-subtitler/
 | `bulk_import.py` | many titles from one tag/ranking page |
 | `title_library.py` | known-titles catalog + seed data |
 | `known_sites.py` | directory of official platforms |
+| `navigator.py` | translate a foreign site's labels + navigation steps |
 | `epub_io.py` | EPUB import/export |
 | `export_package.py` | per-drama archive bundle |
 
