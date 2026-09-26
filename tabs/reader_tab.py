@@ -338,21 +338,26 @@ def render_reader_tab():
             st.warning(f"🚩 Flagged: {translate_engines.flag_reason_label(pl.flag)}"
                       + (f" — {pl.flag_note}" if pl.flag_note else ""))
 
+        # Step 25c: generated rewrites/re-transcriptions are kept per line,
+        # not per drama -- keyed per drama, a result generated for one line
+        # was still showing (and applicable) after picking another line.
+        _pl_key = f"{rdrama['id']}_{pl.id if pl.id is not None else f'idx{pl.idx}'}"
+
         lt1, lt2, lt3, lt4 = st.columns(4)
         if lt1.button("Why this?") and story_key:
             eng = translate_engines.get_engine("claude", story_key)
             with st.spinner("Explaining..."):
-                st.session_state[f"lt_explain_{rdrama['id']}"] = line_tools.explain_translation(
+                st.session_state[f"lt_explain_{_pl_key}"] = line_tools.explain_translation(
                     pl.zh, pl.en, eng, source_language=rlang)
         if lt2.button("Alternatives") and story_key:
             eng = translate_engines.get_engine("claude", story_key)
             with st.spinner("Generating..."):
-                st.session_state[f"lt_alts_{rdrama['id']}"] = line_tools.alternative_translations(
+                st.session_state[f"lt_alts_{_pl_key}"] = line_tools.alternative_translations(
                     pl.zh, pl.en, eng, source_language=rlang)
         if lt3.button("Grammar") and story_key:
             eng = translate_engines.get_engine("claude", story_key)
             with st.spinner("Breaking down..."):
-                st.session_state[f"lt_gram_{rdrama['id']}"] = line_tools.grammar_breakdown(
+                st.session_state[f"lt_gram_{_pl_key}"] = line_tools.grammar_breakdown(
                     pl.zh, eng, source_language=rlang)
         if lt4.button("🔊 Pronounce"):
             out = os.path.join(rddir, "pronounce.mp3")
@@ -362,19 +367,15 @@ def render_reader_tab():
             else:
                 st.warning("Couldn't generate audio -- check edge-tts is installed.")
 
-        if st.session_state.get(f"lt_explain_{rdrama['id']}"):
-            st.info(st.session_state[f"lt_explain_{rdrama['id']}"])
-        for alt in st.session_state.get(f"lt_alts_{rdrama['id']}", []):
+        if st.session_state.get(f"lt_explain_{_pl_key}"):
+            st.info(st.session_state[f"lt_explain_{_pl_key}"])
+        for alt in st.session_state.get(f"lt_alts_{_pl_key}", []):
             st.caption(f"**{alt.get('translation','')}**  \n_{alt.get('approach','')} "
                       f"— trades away: {alt.get('tradeoff','')}_")
-        gram = st.session_state.get(f"lt_gram_{rdrama['id']}", [])
+        gram = st.session_state.get(f"lt_gram_{_pl_key}", [])
         if gram:
             st.dataframe(pd.DataFrame(gram), width='stretch', hide_index=True)
 
-        # Step 25c: generated rewrites/re-transcriptions are kept per line,
-        # not per drama -- keyed per drama, a result generated for one line
-        # was still showing (and applicable) after picking another line.
-        _pl_key = f"{rdrama['id']}_{pl.id if pl.id is not None else f'idx{pl.idx}'}"
         with st.expander("✏️ Improve this line"):
             issue = st.text_input("What's wrong with it? (optional)",
                                    placeholder="too stiff / loses the sarcasm",
