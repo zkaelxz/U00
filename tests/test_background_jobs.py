@@ -819,3 +819,118 @@ class TestProcessWatcherLargeResult:
         status = _wait_for_status(job_id, "running", timeout=10.0)
         assert status["status"] == "cancelled"
         bg.clear_job(job_id)
+
+
+class TestNotifyOnCompletion:
+    """Step 23c item 4: an optional desktop notification when a
+    background job finishes, gated behind set_notify_on_completion()
+    (synced from the Settings toggle, off by default)."""
+
+    def teardown_method(self):
+        bg.set_notify_on_completion(False)
+
+    def test_off_by_default_no_notification_attempted(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+
+        bg.start_job("t_notify_off", lambda: None, description="A job")  # off by default
+        _wait("t_notify_off")
+        assert calls == []
+        bg.clear_job("t_notify_off")
+
+    def test_successful_job_notifies_when_enabled(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(bg, "_notify_job_finished", lambda *a, **k: calls.append(a))
+        bg.set_notify_on_completion(True)
+        bg.start_job("t_notify_ok", lambda: None, description="A translation job")
+        _wait("t_notify_ok")
+        assert calls == [("A translation job", "done")]
+        bg.clear_job("t_notify_ok")
+
+    def test_failed_job_notifies_with_error_status(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(bg, "_notify_job_finished", lambda *a, **k: calls.append(a))
+        bg.set_notify_on_completion(True)
+        bg.start_job("t_notify_err", lambda: (_ for _ in ()).throw(ValueError("boom")),
+                     description="A doomed job")
+        _wait("t_notify_err")
+        assert calls == [("A doomed job", "error")]
+        bg.clear_job("t_notify_err")
+
+    def test_notify_job_finished_is_a_no_op_without_plyer_installed(self, monkeypatch):
+        """Core-only install (no `pip install plyer`): must never raise,
+        matching every other optional-dependency fallback in this app."""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **k):
+            if name == "plyer":
+                raise ImportError("No module named 'plyer'")
+            return real_import(name, *a, **k)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        bg.set_notify_on_completion(True)
+        bg._notify_job_finished("A job", "done")  # must not raise
+
+    def test_notify_job_finished_calls_plyer_with_a_useful_message(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+
+        bg.set_notify_on_completion(True)
+        bg._notify_job_finished("A translation job", "done")
+        assert len(calls) == 1
+        assert "A translation job" in calls[0]["message"]
+
+        calls.clear()
+        bg._notify_job_finished("A translation job", "error")
+        assert len(calls) == 1
+        assert "A translation job" in calls[0]["message"]
+        assert "Fail" in calls[0]["message"]
+
+    def test_notify_job_finished_does_nothing_when_disabled(self, monkeypatch):
+        import sys
+        import types
+        fake_plyer = types.ModuleType("plyer")
+        fake_notification = types.ModuleType("plyer.notification")
+        calls = []
+        fake_notification.notify = lambda **kw: calls.append(kw)
+        fake_plyer.notification = fake_notification
+        monkeypatch.setitem(sys.modules, "plyer", fake_plyer)
+        monkeypatch.setitem(sys.modules, "plyer.notification", fake_notification)
+
+        bg.set_notify_on_completion(False)
+        bg._notify_job_finished("A job", "done")
+        assert calls == []
+
+    def test_process_based_job_notifies_too(self, monkeypatch):
+        """The process-watcher path (start_process_job) is a separate
+        code path from the thread-based runner above -- covered
+        separately since it sets job status in its own place."""
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        calls = []
+        monkeypatch.setattr(bg, "_notify_job_finished", lambda *a, **k: calls.append(a))
+        bg.set_notify_on_completion(True)
+
+        def fake_worker(result_queue):
+            result_queue.put(("ok", {"sum": 1}))
+
+        job_id = "test_process_notify"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, fake_worker, args=(), description="A process job")
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done"
+        assert calls == [("A process job", "done")]
+        bg.clear_job(job_id)

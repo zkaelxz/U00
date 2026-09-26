@@ -134,6 +134,9 @@ kiwipiepy>=0.18        # Korean segmentation (pure Python, no Java needed)
 # EPUB import/export for novel-narration mode (optional):
 ebooklib>=0.18
 
+# Desktop notification when a background job finishes (optional, Settings toggle):
+plyer>=2.1
+
 # Test suite (optional, for running tests/):
 pytest>=7.4
 

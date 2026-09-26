@@ -65,6 +65,42 @@ def set_gpu_limit_enabled(enabled: bool):
         _gpu_limit_enabled = bool(enabled)
 
 
+# Step 23c item 4: an optional local desktop notification when a
+# background job finishes, so a long job (especially Step 9b's bulk
+# series-translate, which can run unattended for a while) doesn't
+# require watching the tab. Off by default -- a Settings toggle
+# (settings_tab.py) turns it on via set_notify_on_completion() below,
+# the same "Streamlit-side setting synced into this module's own state"
+# pattern set_gpu_limit_enabled() already uses, since this module
+# deliberately doesn't import streamlit itself.
+_notify_on_completion = False
+
+
+def set_notify_on_completion(enabled: bool):
+    global _notify_on_completion
+    with _lock:
+        _notify_on_completion = bool(enabled)
+
+
+def _notify_job_finished(description, status):
+    """Best-effort only -- never raises. A missing `plyer` install, or no
+    notification daemon at all (common on a minimal Linux desktop), must
+    never take down the job runner that calls this right after finishing
+    the job's real work."""
+    if not _notify_on_completion:
+        return
+    try:
+        from plyer import notification
+        notification.notify(
+            title="Baihe Subtitler",
+            message=(f"Finished: {description}" if status == "done" and description else
+                     "Finished: background job" if status == "done" else
+                     f"Failed: {description}" if description else "Failed: background job"),
+            timeout=10)
+    except Exception:
+        pass
+
+
 def _other_gpu_job_running_locked(exclude_job_id):
     """Caller must already hold _lock. The id of some other running,
     GPU-touching job, or None if the GPU is free."""
@@ -92,22 +128,28 @@ def _spawn(job_id, target, args, kwargs):
         logger.info(f"job {job_id} started")
         try:
             target(*args, **kwargs)
+            _description = None
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "done"
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
+                    _description = _jobs[job_id].get("description")
             logger.info(f"job {job_id} finished")
+            _notify_job_finished(_description, "done")
         except Exception as exc:
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
+            _description = None
             with _lock:
                 if job_id in _jobs:
                     _jobs[job_id]["status"] = "error"
                     _jobs[job_id]["error"] = error_msg
                     _jobs[job_id]["traceback"] = tb
                     _jobs[job_id]["finished_at"] = time.time()
+                    _description = _jobs[job_id].get("description")
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
+            _notify_job_finished(_description, "error")
         finally:
             _promote_next_queued_gpu_job()
 
@@ -340,6 +382,9 @@ def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
                 _jobs[job_id]["finished_at"] = time.time()
                 logger.error(f"job {job_id} subprocess died with no result "
                             f"(exit code {proc.exitcode})")
+            _final_status = _jobs[job_id]["status"]
+            _description = _jobs[job_id].get("description")
+        _notify_job_finished(_description, _final_status)
     finally:
         _promote_next_queued_gpu_job()
 

@@ -163,6 +163,17 @@ def render_settings_sidebar():
             import background_jobs
             background_jobs.set_gpu_limit_enabled(st.session_state["settings_limit_one_gpu_job"])
 
+            st.session_state["settings_notify_on_job_done"] = st.checkbox(
+                "🔔 Desktop notification when a background job finishes",
+                value=st.session_state.get("settings_notify_on_job_done", False),
+                help="A local OS notification (not email -- nothing to email to for a local "
+                     "single-user app) so a long job, especially an unattended bulk series "
+                     "translate, doesn't need the tab watched the whole time. Off by default "
+                     "until confirmed reliable on your desktop -- needs `pip install plyer`; "
+                     "silently does nothing if it's missing or your desktop has no notification "
+                     "daemon.")
+            background_jobs.set_notify_on_completion(st.session_state["settings_notify_on_job_done"])
+
         with st.expander("Spending", expanded=False):
             try:
                 _cap_default = float(st.session_state.get("settings_monthly_cap_usd") or 0)
