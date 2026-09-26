@@ -168,7 +168,8 @@ def _drama_with_audio(isolated_db):
     os.makedirs(ddir, exist_ok=True)
     open(os.path.join(ddir, "audio.wav"), "wb").close()
     lines = _lines()
-    diarize.label_lines_with_speakers(lines, TWO)
+    for ln in lines:
+        ln.speaker = diarize.assign_speaker_to_line(ln.start, ln.end, TWO)
     isolated_db.save_lines(did, lines)
     return did, ddir
 

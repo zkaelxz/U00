@@ -11,8 +11,7 @@ import os
 import sqlite3
 import datetime
 import json
-from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import List
 
 LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library")
 DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
@@ -1314,13 +1313,6 @@ def list_pages(drama_id: int):
     return [dict(r) for r in rows]
 
 
-def get_page(page_id: int):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM pages WHERE id = ?", (page_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
 def save_bubbles(page_id: int, bubbles):
     """bubbles: list of dicts with x,y,w,h,source_text,translated_text,font_size,skip,
     font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset), plus the
@@ -1429,13 +1421,6 @@ def list_known_titles(search: str = "", language: str = "", media_type: str = ""
     rows = conn.execute(query, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def get_known_title(title_id: int):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM known_titles WHERE id = ?", (title_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
 
 
 def delete_known_title(title_id: int):
@@ -1872,13 +1857,6 @@ def list_wiki_entries(drama_id: int, entry_type: str = None, spoiler_limit_line_
     return out
 
 
-def delete_wiki_entry(entry_id: int):
-    conn = get_conn()
-    conn.execute("DELETE FROM wiki_entries WHERE id = ?", (entry_id,))
-    conn.commit()
-    conn.close()
-
-
 def clear_wiki(drama_id: int):
     conn = get_conn()
     conn.execute("DELETE FROM wiki_entries WHERE drama_id = ?", (drama_id,))
@@ -1944,16 +1922,6 @@ def get_style_profile(scope: str = "global"):
     except (json.JSONDecodeError, TypeError):
         d["profile"] = {}
     return d
-
-
-def clear_edit_samples(drama_id: int = None):
-    conn = get_conn()
-    if drama_id:
-        conn.execute("DELETE FROM edit_samples WHERE drama_id = ?", (drama_id,))
-    else:
-        conn.execute("DELETE FROM edit_samples")
-    conn.commit()
-    conn.close()
 
 
 def list_glossary_terms(series_id: int):
@@ -2036,13 +2004,6 @@ def list_presets():
     rows = conn.execute("SELECT * FROM presets ORDER BY name COLLATE NOCASE").fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-def get_preset(preset_id: int):
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM presets WHERE id = ?", (preset_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
 
 
 def rename_preset(preset_id: int, new_name: str):

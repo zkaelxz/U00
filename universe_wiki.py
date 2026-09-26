@@ -112,32 +112,6 @@ def extract_wiki_entries(lines, engine, up_to_line_idx: int, drama_meta: dict = 
     return list(all_entries.values())
 
 
-def build_timeline(lines, engine, up_to_line_idx: int, max_context: int = 400):
-    """Extracts a chronological list of significant events up to the
-    reader's current position. Spoiler-bounded like everything else."""
-    if not getattr(engine, "supports_reference", False):
-        return []
-    in_scope = [ln for ln in lines if ln.idx <= up_to_line_idx and ln.en][:max_context]
-    if not in_scope:
-        return []
-
-    excerpt = "\n".join(f"[{ln.idx}] {ln.en}" for ln in in_scope)
-    prompt = (
-        "From this excerpt, list the significant plot events in the order they occur. "
-        "Only events actually shown or clearly stated -- not implied backstory unless "
-        "the text spells it out. Keep each to one sentence.\n\n"
-        'Return ONLY a JSON array: [{"line_idx": 0, "event": "..."}]. '
-        "No preamble, no markdown fences.\n\n" + excerpt
-    )
-    text = call_llm_json(engine, prompt, max_tokens=2000, fallback="[]")
-    text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
-    try:
-        events = json.loads(text)
-        return events if isinstance(events, list) else []
-    except json.JSONDecodeError:
-        return []
-
-
 def format_wiki_as_markdown(entries, drama_title: str = "", spoiler_note: str = "") -> str:
     """Renders the wiki as a readable document, grouped by entry type."""
     if not entries:

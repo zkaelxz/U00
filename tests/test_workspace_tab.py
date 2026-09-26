@@ -1288,6 +1288,118 @@ class TestTranslateButtonUsesConfiguredOllamaUrl:
         assert captured.get("base_url") == "http://gpu-box:11434"
 
 
+class TestGlossaryReviewBeforeTranslating:
+    """Step 23c item 3: an optional review step before a translate run
+    starts -- shows the glossary terms Step 7b's extraction pass would
+    use, lets the user edit/reject them, and only then starts the job."""
+
+    def _drama(self, isolated_db, with_series=True):
+        sid = isolated_db.get_or_create_series("Test Series") if with_series else None
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="novel",
+                                        content_mode="novel_narration", status="aligned",
+                                        translation_engine="test_offline",
+                                        **({"series_id": sid} if sid else {}))
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="他是主角", en="")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_test_offline"] = "fake-key"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def _fake_terms(self):
+        return [{"term": "Zhu Jue", "suggested_translation": "Zhu Jue", "category": "name",
+                 "policy": "pinyin", "reason": "protagonist's name"}]
+
+    def test_checkbox_hidden_without_a_series(self, isolated_db):
+        did = self._drama(isolated_db, with_series=False)
+        at = self._run(did)
+        assert not [c for c in at.checkbox if c.key == f"review_glossary_first_{did}"]
+
+    def test_unchecked_by_default_job_starts_immediately(self, isolated_db, monkeypatch):
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+        assert started.get("ok") is True
+        assert not [c for c in at.caption if "glossary term(s)" in c.value]
+
+    def test_checked_shows_review_instead_of_starting_the_job(self, isolated_db, monkeypatch):
+        import translation_guide
+        monkeypatch.setattr(translation_guide, "extract_glossary_from_novel",
+                             lambda *a, **k: self._fake_terms())
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.checkbox(key=f"review_glossary_first_{did}").set_value(True).run()
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+
+        assert "ok" not in started
+        assert any("1 glossary term(s)" in c.value for c in at.caption)
+        assert self._button(at, "✅ Looks good — start translating")
+
+    def test_confirming_adds_the_term_and_starts_the_job(self, isolated_db, monkeypatch):
+        import translation_guide
+        monkeypatch.setattr(translation_guide, "extract_glossary_from_novel",
+                             lambda *a, **k: self._fake_terms())
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        sid = isolated_db.get_drama(did)["series_id"]
+        at = self._run(did)
+        at.checkbox(key=f"review_glossary_first_{did}").set_value(True).run()
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+        self._button(at, "✅ Looks good — start translating").click()
+        at.run(timeout=30)
+
+        assert started.get("ok") is True
+        terms = isolated_db.list_glossary_terms(sid)
+        assert len(terms) == 1
+        assert terms[0]["term_original"] == "Zhu Jue"
+
+    def test_cancel_starts_nothing_and_adds_no_terms(self, isolated_db, monkeypatch):
+        import translation_guide
+        monkeypatch.setattr(translation_guide, "extract_glossary_from_novel",
+                             lambda *a, **k: self._fake_terms())
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                             lambda job_id, target, *a, **kw: started.setdefault("ok", True))
+        did = self._drama(isolated_db)
+        sid = isolated_db.get_drama(did)["series_id"]
+        at = self._run(did)
+        at.checkbox(key=f"review_glossary_first_{did}").set_value(True).run()
+        self._button(at, "🌐 Translate all lines").click()
+        at.run(timeout=30)
+        self._button(at, "❌ Cancel").click()
+        at.run(timeout=30)
+
+        assert "ok" not in started
+        assert isolated_db.list_glossary_terms(sid) == []
+
+
 class TestDownloadButtonUsesCookieSettings:
     """Step 9b.4: the Workspace URL-downloader button must thread the
     cookies setting from Settings into video_download.download(), not
@@ -1433,6 +1545,81 @@ class TestReflectModeUI:
         assert captured.get("reflect") is False
 
 
+class TestBulkGlossaryAndPronounActions:
+    """Step 23c item 5: multi-select delete over the glossary term list,
+    and multi-select pronoun-setting over the People & pronouns list --
+    two separate small controls (glossary terms have no gender field;
+    gender/pronouns live on series_characters instead), each replacing a
+    one-row-at-a-time-only path with a real bulk action."""
+
+    def _drama(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Test Series")
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="novel",
+                                        content_mode="novel_narration", status="aligned",
+                                        translation_engine="test_offline", series_id=sid)
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello.")])
+        return did, sid
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _button(self, at, label):
+        matches = [b for b in at.button if b.label == label]
+        assert matches, f"button {label!r} not found on the page"
+        return matches[0]
+
+    def test_bulk_delete_removes_only_selected_glossary_terms(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "Zhu Jue", "Zhu Jue")
+        isolated_db.upsert_glossary_term(sid, "Keep Me", "Keep Me")
+        at = self._run(did)
+
+        at.multiselect(key=f"bulk_glossary_pick_{sid}").set_value(["Zhu Jue"]).run()
+        self._button(at, "🗑️ Delete 1 selected term(s)").click()
+        at.run(timeout=30)
+
+        terms = {t["term_original"] for t in isolated_db.list_glossary_terms(sid)}
+        assert terms == {"Keep Me"}
+
+    def test_no_bulk_actions_shown_with_no_glossary_terms(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        at = self._run(did)
+        assert not [m for m in at.multiselect if m.key == f"bulk_glossary_pick_{sid}"]
+
+    def test_bulk_set_pronouns_applies_to_only_selected_people(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_series_character(sid, "Su Shan", notes="protagonist")
+        isolated_db.upsert_series_character(sid, "Wei Chen", notes="rival")
+        at = self._run(did)
+
+        at.multiselect(key=f"bulk_sc_pick_{sid}").set_value(["Su Shan"]).run()
+        at.selectbox(key=f"bulk_sc_pronouns_{sid}").set_value("she/her").run()
+        self._button(at, "Set pronouns for 1 selected").click()
+        at.run(timeout=30)
+
+        chars = {c["character_name"]: c for c in isolated_db.list_series_characters(sid)}
+        assert chars["Su Shan"]["gender"] == "she/her"
+        assert not chars["Wei Chen"]["gender"]
+        # the other field this call always writes through must not be wiped
+        assert chars["Su Shan"]["notes"] == "protagonist"
+
+    def test_no_bulk_pronoun_control_shown_with_no_people(self, isolated_db):
+        did, sid = self._drama(isolated_db)
+        at = self._run(did)
+        assert not [m for m in at.multiselect if m.key == f"bulk_sc_pick_{sid}"]
+
+
 class TestVoiceMatchSuggestions:
     """Step 8: the "sounds like <name>" suggestion row next to the
     character-naming section. Purely a suggestion -- Accept sets the
@@ -1484,7 +1671,7 @@ class TestVoiceMatchSuggestions:
     def test_accept_sets_the_character_name_and_updates_the_fingerprint(self, isolated_db):
         did, sc_id = self._drama(isolated_db)
         at = self._run(did)
-        accept = [b for b in at.button if b.key == f"voiceaccept_SPEAKER_00_{sc_id}"]
+        accept = [b for b in at.button if b.key == f"voiceaccept_{did}_SPEAKER_00_{sc_id}"]
         assert accept, "Accept button not found"
         accept[0].click().run(timeout=30)
 
@@ -1500,7 +1687,7 @@ class TestVoiceMatchSuggestions:
     def test_reject_dismisses_without_changing_anything(self, isolated_db):
         did, sc_id = self._drama(isolated_db)
         at = self._run(did)
-        reject = [b for b in at.button if b.key == f"voicereject_SPEAKER_00_{sc_id}"]
+        reject = [b for b in at.button if b.key == f"voicereject_{did}_SPEAKER_00_{sc_id}"]
         assert reject, "Reject button not found"
         reject[0].click().run(timeout=30)
 
@@ -1516,7 +1703,7 @@ class TestVoiceMatchSuggestions:
     def test_rejecting_never_re_shows_that_pair(self, isolated_db):
         did, sc_id = self._drama(isolated_db)
         at = self._run(did)
-        reject = [b for b in at.button if b.key == f"voicereject_SPEAKER_00_{sc_id}"][0]
+        reject = [b for b in at.button if b.key == f"voicereject_{did}_SPEAKER_00_{sc_id}"][0]
         at = reject.click().run(timeout=30)
         assert not [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
 
@@ -2491,6 +2678,103 @@ class TestDramaSwitchResetsLoadedLines:
         assert [r["zh"] for r in after_b] == ["乙乙乙"]
         after_a = isolated_db.load_lines(did_a)
         assert [r["zh"] for r in after_a] == ["甲甲甲"]
+
+
+class TestDramaSwitchKeepsCharactersSeparate:
+    """Step 25b: section 6's per-character widgets were keyed by the
+    diarized speaker label alone (cname_SPEAKER_00, ...). Two unrelated
+    dramas that both have a SPEAKER_00 shared one widget key, so after a
+    switch Streamlit kept showing the previous drama's value, and the
+    "widget differs from what's saved" check wrote it into the new
+    drama's own character row."""
+
+    _FIELDS = ("character_name", "voice_actor", "tts_voice", "pronouns", "ref_text",
+               "clone_engine", "voice_design")
+
+    def _two_dramas(self, isolated_db):
+        did_a = isolated_db.create_drama(title_en="Drama A", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_a, [Line(idx=0, start=0.0, end=1.0, zh="甲甲甲", en="AAA",
+                                            speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did_a, "SPEAKER_00", character_name="Alice",
+                                     voice_actor="Actor A", tts_voice="en-US-EmmaNeural",
+                                     pronouns="she/her", ref_text="甲的参考", clone_engine="omnivoice",
+                                     voice_design="female, low pitch")
+        did_b = isolated_db.create_drama(title_en="Drama B", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did_b, [Line(idx=0, start=0.0, end=1.0, zh="乙乙乙", en="BBB",
+                                            speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did_b, "SPEAKER_00", character_name="Bob",
+                                     voice_actor="Actor B", tts_voice="en-US-JennyNeural",
+                                     pronouns="he/him", ref_text="乙的参考", clone_engine="chatterbox",
+                                     voice_design="male, british accent")
+        return did_a, did_b
+
+    def _character(self, db_module, did):
+        row = next(c for c in db_module.list_characters(did) if c["speaker_label"] == "SPEAKER_00")
+        return {f: row[f] for f in self._FIELDS}
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _switch_to(self, at, did):
+        box = [b for b in at.selectbox if b.label == "Drama"][0]
+        label = next(l for l in box.options if l.startswith(f"#{did} "))
+        box.set_value(label).run(timeout=30)
+
+    def _name_box(self, at):
+        return [t for t in at.text_input if t.key and t.key.startswith("cname_")][0]
+
+    def test_switching_back_and_forth_never_leaks_character_data(self, isolated_db):
+        did_a, did_b = self._two_dramas(isolated_db)
+        before_a = self._character(isolated_db, did_a)
+        before_b = self._character(isolated_db, did_b)
+
+        at = self._run(did_a)
+        assert self._name_box(at).value == "Alice"
+
+        self._switch_to(at, did_b)
+        at.run(timeout=30)
+        assert self._name_box(at).value == "Bob"
+        assert self._character(isolated_db, did_b) == before_b
+
+        self._switch_to(at, did_a)
+        at.run(timeout=30)
+        assert self._name_box(at).value == "Alice"
+        assert self._character(isolated_db, did_a) == before_a
+        assert self._character(isolated_db, did_b) == before_b
+
+    def test_editing_a_field_right_after_switching_writes_only_the_new_dramas_data(
+            self, isolated_db):
+        did_a, did_b = self._two_dramas(isolated_db)
+        before_a = self._character(isolated_db, did_a)
+
+        at = self._run(did_a)
+        self._switch_to(at, did_b)
+
+        [t for t in at.text_input if t.key and t.key.startswith("cva_")][0] \
+            .set_value("New Actor B").run(timeout=30)
+
+        after_b = self._character(isolated_db, did_b)
+        assert after_b["voice_actor"] == "New Actor B"
+        assert after_b["character_name"] == "Bob"
+        assert after_b["tts_voice"] == "en-US-JennyNeural"
+        assert after_b["pronouns"] == "he/him"
+        assert after_b["ref_text"] == "乙的参考"
+        assert after_b["clone_engine"] == "chatterbox"
+        assert after_b["voice_design"] == "male, british accent"
+        assert self._character(isolated_db, did_a) == before_a
 
 
 class TestManualRefreshButton:
@@ -4728,6 +5012,89 @@ class TestApplyPresetOnNewDrama:
         assert at.session_state[f"include_genre_notes_{new_id}"] is False
 
 
+class TestAnimeContentTypeAndSeriesAtCreation:
+    """Step 22b: "anime" as its own media_type, and assigning a series
+    directly from the "Create drama" form instead of needing a later
+    Edit metadata trip."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = None
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_anime_is_a_content_type_option(self, isolated_db):
+        at = self._run()
+        content_type = [s for s in at.selectbox if s.label == "Content type"][0]
+        assert "Anime" in content_type.options
+
+    def test_creating_a_drama_with_anime_media_type_saves_it(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("A Show").run()
+        [s for s in at.selectbox if s.label == "Content type"][0].select("anime").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["media_type"] == "anime"
+
+    def test_assigning_an_existing_series_at_creation(self, isolated_db):
+        sid = db.get_or_create_series("Existing Series")
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Episode 1").run()
+        [s for s in at.selectbox if s.label == "Series (optional)"][0].select("Existing Series").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["series_id"] == sid
+        assert dramas[0] in db.list_dramas_by_series(sid)
+
+    def test_creating_a_new_series_at_creation(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Episode 1").run()
+        [s for s in at.selectbox if s.label == "Series (optional)"][0].select("+ New series...").run()
+        [t for t in at.text_input if t.label == "New series name"][0].set_value("Brand New Series").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        series = db.list_series()
+        assert len(series) == 1
+        assert series[0]["name"] == "Brand New Series"
+        assert dramas[0]["series_id"] == series[0]["id"]
+
+    def test_leaving_series_unset_does_not_assign_one(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("No Series").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["series_id"] is None
+
+    def test_an_anime_movie_shares_a_series_with_the_shows_episodes_but_stays_its_own_drama(self, isolated_db):
+        sid = db.get_or_create_series("A Show")
+        episode_id = db.create_drama(title_en="Episode 1", media_type="anime", series_id=sid)
+
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("The Movie").run()
+        [s for s in at.selectbox if s.label == "Content type"][0].select("anime").run()
+        [s for s in at.selectbox if s.label == "Series (optional)"][0].select("A Show").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        in_series = db.list_dramas_by_series(sid)
+        assert {d["id"] for d in in_series} == {episode_id, at.session_state["active_drama_id"]}
+        assert len(db.list_dramas()) == 2
+
+
 class TestNarrationVoiceSetup:
     """Step 11b: each character's voice engine and voice description
     (section 6) persist, the dub button hands them -- plus the drama's
@@ -4758,10 +5125,10 @@ class TestNarrationVoiceSetup:
     def test_engine_and_voice_description_persist(self, isolated_db):
         did = self._drama(isolated_db)
         at = self._run(did)
-        [engine] = [s for s in at.selectbox if s.key == "cengine_Hero"]
+        [engine] = [s for s in at.selectbox if s.key == f"cengine_{did}_Hero"]
         assert engine.value == "f5tts"  # nothing stored yet: the pre-Step-11b default
         engine.set_value("chatterbox").run(timeout=30)
-        [design] = [t for t in at.text_input if t.key == "cdesign_Hero"]
+        [design] = [t for t in at.text_input if t.key == f"cdesign_{did}_Hero"]
         design.set_value("male, young adult, low pitch").run(timeout=30)
 
         [c] = db.list_characters(did)
@@ -4800,7 +5167,7 @@ class TestNarrationVoiceSetup:
         at = self._run(did)
         [c] = db.list_characters(did)
         assert c["tts_voice"] is None and c["offline_voice"] is None
-        [offline] = [s for s in at.selectbox if s.key == "coffline_Hero"]
+        [offline] = [s for s in at.selectbox if s.key == f"coffline_{did}_Hero"]
         assert offline.value == dub_module.DEFAULT_OFFLINE_VOICE_POOL[0]
         offline.set_value("en_GB-alba-medium").run(timeout=30)
         [c] = db.list_characters(did)

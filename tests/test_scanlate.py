@@ -789,3 +789,23 @@ class TestBulkFindReplacePreview:
     def test_bubbles_with_no_match_are_excluded(self):
         matches = scanlate.bulk_find_replace_preview(self._bubbles(), "zzz_not_present", "x")
         assert matches == []
+
+    def test_text_field_generalizes_to_line_shaped_items(self):
+        """Step 23c item 2: the same preview logic reused for a
+        novel/workspace drama's line text instead of a Scanlate bubble's,
+        just pointed at a different dict key."""
+        lines = [
+            {"idx": 0, "en": "Hello Bob"},
+            {"idx": 1, "en": "Bob said hi"},
+            {"idx": 2, "en": "Nothing to see here"},
+        ]
+        matches = scanlate.bulk_find_replace_preview(lines, "Bob", "Alice", text_field="en")
+        assert {m["idx"] for m in matches} == {0, 1}
+        assert all(m["new_text"].count("Alice") >= 1 for m in matches)
+        assert lines[0]["en"] == "Hello Bob"  # preview only, no mutation
+
+    def test_match_carries_through_every_original_field(self):
+        bubbles = self._bubbles()
+        matches = scanlate.bulk_find_replace_preview(bubbles, "Bob", "Alice")
+        assert matches[0]["page_idx"] == 0
+        assert matches[0]["translated_text"] == "Hello Bob"  # original field untouched
