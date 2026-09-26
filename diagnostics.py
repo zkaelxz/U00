@@ -92,7 +92,11 @@ OPTIONAL_DEPENDENCIES = {
                                   "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),
-    "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao)", "feature"),
+    "playwright": ("playwright", "reading JavaScript-rendered sites (baihehub, Fanjiao; the "
+                                 "Sources tab's browser tier)", "feature"),
+    "trafilatura": ("trafilatura", "Sources tab: pulling a novel chapter's main text out of a "
+                                   "pasted URL (falls back to a simpler built-in extractor)",
+                    "feature"),
     "audio-separator": ("audio_separator",
                         "background-music removal before transcription (Mel-Band RoFormer; "
                         "falls back to Demucs)", "feature"),
