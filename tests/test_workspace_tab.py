@@ -2281,6 +2281,72 @@ class TestTranslateJobRefreshesStaleEnBoxes:
         background_jobs.clear_job(job_id)
 
 
+class TestManualRefreshButton:
+    """Step 9i item 2: a general-purpose escape hatch next to the drama
+    picker -- reloads lines from the database and clears the same
+    per-line widget cache every other targeted fix in this file already
+    clears, regardless of what caused the staleness."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi there.")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_refresh_button_exists_next_to_the_drama_picker(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert [b for b in at.button if b.label == "🔄 Refresh"]
+
+    def test_refresh_reloads_a_change_made_outside_the_page(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hi there."]
+
+        # A change made by something other than this page (another tab,
+        # a job with no completion handler of its own, direct DB access)
+        # -- the exact "whatever caused the staleness" case this button
+        # exists for.
+        changed = isolated_db.load_line_objects(did)
+        changed[0].en = "Refreshed text."
+        isolated_db.save_lines(did, changed, fields=("en",))
+
+        [b for b in at.button if b.label == "🔄 Refresh"][0].click()
+        at.run(timeout=30)
+
+        assert at.session_state.lines[0].en == "Refreshed text."
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Refreshed text."]
+
+    def test_refresh_is_disabled_for_new_drama(self, isolated_db):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = None
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+
+        refresh_buttons = [b for b in at.button if b.label == "🔄 Refresh"]
+        assert refresh_buttons and refresh_buttons[0].disabled
+
+
 class TestRawNovelToggleGatedByContentMode:
     """Step 5b item 6: the raw-novel uploader used to render unconditionally,
     above the content_mode radio, for every content mode including
