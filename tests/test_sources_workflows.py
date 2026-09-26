@@ -325,13 +325,80 @@ class TestFrontDoor:
             return path
         monkeypatch.setattr(video_download, "download", fake_download)
         drama_id = isolated_db.create_drama(media_type="streamer_vod")
-        url = "https://www.bilibili.com/video/BV1xx411c7mD"
+        # A video URL with no dedicated adapter (unlike Bilibili as of Step
+        # 23d, which now routes through BilibiliSource -- see
+        # TestBilibiliRouting below) still falls through to this same
+        # generic yt-dlp path, unchanged.
+        url = "https://www.youtube.com/watch?v=abc123def45"
         assert front_door.preview(url).content_type == front_door.VIDEO
         front_door.import_video(url, drama_id)
         assert calls == [(url, isolated_db.drama_dir(drama_id), True)]
         d = isolated_db.get_drama(drama_id)
         assert d["audio_filename"] == "downloaded_audio.wav" and d["source_url"] == url
         assert d["title_zh"] == "A stream title"
+
+
+class TestBilibiliRouting:
+    """Step 23d: a Bilibili URL now routes through the real BilibiliSource
+    adapter instead of the generic video_download.download path."""
+
+    def _fake_ydl_factory(self, info):
+        import os as _os
+
+        class FakeYDL:
+            def __init__(self, opts):
+                self.opts = opts
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                if download:
+                    path = self.opts["outtmpl"].replace("%(ext)s", info.get("ext", "mp4"))
+                    _os.makedirs(_os.path.dirname(path), exist_ok=True)
+                    with open(path, "wb") as f:
+                        f.write(b"fake")
+                return info
+        return lambda opts: FakeYDL(opts)
+
+    def test_preview_shows_metadata_via_the_adapter_not_the_generic_video_branch(self, monkeypatch):
+        from sources.adapters.bilibili import BilibiliSource
+        info = {"id": "BV1xx411c7mD", "title": "A Real Bilibili Video",
+               "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+               "duration": 60, "formats": []}
+        monkeypatch.setattr(BilibiliSource, "_real_ydl_factory",
+                            staticmethod(self._fake_ydl_factory(info)))
+        p = front_door.preview("https://www.bilibili.com/video/BV1xx411c7mD")
+        assert p.content_type == front_door.VIDEO
+        assert p.adapter == "bilibili"
+        assert p.title == "A Real Bilibili Video"
+
+    def test_import_video_uses_the_adapters_download_not_the_generic_path(self, isolated_db, monkeypatch):
+        import video_download
+        from sources.adapters.bilibili import BilibiliSource
+
+        generic_calls = []
+        monkeypatch.setattr(video_download, "download",
+                            lambda *a, **k: generic_calls.append(1) or "/should/not/be/used")
+
+        info = {"id": "BV1xx411c7mD", "title": "A Real Bilibili Video",
+               "webpage_url": "https://www.bilibili.com/video/BV1xx411c7mD",
+               "duration": 60, "formats": [], "ext": "wav"}
+        monkeypatch.setattr(BilibiliSource, "_real_ydl_factory",
+                            staticmethod(self._fake_ydl_factory(info)))
+
+        drama_id = isolated_db.create_drama(media_type="streamer_vod")
+        url = "https://www.bilibili.com/video/BV1xx411c7mD"
+        path = front_door.import_video(url, drama_id)
+
+        assert generic_calls == []
+        assert os.path.exists(path)
+        d = isolated_db.get_drama(drama_id)
+        assert d["source_url"] == url
+        assert d["title_zh"] == "A Real Bilibili Video"
 
 
 # ---------------------------------------------------------------------------

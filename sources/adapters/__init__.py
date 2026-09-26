@@ -6,7 +6,7 @@ BUILTIN below so the app loads it.
 
 import importlib
 
-BUILTIN = ["manhuagui"]
+BUILTIN = ["manhuagui", "bilibili"]
 
 
 def load_all():
