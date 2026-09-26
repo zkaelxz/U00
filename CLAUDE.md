@@ -171,6 +171,40 @@ external project checked so far.
   the main uninstall confirmation) and should be the default shape for any
   future guardrail like it.
 
+## Known implementing/utility sessions (not named by step number)
+
+Most implementing sessions are titled by step ("Step 25w", "Step 25v roadmap
+build", etc.) and are self-explanatory. A handful of long-running sessions
+predate that convention or do cross-cutting work instead of one roadmap step,
+so they don't carry a step name — recorded here so a future planning session
+recognizes them instead of re-discovering them via `list_sessions` each time:
+
+- **"Multilingual VOD transcription workstation"**
+  (`session_014zMSq3KbwPNoU1J2KseLrU`) — **the big, original implementing
+  chat.** Running since 2026-09-22; has built and merged the large majority
+  of this project's steps and PRs. Treat this as the default target for a
+  new step handoff when the user wants it to go to "the existing chat"
+  rather than a fresh one, unless they say otherwise.
+- **"Source verification"** (`session_0178qeyaiQXHz2QMAepnCF2b`) — ad hoc
+  live-verification passes against real source-adapter sites (not a single
+  roadmap step). Opened PR #118 (4 real bugs found/fixed: kuaikan, manhuaku,
+  52shuku, xbanxia).
+- **"Functionality testing"** (`session_011vAVPUF2XG5JScPBd6t3z1`) — ad hoc
+  functionality/doc-accuracy passes (e.g. fixed 5 README doc bugs against
+  real current behavior, branch `docs-testing-cffi-note`).
+- **"Bug log HTML viewer"** (`session_01DHZ7ijwZML3BtRXs1iUgaT`) — built an
+  Artifact-based bug/case-study log viewer (branch
+  `claude/bug-log-html-viewer-rerccl`), not a roadmap step.
+
+To resume one of these (send it a new task, or relay a review finding back
+to it) rather than starting fresh: `mcp__Claude_Code_Remote__create_trigger`
+with `persistent_session_id` set to its session ID and a near-future
+`run_once_at` (a direct `SendMessage` to a `session_...` ID fails — these
+are cloud sessions, not local peer agents `ListAgents` can see). Check
+`get_session`/`list_sessions` first if a session might have gone idle,
+completed, or been retitled since this note was written — this list is a
+memory aid, not guaranteed current.
+
 ## Where things are
 
 - `docs/baihe-roadmap.md` — the roadmap itself.
