@@ -32,7 +32,6 @@ user. Would need a real job queue (Celery, RQ) for anything multi-user
 or multi-process.
 """
 
-import contextlib
 import multiprocessing
 import queue
 import threading
@@ -347,39 +346,6 @@ def _process_watcher(job_id, proc, result_queue, poll_interval=0.3):
                 logger.error(f"job {job_id} subprocess died with no result "
                             f"(exit code {proc.exitcode})")
     finally:
-        _promote_next_queued_gpu_job()
-
-
-@contextlib.contextmanager
-def gpu_slot(description: str, poll_interval: float = 0.5):
-    """For GPU-touching work that runs synchronously in the calling thread
-    (diarization, dub/narration generation) rather than as its own
-    start_job() background job -- diarization and dub both block the
-    Streamlit script directly today rather than running as tracked jobs,
-    so they need their own way to participate in the same "one GPU job at
-    a time" accounting start_job()'s gpu_touching jobs use, rather than
-    being invisible to it. Unlike start_job(), there's no later rerun to
-    hand a "queued" job off to here -- the calling script IS what's
-    waiting -- so this blocks (polling every poll_interval seconds)
-    until a slot is free instead of queuing.
-    """
-    slot_id = f"_gpu_slot_{threading.get_ident()}_{id(object())}"
-    while True:
-        with _lock:
-            if not _gpu_limit_enabled or not _other_gpu_job_running_locked(slot_id):
-                _jobs[slot_id] = {
-                    "status": "running", "progress": 0.0, "message": description,
-                    "error": None, "started_at": time.time(), "finished_at": None,
-                    "cancel_requested": False, "result": None,
-                    "gpu_touching": True, "description": description,
-                }
-                break
-        time.sleep(poll_interval)
-    try:
-        yield
-    finally:
-        with _lock:
-            _jobs.pop(slot_id, None)
         _promote_next_queued_gpu_job()
 
 

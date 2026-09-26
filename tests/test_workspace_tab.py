@@ -205,6 +205,64 @@ def test_vocal_separation_cancel_reports_cancelled_and_never_starts_transcriptio
     _clear(job_id)
 
 
+def test_cancel_right_after_vocal_separation_finishes_stops_before_transcription_starts(
+        monkeypatch, tmp_path):
+    """Step 4g checkpoint 2: separate_vocals()'s own cancel_check_cb only
+    fires between its internal chunks -- a cancel requested right at its
+    tail (after its last internal check already passed, on a short file
+    with few or no chunk boundaries) used to fall through a
+    checkpoint-free gap and let the expensive Whisper pass start anyway,
+    uninterrupted."""
+    job_id = "test_transcribe_cancel_after_separation"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    audio_path = str(tmp_path / "audio.wav")
+
+    import audio_preprocess
+
+    def fake_separate(in_path, out_path, backend="auto", progress_cb=None, cancel_check_cb=None):
+        # Separation completes normally -- but a cancel arrived right as
+        # it finished, after its own last internal checkpoint.
+        background_jobs.request_cancel(job_id)
+        return out_path
+    monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+
+    called = []
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: called.append(1))
+
+    run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
+                        separate_vocals_first=True)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"failed_reason": "cancelled"}
+    assert called == []  # transcription must never start after this checkpoint sees a cancel
+    _clear(job_id)
+
+
+def test_cancel_before_transcription_starts_with_separation_off_also_stops_it(monkeypatch):
+    """Step 4g checkpoint 2, separation-off case: with separate_vocals_first
+    False there's no separation step at all, so this checkpoint is the
+    very first place a cancel requested right after the job started (and
+    before Whisper's own checkpoint-free pass began) can be honored."""
+    job_id = "test_transcribe_cancel_no_separation"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": True, "result": None}
+
+    called = []
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: called.append(1))
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"failed_reason": "cancelled"}
+    assert called == []
+    _clear(job_id)
+
+
 def test_vocal_separation_threads_progress_and_cancel_callbacks_through(monkeypatch, tmp_path):
     """Confirms run_transcribe_job actually wires background_jobs'
     progress/cancel plumbing into separate_vocals(), not just that a
@@ -244,13 +302,25 @@ def test_cancel_after_transcription_skips_realign_but_keeps_the_transcript(monke
     of its own yet, so a cancel requested during it is only caught once
     it returns -- at that point the expensive work is already done, so
     this must skip the optional realign step rather than discard the
-    transcript (never lose already-done work over a cancel)."""
+    transcript (never lose already-done work over a cancel).
+
+    Step 4k: cancel_requested is flipped to True as a side effect of the
+    transcribe_for_timing mock itself (simulating a cancel arriving
+    *during* Whisper's pass), not preset before run_transcribe_job is
+    even called -- with Step 4g's own checkpoint 2 now built (right
+    after the separate_vocals()-or-skipped point, before Whisper starts)
+    a cancel already pending at call time is correctly caught there
+    instead, which is a different scenario from this test's."""
     job_id = "test_transcribe_cancel_after_whisper"
     _clear(job_id)
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
-                                      "error": None, "cancel_requested": True, "result": None}
+                                      "error": None, "cancel_requested": False, "result": None}
     fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: fake_segments)
+
+    def fake_transcribe(*a, **k):
+        background_jobs.request_cancel(job_id)
+        return fake_segments
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
 
     import word_align
     monkeypatch.setattr(word_align, "realign_oversized_segments",
@@ -3778,6 +3848,107 @@ class TestResegmentationStaleSnapshotSafety:
 
         assert not any(e for e in at.error)
         assert f"reseg_preview_{did}" not in at.session_state  # applied and cleared
+
+
+class TestMergeAndRestoreStaleIdSetSafety:
+    """Step 6f audit: re-segmentation's Apply got the id-set-mismatch
+    safety check above, but "Apply merge" and Version history's "Restore"
+    are the exact same shape of bug -- each computes a full line-list
+    replacement from a snapshot (merge_preview from edited_rows at
+    Preview time; the restored snapshot's ids adopted from
+    st.session_state.lines) and commits it via db.save_lines without
+    ever checking whether the database's real current id set has since
+    diverged. Both now refuse instead of silently corrupting data."""
+
+    def _drama_with_two_mergeable_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=0.5, zh="你", en="You"),
+            Line(idx=1, start=0.6, end=1.0, zh="好", en="good"),
+        ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _click(self, at, label=None, key=None):
+        matches = [b for b in at.button if (key and b.key == key) or (label and b.label == label)]
+        assert matches, f"button {label or key!r} not found on the page"
+        matches[0].click()
+        at.run(timeout=30)
+
+    def test_apply_merge_refuses_when_the_database_changed_since_preview_ran(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        at = self._run(did)
+        self._click(at, label="Preview merge")
+
+        # The database changes after Preview ran but before Apply is clicked.
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=2, start=2.0, end=3.0, zh="新的一行。"))
+        isolated_db.save_lines(did, lines)
+        before = isolated_db.load_line_objects(did)
+
+        self._click(at, label="✅ Apply merge")
+
+        assert any("changed since this preview was computed" in e.value for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [(l.id, l.zh) for l in after] == [(l.id, l.zh) for l in before]  # untouched
+
+    def test_apply_merge_succeeds_normally_when_nothing_changed_in_between(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        at = self._run(did)
+        self._click(at, label="Preview merge")
+        self._click(at, label="✅ Apply merge")
+
+        assert not any(e for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [l.zh for l in after] == ["你好"]
+
+    def test_restore_refuses_when_the_database_changed_since_lines_were_loaded(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "two lines")
+        at = self._run(did)
+
+        # Something else changes the database after this render's
+        # st.session_state.lines was already populated.
+        lines = isolated_db.load_line_objects(did)
+        lines.append(Line(idx=2, start=2.0, end=3.0, zh="新的一行。"))
+        isolated_db.save_lines(did, lines)
+        before = isolated_db.load_line_objects(did)
+
+        snap = [h for h in isolated_db.list_line_history(did) if h["label"] == "two lines"][0]
+        self._click(at, key=f"restore_{snap['id']}")
+
+        assert any("changed since they were last loaded" in e.value for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [(l.id, l.zh) for l in after] == [(l.id, l.zh) for l in before]  # untouched
+
+    def test_restore_succeeds_normally_when_nothing_changed_in_between(self, isolated_db):
+        did = self._drama_with_two_mergeable_lines(isolated_db)
+        isolated_db.save_line_history_snapshot(did, isolated_db.load_line_objects(did), "two lines")
+        merged = isolated_db.load_line_objects(did)
+        merged[0].zh = "你好"
+        isolated_db.save_lines(did, [merged[0]])
+        at = self._run(did)
+
+        snap = [h for h in isolated_db.list_line_history(did) if h["label"] == "two lines"][0]
+        self._click(at, key=f"restore_{snap['id']}")
+
+        assert not any(e for e in at.error)
+        after = isolated_db.load_line_objects(did)
+        assert [l.zh for l in after] == ["你", "好"]
 
 
 class TestTranslationOnlyEngineGatesLlmOnlyButtons:

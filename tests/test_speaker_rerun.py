@@ -12,6 +12,7 @@ import types
 
 import pytest
 
+import background_jobs
 import core
 import diarize
 from core import Line
@@ -330,3 +331,72 @@ class TestExpectedSpeakersDefaultsToLastRun:
         assert self._box(at).value == 3
         self._box(at).set_value(5).run(timeout=30)
         assert self._box(at).value == 5
+
+
+class TestExpectedSpeakersCapturedAtJobStart:
+    """Step 4f: _apply_diarization_job_result used to save whatever the
+    "Expected number of speakers" widget showed at the moment the job
+    was observed as 'done', not the count the job actually started with
+    -- a real background job can take a while, and editing the widget
+    while one is still running used to get saved as metadata against a
+    result that already ran with the old count."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_hf_token"] = "hf_fake"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _set_expected_speakers(self, at, n):
+        [box] = [n_ for n_ in at.number_input if n_.label.startswith("Expected number of speakers")]
+        box.set_value(n).run(timeout=30)
+
+    def _click(self, at, label):
+        [b] = [b for b in at.button if b.label == label]
+        b.click().run(timeout=30)
+
+    def test_widget_change_while_the_job_is_still_running_does_not_corrupt_its_result(
+            self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db)
+        job_id = f"diarize_{did}"
+
+        def fake_start(jid, target, args=(), gpu_touching=False, description=None):
+            background_jobs._jobs[jid] = {
+                "status": "running", "progress": 0.0, "message": "",
+                "error": None, "started_at": 0.0, "finished_at": None,
+                "cancel_requested": False, "result": None,
+                "gpu_touching": gpu_touching, "description": description,
+                "kind": "process", "process": None,
+            }
+            return True
+        monkeypatch.setattr(background_jobs, "start_process_job", fake_start)
+
+        at = self._run(did)
+        self._set_expected_speakers(at, 3)
+        self._click(at, "🔁 Re-run speaker detection")  # starts running with 3
+
+        # The field is edited while that run is still going -- must not
+        # affect the run already in flight.
+        self._set_expected_speakers(at, 5)
+        assert background_jobs.get_status(job_id)["status"] == "running"
+
+        # The job now reports its real completion.
+        background_jobs._jobs[job_id] = {
+            "status": "done", "progress": 1.0, "message": "",
+            "error": None, "started_at": 0.0, "finished_at": 1.0,
+            "cancel_requested": False,
+            "result": {"segments": THREE, "model": "fake-model", "embeddings": {}},
+            "gpu_touching": True, "description": None, "kind": "process", "process": None,
+        }
+        at.run(timeout=30)
+
+        assert diarize.load_last_speaker_count(ddir) == 3

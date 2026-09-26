@@ -158,9 +158,9 @@ class TestGeminiFreeTierCheckbox:
 class TestLimitOneGpuJobToggle:
     """Step 5c: a "Limit to one GPU job at a time" checkbox, defaulting on,
     that syncs into background_jobs' own module-level flag so start_job()
-    and gpu_slot() calls made anywhere in the same script run see the
-    current value -- background_jobs deliberately doesn't import
-    streamlit, so this sidebar is what keeps it in sync."""
+    calls made anywhere in the same script run see the current value --
+    background_jobs deliberately doesn't import streamlit, so this
+    sidebar is what keeps it in sync."""
 
     def _run(self):
         from streamlit.testing.v1 import AppTest
