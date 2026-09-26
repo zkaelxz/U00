@@ -1866,7 +1866,7 @@ def render_workspace_tab():
                           "placement/styling, and only reads ONE caption region even if the video "
                           "has captions in two places at once (e.g. a header AND a bottom caption).")
                 _hardsub_backend_options = ["tesseract", "paddle"] if source_language == "zh" else ["tesseract"]
-                ocr_backend_choice = st.selectbox(
+                st.selectbox(
                     "OCR engine", _hardsub_backend_options,
                     index=(1 if source_language == "zh" else 0),
                     format_func=lambda b: "Tesseract (general-purpose)" if b == "tesseract"
@@ -1876,7 +1876,7 @@ def render_workspace_tab():
                          "(`pip install paddleocr paddlepaddle`). Switch to Tesseract if PaddleOCR "
                          "isn't installed and you'd rather not install it.",
                     key=f"hardsub_ocr_backend_{picked_id}")
-                sample_interval = st.slider(
+                st.slider(
                     "Sample every N seconds", 0.5, 3.0, 1.0, step=0.5,
                     key=f"hardsub_interval_{picked_id}",
                     help="Lower catches short-lived captions more reliably but takes longer to run.")
@@ -2300,7 +2300,7 @@ def render_workspace_tab():
                      "downloads its own model on first use. Skip this for already-clean "
                      "dialogue -- there's nothing for it to separate out. Needs "
                      "`pip install audio-separator` (preferred) or `pip install demucs`.")
-            separation_backend = st.selectbox(
+            st.selectbox(
                 "Music-removal model", list(audio_preprocess.SEPARATION_BACKENDS),
                 format_func=lambda b: audio_preprocess.SEPARATION_BACKENDS[b],
                 disabled=not separate_vocals_first, key=f"separation_backend_{picked_id}",

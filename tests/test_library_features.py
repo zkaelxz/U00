@@ -659,7 +659,7 @@ class TestManagePresetsUI:
             "New name").run()
         [b for b in at.button if b.key == f"rename_preset_btn_{pid}"][0].click().run()
 
-        p = isolated_db.get_preset(pid)
+        p = next(p for p in isolated_db.list_presets() if p["id"] == pid)
         assert p["name"] == "New name"
         assert p["translation_engine"] == "claude"
         assert p["locale"] == "en-US"
@@ -687,7 +687,7 @@ class TestManagePresetsUI:
 
         [b for b in at.button if b.key == f"delete_preset_{pid}"][0].click().run()
 
-        assert isolated_db.get_preset(pid) is None
+        assert not any(p["id"] == pid for p in isolated_db.list_presets())
         assert isolated_db.get_drama(did) == before
 
 
