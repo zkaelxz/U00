@@ -689,3 +689,223 @@ class TestManagePresetsUI:
 
         assert isolated_db.get_preset(pid) is None
         assert isolated_db.get_drama(did) == before
+
+
+class TestListDramasBySeries:
+    """Step 22: the series-view query -- every drama for a given
+    series_id, regardless of media_type."""
+
+    def test_returns_every_media_type_in_the_series(self, isolated_db):
+        sid = isolated_db.get_or_create_series("A Series")
+        d1 = isolated_db.create_drama(title_en="The Show", series_id=sid, media_type="video_drama")
+        d2 = isolated_db.create_drama(title_en="The Manga", series_id=sid, media_type="manga")
+        d3 = isolated_db.create_drama(title_en="The Novel", series_id=sid, media_type="novel")
+        isolated_db.create_drama(title_en="Unrelated", media_type="novel")  # no series -- excluded
+
+        result = isolated_db.list_dramas_by_series(sid)
+        assert {d["id"] for d in result} == {d1, d2, d3}
+
+    def test_a_different_series_id_is_not_included(self, isolated_db):
+        sid_a = isolated_db.get_or_create_series("Series A")
+        sid_b = isolated_db.get_or_create_series("Series B")
+        isolated_db.create_drama(title_en="In B", series_id=sid_b)
+        assert isolated_db.list_dramas_by_series(sid_a) == []
+
+    def test_empty_for_a_series_with_no_dramas(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Empty Series")
+        assert isolated_db.list_dramas_by_series(sid) == []
+
+
+class TestLibrarySeriesView:
+    """Step 22 item 1: a series-level view in Library grouping every
+    drama in a series together, across media types, for any series with
+    more than one drama."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_a_single_drama_series_is_not_shown(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Solo Series")
+        isolated_db.create_drama(title_en="Only One", series_id=sid)
+        at = self._run()
+        assert any("No series with more than one drama yet" in c.value for c in at.caption)
+        assert not any("Solo Series" in m.value for m in at.markdown)
+
+    def test_a_multi_drama_series_lists_every_drama_across_media_types(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Mixed Series")
+        isolated_db.create_drama(title_en="The Show", series_id=sid, media_type="video_drama")
+        isolated_db.create_drama(title_en="The Manga", series_id=sid, media_type="manga")
+        isolated_db.create_drama(title_en="The Novel", series_id=sid, media_type="novel")
+
+        at = self._run()
+        assert any("Mixed Series" in m.value for m in at.markdown)
+        summary = next(m.value for m in at.markdown if "Mixed Series" in m.value)
+        assert "1 Video Drama" in summary and "1 Manga" in summary and "1 Novel" in summary
+        titles = " ".join(c.value for c in at.caption)
+        assert "The Show" in titles and "The Manga" in titles and "The Novel" in titles
+
+    def test_counts_pluralize_when_more_than_one(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Streamer Archive")
+        isolated_db.create_drama(title_en="Stream 1", series_id=sid, media_type="streamer_vod")
+        isolated_db.create_drama(title_en="Stream 2", series_id=sid, media_type="streamer_vod")
+        at = self._run()
+        summary = next(m.value for m in at.markdown if "Streamer Archive" in m.value)
+        assert "2 Streamer VODs" in summary
+
+    def test_shows_shared_character_and_glossary_counts(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Cast Series")
+        isolated_db.create_drama(title_en="D1", series_id=sid)
+        isolated_db.create_drama(title_en="D2", series_id=sid)
+        isolated_db.upsert_series_character(sid, "Shen Qingyi")
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi")
+        at = self._run()
+        captions = " ".join(c.value for c in at.caption)
+        assert "1 shared character(s)" in captions
+        assert "1 glossary term(s)" in captions
+
+    def test_open_button_switches_the_active_drama(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Jump Series")
+        d1 = isolated_db.create_drama(title_en="First", series_id=sid)
+        d2 = isolated_db.create_drama(title_en="Second", series_id=sid)
+        at = self._run()
+
+        [b for b in at.button if b.key == f"series_open_{d2}"][0].click().run(timeout=30)
+
+        assert at.session_state["active_drama_id"] == d2
+        # nav_notice is popped and shown as an st.info() the very next
+        # rerun (same pattern as the existing "Resume" button), so by the
+        # time .run() returns it's already been consumed into the banner.
+        assert any("Workspace" in i.value for i in at.info)
+
+
+class TestLibrarySectionsAreCollapsible:
+    """Step 22 item 5: Library's own sections are individually
+    collapsible, Dashboard/Series-adjacent Search and Filter open by
+    default, the rest collapsed."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_every_top_level_section_is_an_expander(self, isolated_db):
+        at = self._run()
+        labels = {e.label for e in at.expander}
+        for label in ("📊 Dashboard", "🎭 Series", "🔍 Search across all dramas", "Filter",
+                      "🗄️ Storage", "📜 Reading history", "💾 Backup & restore", "🎛️ Presets"):
+            assert label in labels, f"missing expander: {label}"
+
+    def test_dashboard_and_search_and_filter_default_open(self, isolated_db):
+        at = self._run()
+        by_label = {e.label: e for e in at.expander}
+        assert by_label["📊 Dashboard"].proto.expanded is True
+        assert by_label["🔍 Search across all dramas"].proto.expanded is True
+        assert by_label["Filter"].proto.expanded is True
+
+    def test_series_and_the_rest_default_collapsed(self, isolated_db):
+        at = self._run()
+        by_label = {e.label: e for e in at.expander}
+        for label in ("🎭 Series", "🗄️ Storage", "📜 Reading history",
+                      "💾 Backup & restore", "🎛️ Presets"):
+            assert by_label[label].proto.expanded is False, f"{label} should default collapsed"
+
+
+class TestSeriesPickerSharedBetweenMetadataAndGlossary:
+    """Step 22 item 4: the same series_options dropdown, driven by the
+    same db.update_drama(series_id=...) call, now also lives in ✏️ Edit
+    metadata -- not just 📖 Series glossary & term handling."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_metadata_expander_has_a_series_picker(self, isolated_db):
+        isolated_db.get_or_create_series("Existing Series")
+        did = isolated_db.create_drama(title_en="A Drama")
+        at = self._run(did)
+        assert any(s.key and s.key.startswith(f"meta_series_pick_{did}_") for s in at.selectbox)
+
+    def test_assigning_a_series_from_metadata_reflects_in_the_glossary_picker(self, isolated_db):
+        isolated_db.get_or_create_series("Shared Universe")
+        did = isolated_db.create_drama(title_en="A Drama")
+        at = self._run(did)
+
+        meta_picker = [s for s in at.selectbox if s.key and s.key.startswith(f"meta_series_pick_{did}_")][0]
+        meta_picker.set_value("Shared Universe").run(timeout=30)
+
+        assert isolated_db.get_drama(did)["series_id"] == isolated_db.get_or_create_series("Shared Universe")
+        glossary_picker = [s for s in at.selectbox if s.key and s.key.startswith(f"glossary_series_pick_{did}_")][0]
+        assert glossary_picker.value == "Shared Universe"
+
+    def test_assigning_from_glossary_reflects_in_the_metadata_picker(self, isolated_db):
+        isolated_db.get_or_create_series("Shared Universe 2")
+        did = isolated_db.create_drama(title_en="A Drama")
+        at = self._run(did)
+
+        glossary_picker = [s for s in at.selectbox if s.key and s.key.startswith(f"glossary_series_pick_{did}_")][0]
+        glossary_picker.set_value("Shared Universe 2").run(timeout=30)
+
+        assert isolated_db.get_drama(did)["series_id"] == isolated_db.get_or_create_series("Shared Universe 2")
+        meta_picker = [s for s in at.selectbox if s.key and s.key.startswith(f"meta_series_pick_{did}_")][0]
+        assert meta_picker.value == "Shared Universe 2"
+
+
+class TestSeriesSharingIndicators:
+    """Step 22 item 2: a "shared from this series" note wherever a
+    character or glossary term appears, since the sharing already
+    happens under the hood."""
+
+    def _run_workspace(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_a_series_linked_character_shows_the_shared_indicator(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Cast Series")
+        isolated_db.upsert_series_character(sid, "Shen Qingyi")
+        [sc] = isolated_db.list_series_characters(sid)
+        did = isolated_db.create_drama(title_en="A Drama", series_id=sid)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Shen Qingyi",
+                                      series_character_id=sc["id"])
+
+        at = self._run_workspace(did)
+        assert any("Shared with other dramas in this series" in c.value for c in at.caption)
+
+    def test_a_character_with_no_series_link_shows_no_indicator(self, isolated_db):
+        did = isolated_db.create_drama(title_en="A Drama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", speaker="SPEAKER_00")])
+        isolated_db.upsert_character(did, "SPEAKER_00", character_name="Someone")
+        at = self._run_workspace(did)
+        assert not any("Shared with other dramas in this series" in c.value for c in at.caption)
