@@ -1374,6 +1374,116 @@ class TestVoiceMatchSuggestions:
         assert not [b for b in at.button if (b.key or "").startswith("voiceaccept_")]
 
 
+class TestCharacterNamingGaps:
+    """Step 8b: three real gaps in "Name your characters" -- no transcript
+    sample shown per speaker (no way to tell who SPEAKER_00 actually is
+    without cross-referencing Review & edit by hand), a missing clone
+    reference with no explanation of why, and a silently-blank "what's
+    said in that clip" field indistinguishable from never having run
+    auto-extract at all."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="aligned",
+                                        audio_filename="audio.wav")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="你好啊", speaker="SPEAKER_00"),
+            Line(idx=1, start=2.0, end=3.0, zh="是的", speaker="SPEAKER_00"),
+            Line(idx=2, start=4.0, end=5.0, zh="再见", speaker="SPEAKER_00"),
+        ])
+        isolated_db.upsert_character(did, "SPEAKER_00")
+        isolated_db.upsert_character(did, "SPEAKER_01")  # no lines attributed at all
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        return did, ddir
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_a_speaker_with_lines_shows_a_real_sample(self, isolated_db):
+        did, ddir = self._drama(isolated_db)
+        at = self._run(did)
+        captions = [c.value for c in at.caption]
+        assert any("你好啊" in c for c in captions)
+
+    def test_a_speaker_with_no_lines_says_so_instead_of_showing_nothing(self, isolated_db):
+        did, ddir = self._drama(isolated_db)
+        at = self._run(did)
+        captions = [c.value for c in at.caption]
+        assert any("No lines attributed to this speaker yet" in c for c in captions)
+
+    def test_a_skipped_speaker_shows_the_specific_reason_not_a_bare_caption(
+            self, isolated_db, monkeypatch):
+        did, ddir = self._drama(isolated_db)
+        import diarize
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_01"}])
+
+        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+            return {}, {"SPEAKER_01": {"closest_duration": 1.5, "reason": "too_short"}}
+        monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎯 Auto-extract reference clips from this audio"]
+        assert buttons, "Auto-extract button not found"
+        buttons[0].click().run(timeout=30)
+
+        captions = [c.value for c in at.caption]
+        assert any("1.5s" in c and "shorter than the 3s minimum" in c for c in captions)
+
+    def test_a_failed_ref_text_match_shows_a_specific_reason_not_a_blank_box(
+            self, isolated_db, monkeypatch):
+        did, ddir = self._drama(isolated_db)
+        import diarize
+        diarize.save_turns(ddir, [{"start": 100.0, "end": 106.0, "speaker": "SPEAKER_00"}])
+
+        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+            # A clip WAS found, but its time window (100-106s) doesn't
+            # match any of this drama's real lines (all under 5s) -- the
+            # exact "clip found, speaker-tag match failed" case.
+            return {"SPEAKER_00": {"path": os.path.join(drama_dir, "SPEAKER_00.wav"),
+                                   "start": 100.0, "end": 106.0}}, {}
+        monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎯 Auto-extract reference clips from this audio"]
+        buttons[0].click().run(timeout=30)
+
+        assert db.list_characters(did)[0]["ref_text"] in (None, "")
+        captions = [c.value for c in at.caption]
+        assert any("no transcript line's speaker tag matched it" in c for c in captions)
+
+    def test_a_successful_ref_text_match_is_saved_normally(self, isolated_db, monkeypatch):
+        did, ddir = self._drama(isolated_db)
+        import diarize
+        diarize.save_turns(ddir, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}])
+
+        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+            return {"SPEAKER_00": {"path": os.path.join(drama_dir, "SPEAKER_00.wav"),
+                                   "start": 0.0, "end": 1.0}}, {}
+        monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
+
+        at = self._run(did)
+        buttons = [b for b in at.button if b.label == "🎯 Auto-extract reference clips from this audio"]
+        buttons[0].click().run(timeout=30)
+
+        chars = {c["speaker_label"]: c for c in db.list_characters(did)}
+        assert chars["SPEAKER_00"]["ref_text"] == "你好啊"
+        captions = [c.value for c in at.caption]
+        assert not any("no transcript line's speaker tag matched it" in c for c in captions)
+
+
 class _CapPricedEngine:
     """$2.00 per batch on claude-sonnet-5 (1M input tokens each)."""
     name = "claude"
@@ -1716,6 +1826,61 @@ class TestGemini31FlashLiteInDropdown:
         assert engine.model == "gemini-3.1-flash-lite"
 
 
+class TestGeminiFreeTierProGating:
+    """Step 1f item 4: Gemini Pro was removed from the free tier entirely
+    in April 2026 -- picking it with a free-tier key flagged shows a clear
+    message and blocks the call, instead of a raw API error."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_gemini"] = "gm-fake"
+        at.session_state["gemini_free_tier"] = True
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _model_box(self, at):
+        return [b for b in at.selectbox if b.label == "Gemini model"][0]
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="G", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned",
+                                       translation_engine="gemini")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def test_selecting_pro_shows_a_clear_message_and_blocks_translate(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(args=a) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._model_box(at).set_value("gemini-pro-latest").run()
+
+        assert any("Pro isn't available on the Gemini free tier" in e.value for e in at.error)
+        translate_button = [b for b in at.button if b.label == "🌐 Translate all lines"][0]
+        # A disabled button can't even be clicked in a real browser -- AppTest
+        # itself refuses to interact with one, which is the strongest proof
+        # available here that the call is genuinely blocked, not just warned about.
+        assert translate_button.disabled
+        assert "args" not in captured  # the job never started
+
+    def test_flash_lite_is_unaffected(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert not any("Pro isn't available" in e.value for e in at.error)
+        translate_button = [b for b in at.button if b.label == "🌐 Translate all lines"][0]
+        assert not translate_button.disabled
+
+
 class TestJobEtaDisplay:
     """Step 9b.1 exit condition: the ETA appears once progress is
     non-trivial, and disappears/holds sensibly at 0% and 100%."""
@@ -2000,6 +2165,186 @@ class TestImproveTranslationUseThisRefreshesTheEnBox:
         assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["A much better line."]
         assert at.session_state.lines[0].en == "A much better line."
         assert isolated_db.load_lines(did)[0]["en"] == "A much better line."
+
+
+class TestTranslateJobRefreshesStaleEnBoxes:
+    """Step 9h: a real, confirmed gap -- a translate job correctly writes
+    ln.en and reloads st.session_state.lines from the database before
+    rendering "Translation complete.", but the en_<idx> text_area is a
+    purely positional widget key. Streamlit ignores a widget's value=
+    once st.session_state[key] already exists (cached as "" from every
+    earlier render while the line was untranslated), so the box kept
+    showing stale empty text until a hard refresh wiped session state.
+    Same fix shape as Step 6d's merge/restore/improve-translation cases,
+    applied here to a background translate job's own completion path."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned",
+                                       translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_translated_text_shows_immediately_no_hard_refresh_needed(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        # The en_0 box exists (and its session-state value is cached as ""),
+        # same as a real page that's been open since before the line was
+        # translated -- the exact precondition that made this box go stale.
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == [""]
+
+        job_id = f"translate_{did}"
+        translated = isolated_db.load_line_objects(did)
+        translated[0].en = "Hello."
+        isolated_db.save_lines(did, translated, fields=("en",))
+        background_jobs._jobs[job_id] = {
+            "status": "done", "progress": 1.0, "message": "", "error": None,
+            "cancel_requested": False, "result": {"errors": [], "cap_reached": None},
+        }
+        at.run(timeout=30)
+
+        assert any("Translation complete." in s.value for s in at.success)
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hello."]
+        background_jobs.clear_job(job_id)
+
+    def test_bulk_jobs_panel_completion_also_refreshes_the_en_box(self, isolated_db):
+        """The same staleness applies to the Bulk jobs panel's own
+        poller-completion path, which also updates ln.en (a bulk-mode
+        translate result) without going through run_translate_job."""
+        did = self._drama(isolated_db)
+        line_id = isolated_db.load_line_objects(did)[0].id
+        job_row_id = isolated_db.create_bulk_job(
+            did, "claude", "claude-sonnet-5", "submitted", [(line_id, "req1", "hash1", "")])
+        at = self._run(did)
+        # Seen as "submitted, not yet applied" on this first render -- the
+        # panel's own seen-set tracking needs to observe the job BEFORE it
+        # flips to "applied" for the poller-completion branch to fire, same
+        # as a real pending-then-applied bulk job would be observed twice.
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == [""]
+
+        translated = isolated_db.load_line_objects(did)
+        translated[0].en = "Hi from bulk."
+        isolated_db.save_lines(did, translated, fields=("en",))
+        isolated_db.update_bulk_job(job_row_id, status="applied")
+        at.run(timeout=30)
+
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hi from bulk."]
+
+    def test_fix_flagged_lines_completion_also_refreshes_the_zh_and_en_boxes(self, isolated_db):
+        """A third real instance of the same gap, found during Step 9h's
+        own audit: "Fix flagged lines" rewrites both zh and en (and clears
+        the flag) for the lines it touches, and had the identical
+        stale-widget-cache bug. Verified via "Save edits," same as Step
+        6d's merge/restore tests -- reading a widget's rendered value back
+        out through the app's own save path is more robust here than
+        introspecting AppTest's ElementTree directly across a run where
+        the flagged-line warning/dismiss block appears and disappears."""
+        did = self._drama(isolated_db)
+        # "Fix flagged lines in bulk" only renders once at least one line
+        # is flagged -- the real precondition for this job to ever run.
+        flagged = isolated_db.load_line_objects(did)
+        flagged[0].flag, flagged[0].flag_note = "check", "sounds off"
+        isolated_db.save_lines(did, flagged, fields=("flag", "flag_note"))
+        at = self._run(did)
+
+        job_id = f"fixflag_{did}"
+        fixed = isolated_db.load_line_objects(did)
+        fixed[0].zh, fixed[0].en = "重新识别的文本", "Re-recognized text."
+        fixed[0].flag, fixed[0].flag_note = None, ""
+        isolated_db.save_lines(did, fixed, fields=("zh", "en", "flag", "flag_note"))
+        background_jobs._jobs[job_id] = {
+            "status": "done", "progress": 1.0, "message": "", "error": None,
+            "cancel_requested": False, "result": {"fixed_count": 1, "total_flagged": 1},
+        }
+        at.run(timeout=30)
+        at.run(timeout=30)
+
+        [b for b in at.button if b.label == "💾 Save edits (this page)"][0].click()
+        at.run(timeout=30)
+        saved = isolated_db.load_lines(did)[0]
+        assert saved["zh"] == "重新识别的文本"
+        assert saved["en"] == "Re-recognized text."
+        background_jobs.clear_job(job_id)
+
+
+class TestManualRefreshButton:
+    """Step 9i item 2: a general-purpose escape hatch next to the drama
+    picker -- reloads lines from the database and clears the same
+    per-line widget cache every other targeted fix in this file already
+    clears, regardless of what caused the staleness."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi there.")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_refresh_button_exists_next_to_the_drama_picker(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert [b for b in at.button if b.label == "🔄 Refresh"]
+
+    def test_refresh_reloads_a_change_made_outside_the_page(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hi there."]
+
+        # A change made by something other than this page (another tab,
+        # a job with no completion handler of its own, direct DB access)
+        # -- the exact "whatever caused the staleness" case this button
+        # exists for.
+        changed = isolated_db.load_line_objects(did)
+        changed[0].en = "Refreshed text."
+        isolated_db.save_lines(did, changed, fields=("en",))
+
+        [b for b in at.button if b.label == "🔄 Refresh"][0].click()
+        at.run(timeout=30)
+
+        assert at.session_state.lines[0].en == "Refreshed text."
+        assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Refreshed text."]
+
+    def test_refresh_is_disabled_for_new_drama(self, isolated_db):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = None
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+
+        refresh_buttons = [b for b in at.button if b.label == "🔄 Refresh"]
+        assert refresh_buttons and refresh_buttons[0].disabled
 
 
 class TestRawNovelToggleGatedByContentMode:

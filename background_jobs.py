@@ -469,6 +469,31 @@ def is_cancel_requested(job_id: str) -> bool:
         return bool(job and job.get("cancel_requested"))
 
 
+def cancel_queued(job_id: str) -> bool:
+    """Cancels a job that's still queued (waiting for a GPU slot) -- for a
+    queued job's own Cancel button. Re-checks the job's actual current
+    status under the lock rather than trusting the caller's stale render:
+    _promote_next_queued_gpu_job() (called whenever another GPU-touching
+    job finishes) can promote this job to "running" and spawn its
+    background thread in the narrow window between the render that showed
+    Cancel and the click being processed. Clearing the record outright in
+    that case would leave the now-genuinely-running job with no `_jobs`
+    entry left for Stop/request_cancel to reach -- it would keep running
+    for real, invisibly and uncancellably.
+
+    Returns True if the job was still queued and its record was cleared.
+    Returns False if it had already been promoted to running -- the
+    caller should fall back to whatever it does for a live "Stop" (e.g.
+    bumping a generation counter) before/alongside calling
+    request_cancel(), since the job is now genuinely running."""
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None or job["status"] == "queued":
+            clear_job(job_id)
+            return True
+        return False
+
+
 def clear_job(job_id: str):
     """Removes a finished job's record so the UI stops showing it. Only
     safe to call once the job isn't running -- clearing a live THREAD-

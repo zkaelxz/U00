@@ -551,6 +551,74 @@ class TestBulkSeriesTranslateStatusUI:
         assert background_jobs.get_status(lt.BULK_SERIES_TRANSLATE_JOB_ID) is None
 
 
+class TestBulkSeriesTranslateRefreshesOpenWorkspaceDrama:
+    """Step 9i item 1: the same Step 9h staleness, triggered from a
+    different tab -- Library's own bulk-translate completion never
+    touched st.session_state.lines, so a drama bulk-translated from here
+    while it's also the currently-open Workspace drama showed stale
+    pre-translation text until a hard refresh."""
+
+    def _run(self, **session_state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        for k, v in session_state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_refreshes_lines_when_the_open_drama_was_just_translated(self, isolated_db):
+        import tabs.library_tab as lt
+        did = isolated_db.create_drama(title_en="Open Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+        background_jobs._jobs[lt.BULK_SERIES_TRANSLATE_JOB_ID] = {
+            "status": "done", "progress": 1.0, "message": "Done", "error": None,
+            "cancel_requested": False, "started_at": time.time() - 30,
+            "result": {"translated": [did], "skipped_running": [], "skipped_no_key": [],
+                      "skipped_no_lines": [], "errors": {}}}
+
+        # The job's own real completion already wrote the translation to
+        # the database before flipping to "done" -- simulated here the
+        # same way, since run_bulk_series_translate_job itself isn't
+        # under test in this class.
+        translated = isolated_db.load_line_objects(did)
+        translated[0].en = "Hello."
+        isolated_db.save_lines(did, translated, fields=("en",))
+
+        at = self._run(active_drama_id=did, lines=[Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        at.run(timeout=30)
+
+        assert at.session_state.lines[0].en == "Hello."
+
+    def test_does_not_touch_lines_for_an_unrelated_open_drama(self, isolated_db):
+        import tabs.library_tab as lt
+        did = isolated_db.create_drama(title_en="Translated Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned")
+        other_did = isolated_db.create_drama(title_en="Open But Untouched Drama",
+                                             media_type="audio_drama", content_mode="audio_drama")
+        isolated_db.save_lines(other_did, [Line(idx=0, start=0.0, end=1.0, zh="别的", en="")])
+        background_jobs.clear_job(lt.BULK_SERIES_TRANSLATE_JOB_ID)
+        background_jobs._jobs[lt.BULK_SERIES_TRANSLATE_JOB_ID] = {
+            "status": "done", "progress": 1.0, "message": "Done", "error": None,
+            "cancel_requested": False, "started_at": time.time() - 30,
+            "result": {"translated": [did], "skipped_running": [], "skipped_no_key": [],
+                      "skipped_no_lines": [], "errors": {}}}
+
+        sentinel_lines = [Line(idx=0, start=0.0, end=1.0, zh="别的", en="")]
+        at = self._run(active_drama_id=other_did, lines=sentinel_lines)
+        at.run(timeout=30)
+
+        # Untouched -- the same object identity, not just equal content,
+        # proves this drama's lines were never reassigned.
+        assert at.session_state.lines is sentinel_lines
+
+
 class TestManagePresetsUI:
     """Step 9c item 4: the Library tab's "🎛️ Presets" panel -- list,
     rename, delete."""
