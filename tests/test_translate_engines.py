@@ -833,11 +833,14 @@ class TestGeminiEngine:
 
 
 class TestGeminiFreeTierThrottle:
-    """Step 1d item 4: a free-tier Gemini key hard-errors past ~10
-    requests/minute rather than queuing, so GeminiEngine paces itself
-    client-side instead. Uses a fake monotonic clock so the test doesn't
-    actually take a minute to run -- only the *decision* to wait, and for
-    how long, is under test, not real wall-clock sleeping."""
+    """Step 1d item 4 added RPM-only throttling; Step 1f extends it to all
+    three real limits Google actually enforces -- RPM and RPD are
+    per-model (Flash: 10/250, Flash-Lite: 15/1000), TPM (250k) is shared
+    across every model. GeminiEngine paces itself client-side against
+    whichever ceiling is closest. Uses a fake monotonic clock so a test
+    doesn't actually take a minute (or a day) to run -- only the
+    *decision* to wait, and for how long, is under test, not real
+    wall-clock sleeping."""
 
     def _fake_clock(self, monkeypatch):
         state = {"now": 0.0, "slept": []}
@@ -860,10 +863,16 @@ class TestGeminiFreeTierThrottle:
             engine._throttle_for_free_tier()
         assert state["slept"] == []
 
+    def test_flash_and_flash_lite_have_different_real_limits(self):
+        assert te.gemini_free_tier_limits_for("gemini-flash-latest") == {"rpm": 10, "rpd": 250}
+        assert te.gemini_free_tier_limits_for("gemini-flash-lite-latest") == {"rpm": 15, "rpd": 1000}
+        assert te.gemini_free_tier_limits_for("gemini-3.1-flash-lite") == {"rpm": 15, "rpd": 1000}
+
     def test_free_tier_stays_at_or_under_the_per_minute_limit(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", free_tier=True)
-        for _ in range(25):
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = te.gemini_free_tier_limits_for(engine.model)["rpm"]
+        for _ in range(limit * 3):
             engine._throttle_for_free_tier()
             state["now"] += 0.01  # each call takes negligible real time
 
@@ -872,18 +881,140 @@ class TestGeminiFreeTierThrottle:
         times = sorted(engine._free_tier_request_times)
         for t in times:
             in_window = sum(1 for other in times if t - 60 < other <= t)
-            assert in_window <= te.GEMINI_FREE_TIER_MAX_PER_MINUTE, (
-                f"{in_window} requests fell within 60s of t={t:.2f} -- over the limit")
+            assert in_window <= limit, (
+                f"{in_window} requests fell within 60s of t={t:.2f} -- over the {limit} rpm limit")
 
-    def test_the_11th_request_within_a_minute_waits(self, monkeypatch):
+    def test_the_request_past_the_per_minute_limit_waits(self, monkeypatch):
         state = self._fake_clock(monkeypatch)
-        engine = te.GeminiEngine("fake-key", free_tier=True)
-        for _ in range(te.GEMINI_FREE_TIER_MAX_PER_MINUTE):
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = te.gemini_free_tier_limits_for(engine.model)["rpm"]
+        for _ in range(limit):
             engine._throttle_for_free_tier()
-        assert state["slept"] == []  # first 10 in the same instant: no wait needed
+        assert state["slept"] == []  # all within the same instant: no wait needed
 
         engine._throttle_for_free_tier()
-        assert state["slept"] == [60.0]  # the 11th has to wait out the window
+        assert state["slept"] == [60.0]  # the next one has to wait out the window
+
+    def test_rpd_paces_a_job_even_well_under_the_per_minute_limit(self, monkeypatch):
+        """RPD is a real, separate ceiling from RPM -- a job well under its
+        per-minute limit can still have used up its whole day's budget."""
+        state = self._fake_clock(monkeypatch)
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        limit = te.gemini_free_tier_limits_for(engine.model)["rpd"]
+        engine._free_tier_daily_request_times = [0.0] * limit
+
+        engine._throttle_for_free_tier()
+        assert state["slept"] == [86400.0]
+
+    def test_tpm_paces_a_job_when_past_requests_used_the_shared_budget(self, monkeypatch):
+        state = self._fake_clock(monkeypatch)
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine._free_tier_token_counts = [(0.0, te.GEMINI_FREE_TIER_TPM)]
+
+        engine._throttle_for_free_tier()
+        assert state["slept"] == [60.0]
+
+    def test_tpm_does_not_pace_a_job_under_the_shared_budget(self, monkeypatch):
+        state = self._fake_clock(monkeypatch)
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine._free_tier_token_counts = [(0.0, 10)]
+
+        engine._throttle_for_free_tier()
+        assert state["slept"] == []
+
+
+class TestGeminiRateStatus:
+    """Step 1f: a visible rate-status indicator -- real header-reported
+    quota when Google's response includes it, self-tracked RPM/RPD/TPM
+    against the static table otherwise."""
+
+    def _post_with_headers(self, monkeypatch, headers):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"content": {"parts": [{"text": "[\"Hi.\"]"}]}}],
+                        "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}}
+
+        resp = FakeResponse()
+        resp.headers = headers
+
+        def fake_post(url, headers=None, json=None, timeout=None):
+            return resp
+
+        monkeypatch.setattr("requests.post", fake_post)
+
+    def test_reads_real_header_values_when_present(self, monkeypatch):
+        self._post_with_headers(monkeypatch, {
+            "x-ratelimit-limit-requests": "15",
+            "x-ratelimit-remaining-requests": "14",
+            "x-ratelimit-remaining-tokens": "249990",
+            "x-ratelimit-reset-requests": "4s",
+        })
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine.translate_batch(["你好"], {})
+
+        assert engine.rate_status["source"] == "header"
+        assert engine.rate_status["limit_requests"] == "15"
+        assert engine.rate_status["remaining_requests"] == "14"
+        assert engine.rate_status["remaining_tokens"] == "249990"
+
+    def test_falls_back_to_the_self_tracked_counter_when_headers_are_absent(self, monkeypatch):
+        self._post_with_headers(monkeypatch, {})
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine.translate_batch(["你好"], {})
+
+        assert engine.rate_status["source"] == "estimated"
+        assert engine.rate_status["rpm_used"] == 1
+        assert engine.rate_status["rpm_limit"] == 15
+        assert engine.rate_status["rpd_limit"] == 1000
+        assert engine.rate_status["tpm_used"] == 15  # 10 input + 5 output
+        assert engine.rate_status["tpm_limit"] == te.GEMINI_FREE_TIER_TPM
+
+    def test_no_status_yet_for_a_paid_engine_that_never_throttles(self, monkeypatch):
+        self._post_with_headers(monkeypatch, {})
+        engine = te.GeminiEngine("fake-key", free_tier=False)
+        engine.translate_batch(["你好"], {})
+        assert engine.rate_status is None
+
+    def test_rate_status_text_is_none_before_any_request(self):
+        engine = te.GeminiEngine("fake-key", free_tier=True)
+        assert te.gemini_rate_status_text(engine) is None
+
+    def test_rate_status_text_shows_all_three_dimensions(self, monkeypatch):
+        self._post_with_headers(monkeypatch, {})
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine.translate_batch(["你好"], {})
+
+        text = te.gemini_rate_status_text(engine)
+        assert "1/15" in text
+        assert "1/1000" in text
+        assert "15/250,000" in text
+
+    def test_progress_message_appends_rate_status_for_free_tier_gemini(self, monkeypatch):
+        self._post_with_headers(monkeypatch, {})
+        engine = te.GeminiEngine("fake-key", model="gemini-flash-lite-latest", free_tier=True)
+        engine.translate_batch(["你好"], {})
+
+        message = te.progress_message_with_rate_status(engine, 0.5)
+        assert message.startswith("Translating... 50%")
+        assert "req/min" in message
+
+    def test_progress_message_is_plain_for_a_non_free_tier_engine(self):
+        engine = te.GeminiEngine("fake-key", free_tier=False)
+        assert te.progress_message_with_rate_status(engine, 0.5) == "Translating... 50%"
+
+
+class TestGeminiProGoneFromFreeTier:
+    """Step 1f item 4: Gemini Pro was removed from the free tier entirely
+    in April 2026 -- a free-tier key can no longer reach it at all."""
+
+    def test_pro_is_the_flagged_unavailable_model(self):
+        assert "gemini-pro-latest" in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
+
+    def test_flash_and_flash_lite_are_not_flagged(self):
+        assert "gemini-flash-latest" not in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
+        assert "gemini-flash-lite-latest" not in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
 
 
 class TestOllamaEngine:
@@ -1277,7 +1408,9 @@ class TestFreeEngineLabelling:
     def test_gemini_label_switches_when_free_tier_is_on(self):
         label = te.engine_picker_label("gemini", gemini_free_tier=True)
         assert "🧪" in label
-        assert str(te.GEMINI_FREE_TIER_MAX_PER_MINUTE) in label
+        assert str(te.GEMINI_FREE_TIER_LIMITS["flash"]["rpm"]) in label
+        assert str(te.GEMINI_FREE_TIER_LIMITS["flash-lite"]["rpm"]) in label
+        assert "Pro" in label
 
     def test_free_tier_flag_never_changes_other_engines_labels(self):
         for name in te.ENGINES:

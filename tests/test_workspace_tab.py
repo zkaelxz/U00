@@ -1826,6 +1826,61 @@ class TestGemini31FlashLiteInDropdown:
         assert engine.model == "gemini-3.1-flash-lite"
 
 
+class TestGeminiFreeTierProGating:
+    """Step 1f item 4: Gemini Pro was removed from the free tier entirely
+    in April 2026 -- picking it with a free-tier key flagged shows a clear
+    message and blocks the call, instead of a raw API error."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_gemini"] = "gm-fake"
+        at.session_state["gemini_free_tier"] = True
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _model_box(self, at):
+        return [b for b in at.selectbox if b.label == "Gemini model"][0]
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="G", media_type="audio_drama",
+                                       content_mode="audio_drama", status="aligned",
+                                       translation_engine="gemini")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def test_selecting_pro_shows_a_clear_message_and_blocks_translate(self, isolated_db, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: captured.update(args=a) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._model_box(at).set_value("gemini-pro-latest").run()
+
+        assert any("Pro isn't available on the Gemini free tier" in e.value for e in at.error)
+        translate_button = [b for b in at.button if b.label == "🌐 Translate all lines"][0]
+        # A disabled button can't even be clicked in a real browser -- AppTest
+        # itself refuses to interact with one, which is the strongest proof
+        # available here that the call is genuinely blocked, not just warned about.
+        assert translate_button.disabled
+        assert "args" not in captured  # the job never started
+
+    def test_flash_lite_is_unaffected(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert not any("Pro isn't available" in e.value for e in at.error)
+        translate_button = [b for b in at.button if b.label == "🌐 Translate all lines"][0]
+        assert not translate_button.disabled
+
+
 class TestJobEtaDisplay:
     """Step 9b.1 exit condition: the ETA appears once progress is
     non-trivial, and disappears/holds sensibly at 0% and 100%."""
