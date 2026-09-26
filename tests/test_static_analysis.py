@@ -478,6 +478,10 @@ class TestHttpCallsHaveTimeouts:
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "dub.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
+    def test_core(self):
+        problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "core.py"))
+        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
+
 
 class TestTimeoutCheckerItself:
     def test_catches_a_call_with_no_timeout(self, tmp_path):
