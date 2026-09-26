@@ -2905,7 +2905,6 @@ def render_workspace_tab():
             if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
                 audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
                 if audio_path and os.path.exists(audio_path):
-                    import diarize as _diarize
                     clips, skipped = dub_module.extract_reference_clips(
                         audio_path, st.session_state.lines, speaker_segments, ddir)
                     _ref_text_match_failed = set()
