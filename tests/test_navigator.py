@@ -166,3 +166,34 @@ class TestNavigatorButton:
         _, got = self._run(monkeypatch, "ollama",
                            {"settings_ollama_url": "http://gpu-box:11434"})
         assert got["base_url"] == "http://gpu-box:11434"
+
+    def test_button_enabled_with_ollama_and_no_api_key(self, monkeypatch, fake_page):
+        """Step 25u: Ollama needs no key, so the button shouldn't stay
+        disabled on "an API key" just because none was typed in."""
+        _fake_llm(monkeypatch, lambda p: "{}")
+
+        def fake_get_engine(name, api_key=None, model=None, free_tier=False, base_url=None):
+            return _LLMEngine()
+        monkeypatch.setattr(translate_engines, "get_engine", fake_get_engine)
+
+        def _render():
+            import tabs.navigator_tab as nt
+            nt.render_navigator_tab()
+
+        from streamlit.testing.v1 import AppTest
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        [engine_picker] = [s for s in at.selectbox if s.key == "nav_engine"]
+        engine_picker.set_value("ollama")
+        [url_box] = [t for t in at.text_input if t.key == "nav_url"]
+        url_box.set_value("https://example.com")
+        [goal_box] = [t for t in at.text_area if t.key == "nav_goal"]
+        goal_box.set_value("find the audio drama section")
+        at.run(timeout=30)
+        [key_box] = [t for t in at.text_input if t.key == "nav_api_key"]
+        assert key_box.value in (None, "")
+        [button] = [b for b in at.button if b.label == "🧭 Translate page + get navigation steps"]
+        assert not button.disabled
+        button.click().run(timeout=30)
+        assert not at.exception
+        assert not at.error, [e.value for e in at.error]

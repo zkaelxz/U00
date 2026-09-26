@@ -44,14 +44,17 @@ def render_navigator_tab():
         "Engine", [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
         format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _nav_gemini_free_tier)}",
         key="nav_engine")
-    nav_api_key = synced_api_key_input("API key *(required)*", nav_engine_choice, "nav_api_key")
+    _nav_needs_key = nav_engine_choice != "ollama"
+    nav_api_key = synced_api_key_input(
+        "API key" + (" *(required)*" if _nav_needs_key else " (optional)"),
+        nav_engine_choice, "nav_api_key")
 
     _nav_missing = []
     if not nav_url:
         _nav_missing.append("a page URL")
     if not nav_goal.strip():
         _nav_missing.append("what you're trying to do (e.g. \"find this title's audio drama page\")")
-    if not nav_api_key:
+    if _nav_needs_key and not nav_api_key:
         _nav_missing.append("an API key (set one in the ⚙️ Settings sidebar)")
     if _nav_missing:
         st.info("Still needed: " + "; ".join(_nav_missing) + ".")
