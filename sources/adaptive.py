@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from . import ai_extract as ax
 from . import generic_import, profiles, store
 from .generic_import import GENERIC_SOURCE, ComicImportResult, NoContentFound, NovelImportResult
-from .ladder import TIER_LABELS
+from .ladder import TIER_LABELS, access_facts
 from .models import PROTECTION_REASONS, AccessTier
 
 EXTRACTION_TIER_LABELS = {
@@ -63,6 +63,8 @@ class ExtractionReport:
     needs_review: bool = False
     pending_profile: dict = None
     data: dict = None
+    access: dict = field(default_factory=dict)          # Step 23k: ladder.access_facts()
+    resource_types: list = field(default_factory=list)  # ContentAccess values found on the page
 
     def note(self, line: str):
         self.lines.append(line)
@@ -80,6 +82,7 @@ class ExtractionReport:
                 "llm_calls": self.llm_calls, "cache_hit": self.cache_hit,
                 "profile": self.profile, "protection": self.protection, "reason": self.reason,
                 "confidence": (self.data or {}).get("overall"), "headline": self.headline(),
+                "access": self.access, "resource_types": self.resource_types,
                 "lines": self.access_lines + self.lines}
 
 
@@ -91,9 +94,27 @@ def _note_access(report: ExtractionReport, lr):
     report.access_tier = lr.tier
     report.access_lines = lr.summary_lines()
     report.protection = [r.value for r in lr.reasons if r in PROTECTION_REASONS]
+    report.access = access_facts(lr)
+    report.resource_types = list(lr.resource_types)
     if report.protection:
         report.note("Protection detected: " + ", ".join(report.protection) +
                     " -- recorded, never decoded or worked around.")
+
+
+def _unreachable_reason(report: ExtractionReport) -> str:
+    """The most specific reason a page couldn't be read -- a protected
+    resource or a missing purchase is named as exactly that, never folded
+    into a generic failure (Step 23k item 6)."""
+    if report.access.get("protection_detail"):
+        return " ".join(report.access["protection_detail"])
+    if report.access.get("purchase_required"):
+        return report.access["entitlement"]
+    return "Couldn't load this page (each tier's reason is listed above)."
+
+
+def _unreachable_message(report: ExtractionReport, lr) -> str:
+    head = "Couldn't load this page:" if report.reason.startswith("Couldn't load") else report.reason
+    return head + "\n" + "\n".join(lr.summary_lines())
 
 
 def _no_content(message: str, report: ExtractionReport) -> NoContentFound:
@@ -308,9 +329,9 @@ def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_h
         _log(report)
         return NovelImportResult(url, "", "", "", ladder=lr), report
     if not lr.ok:
-        report.reason = "Couldn't load this page (each tier's reason is listed above)."
+        report.reason = _unreachable_reason(report)
         _log(report)
-        raise _no_content("Couldn't load this page:\n" + "\n".join(lr.summary_lines()), report)
+        raise _no_content(_unreachable_message(report, lr), report)
     data, report = extract_novel(lr.html, url, engine, use_cache, report)
     _log(report)
     if data is None:
@@ -491,9 +512,9 @@ def import_comic(url: str, engine=None, client=None, rendered_fetch=None, user_h
         _log(report)
         return out, report
     if not lr.ok:
-        report.reason = "Couldn't load this page (each tier's reason is listed above)."
+        report.reason = _unreachable_reason(report)
         _log(report)
-        raise _no_content("Couldn't load this page:\n" + "\n".join(lr.summary_lines()), report)
+        raise _no_content(_unreachable_message(report, lr), report)
     candidates = ax.comic_candidates(lr.html, url)
     if not candidates:
         report.reason = ("The page has no image tags or listed image URLs this importer "
