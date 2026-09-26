@@ -331,6 +331,8 @@ def cmd_dub(args):
 
         chars = db.list_characters(d["id"])
         voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
+        offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
+                             if c.get("offline_voice")}
         clone_map = dub_module.clone_map_from_characters(
             chars, ddir, gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
             ref_language=d.get("source_language") or "zh")
@@ -346,7 +348,7 @@ def cmd_dub(args):
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
         out_path, dub_errors = build_fn(
             lines, ddir, voice_map, character_clone_map=clone_map,
-            emotion_map=db.load_emotions(d["id"]),
+            emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
             progress_cb=lambda frac, did=d["id"]: print(f"  #{did}: {frac*100:.0f}%", end="\r"),
             **stretch,
         )

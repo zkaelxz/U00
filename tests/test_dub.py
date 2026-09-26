@@ -155,6 +155,8 @@ class TestSynthesizeEdgeTTSWithPiperFallback:
         assert offline_calls == [("hello", dub.DEFAULT_OFFLINE_VOICE_POOL[0], out_path)]
 
     def test_uses_the_speakers_configured_offline_voice_if_set(self, monkeypatch, tmp_path):
+        # The map is the speaker's own offline (Piper) voice from section 6
+        # -- a separate setting since Step 25c, not the edge-tts voice map.
         _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
         monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
         voices_used = []
@@ -401,7 +403,7 @@ class TestBuildTrackSubprocessWorker:
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
             worker_lines, str(tmp_path), {"A": "en-US-AvaNeural"}, "en-US-AvaNeural",
-            {}, "edge_tts", False, {}, 1.4, 0.85, result_queue)
+            {}, "edge_tts", False, {}, 1.4, 0.85, None, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("ok", {"lines": worker_lines, "out_path": direct_out_path,
@@ -418,7 +420,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=0, zh="x", en="First")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, {}, 1.4, 0.85, result_queue)
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", True, {}, 1.4, 0.85, None, result_queue)
         outcome = result_queue.get_nowait()
 
         # only build_narration_track rewrites .start/.end onto the lines
@@ -435,7 +437,7 @@ class TestBuildTrackSubprocessWorker:
         lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
         result_queue = queue.Queue()
         dub.build_track_subprocess_worker(
-            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85, result_queue)
+            lines, str(tmp_path), {}, "en-US-AvaNeural", {}, "edge_tts", False, {}, 1.4, 0.85, None, result_queue)
         outcome = result_queue.get_nowait()
 
         assert outcome == ("error", "RuntimeError", "boom")
@@ -718,3 +720,154 @@ class TestHostedCloningRemoved:
         _, errors = dub.build_dub_track(lines, str(tmp_path), {}, character_clone_map=clone_map)
         assert errors == [] and timed.synth == ["x" * 10]  # plain TTS, no clone
         assert "has been removed" in dub.clone_removed_message(chars[0])
+
+
+# ---------------------------------------------------------------------------
+# Step 25c item 1: the offline/Piper path, against both real piper-tts APIs
+# ---------------------------------------------------------------------------
+
+def _install_fake_piper(monkeypatch, api="1.3+"):
+    """Fakes piper-tts at its import boundary in the shape each real
+    release has: 1.3+ (piper.download_voices.download_voice, and
+    PiperVoice.synthesize_wav(text, wave_writer)) or 1.2
+    (piper.download.get_voices/ensure_voice_exists, and
+    PiperVoice.synthesize(text, wave_writer)). PiperVoice.load only
+    accepts a model path that really exists on disk, like the real one."""
+    record = {"loaded": [], "downloaded": [], "synthesized": []}
+
+    def write_model(voice, download_dir):
+        record["downloaded"].append((voice, str(download_dir)))
+        for ext in (".onnx", ".onnx.json"):
+            with open(os.path.join(str(download_dir), voice + ext), "w") as f:
+                f.write("model")
+
+    class FakePiperVoice:
+        @staticmethod
+        def load(model_path, config_path=None, use_cuda=False):
+            if not os.path.exists(model_path) or not os.path.exists(f"{model_path}.json"):
+                raise FileNotFoundError(model_path)
+            record["loaded"].append(model_path)
+            return FakePiperVoice()
+
+        def _write(self, text, wav_file):
+            wav_file.setframerate(22050)
+            wav_file.setsampwidth(2)
+            wav_file.setnchannels(1)
+            wav_file.writeframes(b"\x00\x00" * 10)
+            record["synthesized"].append(text)
+
+    piper_mod = types.ModuleType("piper")
+    if api == "1.3+":
+        FakePiperVoice.synthesize_wav = FakePiperVoice._write
+        dv = types.ModuleType("piper.download_voices")
+        dv.download_voice = lambda voice, download_dir, force_redownload=False: write_model(
+            voice, download_dir)
+        monkeypatch.setitem(sys.modules, "piper.download_voices", dv)
+        monkeypatch.delitem(sys.modules, "piper.download", raising=False)
+    else:
+        FakePiperVoice.synthesize = FakePiperVoice._write
+        dl = types.ModuleType("piper.download")
+        dl.get_voices = lambda download_dir, update_voices=False: {}
+        dl.ensure_voice_exists = lambda name, data_dirs, download_dir, voices_info: write_model(
+            name, download_dir)
+        monkeypatch.setitem(sys.modules, "piper.download", dl)
+        monkeypatch.setitem(sys.modules, "piper.download_voices", None)  # 1.2 has no such module
+    piper_mod.PiperVoice = FakePiperVoice
+    monkeypatch.setitem(sys.modules, "piper", piper_mod)
+    monkeypatch.setattr(dub, "_piper_voices", {})
+    return record
+
+
+class TestSynthesizeLineOffline:
+    @pytest.mark.parametrize("api", ["1.3+", "1.2"])
+    def test_downloads_the_model_then_writes_a_real_wav(self, monkeypatch, tmp_path, api):
+        import wave
+        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(tmp_path / "voices"))
+        record = _install_fake_piper(monkeypatch, api)
+
+        out_path = str(tmp_path / "out.wav")
+        dub.synthesize_line_offline("hello", "en_US-lessac-medium", out_path)
+
+        model = str(tmp_path / "voices" / "en_US-lessac-medium.onnx")
+        assert record["downloaded"] == [("en_US-lessac-medium", str(tmp_path / "voices"))]
+        assert record["loaded"] == [model]
+        with wave.open(out_path, "rb") as wav:
+            assert wav.getframerate() == 22050 and wav.getnframes() == 10
+
+    def test_an_already_downloaded_model_is_not_downloaded_again(self, monkeypatch, tmp_path):
+        voices = tmp_path / "voices"
+        voices.mkdir()
+        (voices / "en_US-amy-medium.onnx").write_text("m")
+        (voices / "en_US-amy-medium.onnx.json").write_text("{}")
+        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(voices))
+        record = _install_fake_piper(monkeypatch)
+
+        dub.synthesize_line_offline("hi", "en_US-amy-medium", str(tmp_path / "out.wav"))
+
+        assert record["downloaded"] == []
+        assert record["loaded"] == [str(voices / "en_US-amy-medium.onnx")]
+
+    def test_an_edge_tts_voice_name_is_refused_with_a_clear_message(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(tmp_path / "voices"))
+        record = _install_fake_piper(monkeypatch)
+        with pytest.raises(ValueError, match="isn't a Piper voice name"):
+            dub.synthesize_line_offline("hi", "en-US-AvaNeural", str(tmp_path / "out.wav"))
+        assert record["downloaded"] == [] and record["loaded"] == []
+
+
+class TestOfflineEngineUsesOfflineVoices:
+    """The real bug: section 6 only saved edge-tts names (tts_voice), and
+    the offline engine / edge->Piper fallback read that same map, so Piper
+    was asked to load 'en-US-AvaNeural'."""
+
+    def test_offline_dub_calls_piper_with_a_resolvable_model_not_the_edge_voice(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(dub, "piper_voices_dir", lambda: str(tmp_path / "voices"))
+        record = _install_fake_piper(monkeypatch)
+
+        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A"),
+                 Line(idx=1, start=1, end=2, zh="y", en="Bye", speaker="B")]
+        _, errors = dub.build_dub_track(
+            lines, str(tmp_path), {"A": "en-US-AvaNeural", "B": "en-GB-SoniaNeural"},
+            tts_engine="offline", offline_voice_map={"A": "en_GB-alba-medium"})
+
+        assert errors == []
+        assert record["loaded"] == [
+            str(tmp_path / "voices" / "en_GB-alba-medium.onnx"),
+            str(tmp_path / "voices" / f"{dub.DEFAULT_OFFLINE_VOICE_POOL[0]}.onnx"),
+        ]
+        assert record["synthesized"] == ["Hello", "Bye"]
+
+    def test_offline_narration_uses_the_offline_voice_too(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        voices = []
+        monkeypatch.setattr(dub, "synthesize_line_offline",
+                             lambda text, voice, out_path: voices.append(voice) or open(out_path, "w").close())
+
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="Once upon a time.", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {"A": "en-US-AvaNeural"},
+                                  tts_engine="offline", offline_voice_map={"A": "en_US-amy-medium"})
+
+        assert voices == ["en_US-amy-medium"]
+
+    def test_edge_fallback_never_hands_piper_the_edge_voice(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        _install_fake_edge_tts(monkeypatch, save_exception=Exception("HTTP 403"))
+        monkeypatch.setitem(sys.modules, "piper", types.ModuleType("piper"))
+        voices = []
+        monkeypatch.setattr(dub, "synthesize_line_offline",
+                             lambda text, voice, out_path: voices.append(voice) or open(out_path, "w").close())
+
+        lines = [Line(idx=0, start=0, end=1, zh="x", en="Hello", speaker="A")]
+        _, errors = dub.build_dub_track(lines, str(tmp_path), {"A": "en-US-AvaNeural"})
+
+        assert errors == []
+        assert voices == [dub.DEFAULT_OFFLINE_VOICE_POOL[0]]
+
+
+def test_offline_voice_is_saved_separately_from_the_edge_voice(isolated_db):
+    did = isolated_db.create_drama(title_en="t")
+    isolated_db.upsert_character(did, "A", tts_voice="en-US-AvaNeural")
+    isolated_db.upsert_character(did, "A", offline_voice="en_GB-alba-medium")
+    (c,) = isolated_db.list_characters(did)
+    assert (c["tts_voice"], c["offline_voice"]) == ("en-US-AvaNeural", "en_GB-alba-medium")

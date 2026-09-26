@@ -162,7 +162,8 @@ def init_db():
         speaker_label TEXT,      -- raw diarization label OR tagged character name this maps to
         character_name TEXT,
         voice_actor TEXT,
-        tts_voice TEXT,          -- fallback free TTS voice for this character
+        tts_voice TEXT,          -- fallback free TTS voice for this character (an edge-tts name)
+        offline_voice TEXT,      -- offline/Piper fallback voice (a Piper voice name); NULL = default
         ref_audio_filename TEXT, -- reference clip for voice cloning (relative to drama dir)
         ref_text TEXT,           -- transcript of what's said in the reference clip
         elevenlabs_voice_id TEXT,-- hosted clone (engine removed in Step 11d); kept as a record, unused
@@ -606,6 +607,10 @@ def init_db():
         conn.execute("ALTER TABLE characters ADD COLUMN clone_engine TEXT")
     if "voice_design" not in char_cols:
         conn.execute("ALTER TABLE characters ADD COLUMN voice_design TEXT")
+    if "offline_voice" not in char_cols:
+        # Step 25c: Piper can't load an edge-tts voice name, so the offline
+        # engine gets its own per-character voice instead of reading tts_voice.
+        conn.execute("ALTER TABLE characters ADD COLUMN offline_voice TEXT")
     if "series_character_id" not in char_cols:
         # Links this drama's speaker to a persistent series_characters row,
         # so renaming/updating the series-level character (once) reflects
@@ -1085,15 +1090,16 @@ def upsert_character(drama_id: int, speaker_label: str, character_name: str = No
                       voice_actor: str = None, tts_voice: str = None,
                       ref_audio_filename: str = None, ref_text: str = None,
                       elevenlabs_voice_id: str = None, series_character_id: int = None,
-                      pronouns: str = None, clone_engine: str = None, voice_design: str = None):
+                      pronouns: str = None, clone_engine: str = None, voice_design: str = None,
+                      offline_voice: str = None):
     """pronouns/voice_design: None leaves an existing value untouched; ""
     clears it."""
     conn = get_conn()
     conn.execute("""
         INSERT INTO characters (drama_id, speaker_label, character_name, voice_actor, tts_voice,
                                  ref_audio_filename, ref_text, elevenlabs_voice_id, series_character_id,
-                                 pronouns, clone_engine, voice_design)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 pronouns, clone_engine, voice_design, offline_voice)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(drama_id, speaker_label) DO UPDATE SET
             clone_engine = COALESCE(excluded.clone_engine, characters.clone_engine),
             voice_design = COALESCE(excluded.voice_design, characters.voice_design),
@@ -1101,12 +1107,14 @@ def upsert_character(drama_id: int, speaker_label: str, character_name: str = No
             character_name = COALESCE(excluded.character_name, characters.character_name),
             voice_actor = COALESCE(excluded.voice_actor, characters.voice_actor),
             tts_voice = COALESCE(excluded.tts_voice, characters.tts_voice),
+            offline_voice = COALESCE(excluded.offline_voice, characters.offline_voice),
             ref_audio_filename = COALESCE(excluded.ref_audio_filename, characters.ref_audio_filename),
             ref_text = COALESCE(excluded.ref_text, characters.ref_text),
             elevenlabs_voice_id = COALESCE(excluded.elevenlabs_voice_id, characters.elevenlabs_voice_id),
             series_character_id = COALESCE(excluded.series_character_id, characters.series_character_id)
     """, (drama_id, speaker_label, character_name, voice_actor, tts_voice, ref_audio_filename, ref_text,
-          elevenlabs_voice_id, series_character_id, pronouns, clone_engine, voice_design))
+          elevenlabs_voice_id, series_character_id, pronouns, clone_engine, voice_design,
+          offline_voice))
     conn.commit()
     conn.close()
 
