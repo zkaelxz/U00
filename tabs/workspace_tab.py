@@ -21,6 +21,50 @@ def _format_media_type(m):
     return special.get(m, m.replace("_", " ").title())
 
 
+def _series_picker(picked_id, drama, key_prefix):
+    """Series-assignment control (existing series, or "+ New series...").
+    Step 22 item 4: shared by the ✏️ Edit metadata expander and the 📖
+    Series glossary expander, both driven by this one
+    db.update_drama(series_id=...) call, so the two entry points can never
+    disagree about which series a drama belongs to. key_prefix keeps the
+    two call sites' widget keys distinct. Returns the currently-assigned
+    series id, or None if unassigned/still being created.
+
+    Widget keys include the drama's CURRENT series_id -- a plain static
+    key would keep showing whichever series was selected when the widget
+    was first rendered, even after the OTHER entry point changes
+    series_id and triggers a rerun: Streamlit reuses a keyed widget's own
+    stored value over a freshly-computed `index=` on every rerun after
+    the first. Folding series_id into the key forces a fresh widget (and
+    so the new, correct index) exactly when the assignment actually
+    changes."""
+    existing_series = db.list_series()
+    series_options = ["-- none --"] + [s["name"] for s in existing_series] + ["+ New series..."]
+    current_series_id = drama.get("series_id")
+    current_series_name = next((s["name"] for s in existing_series if s["id"] == current_series_id),
+                                "-- none --")
+    _key_suffix = f"{picked_id}_{current_series_id or 'none'}"
+    series_pick = st.selectbox(
+        "Series", series_options,
+        index=series_options.index(current_series_name) if current_series_name in series_options else 0,
+        key=f"{key_prefix}_series_pick_{_key_suffix}")
+    if series_pick == "+ New series...":
+        new_series_name = st.text_input("New series name", key=f"{key_prefix}_new_series_name_{_key_suffix}")
+        if new_series_name and st.button("Create & assign series", key=f"{key_prefix}_create_series_btn_{_key_suffix}"):
+            sid = db.get_or_create_series(new_series_name)
+            db.update_drama(picked_id, series_id=sid)
+            st.success(f"Assigned to series '{new_series_name}'.")
+            st.rerun()
+        return None
+    if series_pick == "-- none --":
+        return None
+    sid = next(s["id"] for s in existing_series if s["name"] == series_pick)
+    if sid != drama.get("series_id"):
+        db.update_drama(picked_id, series_id=sid)
+        st.rerun()
+    return sid
+
+
 # The same "remember the last pick in a global session_state key" pattern
 # already used for the model dropdowns below (settings_claude_model etc.)
 # -- applying a preset's engine_model just needs to write into whichever
@@ -1145,6 +1189,11 @@ def render_workspace_tab():
             format_func=_format_media_type)
         genre = c2.text_input("Genre", value=drama.get("genre") or "",
                                placeholder="historical, modern, fantasy...")
+        # Step 22 item 4: the same series picker as the 📖 Series glossary
+        # expander below, driven by the same db.update_drama(series_id=...)
+        # call -- kept there too at the user's request, so this is a second
+        # entry point, not a replacement.
+        _series_picker(picked_id, drama, "meta")
         status_opts = ["unknown", "ongoing", "completed", "hiatus"]
         pub_status = c1.selectbox("Publication status", status_opts,
                                    index=status_opts.index(drama.get("publication_status") or "unknown"))
@@ -2053,24 +2102,10 @@ def render_workspace_tab():
             placeholder="e.g. this character always speaks formally; keep the narrator distant")
 
         with st.expander("📖 Series glossary & term handling", expanded=False):
-            existing_series = db.list_series()
-            series_options = ["-- none --"] + [s["name"] for s in existing_series] + ["+ New series..."]
-            current_series_name = next((s["name"] for s in existing_series if s["id"] == drama.get("series_id")), "-- none --")
-            series_pick = st.selectbox("Series", series_options,
-                                        index=series_options.index(current_series_name) if current_series_name in series_options else 0)
-            if series_pick == "+ New series...":
-                new_series_name = st.text_input("New series name")
-                if new_series_name and st.button("Create & assign series"):
-                    sid = db.get_or_create_series(new_series_name)
-                    db.update_drama(picked_id, series_id=sid)
-                    st.success(f"Assigned to series '{new_series_name}'.")
-                    st.rerun()
-            elif series_pick != "-- none --":
-                sid = next(s["id"] for s in existing_series if s["name"] == series_pick)
-                if sid != drama.get("series_id"):
-                    db.update_drama(picked_id, series_id=sid)
-                    st.rerun()
-
+            sid = _series_picker(picked_id, drama, "glossary")
+            if sid:
+                st.caption("Shared across every drama in this series -- see 🎭 Series in "
+                          "📚 Library for the full list.")
                 st.markdown("**Auto-extract terms from the source text**")
                 st.caption("Scans for names, sects, titles, honorifics, and concepts needing "
                           "consistent handling, and proposes a policy for each. Always review "
@@ -3038,6 +3073,14 @@ def render_workspace_tab():
                                                      character_name=_sc["character_name"],
                                                      series_character_id=_sc["id"])
                                 st.rerun()
+                    if c.get("series_character_id"):
+                        # Step 22 item 2: makes the sharing that already
+                        # happens under the hood (this character's
+                        # pronoun default below comes from the series,
+                        # not this one drama) visible where it appears.
+                        st.caption("🔗 Shared with other dramas in this series -- pronoun/voice "
+                                  "defaults below can come from there. See 🎭 Series in "
+                                  "📚 Library for every drama sharing this cast.")
 
                     # Step 8b item 1: a real sample of what this speaker actually
                     # said, pulled straight from the transcript -- without this
