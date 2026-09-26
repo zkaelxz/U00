@@ -2120,7 +2120,7 @@ Found on a proper section-by-section pass through the vision doc's remaining par
   | 19 — Full click-through UX test | — | Not started | — |
   | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
   | 20b — Richer Anki export: sentence + audio | `step-20b-richer-anki-export` | ✅ Merged (PR #66) | ⏳ Pending |
-  | 21 — Review workspace: per-line audio and save-status | `claude/step-21-roadmap-sp7f31` | PR #68 open, CI running — independently reviewed and verified (16 passed on its own tests, 287 on the broader area, plus a clean test-merge alongside Step 12e confirming no real conflict despite both touching `workspace_tab.py`); merging once CI confirms green | ⏳ Pending |
+  | 21 — Review workspace: per-line audio and save-status | `claude/step-21-roadmap-sp7f31` | ✅ Merged (PR #68) | ⏳ Pending |
   | 22 — Series-level library view | — | Not started | — |
   | 23 — Source-adapter architecture (interface only) | — | Not started | — |
   | 23b — First real source adapter: manhuagui (zh) | — | Not started | — |
