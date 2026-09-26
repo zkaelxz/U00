@@ -11,7 +11,7 @@ character summary is worse than "not covered in what's loaded".
 
 import re
 import json
-from translate_engines import call_llm_json, _parse_json_array
+from translate_engines import call_llm_json
 
 
 # ---------------------------------------------------------------------------

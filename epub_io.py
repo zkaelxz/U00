@@ -50,7 +50,6 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     don't become one giant unreadable chapter. field: 'en' for the
     translation, 'zh' for the raw text (e.g. exporting a bilingual
     reading copy would need two calls or a custom merge)."""
-    import ebooklib
     from ebooklib import epub
 
     book = epub.EpubBook()

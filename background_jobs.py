@@ -65,11 +65,6 @@ def set_gpu_limit_enabled(enabled: bool):
         _gpu_limit_enabled = bool(enabled)
 
 
-def gpu_limit_enabled() -> bool:
-    with _lock:
-        return _gpu_limit_enabled
-
-
 def _other_gpu_job_running_locked(exclude_job_id):
     """Caller must already hold _lock. The id of some other running,
     GPU-touching job, or None if the GPU is free."""

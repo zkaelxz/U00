@@ -13,8 +13,6 @@ Backends:
     Tesseract on stylized fonts and bubble layouts, Japanese only.
 """
 
-import os
-
 # Tesseract language codes per source language. "zh" defaults to
 # Simplified -- see resolve_tesseract_lang() for the Traditional variant.
 TESSERACT_LANG = {"zh": "chi_sim", "ja": "jpn", "ko": "kor"}

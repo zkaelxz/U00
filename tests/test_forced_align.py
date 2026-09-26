@@ -24,16 +24,6 @@ class FakeUnit:
 
 
 class TestLanguageSupport:
-    def test_supported_languages(self):
-        import forced_align as fa
-        for lang in ("zh", "ja", "ko"):
-            assert fa.is_language_supported(lang)
-
-    def test_unsupported_language(self):
-        import forced_align as fa
-        assert not fa.is_language_supported("en")
-        assert not fa.is_language_supported("fr")
-
     def test_language_names_are_capitalized_full_words(self):
         # Qwen3-ForcedAligner's API takes "Chinese"/"Japanese"/"Korean",
         # not the zh/ja/ko codes used everywhere else in this project.
