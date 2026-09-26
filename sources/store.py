@@ -11,6 +11,7 @@ redirects it along with everything else.
 
 import json
 import os
+import re
 import sqlite3
 import time
 
@@ -41,6 +42,22 @@ def db_path() -> str:
 
 def cache_dir() -> str:
     return os.path.join(db.LIBRARY_DIR, "source_cache")
+
+
+BROWSER_PROFILES_DIRNAME = "profiles"
+
+
+def browser_profiles_root() -> str:
+    """Step 23k's persistent browser profiles (sign-in state). Left out of
+    library backups -- see tabs/library_tab.py."""
+    return os.path.join(db.LIBRARY_DIR, BROWSER_PROFILES_DIRNAME)
+
+
+def browser_profile_dir(key: str) -> str:
+    """`profiles/<source>/` -- one Chromium profile per source (or per
+    domain, for a pasted URL no adapter covers)."""
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", key or "").strip("._") or "_"
+    return os.path.join(browser_profiles_root(), safe)
 
 
 _SCHEMA = """

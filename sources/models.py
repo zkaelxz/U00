@@ -56,7 +56,6 @@ class FailureReason(str, Enum):
     ENCRYPTED_RESOURCE = "ENCRYPTED_RESOURCE"
     SIGNED_RESOURCE = "SIGNED_RESOURCE"
     NOT_INSTALLED = "NOT_INSTALLED"      # the tier's own tooling isn't set up here
-    NOT_BUILT = "NOT_BUILT"              # the tier exists in the ladder but its step hasn't shipped
     TOS_PROHIBITED = "TOS_PROHIBITED"    # refused before any request: the source's terms forbid it
     UNKNOWN = "UNKNOWN"
 
@@ -75,6 +74,32 @@ ENVIRONMENT_BLOCK_REASONS = {
 # Protected content. Recorded, never circumvented.
 PROTECTION_REASONS = {FailureReason.DRM_DETECTED, FailureReason.ENCRYPTED_RESOURCE,
                       FailureReason.SIGNED_RESOURCE}
+
+# Step 23k item 6: a protected resource is always reported as exactly
+# that -- never collapsed into a bare "blocked" or a generic failure.
+_PROTECTED = ("Protected resource could not be processed without bypassing a technical "
+              "control ({what}) -- recorded, never decrypted or worked around.")
+PROTECTION_EXPLANATIONS = {
+    FailureReason.DRM_DETECTED: _PROTECTED.format(what="DRM / encrypted media"),
+    FailureReason.ENCRYPTED_RESOURCE: _PROTECTED.format(
+        what="the site decrypts this content itself, inside its own page"),
+    FailureReason.SIGNED_RESOURCE: _PROTECTED.format(
+        what="signed/expiring delivery tokens this session wasn't issued"),
+}
+
+
+def explain_protection(reasons) -> list:
+    """The specific plain-language line for each protection reason in
+    `reasons` (FailureReason members or their string values)."""
+    out = []
+    for r in reasons or ():
+        try:
+            r = FailureReason(r)
+        except ValueError:
+            continue
+        if r in PROTECTION_EXPLANATIONS and PROTECTION_EXPLANATIONS[r] not in out:
+            out.append(PROTECTION_EXPLANATIONS[r])
+    return out
 
 
 class CapabilityStatus(str, Enum):
@@ -112,6 +137,41 @@ class ContentAccess(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+# --- Step 23k item 3: the granular capability fields. Each one is its own
+# fact. Whether the content is technically visible to a (signed-in)
+# session and whether the site permits automated extraction of it are
+# never the same question -- a login answers the first, never the second.
+
+class Requirement(str, Enum):
+    """authentication_required / purchase_required. REQUIRED once any
+    real attempt observed it (some content on the source needs it);
+    NOT_REQUIRED only after content was reached without it."""
+    REQUIRED = "REQUIRED"
+    NOT_REQUIRED = "NOT_REQUIRED"
+    UNKNOWN = "UNKNOWN"
+
+
+class TechnicalProtection(str, Enum):
+    NONE = "NONE"
+    DETECTED = "DETECTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class AutomationPermission(str, Enum):
+    """What the site's own terms say about automated access. Only a
+    directly-read clause sets EXPLICITLY_RESTRICTED; unread or unreadable
+    terms stay UNKNOWN -- never PERMITTED by default."""
+    PERMITTED = "PERMITTED"
+    EXPLICITLY_RESTRICTED = "EXPLICITLY_RESTRICTED"
+    UNKNOWN = "UNKNOWN"
+
+
+class AiMlUse(str, Enum):
+    ALLOWED_OR_NOT_IDENTIFIED = "ALLOWED_OR_NOT_IDENTIFIED"
+    EXPLICITLY_RESTRICTED = "EXPLICITLY_RESTRICTED"
+    UNKNOWN = "UNKNOWN"
+
+
 @dataclass
 class TierResult:
     """One tier's untested/tested state on a SourceCapabilities record.
@@ -135,12 +195,30 @@ class SourceCapabilities:
     status: str = CapabilityStatus.UNTESTED.value
     technical_status: str = TechnicalStatus.UNRESOLVED.value
     access_method: Optional[str] = None        # the AccessTier that actually worked
-    auth_required: bool = False
     auth_supported: bool = False
     content_access_status: str = ContentAccess.UNKNOWN.value
+    # Step 23k item 3. `authentication_required` replaces the old
+    # `auth_required: bool`, whose False default claimed "no login needed"
+    # for a source nobody had tested -- UNKNOWN is the honest default.
+    authentication_required: str = Requirement.UNKNOWN.value
+    purchase_required: str = Requirement.UNKNOWN.value
+    technical_protection: str = TechnicalProtection.UNKNOWN.value
+    automation_permission: str = AutomationPermission.UNKNOWN.value
+    ai_ml_use: str = AiMlUse.UNKNOWN.value
     tiers: dict = field(default_factory=lambda: {t.value: TierResult() for t in LADDER_ORDER})
     technical: dict = field(default_factory=dict)   # browser-accessible, extraction method, protections
     terms: dict = field(default_factory=dict)       # what was read, quoted where possible, what's unverified
+
+    def terms_restrictions(self) -> list:
+        """Which recorded terms findings forbid the app from extracting
+        from this source at all -- whatever the session can see."""
+        out = []
+        if self.terms.get("tos_prohibited") or \
+                self.automation_permission == AutomationPermission.EXPLICITLY_RESTRICTED.value:
+            out.append("automation_permission")
+        if self.ai_ml_use == AiMlUse.EXPLICITLY_RESTRICTED.value:
+            out.append("ai_ml_use")
+        return out
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -149,6 +227,12 @@ class SourceCapabilities:
     @classmethod
     def from_dict(cls, d: dict) -> "SourceCapabilities":
         d = dict(d)
+        # Records stored before Step 23k carry the old boolean. Only a True
+        # was ever an observation; False was just the default.
+        if "auth_required" in d:
+            legacy = d.pop("auth_required")
+            if legacy and "authentication_required" not in d:
+                d["authentication_required"] = Requirement.REQUIRED.value
         tiers = {k: TierResult(**v) if isinstance(v, dict) else v
                  for k, v in (d.pop("tiers", None) or {}).items()}
         caps = cls(**d)

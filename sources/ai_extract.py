@@ -312,12 +312,32 @@ def llm_available(engine) -> bool:
     return engine is not None and bool(getattr(engine, "supports_reference", False))
 
 
+# Step 23k: a page read through a signed-in browser can carry
+# session-derived credentials inside ordinary URLs (signed image tokens,
+# auth_key=, access_token=...). The model only ever needs the page's
+# content and the ids it answers with, so those values are blanked before
+# any prompt leaves the app. Session cookies never get this far at all --
+# nothing in the app reads them (sources/auth_browser.py).
+_SENSITIVE_PARAM = re.compile(
+    r"([?&#;])((?:[\w.\-]*(?:token|sign|auth|session|sess|secret|credential|ticket|jwt|"
+    r"access|policy|expires|hmac|nonce|cookie|passport|key)[\w.\-]*|sid|uid|x-amz-[\w.\-]+)"
+    r"=)[^&#\s\"'<>\\]*", re.I)
+
+
+def prompt_safe(prompt: str) -> str:
+    """The prompt with credential-shaped URL parameter values blanked and
+    anything else secret-shaped redacted."""
+    from translate_engines import redact_secrets
+    return redact_secrets(_SENSITIVE_PARAM.sub(r"\1\2[REDACTED]", prompt or ""))
+
+
 def ask_json(engine, prompt: str, max_tokens: int = 2000):
-    """One call through call_llm_json. Returns the parsed JSON object or
-    None. Network/provider errors propagate to the caller, which records
-    them (redacted) as the reason."""
+    """One call through call_llm_json -- the only one in the sources
+    package, and always through prompt_safe(). Returns the parsed JSON
+    object or None. Network/provider errors propagate to the caller, which
+    records them (redacted) as the reason."""
     from translate_engines import call_llm_json
-    text = call_llm_json(engine, prompt, max_tokens=max_tokens, fallback=None)
+    text = call_llm_json(engine, prompt_safe(prompt), max_tokens=max_tokens, fallback=None)
     if not text:
         return None
     text = re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip()
@@ -921,6 +941,34 @@ def media_candidates(html: str, url: str) -> list:
         for m in _MEDIA_URL.finditer(body):
             add(m.group(0), _kind_for(m.group(0).replace("\\/", "/")), "script/JSON")
     return out
+
+
+def resource_types(html: str, url: str) -> list:
+    """Step 23k item 6: which resource types the page actually exposes to
+    the session that read it (ContentAccess values), from the same
+    deterministic detectors the extraction tiers use -- nothing fetched."""
+    from .generic_import import extract_main_text_heuristic
+    from .models import ContentAccess
+    found = []
+    if len(extract_main_text_heuristic(html)) >= MIN_NOVEL_CHARS:
+        found.append(ContentAccess.TEXT.value)
+    if len(comic_candidates(html, url)) >= 3:
+        found.append(ContentAccess.IMAGES.value)
+    kinds = {c.kind for c in media_candidates(html, url)}
+    for kind_set, value in (({"video", "manifest", "embed"}, ContentAccess.VIDEO.value),
+                            ({"audio"}, ContentAccess.AUDIO.value),
+                            ({"subtitle"}, ContentAccess.SUBTITLES.value)):
+        if kinds & kind_set:
+            found.append(value)
+    return found
+
+
+def content_access_for(types) -> str:
+    from .models import ContentAccess
+    types = list(types or ())
+    if not types:
+        return ContentAccess.UNKNOWN.value
+    return types[0] if len(types) == 1 else ContentAccess.MIXED.value
 
 
 def media_payload(page: PageModel, candidates) -> str:

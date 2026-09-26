@@ -20,7 +20,9 @@ So this module does three things:
      always works, instead of pretending.
 """
 
+import os
 import re
+import threading
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -108,17 +110,7 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
     Returns (html, text). Raises ImportError with install instructions
     if Playwright isn't set up.
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        raise ImportError(
-            "Rendering JavaScript pages needs Playwright:\n"
-            "    pip install playwright\n"
-            "    playwright install chromium\n"
-            "The second command downloads the browser and is easy to miss."
-        )
-
-    from bs4 import BeautifulSoup
+    sync_playwright = _require_playwright()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -136,11 +128,142 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
         finally:
             browser.close()
 
+    return html, _visible_lines(html)
+
+
+def _require_playwright():
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise ImportError(
+            "Rendering JavaScript pages needs Playwright:\n"
+            "    pip install playwright\n"
+            "    playwright install chromium\n"
+            "The second command downloads the browser and is easy to miss."
+        )
+    return sync_playwright
+
+
+def _visible_lines(html: str) -> str:
+    from bs4 import BeautifulSoup
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
-    text = "\n".join(l.strip() for l in soup.get_text("\n").splitlines() if l.strip())
-    return html, text
+    return "\n".join(l.strip() for l in soup.get_text("\n").splitlines() if l.strip())
+
+
+# ---------------------------------------------------------------------------
+# Persistent browser profiles (Step 23k)
+# ---------------------------------------------------------------------------
+#
+# One Chromium profile directory per source, opened with Playwright's
+# launch_persistent_context: whatever the person's own sign-in left in
+# that profile (cookies, local storage) is there again on the next visit,
+# so they aren't asked to log in on every import.
+#
+# What persists is the profile directory -- the browser process itself is
+# started per call and closed after. Playwright's sync objects only work
+# on the thread that created them (Streamlit runs each rerun on its own
+# thread), a Chromium profile can only be open in one browser at a time,
+# and the visible sign-in window and the headless reads need separate
+# launches anyway. Login state survives all of that because it lives in
+# the profile, which is exactly what a persistent context is for.
+#
+# The session data never leaves Chromium: nothing here reads cookies or
+# storage state, and the only thing handed back is the page as rendered.
+
+_PROFILE_LOCKS = {}
+_PROFILE_LOCKS_GUARD = threading.Lock()
+PROFILE_BUSY_WAIT = 120  # seconds a read waits for another use of the same profile
+
+
+class ProfileBusy(RuntimeError):
+    """The profile is already open (e.g. its sign-in window is still up)."""
+
+
+def _profile_lock(profile_dir: str) -> threading.Lock:
+    key = os.path.abspath(profile_dir)
+    with _PROFILE_LOCKS_GUARD:
+        return _PROFILE_LOCKS.setdefault(key, threading.Lock())
+
+
+def _launch_persistent(profile_dir: str, headless: bool):
+    """(playwright, context) for one persistent-profile launch. The
+    browser's own user agent is kept -- the same browser the person signed
+    in with, not a disguised one."""
+    sync_playwright = _require_playwright()
+    pw = sync_playwright().start()
+    try:
+        context = pw.chromium.launch_persistent_context(profile_dir, headless=headless)
+    except Exception:
+        pw.stop()
+        raise
+    return pw, context
+
+
+def _shut(pw, context):
+    for fn in (getattr(context, "close", None), getattr(pw, "stop", None)):
+        try:
+            if fn is not None:
+                fn()
+        except Exception:
+            pass
+
+
+def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selector: str = None,
+                       wait_ms: int = 2500, launcher=None):
+    """Like fetch_rendered, but inside the persistent profile at
+    `profile_dir`, so a site the person already signed in to sees that
+    same signed-in browser. Returns (html, text). `launcher(profile_dir,
+    headless)` -> (playwright, context) is injectable for tests."""
+    lock = _profile_lock(profile_dir)
+    if not lock.acquire(timeout=PROFILE_BUSY_WAIT):
+        raise ProfileBusy("This site's browser profile is still in use (is its sign-in "
+                          "window still open?). Finish there and close it first.")
+    try:
+        os.makedirs(profile_dir, exist_ok=True)
+        pw, context = (launcher or _launch_persistent)(profile_dir, True)
+        try:
+            page = context.new_page()
+            page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            if wait_selector:
+                try:
+                    page.wait_for_selector(wait_selector, timeout=timeout * 1000)
+                except Exception:
+                    pass
+            else:
+                page.wait_for_timeout(wait_ms)
+            html = page.content()
+        finally:
+            _shut(pw, context)
+    finally:
+        lock.release()
+    return html, _visible_lines(html)
+
+
+def open_login_window(url: str, profile_dir: str, launcher=None):
+    """Opens a visible browser window on the persistent profile at `url`
+    and waits -- with no timeout -- until the person closes it. They sign
+    in (and pass any CAPTCHA/MFA the site asks for) themselves, the normal
+    way; nothing here types, clicks, solves or reads anything."""
+    lock = _profile_lock(profile_dir)
+    if not lock.acquire(blocking=False):
+        raise ProfileBusy("This site's browser profile is already open -- finish in that "
+                          "window (or wait for the import using it) first.")
+    try:
+        os.makedirs(profile_dir, exist_ok=True)
+        pw, context = (launcher or _launch_persistent)(profile_dir, False)
+        try:
+            page = context.pages[0] if context.pages else context.new_page()
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+            except Exception:
+                pass  # the window is still open; the person can navigate there themselves
+            context.wait_for_event("close", timeout=0)   # 0 = wait for the person, however long
+        finally:
+            _shut(pw, context)
+    finally:
+        lock.release()
 
 
 def smart_fetch(url: str, allow_render: bool = True, timeout: int = 20):

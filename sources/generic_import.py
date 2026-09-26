@@ -34,9 +34,9 @@ from dataclasses import dataclass, field
 from statistics import median
 from urllib.parse import urljoin, urlsplit
 
-from . import ladder, registry, store
+from . import auth_browser, ladder, registry, store
 from .http import SourceClient
-from .models import AccessTier, SourceError
+from .models import AccessTier, ContentAccess, SourceError
 
 GENERIC_SOURCE = "generic"
 
@@ -305,24 +305,35 @@ def _default_capabilities(client: SourceClient):
     return cls(client=client).capabilities() if cls else None
 
 
-def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None):
+def fetch_page(url: str, client=None, rendered_fetch=None, user_html: str = None,
+               authenticated_fetch=None):
     """Runs the ladder for one URL: static HTTP, then a real browser if
     that failed (unless a challenge stopped everything). With `user_html`
     -- the page source the person saved after completing a verification
     themselves -- the USER_ASSISTED tier is used instead of any request.
-    Raises TermsProhibited, before anything is sent, when the source's
-    record says its terms forbid automated access; otherwise the run is
-    folded into that record."""
+    Once the person has signed in to this source through its browser
+    window (Step 23k), the page is read through that saved, signed-in
+    profile instead, so they see what their account sees. Raises
+    TermsProhibited, before anything is sent, when the source's record (or
+    the site's own terms entry) restricts automated access -- signed in or
+    not; otherwise the run is folded into that record."""
     client = _client(client, url)
     default = _default_capabilities(client)
-    ladder.check_terms(client.source, default)
+    ladder.check_terms(client.source, default, url=url)
     if user_html is not None:
         tiers = {AccessTier.USER_ASSISTED_BROWSER: ladder.user_assisted_tier(user_html)}
+    elif auth_browser.has_profile(url, client.source):
+        tiers = {AccessTier.AUTHENTICATED_BROWSER: ladder.authenticated_tier(
+            auth_browser.profile_dir(url, client.source), client, authenticated_fetch)}
     else:
         tiers = {AccessTier.STATIC_HTTP: ladder.static_tier(client),
-                 AccessTier.RENDERED_BROWSER: ladder.rendered_tier(client, rendered_fetch),
-                 AccessTier.AUTHENTICATED_BROWSER: ladder.not_built_tier("23k")}
+                 AccessTier.RENDERED_BROWSER: ladder.rendered_tier(client, rendered_fetch)}
     result = ladder.run_ladder(url, tiers, source=client.source)
+    if result.ok:
+        from .ai_extract import content_access_for, resource_types
+        result.resource_types = resource_types(result.html, url)
+        if result.content_access == ContentAccess.UNKNOWN.value:
+            result.content_access = content_access_for(result.resource_types)
     ladder.record_ladder_result(client.source, result, default)
     return result
 

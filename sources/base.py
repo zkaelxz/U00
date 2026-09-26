@@ -10,7 +10,10 @@ types, languages, URL patterns) and implements whichever of these it can:
     get_pages(chapter)            -> [PageRef]          (image sources)
     download_page(page)           -> (bytes, ext)       (image sources)
     get_chapter_text(chapter)     -> str                (text sources)
-    login(**credentials_free)     /  refresh_session()  (optional)
+    login(url)                    -> LoginCheck         (Step 23k: the person
+                                                         signs in in a real browser
+                                                         window; no credentials
+                                                         pass through the app)
 
 No adapter has to implement everything: an unimplemented method raises
 NotSupportedError, which callers catch and show as "this source doesn't
@@ -26,7 +29,7 @@ import re
 
 from . import store
 from .http import PacingPolicy, SourceClient
-from .models import (NotSupportedError, SourceCapabilities)
+from .models import (NotSupportedError, Requirement, SourceCapabilities)
 
 
 class SourceAdapter:
@@ -45,9 +48,13 @@ class SourceAdapter:
     host_min_interval = {}
     #: Headers every request to this source carries (Referer etc.).
     default_headers = {}
-    #: Whether login()/refresh_session() exist and are required.
+    #: Adapter-specific auth. `auth_required` seeds the capability
+    #: record's `authentication_required` (REQUIRED if True, else UNKNOWN
+    #: until a real attempt observes it).
     auth_supported = False
     auth_required = False
+    #: Where login() opens the signed-in browser when no page is given.
+    login_url = ""
     #: True if the site gates some works behind its own "I'm an adult"
     #: switch (usually a cookie) and this adapter knows how to send it.
     #: The Sources tab then shows a per-source toggle for it.
@@ -94,10 +101,27 @@ class SourceAdapter:
     def get_chapter_text(self, chapter):
         raise NotSupportedError(f"{self.display_name or self.name} doesn't provide chapter text.")
 
-    def login(self, **kwargs):
-        raise NotSupportedError(f"{self.display_name or self.name} has no login step.")
+    def login(self, url: str = "", launcher=None):
+        """Step 23k's manual login: opens this source's persistent browser
+        profile at `url` (or `login_url`) for the person to sign in
+        themselves, waits until they close the window, then checks the
+        page is actually visible in that session. The app never sees or
+        takes a password, and never solves a CAPTCHA, passes MFA or
+        touches a purchase check. Returns sources.auth_browser.LoginCheck;
+        raises TermsProhibited for a source whose terms forbid automated
+        access -- before any window opens."""
+        url = url or self.login_url
+        if not url:
+            raise NotSupportedError(f"{self.display_name or self.name} has no login page set -- "
+                                    "paste a page from it to sign in there.")
+        from . import auth_browser
+        return auth_browser.manual_login(url, source=self.name, default=self.capabilities(),
+                                         launcher=launcher)
 
     def refresh_session(self):
+        # Deliberately unsupported: a persistent browser profile's session
+        # is kept fresh by the site itself during ordinary visits. The app
+        # never refreshes, re-issues or forges a session on its own.
         raise NotSupportedError(f"{self.display_name or self.name} has no session to refresh.")
 
     # -- helpers ---------------------------------------------------------------
@@ -123,4 +147,6 @@ class SourceAdapter:
         return SourceCapabilities(
             platform=self.display_name or self.name,
             content_types=list(self.content_types), languages=list(self.languages),
-            auth_required=self.auth_required, auth_supported=self.auth_supported)
+            authentication_required=(Requirement.REQUIRED.value if self.auth_required
+                                     else Requirement.UNKNOWN.value),
+            auth_supported=self.auth_supported)

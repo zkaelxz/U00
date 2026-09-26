@@ -16,7 +16,10 @@ Do this before you write any code, and record what you find in
 - **Terms**: record what the terms actually say, quoting where you can,
   in the capabilities `terms` block. Only a specific, written
   anti-scraping or AI-use clause makes a source `TOS_PROHIBITED`.
-  Generic boilerplate doesn't.
+  Generic boilerplate doesn't. Record it as `automation_permission` /
+  `ai_ml_use` = `EXPLICITLY_RESTRICTED` (see "Capability fields" in
+  `docs/content-sources.md`); leave `UNKNOWN` if the terms couldn't be
+  read. A restriction holds even when the person has signed in.
 - **Technical posture**: work down the ladder in the order below, and
   stop at the first tier that works.
   1. Static HTTP. Is it a real page or an empty JavaScript shell?
