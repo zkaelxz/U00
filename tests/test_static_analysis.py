@@ -556,3 +556,78 @@ class TestConstraintsFile:
         readme = open(os.path.join(PROJECT_ROOT, "README.md"), encoding="utf-8").read()
         assert "-c constraints.txt" in readme
 
+
+def _find_duplicate_bare_expander_labels(path):
+    """Returns {label: [line numbers]} for every literal (non-f-string)
+    st.expander()/st.popover() label used more than once in the file.
+    A repeated literal label like "Details" is the bug Step 14 explicitly
+    calls out avoiding: the user can't tell which of several same-titled
+    sections they're looking at. Dynamic (f-string/format()) labels are
+    skipped -- those already vary per line/item at render time."""
+    with open(path, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), filename=path)
+
+    by_label = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr in ("expander", "popover")):
+            continue
+        if not node.args:
+            continue
+        first = node.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, str):
+            by_label.setdefault(first.value, []).append(node.lineno)
+
+    return {label: lines for label, lines in by_label.items() if len(lines) > 1}
+
+
+class TestNoBareRepeatedExpanderLabels:
+    """Regression coverage for Step 14 (Workspace shell rebuild): the old
+    10-expander scroll had accumulated seven separate `st.expander("Details")`
+    calls -- one per background-job failure card -- all with the same bare
+    label, indistinguishable in the UI. Step 14's exit conditions ask for a
+    static check confirming no two expanders/popovers in the rebuilt file
+    share a bare label like this."""
+
+    def test_workspace_tab(self):
+        problems = _find_duplicate_bare_expander_labels(
+            os.path.join(TABS_DIR, "workspace_tab.py"))
+        assert problems == {}, f"duplicate expander/popover label(s): {problems}"
+
+
+class TestDuplicateLabelCheckerItself:
+    def test_catches_a_repeated_literal_label(self, tmp_path):
+        src = (
+            "import streamlit as st\n"
+            "with st.expander('Details'):\n"
+            "    pass\n"
+            "with st.expander('Details'):\n"
+            "    pass\n"
+        )
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_duplicate_bare_expander_labels(str(p)) == {"Details": [2, 4]}
+
+    def test_ignores_distinct_labels(self, tmp_path):
+        src = (
+            "import streamlit as st\n"
+            "with st.expander('Translation error details'):\n"
+            "    pass\n"
+            "with st.expander('Consistency check error details'):\n"
+            "    pass\n"
+        )
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_duplicate_bare_expander_labels(str(p)) == {}
+
+    def test_ignores_dynamic_labels(self, tmp_path):
+        src = (
+            "import streamlit as st\n"
+            "for lang in ('zh', 'en'):\n"
+            "    with st.expander(f'{lang}'):\n"
+            "        pass\n"
+        )
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_duplicate_bare_expander_labels(str(p)) == {}
+

@@ -31,7 +31,8 @@ import resegment
 import translate_engines
 from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
-                                 run_fix_flagged_lines_job, run_translate_job)
+                                 run_fix_flagged_lines_job, run_translate_job,
+                                 _compute_workspace_stage_index)
 import video_download
 import core as core_module
 from core import Line
@@ -6265,3 +6266,132 @@ class TestSaveEditsDoesNotRoundUntouchedTimestamps:
         saved = isolated_db.load_lines(did)[0]
         assert saved["start"] == 5.5
         assert saved["end"] == 2.987654  # untouched -- keeps its original precision
+
+
+class TestWorkspaceStageIndex:
+    """Regression coverage for Step 14 (Workspace shell rebuild): the
+    project header's pipeline-progress stepper needs a real stage index
+    computed from the drama's actual state, not a guess -- this is the
+    function that computes it, and ui.workflow.stage_statuses_from_index
+    turns that single index into a done/current/not-started list for
+    each of the 7 stage tabs."""
+
+    STAGES = ["Source", "Transcript", "Diarize", "Translate", "Review", "Dub", "Export"]
+
+    def test_no_lines_yet_is_still_on_transcript(self, tmp_path):
+        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, None, str(tmp_path))
+        assert idx == 1
+
+    def test_lines_with_no_speaker_yet_is_on_diarize(self, tmp_path):
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="", speaker=None)]
+        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
+        assert idx == 2
+
+    def test_novel_narration_has_no_diarize_stage(self, tmp_path):
+        # No audio to diarize -- speaker attribution is the translation
+        # LLM's job, not a separate stage, so an unset speaker shouldn't
+        # hold the stepper at Diarize the way it does for audio content.
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="", speaker=None)]
+        idx = _compute_workspace_stage_index({"content_mode": "novel_narration"}, lines, str(tmp_path))
+        assert idx == 3
+
+    def test_partway_translated_shows_transcribe_diarize_done_translate_current(self, tmp_path):
+        # The manual check from Step 14's exit conditions: open a drama
+        # with lines already translated partway through, and confirm the
+        # stepper shows Transcribe/Diarize done, Translate in progress,
+        # Review/Dub/Export not started.
+        lines = [
+            Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A"),
+            Line(idx=1, start=1, end=2, zh="再见", en="", speaker="B"),
+        ]
+        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
+        assert idx == 3
+
+        from ui.workflow import stage_statuses_from_index
+        statuses = stage_statuses_from_index(self.STAGES, idx)
+        assert statuses == ["done", "done", "done", "current", "not_started",
+                             "not_started", "not_started"]
+
+    def test_fully_translated_not_yet_dubbed_or_exported_is_on_review(self, tmp_path):
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
+        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
+        assert idx == 4
+
+    def test_dub_track_on_disk_moves_to_export(self, tmp_path):
+        (tmp_path / "dub_track.wav").write_bytes(b"")
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
+        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
+        assert idx == 6
+
+    def test_exported_status_is_fully_done(self, tmp_path):
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
+        idx = _compute_workspace_stage_index(
+            {"content_mode": "audio_drama", "status": "exported"}, lines, str(tmp_path))
+        assert idx == 6
+        from ui.workflow import stage_statuses_from_index
+        assert stage_statuses_from_index(self.STAGES, idx) == \
+            ["done", "done", "done", "done", "done", "done", "current"]
+
+
+class TestStageTabsReplaceTheExpanderScroll:
+    """Step 14 exit condition: a click-through confirms every one of
+    Workspace's former 10 sections is reachable under the new stage tabs,
+    and the project header's stepper reflects real progress. The many
+    label/key-based widget lookups throughout this file already prove
+    reachability (AppTest executes every st.tabs() body on each run, same
+    as it always did for st.expander()) -- this test checks the
+    structural piece those don't: that the 10-expander scroll is actually
+    gone, replaced by exactly the 7 stage tabs, with the project header
+    rendered above them."""
+
+    def _drama(self, isolated_db, **fields):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                       content_mode="audio_drama", **fields)
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_seven_stage_tabs_replace_the_old_numbered_expanders(self, isolated_db):
+        did = self._drama(isolated_db, status="new")
+        at = self._run(did)
+        assert [t.label for t in at.tabs] == \
+            ["Source", "Transcript", "Diarize", "Translate", "Review", "Dub", "Export"]
+        # None of the old numbered "N. label" expanders survive as expanders --
+        # they're either the tabs themselves now, or content inside them.
+        for e in at.expander:
+            assert not e.label[:1].isdigit(), f"leftover numbered expander: {e.label!r}"
+
+    def test_project_header_shows_the_drama_name(self, isolated_db):
+        did = self._drama(isolated_db, status="new")
+        at = self._run(did)
+        assert any("Test Drama" in m.value for m in at.markdown)
+
+    def test_stepper_reflects_progress_for_a_partly_translated_drama(self, isolated_db):
+        did = self._drama(isolated_db, status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A"),
+            Line(idx=1, start=1, end=2, zh="再见", en="", speaker="B"),
+        ])
+        at = self._run(did)
+        stepper_html = "".join(m.value for m in at.markdown if "bh-stage" in (m.value or ""))
+        # Source/Transcript/Diarize done, Translate current, the rest not started --
+        # each stage's own marker span names its status class directly, so this
+        # checks the exact stage/status pairing, not just that both classes appear.
+        assert 'bh-stage-current">● Translate</span>' in stepper_html
+        assert 'bh-stage-done">✓ Source</span>' in stepper_html
+        assert 'bh-stage-done">✓ Transcript</span>' in stepper_html
+        assert 'bh-stage-done">✓ Diarize</span>' in stepper_html
+        assert '"bh-stage-item">○ Review</span>' in stepper_html
+        assert '"bh-stage-item">○ Dub</span>' in stepper_html
+        assert '"bh-stage-item">○ Export</span>' in stepper_html

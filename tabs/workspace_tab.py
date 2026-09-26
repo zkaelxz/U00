@@ -12,6 +12,7 @@ import resegment
 import sensevoice_tags
 import subtitle_formats
 import bulk_translate
+from ui import project_header, project_state
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "anime", "novel", "manhwa", "manga", "manhua",
                        "asmr", "streamer_vod", "other"]
@@ -1482,6 +1483,35 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
                        + (f", {res['kept_manual']} hand-corrected line(s) kept." if keep else "."))
 
 
+def _compute_workspace_stage_index(drama, lines, ddir):
+    """Maps a drama's real pipeline progress onto the 7 stage-tab indices
+    the header's stepper uses (Source=0, Transcript=1, Diarize=2,
+    Translate=3, Review=4, Dub=5, Export=6). The pipeline is linear, so one
+    index is enough -- render_stepper_from_index() reads everything before
+    it as done, it as current, everything after as not started.
+
+    Review and Dub have no reliable automatic "done" signal of their own
+    (review is manual QC with no completion flag; dubbing is optional), so
+    once translation is complete this reports Review as current until
+    either a dub track exists or the drama is marked exported, at which
+    point it jumps straight to Export -- Dub only ever shows as done or
+    not-started, never uniquely current.
+    """
+    if not lines:
+        return 1
+    content_mode = (drama or {}).get("content_mode") or "audio_drama"
+    has_audio_pipeline = content_mode in ("audio_drama", "streamer_vod")
+    if has_audio_pipeline and not any(getattr(ln, "speaker", None) for ln in lines):
+        return 2
+    if any(not (ln.en or "").strip() for ln in lines):
+        return 3
+    if (drama or {}).get("status") == "exported":
+        return 6
+    if ddir and os.path.exists(os.path.join(ddir, "dub_track.wav")):
+        return 6
+    return 4
+
+
 def render_workspace_tab():
     _gemini_free_tier = st.session_state.get("gemini_free_tier", False)
     # Threaded into every get_engine(...) call below via base_url=; without
@@ -1764,7 +1794,25 @@ def render_workspace_tab():
             st.rerun()
 
     st.divider()
-    with st.expander("2. 📥 Content source", expanded=False):
+    stage_labels = ["Source", "Transcript", "Diarize", "Translate", "Review", "Dub", "Export"]
+    _project = project_state.set_drama(picked_id)
+    # st.session_state.lines can still be None here even for a drama with
+    # saved lines -- the actual lazy-reload-from-database only happens
+    # once execution reaches the Translate tab further down. Read straight
+    # from the database instead of relying on that timing, so the stepper
+    # reflects real progress on the very first render too.
+    _lines_for_stage = st.session_state.lines
+    if _lines_for_stage is None:
+        _saved_rows_for_stage = db.load_lines(picked_id)
+        _lines_for_stage = core_module.lines_from_rows(_saved_rows_for_stage) if _saved_rows_for_stage else None
+    _current_stage_index = _compute_workspace_stage_index(drama, _lines_for_stage, ddir)
+    project_state.set_stage(_current_stage_index)
+    project_header.render_project_header(_project, drama, stage_labels)
+
+    (tab_source, tab_transcript, tab_diarize, tab_translate, tab_review, tab_dub,
+     tab_export) = st.tabs(stage_labels)
+
+    with tab_source:
 
         source_language = st.selectbox(
             "Source language",
@@ -2109,7 +2157,7 @@ def render_workspace_tab():
 
             novel_narration_text = st.text_area("Novel text *(required)*", value=ocr_default, height=220)
 
-    with st.expander("3. 📚 Reference novel (optional) & recognition settings", expanded=False):
+    with tab_transcript:
         st.caption("If this drama already has an official/fan English translation elsewhere, "
                    "paste it here to keep terminology consistent -- separate from the novel "
                    "narration text above, which is what actually gets read aloud.")
@@ -2558,7 +2606,7 @@ def render_workspace_tab():
         if asr_backend_choice != drama.get("asr_backend_choice"):
             db.update_drama(picked_id, asr_backend_choice=asr_backend_choice)
 
-    with st.expander("4. 🎙️ Speaker diarization", expanded=False):
+    with tab_diarize:
         if has_audio_pipeline:
             st.caption(
                 "Distinguishes different voices/characters in the audio, so lines can be grouped "
@@ -2591,7 +2639,7 @@ def render_workspace_tab():
                        "(who's speaking each line) instead of audio diarization -- no audio to analyze.")
             hf_token, run_diarize, expected_speakers = None, False, 0
 
-    with st.expander("5. 🌐 Translation", expanded=False):
+    with tab_translate:
 
         if drama.get("last_translate_errors"):
             try:
@@ -3590,7 +3638,7 @@ def render_workspace_tab():
                 # the failure by which one actually ran, not always "Transcription".
                 _failed_step = "Reading captions from video" if _hardsub_mode else "Transcription"
                 st.error(f"{_failed_step} failed: {_tjob['error']}")
-                with st.expander("Details"):
+                with st.expander("Transcription error details"):
                     st.code(_tjob.get("traceback", ""), language="text")
                 background_jobs.clear_job(_transcribe_job_id)
 
@@ -3759,283 +3807,282 @@ def render_workspace_tab():
                 background_jobs.clear_job(_translate_job_id)
             elif _job["status"] == "error":
                 st.error(f"Translation failed: {_job['error']}")
-                with st.expander("Details"):
+                with st.expander("Translation error details"):
                     st.code(_job.get("traceback", ""), language="text")
                 background_jobs.clear_job(_translate_job_id)
 
         _render_bulk_jobs_panel(picked_id, _monthly_cap)
 
-    # ---------------------------------------------------- Character naming
-    characters = db.list_characters_with_series_names(picked_id)
-    if characters:
-        st.divider()
-        with st.expander("6. 🎭 Name your characters & set up voice cloning", expanded=False):
-            st.caption("Map speaker labels to character names, and optionally attach a reference "
-                       "voice clip per character for cloning (instead of the free TTS pool).")
-            speaker_segments = st.session_state.get(f"speaker_segments_{picked_id}")
-            if speaker_segments is None:
-                import diarize as _diarize_turns
-                speaker_segments = _diarize_turns.load_turns(ddir)
-            can_auto_extract = has_audio_pipeline and speaker_segments is not None
+        # ---------------------------------------------------- Character naming
+        characters = db.list_characters_with_series_names(picked_id)
+        if characters:
+            st.divider()
+            with st.expander("6. 🎭 Name your characters & set up voice cloning", expanded=False):
+                st.caption("Map speaker labels to character names, and optionally attach a reference "
+                           "voice clip per character for cloning (instead of the free TTS pool).")
+                speaker_segments = st.session_state.get(f"speaker_segments_{picked_id}")
+                if speaker_segments is None:
+                    import diarize as _diarize_turns
+                    speaker_segments = _diarize_turns.load_turns(ddir)
+                can_auto_extract = has_audio_pipeline and speaker_segments is not None
 
-            if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
-                audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
-                if audio_path and os.path.exists(audio_path):
-                    clips, skipped = dub_module.extract_reference_clips(
-                        audio_path, st.session_state.lines, speaker_segments, ddir)
-                    _ref_text_match_failed = set()
-                    for label, info in clips.items():
-                        matching_zh = next((ln.zh for ln in st.session_state.lines
-                                             if ln.speaker == label and info["start"] <= ln.start <= info["end"] + 1), "")
-                        db.upsert_character(picked_id, label,
-                                             ref_audio_filename=os.path.relpath(info["path"], ddir))
-                        if matching_zh:
-                            db.upsert_character(picked_id, label, ref_text=matching_zh)
-                            # The ref_text text_input below is bound to this same
-                            # key -- without updating it too, its stale
-                            # (pre-auto-extract) widget value would win over the
-                            # `value=` we just changed on the very next rerun,
-                            # and the ref_text_input != c["ref_text"] check at
-                            # the bottom of the character loop would read that
-                            # as a user edit and immediately overwrite the
-                            # ref_text we just saved back to "".
-                            st.session_state[f"reftext_{picked_id}_{label}"] = matching_zh
+                if can_auto_extract and st.button("🎯 Auto-extract reference clips from this audio"):
+                    audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
+                    if audio_path and os.path.exists(audio_path):
+                        clips, skipped = dub_module.extract_reference_clips(
+                            audio_path, st.session_state.lines, speaker_segments, ddir)
+                        _ref_text_match_failed = set()
+                        for label, info in clips.items():
+                            matching_zh = next((ln.zh for ln in st.session_state.lines
+                                                 if ln.speaker == label and info["start"] <= ln.start <= info["end"] + 1), "")
+                            db.upsert_character(picked_id, label,
+                                                 ref_audio_filename=os.path.relpath(info["path"], ddir))
+                            if matching_zh:
+                                db.upsert_character(picked_id, label, ref_text=matching_zh)
+                                # The ref_text text_input below is bound to this same
+                                # key -- without updating it too, its stale
+                                # (pre-auto-extract) widget value would win over the
+                                # `value=` we just changed on the very next rerun,
+                                # and the ref_text_input != c["ref_text"] check at
+                                # the bottom of the character loop would read that
+                                # as a user edit and immediately overwrite the
+                                # ref_text we just saved back to "".
+                                st.session_state[f"reftext_{picked_id}_{label}"] = matching_zh
+                            else:
+                                # Don't silently save "" -- indistinguishable from the
+                                # field never having been touched. Leave whatever
+                                # ref_text was already there and explain the gap
+                                # instead (Step 8b item 3).
+                                _ref_text_match_failed.add(label)
+                        st.session_state[f"clip_skip_reasons_{picked_id}"] = skipped
+                        st.session_state[f"ref_text_match_failed_{picked_id}"] = _ref_text_match_failed
+                        st.success(f"Extracted {len(clips)} reference clip(s).")
+                        st.rerun()
+
+                _series_chars = db.list_series_characters(drama["series_id"]) if drama.get("series_id") else []
+
+                # Step 8: recurring-voice suggestions -- experimental (Phase 1
+                # §3.4: nobody has shown this works reliably across different
+                # recordings). Purely a suggestion the user confirms or
+                # dismisses; nothing here ever names a speaker on its own.
+                if _series_chars:
+                    import diarize as _diarize_embeddings
+                    import voice_id as _voice_id
+                    _voice_embeddings = _diarize_embeddings.load_embeddings(ddir)
+                    if _voice_embeddings:
+                        _already_named = {c["speaker_label"] for c in characters if c["character_name"]}
+                        _dismissed_suggestions = db.list_dismissed_voice_suggestions(picked_id)
+                        _voice_suggestions = _voice_id.suggest_speaker_matches(
+                            _voice_embeddings, _series_chars, already_named=_already_named,
+                            dismissed=_dismissed_suggestions)
+                        for sug in _voice_suggestions:
+                            with st.container(border=True):
+                                vc1, vc2, vc3 = st.columns([4, 1, 1])
+                                vc1.caption(f"🔊 **{sug['speaker_label']}** sounds like "
+                                           f"**{sug['character_name']}** (similarity "
+                                           f"{sug['similarity']:.2f}) -- experimental, please confirm.")
+                                if vc2.button("✅ Accept", key=f"voiceaccept_{picked_id}_{sug['speaker_label']}_"
+                                                              f"{sug['series_character_id']}"):
+                                    db.upsert_character(
+                                        picked_id, sug["speaker_label"],
+                                        character_name=sug["character_name"],
+                                        series_character_id=sug["series_character_id"])
+                                    db.update_series_character_voice_fingerprint(
+                                        sug["series_character_id"],
+                                        _voice_embeddings[sug["speaker_label"]])
+                                    st.success(f"{sug['speaker_label']} set to {sug['character_name']}.")
+                                    st.rerun()
+                                if vc3.button("❌ Reject", key=f"voicereject_{picked_id}_{sug['speaker_label']}_"
+                                                              f"{sug['series_character_id']}"):
+                                    db.dismiss_voice_suggestion(
+                                        picked_id, sug["speaker_label"], sug["series_character_id"])
+                                    st.rerun()
+
+                # Step 25b: every widget key below carries picked_id, not just the
+                # speaker label -- unrelated dramas commonly share a SPEAKER_00, and
+                # a label-only key made Streamlit carry the previous drama's value
+                # across a switch, which the "differs from saved" checks then wrote
+                # into this drama's character row.
+                for c in characters:
+                    with st.container(border=True):
+                        if _series_chars:
+                            # Hands-off path: pick a person who's already known in this
+                            # series (a streamer's regulars, a book series' cast) instead
+                            # of retyping and re-spelling their name for every new drama.
+                            _known_options = ["-- type a new name below --"] + [sc["character_name"] for sc in _series_chars]
+                            _current = next((sc["character_name"] for sc in _series_chars
+                                              if sc["id"] == c.get("series_character_id")), _known_options[0])
+                            picked_known = st.selectbox(
+                                f"Known characters in this series ({c['speaker_label']})", _known_options,
+                                index=_known_options.index(_current) if _current in _known_options else 0,
+                                key=f"cknown_{picked_id}_{c['speaker_label']}")
+                            if picked_known != "-- type a new name below --":
+                                _sc = next(sc for sc in _series_chars if sc["character_name"] == picked_known)
+                                if c.get("series_character_id") != _sc["id"]:
+                                    db.upsert_character(picked_id, c["speaker_label"],
+                                                         character_name=_sc["character_name"],
+                                                         series_character_id=_sc["id"])
+                                    st.rerun()
+                        if c.get("series_character_id"):
+                            # Step 22 item 2: makes the sharing that already
+                            # happens under the hood (this character's
+                            # pronoun default below comes from the series,
+                            # not this one drama) visible where it appears.
+                            st.caption("🔗 Shared with other dramas in this series -- pronoun/voice "
+                                      "defaults below can come from there. See 🎭 Series in "
+                                      "📚 Library for every drama sharing this cast.")
+
+                        # Step 8b item 1: a real sample of what this speaker actually
+                        # said, pulled straight from the transcript -- without this
+                        # there's no way to tell who SPEAKER_00 vs SPEAKER_01 is
+                        # without leaving this section to cross-reference Review & edit.
+                        _speaker_lines = [ln.zh for ln in st.session_state.lines
+                                         if ln.speaker == c["speaker_label"] and ln.zh.strip()]
+                        if _speaker_lines:
+                            _samples = [_speaker_lines[0]]
+                            if len(_speaker_lines) > 1:
+                                _samples.append(_speaker_lines[len(_speaker_lines) // 2])
+                            st.caption("💬 " + "  /  ".join(_samples))
                         else:
-                            # Don't silently save "" -- indistinguishable from the
-                            # field never having been touched. Leave whatever
-                            # ref_text was already there and explain the gap
-                            # instead (Step 8b item 3).
-                            _ref_text_match_failed.add(label)
-                    st.session_state[f"clip_skip_reasons_{picked_id}"] = skipped
-                    st.session_state[f"ref_text_match_failed_{picked_id}"] = _ref_text_match_failed
-                    st.success(f"Extracted {len(clips)} reference clip(s).")
-                    st.rerun()
+                            st.caption("No lines attributed to this speaker yet.")
 
-            _series_chars = db.list_series_characters(drama["series_id"]) if drama.get("series_id") else []
-
-            # Step 8: recurring-voice suggestions -- experimental (Phase 1
-            # §3.4: nobody has shown this works reliably across different
-            # recordings). Purely a suggestion the user confirms or
-            # dismisses; nothing here ever names a speaker on its own.
-            if _series_chars:
-                import diarize as _diarize_embeddings
-                import voice_id as _voice_id
-                _voice_embeddings = _diarize_embeddings.load_embeddings(ddir)
-                if _voice_embeddings:
-                    _already_named = {c["speaker_label"] for c in characters if c["character_name"]}
-                    _dismissed_suggestions = db.list_dismissed_voice_suggestions(picked_id)
-                    _voice_suggestions = _voice_id.suggest_speaker_matches(
-                        _voice_embeddings, _series_chars, already_named=_already_named,
-                        dismissed=_dismissed_suggestions)
-                    for sug in _voice_suggestions:
-                        with st.container(border=True):
-                            vc1, vc2, vc3 = st.columns([4, 1, 1])
-                            vc1.caption(f"🔊 **{sug['speaker_label']}** sounds like "
-                                       f"**{sug['character_name']}** (similarity "
-                                       f"{sug['similarity']:.2f}) -- experimental, please confirm.")
-                            if vc2.button("✅ Accept", key=f"voiceaccept_{picked_id}_{sug['speaker_label']}_"
-                                                          f"{sug['series_character_id']}"):
-                                db.upsert_character(
-                                    picked_id, sug["speaker_label"],
-                                    character_name=sug["character_name"],
-                                    series_character_id=sug["series_character_id"])
-                                db.update_series_character_voice_fingerprint(
-                                    sug["series_character_id"],
-                                    _voice_embeddings[sug["speaker_label"]])
-                                st.success(f"{sug['speaker_label']} set to {sug['character_name']}.")
+                        cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
+                        cc1.write(c["speaker_label"])
+                        name = cc2.text_input("name", value=c["character_name"] or "",
+                                               label_visibility="collapsed", key=f"cname_{picked_id}_{c['speaker_label']}")
+                        va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
+                                             placeholder="voice actor", label_visibility="collapsed",
+                                             key=f"cva_{picked_id}_{c['speaker_label']}")
+                        # Step 25c: only an actual pick is saved -- auto-saving the
+                        # shown default on first render used to write an edge-tts
+                        # name into every new character.
+                        _edge_pool = dub_module.DEFAULT_VOICE_POOL
+                        _edge_shown = c["tts_voice"] if c["tts_voice"] in _edge_pool else _edge_pool[0]
+                        voice = cc4.selectbox("tts voice (fallback)", _edge_pool,
+                                               index=_edge_pool.index(_edge_shown),
+                                               label_visibility="collapsed", key=f"cvoice_{picked_id}_{c['speaker_label']}")
+                        if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != _edge_shown:
+                            db.upsert_character(picked_id, c["speaker_label"], character_name=name,
+                                                 voice_actor=va,
+                                                 tts_voice=voice if voice != _edge_shown else None)
+                        _offline_pool = dub_module.DEFAULT_OFFLINE_VOICE_POOL
+                        _offline_shown = (c.get("offline_voice") if c.get("offline_voice") in _offline_pool
+                                          else _offline_pool[0])
+                        offline_voice = st.selectbox(
+                            f"Offline / Piper voice ({name or c['speaker_label']})", _offline_pool,
+                            index=_offline_pool.index(_offline_shown), key=f"coffline_{picked_id}_{c['speaker_label']}",
+                            help="Used when section 8's engine is Offline / Piper, and when edge-tts is "
+                                 "blocked and falls back to Piper. Separate from the edge-tts voice "
+                                 "above -- Piper can't load those.")
+                        if offline_voice != _offline_shown:
+                            db.upsert_character(picked_id, c["speaker_label"], offline_voice=offline_voice)
+                        _series_default = tguide.normalize_pronouns(c.get("series_pronouns"))
+                        _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
+                        c_pronouns = _pronoun_picker(
+                            f"Pronouns ({name or c['speaker_label']})", _shown_pronouns,
+                            key=f"cpronouns_{picked_id}_{c['speaker_label']}",
+                            help=("Defaults to this person's pronouns under People & pronouns "
+                                  f"({_series_default}); setting it here overrides that for this "
+                                  "drama only." if _series_default else
+                                  "Fixes this character's pronouns in translation for this drama."))
+                        if c_pronouns != _shown_pronouns:
+                            db.upsert_character(picked_id, c["speaker_label"], pronouns=c_pronouns)
+                        if (drama.get("series_id") and name.strip()
+                                and name.strip() not in [sc["character_name"] for sc in _series_chars]):
+                            # Deliberately opt-in, not automatic on every keystroke --
+                            # auto-saving every typed name (including mid-typo) would
+                            # clutter the series' cast list with one-off junk. This is
+                            # the one moment a person decides "yes, remember them".
+                            if st.checkbox(f"💾 Remember '{name.strip()}' as a known character in this series",
+                                           key=f"cremember_{picked_id}_{c['speaker_label']}"):
+                                db.upsert_series_character(drama["series_id"], name.strip())
+                                _sc = next(sc for sc in db.list_series_characters(drama["series_id"])
+                                           if sc["character_name"] == name.strip())
+                                db.upsert_character(picked_id, c["speaker_label"], series_character_id=_sc["id"])
+                                st.success(f"'{name.strip()}' will be pickable for every future drama in this series.")
                                 st.rerun()
-                            if vc3.button("❌ Reject", key=f"voicereject_{picked_id}_{sug['speaker_label']}_"
-                                                          f"{sug['series_character_id']}"):
-                                db.dismiss_voice_suggestion(
-                                    picked_id, sug["speaker_label"], sug["series_character_id"])
-                                st.rerun()
 
-            # Step 25b: every widget key below carries picked_id, not just the
-            # speaker label -- unrelated dramas commonly share a SPEAKER_00, and
-            # a label-only key made Streamlit carry the previous drama's value
-            # across a switch, which the "differs from saved" checks then wrote
-            # into this drama's character row.
-            for c in characters:
-                with st.container(border=True):
-                    if _series_chars:
-                        # Hands-off path: pick a person who's already known in this
-                        # series (a streamer's regulars, a book series' cast) instead
-                        # of retyping and re-spelling their name for every new drama.
-                        _known_options = ["-- type a new name below --"] + [sc["character_name"] for sc in _series_chars]
-                        _current = next((sc["character_name"] for sc in _series_chars
-                                          if sc["id"] == c.get("series_character_id")), _known_options[0])
-                        picked_known = st.selectbox(
-                            f"Known characters in this series ({c['speaker_label']})", _known_options,
-                            index=_known_options.index(_current) if _current in _known_options else 0,
-                            key=f"cknown_{picked_id}_{c['speaker_label']}")
-                        if picked_known != "-- type a new name below --":
-                            _sc = next(sc for sc in _series_chars if sc["character_name"] == picked_known)
-                            if c.get("series_character_id") != _sc["id"]:
-                                db.upsert_character(picked_id, c["speaker_label"],
-                                                     character_name=_sc["character_name"],
-                                                     series_character_id=_sc["id"])
-                                st.rerun()
-                    if c.get("series_character_id"):
-                        # Step 22 item 2: makes the sharing that already
-                        # happens under the hood (this character's
-                        # pronoun default below comes from the series,
-                        # not this one drama) visible where it appears.
-                        st.caption("🔗 Shared with other dramas in this series -- pronoun/voice "
-                                  "defaults below can come from there. See 🎭 Series in "
-                                  "📚 Library for every drama sharing this cast.")
+                        _removed_clone = dub_module.clone_removed_message(c)
+                        if _removed_clone:
+                            st.info(_removed_clone)
+                        rc1, rc2 = st.columns([1, 2])
+                        if c["ref_audio_filename"]:
+                            rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
+                        else:
+                            rc1.caption("No clone reference set")
+                            # Step 8b item 2: a missing clone ref isn't a bug, but
+                            # silence about WHY is -- name the specific reason
+                            # auto-extract found no eligible segment for this
+                            # speaker, instead of leaving this indistinguishable
+                            # from "auto-extract was never run."
+                            _skip_reason = st.session_state.get(
+                                f"clip_skip_reasons_{picked_id}", {}).get(c["speaker_label"])
+                            if _skip_reason:
+                                _bound = ("shorter than the 3s minimum" if _skip_reason["reason"] == "too_short"
+                                         else "longer than the 12s maximum")
+                                rc1.caption(f"Closest available clip was {_skip_reason['closest_duration']:.1f}s "
+                                           f"-- {_bound} for a clean reference.")
+                        ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
+                                                        type=["wav", "mp3", "m4a"], key=f"refup_{picked_id}_{c['speaker_label']}",
+                                                        label_visibility="collapsed")
+                        ref_text_input = st.text_input(
+                            f"What's said in that clip (original language, for {name or c['speaker_label']})",
+                            value=c["ref_text"] or "", key=f"reftext_{picked_id}_{c['speaker_label']}")
+                        if (not ref_text_input.strip() and c["speaker_label"] in
+                                st.session_state.get(f"ref_text_match_failed_{picked_id}", set())):
+                            # Step 8b item 3: same "silent empty result" shape as
+                            # item 2, in extract_reference_clips's own caller this
+                            # time -- a reference clip WAS found, but no transcript
+                            # line's speaker tag matched its time window.
+                            st.caption("A reference clip was found, but no transcript line's speaker "
+                                      "tag matched it -- try re-running speaker detection or "
+                                      "auto-extract again, or type the words said in the clip above.")
+                        if ref_upload is not None:
+                            ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
+                            with open(os.path.join(ddir, ref_filename), "wb") as f:
+                                f.write(ref_upload.getbuffer())
+                            db.upsert_character(picked_id, c["speaker_label"], ref_audio_filename=ref_filename)
+                        if ref_text_input != (c["ref_text"] or ""):
+                            db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
 
-                    # Step 8b item 1: a real sample of what this speaker actually
-                    # said, pulled straight from the transcript -- without this
-                    # there's no way to tell who SPEAKER_00 vs SPEAKER_01 is
-                    # without leaving this section to cross-reference Review & edit.
-                    _speaker_lines = [ln.zh for ln in st.session_state.lines
-                                     if ln.speaker == c["speaker_label"] and ln.zh.strip()]
-                    if _speaker_lines:
-                        _samples = [_speaker_lines[0]]
-                        if len(_speaker_lines) > 1:
-                            _samples.append(_speaker_lines[len(_speaker_lines) // 2])
-                        st.caption("💬 " + "  /  ".join(_samples))
-                    else:
-                        st.caption("No lines attributed to this speaker yet.")
-
-                    cc1, cc2, cc3, cc4 = st.columns([1, 2, 2, 2])
-                    cc1.write(c["speaker_label"])
-                    name = cc2.text_input("name", value=c["character_name"] or "",
-                                           label_visibility="collapsed", key=f"cname_{picked_id}_{c['speaker_label']}")
-                    va = cc3.text_input("voice actor", value=c["voice_actor"] or "",
-                                         placeholder="voice actor", label_visibility="collapsed",
-                                         key=f"cva_{picked_id}_{c['speaker_label']}")
-                    # Step 25c: only an actual pick is saved -- auto-saving the
-                    # shown default on first render used to write an edge-tts
-                    # name into every new character.
-                    _edge_pool = dub_module.DEFAULT_VOICE_POOL
-                    _edge_shown = c["tts_voice"] if c["tts_voice"] in _edge_pool else _edge_pool[0]
-                    voice = cc4.selectbox("tts voice (fallback)", _edge_pool,
-                                           index=_edge_pool.index(_edge_shown),
-                                           label_visibility="collapsed", key=f"cvoice_{picked_id}_{c['speaker_label']}")
-                    if name != (c["character_name"] or "") or va != (c["voice_actor"] or "") or voice != _edge_shown:
-                        db.upsert_character(picked_id, c["speaker_label"], character_name=name,
-                                             voice_actor=va,
-                                             tts_voice=voice if voice != _edge_shown else None)
-                    _offline_pool = dub_module.DEFAULT_OFFLINE_VOICE_POOL
-                    _offline_shown = (c.get("offline_voice") if c.get("offline_voice") in _offline_pool
-                                      else _offline_pool[0])
-                    offline_voice = st.selectbox(
-                        f"Offline / Piper voice ({name or c['speaker_label']})", _offline_pool,
-                        index=_offline_pool.index(_offline_shown), key=f"coffline_{picked_id}_{c['speaker_label']}",
-                        help="Used when section 8's engine is Offline / Piper, and when edge-tts is "
-                             "blocked and falls back to Piper. Separate from the edge-tts voice "
-                             "above -- Piper can't load those.")
-                    if offline_voice != _offline_shown:
-                        db.upsert_character(picked_id, c["speaker_label"], offline_voice=offline_voice)
-                    _series_default = tguide.normalize_pronouns(c.get("series_pronouns"))
-                    _shown_pronouns = tguide.normalize_pronouns(c.get("pronouns")) or _series_default
-                    c_pronouns = _pronoun_picker(
-                        f"Pronouns ({name or c['speaker_label']})", _shown_pronouns,
-                        key=f"cpronouns_{picked_id}_{c['speaker_label']}",
-                        help=("Defaults to this person's pronouns under People & pronouns "
-                              f"({_series_default}); setting it here overrides that for this "
-                              "drama only." if _series_default else
-                              "Fixes this character's pronouns in translation for this drama."))
-                    if c_pronouns != _shown_pronouns:
-                        db.upsert_character(picked_id, c["speaker_label"], pronouns=c_pronouns)
-                    if (drama.get("series_id") and name.strip()
-                            and name.strip() not in [sc["character_name"] for sc in _series_chars]):
-                        # Deliberately opt-in, not automatic on every keystroke --
-                        # auto-saving every typed name (including mid-typo) would
-                        # clutter the series' cast list with one-off junk. This is
-                        # the one moment a person decides "yes, remember them".
-                        if st.checkbox(f"💾 Remember '{name.strip()}' as a known character in this series",
-                                       key=f"cremember_{picked_id}_{c['speaker_label']}"):
-                            db.upsert_series_character(drama["series_id"], name.strip())
-                            _sc = next(sc for sc in db.list_series_characters(drama["series_id"])
-                                       if sc["character_name"] == name.strip())
-                            db.upsert_character(picked_id, c["speaker_label"], series_character_id=_sc["id"])
-                            st.success(f"'{name.strip()}' will be pickable for every future drama in this series.")
-                            st.rerun()
-
-                    _removed_clone = dub_module.clone_removed_message(c)
-                    if _removed_clone:
-                        st.info(_removed_clone)
-                    rc1, rc2 = st.columns([1, 2])
-                    if c["ref_audio_filename"]:
-                        rc1.caption(f"✅ Clone ref: {c['ref_audio_filename']}")
-                    else:
-                        rc1.caption("No clone reference set")
-                        # Step 8b item 2: a missing clone ref isn't a bug, but
-                        # silence about WHY is -- name the specific reason
-                        # auto-extract found no eligible segment for this
-                        # speaker, instead of leaving this indistinguishable
-                        # from "auto-extract was never run."
-                        _skip_reason = st.session_state.get(
-                            f"clip_skip_reasons_{picked_id}", {}).get(c["speaker_label"])
-                        if _skip_reason:
-                            _bound = ("shorter than the 3s minimum" if _skip_reason["reason"] == "too_short"
-                                     else "longer than the 12s maximum")
-                            rc1.caption(f"Closest available clip was {_skip_reason['closest_duration']:.1f}s "
-                                       f"-- {_bound} for a clean reference.")
-                    ref_upload = rc2.file_uploader(f"Upload clone reference for {name or c['speaker_label']}",
-                                                    type=["wav", "mp3", "m4a"], key=f"refup_{picked_id}_{c['speaker_label']}",
-                                                    label_visibility="collapsed")
-                    ref_text_input = st.text_input(
-                        f"What's said in that clip (original language, for {name or c['speaker_label']})",
-                        value=c["ref_text"] or "", key=f"reftext_{picked_id}_{c['speaker_label']}")
-                    if (not ref_text_input.strip() and c["speaker_label"] in
-                            st.session_state.get(f"ref_text_match_failed_{picked_id}", set())):
-                        # Step 8b item 3: same "silent empty result" shape as
-                        # item 2, in extract_reference_clips's own caller this
-                        # time -- a reference clip WAS found, but no transcript
-                        # line's speaker tag matched its time window.
-                        st.caption("A reference clip was found, but no transcript line's speaker "
-                                  "tag matched it -- try re-running speaker detection or "
-                                  "auto-extract again, or type the words said in the clip above.")
-                    if ref_upload is not None:
-                        ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
-                        with open(os.path.join(ddir, ref_filename), "wb") as f:
-                            f.write(ref_upload.getbuffer())
-                        db.upsert_character(picked_id, c["speaker_label"], ref_audio_filename=ref_filename)
-                    if ref_text_input != (c["ref_text"] or ""):
-                        db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
-
-                    _engine_options = list(dub_module.CLONE_ENGINES)
-                    _stored_engine = c.get("clone_engine") or dub_module.DEFAULT_CLONE_ENGINE
-                    ve1, ve2 = st.columns([1, 1])
-                    picked_engine = ve1.selectbox(
-                        f"Voice engine ({name or c['speaker_label']})", _engine_options,
-                        index=_engine_options.index(_stored_engine) if _stored_engine in _engine_options else 0,
-                        format_func=lambda e: dub_module.CLONE_ENGINES[e],
-                        key=f"cengine_{picked_id}_{c['speaker_label']}",
-                        help="Which local engine clones this character's reference clip. Chatterbox "
-                             "also works with no clip (its own built-in voice).")
-                    if picked_engine != _stored_engine:
-                        db.upsert_character(picked_id, c["speaker_label"], clone_engine=picked_engine)
-                    design_input = ve2.text_input(
-                        f"Or describe a voice ({name or c['speaker_label']}, no clip needed)",
-                        value=c.get("voice_design") or "", placeholder="female, low pitch, british accent",
-                        key=f"cdesign_{picked_id}_{c['speaker_label']}",
-                        help="OmniVoice voice design: gender, age, pitch, whisper, English accent, "
-                             "comma-separated. Used only while no reference clip is set -- a clip "
-                             "always wins.")
-                    if design_input != (c.get("voice_design") or ""):
-                        db.upsert_character(picked_id, c["speaker_label"], voice_design=design_input)
-                    if picked_engine == "chatterbox":
-                        st.caption("Chatterbox voices each line with the emotion detected for it (run "
-                                   "emotion detection first). Everything it generates carries Resemble "
-                                   "AI's imperceptible PerTh audio watermark.")
-                    elif picked_engine == "tada":
-                        st.caption("TADA's code is MIT-licensed, but its model weights are under Meta's "
-                                   "Llama 3.2 Community License -- downloading them needs a Hugging Face "
-                                   "account that has accepted that license (`huggingface-cli login`).")
-                    elif picked_engine == "gpt_sovits":
-                        st.caption("GPT-SoVITS runs as its own local server: start `python api_v2.py` in "
-                                   "your GPT-SoVITS folder first. Set its address under Settings -> "
-                                   "API keys & endpoints if it isn't the default.")
+                        _engine_options = list(dub_module.CLONE_ENGINES)
+                        _stored_engine = c.get("clone_engine") or dub_module.DEFAULT_CLONE_ENGINE
+                        ve1, ve2 = st.columns([1, 1])
+                        picked_engine = ve1.selectbox(
+                            f"Voice engine ({name or c['speaker_label']})", _engine_options,
+                            index=_engine_options.index(_stored_engine) if _stored_engine in _engine_options else 0,
+                            format_func=lambda e: dub_module.CLONE_ENGINES[e],
+                            key=f"cengine_{picked_id}_{c['speaker_label']}",
+                            help="Which local engine clones this character's reference clip. Chatterbox "
+                                 "also works with no clip (its own built-in voice).")
+                        if picked_engine != _stored_engine:
+                            db.upsert_character(picked_id, c["speaker_label"], clone_engine=picked_engine)
+                        design_input = ve2.text_input(
+                            f"Or describe a voice ({name or c['speaker_label']}, no clip needed)",
+                            value=c.get("voice_design") or "", placeholder="female, low pitch, british accent",
+                            key=f"cdesign_{picked_id}_{c['speaker_label']}",
+                            help="OmniVoice voice design: gender, age, pitch, whisper, English accent, "
+                                 "comma-separated. Used only while no reference clip is set -- a clip "
+                                 "always wins.")
+                        if design_input != (c.get("voice_design") or ""):
+                            db.upsert_character(picked_id, c["speaker_label"], voice_design=design_input)
+                        if picked_engine == "chatterbox":
+                            st.caption("Chatterbox voices each line with the emotion detected for it (run "
+                                       "emotion detection first). Everything it generates carries Resemble "
+                                       "AI's imperceptible PerTh audio watermark.")
+                        elif picked_engine == "tada":
+                            st.caption("TADA's code is MIT-licensed, but its model weights are under Meta's "
+                                       "Llama 3.2 Community License -- downloading them needs a Hugging Face "
+                                       "account that has accepted that license (`huggingface-cli login`).")
+                        elif picked_engine == "gpt_sovits":
+                            st.caption("GPT-SoVITS runs as its own local server: start `python api_v2.py` in "
+                                       "your GPT-SoVITS folder first. Set its address under Settings -> "
+                                       "API keys & endpoints if it isn't the default.")
 
 
-    # ---------------------------------------------------- Review & edit
-    if st.session_state.lines:
-        st.divider()
-        with st.expander("7. 📝 Review & edit", expanded=False):
+    with tab_review:
+        if st.session_state.lines:
+            st.divider()
 
             # A background job further down (Review queue) can finish and save
             # its flags to the database mid-render -- if that just happened,
@@ -4483,7 +4530,7 @@ def render_workspace_tab():
                         background_jobs.clear_job(_consistency_job_id)
                     elif _cjob["status"] == "error":
                         st.error(f"Consistency check failed: {_cjob['error']}")
-                        with st.expander("Details"):
+                        with st.expander("Consistency check error details"):
                             st.code(_cjob.get("traceback", ""), language="text")
                         background_jobs.clear_job(_consistency_job_id)
 
@@ -4554,7 +4601,7 @@ def render_workspace_tab():
                         background_jobs.clear_job(_flag_job_id)
                     elif _fjob["status"] == "error":
                         st.error(f"Flagging failed: {_fjob['error']}")
-                        with st.expander("Details"):
+                        with st.expander("Flagging error details"):
                             st.code(_fjob.get("traceback", ""), language="text")
                         background_jobs.clear_job(_flag_job_id)
 
@@ -4684,7 +4731,7 @@ def render_workspace_tab():
                             st.rerun()
                         elif _ffjob["status"] == "error":
                             st.error(f"Fixing flagged lines failed: {_ffjob['error']}")
-                            with st.expander("Details"):
+                            with st.expander("Fix flagged lines error details"):
                                 st.code(_ffjob.get("traceback", ""), language="text")
                             background_jobs.clear_job(_fixflag_job_id)
 
@@ -4756,7 +4803,7 @@ def render_workspace_tab():
                         st.rerun()
                     elif _ejob["status"] == "error":
                         st.error(f"Emotion detection failed: {_ejob['error']}")
-                        with st.expander("Details"):
+                        with st.expander("Emotion detection error details"):
                             st.code(_ejob.get("traceback", ""), language="text")
                         background_jobs.clear_job(_emotion_job_id)
 
@@ -5003,7 +5050,7 @@ def render_workspace_tab():
                         background_jobs.clear_job(_notes_job_id)
                     elif _njob["status"] == "error":
                         st.error(f"Note generation failed: {_njob['error']}")
-                        with st.expander("Details"):
+                        with st.expander("Note generation error details"):
                             st.code(_njob.get("traceback", ""), language="text")
                         background_jobs.clear_job(_notes_job_id)
 
@@ -5282,7 +5329,10 @@ def render_workspace_tab():
                                 st.success(f"Restored '{h['label']}'.")
                                 st.rerun()
 
-        with st.expander("8. 🎙️ AI dub / narration", expanded=False):
+        else:
+            st.info("Run **Transcribe & Align** above to get started on this drama.")
+    with tab_dub:
+        if st.session_state.lines:
             st.caption(
                 "Uses each character's voice from section 6 (a cloned clip, a described voice, or "
                 "Chatterbox), otherwise falls back to the TTS engine chosen below. Each character's "
@@ -5395,403 +5445,407 @@ def render_workspace_tab():
             if content_mode != "novel_narration":
                 _render_dub_pacing(st.session_state.lines, ddir, picked_id)
 
-        with st.expander("9. 💾 Export subtitles", expanded=False):
-            _total_lines = len(st.session_state.lines)
-            _zh_filled = sum(1 for ln in st.session_state.lines if ln.zh.strip())
-            _en_filled = sum(1 for ln in st.session_state.lines if ln.en.strip())
+        else:
+            st.info("Run **Transcribe & Align** above to get started on this drama.")
+    with tab_export:
+        if st.session_state.lines:
+            with st.expander("9. 💾 Export subtitles", expanded=False):
+                _total_lines = len(st.session_state.lines)
+                _zh_filled = sum(1 for ln in st.session_state.lines if ln.zh.strip())
+                _en_filled = sum(1 for ln in st.session_state.lines if ln.en.strip())
 
-            # drama["translation_engine"] is whichever engine most recently
-            # produced this drama's current lines (set alongside them in
-            # run_translate_job) -- not a per-line record, but the same
-            # signal the rest of the app already uses as "this drama's
-            # engine" (e.g. the picker's own default above).
-            _test_mode_output = drama.get("translation_engine") == "test_offline" and _en_filled > 0
-            if _test_mode_output:
-                st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder text, "
-                          "not a real translation. Don't ship these subtitles; re-translate with a "
-                          "real engine first.")
-
-            # A timed-but-textless .srt is technically valid and gives no error --
-            # it just looks broken when you open it. Say so before the download
-            # happens rather than after someone's confused by an empty file.
-            if _en_filled == 0:
-                st.warning(f"⚠️ No lines are translated yet (0/{_total_lines}). The English and "
-                          f"bilingual exports below will have correct timing but blank text. "
-                          f"Run **Translate all lines** above first — or use the free "
-                          f"`test_offline` engine to check the export pipeline without spending "
-                          f"anything.")
-            elif _en_filled < _total_lines:
-                st.caption(f"ℹ️ {_total_lines - _en_filled} of {_total_lines} lines aren't "
-                          f"translated yet — those will export with blank English text.")
-            if _zh_filled == 0:
-                st.error(f"⚠️ No source text on any line (0/{_total_lines}) — alignment may not "
-                        f"have completed. Chinese/bilingual exports will be entirely blank.")
-
-            _existing_notes = db.list_translation_notes(picked_id)
-            _include_notes_inline = st.checkbox(
-                "Include translation notes inline (idioms, wordplay, meaningful names)",
-                value=False, disabled=not _existing_notes,
-                help="Appends each note (e.g. \"Qijutang: lit. 'Hall of Sitting Together', used "
-                     "as a joke\") in brackets on the subtitle line it's about -- for a note to "
-                     "reach someone watching the exported video, not just the in-app Reader. "
-                     "Generate notes first under Translation notes above."
-                     if _existing_notes else
-                     "No translation notes recorded yet -- generate some under Translation notes "
-                     "above (section 5) to enable this.")
-            _notes_by_idx = tguide.group_notes_by_line(_existing_notes) if _include_notes_inline else None
-
-            _default_base_name = _sanitize_filename(drama.get("title_en") or drama.get("title_zh") or "export")
-            _base_name = st.text_input(
-                "Base filename (optional)", value="", placeholder=_default_base_name,
-                help="Used for every download below, e.g. \"my_title_english.srt\". Leave blank "
-                     "to use the drama's title.", key=f"export_base_name_{picked_id}")
-            _base_name = _sanitize_filename(_base_name) or _default_base_name
-
-            # Never export an overlapping (invalid) cue: trimmed in the export
-            # copies. Detecting this is read-only and safe to do on every
-            # render, but writing the flag isn't -- this section renders on
-            # every page load, so a write here happened unconditionally,
-            # with no user action, straight from whatever st.session_state
-            # .lines held at that moment. That's exactly how a stale-lines
-            # bug elsewhere (e.g. the ones Step 6d just fixed) would reach
-            # the database as bogus flags before anyone noticed. Flagging
-            # for review now needs an explicit click.
-            _export_lines, _overlaps = subtitle_formats.clamp_overlaps(st.session_state.lines)
-            if _overlaps:
-                _next_start = {a.idx: b.start for a, b in zip(st.session_state.lines,
-                                                               st.session_state.lines[1:])}
-                _unflagged = [ln for ln in st.session_state.lines
-                              if ln.idx in _overlaps and not ln.flag]
-                st.warning(f"⚠️ {len(_overlaps)} line(s) overlap the next one. The export trims them "
-                           "so no player gets an invalid cue." +
-                           (f" {len(_unflagged)} of them aren't flagged for review yet."
-                            if _unflagged else
-                            " They're flagged in Review & edit so you can fix the timing."))
-                if _unflagged and st.button("🚩 Flag overlapping lines for review",
-                                            key=f"flag_overlaps_{picked_id}"):
-                    for ln in _unflagged:
-                        ln.flag = subtitle_formats.OVERLAP_FLAG
-                        ln.flag_note = subtitle_formats.overlap_note(ln, _next_start[ln.idx])
-                    db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
-                    st.rerun()
-
-            # Step 12b: "Auto QC before export" (the Release tier's default).
-            # Read-only on render, same reason as the overlap check above --
-            # flagging needs the click.
-            if st.session_state.get(f"auto_qc_{picked_id}"):
-                _qc_issues = auto_qc.find_issues(st.session_state.lines, _auto_qc_names(drama))
-                _qc_new = [ln for ln, _ in _qc_issues if not ln.flag]
-                if _qc_issues:
-                    st.warning(f"🔎 Auto QC: {len(_qc_issues)} line(s) drop or add a number, date, "
-                               "name, amount or unit compared with the source: "
-                               + ", ".join(f"#{ln.idx + 1}" for ln, _ in _qc_issues[:8])
-                               + (" …" if len(_qc_issues) > 8 else "") + "."
-                               + (f" {len(_qc_new)} of them aren't flagged for review yet."
-                                  if _qc_new else ""))
-                    if _qc_new and st.button("🚩 Flag these for review",
-                                             key=f"flag_auto_qc_{picked_id}"):
-                        _run_auto_qc(picked_id, drama, st.session_state.lines)
-                        st.rerun()
-                else:
-                    st.caption("🔎 Auto QC: no dropped or invented numbers, dates, names, "
-                               "amounts or units found.")
-
-            _dense = subtitle_formats.dense_lines(st.session_state.lines)
-            if _dense:
-                st.warning(f"⚠️ {len(_dense)} translated line(s) have more text than can comfortably "
-                           "be read in the time they're on screen: "
-                           + ", ".join(f"#{ln.idx + 1} ({cps:.0f}/s)" for ln, cps, _ in _dense[:8])
-                           + (" …" if len(_dense) > 8 else "") + ".")
-                if st.button("🚩 Flag these for review", key=f"flag_dense_{picked_id}"):
-                    if subtitle_formats.flag_dense_lines(st.session_state.lines):
-                        db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
-                    st.rerun()
-
-            _sub_format = st.radio(
-                "Format", ["SRT", "VTT", "ASS"], horizontal=True, key=f"sub_format_{picked_id}",
-                help="SRT plays everywhere. VTT is for web players. ASS carries the style below "
-                     "(font, colours, one colour per speaker) -- for styled subtitles in players "
-                     "like mpv/VLC, or burned into the video.")
-            _notes_as_separate_line = False
-            if _sub_format == "ASS" and _include_notes_inline:
-                _notes_as_separate_line = st.checkbox(
-                    "Show notes as their own smaller subtitle line (ASS only)", value=False,
-                    key=f"sub_notes_separate_{picked_id}",
-                    help="Instead of appending a note to the same cue as the line it's about, "
-                         "renders it as its own second Dialogue line underneath, at about 70% "
-                         "size -- keeps the translation itself uncluttered while the note is "
-                         "still visible. SRT/VTT have no concept of a second styled line, so "
-                         "those always keep the note appended inline regardless of this.")
-            _notes_alignment = None
-            if _notes_as_separate_line:
-                _notes_alignment = st.selectbox(
-                    "📝 Notes position", _SEPARATE_POSITIONS, key=f"sub_notes_align_{picked_id}",
-                    format_func=_separate_position_label,
-                    help="Where the separate note line goes -- e.g. at the top, apart from the "
-                         "dialogue it explains.")
-            _wrap_chars = None
-            if st.checkbox("Split long lines", value=False, key=f"sub_wrap_{picked_id}",
-                           help="Breaks a long subtitle onto several lines at a sentence or clause "
-                                "break (or a space) -- never mid-word."):
-                w1, w2 = st.columns(2)
-                _wrap_chars = {
-                    "en": w1.number_input("Max characters per line (English)", 10, 80,
-                                          subtitle_formats.line_char_limit("en"),
-                                          key=f"sub_wrap_en_{picked_id}"),
-                    "zh": w2.number_input("Max characters per line (original)", 6, 60,
-                                          subtitle_formats.line_char_limit(source_language),
-                                          key=f"sub_wrap_zh_{picked_id}"),
-                }
-
-            st.markdown("**🎨 Subtitle style** — used by .ass files and burned-in video")
-            _speaker_names = {c["speaker_label"]: c["character_name"]
-                              for c in db.list_characters_with_series_names(picked_id)
-                              if c.get("character_name")}
-            _subtitle_style_fragment(picked_id, st.session_state.lines, _speaker_names,
-                                     _notes_alignment, _wrap_chars)
-            # Review & edit's burned-subtitle preview (Step 12c) renders above
-            # this section, so it reads the style from here via session state.
-            _style_now = st.session_state[f"sub_style_current_{picked_id}"]
-            _sub_style, _speaker_colors = _style_now["style"], _style_now["speaker_colors"]
-
-            def _subtitle_text(field):
-                if _sub_format == "VTT":
-                    return subtitle_formats.lines_to_vtt(_export_lines, field, _notes_by_idx, _wrap_chars)
-                if _sub_format == "ASS":
-                    # Read at call time, not from _sub_style: the download
-                    # buttons below call this on click, which can come after
-                    # a fragment-only rerun of the style controls.
-                    return subtitle_formats.lines_to_ass(
-                        _export_lines, _style_now["style"], field, _notes_by_idx,
-                        speaker_colors=_style_now["speaker_colors"], speaker_names=_speaker_names,
-                        wrap_chars=_wrap_chars, title=drama.get("title_en") or drama.get("title_zh") or "",
-                        notes_as_separate_line=_notes_as_separate_line)
-                _src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
-                if field == "bilingual":
-                    return lines_to_bilingual_srt(_src, notes_by_idx=_notes_by_idx)
-                return lines_to_srt(_src, field, notes_by_idx=_notes_by_idx)
-
-            _ext = _sub_format.lower()
-            c1, c2, c3 = st.columns(3)
-            c1.download_button(f"Download English .{_ext}", lambda: _subtitle_text("en"),
-                                file_name=f"{_base_name}_english.{_ext}", disabled=(_en_filled == 0))
-            c2.download_button(f"Download Chinese .{_ext}", lambda: _subtitle_text("zh"),
-                                file_name=f"{_base_name}_chinese.{_ext}", disabled=(_zh_filled == 0))
-            c3.download_button(f"Download Bilingual .{_ext}", lambda: _subtitle_text("bilingual"),
-                                file_name=f"{_base_name}_bilingual.{_ext}",
-                                disabled=(_zh_filled == 0 and _en_filled == 0))
-
-            if content_mode == "novel_narration":
-                st.caption("Novel/narration content -- also export as an EPUB for reading in any e-reader app.")
-                if st.button("📚 Generate EPUB"):
-                    import epub_io
-                    try:
-                        epub_path = os.path.join(ddir, "translated.epub")
-                        epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
-                                             drama.get("author", ""), epub_path, field="en",
-                                             images_dir=os.path.join(ddir, "epub_images"))
-                        with open(epub_path, "rb") as f:
-                            st.download_button("Download .epub", f.read(), file_name=f"{_base_name}.epub")
-                    except Exception as e:
-                        st.error(f"EPUB export failed: {e}. Check `pip install ebooklib`.")
-
-                _narration_wav = os.path.join(ddir, "narration_track.wav")
-                if st.button("🎧 Generate audiobook (.m4b)", disabled=not os.path.exists(_narration_wav),
-                             help="The narration track as an audiobook with chapter markers -- the "
-                                  "novel's own chapter headings, or its paragraphs if it has none. "
-                                  "Generate the narration (section 8) first. Needs ffmpeg."):
-                    try:
-                        with st.spinner("Encoding audiobook..."):
-                            m4b_path = dub_module.export_narration_m4b(
-                                st.session_state.lines, ddir,
-                                title=drama["title_en"] or drama["title_zh"] or None)
-                        with open(m4b_path, "rb") as f:
-                            st.download_button("Download .m4b", f.read(), file_name=f"{_base_name}.m4b")
-                    except Exception as e:
-                        st.error(f"Audiobook export failed: {e}. Check ffmpeg is on PATH.")
-
-        source_video_path = None
-        if drama.get("source_video_filename"):
-            p = os.path.join(ddir, drama["source_video_filename"])
-            if os.path.exists(p):
-                source_video_path = p
-
-        if source_video_path:
-            with st.expander("10. 🎬 Export full subtitled episode", expanded=False):
-                st.caption("Uses the original video you uploaded + your reviewed English subtitles.")
+                # drama["translation_engine"] is whichever engine most recently
+                # produced this drama's current lines (set alongside them in
+                # run_translate_job) -- not a per-line record, but the same
+                # signal the rest of the app already uses as "this drama's
+                # engine" (e.g. the picker's own default above).
+                _test_mode_output = drama.get("translation_engine") == "test_offline" and _en_filled > 0
                 if _test_mode_output:
-                    st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder "
-                              "text, not a real translation. Don't ship this video; re-translate "
-                              "with a real engine first.")
-                sub_style = st.radio(
-                    "Subtitle style",
-                    ["hardsub", "softsub"],
-                    format_func=lambda s: "🔥 Burn-in (always visible, plays everywhere)"
-                                 if s == "hardsub" else
-                                 "🎚️ Soft subtitles (toggleable track, needs a compatible player)",
-                    horizontal=False,
-                )
-                sub_language = st.selectbox("Which subtitles to export on video", ["English", "Bilingual", "Chinese"])
-                _field_for = {"English": "en", "Bilingual": "bilingual", "Chinese": "zh"}
-                _srt_src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
-                sub_text_map = {"English": lines_to_srt(_srt_src, "en", notes_by_idx=_notes_by_idx),
-                                 "Bilingual": lines_to_bilingual_srt(_srt_src, notes_by_idx=_notes_by_idx),
-                                 "Chinese": lines_to_srt(_srt_src, "zh", notes_by_idx=_notes_by_idx)}
-                if sub_style == "hardsub":
-                    st.caption("Burned in with the style from 9. Export subtitles above"
-                               + (" -- as ASS, so each speaker keeps their own colour."
-                                  if _sub_format == "ASS" else
-                                  " (pick ASS there for one colour per speaker)."))
+                    st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder text, "
+                              "not a real translation. Don't ship these subtitles; re-translate with a "
+                              "real engine first.")
 
-                st.download_button(
-                    f"📄 Download the matching .{_ext} subtitle file",
-                    lambda: _subtitle_text(_field_for[sub_language]),
-                    file_name=f"{_base_name}_subtitled_{sub_language.lower()}.{_ext}",
-                    help="The exact subtitle content this video would use (same format, style "
-                         "and language selected here) -- as its own file, without having to "
-                         "render the video first.")
+                # A timed-but-textless .srt is technically valid and gives no error --
+                # it just looks broken when you open it. Say so before the download
+                # happens rather than after someone's confused by an empty file.
+                if _en_filled == 0:
+                    st.warning(f"⚠️ No lines are translated yet (0/{_total_lines}). The English and "
+                              f"bilingual exports below will have correct timing but blank text. "
+                              f"Run **Translate all lines** above first — or use the free "
+                              f"`test_offline` engine to check the export pipeline without spending "
+                              f"anything.")
+                elif _en_filled < _total_lines:
+                    st.caption(f"ℹ️ {_total_lines - _en_filled} of {_total_lines} lines aren't "
+                              f"translated yet — those will export with blank English text.")
+                if _zh_filled == 0:
+                    st.error(f"⚠️ No source text on any line (0/{_total_lines}) — alignment may not "
+                            f"have completed. Chinese/bilingual exports will be entirely blank.")
 
-                if st.button("🎬 Generate subtitled episode"):
-                    import video_export
-                    out_ext = os.path.splitext(source_video_path)[1]
-                    out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
-                    try:
-                        with st.spinner("Rendering subtitled video... this can take a while for long episodes."):
-                            if sub_style == "hardsub" and _sub_format == "ASS":
-                                video_export.burn_ass(source_video_path,
-                                                      _subtitle_text(_field_for[sub_language]), out_path)
-                            elif sub_style == "hardsub":
-                                video_export.burn_subtitles(
-                                    source_video_path, sub_text_map[sub_language], out_path,
-                                    font_size=_sub_style["size"], font_color=_sub_style["primary"],
-                                    outline_color=_sub_style["outline"], font_name=_sub_style["font"],
-                                    bold=_sub_style["bold"], italic=_sub_style["italic"],
-                                    outline_width=_sub_style["outline_width"],
-                                    alignment=subtitle_formats.ALIGNMENTS[_sub_style["alignment"]])
-                            else:
-                                if out_ext.lower() not in (".mp4", ".mkv"):
-                                    out_path = os.path.splitext(out_path)[0] + ".mp4"
-                                video_export.mux_soft_subtitles(source_video_path, sub_text_map[sub_language], out_path)
-                        st.success("Subtitled episode ready.")
-                        _dl_name = f"{_base_name}_subtitled{os.path.splitext(out_path)[1]}"
-                        with open(out_path, "rb") as f:
-                            st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
-                    except Exception as e:
-                        st.error(f"Video export failed: {e}. Check that ffmpeg (with libass for hardsub) is installed.")
+                _existing_notes = db.list_translation_notes(picked_id)
+                _include_notes_inline = st.checkbox(
+                    "Include translation notes inline (idioms, wordplay, meaningful names)",
+                    value=False, disabled=not _existing_notes,
+                    help="Appends each note (e.g. \"Qijutang: lit. 'Hall of Sitting Together', used "
+                         "as a joke\") in brackets on the subtitle line it's about -- for a note to "
+                         "reach someone watching the exported video, not just the in-app Reader. "
+                         "Generate notes first under Translation notes above."
+                         if _existing_notes else
+                         "No translation notes recorded yet -- generate some under Translation notes "
+                         "above (section 5) to enable this.")
+                _notes_by_idx = tguide.group_notes_by_line(_existing_notes) if _include_notes_inline else None
 
-                dub_track_path = os.path.join(ddir, "dub_track.wav")
-                if os.path.exists(dub_track_path):
-                    st.caption("An AI dub track exists for this drama -- you can also replace/mix the video's "
-                              "audio with it below.")
-                    keep_orig = st.checkbox("Mix original audio in quietly underneath (instead of full replace)")
-                    if st.button("🔊 Export video with dub audio"):
-                        import video_export
-                        out_path = os.path.join(ddir, f"dubbed_episode{os.path.splitext(source_video_path)[1]}")
+                _default_base_name = _sanitize_filename(drama.get("title_en") or drama.get("title_zh") or "export")
+                _base_name = st.text_input(
+                    "Base filename (optional)", value="", placeholder=_default_base_name,
+                    help="Used for every download below, e.g. \"my_title_english.srt\". Leave blank "
+                         "to use the drama's title.", key=f"export_base_name_{picked_id}")
+                _base_name = _sanitize_filename(_base_name) or _default_base_name
+
+                # Never export an overlapping (invalid) cue: trimmed in the export
+                # copies. Detecting this is read-only and safe to do on every
+                # render, but writing the flag isn't -- this section renders on
+                # every page load, so a write here happened unconditionally,
+                # with no user action, straight from whatever st.session_state
+                # .lines held at that moment. That's exactly how a stale-lines
+                # bug elsewhere (e.g. the ones Step 6d just fixed) would reach
+                # the database as bogus flags before anyone noticed. Flagging
+                # for review now needs an explicit click.
+                _export_lines, _overlaps = subtitle_formats.clamp_overlaps(st.session_state.lines)
+                if _overlaps:
+                    _next_start = {a.idx: b.start for a, b in zip(st.session_state.lines,
+                                                                   st.session_state.lines[1:])}
+                    _unflagged = [ln for ln in st.session_state.lines
+                                  if ln.idx in _overlaps and not ln.flag]
+                    st.warning(f"⚠️ {len(_overlaps)} line(s) overlap the next one. The export trims them "
+                               "so no player gets an invalid cue." +
+                               (f" {len(_unflagged)} of them aren't flagged for review yet."
+                                if _unflagged else
+                                " They're flagged in Review & edit so you can fix the timing."))
+                    if _unflagged and st.button("🚩 Flag overlapping lines for review",
+                                                key=f"flag_overlaps_{picked_id}"):
+                        for ln in _unflagged:
+                            ln.flag = subtitle_formats.OVERLAP_FLAG
+                            ln.flag_note = subtitle_formats.overlap_note(ln, _next_start[ln.idx])
+                        db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
+                        st.rerun()
+
+                # Step 12b: "Auto QC before export" (the Release tier's default).
+                # Read-only on render, same reason as the overlap check above --
+                # flagging needs the click.
+                if st.session_state.get(f"auto_qc_{picked_id}"):
+                    _qc_issues = auto_qc.find_issues(st.session_state.lines, _auto_qc_names(drama))
+                    _qc_new = [ln for ln, _ in _qc_issues if not ln.flag]
+                    if _qc_issues:
+                        st.warning(f"🔎 Auto QC: {len(_qc_issues)} line(s) drop or add a number, date, "
+                                   "name, amount or unit compared with the source: "
+                                   + ", ".join(f"#{ln.idx + 1}" for ln, _ in _qc_issues[:8])
+                                   + (" …" if len(_qc_issues) > 8 else "") + "."
+                                   + (f" {len(_qc_new)} of them aren't flagged for review yet."
+                                      if _qc_new else ""))
+                        if _qc_new and st.button("🚩 Flag these for review",
+                                                 key=f"flag_auto_qc_{picked_id}"):
+                            _run_auto_qc(picked_id, drama, st.session_state.lines)
+                            st.rerun()
+                    else:
+                        st.caption("🔎 Auto QC: no dropped or invented numbers, dates, names, "
+                                   "amounts or units found.")
+
+                _dense = subtitle_formats.dense_lines(st.session_state.lines)
+                if _dense:
+                    st.warning(f"⚠️ {len(_dense)} translated line(s) have more text than can comfortably "
+                               "be read in the time they're on screen: "
+                               + ", ".join(f"#{ln.idx + 1} ({cps:.0f}/s)" for ln, cps, _ in _dense[:8])
+                               + (" …" if len(_dense) > 8 else "") + ".")
+                    if st.button("🚩 Flag these for review", key=f"flag_dense_{picked_id}"):
+                        if subtitle_formats.flag_dense_lines(st.session_state.lines):
+                            db.save_lines(picked_id, st.session_state.lines, fields=("flag", "flag_note"))
+                        st.rerun()
+
+                _sub_format = st.radio(
+                    "Format", ["SRT", "VTT", "ASS"], horizontal=True, key=f"sub_format_{picked_id}",
+                    help="SRT plays everywhere. VTT is for web players. ASS carries the style below "
+                         "(font, colours, one colour per speaker) -- for styled subtitles in players "
+                         "like mpv/VLC, or burned into the video.")
+                _notes_as_separate_line = False
+                if _sub_format == "ASS" and _include_notes_inline:
+                    _notes_as_separate_line = st.checkbox(
+                        "Show notes as their own smaller subtitle line (ASS only)", value=False,
+                        key=f"sub_notes_separate_{picked_id}",
+                        help="Instead of appending a note to the same cue as the line it's about, "
+                             "renders it as its own second Dialogue line underneath, at about 70% "
+                             "size -- keeps the translation itself uncluttered while the note is "
+                             "still visible. SRT/VTT have no concept of a second styled line, so "
+                             "those always keep the note appended inline regardless of this.")
+                _notes_alignment = None
+                if _notes_as_separate_line:
+                    _notes_alignment = st.selectbox(
+                        "📝 Notes position", _SEPARATE_POSITIONS, key=f"sub_notes_align_{picked_id}",
+                        format_func=_separate_position_label,
+                        help="Where the separate note line goes -- e.g. at the top, apart from the "
+                             "dialogue it explains.")
+                _wrap_chars = None
+                if st.checkbox("Split long lines", value=False, key=f"sub_wrap_{picked_id}",
+                               help="Breaks a long subtitle onto several lines at a sentence or clause "
+                                    "break (or a space) -- never mid-word."):
+                    w1, w2 = st.columns(2)
+                    _wrap_chars = {
+                        "en": w1.number_input("Max characters per line (English)", 10, 80,
+                                              subtitle_formats.line_char_limit("en"),
+                                              key=f"sub_wrap_en_{picked_id}"),
+                        "zh": w2.number_input("Max characters per line (original)", 6, 60,
+                                              subtitle_formats.line_char_limit(source_language),
+                                              key=f"sub_wrap_zh_{picked_id}"),
+                    }
+
+                st.markdown("**🎨 Subtitle style** — used by .ass files and burned-in video")
+                _speaker_names = {c["speaker_label"]: c["character_name"]
+                                  for c in db.list_characters_with_series_names(picked_id)
+                                  if c.get("character_name")}
+                _subtitle_style_fragment(picked_id, st.session_state.lines, _speaker_names,
+                                         _notes_alignment, _wrap_chars)
+                # Review & edit's burned-subtitle preview (Step 12c) renders above
+                # this section, so it reads the style from here via session state.
+                _style_now = st.session_state[f"sub_style_current_{picked_id}"]
+                _sub_style, _speaker_colors = _style_now["style"], _style_now["speaker_colors"]
+
+                def _subtitle_text(field):
+                    if _sub_format == "VTT":
+                        return subtitle_formats.lines_to_vtt(_export_lines, field, _notes_by_idx, _wrap_chars)
+                    if _sub_format == "ASS":
+                        # Read at call time, not from _sub_style: the download
+                        # buttons below call this on click, which can come after
+                        # a fragment-only rerun of the style controls.
+                        return subtitle_formats.lines_to_ass(
+                            _export_lines, _style_now["style"], field, _notes_by_idx,
+                            speaker_colors=_style_now["speaker_colors"], speaker_names=_speaker_names,
+                            wrap_chars=_wrap_chars, title=drama.get("title_en") or drama.get("title_zh") or "",
+                            notes_as_separate_line=_notes_as_separate_line)
+                    _src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
+                    if field == "bilingual":
+                        return lines_to_bilingual_srt(_src, notes_by_idx=_notes_by_idx)
+                    return lines_to_srt(_src, field, notes_by_idx=_notes_by_idx)
+
+                _ext = _sub_format.lower()
+                c1, c2, c3 = st.columns(3)
+                c1.download_button(f"Download English .{_ext}", lambda: _subtitle_text("en"),
+                                    file_name=f"{_base_name}_english.{_ext}", disabled=(_en_filled == 0))
+                c2.download_button(f"Download Chinese .{_ext}", lambda: _subtitle_text("zh"),
+                                    file_name=f"{_base_name}_chinese.{_ext}", disabled=(_zh_filled == 0))
+                c3.download_button(f"Download Bilingual .{_ext}", lambda: _subtitle_text("bilingual"),
+                                    file_name=f"{_base_name}_bilingual.{_ext}",
+                                    disabled=(_zh_filled == 0 and _en_filled == 0))
+
+                if content_mode == "novel_narration":
+                    st.caption("Novel/narration content -- also export as an EPUB for reading in any e-reader app.")
+                    if st.button("📚 Generate EPUB"):
+                        import epub_io
                         try:
-                            with st.spinner("Rendering dubbed video..."):
-                                video_export.replace_audio_with_dub(
-                                    source_video_path, dub_track_path, out_path,
-                                    keep_original_at_db=-20.0 if keep_orig else None,
-                                )
-                            st.success("Dubbed episode ready.")
-                            _dl_name = f"{_base_name}_dubbed{os.path.splitext(out_path)[1]}"
+                            epub_path = os.path.join(ddir, "translated.epub")
+                            epub_io.export_epub(st.session_state.lines, drama["title_en"] or drama["title_zh"] or "Untitled",
+                                                 drama.get("author", ""), epub_path, field="en",
+                                                 images_dir=os.path.join(ddir, "epub_images"))
+                            with open(epub_path, "rb") as f:
+                                st.download_button("Download .epub", f.read(), file_name=f"{_base_name}.epub")
+                        except Exception as e:
+                            st.error(f"EPUB export failed: {e}. Check `pip install ebooklib`.")
+
+                    _narration_wav = os.path.join(ddir, "narration_track.wav")
+                    if st.button("🎧 Generate audiobook (.m4b)", disabled=not os.path.exists(_narration_wav),
+                                 help="The narration track as an audiobook with chapter markers -- the "
+                                      "novel's own chapter headings, or its paragraphs if it has none. "
+                                      "Generate the narration (section 8) first. Needs ffmpeg."):
+                        try:
+                            with st.spinner("Encoding audiobook..."):
+                                m4b_path = dub_module.export_narration_m4b(
+                                    st.session_state.lines, ddir,
+                                    title=drama["title_en"] or drama["title_zh"] or None)
+                            with open(m4b_path, "rb") as f:
+                                st.download_button("Download .m4b", f.read(), file_name=f"{_base_name}.m4b")
+                        except Exception as e:
+                            st.error(f"Audiobook export failed: {e}. Check ffmpeg is on PATH.")
+
+            source_video_path = None
+            if drama.get("source_video_filename"):
+                p = os.path.join(ddir, drama["source_video_filename"])
+                if os.path.exists(p):
+                    source_video_path = p
+
+            if source_video_path:
+                with st.expander("10. 🎬 Export full subtitled episode", expanded=False):
+                    st.caption("Uses the original video you uploaded + your reviewed English subtitles.")
+                    if _test_mode_output:
+                        st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder "
+                                  "text, not a real translation. Don't ship this video; re-translate "
+                                  "with a real engine first.")
+                    sub_style = st.radio(
+                        "Subtitle style",
+                        ["hardsub", "softsub"],
+                        format_func=lambda s: "🔥 Burn-in (always visible, plays everywhere)"
+                                     if s == "hardsub" else
+                                     "🎚️ Soft subtitles (toggleable track, needs a compatible player)",
+                        horizontal=False,
+                    )
+                    sub_language = st.selectbox("Which subtitles to export on video", ["English", "Bilingual", "Chinese"])
+                    _field_for = {"English": "en", "Bilingual": "bilingual", "Chinese": "zh"}
+                    _srt_src = subtitle_formats.wrap_lines(_export_lines, _wrap_chars)
+                    sub_text_map = {"English": lines_to_srt(_srt_src, "en", notes_by_idx=_notes_by_idx),
+                                     "Bilingual": lines_to_bilingual_srt(_srt_src, notes_by_idx=_notes_by_idx),
+                                     "Chinese": lines_to_srt(_srt_src, "zh", notes_by_idx=_notes_by_idx)}
+                    if sub_style == "hardsub":
+                        st.caption("Burned in with the style from 9. Export subtitles above"
+                                   + (" -- as ASS, so each speaker keeps their own colour."
+                                      if _sub_format == "ASS" else
+                                      " (pick ASS there for one colour per speaker)."))
+
+                    st.download_button(
+                        f"📄 Download the matching .{_ext} subtitle file",
+                        lambda: _subtitle_text(_field_for[sub_language]),
+                        file_name=f"{_base_name}_subtitled_{sub_language.lower()}.{_ext}",
+                        help="The exact subtitle content this video would use (same format, style "
+                             "and language selected here) -- as its own file, without having to "
+                             "render the video first.")
+
+                    if st.button("🎬 Generate subtitled episode"):
+                        import video_export
+                        out_ext = os.path.splitext(source_video_path)[1]
+                        out_path = os.path.join(ddir, f"subtitled_episode{out_ext}")
+                        try:
+                            with st.spinner("Rendering subtitled video... this can take a while for long episodes."):
+                                if sub_style == "hardsub" and _sub_format == "ASS":
+                                    video_export.burn_ass(source_video_path,
+                                                          _subtitle_text(_field_for[sub_language]), out_path)
+                                elif sub_style == "hardsub":
+                                    video_export.burn_subtitles(
+                                        source_video_path, sub_text_map[sub_language], out_path,
+                                        font_size=_sub_style["size"], font_color=_sub_style["primary"],
+                                        outline_color=_sub_style["outline"], font_name=_sub_style["font"],
+                                        bold=_sub_style["bold"], italic=_sub_style["italic"],
+                                        outline_width=_sub_style["outline_width"],
+                                        alignment=subtitle_formats.ALIGNMENTS[_sub_style["alignment"]])
+                                else:
+                                    if out_ext.lower() not in (".mp4", ".mkv"):
+                                        out_path = os.path.splitext(out_path)[0] + ".mp4"
+                                    video_export.mux_soft_subtitles(source_video_path, sub_text_map[sub_language], out_path)
+                            st.success("Subtitled episode ready.")
+                            _dl_name = f"{_base_name}_subtitled{os.path.splitext(out_path)[1]}"
                             with open(out_path, "rb") as f:
                                 st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
                         except Exception as e:
-                            st.error(f"Video export failed: {e}")
+                            st.error(f"Video export failed: {e}. Check that ffmpeg (with libass for hardsub) is installed.")
 
-            with st.expander("10b. 📱 Vertical/shorts export", expanded=False):
-                st.caption(
-                    "Renders a 9:16 vertical clip -- centre-cropped from the original video, with "
-                    "your subtitle style from 9. Export subtitles burned in -- for shorts/reels/"
-                    "TikTok. Additive: this doesn't replace the horizontal export above."
-                )
-                import video_export
-                try:
-                    _v_duration = video_export.probe_duration_seconds(source_video_path)
-                except Exception as e:
-                    _v_duration = None
-                    st.warning(f"Couldn't read this video's duration ({e}) -- check that ffmpeg "
-                               "is installed and the file isn't corrupted.")
-                if _v_duration:
-                    _clip_start, _clip_end = st.slider(
-                        "Clip range (seconds)", 0.0, float(_v_duration),
-                        value=(0.0, float(_v_duration)), key=f"vshort_range_{picked_id}",
-                        help="Defaults to the whole episode -- narrow it to a single scene/moment "
-                             "for an actual short-form clip.")
-                    _crop_position = st.slider(
-                        "Crop position (left ↔ right)", 0.0, 1.0, 0.5,
-                        key=f"vshort_crop_{picked_id}",
-                        help="Which part of the frame to keep after cropping to 9:16 -- 0.5 is "
-                             "centred. No face/subject auto-detection here; adjust by eye.")
-                    _clip_duration = max(_clip_end - _clip_start, 0.0)
-                    if _clip_duration <= 0:
-                        st.warning("Pick a range with a positive length.")
-                    else:
-                        _v_est = video_export.estimate_vertical_export(_clip_duration)
-                        st.caption(_v_est["time_note"])
-                        st.caption(_v_est["size_note"])
-                        if _v_est["is_long"]:
-                            st.warning(
-                                f"⚠️ {video_export._fmt_mmss(_clip_duration)} is a long selection "
-                                "for a vertical clip -- re-encoding a stretch this long is slow and "
-                                "heavy. Consider narrowing the range to a shorter moment, or use "
-                                "the horizontal export above for the full episode.")
-                        if st.button("📱 Generate vertical clip", key=f"vshort_generate_{picked_id}"):
-                            _clip_lines = subtitle_formats.lines_for_clip(
-                                _export_lines, _clip_start, _clip_end)
-                            _clip_ass = subtitle_formats.lines_to_ass(
-                                _clip_lines, _sub_style, "en", speaker_colors=_speaker_colors,
-                                speaker_names=_speaker_names, wrap_chars=_wrap_chars,
-                                title=drama.get("title_en") or drama.get("title_zh") or "")
-                            out_path = os.path.join(
-                                ddir, f"vertical_clip{os.path.splitext(source_video_path)[1]}")
+                    dub_track_path = os.path.join(ddir, "dub_track.wav")
+                    if os.path.exists(dub_track_path):
+                        st.caption("An AI dub track exists for this drama -- you can also replace/mix the video's "
+                                  "audio with it below.")
+                        keep_orig = st.checkbox("Mix original audio in quietly underneath (instead of full replace)")
+                        if st.button("🔊 Export video with dub audio"):
+                            import video_export
+                            out_path = os.path.join(ddir, f"dubbed_episode{os.path.splitext(source_video_path)[1]}")
                             try:
-                                with st.spinner("Rendering vertical clip... this can take a while."):
-                                    video_export.render_vertical_clip(
-                                        source_video_path, _clip_ass, out_path,
-                                        start=_clip_start, end=_clip_end,
-                                        crop_position=_crop_position)
-                                st.success("Vertical clip ready.")
-                                _dl_name = f"{_base_name}_vertical{os.path.splitext(out_path)[1]}"
+                                with st.spinner("Rendering dubbed video..."):
+                                    video_export.replace_audio_with_dub(
+                                        source_video_path, dub_track_path, out_path,
+                                        keep_original_at_db=-20.0 if keep_orig else None,
+                                    )
+                                st.success("Dubbed episode ready.")
+                                _dl_name = f"{_base_name}_dubbed{os.path.splitext(out_path)[1]}"
                                 with open(out_path, "rb") as f:
                                     st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
                             except Exception as e:
-                                st.error(f"Vertical export failed: {e}. Check that ffmpeg (with "
-                                         "libass) is installed.")
+                                st.error(f"Video export failed: {e}")
 
-        st.divider()
-        with st.expander("📦 Export this drama as a package", expanded=False):
-            st.caption(
-                "Bundles everything for this one title -- metadata, all subtitle formats, the "
-                "original audio/video, any dub/narration track, and the reference novel -- into a "
-                "single zip. For archiving a finished drama or handing it off, without exporting "
-                "your whole library."
-            )
-            if _test_mode_output:
-                st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder text, "
-                          "not a real translation. Don't ship this package; re-translate with a "
-                          "real engine first.")
-            if st.button("Build export package"):
-                import export_package
-                try:
-                    pkg_path = os.path.join(ddir, "export_package.zip")
-                    with st.spinner("Building package..."):
-                        _, manifest = export_package.build_drama_export_package(
-                            db, picked_id, pkg_path, lines_to_srt, lines_to_bilingual_srt, Line)
-                    st.success(f"Package built with {len(manifest)} item(s).")
-                    for m in manifest:
-                        st.caption(f"• {m}")
-                    with open(pkg_path, "rb") as f:
-                        safe_title = re.sub(r"[^\w\- ]", "", drama["title_en"] or drama["title_zh"] or str(picked_id))
-                        st.download_button("Download package .zip", f.read(),
-                                            file_name=f"{safe_title}_package.zip")
-                except Exception as e:
-                    st.error(f"Package build failed: {e}")
+                with st.expander("10b. 📱 Vertical/shorts export", expanded=False):
+                    st.caption(
+                        "Renders a 9:16 vertical clip -- centre-cropped from the original video, with "
+                        "your subtitle style from 9. Export subtitles burned in -- for shorts/reels/"
+                        "TikTok. Additive: this doesn't replace the horizontal export above."
+                    )
+                    import video_export
+                    try:
+                        _v_duration = video_export.probe_duration_seconds(source_video_path)
+                    except Exception as e:
+                        _v_duration = None
+                        st.warning(f"Couldn't read this video's duration ({e}) -- check that ffmpeg "
+                                   "is installed and the file isn't corrupted.")
+                    if _v_duration:
+                        _clip_start, _clip_end = st.slider(
+                            "Clip range (seconds)", 0.0, float(_v_duration),
+                            value=(0.0, float(_v_duration)), key=f"vshort_range_{picked_id}",
+                            help="Defaults to the whole episode -- narrow it to a single scene/moment "
+                                 "for an actual short-form clip.")
+                        _crop_position = st.slider(
+                            "Crop position (left ↔ right)", 0.0, 1.0, 0.5,
+                            key=f"vshort_crop_{picked_id}",
+                            help="Which part of the frame to keep after cropping to 9:16 -- 0.5 is "
+                                 "centred. No face/subject auto-detection here; adjust by eye.")
+                        _clip_duration = max(_clip_end - _clip_start, 0.0)
+                        if _clip_duration <= 0:
+                            st.warning("Pick a range with a positive length.")
+                        else:
+                            _v_est = video_export.estimate_vertical_export(_clip_duration)
+                            st.caption(_v_est["time_note"])
+                            st.caption(_v_est["size_note"])
+                            if _v_est["is_long"]:
+                                st.warning(
+                                    f"⚠️ {video_export._fmt_mmss(_clip_duration)} is a long selection "
+                                    "for a vertical clip -- re-encoding a stretch this long is slow and "
+                                    "heavy. Consider narrowing the range to a shorter moment, or use "
+                                    "the horizontal export above for the full episode.")
+                            if st.button("📱 Generate vertical clip", key=f"vshort_generate_{picked_id}"):
+                                _clip_lines = subtitle_formats.lines_for_clip(
+                                    _export_lines, _clip_start, _clip_end)
+                                _clip_ass = subtitle_formats.lines_to_ass(
+                                    _clip_lines, _sub_style, "en", speaker_colors=_speaker_colors,
+                                    speaker_names=_speaker_names, wrap_chars=_wrap_chars,
+                                    title=drama.get("title_en") or drama.get("title_zh") or "")
+                                out_path = os.path.join(
+                                    ddir, f"vertical_clip{os.path.splitext(source_video_path)[1]}")
+                                try:
+                                    with st.spinner("Rendering vertical clip... this can take a while."):
+                                        video_export.render_vertical_clip(
+                                            source_video_path, _clip_ass, out_path,
+                                            start=_clip_start, end=_clip_end,
+                                            crop_position=_crop_position)
+                                    st.success("Vertical clip ready.")
+                                    _dl_name = f"{_base_name}_vertical{os.path.splitext(out_path)[1]}"
+                                    with open(out_path, "rb") as f:
+                                        st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
+                                except Exception as e:
+                                    st.error(f"Vertical export failed: {e}. Check that ffmpeg (with "
+                                             "libass) is installed.")
 
-        if st.button("Mark as exported"):
-            db.update_drama(picked_id, status="exported")
-            st.success("Marked exported.")
-    else:
-        st.info("Run **Transcribe & Align** above to get started on this drama.")
+            st.divider()
+            with st.expander("📦 Export this drama as a package", expanded=False):
+                st.caption(
+                    "Bundles everything for this one title -- metadata, all subtitle formats, the "
+                    "original audio/video, any dub/narration track, and the reference novel -- into a "
+                    "single zip. For archiving a finished drama or handing it off, without exporting "
+                    "your whole library."
+                )
+                if _test_mode_output:
+                    st.warning("🧪 Some lines were produced by **Test mode** -- fake placeholder text, "
+                              "not a real translation. Don't ship this package; re-translate with a "
+                              "real engine first.")
+                if st.button("Build export package"):
+                    import export_package
+                    try:
+                        pkg_path = os.path.join(ddir, "export_package.zip")
+                        with st.spinner("Building package..."):
+                            _, manifest = export_package.build_drama_export_package(
+                                db, picked_id, pkg_path, lines_to_srt, lines_to_bilingual_srt, Line)
+                        st.success(f"Package built with {len(manifest)} item(s).")
+                        for m in manifest:
+                            st.caption(f"• {m}")
+                        with open(pkg_path, "rb") as f:
+                            safe_title = re.sub(r"[^\w\- ]", "", drama["title_en"] or drama["title_zh"] or str(picked_id))
+                            st.download_button("Download package .zip", f.read(),
+                                                file_name=f"{safe_title}_package.zip")
+                    except Exception as e:
+                        st.error(f"Package build failed: {e}")
+
+            if st.button("Mark as exported"):
+                db.update_drama(picked_id, status="exported")
+                st.success("Marked exported.")
+        else:
+            st.info("Run **Transcribe & Align** above to get started on this drama.")
 
