@@ -183,6 +183,61 @@ class TestExportImages:
             shutil.rmtree(d, ignore_errors=True)
 
 
+class TestExportEscaping:
+    """Step 25y -- line text embedded in the exported chapter's XHTML
+    must be escaped, or a literal &/</> makes the content invalid XML."""
+
+    def _chapter_html(self, out_path):
+        import ebooklib
+        from ebooklib import epub
+        book = epub.read_epub(out_path)
+        chapter = next(item for item in book.get_items() if item.get_type() == ebooklib.ITEM_DOCUMENT)
+        return chapter.get_content().decode("utf-8")
+
+    def test_special_characters_produce_valid_parseable_xhtml(self):
+        import xml.etree.ElementTree as ET
+
+        d = tempfile.mkdtemp()
+        try:
+            lines = [Line(idx=0, start=0, end=1, zh="", en="Tom & Jerry said <hi> & bye>")]
+            out_path = os.path.join(d, "out.epub")
+            epub_io.export_epub(lines, "Title", "Author", out_path, field="en")
+
+            chapter_html = self._chapter_html(out_path)
+            ET.fromstring(chapter_html)  # raises ParseError on invalid XML
+            assert "Tom &amp; Jerry" in chapter_html
+            assert "&lt;hi&gt;" in chapter_html
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_image_token_still_works_on_a_line_with_special_characters(self):
+        import xml.etree.ElementTree as ET
+
+        d = tempfile.mkdtemp()
+        try:
+            images_dir = os.path.join(d, "images")
+            os.makedirs(images_dir)
+            with open(os.path.join(images_dir, "img1.png"), "wb") as f:
+                f.write(PNG_BYTES)
+
+            lines = [Line(idx=0, start=0, end=1, zh="",
+                           en="Tom & Jerry [[IMG:img1.png]] said <hi>")]
+            out_path = os.path.join(d, "out.epub")
+            epub_io.export_epub(lines, "Title", "Author", out_path, field="en", images_dir=images_dir)
+
+            chapter_html = self._chapter_html(out_path)
+            ET.fromstring(chapter_html)
+            assert "Tom &amp; Jerry" in chapter_html
+            assert "said &lt;hi&gt;" in chapter_html
+            assert 'img src="images/img1.png"' in chapter_html
+            assert chapter_html.index("Tom &amp; Jerry") < chapter_html.index("images/img1.png") \
+                < chapter_html.index("said &lt;hi&gt;")
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+
 class TestRoundTrip:
     def test_import_then_export_preserves_the_image_and_its_position(self):
         d = tempfile.mkdtemp()

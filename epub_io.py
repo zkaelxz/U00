@@ -6,6 +6,7 @@ translation back as a proper .epub for e-reader apps.
 Requires `pip install ebooklib beautifulsoup4`.
 """
 
+import html
 import mimetypes
 import os
 import posixpath
@@ -129,14 +130,14 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
         for m in IMG_TOKEN_RE.finditer(text):
             before = text[pos:m.start()].strip()
             if before:
-                parts.append(f"<p>{before}</p>")
+                parts.append(f"<p>{html.escape(before)}</p>")
             item = _image_item(m.group(1))
             if item:
                 parts.append(f'<img src="{item.file_name}" alt=""/>')
             pos = m.end()
         tail = text[pos:].strip()
         if tail:
-            parts.append(f"<p>{tail}</p>")
+            parts.append(f"<p>{html.escape(tail)}</p>")
         return parts
 
     chapters = []
