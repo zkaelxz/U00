@@ -92,6 +92,18 @@ condition. If you were told to "do Step X", that's Step X in this doc.
 - A test that needs an optional library (`jieba`, `pytesseract`, `cv2`,
   `paddleocr`, ...) should `pytest.importorskip` it, not hard-import it,
   so a core-only install still gets a clean run.
+- **Diarization (pyannote) needs a real, gated-access-accepted Hugging
+  Face token to run outside the mocked test suite.**
+  `pyannote/speaker-diarization-community-1` is a gated model — an
+  `HF_TOKEN` alone isn't enough; the account it belongs to also has to
+  have accepted that specific model's license on huggingface.co first
+  (`diagnostics.check_pyannote_gated_access` is what checks this in-app;
+  the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN`, `cli.py:186-188`,
+  and the UI's `settings_hf_token` both need the same accepted token). If
+  a step touches diarization and needs a real (not mocked) run to verify
+  — a real audio file, not `tests/`'s fake model classes — **ask the user
+  for a real, gated-access-accepted token up front** rather than
+  discovering the gap from a failed run.
 
 ## Background tasks — avoid stuck monitor loops
 
