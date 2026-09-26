@@ -121,6 +121,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
 
 
 def render_library_tab():
+    ui_theme.type_scale_scope()
     stats = db.get_library_stats()
     usage = db.get_usage_summary()
     with st.expander("📊 Dashboard", expanded=True):
@@ -145,7 +146,7 @@ def render_library_tab():
 
         continuing = db.list_continue_reading(8)
         if continuing:
-            st.subheader("▶️ Continue")
+            st.markdown("**▶️ Continue reading**")
             cols = st.columns(min(4, len(continuing)))
             for i, d in enumerate(continuing):
                 with cols[i % len(cols)]:
@@ -166,7 +167,7 @@ def render_library_tab():
                         # plainly rather than pretending to navigate.
                         st.session_state["nav_notice"] = (
                             f"**{d['title_en'] or d['title_zh']}** is queued at page "
-                            f"{d.get('last_page') or 1} — open the **📖 Read & Watch** tab above "
+                            f"{d.get('last_page') or 1} -- open the **📖 Read & Watch** tab above "
                             f"to pick up where you left off.")
                         st.rerun()
 
@@ -248,7 +249,7 @@ def render_library_tab():
                 st.caption(f"**#{r['drama_id']} {r['title_en'] or r['title_zh']}** line {r['idx']+1}: "
                           f"{r['zh']} → {r['en']}")
 
-    with st.expander("Filter", expanded=True):
+    with st.expander("📚 All dramas", expanded=True):
         fc1, fc2, fc3, fc4, fc5, fc6, fc7 = st.columns(7)
         search = fc1.text_input("Search title/summary")
         studio_f = fc2.selectbox("Studio", [""] + db.distinct_values("studio"))
@@ -373,7 +374,7 @@ def render_library_tab():
                     st.error(f"Bulk translation failed: {_bulk_job['error']}")
                     background_jobs.clear_job(BULK_SERIES_TRANSLATE_JOB_ID)
 
-            st.subheader("Bulk export")
+            st.markdown("**📦 Bulk export**")
             exportable = [d for d in dramas if d["status"] in ("translated", "dubbed", "exported")]
             if exportable:
                 if st.button(f"📦 Export all {len(exportable)} translated dramas as .zip"):
@@ -401,7 +402,7 @@ def render_library_tab():
             st.caption("For 50-100+ dramas, `cli.py` supports the same pipeline headlessly -- "
                        "see the README for batch commands.")
         else:
-            st.info("No dramas yet — add one in the Workspace tab.")
+            st.info("No dramas yet -- add one in the Workspace tab.")
 
     with st.expander("🗄️ Storage", expanded=False):
         st.caption("Where disk space is going, and what's safe to reclaim. Source audio/video, "

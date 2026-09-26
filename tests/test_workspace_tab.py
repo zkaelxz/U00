@@ -3563,6 +3563,20 @@ class TestSection10StandaloneSubtitleDownload:
             return result
         monkeypatch.setattr(wt_module, "lines_to_srt", spy)
 
+        # Step 12: these download buttons get a callable (content built on
+        # click, so it reflects the style fragment's latest values) --
+        # AppTest never clicks through to it, so call it at render instead
+        # and the spy above still sees what each button would serve.
+        import streamlit as st
+        from streamlit.delta_generator import DeltaGenerator
+        real_dg_download = DeltaGenerator.download_button
+
+        def eager_download(dg, label, data=None, *a, **k):
+            return real_dg_download(dg, label, data() if callable(data) else data, *a, **k)
+        monkeypatch.setattr(DeltaGenerator, "download_button", eager_download)
+        monkeypatch.setattr(st, "download_button",
+                            lambda *a, **k: eager_download(st._main, *a, **k))
+
         def _render():
             import tabs.workspace_tab as wt
             wt.render_workspace_tab()
