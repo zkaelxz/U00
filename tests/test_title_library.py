@@ -109,3 +109,76 @@ class TestSearchLinkGeneration:
         import known_sites
         url = known_sites.jjwxc_tag_url("百合")
         assert url.startswith("https://www.jjwxc.net/") and "百合" not in url
+
+
+class _FakeResponse:
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self):
+        return self._payload
+
+
+class TestSearchBaihehub:
+    """Step 25f item 2: `data.get("data") or ... or data if isinstance(data,
+    list) else []` parsed as `(... or data) if isinstance(data, list) else
+    []`, so a dict response always gave [] and a list response raised on
+    .get -- search could never return a result."""
+
+    ITEM = {"documentId": "abc123", "name": "流浪的公主", "intro": "简介"}
+
+    def _search(self, monkeypatch, payload_for):
+        import requests
+        calls = []
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            calls.append((url, params, timeout))
+            return _FakeResponse(payload_for(url))
+        monkeypatch.setattr(requests, "get", fake_get)
+        return title_library.search_baihehub("公主"), calls
+
+    def test_dict_response_returns_results(self, monkeypatch):
+        results, _ = self._search(
+            monkeypatch,
+            lambda url: {"data": [self.ITEM], "meta": {}} if url.endswith("/audio-dramas") else {"data": []})
+        assert results == [{"title": "流浪的公主",
+                            "url": "https://baihehub.com/audio-dramas/abc123",
+                            "snippet": "简介"}]
+
+    def test_list_response_returns_results(self, monkeypatch):
+        results, _ = self._search(
+            monkeypatch, lambda url: [self.ITEM] if url.endswith("/manhuas") else [])
+        assert [r["url"] for r in results] == ["https://baihehub.com/manhuas/abc123"]
+
+    def test_books_use_their_title_field(self, monkeypatch):
+        book = {"documentId": "b1", "title": "谁见云墨染清舒", "description": "d"}
+        results, _ = self._search(
+            monkeypatch, lambda url: {"data": [book]} if url.endswith("/books") else {"data": []})
+        assert results[0]["title"] == "谁见云墨染清舒"
+        assert results[0]["url"] == "https://baihehub.com/books/b1"
+
+    def test_no_results_returns_none(self, monkeypatch):
+        results, _ = self._search(monkeypatch, lambda url: {"data": []})
+        assert results is None
+
+    def test_query_goes_through_params_so_it_gets_url_encoded(self, monkeypatch):
+        _, calls = self._search(monkeypatch, lambda url: {"data": []})
+        assert calls
+        for url, params, timeout in calls:
+            assert "公主" not in url
+            assert "公主" in params.values()
+            assert timeout
+
+    def test_http_error_falls_back_to_none(self, monkeypatch):
+        import requests
+
+        def fake_get(*a, **k):
+            raise requests.ConnectionError("offline")
+        monkeypatch.setattr(requests, "get", fake_get)
+        assert title_library.search_baihehub("公主") is None
+
+    def test_non_200_is_skipped(self, monkeypatch):
+        import requests
+        monkeypatch.setattr(requests, "get", lambda *a, **k: _FakeResponse({"data": [self.ITEM]}, 404))
+        assert title_library.search_baihehub("公主") is None
