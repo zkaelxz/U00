@@ -283,7 +283,7 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
     unchanged copy -- same permanent id, translation, flag and speaker --
     so saving new_lines leaves it (and its notes) alone. A line that IS
     split becomes new lines with no id and no translation/flag, carrying
-    only its speaker: saving them deletes the original row, and with it
+    only its speaker and SFX-cue mark: saving them deletes the original row, and with it
     the notes and emotion tag that described the old, longer line.
 
     changed: [(original_line, [piece texts]), ...] for each split line.
@@ -317,7 +317,8 @@ def resegment_lines(lines, language: str = "zh", engine=None, segments=None,
         edges = [ln.start] + cuts + [ln.end]
         for k, piece in enumerate(pieces):
             new_lines.append(Line(idx=0, start=edges[k], end=edges[k + 1], zh=piece,
-                                  speaker=ln.speaker, speaker_manual=ln.speaker_manual))
+                                  speaker=ln.speaker, speaker_manual=ln.speaker_manual,
+                                  sfx=ln.sfx))
         changed.append((ln, pieces))
     for i, ln in enumerate(new_lines):
         ln.idx = i
