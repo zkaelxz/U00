@@ -6395,3 +6395,83 @@ class TestStageTabsReplaceTheExpanderScroll:
         assert '"bh-stage-item">○ Review</span>' in stepper_html
         assert '"bh-stage-item">○ Dub</span>' in stepper_html
         assert '"bh-stage-item">○ Export</span>' in stepper_html
+
+
+class TestReviewTabGroupedSubsections:
+    """Step 14 item 3 (added 2026-09-27 after the file-size correction):
+    Review's dozen sub-features -- confirmed too numerous for a flat list
+    once the audit was corrected -- are grouped into three st.popover
+    clusters (Checks; AI refinement; Restructure lines) by physical
+    proximity in the file, leaving Find & replace, Review queue, and
+    Version history standalone since they're either the first thing done
+    in Review or an ongoing workflow rather than a rare/advanced option.
+    This is a static, in-place wrap (no code moved) -- these tests confirm
+    the three popovers exist and that every one of the dozen sub-features
+    is still present and reachable, per the roadmap's own exit condition
+    for this correction."""
+
+    ALL_TWELVE_LABELS = [
+        "Find & replace",
+        "Check line coverage (do this before translating)",
+        "Check dubbing pacing (optional)",
+        "Check translation consistency (optional)",
+        "Review queue (flag lines that need a second look)",
+        "Emotional register (sarcasm, humour, anger)",
+        "Adaptive style (learns from your edits)",
+        "Translation versions (compare models)",
+        "Translation notes (idioms, wordplay, meaningful names)",
+        "Merge short adjacent lines (optional)",
+        "Re-segment long lines by meaning (optional)",
+        "Version history / undo",
+    ]
+
+    def _drama(self, isolated_db, **fields):
+        return isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", **fields)
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_three_popovers_exist_in_source(self):
+        # AppTest has no typed accessor for st.popover (unlike .tabs/.expander),
+        # so the popovers themselves are checked statically; their CONTENTS'
+        # reachability is checked dynamically below via AppTest instead.
+        src = open("tabs/workspace_tab.py", encoding="utf-8").read()
+        assert 'with st.popover("🔍 Checks"' in src
+        assert 'with st.popover("🧠 AI refinement"' in src
+        assert 'with st.popover("✂️ Restructure lines"' in src
+
+    def test_all_twelve_subfeatures_still_reachable(self, isolated_db):
+        did = self._drama(isolated_db, status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello")])
+        at = self._run(did)
+        found_labels = {e.label for e in at.expander}
+        for label in self.ALL_TWELVE_LABELS:
+            assert any(label in found for found in found_labels), \
+                f"missing sub-feature: {label!r}"
+
+    def test_find_replace_review_queue_and_history_stay_standalone(self):
+        # These three are deliberately left outside any popover group --
+        # Find & replace and Review queue are ongoing workflows rather than
+        # rare/advanced options, and Version history is a safety net worth
+        # keeping one click away. Confirmed by each one's own expander line
+        # sitting at the same 12-space indent as a stage-tab-level
+        # statement, not one level deeper as it would be inside a popover.
+        src = open("tabs/workspace_tab.py", encoding="utf-8").read()
+        lines = src.splitlines()
+        standalone = ["🔎 Find & replace", "⚠️ Review queue", "🕓 Version history"]
+        for label_start in standalone:
+            matches = [l for l in lines if f'st.expander("{label_start}' in l]
+            assert matches, f"expander not found: {label_start!r}"
+            indent = len(matches[0]) - len(matches[0].lstrip(" "))
+            assert indent == 12, f"{label_start!r} is at indent {indent}, expected 12 (standalone)"
