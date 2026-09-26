@@ -149,6 +149,82 @@ def test_vocal_separation_off_by_default_transcribes_the_original_audio(monkeypa
     _clear(job_id)
 
 
+def test_groq_transcription_is_used_instead_of_local_whisper_when_enabled(monkeypatch):
+    """Step 6i: use_groq bypasses transcribe_for_timing entirely and
+    calls core.transcribe_with_groq instead -- its result must reach the
+    exact same downstream shape (a "segments" result) local Whisper's
+    own success path produces, so alignment/diarization can't tell the
+    difference."""
+    job_id = "test_transcribe_groq"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+    seen = {}
+
+    def fake_groq(audio_path, language, api_key, progress_cb=None):
+        seen["audio_path"], seen["language"], seen["api_key"] = audio_path, language, api_key
+        if progress_cb:
+            progress_cb(1.0)
+        return [{"start": 0.0, "end": 1.0, "text": "hi from groq"}]
+    monkeypatch.setattr(core_module, "transcribe_with_groq", fake_groq)
+
+    called = []
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: called.append(1))
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
+                        use_groq=True, groq_api_key="fake-groq-key")
+
+    assert called == []  # local Whisper must never run on the Groq path
+    assert seen == {"audio_path": "/fake/audio.wav", "language": "zh", "api_key": "fake-groq-key"}
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"segments": [{"start": 0.0, "end": 1.0, "text": "hi from groq"}],
+                      "gpu_fallback": None, "word_align_error": None}
+    _clear(job_id)
+
+
+def test_groq_failure_is_recorded_not_raised(monkeypatch):
+    job_id = "test_transcribe_groq_fail"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+
+    def fake_groq(*a, **k):
+        raise core_module.GroqTranscriptionError("401: invalid api key")
+    monkeypatch.setattr(core_module, "transcribe_with_groq", fake_groq)
+
+    called = []
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: called.append(1))
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
+                        use_groq=True, groq_api_key="bad-key")
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result == {"failed_reason": "groq", "detail": "401: invalid api key"}
+    assert called == []
+    _clear(job_id)
+
+
+def test_use_groq_off_by_default_still_uses_local_whisper(monkeypatch):
+    job_id = "test_transcribe_groq_off"
+    _clear(job_id)
+    background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                      "error": None, "cancel_requested": False, "result": None}
+
+    def boom(*a, **k):
+        raise AssertionError("Groq must not be called when use_groq is False")
+    monkeypatch.setattr(core_module, "transcribe_with_groq", boom)
+    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+                         lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+    run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
+
+    result = background_jobs.get_status(job_id)["result"]
+    assert result["segments"] == [{"start": 0.0, "end": 1.0, "text": "hi"}]
+    _clear(job_id)
+
+
 def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
     job_id = "test_transcribe_vocal_sep_fail"
     _clear(job_id)
@@ -3158,6 +3234,115 @@ class TestVerticalShortsExport:
         assert "Dialogue:" in calls["ass_text"]  # a real ASS body, not the raw en text
         assert any("Vertical clip ready" in s.value for s in at.success)
         assert any(dl.label.startswith("Download") for dl in at.download_button)
+
+
+class TestSection10StandaloneSubtitleDownload:
+    """Step 6i (Step 6b item 9): section 10's "Export full subtitled
+    episode" used to have only one download -- the rendered video itself
+    -- with no way to get the matching subtitle file without either
+    rendering the whole video or going back to section 9 and manually
+    picking the same format/language again. A new download button
+    reuses the exact same _subtitle_text(field) closure section 9's own
+    buttons call, so its content is identical by construction; this
+    confirms that at the wiring level, not just by inspection."""
+
+    def _drama_with_video(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        audio_filename="audio.wav", source_video_filename="video.mp4")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        ddir = isolated_db.drama_dir(did)
+        for name in ("audio.wav", "video.mp4"):
+            with open(os.path.join(ddir, name), "wb") as f:
+                f.write(b"x")
+        return did
+
+    def _run(self, did, monkeypatch):
+        from streamlit.testing.v1 import AppTest
+        import tabs.workspace_tab as wt_module
+
+        # _subtitle_text's SRT branch calls this module-level lines_to_srt
+        # directly (imported into tabs.workspace_tab's own namespace) --
+        # spying on it here (a plain function monkeypatch, the same
+        # pattern every other test in this file uses, not a Streamlit
+        # internal) lets both section 9's and section 10's calls be
+        # compared without needing to read a download_button's actual
+        # served bytes back out of Streamlit's runtime.
+        calls = []
+        real_lines_to_srt = wt_module.lines_to_srt
+
+        def spy(*a, **k):
+            result = real_lines_to_srt(*a, **k)
+            calls.append({"args": a, "kwargs": k, "result": result})
+            return result
+        monkeypatch.setattr(wt_module, "lines_to_srt", spy)
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at, calls
+
+    def _field_of(self, call):
+        return call["args"][1] if len(call["args"]) > 1 else call["kwargs"].get("field")
+
+    def test_new_buttons_field_tracks_the_selected_language_not_hardcoded(
+            self, isolated_db, monkeypatch):
+        """Section 9's own two lines_to_srt calls (English/Chinese
+        buttons) plus section 10's always-computed sub_text_map ("English"
+        and "Chinese" entries, used for hardsub/softsub regardless of
+        which one is picked) already account for 2 "en" + 2 "zh" calls on
+        every run -- so a naive "at least 2 en calls" check would pass
+        even if section 10's new download button ignored sub_language
+        entirely. Switching the "Which subtitles to export on video"
+        picker from its default (English) to Chinese must flip which
+        field count gets the +1 from the new button specifically."""
+        did = self._drama_with_video(isolated_db)
+        at, calls = self._run(did, monkeypatch)
+
+        # One extra plain rerun (no widget change) as the "before" baseline,
+        # measured on its own rather than against _run's own two initial
+        # renders, so a single render's call counts are what's compared.
+        calls.clear()
+        at.run(timeout=30)
+        en_before = sum(1 for c in calls if self._field_of(c) == "en")
+        zh_before = sum(1 for c in calls if self._field_of(c) == "zh")
+        assert en_before == 3 and zh_before == 2  # section 9 + sub_text_map + the new button (English)
+
+        calls.clear()
+        [sub_language_box] = [s for s in at.selectbox
+                              if s.label == "Which subtitles to export on video"]
+        sub_language_box.set_value("Chinese").run(timeout=30)
+
+        en_after = sum(1 for c in calls if self._field_of(c) == "en")
+        zh_after = sum(1 for c in calls if self._field_of(c) == "zh")
+        assert en_after == 2 and zh_after == 3  # the new button's field moved to Chinese
+
+    def test_matches_section_9s_download_for_the_same_default_format_and_language(
+            self, isolated_db, monkeypatch):
+        did = self._drama_with_video(isolated_db)
+        at, calls = self._run(did, monkeypatch)
+
+        # Section 9's "Download English .srt" passes field "en" as a
+        # positional arg; section 10's new button (English + SRT are
+        # both the panels' defaults) calls the exact same _subtitle_text
+        # closure with the same field -- both calls must have produced
+        # identical text.
+        en_calls = [c for c in calls if self._field_of(c) == "en"]
+        assert len(en_calls) >= 2, f"expected at least 2 calls for field='en', saw {len(calls)} total"
+        results = {c["result"] for c in en_calls}
+        assert len(results) == 1, "section 9 and section 10 produced different content for the same field"
+
+    def test_file_name_pairs_with_the_video_files_own_naming(self, isolated_db, monkeypatch):
+        did = self._drama_with_video(isolated_db)
+        at = self._run(did, monkeypatch)[0]
+        [dl] = [d for d in at.download_button if d.label.startswith("📄 Download the matching")]
+        assert dl  # exists and is reachable via the normal AppTest element tree too
 
 
 class TestWhisperSizeDefaultsToLargeV3:

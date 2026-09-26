@@ -944,3 +944,126 @@ class TestTranscribeProgress:
         result = core.transcribe_for_timing("/fake/audio.mp3", use_gpu=True, progress_cb=seen.append)
         assert len(result) == 2
         assert seen == [0.5, 1.0]
+
+
+class TestTranscribeWithGroq:
+    """Step 6i: an opt-in, paid cloud ASR alternative to the local
+    faster-whisper path -- sends the audio to Groq's hosted Whisper
+    Large-v3-Turbo API and must return the identical [{"start", "end",
+    "text"}, ...] segment shape transcribe_for_timing does, so the
+    result reaches the exact same downstream pipeline (alignment,
+    diarization hand-off)."""
+
+    class _FakeResponse:
+        def __init__(self, status_code=200, segments=None, text=""):
+            self.status_code = status_code
+            self._segments = segments if segments is not None else []
+            self.text = text
+
+        def json(self):
+            return {"segments": self._segments}
+
+    def test_returns_the_same_segment_shape_as_local_whisper(self, monkeypatch, tmp_path):
+        import core
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        captured = {}
+
+        def fake_post(url, headers=None, files=None, data=None, timeout=None):
+            captured["url"], captured["headers"] = url, headers
+            captured["data"], captured["timeout"] = data, timeout
+            return self._FakeResponse(segments=[
+                {"start": 0.0, "end": 1.5, "text": " Hello there. "},
+                {"start": 1.5, "end": 3.0, "text": "Goodbye."},
+            ])
+        monkeypatch.setattr("requests.post", fake_post)
+
+        result = core.transcribe_with_groq(str(audio), "en", "fake-groq-key")
+
+        assert result == [{"start": 0.0, "end": 1.5, "text": "Hello there."},
+                          {"start": 1.5, "end": 3.0, "text": "Goodbye."}]
+        assert captured["headers"] == {"Authorization": "Bearer fake-groq-key"}
+        assert captured["data"]["model"] == core.GROQ_DEFAULT_MODEL
+        assert captured["data"]["language"] == "en"
+        assert captured["timeout"] is not None  # never an unbounded hang
+
+    def test_blank_segments_are_dropped(self, monkeypatch, tmp_path):
+        import core
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(
+            segments=[{"start": 0.0, "end": 1.0, "text": "   "},
+                      {"start": 1.0, "end": 2.0, "text": "Real text."}]))
+
+        result = core.transcribe_with_groq(str(audio), "en", "fake-key")
+
+        assert result == [{"start": 1.0, "end": 2.0, "text": "Real text."}]
+
+    def test_progress_cb_is_called_once_at_completion(self, monkeypatch, tmp_path):
+        import core
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(segments=[]))
+        seen = []
+
+        core.transcribe_with_groq(str(audio), "en", "fake-key", progress_cb=seen.append)
+
+        assert seen == [1.0]
+
+    def test_a_non_200_response_raises_with_the_body_and_status(self, monkeypatch, tmp_path):
+        import core
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+        monkeypatch.setattr("requests.post", lambda *a, **k: self._FakeResponse(
+            status_code=401, text="invalid api key"))
+
+        try:
+            core.transcribe_with_groq(str(audio), "en", "bad-key")
+            assert False, "expected GroqTranscriptionError"
+        except core.GroqTranscriptionError as exc:
+            assert "401" in str(exc) and "invalid api key" in str(exc)
+
+    def test_a_network_error_is_raised_as_groq_transcription_error(self, monkeypatch, tmp_path):
+        import core
+        import requests
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+
+        def fake_post(*a, **k):
+            raise requests.ConnectionError("could not connect")
+        monkeypatch.setattr("requests.post", fake_post)
+
+        try:
+            core.transcribe_with_groq(str(audio), "en", "fake-key")
+            assert False, "expected GroqTranscriptionError"
+        except core.GroqTranscriptionError as exc:
+            assert "could not connect" in str(exc)
+
+    def test_a_key_leaked_into_the_error_message_is_redacted(self, monkeypatch, tmp_path):
+        """Never put an API key in a shown/stored/logged error -- see
+        translate_engines.redact_secrets and this project's own rule
+        against reintroducing that class of bug."""
+        import core
+        import requests
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"x")
+
+        def fake_post(*a, **k):
+            raise requests.ConnectionError(
+                "failed sending header Authorization: Bearer gsk_realsecretkey1234567890")
+        monkeypatch.setattr("requests.post", fake_post)
+
+        try:
+            core.transcribe_with_groq(str(audio), "en", "gsk_realsecretkey1234567890")
+            assert False, "expected GroqTranscriptionError"
+        except core.GroqTranscriptionError as exc:
+            assert "gsk_realsecretkey1234567890" not in str(exc)
+            assert "[REDACTED]" in str(exc)
+
+    def test_needs_a_timeout_so_a_hung_server_cannot_stick_a_job_at_running_forever(self):
+        """Statically enforced too by
+        tests/test_static_analysis.py::TestHttpCallsHaveTimeouts::test_core
+        -- this test documents why, at the unit level."""
+        import inspect
+        import core
+        assert "timeout=" in inspect.getsource(core.transcribe_with_groq)

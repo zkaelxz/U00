@@ -232,13 +232,13 @@ ALIGNMENTS = {  # ASS numpad-style \an codes
 PLAY_RES = (384, 288)
 ASS_PRESETS = {
     "Clean": {"font": "Arial", "size": 24, "bold": False, "italic": False,
-              "primary": "#FFFFFF", "outline": "#000000", "outline_width": 2,
+              "primary": "#FFFFFF", "outline": "#000000", "outline_width": 2, "shadow": 1,
               "alignment": "bottom-center"},
     # Bold, bigger and a thick high-contrast outline: the common shape of
     # clip-channel subtitles, legible over busy video. A starting point to
     # tune, not a copy of any one channel's look.
     "Streamer clip": {"font": "Arial Black", "size": 30, "bold": True, "italic": False,
-                      "primary": "#FFFFFF", "outline": "#000000", "outline_width": 4,
+                      "primary": "#FFFFFF", "outline": "#000000", "outline_width": 4, "shadow": 1,
                       "alignment": "bottom-center"},
 }
 
@@ -277,7 +277,8 @@ def _style_line(name: str, style: dict, primary: str) -> str:
         _ass_field(name), _ass_field(style["font"]), str(int(style["size"])),
         ass_color(primary), ass_color(primary), ass_color(style["outline"]), "&H64000000",
         "-1" if style.get("bold") else "0", "-1" if style.get("italic") else "0", "0", "0",
-        "100", "100", "0", "0", "1", str(style.get("outline_width", 2)), "1",
+        "100", "100", "0", "0", "1", str(style.get("outline_width", 2)),
+        str(style.get("shadow", 1)),
         str(ALIGNMENTS.get(style.get("alignment"), 2)), "10", "10", "12", "1"]))
 
 
@@ -288,12 +289,17 @@ def _ass_field(value: str) -> str:
 
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = None,
                  speaker_colors: dict = None, speaker_names: dict = None,
-                 wrap_chars: dict = None, title: str = "") -> str:
+                 wrap_chars: dict = None, title: str = "",
+                 notes_as_separate_line: bool = False) -> str:
     """style: a dict shaped like ASS_PRESETS' values. speaker_colors:
     {speaker_label: "#RRGGBB"} -- each speaker gets its own Style with that
     fill colour (so libass colours them without any override tags); None
     means one style for everyone. speaker_names: {speaker_label: name},
-    written into each Dialogue's Name field."""
+    written into each Dialogue's Name field. notes_as_separate_line: Step
+    6i -- instead of appending core._notes_suffix's note onto the same
+    cue's Text (this format's own default, and SRT/VTT's only option),
+    renders it as its own second Dialogue line right after the main one,
+    in a dedicated "Notes" style at ~70% of the main text size."""
     speaker_colors = speaker_colors or {}
     style_for = {sp: f"Speaker {i + 1}" for i, sp in enumerate(sorted(speaker_colors))}
     header = [
@@ -312,13 +318,22 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
         _style_line("Default", style, style["primary"]),
     ]
     header += [_style_line(style_for[sp], style, speaker_colors[sp]) for sp in sorted(speaker_colors)]
+    if notes_as_separate_line:
+        note_style = dict(style, size=max(1, round(style.get("size", 24) * 0.7)))
+        header.append(_style_line("Notes", note_style, style["primary"]))
     events = ["", "[Events]",
               "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]
     for ln in lines:
-        text = _ass_escape(_cue_text(ln, field, notes_by_idx, wrap_chars))
+        cue_notes = None if notes_as_separate_line else notes_by_idx
+        text = _ass_escape(_cue_text(ln, field, cue_notes, wrap_chars))
         name = _ass_field((speaker_names or {}).get(ln.speaker) or ln.speaker or "")
-        events.append(f"Dialogue: 0,{_ass_ts(ln.start)},{_ass_ts(ln.end)},"
+        start, end = _ass_ts(ln.start), _ass_ts(ln.end)
+        events.append(f"Dialogue: 0,{start},{end},"
                       f"{style_for.get(ln.speaker, 'Default')},{name if ln.speaker else ''},0,0,0,,{text}")
+        if notes_as_separate_line:
+            note_text = _notes_suffix(ln.idx, notes_by_idx).lstrip("\n")
+            if note_text:
+                events.append(f"Dialogue: 0,{start},{end},Notes,,0,0,0,,{_ass_escape(note_text)}")
     return "\n".join(header + events) + "\n"
 
 
