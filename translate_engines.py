@@ -49,8 +49,25 @@ PRICING_PER_MILLION_TOKENS = {
     "claude-sonnet-5": {"input": 2.0, "output": 10.0},
     "claude-haiku-4-5-20251001": {"input": 1.0, "output": 5.0},
     "claude-opus-4-8": {"input": 15.0, "output": 75.0},
-    "deepseek-v4-flash": {"input": 0.14, "output": 0.28},
-    "deepseek-v4-pro": {"input": 0.435, "output": 0.87},
+    # Step 9e: corrected against api-docs.deepseek.com/quick_start/pricing's
+    # raw page source (checked directly, not a summarized fetch) -- these
+    # previous flat figures didn't match DeepSeek's real pricing structure
+    # at all, which splits every price by peak/off-peak (peak: 01:00-04:00
+    # and 06:00-10:00 UTC, Mon-Fri, excluding Chinese holidays; off-peak is
+    # exactly half) and separately by cache hit/miss. Priced here at PEAK,
+    # CACHE-MISS rates -- the most expensive real case -- since this is a
+    # single flat estimate with no time-of-day or cache-hit awareness of
+    # its own; same "never undercut a spending cap" direction as
+    # CACHE_READ_PRICE_FACTOR below. A DeepSeek Bulk job (schedule_offpeak_
+    # translation) always actually runs off-peak, so its real cost will
+    # typically come in under this estimate -- a safe direction to be
+    # wrong in, never the reverse. Real cache-hit input price is far
+    # cheaper than this (Flash: $0.006 peak / $0.003 off-peak per 1M vs.
+    # the $0.3/$0.15 cache-miss prices below; Pro: $0.044/$0.022 vs.
+    # $1.32/$0.66) -- CACHE_READ_PRICE_FACTOR's flat 10% already
+    # over-estimates that case too, conservatively.
+    "deepseek-v4-flash": {"input": 0.3, "output": 1.2},
+    "deepseek-v4-pro": {"input": 1.32, "output": 3.96},
     # Legacy aliases, retired July 2026 -- kept so old usage_log rows still
     # cost out instead of silently reporting $0.
     "deepseek-chat": {"input": 0.28, "output": 0.42},
@@ -1741,12 +1758,15 @@ def reflect_translate_batch(engine, zh_lines: list, context: dict, usage_cb=None
     pos = {i: p for p, i in enumerate(ids)}
     speaker_names = context.get("speaker_labels")
 
-    instructions, _ = build_llm_instructions(
-        context.get("style_note", ""), context.get("drama_meta", {}),
-        context.get("novel_reference"), locale=context.get("locale", "en-US"),
-        glossary_terms=context.get("glossary_terms"),
-        style_guidelines=context.get("style_guidelines", ""),
-    )
+    # Step 9e: build_llm_instructions() alone never actually inserts the
+    # reference novel text anywhere -- only build_stable_prompt()'s own
+    # novel_block does that (the normal, non-Reflect path already goes
+    # through it). Calling build_llm_instructions() directly here meant
+    # Reflect mode's own instructions told the model to consult "the
+    # reference novel translation below," but nothing was ever below it.
+    instructions, novel_block = build_stable_prompt(context)
+    if novel_block:
+        instructions = instructions + "\n\n" + novel_block
     batch_ctx = build_batch_context(context.get("recent_context"), context.get("upcoming_lines"))
     batch_ctx = batch_ctx + "\n" if batch_ctx else ""
 
