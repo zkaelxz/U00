@@ -1317,6 +1317,8 @@ Added from a 20-item feature-brainstorm pass, checked directly against real sour
 
 **Built and pushed (`claude/step-12b-roadmap-1j48e1`), reviewed and approved — a real, well-designed factual-detail checker, with an initially-alarming test-count discrepancy fully resolved rather than dismissed.** `auto_qc.py`'s detection logic is genuinely tolerant of legitimate conversions (a CJK numeral run, word-form numbers, month/weekday names, "any money amount"/"any measurement" carried over rather than an exact match) exactly as the roadmap's own tolerance language specifies, and correctly reuses `translate_engines.SYSTEM_FLAG_REASONS`/the existing `ln.flag`/`flag_note` mechanism rather than inventing a second one. First run showed a large gap against this session's own test count (1950 vs. the report's 2139) — bigger than any prior discrepancy this session had caught, so it wasn't waved through. Investigated jointly with the implementing session: the real cause was optional-package availability (`opencv-python`, `jieba`, `genanki`) gating whole test files at collection time, not run results — independently confirmed by installing those exact packages and watching this session's own collected-test count move from 2000 to 2201, precisely matching the affected files' combined size. A real, mechanical explanation, not a reporting error. Approved.
 
+**Built and merged, PR #86 — confirmed directly via the GitHub API (`merged: true`, CI green) and re-verified by the planning session directly against the current `baihe-subtitler` tip (`test_auto_qc.py`: 49 passed).** The PR's own description independently corroborates the earlier test-count investigation from this session's side: it confirms the "2139 passed" figure was two separate runs added together (a full run, then 4 more after installing `huggingface_hub`), not a single run, and separately traces ~25 of the ~183-test gap to `opencv-python` alone. Also wired up Step 12e's previously-disabled "Auto QC before export" checkbox as part of this step, since its own help text promised it would start working once this check existed — a small, justified scope extension, not silent drift.
+
 ### Step 12c — Workspace media preview & review linkage
 Added from the same brainstorm pass. Reader tab already solves the harder half of this (`reader.py`'s click-to-seek: `data-start`, a "▶ Play from here" button, active-line highlighting from `player.currentTime`) — this step is scoped to Workspace specifically, where **no player exists at all** tied to Review & edit; only an on-demand isolated clip per line (Step 21's re-transcribe popover).
 
@@ -2198,7 +2200,7 @@ Also checked, clean: every module is reachable from `app.py`/`cli.py` (plus the 
   | 11d — Remove ElevenLabs | `claude/dub-cluster-11c-11d-11e-4jj2jq` | ✅ Merged (PR #74) | ⏳ Pending |
   | 11e — Fix: dubbed clip cached by line index alone, stale after a text edit | `claude/dub-cluster-11c-11d-11e-4jj2jq` | ✅ Merged (PR #74) | ⏳ Pending |
   | 12 — GUI polish and Streamlit performance | — | Not started | — |
-  | 12b — Auto QC pass | — | Not started | — |
+  | 12b — Auto QC pass | `claude/step-12b-roadmap-1j48e1` | ✅ Merged (PR #86) | ⏳ Pending |
   | 12c — Workspace media preview & review linkage | `claude/media-preview-player-x3udcb` | ✅ Merged (PR #77) | ⏳ Pending |
   | 12d — Scanlate structured regions/cleanup/batch/honorifics/SFX | `claude/admiring-fermi-ms122r` | ✅ Merged (PR #58) | ⏳ Pending |
   | 12e — Project instructions & workflow presets | `step-12e-project-instructions-presets` | ✅ Merged (PR #67) | ⏳ Pending |
