@@ -813,3 +813,74 @@ class TestProcessBasedJobs:
         assert status["status"] == "done"
         bg.clear_job("test_process_gpu_thread")
         bg.clear_job(job_id)
+
+
+def _large_result_worker(size_bytes, result_queue):
+    """Real, top-level (picklable) worker for TestProcessWatcherLargeResult
+    -- must be a plain module-level function, not a closure, to cross a
+    real multiprocessing.Process boundary. Puts a single result well past
+    a typical OS pipe buffer (~64KB on Linux) onto the queue, then returns
+    immediately -- the exact shape of dub/re-segment/diarize/auto-tune's
+    real subprocess workers, which each return one item per line/turn/
+    segment and can add up to exactly this at real drama sizes (Step 4i)."""
+    result_queue.put(("ok", {"payload": "x" * size_bytes}))
+
+
+def _cancellable_large_result_worker(size_bytes, result_queue):
+    """Same shape as _large_result_worker, but sleeps first so a test can
+    cancel it before it ever reaches result_queue.put() -- confirms the
+    Step 4i fix didn't break real mid-run cancellation for a job that
+    would otherwise return a large result."""
+    time.sleep(5)
+    result_queue.put(("ok", {"payload": "x" * size_bytes}))
+
+
+class TestProcessWatcherLargeResult:
+    """Step 4i: a real, severe, confirmed bug -- _process_watcher() waited
+    for proc.is_alive() to go False before ever reading the result queue,
+    but a child process that has put() more onto the queue than fits in
+    one OS pipe buffer cannot exit until the parent reads from it. Parent
+    and child waited on each other forever. Uses a REAL
+    multiprocessing.Process (no _FakeProcess/_install_fake_process here,
+    deliberately) -- the fake process runs its target synchronously in
+    the test's own process/thread and never exercises a real OS pipe
+    boundary, which is exactly the mechanism this bug depends on."""
+
+    def test_a_large_result_completes_instead_of_hanging(self):
+        # 200KB of payload, past the ~64KB Linux pipe-buffer default this
+        # bug depends on (confirmed real at this app's own scale: any
+        # drama with roughly 250+ lines, per Line objects pickling to
+        # about 257 bytes each).
+        job_id = "test_process_large_result"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(job_id, _large_result_worker, args=(200_000,)) is True
+
+        status = _wait_for_status(job_id, "running", timeout=15.0)
+        assert status is not None
+        assert status["status"] == "done", (
+            f"expected 'done', got {status['status']!r} -- the large-result deadlock is back"
+            if status["status"] == "running" else status.get("error"))
+        assert len(status["result"]["payload"]) == 200_000
+        bg.clear_job(job_id)
+
+    def test_cancelling_still_works_after_the_fix(self):
+        """Step 4d/4e's existing real mid-run cancel guarantee, re-run
+        against the fixed watcher -- not just the new large-result case."""
+        job_id = "test_process_large_result_cancel"
+        bg.clear_job(job_id)
+        assert bg.start_process_job(
+            job_id, _cancellable_large_result_worker, args=(200_000,)) is True
+
+        deadline = time.time() + 5
+        status = None
+        while time.time() < deadline:
+            status = bg.get_status(job_id)
+            if status and status["status"] == "running":
+                break
+            time.sleep(0.02)
+        assert status is not None and status["status"] == "running"
+
+        bg.request_cancel(job_id)
+        status = _wait_for_status(job_id, "running", timeout=10.0)
+        assert status["status"] == "cancelled"
+        bg.clear_job(job_id)
