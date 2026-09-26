@@ -78,6 +78,22 @@ work".
 | Known limits | Multipart/quality/subtitle selection is only exposed through this adapter's own methods and the Sources tab's front door -- Workspace's separate, older "Video URL" quick-import field still calls the generic `video_download.download` path unchanged (same as any other video site with no dedicated adapter), since it isn't part of the Sources-tab front-door architecture Step 23 built. |
 | Tests | `tests/test_sources_bilibili.py`, plus `TestBilibiliRouting` in `tests/test_sources_workflows.py` for the front-door wiring. All yt-dlp calls are faked; no real network calls. |
 
+## Bilibili Manga (哔哩哔哩漫画) — `sources/adapters/bilibili_manga.py`
+
+| | |
+|---|---|
+| URL patterns | `manga.bilibili.com/...` (chapter URL shape guessed as `detail/mc<id>/<chapter>` or `mc<id>/<chapter>` -- not independently confirmed, see Known limits) |
+| Content type / language | manhua, zh |
+| Status | `UNTESTED`, deliberately not `DISQUALIFIED` or `VERIFIED` -- every authentication-dependent state genuinely hasn't been checked (see the two manual checks below), not guessed at in either direction. |
+| Access tier | `RENDERED_BROWSER` as the **minimum**, not an optional fallback -- confirmed fully client-rendered: a real series page (`manga.bilibili.com/detail/mc28793`) returns essentially `<div id="app-vm"></div>` plus a `<noscript>` notice, no server-side content leakage at all. This is the one zh source vetted so far where `STATIC_HTTP` never has anything to offer. |
+| Auth | Unverified. No logged-in Bilibili session was available for this research, so whether an ordinary authenticated browser session is sufficient, and whether purchased-chapter tokens behave differently, are open questions -- see the manual checks below. |
+| Extraction | **Pages only** (`search`/`get_series`/`get_chapters` are left unsupported -- no server-rendered markup exists to parse, and no rendered-DOM structure for those was independently verified either). `get_pages()` loads the chapter URL through `sources.generic_import.import_comic_page()`, the same generic browser-based comic extraction Step 23 item 6 offers any unsupported site: a real headless-browser render, then every `<img>` candidate on the rendered page, filtered for real page content. **Token reuse, never token generation**: this adapter never calls Bilibili Manga's own `ImageToken` API or constructs a token itself -- it downloads exactly whatever already-signed image URLs the site's own JavaScript legitimately puts on the rendered page, the same "the browser is the source of truth for what the user can actually access" principle the challenge hand-off flow already applies to a CAPTCHA. `download_page()` returns bytes `get_pages()` already fetched during its one rendered-page visit, since the image tokens are short-lived. |
+| Protection detected | Signed/expiring image-delivery tokens (a `GetImageIndex` call for paths, then a separate `ImageToken` call appending a short-lived `?token=` to each image URL) -- read directly from `Armo00/bilibili-manga-downloader` and `lihe07/bilibili_comics_downloader`'s own source, not assumed. No tile-shuffling or canvas-rendering step was found in either tool -- the protection is token-based access gating, not image-level obfuscation. Absence of evidence for paid-chapter-specific additional protection isn't proof it doesn't exist -- neither reference tool's source was confirmed tested against a real paid chapter. |
+| Terms, recorded separately | Four real agreement URLs exist (`app-agreement.html`, `payment-agreement.html`, `coupon-package-agreement.html`, `privacy-policy-detail.html`, all under `manga.bilibili.com/eden/`) but each is an empty SPA shell whose text loads via client-side JS at runtime -- no JS-execution capability was available for this research pass, so the actual clause text was never read. This is "not yet checked," not "no relevant clause found" -- see the manual check below. `robots.txt`: confirmed a real 404 (no robots.txt exists at all for `manga.bilibili.com`), not a proxy block. |
+| Reference | `Armo00/bilibili-manga-downloader`, `lihe07/bilibili_comics_downloader` (protection mechanism only, no code ported). A Keiyoushi/Mihon extension existed but was removed after breakage (issue #6321) -- not available as an actively-maintained reference. |
+| Known limits | This adapter's real value is a populated `SourceCapabilities` record (so a future pass doesn't have to re-derive these findings), source-health tracking, and the token-reuse extraction mechanism -- not a full Mihon-style browsing experience. A direct chapter URL still works via `parse_url()` + `get_pages()`, the same "paste one URL, get its pages" path the front door already offers a site with no dedicated adapter at all. The chapter-URL shape `parse_url()` matches is an explicitly-hedged guess, not independently confirmed against a real chapter URL. |
+| Tests | `tests/test_sources_bilibili_manga.py`. All fetches (static and rendered) are mocked fixtures; no real Bilibili or Playwright call is made. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -141,3 +157,14 @@ they've been tried against the real site.
   any download, download it, and send it into the existing transcription
   pipeline with no changes needed there. Try a real multipart video too,
   and confirm a `?p=2`-style URL downloads only that part.
+- [ ] **Bilibili Manga, terms text:** read all four agreement URLs listed
+  above in a real, logged-out browser (their text loads via client-side
+  JS at runtime, so a plain fetch never sees it) and record whether any
+  clause bears on automated access or AI use.
+- [ ] **Bilibili Manga, authenticated/paid-chapter behavior:** with a real
+  Bilibili account, confirm whether an ordinary authenticated browser
+  session is sufficient for a free chapter, and whether a purchased
+  chapter's image tokens behave differently or carry extra protection.
+  Required before this adapter is trusted for real use -- not just before
+  it's marked done in the roadmap's sense (see the batch instruction that
+  authorized merging this step with these two checks still pending).
