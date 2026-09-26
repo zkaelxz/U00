@@ -230,6 +230,108 @@ class TestDiagnosticsTabInstallButtonGating:
                         "install_dep_btn_fixture_engine_missing"}
 
 
+class TestDiagnosticsTabUpgradeButtonGating:
+    """Step 27: the Upgrade button must appear only for an installed
+    feature/engine-tier dependency the version check flagged outdated --
+    never for an up-to-date one, one the check hasn't looked at yet, or a
+    required/dev-tier dependency (same tier gating as Install)."""
+
+    def _run(self, version_results):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["diagnostics_results"] = _FAKE_RESULTS
+        at.session_state["dependency_version_results"] = version_results
+        at.run(timeout=30)
+        return at
+
+    def test_upgrade_button_appears_for_an_outdated_feature_tier_dependency(self, isolated_db):
+        at = self._run({"fixture_feature_installed": {
+            "installed_version": "1.0.0", "latest_version": "2.0.0", "outdated": True}})
+        upgrade_buttons = [b for b in at.button if b.label == "⬆️ Upgrade"]
+        assert len(upgrade_buttons) == 1
+        assert upgrade_buttons[0].key == "upgrade_dep_btn_fixture_feature_installed"
+
+    def test_no_upgrade_button_when_up_to_date(self, isolated_db):
+        at = self._run({"fixture_feature_installed": {
+            "installed_version": "2.0.0", "latest_version": "2.0.0", "outdated": False}})
+        assert not [b for b in at.button if b.label == "⬆️ Upgrade"]
+
+    def test_no_upgrade_button_for_required_tier_even_if_flagged_outdated(self, isolated_db):
+        at = self._run({"fixture_required": {
+            "installed_version": "1.0.0", "latest_version": "2.0.0", "outdated": True}})
+        assert not [b for b in at.button if b.label == "⬆️ Upgrade"]
+
+    def test_no_upgrade_button_before_the_check_has_ever_run(self, isolated_db):
+        at = self._run({})
+        assert not [b for b in at.button if b.label == "⬆️ Upgrade"]
+
+    def test_clicking_upgrade_calls_pip_install_with_the_upgrade_flag_and_streams_output(
+            self, isolated_db, monkeypatch):
+        captured = {}
+
+        def fake_stream_pip_install(pip_args, python_executable=None):
+            captured["pip_args"] = pip_args
+            yield {"line": "Successfully installed fixture-feature-installed-2.0.0"}
+            yield {"done": True, "ok": True, "returncode": 0}
+        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_stream_pip_install)
+        monkeypatch.setattr(diagnostics, "run_full_diagnostics", lambda *a, **k: _FAKE_RESULTS)
+
+        at = self._run({"fixture_feature_installed": {
+            "installed_version": "1.0.0", "latest_version": "2.0.0", "outdated": True}})
+        at.button(key="upgrade_dep_btn_fixture_feature_installed").click().run(timeout=30)
+
+        assert not at.exception
+        # --upgrade, not a bare install -- and the real package name, not
+        # a generic placeholder.
+        assert captured["pip_args"][:2] == ["--upgrade", "fixture_feature_installed"]
+        # A successful upgrade drops the now-stale version-check result
+        # rather than silently re-showing "outdated" for the new version.
+        assert ("dependency_version_results" not in at.session_state
+                or at.session_state["dependency_version_results"] is None
+                or "fixture_feature_installed" not in at.session_state["dependency_version_results"])
+
+
+class TestDiagnosticsTabCheckForUpdatesButton:
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["diagnostics_results"] = _FAKE_RESULTS
+        at.run(timeout=30)
+        return at
+
+    def test_button_present_and_makes_no_network_call_until_clicked(self, isolated_db, monkeypatch):
+        def boom(*a, **k):
+            raise AssertionError("should not touch the network before the button is clicked")
+        monkeypatch.setattr("requests.get", boom)
+
+        at = self._run()
+        assert [b for b in at.button if b.label == "🔍 Check for dependency updates"]
+        assert "dependency_version_results" not in at.session_state \
+            or at.session_state["dependency_version_results"] is None
+
+    def test_clicking_it_populates_version_results(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency_versions",
+                            lambda deps, timeout=10.0: {"fixture_feature_installed": {
+                                "installed_version": "1.0.0", "latest_version": "2.0.0",
+                                "outdated": True}})
+        at = self._run()
+        [btn] = [b for b in at.button if b.label == "🔍 Check for dependency updates"]
+        btn.click().run(timeout=30)
+        assert not at.exception
+        assert at.session_state["dependency_version_results"][
+            "fixture_feature_installed"]["outdated"] is True
+
+
 class TestDiagnosticsTabGpuTorchButtonVisibility:
     def _run(self):
         from streamlit.testing.v1 import AppTest
