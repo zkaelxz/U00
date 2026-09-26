@@ -155,6 +155,7 @@ Rules for every milestone:
 - Do one milestone per feature branch off `baihe-subtitler`. The next milestone starts only once the current one meets its exit condition.
 - Keep changes minimal. Don't add abstractions the milestone doesn't need.
 - After a step is merged, the user runs its **manual check** from the table below on their own PC, with real models and real audio. Mocked tests can't catch problems that only show up with real models. Report anything that looks wrong back to the planning chat.
+- **Whenever a step needs a manual check, say exactly what to try, not just that one is needed.** A step's own "Exit:" section and this table's row must both name the concrete action (e.g. "paste a transcript, close the tab, reopen once the job would have finished, confirm the lines aren't wiped" — not "manual check: verify it works"). This is already this doc's standing practice; recorded explicitly here so it stays that way as new steps get added, including autonomous-mode ones that land without a planning-chat review pass to catch a vague one.
 
 **Manual checks (5–10 minutes each, on a short real episode):**
 

@@ -44,6 +44,7 @@ external project checked so far.
   integrity, where autonomous mode has already caused real, severe bugs
   once. Still verify every autonomous merge same as any other, per this
   file's own rules below — autonomous means no *gate*, not no review.
+- **Every step's manual check must name the concrete action, not just say one's needed.** Both the step's own "Exit:" section and its row in the roadmap's §2 manual-check table must spell out exactly what to try (e.g. "paste a transcript, close the tab, reopen once the job would have finished, confirm the lines aren't wiped"), never a vague "manual check: verify it works." This matters more, not less, for autonomous-mode steps — they land without a planning-chat review pass to catch a vague one before merge.
 - **Verify a PR's real number via the GitHub API before citing it anywhere**
   — an implementing session's own self-reported PR number has been wrong
   more than once (reported #47/#48 when the real, already-merged PRs were
