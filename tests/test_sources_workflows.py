@@ -14,7 +14,7 @@ from sources import (adaptive, chapter_check, chapter_order, front_door, generic
 from sources.base import SourceAdapter
 from sources.models import ChapterInfo, PageRef, SearchResult, SourceError, FailureReason
 
-from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, image, make_client, png
+from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, image, make_client
 
 
 class FakeComicSource(SourceAdapter):
@@ -573,3 +573,79 @@ class TestChapterImport:
         assert not registry.is_enabled("demo")
         store.set_setting("demo_source_enabled", True)
         assert registry.is_enabled("demo")
+
+
+class TestTermsOfServiceBlocking:
+    """Step 25g item 1: a real import folds its ladder run into the
+    source's capability record, and a record whose terms block says the
+    ToS prohibits automated access refuses before anything is sent."""
+
+    def _prohibit(self, source):
+        from sources import ladder
+        caps = ladder.load_capabilities(source)
+        caps.terms = {"checked": True, "tos_prohibited": True}
+        ladder.save_capabilities(source, caps)
+
+    def test_generic_import_records_the_ladder_run(self, isolated_db):
+        from sources import ladder
+        client = make_client("generic", ScriptedTransport(_comic_routes("1")))
+        generic_import.import_comic_page("https://comic.invalid/read/1", client=client)
+        caps = ladder.load_capabilities("generic")
+        assert caps.tiers["STATIC_HTTP"].tested and caps.tiers["STATIC_HTTP"].ok
+        assert caps.access_method == "STATIC_HTTP"
+
+    def test_prohibited_source_is_refused_before_any_request(self, isolated_db):
+        from sources.models import TermsProhibited
+        self._prohibit("generic")
+        t = ScriptedTransport(_comic_routes("1"))
+        with pytest.raises(TermsProhibited) as e:
+            generic_import.import_comic_page("https://comic.invalid/read/1",
+                                             client=make_client("generic", t))
+        assert e.value.reason == FailureReason.TOS_PROHIBITED
+        from sources import adaptive
+        with pytest.raises(TermsProhibited):
+            adaptive.import_novel("https://comic.invalid/read/1", client=make_client("generic", t))
+        with pytest.raises(TermsProhibited):
+            adaptive.import_comic("https://comic.invalid/read/1", client=make_client("generic", t))
+        assert t.calls == []
+
+    def test_a_pasted_link_uses_the_matching_adapters_record(self, isolated_db, monkeypatch):
+        from sources.models import TermsProhibited
+
+        class ProhibitedSite(SourceAdapter):
+            name = "tos_site"
+            url_patterns = [r"tos-site\.invalid/"]
+
+            def capabilities(self):
+                caps = super().capabilities()
+                caps.terms = {"checked": True, "tos_prohibited": True}
+                return caps
+        monkeypatch.setitem(registry._ADAPTERS, "tos_site", ProhibitedSite)
+        from sources import adaptive
+        registry.set_enabled("tos_site", False)   # switched off: its terms still apply
+        with pytest.raises(TermsProhibited):
+            adaptive.import_comic("https://tos-site.invalid/ch/1")
+        with pytest.raises(TermsProhibited):
+            adaptive.import_novel("https://tos-site.invalid/ch/1")
+        registry.set_enabled("tos_site", True)
+        with pytest.raises(TermsProhibited):
+            front_door.preview("https://tos-site.invalid/ch/1")
+
+    def test_multi_chapter_import_is_refused(self, isolated_db):
+        import background_jobs
+        routes = {f"https://img.fake.invalid/c1/{i}.png": image(600, 900, i) for i in range(2)}
+        t = ScriptedTransport(routes)
+        adapter = FakeComicSource(make_client("fake_comic", t),
+                                  chapters=[("c1", "第1话"), ("c2", "第2话")])
+        self._prohibit("fake_comic")
+        drama_id = isolated_db.create_drama(title_zh="x", media_type="manhua")
+        job = "source_import_tos"
+        background_jobs._jobs[job] = {"status": "running", "progress": 0.0, "message": "",
+                                      "cancel_requested": False, "result": None}
+        pipeline.run_import_job(job, "fake_comic", adapter.get_chapters("s"), drama_id,
+                                adapter=adapter)
+        result = background_jobs.get_status(job)["result"]
+        assert len(result["chapters"]) == 1 and not result["chapters"][0]["ok"]
+        assert "TOS_PROHIBITED" in result["chapters"][0]["error"]
+        assert t.calls == [] and isolated_db.list_pages(drama_id) == []
+        background_jobs.clear_job(job)

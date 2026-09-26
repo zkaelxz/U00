@@ -411,7 +411,6 @@ class TestCmdDubFlagPreservation:
             calls.append(lines)
             return "fake_dub.wav", []
         monkeypatch.setattr(dub_module, "build_dub_track", fake_build_dub_track)
-        monkeypatch.setattr(dub_module, "assign_voices_to_characters", lambda speakers: {})
 
         args = _dub_args(id=did)
         with contextlib.redirect_stdout(io.StringIO()):
@@ -421,6 +420,29 @@ class TestCmdDubFlagPreservation:
         rows = isolated_db.load_lines(did)
         assert rows[0]["flag"] == "needs_review"
         assert rows[0]["flag_note"] == "awkward phrasing"
+
+
+class TestCmdDubVoiceFallback:
+    def test_unvoiced_characters_get_different_voices(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", status="translated")
+        isolated_db.upsert_character(did, "SPEAKER_00", tts_voice="en-US-AvaNeural")
+        isolated_db.save_lines(did, [
+            Line(idx=i, start=float(i), end=i + 1.0, zh="你好", en="Hello", speaker=s)
+            for i, s in enumerate(["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"])])
+        seen = {}
+
+        def fake_build_dub_track(lines, drama_dir, voice_map, offline_voice_map=None, **kw):
+            seen.update(voice_map=voice_map, offline_voice_map=offline_voice_map)
+            return "fake_dub.wav", []
+        monkeypatch.setattr(dub_module, "build_dub_track", fake_build_dub_track)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did))
+
+        voices = seen["voice_map"]
+        assert voices["SPEAKER_00"] == "en-US-AvaNeural"
+        assert len({voices[s] for s in ("SPEAKER_00", "SPEAKER_01", "SPEAKER_02")}) == 3
+        offline = seen["offline_voice_map"]
+        assert offline["SPEAKER_01"] != offline["SPEAKER_02"]
 
 
 class TestCmdDubStretchLimits:

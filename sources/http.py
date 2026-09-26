@@ -107,7 +107,6 @@ def decode_html(content: bytes, headers: dict = None) -> str:
 
 
 def _requests_transport(method, url, headers, data, timeout):
-    import requests
     session = _thread_session()
     r = session.request(method, url, headers=headers, data=data, timeout=timeout,
                         allow_redirects=True)

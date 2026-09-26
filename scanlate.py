@@ -1123,6 +1123,29 @@ def split_webtoon_strip(image_path: str, target_height: int = 1600, overlap: int
     return slices
 
 
+def is_webtoon_strip(width: int, height: int, target_height: int = 1600) -> bool:
+    """Tall enough, and narrow enough for its height, to be a long strip
+    rather than an ordinary (even high-resolution) page."""
+    return height > max(target_height, 3 * width)
+
+
+def slice_webtoon_to_files(image_path: str, out_dir: str, target_height: int = 1600,
+                           overlap: int = 100) -> list:
+    """Writes each split_webtoon_strip() slice as its own PNG in
+    `out_dir`; returns their paths in reading order."""
+    import cv2
+
+    img = cv2.imread(image_path)
+    if img is None:
+        raise ValueError(f"Could not read image: {image_path}")
+    paths = []
+    for s in split_webtoon_strip(image_path, target_height, overlap):
+        path = os.path.join(out_dir, f"slice_{s['index']:03d}.png")
+        cv2.imwrite(path, img[s["y_start"]:s["y_end"]])
+        paths.append(path)
+    return paths
+
+
 # ---------------------------------------------------------------------------
 # Text region classification: bubbles vs signs vs SFX
 # ---------------------------------------------------------------------------

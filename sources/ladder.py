@@ -30,8 +30,9 @@ from typing import Optional
 from . import detect, store
 from .models import (AccessTier, AttemptRecord, CapabilityStatus, CHALLENGE_REASONS,
                      ChallengeDetected, ContentAccess, ENVIRONMENT_BLOCK_REASONS,
-                     FailureReason, NEEDS_BROWSER_REASONS, PROTECTION_REASONS,
-                     SourceCapabilities, SourceError, TechnicalStatus, TierResult)
+                     FailureReason, PROTECTION_REASONS,
+                     SourceCapabilities, SourceError, TechnicalStatus, TermsProhibited,
+                     TierResult)
 
 TIER_LABELS = {
     AccessTier.STATIC_HTTP: "Static HTTP",
@@ -274,10 +275,6 @@ def _resolve_status(result: LadderResult):
         result.technical_status = TechnicalStatus.UNRESOLVED.value
 
 
-def needs_browser(reasons) -> bool:
-    return bool(set(reasons) & NEEDS_BROWSER_REASONS)
-
-
 # ---------------------------------------------------------------------------
 # Capabilities records and the per-tier "Test Now" buttons
 # ---------------------------------------------------------------------------
@@ -301,6 +298,16 @@ def apply_terms(caps: SourceCapabilities) -> SourceCapabilities:
         caps.status = CapabilityStatus.TOS_PROHIBITED.value
         caps.technical_status = TechnicalStatus.DISQUALIFIED.value
     return caps
+
+
+def check_terms(source: str, default: SourceCapabilities = None):
+    """Raises TermsProhibited when the source's record carries a
+    written ToS prohibition -- called before an import sends anything."""
+    caps = apply_terms(load_capabilities(source, default))
+    if caps.status == CapabilityStatus.TOS_PROHIBITED.value:
+        raise TermsProhibited(
+            f"{caps.platform or source}'s terms of service prohibit automated access, so the "
+            "app won't import from it. Save the pages yourself and upload them manually instead.")
 
 
 def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
