@@ -32,8 +32,18 @@ external project checked so far.
   session builds, tests, opens *and merges* its own PR, no gate) — this is
   exactly why an ad hoc QC pass across that range once found two severe,
   unreviewed bugs. Steps 11+ run gated by default (implementing session
-  builds, tests, pushes, stops, and waits for "create a PR for this step" —
-  it opens the PR but does not merge; this session reviews and merges).
+  builds, tests, pushes, stops, and waits for a "check Step X"/roadmap
+  handoff — no PR of its own). **Established practice (confirmed repeatedly
+  by the user, and explicit as of 2026-09-27 — "auto merge is fine if
+  test/review come back clean"): this planning session opens the PR itself
+  via the GitHub API once its own independent review and test run are
+  clean, and merges it the same turn once CI is also green — no separate
+  "should I merge?" go-ahead needed per PR.** This only ever applies after
+  the real gate (fetch the branch, read the full diff, run its own tests,
+  confirm CI) — a red CI run, a failing local test, or a review finding
+  that doesn't hold up still means stop and either fix (per the CI-red
+  playbook) or send it back to the implementing session, never merge
+  through it. "Clean" is the gate, not the ask.
   **Explicit exceptions, individually designated autonomous at the user's
   request (2026-09-26) for their genuinely low blast-radius: Step 25e (dead
   code only), Step 22b, Step 23c, and Steps 23d–23l (each a new, isolated
@@ -101,6 +111,20 @@ external project checked so far.
   session's own session list/notifications when it pushes or needs
   attention — treat its pushed branch exactly like any other implementing
   branch under the review-gate rules above.
+- **Streamline session/handoff creation — don't add approval round-trips
+  the user has already waived (2026-09-27).** Once a step is confirmed
+  ready to send (per the roadmap's own NEXT pointer, or an explicit user
+  "yes"), just send it — `create_session` for a fresh chat, or
+  `create_trigger` with `persistent_session_id` (+ a near-future
+  `run_once_at`; direct `SendMessage` to a `session_...` ID doesn't reach
+  a cloud session) to resume an existing one from the "Known implementing/
+  utility sessions" list below. Don't re-confirm "should I actually send
+  this?" once the user has already said which step/session — that's the
+  repetitive check they asked to cut. Reserve an actual pause for the
+  things that genuinely need it: which of several *mutually exclusive*
+  steps to send, a fresh finding the user hasn't seen yet, or a tool
+  call that comes back denied (don't silently retry the identical call —
+  say so and ask once, then act on the answer).
 - **"Build Queue" chart — a reusable good practice, kept fresh on request.**
   When several steps are in flight across parallel implementing chats, a
   published Artifact chart (three columns: **Assigned** — handed off,
