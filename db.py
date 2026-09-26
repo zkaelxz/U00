@@ -637,6 +637,21 @@ def init_db():
         # before render -- see scanlate.py's own docstring for why this
         # isn't a trained font-classifier model.
         conn.execute("ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
+    if "kind" not in bubble_cols:
+        # Step 12d: each bubble row is a structured text region (see
+        # scanlate.TextRegion) -- region type from classify_text_regions(),
+        # the detector's own confidence (NULL for the OpenCV heuristic,
+        # which has none), language, text orientation, and panel. Rows
+        # predating this are all speech bubbles, hence kind's default.
+        # include_sfx is the per-region override that puts an SFX region
+        # back into the automated inpaint-and-replace pass.
+        conn.execute("ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN confidence REAL")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN language TEXT")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN orientation TEXT")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
+        conn.execute("ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
     bulk_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
     if "kind" not in bulk_job_cols:
         # Step 9d: see the `bulk_jobs` table's own comment above -- every
@@ -1245,18 +1260,25 @@ def get_page(page_id: int):
 
 def save_bubbles(page_id: int, bubbles):
     """bubbles: list of dicts with x,y,w,h,source_text,translated_text,font_size,skip,
-    font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset).
-    Replaces all bubbles for this page."""
+    font_category (one of scanlate.FONT_CATEGORIES -- "regular" if unset), plus the
+    Step 12d region fields kind ("bubble" if unset), kind_confidence, confidence,
+    language, orientation, panel_id, include_sfx. List order is reading order (idx).
+    Replaces all bubbles for this page -- so a caller rebuilding the list must carry
+    every one of these fields through, or they're wiped."""
     conn = get_conn()
     try:
         conn.execute("BEGIN")
         conn.execute("DELETE FROM bubbles WHERE page_id = ?", (page_id,))
         conn.executemany(
             "INSERT INTO bubbles (page_id, idx, x, y, w, h, source_text, translated_text, "
-            "font_size, skip, font_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "font_size, skip, font_category, kind, kind_confidence, confidence, language, "
+            "orientation, panel_id, include_sfx) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(page_id, i, b["x"], b["y"], b["w"], b["h"], b.get("source_text", ""),
               b.get("translated_text", ""), b.get("font_size", 18), int(b.get("skip", False)),
-              b.get("font_category") or "regular")
+              b.get("font_category") or "regular", b.get("kind") or "bubble",
+              b.get("kind_confidence"), b.get("confidence"), b.get("language"),
+              b.get("orientation"), b.get("panel_id"), int(bool(b.get("include_sfx"))))
              for i, b in enumerate(bubbles)]
         )
         conn.commit()

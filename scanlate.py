@@ -27,6 +27,9 @@ text in a table before final render -- see the Scanlate tab in app.py.
 """
 
 import os
+from dataclasses import dataclass, asdict
+from typing import Optional
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -730,15 +733,87 @@ def _find_font(font_path: str = None, category: str = "regular", custom_fonts: d
     return None
 
 
+def _mask_band_span(mask, top: int, bottom: int):
+    """(left, right) of the widest run of columns that are inside `mask`
+    on EVERY row of [top, bottom) -- the horizontal room a line of text
+    drawn in that band actually has. None if the band leaves the mask or
+    has no room at all."""
+    if top < 0 or bottom > mask.shape[0] or bottom <= top:
+        return None
+    cols = np.all(mask[top:bottom], axis=0)
+    best, run_start = None, None
+    for i, inside in enumerate(list(cols) + [False]):
+        if inside and run_start is None:
+            run_start = i
+        elif not inside and run_start is not None:
+            if best is None or (i - run_start) > (best[1] - best[0]):
+                best = (run_start, i)
+            run_start = None
+    return best
+
+
+def _layout_in_mask(draw, text: str, mask, font_size: int, load_font):
+    """Shape-aware counterpart to render_text_in_box()'s rectangle layout
+    (Step 12d item 3): tries the largest font first, and for each size the
+    fewest lines first, centring the block vertically and giving each line
+    only the width the mask has at that line's height -- so text in an
+    oval bubble narrows toward the top and bottom instead of running into
+    the corners of its bounding rectangle. Returns (font, [(line, left,
+    right, top)]) or None if nothing fits even at the minimum size, in
+    which case the caller falls back to the plain rectangle layout."""
+    words = text.split()
+    if not words:
+        return None
+    mh = mask.shape[0]
+    for size in range(font_size, 7, -1):
+        font = load_font(size)
+        line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + 4
+        widths = {}
+
+        def width_of(t):
+            if t not in widths:
+                bb = draw.textbbox((0, 0), t, font=font)
+                widths[t] = bb[2] - bb[0]
+            return widths[t]
+
+        for n_lines in range(1, max(mh // line_height, 0) + 1):
+            top0 = (mh - line_height * n_lines) // 2
+            spans = [_mask_band_span(mask, top0 + i * line_height, top0 + (i + 1) * line_height)
+                     for i in range(n_lines)]
+            if any(sp is None for sp in spans):
+                continue
+            placed, wi = [], 0
+            for i, (left, right) in enumerate(spans):
+                cur = ""
+                while wi < len(words):
+                    trial = f"{cur} {words[wi]}".strip()
+                    if width_of(trial) > right - left:
+                        break
+                    cur, wi = trial, wi + 1
+                if not cur:
+                    break  # a word that doesn't fit this line at all
+                placed.append((cur, left, right, top0 + i * line_height))
+            if wi == len(words):
+                return font, placed
+    return None
+
+
 def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str = None, font_category: str = "regular",
-                        custom_fonts: dict = None, fill=(0, 0, 0), align="center"):
+                        custom_fonts: dict = None, fill=(0, 0, 0), align="center",
+                        mask=None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     Auto-shrinks font_size until the wrapped text fits the box height;
     word-wraps to fit box width. Horizontal text layout only -- no
     vertical CJK rendering (that's koharu's specialty, not replicated
     here).
+
+    mask: optional boolean array the size of the box (h, w), True inside
+    the bubble's real shape -- see bubble_shape_mask(). When given, each
+    line's width follows the shape (Step 12d item 3) rather than the
+    bounding rectangle; if the text can't fit the shape at any size, this
+    falls back to the rectangle layout below rather than dropping text.
 
     font_path: an explicit per-bubble override (always wins). Otherwise
     font_category (one of FONT_CATEGORIES, normally auto-filled from
@@ -748,6 +823,22 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
     """
     draw = ImageDraw.Draw(image)
     resolved_font_path = _find_font(font_path, category=font_category, custom_fonts=custom_fonts)
+
+    if mask is not None:
+        laid_out = _layout_in_mask(
+            draw, text, mask, font_size,
+            lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
+            else ImageFont.load_default())
+        if laid_out is not None:
+            font, placed = laid_out
+            for line, left, right, top in placed:
+                bbox = draw.textbbox((0, 0), line, font=font)
+                line_w = bbox[2] - bbox[0]
+                lx = left + (max(0, (right - left - line_w) // 2) if align == "center" else 0)
+                # textbbox's own left offset, so the ink starts where it was measured
+                draw.text((box["x"] + lx - bbox[0], box["y"] + top), line, font=font, fill=fill)
+            return image
+
     size = font_size
 
     def wrap_and_measure(sz):
@@ -786,7 +877,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
 
 
 def translate_page_with_context(texts, engine, drama_meta: dict, previous_context: str = "",
-                                 usage_cb=None):
+                                 usage_cb=None, glossary_terms=None):
     """
     Translates a page's bubble texts with awareness of what happened on
     prior pages, the way Torii's context-passing works for manga --
@@ -796,20 +887,30 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     previous_context: a short rolling summary carried from the last
     page's translate call (see below). Returns (translations, new_context)
     -- pass new_context into the next page's call to keep the chain going.
+
+    glossary_terms: rows from db.list_glossary_terms() for the drama's
+    series -- the same lookup Workspace's own translation uses (Step 12d
+    item 5), rendered through translation_guide.build_glossary_block() so
+    honorifics (category "honorific") and every other fixed term reach
+    comic translations under the same rules as subtitles.
     """
     from translate_engines import call_llm_json
+    from translation_guide import build_glossary_block
     import re, json
 
     if not getattr(engine, "supports_reference", False):
         # Pure-MT engines can't do context-aware translation or summarization
-        return engine.translate_batch(texts, {"drama_meta": drama_meta}), previous_context
+        return engine.translate_batch(texts, {"drama_meta": drama_meta,
+                                              "glossary_terms": glossary_terms}), previous_context
 
     context_block = f"\n\nContext from previous pages: {previous_context}" if previous_context else ""
+    glossary_block = build_glossary_block(glossary_terms)
+    glossary_block = f"\n\n{glossary_block}" if glossary_block else ""
     numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
     prompt = (
         "Translate these manga/comic speech bubble texts into natural English, in reading "
         "order, keeping character voice and plot consistent with the context below if any."
-        + context_block + f"\n\nBubbles on this page:\n{numbered}\n\n"
+        + glossary_block + context_block + f"\n\nBubbles on this page:\n{numbered}\n\n"
         'Return ONLY a JSON object: {"translations": ["...", ...], "context_summary": '
         '"1-2 sentence summary of what just happened, to carry into the next page"}. '
         "No preamble, no markdown fences."
@@ -884,13 +985,22 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     Returns (out_path, skipped) -- skipped lists bubbles that had no
     translated text, so the caller can warn about them rather than the
     person only discovering a blank spot after the fact.
+
+    A region classified as SFX is left alone unless its include_sfx
+    override is set (Step 12d item 6) -- see region_excluded_from_auto().
+    Speech/thought bubbles get their text fitted to the bubble's real
+    shape (bubble_shape_mask(), Step 12d item 3), not just its rectangle.
     """
     import shutil
 
-    def has_real_text(b):
-        return not b.get("skip") and b.get("translated_text", "").strip()
+    def in_auto_pass(b):
+        return not b.get("skip") and not region_excluded_from_auto(b)
 
-    skipped_blank = [b for b in bubbles if not b.get("skip") and not b.get("translated_text", "").strip()]
+    def has_real_text(b):
+        return in_auto_pass(b) and (b.get("translated_text") or "").strip()
+
+    skipped_blank = [b for b in bubbles
+                     if in_auto_pass(b) and not (b.get("translated_text") or "").strip()]
 
     working_path = out_path + ".tmp.png"
     shutil.copy(image_path, working_path)
@@ -903,10 +1013,12 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     for b in bubbles:
         if not has_real_text(b):
             continue
+        shape_mask = (bubble_shape_mask(image_path, b)
+                      if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
         render_text_in_box(pil_img, b, b["translated_text"],
                             font_size=b.get("font_size", 18), font_path=font_path,
                             font_category=b.get("font_category") or "regular",
-                            custom_fonts=custom_fonts)
+                            custom_fonts=custom_fonts, mask=shape_mask)
     pil_img.save(out_path)
     if os.path.exists(working_path):
         os.remove(working_path)
@@ -1355,3 +1467,350 @@ def bulk_find_replace_preview(bubbles: list, find: str, replace: str,
                 "old_text": old_text, "new_text": new_text,
             })
     return matches
+
+
+# ---------------------------------------------------------------------------
+# Structured text regions, SFX handling, shape-aware fitting, and the shared
+# per-page / whole-chapter detect+OCR+translate pipeline (Step 12d)
+# ---------------------------------------------------------------------------
+
+# Region kinds whose text is fitted to the bubble's own outline rather than
+# its bounding rectangle. Narration boxes are rectangles already; signs and
+# SFX sit on artwork, where "the light region around the box" isn't a shape.
+SHAPE_FITTED_KINDS = ("bubble", "thought")
+
+_CJK_LANGUAGES = ("ja", "zh", "ko")
+
+
+def region_excluded_from_auto(region: dict) -> bool:
+    """True for a region the automated inpaint-and-replace pass (and the
+    translate call) leaves alone: an SFX region, unless the person set its
+    per-region include_sfx override. classify_text_regions()' own note is
+    the reason -- SFX lettering is usually part of the art -- so SFX is
+    flagged for manual review rather than painted over by default."""
+    return (region.get("kind") == "sfx") and not region.get("include_sfx")
+
+
+def detect_script_language(text: str, fallback: str) -> str:
+    """Best guess at a region's language from the script its OCR'd text is
+    written in: any kana means Japanese, any Hangul means Korean. Han-only
+    text is ambiguous between Chinese and all-kanji Japanese, so it keeps
+    the drama's own source language when that's either of those. Latin-only
+    text on a CJK-source page is most often English lettering (signs, SFX).
+    No text at all, or nothing recognisable, keeps `fallback`."""
+    import re
+    text = text or ""
+    if re.search(r"[\u3040-\u30ff]", text):
+        return "ja"
+    if re.search(r"[\uac00-\ud7af\u1100-\u11ff]", text):
+        return "ko"
+    if re.search(r"[\u4e00-\u9fff]", text):
+        return fallback if fallback in ("ja", "zh") else "zh"
+    if re.search(r"[A-Za-z]", text) and fallback in _CJK_LANGUAGES:
+        return "en"
+    return fallback
+
+
+def _count_runs(profile, min_gap: int = 2) -> int:
+    """Number of separate ink runs in a 1-D projection profile, ignoring
+    gaps narrower than min_gap (anti-aliasing noise inside one glyph)."""
+    runs, gap, in_run = 0, min_gap, False
+    for has_ink in profile:
+        if has_ink:
+            if not in_run and gap >= min_gap:
+                runs += 1
+            in_run, gap = True, 0
+        else:
+            in_run = False
+            gap += 1
+    return runs
+
+
+def estimate_text_orientation(gray, box: dict, language: str) -> str:
+    """"vertical" or "horizontal" for the text inside `box` of a grayscale
+    page. Only CJK text is ever vertical; for those, the ink's projection
+    profile decides -- vertical text shows up as several separate columns
+    and one unbroken run top to bottom, horizontal text the other way
+    round. A tie falls back to the box's own shape (tall = vertical)."""
+    if language not in _CJK_LANGUAGES:
+        return "horizontal"
+    inner = inset_box_for_ocr(box)
+    h, w = gray.shape[:2]
+    x, y = max(0, inner["x"]), max(0, inner["y"])
+    roi = gray[y:min(h, y + inner["h"]), x:min(w, x + inner["w"])]
+    if roi.size:
+        ink = roi < 128 if roi.mean() >= 128 else roi > 128
+        col_runs = _count_runs(ink.any(axis=0))
+        row_runs = _count_runs(ink.any(axis=1))
+        if col_runs != row_runs:
+            return "vertical" if col_runs > row_runs else "horizontal"
+    return "vertical" if box["h"] > 1.2 * box["w"] else "horizontal"
+
+
+def _panel_for_box(box: dict, panels: list):
+    """Index of the panel (from detect_panels(), already in reading order)
+    that overlaps this box the most -- a bubble spilling across a gutter
+    still belongs to one beat. None if it overlaps no panel at all."""
+    best, best_area = None, 0
+    for i, p in enumerate(panels):
+        ox = min(box["x"] + box["w"], p["x"] + p["w"]) - max(box["x"], p["x"])
+        oy = min(box["y"] + box["h"], p["y"] + p["h"]) - max(box["y"], p["y"])
+        if ox > 0 and oy > 0 and ox * oy > best_area:
+            best, best_area = i, ox * oy
+    return best
+
+
+@dataclass
+class TextRegion:
+    """One detected text region as a single structured object (Step 12d
+    item 1), instead of fields scattered across detection, classification
+    and panel functions.
+
+    confidence is the detector's own score -- only the ML detector has
+    one; the free OpenCV heuristic leaves it None rather than inventing a
+    number. kind/kind_confidence come from classify_text_regions(),
+    panel_id from detect_panels() (None when no panel contains it),
+    orientation from estimate_text_orientation(), and language starts as
+    the drama's source language and is refined from the OCR'd text's
+    script once OCR has run (detect_script_language())."""
+    x: int
+    y: int
+    w: int
+    h: int
+    reading_order: int
+    language: str
+    confidence: Optional[float]
+    orientation: str
+    panel_id: Optional[int]
+    kind: str
+    kind_confidence: float
+    page_id: Optional[int] = None
+
+    @property
+    def bbox(self) -> tuple:
+        return (self.x, self.y, self.w, self.h)
+
+    def to_bubble(self) -> dict:
+        """The dict shape db.save_bubbles()/process_page() work with."""
+        d = asdict(self)
+        d.pop("page_id")
+        return d
+
+
+def analyze_page_regions(image_path: str, boxes: list, source_language: str,
+                         page_id: int = None) -> list:
+    """Turns raw detector boxes into TextRegion objects: classifies each
+    one (bubble/narration/sign/sfx/thought), assigns it to a panel, reads
+    its text orientation, and puts the lot in reading order -- panel by
+    panel (detect_panels() is already in manga reading order), keeping the
+    detector's own order within a panel. Regions outside every panel keep
+    their detector order after the panelled ones."""
+    import cv2
+
+    classified = classify_text_regions(image_path, boxes)
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    try:
+        panels = detect_panels(image_path)
+    except ValueError:
+        panels = []
+
+    staged = []
+    for i, b in enumerate(classified):
+        panel_id = _panel_for_box(b, panels)
+        orientation = (estimate_text_orientation(gray, b, source_language)
+                       if gray is not None else "horizontal")
+        staged.append((panel_id if panel_id is not None else len(panels), i, b, panel_id, orientation))
+    staged.sort(key=lambda t: (t[0], t[1]))
+
+    regions = []
+    for order, (_, _, b, panel_id, orientation) in enumerate(staged):
+        conf = b.get("confidence")
+        regions.append(TextRegion(
+            x=int(b["x"]), y=int(b["y"]), w=int(b["w"]), h=int(b["h"]),
+            reading_order=order, language=source_language,
+            confidence=float(conf) if conf is not None else None,
+            orientation=orientation, panel_id=panel_id,
+            kind=b.get("kind", "bubble"), kind_confidence=float(b.get("kind_confidence", 0.0)),
+            page_id=page_id))
+    return regions
+
+
+def bubble_shape_mask(image_path: str, box: dict, margin: int = 4):
+    """The bubble's real (often oval/irregular) interior inside `box`, as
+    a boolean (h, w) array for render_text_in_box(mask=...) -- found the
+    same way detect_bubbles_cv() finds bubbles (light threshold, close the
+    gaps text strokes punch through, take the connected region under the
+    box's centre, fill its holes), then eroded by `margin` px so text keeps
+    off the outline. None when there's no usable light region there (the
+    box sits on artwork, or the region covers under 30% of the box) --
+    callers then keep the plain rectangle layout."""
+    import cv2
+
+    gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if gray is None or box["w"] <= 2 * margin or box["h"] <= 2 * margin:
+        return None
+    ph, pw = gray.shape[:2]
+    x0, y0 = max(0, box["x"]), max(0, box["y"])
+    x1, y1 = min(pw, box["x"] + box["w"]), min(ph, box["y"] + box["h"])
+    if x1 <= x0 or y1 <= y0:
+        return None
+    roi = gray[y0:y1, x0:x1]
+
+    otsu_val, _ = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, light = cv2.threshold(roi, max(otsu_val, 180), 255, cv2.THRESH_BINARY)
+    closed = cv2.morphologyEx(light, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=3)
+    _, labels = cv2.connectedComponents(closed, connectivity=8)
+    label = labels[labels.shape[0] // 2, labels.shape[1] // 2]
+    if label == 0:
+        return None
+    region = (labels == label).astype(np.uint8)
+    contours, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    filled = np.zeros_like(region)
+    cv2.drawContours(filled, contours, -1, 1, thickness=-1)
+    if margin > 0:
+        filled = cv2.erode(filled, np.ones((2 * margin + 1, 2 * margin + 1), np.uint8))
+
+    mask = np.zeros((box["h"], box["w"]), dtype=bool)
+    mask[y0 - box["y"]:y1 - box["y"], x0 - box["x"]:x1 - box["x"]] = filled.astype(bool)
+    if mask.sum() < 0.3 * box["w"] * box["h"]:
+        return None
+    return mask
+
+
+def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
+                        hf_token: str = None, ocr_backend: str = None, tesseract_cmd: str = None,
+                        prefer_paddle_vl_manga: bool = False, page_id: int = None):
+    """Detect -> structure (analyze_page_regions) -> OCR -> font-style
+    sample for one page. Shared by the single-page Detect button and the
+    whole-chapter batch (batch_process_pages()), so both do exactly the
+    same thing per page.
+
+    Returns (bubbles, notes): bubbles are TextRegion.to_bubble() dicts with
+    source_text filled in and translated_text left empty for the translate
+    step; notes are (level, message) pairs -- "warning" when the ML
+    detector fell back to the heuristic, "error" when nothing was found --
+    for the caller to show."""
+    notes = []
+    try:
+        boxes = detect_bubbles(image_path, backend=detect_backend, hf_token=hf_token)
+    except BubbleModelUnavailable as exc:
+        notes.append(("warning", str(exc)))
+        boxes = detect_bubbles_cv(image_path)
+
+    if not boxes:
+        _, rejected = detect_bubbles_cv(image_path, debug=True)
+        reasons = {}
+        for r in rejected:
+            reasons[r[4]] = reasons.get(r[4], 0) + 1
+        detail = ("Rejected candidates: "
+                  + ", ".join(f"{n}× {why}" for why, n in
+                              sorted(reasons.items(), key=lambda x: -x[1]))
+                  ) if reasons else "No light enclosed regions found at all."
+        notes.append(("error",
+            "**No bubbles detected on this page.**\n\n"
+            f"{detail}\n\n"
+            "Detection looks for enclosed light regions that don't touch the page "
+            "edge. It struggles with borderless bubbles, dark/inverted panels, "
+            "very low-contrast scans, and text drawn straight onto artwork.\n\n"
+            "What to try: the ML backend if you can reach Hugging Face, or add "
+            "boxes by hand with '➕ Add a bubble manually' below."))
+        return [], notes
+
+    bubbles = []
+    for region in analyze_page_regions(image_path, boxes, source_language, page_id=page_id):
+        b = region.to_bubble()
+        # ocr_box_region() insets the box before cropping -- OCRing a
+        # bubble's own border can make some backends return nothing -- and
+        # routes to the right backend for the language (Step 11 item 4).
+        try:
+            b["source_text"] = ocr_box_region(
+                image_path, b, source_language, backend=ocr_backend,
+                tesseract_cmd=tesseract_cmd, prefer_paddle_vl_manga=prefer_paddle_vl_manga)
+        except Exception:
+            b["source_text"] = ""
+        b["language"] = detect_script_language(b["source_text"], b["language"])
+        # Classical-CV style guess (see sample_text_style()), reviewable
+        # per bubble before render.
+        style = sample_text_style(image_path, b)
+        b["font_category"] = style["suggested_style"]
+        b["ink_ratio"] = style.get("ink_ratio")
+        b["irregular"] = style.get("irregular")
+        b.update(translated_text="", font_size=18, skip=False, include_sfx=False)
+        bubbles.append(b)
+    return bubbles, notes
+
+
+def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
+                           glossary_terms=None, usage_cb=None) -> str:
+    """Translates a page's bubbles from their CURRENT source_text -- so an
+    OCR mistake fixed by hand in the review step (Step 12d item 2) is what
+    reaches the translation call, not the raw OCR output. Skipped regions
+    and SFX left out of the automated pass (region_excluded_from_auto())
+    aren't sent at all and keep whatever translated_text they had; neither
+    are regions with no source text.
+
+    Mutates `bubbles` in place and returns the new rolling context for the
+    next page. A result list whose length doesn't match what was sent is
+    rejected outright (ValueError) rather than assigned by position -- a
+    short or padded list would otherwise put a translation on the wrong
+    bubble."""
+    eligible = [b for b in bubbles
+                if not b.get("skip") and not region_excluded_from_auto(b)
+                and (b.get("source_text") or "").strip()]
+    if not eligible:
+        return previous_context
+    translations, new_context = translate_page_with_context(
+        [b["source_text"] for b in eligible], engine, drama_meta,
+        previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms)
+    if len(translations) != len(eligible):
+        raise ValueError(f"The translation came back with {len(translations)} result(s) for "
+                         f"{len(eligible)} bubble(s) -- not applied, since there's no safe way "
+                         f"to tell which result belongs to which bubble.")
+    for b, t in zip(eligible, translations):
+        b["translated_text"] = t or ""
+    return new_context
+
+
+def batch_process_pages(pages: list, source_language: str, save_fn, engine=None,
+                        drama_meta: dict = None, glossary_terms=None, previous_context: str = "",
+                        usage_cb=None, progress_cb=None, **detect_kwargs) -> dict:
+    """Detect + OCR + translate across a chapter's saved pages (Step 12d
+    item 4), reusing the exact per-page functions the single-page Detect
+    button uses, in page order, carrying the rolling prior-page context
+    from one page to the next.
+
+    pages: [{"id": page_id, "image_path": path}, ...] in reading order.
+    save_fn(page_id, bubbles) persists each page (db.save_bubbles in the
+    app). engine=None does detect+OCR only. detect_kwargs go to
+    detect_and_ocr_page() (detect_backend, hf_token, ocr_backend, ...).
+    progress_cb(done, total, page) is called after each page.
+
+    One page failing doesn't stop the rest (same per-page isolation as
+    bulk_render_pages()); a failed translation still saves that page's
+    OCR text. Returns {"processed": [{"page_id", "bubbles", "notes"}],
+    "errors": [{"page_id", "error"}], "context": final rolling context}."""
+    report = {"processed": [], "errors": [], "context": previous_context}
+    context = previous_context
+    for done, page in enumerate(pages, start=1):
+        try:
+            bubbles, notes = detect_and_ocr_page(
+                page["image_path"], source_language, page_id=page["id"], **detect_kwargs)
+            if engine is not None and bubbles:
+                try:
+                    context = translate_page_bubbles(
+                        bubbles, engine, drama_meta or {}, previous_context=context,
+                        glossary_terms=glossary_terms, usage_cb=usage_cb)
+                except Exception as exc:
+                    notes.append(("warning", f"Translation failed ({exc}) -- OCR text was "
+                                             f"still saved; retranslate this page from its "
+                                             f"review step."))
+            save_fn(page["id"], bubbles)
+            report["processed"].append({"page_id": page["id"], "bubbles": len(bubbles),
+                                        "notes": notes})
+        except Exception as exc:
+            report["errors"].append({"page_id": page["id"],
+                                     "error": f"{type(exc).__name__}: {exc}"})
+        if progress_cb:
+            progress_cb(done, len(pages), page)
+    report["context"] = context
+    return report
