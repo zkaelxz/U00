@@ -19,10 +19,6 @@ class ContentType(str, Enum):
     NOVEL = "novel"
     VIDEO = "video"
 
-    @property
-    def is_image(self) -> bool:
-        return self in (ContentType.MANGA, ContentType.MANHUA, ContentType.MANHWA)
-
 
 class AccessTier(str, Enum):
     """The access-method ladder, simplest first (Step 23 item 2)."""
@@ -68,9 +64,6 @@ class FailureReason(str, Enum):
 # An active anti-automation challenge. Never retried automatically, never
 # handed to an automated browser tier -- always handed to the person.
 CHALLENGE_REASONS = {FailureReason.CLOUDFLARE_CHALLENGE, FailureReason.BOT_CHALLENGE}
-
-# Ordinary, transient trouble: exponential backoff, capped retries.
-RETRYABLE_REASONS = {FailureReason.RATE_LIMIT, FailureReason.TIMEOUT}
 
 # Failures a real browser from this same machine won't fix either.
 ENVIRONMENT_BLOCK_REASONS = {
