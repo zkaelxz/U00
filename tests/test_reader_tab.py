@@ -4,6 +4,10 @@ tests/test_reader_tab.py -- Reader tab's Line tools.
 Step 25c item 3: "Improve this line" and "Re-transcribe" stored their
 generated result under a drama-scoped key, so a result generated for one
 line was still offered -- and applied -- after picking a different line.
+
+Step 25x: "Why this?"/"Alternatives"/"Grammar" had the same bug -- they
+were never moved onto the per-line key Step 25c introduced for the two
+tools above.
 """
 import os
 import sys
@@ -109,6 +113,44 @@ class TestRetranscribeIsPerLine:
         assert not any(s.value == "重听的第一行" for s in at.success)
         assert not [b for b in at.button if b.key and b.key.startswith("apply_retranscribe_")]
         assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["第一行", "第二行"]
+
+
+class TestWhyThisAlternativesGrammarArePerLine:
+    @pytest.fixture(autouse=True)
+    def _fake_llm(self, monkeypatch):
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(line_tools, "explain_translation",
+                             lambda zh, en, eng, source_language="zh", glossary_terms=None:
+                             f"explanation for {en}")
+        monkeypatch.setattr(line_tools, "alternative_translations",
+                             lambda zh, en, eng, count=3, source_language="zh", style_hint="":
+                             [{"translation": f"alt for {en}", "approach": "", "tradeoff": ""}])
+        monkeypatch.setattr(line_tools, "grammar_breakdown",
+                             lambda zh, eng, source_language="zh": [{"word": zh, "gloss": ""}])
+
+    def test_results_for_one_line_are_not_shown_under_another(self, isolated_db):
+        did = _drama(isolated_db)
+        at = _run(did)
+        _click(at, "Why this?")
+        _click(at, "Alternatives")
+        _click(at, "Grammar")
+        assert any(i.value == "explanation for Line one" for i in at.info)
+        assert any(c.value == "**alt for Line one**  \n_ — trades away: _" for c in at.caption)
+        assert at.dataframe
+
+        _pick_line(at, did, 2)
+        assert not any(i.value == "explanation for Line one" for i in at.info)
+        assert not any(c.value == "**alt for Line one**  \n_ — trades away: _" for c in at.caption)
+        assert not at.dataframe
+
+    def test_re_selecting_a_previously_inspected_line_still_shows_its_result(self, isolated_db):
+        did = _drama(isolated_db)
+        at = _run(did)
+        _click(at, "Why this?")
+        _pick_line(at, did, 2)
+        _pick_line(at, did, 1)
+
+        assert any(i.value == "explanation for Line one" for i in at.info)
 
 
 # ------------------------------------------- Step 12: live captions in Watch / listen
