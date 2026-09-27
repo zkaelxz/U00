@@ -84,6 +84,35 @@ def _run_pip_stream(running_label: str, done_label: str, failed_label: str, stre
     return result
 
 
+def _install_confirmed(container, key: str, warning: str) -> bool:
+    """Renders an "⬇️ Install" button in `container`; returns True the
+    instant the install should actually run. Step 47 item 4: when
+    `warning` is set (a redundant heavy local TTS backend is already
+    installed), the first click only arms a confirmation -- shown as a
+    full-width warning plus its own "Install anyway"/"Cancel" pair --
+    rather than installing immediately. Never blocks the install, only
+    adds one extra deliberate click, matching this app's existing
+    "confirm before a consequential action" pattern scaled down for a
+    reversible one. With no warning, behaves exactly like a plain button."""
+    confirm_key = f"{key}__confirm_redundant"
+    if st.session_state.get(confirm_key):
+        st.warning(warning)
+        wc1, wc2 = st.columns(2)
+        if wc1.button("⬇️ Install anyway", key=f"{key}__proceed"):
+            st.session_state.pop(confirm_key, None)
+            return True
+        if wc2.button("Cancel", key=f"{key}__cancel"):
+            st.session_state.pop(confirm_key, None)
+            st.rerun()
+        return False
+    if container.button("⬇️ Install", key=key):
+        if warning:
+            st.session_state[confirm_key] = True
+            st.rerun()
+        return True
+    return False
+
+
 def render_diagnostics_tab():
     ui_theme.type_scale_scope()
 
@@ -163,6 +192,7 @@ def render_diagnostics_tab():
                 with st.spinner("Checking PyPI..."):
                     st.session_state["dependency_version_results"] = diagnostics.check_dependency_versions(deps)
             version_results = st.session_state.get("dependency_version_results") or {}
+            installed_dep_names = {k for k, v in deps.items() if v["installed"]}
 
             for tier in tier_order:
                 tier_deps = {k: v for k, v in deps.items() if v["tier"] == tier}
@@ -181,7 +211,12 @@ def render_diagnostics_tab():
                             iv, lv = version_info["installed_version"], version_info["latest_version"]
                             if version_info["outdated"] is True:
                                 version_suffix = f" -- 🔶 outdated (`{iv}` installed, `{lv}` latest)"
-                                upgradeable = tier in diagnostics.INSTALLABLE_TIERS
+                                blocked_reason = diagnostics.upgrade_blocked_reason(
+                                    name, lv, project_root=project_root)
+                                if blocked_reason:
+                                    version_suffix += f" -- {blocked_reason}"
+                                else:
+                                    upgradeable = tier in diagnostics.INSTALLABLE_TIERS
                             elif version_info["outdated"] is False:
                                 version_suffix = f" -- 🟢 up to date (`{iv}`)"
                             elif iv:
@@ -193,7 +228,9 @@ def render_diagnostics_tab():
                         dep_c1, dep_c2 = st.columns([5, 1])
                         dep_c1.caption(f"{icon} **{name}** -- {info['powers']}{version_suffix}")
                         if installable:
-                            if dep_c2.button("⬇️ Install", key=f"install_dep_btn_{name}"):
+                            redundant_warning = diagnostics.redundant_tts_install_warning(
+                                name, installed_dep_names)
+                            if _install_confirmed(dep_c2, f"install_dep_btn_{name}", redundant_warning):
                                 dep_result = _run_pip_stream(
                                     f"Installing {name}...", f"Installed {name}.",
                                     f"Install failed for {name} -- see output above.",
@@ -248,12 +285,27 @@ def render_diagnostics_tab():
                   "something newer exists, only what's here right now.")
         model_versions = diagnostics.get_model_engine_versions(
             st.session_state.get("settings_ollama_model"))
-        table_rows = ["| | Model / engine | Version |", "|---|---|---|"]
+        installed_model_packages = {m["package"] for m in model_versions
+                                    if m.get("package") and m["installed"]}
         for m in model_versions:
             icon = "✅" if m["installed"] else "❌"
             version_text = f"`{m['version']}`" if m["installed"] else "*not installed*"
-            table_rows.append(f"| {icon} | [**{m['name']}**]({m['url']}) | {version_text} |")
-        st.markdown("\n".join(table_rows))
+            row_c1, row_c2, row_c3, row_c4 = st.columns([0.5, 4, 2, 1.6])
+            if m.get("help"):
+                with row_c1.popover("❓"):
+                    st.caption(m["help"])
+            row_c2.markdown(f"{icon} [**{m['name']}**]({m['url']})")
+            row_c3.markdown(version_text)
+            if not m["installed"] and m.get("package"):
+                redundant_warning = diagnostics.redundant_tts_install_warning(
+                    m["package"], installed_model_packages)
+                if _install_confirmed(row_c4, f"install_model_btn_{m['name']}", redundant_warning):
+                    model_result = _run_pip_stream(
+                        f"Installing {m['name']}...", f"Installed {m['name']}.",
+                        f"Install failed for {m['name']} -- see output above.",
+                        diagnostics.stream_dependency_install(m["package"], project_root=project_root))
+                    if model_result["ok"]:
+                        st.rerun()
 
         st.markdown("**GPU status**")
         gpu_status = diagnostics.get_gpu_status()
