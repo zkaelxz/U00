@@ -89,6 +89,7 @@ baihe-subtitler/
 | `db.py` | all database access (19 tables) |
 | `translate_engines.py` | Claude / DeepSeek / DeepL / Google / Ollama / LibreTranslate |
 | `translation_guide.py` | style presets, term policies, translation notes |
+| `translation_memory.py` | suggests a translation you already approved for an exact or near-identical source line (never auto-applied) |
 | `auto_qc.py` | Auto QC: flags a translation that drops or invents a number, date, name, amount or unit |
 | `emotion.py` | emotional register detection and preservation |
 
