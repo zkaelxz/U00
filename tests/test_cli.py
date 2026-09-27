@@ -809,3 +809,38 @@ class TestExportVideoClampsOverlappingCues:
 
         assert "00:00:00,000 --> 00:00:01,500" in captured["srt"]  # clamped
         assert "00:00:00,000 --> 00:00:02,000" not in captured["srt"]  # original, overlapping
+
+
+class TestInspectLine:
+    """Step 58 CLI parity: same real data as Workspace's own 🔍 What
+    happened? button, headless."""
+
+    def test_reports_real_flag_and_glossary_match_for_the_line(self, isolated_db):
+        series_id = isolated_db.get_or_create_series("Test Series")
+        did = isolated_db.create_drama(title_en="Test", series_id=series_id)
+        isolated_db.upsert_glossary_term(series_id, "沈清疑", "Shen Qingyi")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="沈清疑来了。", en="Shen Qingyi is here.",
+                 flag="uncertain_translation", flag_note="pronoun unclear"),
+        ])
+
+        args = argparse.Namespace(id=did, line=1)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_inspect_line(args)
+
+        text = out.getvalue()
+        assert "Shen Qingyi is here." in text
+        assert "Possible mistranslation" in text
+        assert "沈清疑 -> Shen Qingyi" in text
+
+    def test_unknown_line_number_says_so_rather_than_crashing(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+
+        args = argparse.Namespace(id=did, line=5)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_inspect_line(args)
+
+        assert "No line #5" in out.getvalue()

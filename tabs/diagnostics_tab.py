@@ -242,6 +242,60 @@ def render_diagnostics_tab():
             if st.button("🔄 Refresh", key="jobs_panel_refresh"):
                 st.rerun()
 
+    with st.expander("🔍 What happened? (job history)", expanded=False):
+        st.caption("Step 58: \"why did my last job take so long / fail?\" for a job still "
+                  "resident in this process's memory. Jobs aren't persisted across an app "
+                  "restart, so nothing shows here after one -- and only the job's total "
+                  "wall-clock time is available; a per-stage (download/ASR/diarization/"
+                  "translation/etc.) breakdown needs Step 41, which hasn't landed yet.")
+        finished = {jid: j for jid, j in background_jobs.list_all_jobs().items()
+                   if j["status"] != "running"}
+        if not finished:
+            st.caption("No finished job in this process's memory yet.")
+        else:
+            for job_id in sorted(finished, key=lambda j: finished[j].get("finished_at") or 0,
+                                 reverse=True):
+                job = finished[job_id]
+                with st.expander(f"{_describe_job(job_id)} -- {job['status']}"):
+                    explanation = debug_view.explain_job(job_id)
+                    if explanation["duration_seconds"] is not None:
+                        st.write(f"**Total time:** {explanation['duration_seconds']:.1f}s")
+                    if explanation["error"]:
+                        st.error(explanation["error"])
+                    st.caption(explanation["per_stage_breakdown_note"])
+
+    with st.expander("🐞 Saved bug-reproduction bundles", expanded=False):
+        st.caption("Step 58 item 5: a frozen input/output snapshot saved from a line's "
+                  "\"What happened here?\" panel in Review & edit -- re-run it here to check "
+                  "whether it still reproduces the same result.")
+        bundles = db.list_bug_reports()
+        if not bundles:
+            st.caption("No bug bundle saved yet.")
+        else:
+            for b in bundles:
+                drama = db.get_drama(b["drama_id"])
+                title = (drama.get("title_en") or drama.get("title_zh")) if drama else "(deleted drama)"
+                with st.expander(f"#{b['id']} {b['label']} -- {title}"):
+                    st.caption(f"Recorded engine/model: {b['engine']} / {b['model'] or '—'}")
+                    st.write(f"**Output when saved:** {b['produced_output']}")
+                    if b["replayed"]:
+                        st.write(f"**Last replay:** {b['replay_output']}")
+                        if b["reproduced"]:
+                            st.warning("Still reproduces the same output.")
+                        else:
+                            st.success("No longer reproduces -- output has changed.")
+                    _key = b["engine"]
+                    _api_key = st.session_state.get(f"settings_{_key}", "")
+                    if st.button("▶️ Replay", key=f"bug_replay_{b['id']}",
+                                disabled=_key not in translate_engines.ENGINES):
+                        replay_engine = translate_engines.get_engine(_key, _api_key, b["model"] or None)
+                        with st.spinner("Replaying..."):
+                            debug_view.replay_bug_bundle(b["id"], replay_engine)
+                        st.rerun()
+                    if st.button("🗑️ Delete bundle", key=f"bug_delete_{b['id']}"):
+                        db.delete_bug_report(b["id"])
+                        st.rerun()
+
     with st.expander("🧩 Model & engine versions", expanded=True):
         st.caption("What's actually installed/configured locally for every AI model or engine "
                   "this app wires into a feature. No network call -- this doesn't check whether "

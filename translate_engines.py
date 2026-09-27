@@ -1304,6 +1304,18 @@ def flag_reason_label(flag: str) -> str:
     return FLAG_REASONS.get(flag) or SYSTEM_FLAG_REASONS.get(flag) or flag
 
 
+def matching_glossary_terms(zh: str, glossary_terms) -> list:
+    """Glossary entries whose source term (or a recorded alias, Step 30)
+    literally appears in zh -- the same "in play for this line" heuristic
+    line_tools.explain_translation already used, factored out so Step 58's
+    "what happened here?" view can show the same real, non-fabricated
+    match set instead of re-deriving it differently."""
+    def _term_forms(t):
+        aliases = [a.strip() for a in re.split(r"[|,，、]", t.get("aliases") or "") if a.strip()]
+        return [t.get("term_original", "")] + aliases
+    return [t for t in (glossary_terms or []) if any(f and f in zh for f in _term_forms(t))]
+
+
 def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     """The review-queue prompt for one batch of already-translated lines,
     each numbered by id_fn(ln) (its position by default, matching what

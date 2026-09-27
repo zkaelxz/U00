@@ -453,6 +453,24 @@ def init_db():
         FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS bug_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        drama_id INTEGER NOT NULL,
+        line_id INTEGER,          -- lines.id this bundle was saved for, if any
+        label TEXT,
+        input_json TEXT,          -- frozen input: source text, context, glossary, settings
+        engine TEXT,
+        model TEXT,
+        produced_output TEXT,     -- the (bad/flagged) output at save time
+        flag TEXT,
+        flag_note TEXT,
+        replay_output TEXT,       -- filled in after replay_bug_bundle() runs
+        replayed INTEGER DEFAULT 0,
+        reproduced INTEGER,       -- NULL until replayed; 1/0 after
+        created_at TEXT,
+        FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS wiki_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         drama_id INTEGER NOT NULL,
@@ -1889,6 +1907,64 @@ def set_active_translation_version(drama_id: int, version_id: int):
 def delete_translation_version(version_id: int):
     conn = get_conn()
     conn.execute("DELETE FROM translation_versions WHERE id = ?", (version_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Bug record-and-replay (Step 58 item 5) -- a frozen, re-runnable snapshot
+# of a flagged/wrong translation, saved on demand rather than reconstructed
+# later from a state that's since moved on.
+# ---------------------------------------------------------------------------
+
+def save_bug_report(drama_id: int, line_id: int, label: str, input_json: str,
+                     engine: str, model: str, produced_output: str,
+                     flag: str = None, flag_note: str = "") -> int:
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO bug_reports (drama_id, line_id, label, input_json, engine, model,
+                                  produced_output, flag, flag_note, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (drama_id, line_id, label, input_json, engine, model, produced_output,
+          flag, flag_note, datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def get_bug_report(report_id: int):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM bug_reports WHERE id = ?", (report_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def list_bug_reports(drama_id: int = None):
+    conn = get_conn()
+    if drama_id:
+        rows = conn.execute(
+            "SELECT * FROM bug_reports WHERE drama_id = ? ORDER BY created_at DESC",
+            (drama_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT * FROM bug_reports ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_bug_report_replay(report_id: int, replay_output: str, reproduced: bool):
+    conn = get_conn()
+    conn.execute("""
+        UPDATE bug_reports SET replay_output = ?, replayed = 1, reproduced = ?
+        WHERE id = ?
+    """, (replay_output, int(reproduced), report_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_bug_report(report_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM bug_reports WHERE id = ?", (report_id,))
     conn.commit()
     conn.close()
 
