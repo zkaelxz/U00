@@ -331,6 +331,7 @@ Rules for every milestone:
 | 59 | Drop a real video file into the new Analyze step and confirm the reported duration/resolution/audio language match the file's real properties, and the suggested pipeline is sensible for that file's actual content. |
 | 60 | Give the maintenance assistant a real, deliberately-flawed proposed fix and confirm the independent review role (a different backend than the implement role) catches something the implement role's own self-report didn't flag. |
 | 61 | On a real Python 3.14 environment, run the install step that currently fails on `diffq-fixed` and confirm it now either skips `audio-separator` with a clear message, or installs successfully some other way -- never a raw pip traceback as the only output. Confirm Demucs still installs/runs normally regardless. |
+| 62 | On a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward. Click "Install everything in requirements-optional.txt" with `audio-separator` left in and confirm the bulk action reports that one failure clearly while still installing everything else. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3338,6 +3339,23 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 
 ---
 
+### Step 62 — Real install actions for whole requirement tiers and non-pip tools (Deno), not just individual pip packages
+
+**User-reported (2026-09-27), after being walked through several manual pip/PowerShell commands this session** — the user asked directly whether the app could run these installs itself rather than a person copying commands by hand. Checked Step 18c's real current scope before building anything new: its install buttons (`stream_pip_install`, `INSTALLABLE_TIERS = ("feature", "engine")`) work per-package, driven by `OPTIONAL_DEPENDENCIES` entries — there is no bulk "install everything in `requirements-media.txt`" action, and Deno specifically has no install action at all today, only a text link to `https://deno.land` (`diagnostics.py:127`) the user has to act on manually.
+
+1. **Bulk tier-install buttons**, reusing Step 18c's existing `stream_pip_install` machinery per package rather than a new install path: "Install everything in `requirements-core.txt`" / `-media.txt` / `-optional.txt`, each streaming real output per package (same "never swallow the real error" discipline Step 18c already established), so one bad package's failure is visible and named rather than silently aborting the rest with no explanation — unlike a raw `pip install -r`, which aborts entirely on the first failure (the exact problem the user just hit with `diffq-fixed`/`audio-separator`, per Step 61). This bulk action should keep going past one failed package and report all results at the end, not just stop.
+2. **A real Deno install action**, since it's a system tool, not a pip package, and needs its own mechanism distinct from `stream_pip_install`: on Windows, prefer `winget install DenoLand.Deno` if `winget` is on PATH; fall back to (or use directly on Linux/macOS) the official install script Deno's own site documents. Stream real output the same way, and afterward re-check `deno` is actually on PATH before claiming success — installing a binary doesn't guarantee the *current* process's PATH picks it up without a shell restart, so the success message should say plainly if a terminal/app restart is still needed.
+3. **Keep this scoped to `requirements-core/media/optional.txt` and Deno specifically** — don't build a generic "install any arbitrary system tool" framework speculatively; if Node/Bun/QuickJS or another non-pip tool need the same treatment later, that's a small, obvious extension of the same pattern, not something to design for now.
+4. **Re-verify Step 61's own scope against this step before either is built** — Step 61 wants a clear *message* when `audio-separator`/`diffq-fixed` can't install; this step's bulk-tier-install (item 1) is the natural place that message actually surfaces (a per-package result in the bulk install's own report), so build whichever lands second aware of the other rather than duplicating the messaging logic.
+
+**Exit:**
+- A test confirms a bulk tier-install with one deliberately-failing mocked package still completes the rest and reports the specific failure, rather than aborting the whole batch silently.
+- A test confirms the Deno install action checks for `winget` availability before assuming it, and correctly reports when Deno was installed but isn't yet on the current process's PATH.
+- Manual check: on a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward (after a terminal restart if the app's own message said one was needed).
+- Manual check: on a real environment, click "Install everything in `requirements-optional.txt`" with `audio-separator` deliberately left in (reproducing Step 61's own failure) and confirm the bulk action reports that one package's failure clearly while still installing everything else in the file.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3525,6 +3543,7 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
   | 59 — Media/Project Inspector: analyze dropped media before creating a project | — | Sent (`session_01HtZpbua7t4QikLDfE5BLL6`) | — |
   | 60 — Multi-agent orchestration: specialized roles, cross-provider review | — | Not started | — |
   | 61 — Fix: `audio-separator`'s `diffq-fixed` has no Python 3.14 wheel, broken sdist | — | Not started | — |
+  | 62 — Real install actions for requirement tiers and Deno, not just pip packages | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
