@@ -80,13 +80,16 @@ cached by image content hash, so nothing is ever translated twice.
   to the part you care about.
 - **Firefox is not supported yet.** MV3 covers Chrome and Edge; Firefox
   differs enough to be its own work.
-- **Bubble detection is the weak link on colour artwork.** Measured on a
-  real mangaz page (see below): the free OpenCV heuristic found no
-  bubbles at all on a colour 4-koma page full of dialogue. The extension
-  delivered the page correctly; the detector couldn't find the text in
-  it. If pages come back with nothing overlaid, that's usually this, not
-  the extension — the ML detection backend is the fix, and it's a
-  Settings choice, not something this step changes.
+- **The free bubble detector is not usable on colour artwork.** Measured
+  on a real mangaz page (see below): it found no bubbles at all on a
+  colour 4-koma page full of dialogue, where the ML backend found 63
+  regions. If pages come back with nothing overlaid, that's usually
+  this, not the extension. It's a Settings choice (**Bubble detection →
+  ML**), not something this step changes.
+- **For Japanese, use `manga_ocr`, not Tesseract.** Manga is vertical
+  text; on the same real page Tesseract returned unreadable fragments
+  where `manga_ocr` returned correct dialogue. Auto already picks
+  `manga_ocr` for Japanese — just don't override it.
 
 ## How it's put together
 
@@ -209,20 +212,41 @@ load:
   only recovered 38 of 43 pages. Nothing here is unscrambled, driven or
   paced — the browser had already done it.
 
-**But bubble detection found nothing on that page.** The page is a
-colour 4-koma full of Japanese speech bubbles, and the free OpenCV
-heuristic (`scanlate.detect_bubbles_cv`) returned zero regions, rejecting
-its handful of candidates as "too small". So nothing was OCR'd and
-nothing was overlaid.
+Then the rest of the chain was run over that captured page (no further
+traffic to the site):
 
-That limitation is in `scanlate`'s existing detector, not in anything
-this step added — the same detector the Scanlate tab has always used, on
-artwork it struggles with (coloured, irregular, overlapping bubbles on
-busy backgrounds). Its own error message already recommends the ML
-backend, which this environment can't run (no `torch`/`transformers`).
-**So the plumbing is proven on a real site and the detection quality on
-real colour artwork is not.** They're separate problems, and the second
-one is worth its own step.
+- **The free OpenCV detector found nothing.** The page is a colour
+  4-koma full of Japanese speech bubbles, and
+  `scanlate.detect_bubbles_cv` returned zero regions, rejecting its
+  handful of candidates as "too small". Worth knowing, because it's the
+  default when the ML weights aren't cached: on artwork like this, the
+  free heuristic is not usable.
+- **The ML detector found 63 regions** (25 `bubble`, 25 `text_bubble`,
+  13 `text_free`) at 0.92–0.97 confidence, in ~10s on CPU.
+- **OCR with Tesseract produced garbage** — `だ見さ け当? 全 の子 が`.
+  Manga is vertical text, and Tesseract is poor at it.
+- **OCR with `manga_ocr`, which is what `auto_ocr_backend("ja")` picks
+  anyway, produced correct dialogue**: `おお！それはすごい裏技ケロッ`,
+  `勝手に変なトコに入らないでくださいーっ`, `王子様ステキー♥`,
+  `ひっ引き返すケロー！！！`. Checked against the page itself.
+
+So the whole chain works on a real page from a real scrambled site:
+browser → descrambled `blob:` → capture → ML detection → real Japanese
+text. Only translation is unproven, for want of an API key in that
+environment.
+
+**Two things to know before trusting the output**, both in `scanlate`'s
+existing pipeline rather than anything this step added:
+
+1. **Use the ML detection backend for real artwork.** The free heuristic
+   found nothing at all here.
+2. **The ML detector double-counts.** It returns a `bubble` and a
+   `text_bubble` for the same balloon and nothing dedupes them: 46 of
+   those 63 regions overlap another by more than 70%. The same text is
+   OCR'd twice (visibly, in the results above), which means roughly
+   double the translation cost and two overlay boxes stacked on each
+   bubble. This affects the Scanlate tab equally and is worth its own
+   fix.
 
 **Also not verified:** manhuaku.net and Bilibili Manga, and the real
 toolbar-click flow. Clicking the extension's icon grants `activeTab`,
