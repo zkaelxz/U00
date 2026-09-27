@@ -29,15 +29,22 @@ soundfile>=0.12         # diarize.py reads the normalized audio.wav through
 # --- Qwen3-ForcedAligner: alternative timing method (forced_align.py) ---
 # One package ships both -- see those two modules for what each does and
 # why they're kept as separate opt-in choices rather than the default.
-qwen-asr>=0.1          # recommends a clean Python 3.12 env. On Python
-                        # 3.13/3.14, verify torch actually installs a CUDA
-                        # build before relying on GPU inference:
+qwen-asr>=0.0.6         # Step 76: >=0.1 could never install -- pip index shows the real
+                        # published releases top out at 0.0.6 (0.0.1-0.0.6), nothing at or
+                        # above 0.1 has ever shipped. Confirmed 0.0.6 is what this app
+                        # actually needs, not just what happens to install: in a throwaway
+                        # venv, both asr_backend.load_qwen3_asr()/Qwen3ASRModel.transcribe()
+                        # and forced_align.load_qwen3_aligner()/Qwen3ForcedAligner.align()
+                        # ran for real against it (real HF download, real inference, this
+                        # app's own code unchanged) -- their signatures match exactly.
+                        # Still recommends a clean Python 3.12 env. On Python 3.13/3.14,
+                        # verify torch actually installs a CUDA build before relying on GPU
+                        # inference:
                         #   python -c "import torch; print(torch.cuda.is_available())"
-                        # PyTorch's Python 3.14 wheels have had reported gaps
-                        # where a CUDA install silently resolves to CPU-only --
-                        # the same class of "no wheel yet" problem as the
-                        # PaddlePaddle note below, but silent instead of a
-                        # clear pip error, so it's worth checking explicitly.
+                        # PyTorch's Python 3.14 wheels have had reported gaps where a CUDA
+                        # install silently resolves to CPU-only -- the same class of "no
+                        # wheel yet" problem as the PaddlePaddle note below, but silent
+                        # instead of a clear pip error, so it's worth checking explicitly.
 
 # --- voice cloning ---
 f5-tts>=0.9             # local, GPU recommended
