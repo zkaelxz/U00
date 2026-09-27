@@ -1,11 +1,25 @@
 # Handoff: browser extension for translating pages you're looking at
 
+> **Built, and the numbering in this doc was wrong.** This is now
+> **Step 34 / 34b**, on branch `step-34-page-translate-extension`. Both
+> halves are implemented — see `docs/browser-extension.md` on that
+> branch for what it does, what was verified against the real
+> mangaz.com, and the two `scanlate` problems the real run exposed.
+> This file is kept as the original reasoning, not as a live plan.
+>
+> The "27/27b" below was invented here and collides with the real
+> **Step 27** (Diagnostics dependency-freshness check, merged as PR
+> #121). 32 and 33 were then taken by the planning session while this
+> was being built; **34** is the slot it reserved for this session's
+> work. Numbers left as written below only where they name this doc's
+> own sections.
+
 Written from the implementing side (2026-09-27) for the planning session
 to turn into roadmap steps, the same way
 `handoff-voice-bank-translate-zh-narration.md` was. Two steps, sequenced:
-**27** gives the app a local endpoint and an extension that sends it the
-page you're on; **27b** adds translations drawn over the page in place.
-27b needs 27's endpoint, so they can't swap order, but 27 is useful
+**34** gives the app a local endpoint and an extension that sends it the
+page you're on; **34b** adds translations drawn over the page in place.
+34b needs 34's endpoint, so they can't swap order, but 34 is useful
 alone.
 
 ## Why this is worth doing, beyond convenience
@@ -52,7 +66,7 @@ and **output** surfaces around the existing one.
 
 ---
 
-## Step 27 — local endpoint + "send this page to Baihe"
+## Step 34 — local endpoint + "send this page to Baihe"
 
 ### The endpoint
 
@@ -112,7 +126,7 @@ unauthenticated request, and refuses one from a non-local address.
 
 ---
 
-## Step 27b — translations drawn over the page in place
+## Step 34b — translations drawn over the page in place
 
 Everything above, but the result is rendered on the page you're reading
 instead of only landing in the library.
@@ -157,7 +171,7 @@ doesn't re-translate.
   channel). Suggest starting unpacked.
 - **Which browsers.** MV3 covers Chrome/Edge; Firefox differs enough to
   be its own work. Suggest Chrome-family first.
-- **Whether 27b replaces the mangaz headless-browser path** in
+- **Whether 34b replaces the mangaz headless-browser path** in
   `sources/adapters/mangaz.py`. It could — the extension reaches the same
   descrambled pages far more cheaply. But the adapter path works without
   the person watching, which matters for bulk import. Probably keep both,
