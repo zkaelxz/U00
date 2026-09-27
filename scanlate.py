@@ -253,6 +253,83 @@ def lama_ml_weights_cached() -> bool:
     return isinstance(hit, str) and os.path.exists(hit)
 
 
+def _box_iou(a: dict, b: dict) -> float:
+    """Intersection-over-union of two {"x","y","w","h"} boxes, 0 when they
+    don't overlap at all."""
+    ax1, ay1, ax2, ay2 = a["x"], a["y"], a["x"] + a["w"], a["y"] + a["h"]
+    bx1, by1, bx2, by2 = b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"]
+    iw = max(0, min(ax2, bx2) - max(ax1, bx1))
+    ih = max(0, min(ay2, by2) - max(ay1, by1))
+    inter = iw * ih
+    if inter <= 0:
+        return 0.0
+    union = a["w"] * a["h"] + b["w"] * b["h"] - inter
+    return inter / union if union > 0 else 0.0
+
+
+# Real id2label values from ogkalu/comic-text-and-bubble-detector's own
+# config.json (checked directly against the checkpoint, not this model's
+# docstring paraphrase -- Step 35's own "re-verify before building" note).
+# Lower number wins a merge: the box literally labeled "bubble" traces the
+# whole balloon, which is the cleaner crop boundary to keep over a
+# "text_bubble"/"text_free" box describing the same physical object.
+_LABEL_MERGE_PRIORITY = {"bubble": 0, "text_bubble": 1, "text_free": 1}
+
+
+def dedupe_overlapping_boxes(boxes: list, iou_threshold: float = 0.5) -> list:
+    """
+    Merges boxes that describe the SAME physical balloon detected under
+    more than one class -- the shape detect_bubbles_ml()'s 3-class model
+    produces for every balloon (Step 35 bug 1): a "bubble" box and a
+    "text_bubble" box for one balloon are near-identical in position and
+    size by construction (one model, two classes for the same object), so
+    both survive as independent regions downstream unless merged here.
+
+    Keyed on geometry (IoU), not the label string, so this keeps working
+    if a future checkpoint's class names change or a different detector
+    with the same one-object/multiple-classes shape is swapped in. Two
+    boxes below the threshold are always kept separately, even if close
+    together -- this must not merge genuinely distinct, nearby bubbles.
+
+    When a cluster of overlapping boxes collapses to one, keeps whichever
+    box has the real "bubble" label (see _LABEL_MERGE_PRIORITY) for the
+    cleanest crop boundary, then whichever has the higher detector
+    confidence, then whichever appeared first. Boxes without a "label"
+    (the free CV heuristic never sets one) fall back to confidence/order
+    only, so this is a safe no-op for that backend.
+    """
+    n = len(boxes)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _box_iou(boxes[i], boxes[j]) >= iou_threshold:
+                union(i, j)
+
+    def rank(b):
+        return (_LABEL_MERGE_PRIORITY.get(b.get("label"), 1), -(b.get("confidence") or 0.0))
+
+    winner_of = {}
+    for i in range(n):
+        root = find(i)
+        current = winner_of.get(root)
+        if current is None or rank(boxes[i]) < rank(boxes[current]):
+            winner_of[root] = i
+    keep = set(winner_of.values())
+    return [b for i, b in enumerate(boxes) if i in keep]
+
+
 class BubbleModelUnavailable(RuntimeError):
     """The ML detector couldn't be loaded. Carries whether the free
     heuristic already ran as a fallback, so the UI can say what happened
@@ -275,6 +352,10 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
     BubbleModelUnavailable with the boxes still attached, so a network
     problem degrades to a working-but-rougher result rather than failing
     the page entirely.
+
+    The ML model's own boxes are deduped (Step 35 bug 1) before being
+    returned -- its 3-class output otherwise reports the same balloon
+    twice, once as "bubble" and once as "text_bubble"/"text_free".
     """
     if backend == "auto":
         backend = "ml" if bubble_ml_weights_cached() else "cv"
@@ -282,7 +363,7 @@ def detect_bubbles(image_path: str, backend: str = "auto", **kwargs):
         return detect_bubbles_cv(image_path)
 
     try:
-        return detect_bubbles_ml(image_path, **kwargs)
+        return dedupe_overlapping_boxes(detect_bubbles_ml(image_path, **kwargs))
     except ImportError as exc:
         raise BubbleModelUnavailable(
             "The ML detector needs extra packages:\n"

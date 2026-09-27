@@ -378,3 +378,37 @@ class TestPerPageContextDoesNotLeakAcrossPages:
         assert calls[0] == ""                    # page 2, first time: no predecessor processed
         assert calls[1] == "ctx-after-call-1"     # page 3: correctly picks up page 2's context
         assert calls[2] == ""                     # page 2 again: NOT page 3's context
+
+
+class TestAutoResolvesToCvWarning:
+    """Step 35 bug 2: 'auto' silently resolves to the weak free CV
+    heuristic whenever the ML weights aren't cached -- the only
+    in-app signal used to be a post-hoc "no bubbles detected" once
+    detection had already run. This must be surfaced up front,
+    next to the backend picker, whenever that's what's about to happen."""
+
+    def test_warning_shown_when_auto_resolves_to_cv(self, isolated_db, monkeypatch):
+        did, page_id = _drama_with_page(isolated_db)
+        import scanlate
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: False)
+        at = _run(did)
+        assert not at.exception
+        assert any("free heuristic detector" in w.value for w in at.warning)
+
+    def test_warning_absent_when_auto_resolves_to_ml(self, isolated_db, monkeypatch):
+        did, page_id = _drama_with_page(isolated_db)
+        import scanlate
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
+        at = _run(did)
+        assert not at.exception
+        assert not any("free heuristic detector" in w.value for w in at.warning)
+
+    def test_warning_absent_when_backend_explicitly_set_to_ml(self, isolated_db, monkeypatch):
+        did, page_id = _drama_with_page(isolated_db)
+        import scanlate
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: False)
+        at = _run(did)
+        [radio] = [r for r in at.radio if r.key == "sc_backend"]
+        at = radio.set_value("ml").run(timeout=30)
+        assert not at.exception
+        assert not any("free heuristic detector" in w.value for w in at.warning)

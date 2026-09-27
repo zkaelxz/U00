@@ -576,6 +576,70 @@ class TestAutoBackendSelection:
         assert os.path.exists(out_path)
 
 
+class TestDedupeOverlappingBoxes:
+    """Step 35 bug 1: detect_bubbles_ml()'s 3-class model
+    (bubble/text_bubble/text_free -- real id2label values, checked
+    directly against the checkpoint's config.json) reports every balloon
+    once per class, so two or three near-identical boxes survive for the
+    same physical bubble unless merged."""
+
+    def test_a_bubble_and_text_bubble_pair_for_one_balloon_merges_to_one(self, monkeypatch, synthetic_page):
+        pair = [
+            {"x": 100, "y": 80, "w": 300, "h": 140, "confidence": 0.9, "label": "bubble"},
+            {"x": 102, "y": 82, "w": 296, "h": 136, "confidence": 0.95, "label": "text_bubble"},
+        ]
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate, "detect_bubbles_ml", lambda *a, **k: pair)
+        boxes = scanlate.detect_bubbles(synthetic_page, backend="ml")
+        assert len(boxes) == 1
+        # Keeps the box literally labeled "bubble" for the cleaner crop
+        # boundary, even though the other box had higher confidence.
+        assert boxes[0]["label"] == "bubble"
+
+    def test_two_separate_non_overlapping_bubbles_are_both_kept(self, monkeypatch, synthetic_page):
+        distinct = [
+            {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.9, "label": "bubble"},
+            {"x": 400, "y": 300, "w": 60, "h": 40, "confidence": 0.8, "label": "bubble"},
+        ]
+        monkeypatch.setattr(scanlate, "bubble_ml_weights_cached", lambda: True)
+        monkeypatch.setattr(scanlate, "detect_bubbles_ml", lambda *a, **k: distinct)
+        boxes = scanlate.detect_bubbles(synthetic_page, backend="ml")
+        assert len(boxes) == 2
+
+    def test_three_overlapping_classes_for_one_balloon_still_merge_to_one(self):
+        triple = [
+            {"x": 50, "y": 50, "w": 200, "h": 100, "confidence": 0.6, "label": "text_free"},
+            {"x": 51, "y": 51, "w": 198, "h": 98, "confidence": 0.99, "label": "text_bubble"},
+            {"x": 49, "y": 49, "w": 202, "h": 101, "confidence": 0.7, "label": "bubble"},
+        ]
+        merged = scanlate.dedupe_overlapping_boxes(triple)
+        assert len(merged) == 1
+        assert merged[0]["label"] == "bubble"
+
+    def test_boxes_without_a_label_fall_back_to_confidence(self):
+        # The free CV heuristic never sets "label" -- dedupe must not
+        # crash or misbehave on boxes shaped like that.
+        pair = [
+            {"x": 10, "y": 10, "w": 50, "h": 50, "confidence": 0.4},
+            {"x": 11, "y": 11, "w": 49, "h": 49, "confidence": 0.8},
+        ]
+        merged = scanlate.dedupe_overlapping_boxes(pair)
+        assert len(merged) == 1
+        assert merged[0]["confidence"] == 0.8
+
+    def test_below_threshold_overlap_is_not_merged(self):
+        # Two boxes that only partly overlap (nearby panels, adjacent
+        # bubbles) must survive as distinct regions.
+        barely_touching = [
+            {"x": 0, "y": 0, "w": 100, "h": 100, "label": "bubble"},
+            {"x": 90, "y": 90, "w": 100, "h": 100, "label": "bubble"},
+        ]
+        assert len(scanlate.dedupe_overlapping_boxes(barely_touching)) == 2
+
+    def test_empty_list_returns_empty_list(self):
+        assert scanlate.dedupe_overlapping_boxes([]) == []
+
+
 class TestInpaintMaskRegion:
     """Step 11 item 10: the manual erase/heal brush -- inpaints exactly
     the painted pixels, independent of any bubble box."""
