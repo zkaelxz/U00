@@ -87,11 +87,58 @@ def inject_dark_css():
       div[data-testid="stMetric"] {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
 
+      /* Step 68: input/select surfaces keyed on Streamlit's own data-testid
+         roots, not on BaseWeb's [data-baseweb] markup alone -- Streamlit 1.59
+         replaced the BaseWeb select with a react-aria ComboBox (and dropped
+         BaseWeb from these widgets entirely), so a data-baseweb-only rule
+         matched nothing on any newer install and left every selectbox white.
+         Both markups are listed so either Streamlit generation is covered. */
       .stTextInput input, .stTextArea textarea, .stNumberInput input,
       .stSelectbox div[data-baseweb="select"] > div,
-      .stMultiSelect div[data-baseweb="select"] > div {{
+      .stMultiSelect div[data-baseweb="select"] > div,
+      [data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"],
+      [data-testid="stTextInputRootElement"] > div, [data-testid="stTextAreaRootElement"] > div,
+      [data-testid="stNumberInputContainer"]:not(:has([aria-invalid="true"])),
+      [data-testid="stNumberInputContainer"]:not(:has([aria-invalid="true"])) > div,
+      [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"],
+      [data-testid="stSelectbox"] [role="group"], [data-testid="stMultiSelect"] [role="group"],
+      [data-testid="stChatInput"] > div, [data-testid="stChatInput"] textarea {{
           background: {d['surface']} !important; color: {d['ink']} !important;
           border-color: {d['border']} !important; }}
+      [data-testid="stSelectbox"] input, [data-testid="stMultiSelect"] input,
+      [data-testid="stTextInputRootElement"] input, [data-testid="stTextAreaRootElement"] textarea,
+      [data-testid="stNumberInputContainer"] input, [data-testid="stChatInput"] textarea {{
+          color: {d['ink']} !important; -webkit-text-fill-color: {d['ink']} !important; }}
+      [data-testid="stSelectbox"] input::placeholder, [data-testid="stMultiSelect"] input::placeholder,
+      [data-testid="stTextInputRootElement"] input::placeholder,
+      [data-testid="stTextAreaRootElement"] textarea::placeholder,
+      [data-testid="stChatInput"] textarea::placeholder {{
+          color: {d['muted']} !important; -webkit-text-fill-color: {d['muted']} !important; }}
+      [data-testid="stSelectbox"] svg, [data-testid="stMultiSelect"] svg,
+      [data-testid="stNumberInputStepUp"] svg, [data-testid="stNumberInputStepDown"] svg {{
+          color: {d['muted']} !important; fill: currentColor; }}
+      /* The small "Press Enter to apply" hint inside text/number inputs. */
+      [data-testid="InputInstructions"] {{ color: {d['muted']} !important; }}
+      /* A multiselect's chosen-value chips. */
+      [data-testid="stMultiSelect"] [data-tag], [data-testid="stMultiSelect"] span[data-baseweb="tag"] {{
+          background: {d['accent_soft']} !important; color: {d['ink']} !important; }}
+
+      /* The open option list of a selectbox/multiselect renders in a portal
+         outside .stApp (the "Choose an option" dropdown) -- its own testids
+         on Streamlit >= 1.59, a [role=listbox] (BaseWeb's ul) before that. */
+      [data-testid="stSelectboxVirtualDropdown"], [data-testid="stMultiSelectDropdown"],
+      [data-baseweb="popover"] ul[role="listbox"], [data-baseweb="menu"],
+      [data-baseweb="popover"] > div, [data-baseweb="popover"] > div > div {{
+          background: {d['surface']} !important; color: {d['ink']} !important;
+          border-color: {d['border']} !important; }}
+      [data-testid="stSelectboxVirtualDropdown"] [role="option"],
+      [data-testid="stMultiSelectDropdown"] [role="option"],
+      [role="listbox"] [role="option"], [role="listbox"] li {{
+          background: transparent !important; color: {d['ink']} !important; }}
+      [role="listbox"] [role="option"]:hover, [role="listbox"] [role="option"][data-focused],
+      [role="listbox"] [role="option"][aria-selected="true"], [role="listbox"] li:hover,
+      [role="listbox"] li[aria-selected="true"] {{
+          background: {d['accent_soft']} !important; color: {d['ink']} !important; }}
       /* A disabled/readonly input's text is painted via
          -webkit-text-fill-color in Chrome/WebKit, not `color` -- Streamlit
          sets that to its own light-theme ink at reduced opacity for the
@@ -106,6 +153,41 @@ def inject_dark_css():
           border-color: {d['border']} !important; }}
       .stButton button:hover {{ border-color: {d['accent']} !important; color: {d['accent']} !important; }}
       .stButton button[kind="primary"] {{ background: {d['accent']} !important; color: #17131F !important; }}
+      /* Step 68: the other secondary-style buttons -- download, link, form
+         submit, the file uploader's "Browse files", and st.pills -- aren't
+         inside .stButton, so the rule above never reached them. */
+      [data-testid="stBaseButton-secondary"], [data-testid="stBaseButton-secondaryFormSubmit"],
+      [data-testid="stBaseLinkButton-secondary"], [data-testid="stBaseButton-pills"],
+      [data-testid="stButtonGroup"] button:not([aria-checked="true"]) {{
+          background: {d['surface']} !important; color: {d['ink']} !important;
+          border-color: {d['border']} !important; }}
+      [data-testid="stBaseButton-pillsActive"],
+      [data-testid="stButtonGroup"] button[aria-checked="true"] {{
+          background: {d['accent_soft']} !important; color: {d['accent']} !important;
+          border-color: {d['accent']} !important; }}
+      [data-testid="stBaseButton-secondary"]:hover, [data-testid="stBaseButton-secondaryFormSubmit"]:hover,
+      [data-testid="stBaseLinkButton-secondary"]:hover, [data-testid="stBaseButton-pills"]:hover {{
+          border-color: {d['accent']} !important; color: {d['accent']} !important; }}
+      [data-testid="stBaseButton-secondary"] *, [data-testid="stBaseButton-secondaryFormSubmit"] *,
+      [data-testid="stBaseLinkButton-secondary"] *, [data-testid="stBaseButton-pills"] *,
+      [data-testid="stButtonGroup"] button * {{ color: inherit !important; }}
+
+      /* The top toolbar strip (Deploy / main menu) stayed light over a dark page. */
+      header[data-testid="stHeader"] {{ background: {d['bg']} !important; }}
+      [data-testid="stHeader"] button, [data-testid="stBaseButton-headerNoPadding"],
+      [data-testid="stBaseButton-headerNoPadding"] [data-testid="stIconMaterial"],
+      [data-testid="stTextInputRootElement"] [data-testid="stIconMaterial"] {{
+          color: {d['ink']} !important; }}
+      /* The hover toolbar over tables (download/search/fullscreen). */
+      [data-testid="stElementToolbarButtonContainer"] {{ background: {d['surface']} !important; }}
+
+      /* Markdown links kept the light theme's dark blue -- low contrast here. */
+      [data-testid="stMarkdownContainer"] a {{ color: {d['accent']} !important; }}
+      /* st.text() paints its span in the light theme's ink, which was
+         invisible on a dark page (Translate tab's History entries). */
+      [data-testid="stText"], [data-testid="stText"] * {{ color: {d['ink']} !important; }}
+      [data-testid="stMetricValue"], [data-testid="stMetricValue"] * {{ color: {d['ink']} !important; }}
+      [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] * {{ color: {d['muted']} !important; }}
 
       /* A popover's trigger (e.g. Reader's "Story" button) is its own
          `stPopoverButton` testid, not `.stButton` -- it rendered as a
@@ -121,6 +203,11 @@ def inject_dark_css():
       .stTabs [aria-selected="true"] {{
           background: {d['accent_soft']} !important; color: {d['accent']} !important; }}
 
+      /* Only the frame: st.dataframe/st.data_editor draw their cells on a
+         <canvas> (Glide Data Grid) themed from Streamlit's own light theme in
+         JavaScript -- no CSS reaches inside it (checked in Step 68: its
+         --gdg-* custom properties are outputs, not inputs), so the grid stays
+         a readable light panel until Streamlit's native dark theme is used. */
       div[data-testid="stDataFrame"], div[data-testid="stTable"],
       div[data-testid="stDataEditor"] {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
@@ -141,6 +228,16 @@ def inject_dark_css():
       [data-baseweb="checkbox"] > div:first-child,
       [data-baseweb="radio"] > div:first-child {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
+      /* Same boxes on Streamlit >= 1.59 (react-aria, no data-baseweb): only
+         the unchecked state, so a ticked box keeps its accent fill. */
+      [data-testid="stCheckbox"]:has(input[type="checkbox"]:not(:checked):not([role="switch"])) label > div:not([data-testid]),
+      [data-testid="stRadioOption"]:not([data-selected]) > div > div,
+      [data-testid="stRadioOption"]:not([data-selected]) > div > div > div,
+      [data-testid="stCheckbox"]:has(input:not(:checked)) label[data-baseweb="checkbox"] > span,
+      [data-baseweb="radio"] > div:first-child > div {{
+          background: {d['surface']} !important; border-color: {d['muted']} !important; }}
+      [data-testid="stRadioOption"]:not([data-selected]) > div > div {{
+          box-shadow: inset 0 0 0 1px {d['muted']} !important; }}
 
       /* Sliders */
       div[data-testid="stSlider"] {{ color: {d['ink']} !important; }}
@@ -149,9 +246,11 @@ def inject_dark_css():
       div[data-testid="stTickBar"] {{ color: {d['muted']} !important; }}
 
       /* File uploader -- the drag-and-drop dropzone defaults to a light box */
-      div[data-testid="stFileUploaderDropzone"] {{
+      /* No tag qualifier: the dropzone is a <section>, not a <div>, so the
+         old div[...] form of this rule never matched. */
+      [data-testid="stFileUploaderDropzone"] {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
-      div[data-testid="stFileUploaderDropzone"] * {{ color: {d['ink']} !important; }}
+      [data-testid="stFileUploaderDropzone"] * {{ color: {d['ink']} !important; }}
 
       /* Progress bar track (the fill already uses the accent colour via
          Streamlit's own theming; only the empty track needed overriding) */
@@ -163,12 +262,32 @@ def inject_dark_css():
       div[data-baseweb="popover"] {{
           background: {d['surface']} !important; color: {d['ink']} !important;
           border: 1px solid {d['border']} !important; }}
+      /* Step 68: the popover *content panel* (Reader's "Story", Review's
+         "Checks"/"AI refinement"/"Restructure lines", ...). Streamlit >= 1.59
+         renders it as its own stPopoverBody, not a BaseWeb popover, so only
+         the trigger button above was dark and every panel stayed white. */
+      [data-testid="stPopoverBody"] {{
+          background: {d['surface']} !important; color: {d['ink']} !important;
+          border: 1px solid {d['border']} !important; }}
+
+      /* Hover tooltips (every help="..." icon) and a number input's
+         out-of-range error tooltip. The blanket `p` rule above already turns
+         their text light, but their panel kept the light theme's white --
+         white text on white. Covers the react-aria tooltips (>= 1.59) and
+         BaseWeb's (before). */
+      [data-testid="stTooltipContent"], [data-testid="stTooltipErrorContent"],
+      [data-baseweb="tooltip"] > div, [data-baseweb="tooltip"] > div > div {{
+          background: {d['surface']} !important; color: {d['ink']} !important;
+          border: 1px solid {d['border']} !important; }}
+      [data-testid="stTooltipErrorContent"], [data-testid="stTooltipErrorContent"] * {{
+          color: #FF8A8A !important; }}
 
       /* Chat elements (Reader's in-app Q&A) */
       div[data-testid="stChatMessage"] {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
       div[data-testid="stChatInput"] textarea {{
           background: {d['surface']} !important; color: {d['ink']} !important; }}
+      [data-testid="stChatMessage"] p, [data-testid="stChatMessage"] li {{ color: {d['ink']} !important; }}
 
       .bh-section {{ border-bottom-color: {d['border']} !important; }}
       .bh-section-title {{ color: {d['ink']} !important; }}
@@ -183,6 +302,71 @@ def inject_dark_css():
       .bh-stage-current {{ background: {d['accent']} !important; color: #17131F !important; }}
     </style>
     """, unsafe_allow_html=True)
+
+
+# Step 68: the Reader's line table is its own iframe document, which
+# inject_dark_css() can't reach -- it takes a theme name instead. "match app"
+# (the default) follows the app's one Dark mode switch, so turning dark mode
+# on no longer leaves the Reader light until a second, separate setting is
+# found and changed too.
+READER_THEME_OPTIONS = ["match app", "light", "sepia", "dark"]
+
+
+def resolve_reader_theme(choice: str, app_dark_mode: bool) -> str:
+    """The reader.THEMES key to render with: an explicit light/sepia/dark
+    choice wins; "match app" (or anything unrecognized) follows dark mode."""
+    if choice in ("light", "sepia", "dark"):
+        return choice
+    return "dark" if app_dark_mode else "light"
+
+
+# Step 68: a popover's content panel (Review's "Checks", "AI refinement",
+# "Restructure lines", Reader's "Story") is rendered by Streamlit as a
+# position:fixed element attached to <body> -- outside the main area's own
+# scroll container. So a mouse wheel over the panel never reaches the page:
+# once the panel itself can't scroll any further (or doesn't overflow at
+# all), the wheel does nothing, and with a full-width panel covering most of
+# the page the user simply "can't scroll down" while it's open. This passes
+# that leftover wheel movement on to the page, and only then -- a panel with
+# its own overflow still scrolls itself first. Not a dark-mode issue: it's
+# injected in both themes.
+_POPOVER_WHEEL_JS = """
+<span class="bh-hidden"></span>
+<script>
+(() => {
+  if (window.__bhPopoverWheel) return;
+  window.__bhPopoverWheel = true;
+  const canScroll = (el, dy) => {
+    const oy = getComputedStyle(el).overflowY;
+    if (oy !== "auto" && oy !== "scroll") return false;
+    return dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0;
+  };
+  document.addEventListener("wheel", (e) => {
+    const panel = e.target.closest && e.target.closest('[data-testid="stPopoverBody"]');
+    if (!panel || e.ctrlKey) return;
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    for (let el = e.target; el && el !== panel.parentElement; el = el.parentElement) {
+      if (canScroll(el, dy)) return;
+    }
+    const main = document.querySelector('[data-testid="stMain"]');
+    if (!main) return;
+    main.scrollBy({ top: dy });
+    e.preventDefault();
+  }, { capture: true, passive: false });
+})();
+</script>
+"""
+
+
+def inject_popover_scroll_passthrough():
+    """Installs _POPOVER_WHEEL_JS once per page. Needs st.html's
+    unsafe_allow_javascript (Streamlit >= 1.56); skipped quietly on older
+    versions rather than taking the whole app down with a TypeError."""
+    import streamlit as st
+    try:
+        st.html(_POPOVER_WHEEL_JS, unsafe_allow_javascript=True)
+    except TypeError:
+        pass
 
 
 def inject_css():
@@ -263,8 +447,21 @@ def inject_css():
       .bh-stage-done {{ background: {ACCENT_SOFT}; color: {ACCENT}; border-color: {ACCENT_SOFT}; }}
       .bh-stage-current {{ background: {ACCENT}; color: white; border-color: {ACCENT}; font-weight: 600; }}
 
+      /* --- popovers with collapsible sections: a constant height -------
+         Step 68: Streamlit re-anchors a popover panel to its trigger on every
+         frame while its content animates, and flips it to the other side of
+         the trigger once it fits there -- so opening/closing an expander
+         inside one (Reader's "Story tools", Review's "Checks") slid the panel
+         down and snapped it back up, reading as the page jumping. Reserving
+         the height up front means toggling a section scrolls inside the
+         panel instead of resizing and repositioning it. Streamlit's own
+         inline max-height still caps it where the viewport is shorter. */
+      [data-testid="stPopoverBody"]:has([data-testid="stExpander"]) {{
+          height: min(70vh, 640px) !important; }}
+
       /* --- type scale, for tabs that opt in via type_scale_scope() ---- */
-      div[data-testid="stElementContainer"]:has(.bh-typescale) {{ display: none; }}
+      div[data-testid="stElementContainer"]:has(.bh-typescale),
+      div[data-testid="stElementContainer"]:has(.bh-hidden) {{ display: none; }}
       [role="tabpanel"]:has(.bh-typescale) h3 {{
           font-size: {TYPE_SCALE['heading']} !important; font-weight: 620 !important; }}
       [role="tabpanel"]:has(.bh-typescale) p,
@@ -277,6 +474,7 @@ def inject_css():
     </style>
     """, unsafe_allow_html=True)
 
+    inject_popover_scroll_passthrough()
     if st.session_state.get("app_dark_mode"):
         inject_dark_css()
 

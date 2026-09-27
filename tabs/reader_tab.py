@@ -217,7 +217,8 @@ def render_reader_tab():
     if page_lines:
         html_str = reader_module.build_reader_html(
             page_lines, rlang, defs, audio_data_uri=audio_data_uri,
-            theme=st.session_state.get("reader_theme", "light"),
+            theme=ui_theme.resolve_reader_theme(st.session_state.get("reader_theme", "match app"),
+                                                bool(st.session_state.get("app_dark_mode"))),
             font_size=st.session_state.get("reader_font_size", 22),
             line_height=st.session_state.get("reader_line_height", 2.4),
             max_width=st.session_state.get("reader_max_width", 1200),
