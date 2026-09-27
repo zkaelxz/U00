@@ -4210,11 +4210,13 @@ def render_workspace_tab():
                             st.caption("A reference clip was found, but no transcript line's speaker "
                                       "tag matched it -- try re-running speaker detection or "
                                       "auto-extract again, or type the words said in the clip above.")
+                        _current_ref_audio = c["ref_audio_filename"]
                         if ref_upload is not None:
                             ref_filename = f"clone_ref_{c['speaker_label']}{os.path.splitext(ref_upload.name)[1]}"
                             with open(os.path.join(ddir, ref_filename), "wb") as f:
                                 f.write(ref_upload.getbuffer())
                             db.upsert_character(picked_id, c["speaker_label"], ref_audio_filename=ref_filename)
+                            _current_ref_audio = ref_filename
                         if ref_text_input != (c["ref_text"] or ""):
                             db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
 
@@ -4251,6 +4253,49 @@ def render_workspace_tab():
                             st.caption("GPT-SoVITS runs as its own local server: start `python api_v2.py` in "
                                        "your GPT-SoVITS folder first. Set its address under Settings -> "
                                        "API keys & endpoints if it isn't the default.")
+
+                        # Step 26: voice bank -- sample this character's clone
+                        # reference for reuse in other projects, or pull in a
+                        # voice already sampled from a different one.
+                        vb1, vb2 = st.columns([1, 1])
+                        with vb1:
+                            st.caption("💾 Save this voice for reuse in other projects")
+                            _vb_name = st.text_input(
+                                f"Voice bank name ({name or c['speaker_label']})", value="",
+                                key=f"vbname_{picked_id}_{c['speaker_label']}", label_visibility="collapsed",
+                                placeholder="Name this voice, e.g. 'Su Shan'")
+                            if st.button("💾 Save to voice bank", key=f"vbsave_{picked_id}_{c['speaker_label']}",
+                                         disabled=not _current_ref_audio):
+                                if not _vb_name.strip():
+                                    st.warning("Type a name for this voice first.")
+                                else:
+                                    db.save_voice_bank_entry(
+                                        _vb_name.strip(), os.path.join(ddir, _current_ref_audio),
+                                        ref_text=ref_text_input, clone_engine=picked_engine,
+                                        voice_design=design_input, language=drama.get("source_language"),
+                                        source_drama=_drama_label(drama),
+                                        source_speaker=name or c["speaker_label"])
+                                    st.toast(f"Saved '{_vb_name.strip()}' to the voice bank.", icon="✅")
+                            if not _current_ref_audio:
+                                st.caption("Set a reference clip above first.")
+                            st.caption("Voices cloned from commercial audio dramas are for personal use only.")
+                        with vb2:
+                            _bank_entries = db.list_voice_bank_entries()
+                            if _bank_entries:
+                                st.caption("Or use a voice already in the bank")
+                                _bank_options = {e["id"]: f"{e['name']} ({e['language'] or '?'}, "
+                                                           f"from {e['source_drama'] or '?'})"
+                                                 for e in _bank_entries}
+                                _picked_bank_id = st.selectbox(
+                                    f"Use a voice from the bank ({name or c['speaker_label']})",
+                                    list(_bank_options), format_func=lambda i: _bank_options[i],
+                                    key=f"vbpick_{picked_id}_{c['speaker_label']}", label_visibility="collapsed")
+                                if st.button("📥 Apply this voice", key=f"vbapply_{picked_id}_{c['speaker_label']}"):
+                                    db.apply_voice_bank_entry(_picked_bank_id, ddir, picked_id, c["speaker_label"])
+                                    st.toast("Voice applied.", icon="✅")
+                                    st.rerun()
+                            else:
+                                st.caption("No voices saved to the bank yet.")
 
 
     with tab_review:
