@@ -429,30 +429,40 @@ def cmd_dub(args):
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="translated")
 
     def step(d):
+        # Step 26c: original-language narration speaks ln.zh, so it needs
+        # source text, not a translation -- matches the Workspace tab's
+        # own dub button, which has no "must be translated first" gate.
+        is_narration = d.get("content_mode") == "novel_narration"
+        narrate_original = is_narration and (d.get("narration_language") or "translation") == "original"
         rows = db.load_lines(d["id"])
-        if not rows or not any(r.get("en") for r in rows):
-            print(f"#{d['id']} skipped: not translated yet.")
+        if not rows or not any(r.get("zh" if narrate_original else "en") for r in rows):
+            print(f"#{d['id']} skipped: {'no source text' if narrate_original else 'not translated yet'}.")
             return
         lines = lines_from_rows(rows)
         ddir = db.drama_dir(d["id"])
 
+        source_lang = d.get("source_language") or "zh"
+        default_voice_pool = (dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(
+            source_lang, dub_module.DEFAULT_VOICE_POOL) if narrate_original
+            else dub_module.DEFAULT_VOICE_POOL)
         chars = db.list_characters(d["id"])
         voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
         offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
                              if c.get("offline_voice")}
         clone_map = dub_module.clone_map_from_characters(
             chars, ddir, gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
-            ref_language=d.get("source_language") or "zh")
+            ref_language=source_lang)
         speakers = {ln.speaker for ln in lines if ln.speaker}
-        voice_map = dub_module.fill_missing_voices(voice_map, speakers)
+        voice_map = dub_module.fill_missing_voices(voice_map, speakers, default_voice_pool)
         offline_voice_map = dub_module.fill_missing_voices(
             offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
 
-        is_narration = d.get("content_mode") == "novel_narration"
         build_fn = dub_module.build_narration_track if is_narration else dub_module.build_dub_track
         stretch = {} if is_narration else dict(
             max_speedup=getattr(args, "max_speedup", None) or dub_module.DUB_MAX_SPEEDUP,
             max_slowdown=getattr(args, "max_slowdown", None) or dub_module.DUB_MAX_SLOWDOWN)
+        narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
+                            if is_narration else {})
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
 
         # Step 25w: same clone_map_uses_local_model check the Workspace tab's
@@ -472,11 +482,12 @@ def cmd_dub(args):
                         else contextlib.nullcontext(None))
         with _dub_gpu_ctx as _gpu_holder_box[0]:
             out_path, dub_errors = build_fn(
-                lines, ddir, voice_map, character_clone_map=clone_map,
+                lines, ddir, voice_map, default_voice=default_voice_pool[0],
+                character_clone_map=clone_map,
                 emotion_map=db.load_emotions(d["id"]), offline_voice_map=offline_voice_map,
                 tts_engine=getattr(args, "tts_engine", None) or "edge_tts",
                 progress_cb=_progress,
-                **stretch,
+                **stretch, **narration_kwargs,
             )
         # Narration rewrites every line's timing to match its audio -- same
         # fields the Workspace tab saves after narration.
@@ -485,7 +496,8 @@ def cmd_dub(args):
         db.update_drama(d["id"], status="dubbed")
         if is_narration and getattr(args, "m4b", False):
             m4b_path = dub_module.export_narration_m4b(
-                lines, ddir, title=d.get("title_en") or d.get("title_zh"))
+                lines, ddir, title=d.get("title_en") or d.get("title_zh"),
+                narrate_original=narrate_original)
             print(f"\n#{d['id']} audiobook: {m4b_path}")
         if dub_errors:
             print(f"\n#{d['id']} track: {out_path} ({len(dub_errors)} line(s) silent due to "
