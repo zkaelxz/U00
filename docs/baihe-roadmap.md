@@ -333,6 +333,7 @@ Rules for every milestone:
 | 61 | On a real Python 3.14 environment, run the install step that currently fails on `diffq-fixed` and confirm it now either skips `audio-separator` with a clear message, or installs successfully some other way -- never a raw pip traceback as the only output. Confirm Demucs still installs/runs normally regardless. |
 | 62 | On a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward. Click "Install everything in requirements-optional.txt" with `audio-separator` left in and confirm the bulk action reports that one failure clearly while still installing everything else. |
 | 63 | On a venv with `streamlit` importable but a different required package deliberately removed, run `start.ps1` and confirm it does NOT skip the install step -- same check as Step 53's own, applied to the PowerShell launcher. |
+| 64 | Open Diagnostics with a real "not installed" row and a real "outdated" row showing, and confirm the Install/Upgrade buttons read as a deliberate design choice. Confirm `FILE_ORGANIZATION.md`'s stated table count matches `db.py`'s real current count. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3382,6 +3383,18 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms `build_llm_instructions()`'s signature/return no longer carries the unused parameter or redundant second value, and the existing translation-prompt tests still pass unchanged in behavior.
 - Manual check (item 2, same as Step 53's own exit condition, applied to PowerShell): on a venv with `streamlit` importable but a different required package deliberately removed, run `start.ps1` and confirm it does NOT skip the install step.
 - Full suite still passes with the root `conftest.py` removed, confirming its fixtures really were shadowed duplicates and not load-bearing from some other entry point.
+
+---
+
+### Step 64 — Two small findings, bundled: Diagnostics' Install/Upgrade buttons look bad, and `FILE_ORGANIZATION.md`'s stale "19 tables" figure
+
+1. **User-reported (2026-09-27), from a live screenshot of Step 47's just-merged panel**: the "⬆️ Upgrade"/"⬇️ Install" buttons render as a plain emoji-in-a-box with no real visual polish, and the user specifically dislikes the icon. Restyle both buttons (in the Dependencies section and the Model & engine versions panel — same shared `_install_confirmed` helper, so one fix covers both) to look intentional rather than a bare default Streamlit button with an emoji glued on. Keep this scoped to visual polish only — don't change the underlying confirm/cancel/install behavior Step 47 already built and tested.
+2. **Flagged, not fixed, by Step 58's own implementing session**: `FILE_ORGANIZATION.md` still says `db.py` has "19 tables" — the real current count is 32 (31 before Step 58's `bug_reports` table). This is the exact kind of drift Step 56's rewrite was supposed to catch and the new `CLAUDE.md` rule was supposed to prevent going forward — this particular figure just wasn't part of Step 56's own diff. Update the figure to the real current count.
+3. Keep both fixes minimal and independent of each other — no broader rework beyond what each item describes.
+
+**Exit:**
+- Manual check: open Diagnostics with both a real "not installed" row and a real "outdated" row showing, and confirm the buttons read as a deliberate design choice, not a bare default with an emoji.
+- Manual check: `db.py`'s real table count (e.g. `grep -c "CREATE TABLE" db.py` or equivalent) matches the figure `FILE_ORGANIZATION.md` now states.
 
 ---
 
