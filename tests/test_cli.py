@@ -74,6 +74,49 @@ class TestCmdTranslateParity:
         # was actually computed and passed, not left as the default "".
         assert seen["style_guidelines"]
 
+    def test_context_window_ahead_and_batch_size_default_to_the_same_values_as_before(
+            self, isolated_db, monkeypatch):
+        """Step 32: this command used to have no way to set any of these
+        three -- confirms the new flags default to translate_lines_with_
+        engine's own pre-existing defaults, so an old script calling this
+        command with none of the new flags keeps behaving exactly as
+        before."""
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        seen = {}
+        def fake_translate(lines, engine, **kwargs):
+            seen.update(kwargs)
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        args = _translate_args(id=did)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(args)
+
+        assert seen["context_window"] == 6
+        assert seen["context_window_ahead"] == 3
+        assert seen["batch_size"] == 20
+
+    def test_context_window_ahead_and_batch_size_flags_reach_the_engine(
+            self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        seen = {}
+        def fake_translate(lines, engine, **kwargs):
+            seen.update(kwargs)
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        args = _translate_args(id=did, context_window=10, context_window_ahead=8, batch_size=30)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(args)
+
+        assert seen["context_window"] == 10
+        assert seen["context_window_ahead"] == 8
+        assert seen["batch_size"] == 30
+
     def test_glossary_terms_only_looked_up_when_drama_has_a_series(self, isolated_db, monkeypatch):
         did = isolated_db.create_drama(title_en="Standalone", status="aligned")
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])

@@ -305,7 +305,8 @@ def _search_transcript(all_lines, term):
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6,
-                       ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None):
+                       ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
+                       context_window_ahead=3, batch_size=20):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -336,7 +337,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         lines, engine, drama_meta=drama_meta, style_note=style_note,
         novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
-        context_window=context_window, character_names=character_names,
+        context_window=context_window, context_window_ahead=context_window_ahead,
+        batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect,
         cost_cap_usd=cost_cap_usd,
@@ -3275,12 +3277,39 @@ def render_workspace_tab():
                     f"default_female_pronouns_{picked_id}", False),
                 include_genre_notes=include_genre_notes)
             st.toast(f"Saved preset \"{_new_preset_name.strip()}\".", icon="✅")
+        # Step 32: novel narration pre-selects higher starting values for all
+        # three knobs below -- long-form prose benefits more from context,
+        # and the cost is close to free for the cloud engines. Still just a
+        # starting point: the user can move any slider back down.
+        _is_novel = content_mode == "novel_narration"
+        _cw_default = 10 if _is_novel else 6
+        _cwa_default = 6 if _is_novel else 3
+        _bs_default = 30 if _is_novel else 20
         context_window = st.slider(
-            "Context lines shown from before each batch", 0, 20, 6,
+            "Context lines shown from before each batch", 0, 20, _cw_default,
             help="Shows the model how the immediately preceding lines were already "
                  "translated, so a pronoun or someone referred to only by relation "
                  "('her', 'that guy') has something to resolve against instead of "
                  "being guessed fresh every batch. 0 turns this off.")
+        context_window_ahead = st.slider(
+            "Context lines shown from after each batch", 0, 20, _cwa_default,
+            help="Shows the model what's coming up right after this batch, so a "
+                 "pronoun or reference that's only resolved by something said "
+                 "later doesn't get guessed wrong. Especially useful for novels, "
+                 "where the next paragraph often disambiguates the current one. "
+                 "0 turns this off.")
+        batch_size = st.slider(
+            "Lines translated per request", 5, 40, _bs_default,
+            help="More lines per request means fewer round-trips (cheaper, "
+                 "faster overall) but a bigger single point of failure -- one "
+                 "blocked/malformed response affects more lines at once. Applies "
+                 "to a normal translation run -- 🐢 Bulk mode below uses its own "
+                 "batch size.")
+        if engine_choice == "ollama":
+            st.caption("⚠️ Ollama runs locally: larger values here mean a longer prompt each "
+                      "batch, which costs more VRAM and time on your own machine -- unlike the "
+                      "cloud engines, this isn't close to free. Lower any of the three above if "
+                      "a batch is slow or runs out of memory.")
 
         b1, b2 = st.columns(2)
         if has_audio_pipeline:
@@ -3931,6 +3960,8 @@ def render_workspace_tab():
                     st.session_state.get("settings_ollama_num_ctx_override") or None,
                     reflect=reflect_mode,
                     cost_cap_usd=_cost_cap,
+                    context_window_ahead=context_window_ahead,
+                    batch_size=batch_size,
                     gpu_touching=engine_choice == "ollama",
                     description=(f"Ollama Reflect-mode translation ({_drama_label(drama)})"
                                 if reflect_mode and engine_choice == "ollama" else
