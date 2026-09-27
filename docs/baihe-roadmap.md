@@ -2,6 +2,8 @@
 
 > **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state, not carried over from any earlier note here:
 >
+> **Step 79 added (2026-09-27)** — reproduced live on the user's real Windows machine: `start.bat`'s Python check (`where python`) passes on the non-functional Windows Store "App execution alias" stub, so venv creation fails later with a confusing, misdiagnosed error. Also fixes a related, user-confirmed gap: no way to pin a specific Python version (some optional deps, e.g. `qwen-asr`, want 3.12 specifically) for venv creation. A third, distinct idea — auto-provisioning Python via the official embeddable package so it's never required pre-installed at all — was discussed but not yet written up as its own step, pending the user's decision on scope. Not yet dispatched. All the steps below are stale queue/status notes from earlier in this session, kept for now, not re-verified this pass.
+>
 > **Steps 64, 66, 32 all merged (2026-09-27, PRs #162/#163/#164)** — Diagnostics button restyling, real throwaway-venv dependency-upgrade testing, and Workspace's look-ahead/batch-size sliders. All independently reviewed (real diffs, trial-merges, full suites — 3194/3194/3177 passed respectively, 0 failed), CI green before each squash-merge. Next in that queue: Step 71, then Step 31. Two items worth a manual look, not blocking: Step 64's icon may not fully address "user specifically dislikes the icon" (kept the emoji, just restyled); Step 68 (dark-mode/UX batch, Opus-flagged) is next in the other session's queue, followed by Step 73 (queued after it, same files).
 >
 > **Step 77 added (2026-09-27)** — self-flagged by the Step 71 implementing session (correctly left out of that step's own scope), independently confirmed: `library_tab.py`'s voice-bank entry delete has the identical no-confirmation gap Step 71 just fixed at five other spots, missed only because Step 26 added it after Step 71's roadmap review was written. Not yet dispatched.
@@ -365,6 +367,7 @@ Rules for every milestone:
 | 76 | `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and the Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional. |
 | 77 | Attempt to delete a voice bank entry and confirm a single click no longer immediately deletes it. |
 | 78 | With 2+ profiles, confirm switching the active profile in Settings shows a different reading position/history/personal notes for the same drama, and that Library's Continue-reading shelf only shows the active profile's own in-progress dramas; with another GPU-using application (e.g. Jellyfin) actively transcoding, confirm a real Baihe job queues rather than starting immediately, and resumes once that load clears. |
+| 79 | On a real Windows machine with the Store aliases enabled and no real Python installed, run `start.bat` and confirm the new message correctly names the Settings toggle fix; with two real Python versions installed, confirm `start.bat --python-version 3.12` builds the venv against 3.12 specifically. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3763,6 +3766,26 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 **Exit:**
 - Manual check: with 2+ profiles, confirm switching the active profile in Settings shows a different reading position/history/personal notes for the same drama, and that Library's Continue-reading shelf only shows the active profile's own in-progress dramas.
 - Manual check: with Jellyfin (or any other GPU-using application) actively transcoding on the same card, confirm a real Baihe transcription/dubbing job queues rather than starting immediately, and resumes once that load clears.
+
+---
+
+### Step 79 — Fix: `start.bat`'s Python check passes on a non-functional Windows Store stub, and there's no way to pin a specific Python version for the venv
+
+**Reproduced live on the user's real Windows machine (2026-09-27).** Running `start.bat` for the first time produced: `Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Apps > Advanced app settings > App execution aliases.` — followed by the generic `Could not create the virtual environment. See the error above.`
+
+**Root cause confirmed directly against the real `start.bat`:** its Python check is `where python >nul 2>nul` — this only confirms *a file named* `python.exe` exists somewhere on PATH. Windows ships a non-functional stub at `...\WindowsApps\python.exe` (the "App execution alias" for the Microsoft Store) that satisfies this check even when no real Python is installed, or when a real install exists but the stub shadows it earlier on PATH. `where python` passes silently, the script proceeds to `python -m venv "%VENV_DIR%"`, which invokes the stub for real — that's the exact Microsoft Store message the user saw — and lands in the generic "could not create the virtual environment" branch instead of a diagnosis that actually explains what's wrong.
+
+**A second, related, user-confirmed gap**: some optional dependencies (`qwen-asr`'s own requirements-optional.txt comment: "recommends a clean Python 3.12 env") need a specific Python version, but `start.bat` always uses whatever `python` resolves to first on PATH, with no way to point it at a specific installation. Confirmed by grep: no `py -3.12`/version-pinning mechanism exists anywhere in the repo (`start.bat`, `start.ps1`, `make_shortcut.bat`, or the docs) — a user with multiple Python versions installed has no way to tell the launcher which one to build the venv against.
+
+1. **Detect the non-functional stub specifically, not just file presence.** After `where python` succeeds, actually run `python --version` (or `python -c "import sys"`) and check its exit code/output — the stub prints the Microsoft Store message and exits non-zero; a real Python prints a version string and exits 0. On stub detection, show a clear, specific message naming the actual fix (disable the two "App Installer python.exe/python3.exe" toggles under Settings → Apps → Advanced app settings → App execution aliases) instead of the generic "Python wasn't found, install it" message, which is actively misleading when Python already is installed and only shadowed by the stub.
+2. **Add an optional Python-version pin.** A `start.bat --python-version 3.12` flag (or a `PYTHON_VERSION` marker file, matching the existing `PORTABLE` marker-file pattern) that uses the Windows `py` launcher (`py -3.12`) to select a specific installed version for venv creation, when the user has more than one Python version and needs a specific one for a given optional dependency. Falls back to plain `python` when not specified, so nothing changes for anyone who doesn't need this.
+3. Keep both fixes scoped to `start.bat`'s own bootstrap logic — no broader launcher rework.
+
+**Exit:**
+- A test confirms the stub-detection logic correctly distinguishes a mocked non-zero-exit `python --version` (stub) from a mocked real version string (real Python), and that only the stub case shows the App-execution-alias-specific message.
+- A test confirms `--python-version 3.12` (or the marker-file equivalent) actually invokes `py -3.12` for venv creation rather than plain `python`, when set.
+- Manual check: on a real Windows machine with the Store aliases enabled and no real Python installed, run `start.bat` and confirm the new message correctly names the Settings toggle fix, not the generic "install Python" message.
+- Manual check: with two real Python versions installed, confirm `start.bat --python-version 3.12` builds the venv against 3.12 specifically (verify via `venv\Scripts\python.exe --version` after setup).
 
 ---
 
