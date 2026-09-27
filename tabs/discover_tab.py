@@ -164,7 +164,7 @@ def render_discover_tab():
             "guidance in your language. This only describes how to use the site's own public "
             "interface -- it doesn't log in, purchase, or fetch anything for you."
         )
-        with st.expander("📋 Known official platforms (baihe / Korean GL / Japanese yuri)"):
+        with st.expander("📋 Known official platforms (Chinese / Korean / Japanese)"):
             kc1, kc2 = st.columns(2)
             filter_lang = kc1.selectbox("Language", ["", "zh", "ko", "ja"],
                                          format_func=lambda l: {"": "All", "zh": "Chinese", "ko": "Korean", "ja": "Japanese"}[l],
