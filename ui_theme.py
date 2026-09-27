@@ -77,6 +77,13 @@ def inject_dark_css():
 
       div[data-testid="stExpander"] {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
+      /* The expander's clickable header bar is a <summary> with its own
+         explicit light-theme background -- `background` doesn't inherit
+         from the outer div above, so without this the header stayed a
+         plain white/light bar even with a dark body underneath it. */
+      div[data-testid="stExpander"] summary {{
+          background: {d['surface']} !important; color: {d['ink']} !important; }}
+
       div[data-testid="stMetric"] {{
           background: {d['surface']} !important; border-color: {d['border']} !important; }}
 
@@ -85,12 +92,29 @@ def inject_dark_css():
       .stMultiSelect div[data-baseweb="select"] > div {{
           background: {d['surface']} !important; color: {d['ink']} !important;
           border-color: {d['border']} !important; }}
+      /* A disabled/readonly input's text is painted via
+         -webkit-text-fill-color in Chrome/WebKit, not `color` -- Streamlit
+         sets that to its own light-theme ink at reduced opacity for the
+         disabled state, which silently wins over the `color` override
+         above and left every read-only box's text unreadable (dark text on
+         a dark background). */
+      .stTextInput input:disabled, .stTextArea textarea:disabled, .stNumberInput input:disabled {{
+          -webkit-text-fill-color: {d['ink']} !important; opacity: 1 !important; }}
 
       .stButton button {{
           background: {d['surface']} !important; color: {d['ink']} !important;
           border-color: {d['border']} !important; }}
       .stButton button:hover {{ border-color: {d['accent']} !important; color: {d['accent']} !important; }}
       .stButton button[kind="primary"] {{ background: {d['accent']} !important; color: #17131F !important; }}
+
+      /* A popover's trigger (e.g. Reader's "Story" button) is its own
+         `stPopoverButton` testid, not `.stButton` -- it rendered as a
+         plain white button even in dark mode without this. */
+      button[data-testid="stPopoverButton"] {{
+          background: {d['surface']} !important; color: {d['ink']} !important;
+          border-color: {d['border']} !important; }}
+      button[data-testid="stPopoverButton"]:hover {{
+          border-color: {d['accent']} !important; color: {d['accent']} !important; }}
 
       .stTabs [role="tablist"] {{ border-bottom-color: {d['border']} !important; }}
       .stTabs [data-testid="stTab"] {{ color: {d['muted']} !important; }}
