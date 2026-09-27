@@ -103,7 +103,7 @@ OPTIONAL_DEPENDENCIES = {
     "pypdf": ("pypdf", "Scanlate PDF import (splitting a PDF into pages)", "feature"),
     "streamlit_drawable_canvas": ("streamlit_drawable_canvas",
                                   "Scanlate manual erase/heal brush -- confirmed incompatible "
-                                  "with this app's pinned streamlit>=1.49 as of this check "
+                                  "with this app's pinned streamlit>=1.56 as of this check "
                                   "(fails at setup, not just missing)", "feature"),
     "genanki": ("genanki", "Anki .apkg export (Reader vocab)", "feature"),
     "ebooklib": ("ebooklib", "EPUB import/export", "feature"),

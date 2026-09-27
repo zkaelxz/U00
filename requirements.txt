@@ -1,4 +1,7 @@
-streamlit>=1.49          # width='stretch' replaced use_container_width
+streamlit>=1.56          # Step 73: the real minimum, not a guess -- st.iframe (Reader's line table,
+                         # Discover's embed) first exists in 1.56; Workspace's stage st.tabs(key=)
+                         # needs 1.55, st.button(shortcut=) 1.52, st.tabs(default=) 1.50. On the old
+                         # >=1.49 floor, 1.49 itself crashed Workspace and Read & Watch outright.
 faster-whisper>=1.0
 anthropic>=0.34
 pandas>=2.0
@@ -100,7 +103,7 @@ pypdf>=4.0
 # Scanlate manual erase/heal brush (optional -- freeform paint-to-erase
 # on the page preview, independent of bubble detection). Its own PyPI
 # page shows no release in the past 12 months -- confirmed directly
-# while wiring this up: with this app's pinned streamlit>=1.49, its
+# while wiring this up: with this app's pinned streamlit>=1.56, its
 # component fails to load at all (StreamlitAPIException -- the
 # maintenance gap has caught up with newer Streamlit component-API
 # changes), not just a hypothetical risk. The Scanlate tab's brush UI
