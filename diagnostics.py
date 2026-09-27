@@ -351,55 +351,92 @@ def delete_piper_voice(voice: str, voices_dir: str = None) -> bool:
 
 MODEL_ENGINE_REGISTRY = [
     {"name": "Whisper (faster-whisper)", "kind": "package", "package": "faster-whisper",
-     "url": "https://github.com/SYSTRAN/faster-whisper"},
+     "url": "https://github.com/SYSTRAN/faster-whisper",
+     "help": "The default speech-to-text engine used to transcribe dialogue when you start a "
+             "new drama."},
     {"name": "Qwen3-ASR", "kind": "package", "package": "qwen-asr",
-     "url": "https://github.com/QwenLM/Qwen3-ASR"},
+     "url": "https://github.com/QwenLM/Qwen3-ASR",
+     "help": "An alternative speech-to-text engine to Whisper, used for transcription when "
+             "selected in Settings."},
     {"name": "SenseVoice (FunASR)", "kind": "package", "package": "funasr",
-     "url": "https://github.com/modelscope/FunASR"},
+     "url": "https://github.com/modelscope/FunASR",
+     "help": "An alternate transcription engine that also tags emotion and non-speech sounds "
+             "(laughing, sighing, etc.) in the audio."},
     {"name": "pyannote.audio", "kind": "package", "package": "pyannote.audio",
-     "url": "https://github.com/pyannote/pyannote-audio"},
+     "url": "https://github.com/pyannote/pyannote-audio",
+     "help": "Figures out who's speaking and when, so lines can be split and labeled by speaker "
+             "(speaker diarization)."},
     {"name": "pyannote diarization model", "kind": "repo",
      "repo_ids": diarize.DIARIZATION_MODELS,
-     "url": "https://huggingface.co/pyannote/speaker-diarization-community-1"},
+     "url": "https://huggingface.co/pyannote/speaker-diarization-community-1",
+     "help": "The actual model weights pyannote.audio uses to tell speakers apart -- a gated "
+             "Hugging Face download, not a pip package."},
     {"name": "manga-ocr", "kind": "package", "package": "manga-ocr",
-     "url": "https://github.com/kha-white/manga-ocr"},
+     "url": "https://github.com/kha-white/manga-ocr",
+     "help": "Reads Japanese text out of manga page images (Scanlate's OCR step)."},
     {"name": "PaddleOCR", "kind": "package", "package": "paddleocr",
-     "url": "https://github.com/PaddlePaddle/PaddleOCR"},
+     "url": "https://github.com/PaddlePaddle/PaddleOCR",
+     "help": "An alternate OCR backend for reading text out of manga/manhua page images."},
     {"name": "audio-separator", "kind": "package", "package": "audio-separator",
-     "url": "https://github.com/nomadkaraoke/python-audio-separator"},
+     "url": "https://github.com/nomadkaraoke/python-audio-separator",
+     "help": "Strips background music out of the audio track before transcription, so dialogue "
+             "is easier to hear and transcribe."},
     {"name": "Demucs", "kind": "package", "package": "demucs",
-     "url": "https://github.com/facebookresearch/demucs"},
+     "url": "https://github.com/facebookresearch/demucs",
+     "help": "A fallback background-music remover, used when audio-separator isn't installed."},
     {"name": "F5-TTS", "kind": "package", "package": "f5-tts",
-     "url": "https://github.com/SWivid/F5-TTS"},
+     "url": "https://github.com/SWivid/F5-TTS",
+     "help": "A local text-to-speech engine that can clone a character's voice for dubbing or "
+             "novel narration."},
     {"name": "OmniVoice", "kind": "package", "package": "omnivoice",
-     "url": "https://github.com/k2-fsa/OmniVoice"},
+     "url": "https://github.com/k2-fsa/OmniVoice",
+     "help": "A local voice-cloning engine that can also design a new voice from a text "
+             "description, not just clone an existing sample."},
     {"name": "GPT-SoVITS", "kind": "service",
      "note": "separate local server (not pip-installed)",
-     "url": "https://github.com/RVC-Boss/GPT-SoVITS"},
+     "url": "https://github.com/RVC-Boss/GPT-SoVITS",
+     "help": "A separate local voice-cloning server you run yourself -- the app talks to it over "
+             "its own local API rather than installing it as a package."},
     {"name": "Chatterbox", "kind": "package", "package": "chatterbox-tts",
-     "url": "https://github.com/resemble-ai/chatterbox"},
+     "url": "https://github.com/resemble-ai/chatterbox",
+     "help": "A local voice-cloning engine that can vary emotional delivery; adds an inaudible "
+             "watermark to its output."},
     {"name": "TADA", "kind": "package", "package": "hume-tada",
-     "url": "https://github.com/HumeAI/tada"},
+     "url": "https://github.com/HumeAI/tada",
+     "help": "A local voice engine tuned for long narration (e.g. novel narration) rather than "
+             "short dubbed lines."},
     {"name": "edge-tts", "kind": "package", "package": "edge-tts",
-     "url": "https://github.com/rany2/edge-tts"},
+     "url": "https://github.com/rany2/edge-tts",
+     "help": "A free, online (Microsoft-hosted) text-to-speech engine used for dubbing when no "
+             "local voice-cloning engine is set up."},
 ]
 
 
 def get_model_engine_versions(ollama_model: str = None) -> list:
-    """[{"name", "version", "url", "installed"}, ...], one row per
-    MODEL_ENGINE_REGISTRY entry plus the active Ollama tag if given. A
-    "package" entry's version comes from importlib.metadata (no import of
-    the package itself, so no heavy ML import-time cost just to check a
-    version) -- "not installed" if it isn't present. A "repo" entry (a bare
-    model checkpoint this app's own code names directly, not a
-    pip-versioned package) shows its Hugging Face repo id(s) as its
+    """[{"name", "version", "url", "installed", "package", "help"}, ...],
+    one row per MODEL_ENGINE_REGISTRY entry plus the active Ollama tag if
+    given. A "package" entry's version comes from importlib.metadata (no
+    import of the package itself, so no heavy ML import-time cost just to
+    check a version) -- "not installed" if it isn't present. A "repo"
+    entry (a bare model checkpoint this app's own code names directly, not
+    a pip-versioned package) shows its Hugging Face repo id(s) as its
     identifier instead of a version number; a "service" entry (an engine
     running as its own separate server) shows its note. Neither a "repo"
     nor a "service" entry has a real "not installed" state of its own, so
     both count as installed. "installed" is a real boolean computed here
     from the actual check, not a string match against "not installed" in
     whatever renders it (Step 18 item 2 -- that match would silently break
-    if this literal ever changed). Makes no network call."""
+    if this literal ever changed). Makes no network call. "package" (Step
+    47) is the real pip/importlib.metadata distribution name for a
+    "package" kind entry, None otherwise -- the exact string a caller
+    should pass to stream_dependency_install/stream_pip_install for that
+    row's own Install button, straight from the registry rather than
+    re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
+    use import-style names -- "faster_whisper", "manga_ocr" -- that don't
+    all match the real pip names here, and some registry packages, like
+    Qwen3-ASR's "qwen-asr", have no OPTIONAL_DEPENDENCIES entry at all).
+    "help" is a short plain-English description of what the row is and
+    which app feature uses it, for a "?" affordance in the UI."""
     out = []
     for entry in MODEL_ENGINE_REGISTRY:
         if entry["kind"] == "repo":
@@ -416,10 +453,14 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
                 version = "not installed"
                 installed = False
         out.append({"name": entry["name"], "version": version, "url": entry["url"],
-                    "installed": installed})
+                    "installed": installed, "package": entry.get("package"),
+                    "help": entry.get("help", "")})
     if ollama_model:
         out.append({"name": "Ollama (active tag)", "version": ollama_model,
-                    "url": "https://ollama.com/library", "installed": True})
+                    "url": "https://ollama.com/library", "installed": True,
+                    "package": None,
+                    "help": "The local Ollama model tag currently selected in Settings for "
+                            "free local translation."})
     return out
 
 
@@ -680,6 +721,110 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     if os.path.exists(constraints_path):
         args += ["-c", constraints_path]
     return args
+
+
+# ---------------------------------------------------------------------------
+# Step 47 item 4: warn (never block) before installing a heavy local
+# voice-cloning/TTS backend when a functionally-equivalent one is already
+# installed -- e.g. Chatterbox is already there and someone clicks Install
+# on OmniVoice. Both an Install button covering the same four packages
+# exist today (Dependencies' own per-tier buttons, and the Model & engine
+# versions panel's own row buttons above), so this is shared by both
+# rather than checked twice. "Hume" the user separately asked about isn't
+# a distinct engine this app wires into anything -- "hume-tada" (TADA) is
+# already the one Hume Labs engine here, so it's the only Hume-related
+# entry in this group; nothing else to add without a real, separate
+# candidate to evaluate.
+# ---------------------------------------------------------------------------
+
+REDUNDANT_LOCAL_TTS_PACKAGES = {"f5-tts", "omnivoice", "chatterbox-tts", "hume-tada"}
+_REDUNDANT_LOCAL_TTS_LABELS = {
+    "f5-tts": "F5-TTS", "omnivoice": "OmniVoice",
+    "chatterbox-tts": "Chatterbox", "hume-tada": "TADA",
+}
+
+
+def redundant_tts_install_warning(package: str, installed_packages) -> str:
+    """None unless `package` is one of the heavy local voice-cloning/TTS
+    backends above AND at least one of the other three is already
+    installed (per `installed_packages`, an iterable of pip/distribution
+    names -- accepts either OPTIONAL_DEPENDENCIES's own keys, like
+    "f5_tts", or MODEL_ENGINE_REGISTRY's, like "f5-tts"; both spellings
+    normalize the same way pip itself treats "_"/"-" as equivalent).
+    Otherwise a plain-English confirmation message naming what's already
+    installed, for an Install button's own confirm-before-a-large-
+    redundant-download step. Never a reason to block outright -- Step 38's
+    Model Arena wants more than one installed to compare."""
+    key = package.replace("_", "-").lower()
+    if key not in REDUNDANT_LOCAL_TTS_PACKAGES:
+        return None
+    installed_norm = {p.replace("_", "-").lower() for p in installed_packages}
+    already = [_REDUNDANT_LOCAL_TTS_LABELS[p] for p in sorted(REDUNDANT_LOCAL_TTS_PACKAGES)
+               if p != key and p in installed_norm]
+    if not already:
+        return None
+    names = " and ".join(already)
+    return (f"{names} already installed and covers this -- also install "
+            f"{_REDUNDANT_LOCAL_TTS_LABELS[key]}? It's a large download and won't replace "
+            f"{names}; both stay available.")
+
+
+# ---------------------------------------------------------------------------
+# Step 47 item 5: when an "Upgrade" action can't actually reach the latest
+# release for a real, known reason (a constraints.txt cap, or a package
+# with no published wheel for the running Python version), say so instead
+# of silently offering an upgrade that would fail, or offering nothing
+# with no explanation. Seeded with the one real, already-confirmed case
+# (Step 61's audio-separator/diffq-fixed/Python-3.14 finding) rather than
+# a hypothetical one -- add to this dict as more real cases turn up, the
+# same way OPTIONAL_DEPENDENCIES itself grows.
+# ---------------------------------------------------------------------------
+
+KNOWN_UPGRADE_LIMITATIONS = {
+    "audio-separator": {
+        "python_version": (3, 14),
+        "reason": "its diffq-fixed sub-dependency has wheels only through cp313, and its "
+                  "sdist build also fails independently (Step 61); Demucs, this app's "
+                  "default vocal-separation backend, is unaffected.",
+    },
+}
+
+
+def _constraints_cap(pip_name: str, project_root: str = None):
+    """The raw constraint line (e.g. "torch<3") capping `pip_name` in
+    constraints.txt, or None if it isn't capped there. Matches on the
+    package name before the operator, normalizing "_"/"-" the same way
+    pip itself treats them as equivalent."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(project_root, "constraints.txt")
+    if not os.path.exists(path):
+        return None
+    target = pip_name.replace("_", "-").lower()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            m = re.match(r"([A-Za-z0-9_.\-]+)\s*<\s*([0-9]+)", line)
+            if m and m.group(1).replace("_", "-").lower() == target:
+                return line, int(m.group(2))
+    return None
+
+
+def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
+                           project_root: str = None) -> str:
+    """None if a normal "Upgrade" should be offered for `pip_name`.
+    Otherwise a short, plain-English reason the row should show INSTEAD
+    of the button, so a known-doomed upgrade never just looks like a real
+    option with no explanation (Step 47 item 5)."""
+    known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
+    if known and sys.version_info[:2] == known["python_version"]:
+        py = ".".join(str(p) for p in known["python_version"])
+        return f"latest available for Python {py} -- {known['reason']}"
+    cap = _constraints_cap(pip_name, project_root)
+    if cap and latest_version and _version_sort_key(latest_version)[:1] >= [cap[1]]:
+        return f"capped at `{cap[0]}` in constraints.txt (see its own comment for why)"
+    return None
 
 
 def get_gpu_status() -> dict:
