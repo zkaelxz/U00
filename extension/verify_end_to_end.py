@@ -36,6 +36,7 @@ import json
 import os
 import socket
 import sys
+import tempfile
 import threading
 import time
 
@@ -95,7 +96,12 @@ def main():
         return 0
 
     import db
-    workdir = os.path.join(HERE, ".verify")
+    # Deliberately NOT under extension/: Chromium loads that whole folder
+    # as the unpacked extension, so a browser profile and a library
+    # sitting inside it made the first run pass and every later one fail
+    # with "the service worker never registered".
+    workdir = tempfile.mkdtemp(prefix="baihe-ext-verify-")
+    print(f"working in {workdir}")
     db.configure_library_dir(os.path.join(workdir, "library"))
     db.init_db()
 
@@ -186,16 +192,35 @@ document.getElementById("viaBlob").src =
             args=["--headless=new", "--no-sandbox",
                   f"--disable-extensions-except={HERE}", f"--load-extension={HERE}"])
         try:
+            # An MV3 service worker starts lazily, so it can take a while
+            # to appear and may not have appeared yet when we look. Wait
+            # generously, then fall back to reading the id off
+            # chrome://extensions, which is authoritative either way.
             worker = None
-            for _ in range(100):
+            for _ in range(300):
                 if context.service_workers:
                     worker = context.service_workers[0]
                     break
                 time.sleep(0.1)
-            check("the service worker registers", worker is not None)
-            if worker is None:
+            ext_id = worker.url.split("/")[2] if worker else None
+            if not ext_id:
+                probe = context.new_page()
+                probe.goto("chrome://extensions/")
+                probe.wait_for_timeout(1500)
+                listed = probe.evaluate(
+                    """() => {
+                         const m = document.querySelector('extensions-manager');
+                         const list = m && m.shadowRoot.querySelector('extensions-item-list');
+                         if (!list) return [];
+                         return [...list.shadowRoot.querySelectorAll('extensions-item')]
+                           .map(e => e.id);
+                       }""")
+                probe.close()
+                ext_id = listed[0] if listed else None
+            check("the extension loads and exposes a service worker", bool(ext_id),
+                  ext_id or "no extension id found")
+            if not ext_id:
                 return 1
-            ext_id = worker.url.split("/")[2]
 
             options = context.new_page()
             options.goto(f"chrome-extension://{ext_id}/options.html")
