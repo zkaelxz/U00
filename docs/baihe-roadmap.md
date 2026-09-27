@@ -3655,6 +3655,8 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 - Manual check: on a fresh clone, run whichever install path(s) remain after this step and confirm no `ModuleNotFoundError` for a feature the tier claims to cover, including the mangaz.com adapter (the `cryptography` gap this step was prompted by).
 - Manual check: confirm `requirements.txt`'s new role (deleted, or a thin pointer) doesn't silently reintroduce the flat 43-package file as a fifth thing to keep in sync — grep the repo for any remaining direct `pip install -r requirements.txt` reference outside what this step intentionally kept.
 
+**Built, reviewed, and merged (2026-09-27, PR #165).** Independently reviewed: real diff read in full (all 8 files), fast-forward merge against current tip, full suite run on the merged tree — **3206 passed, 49 skipped, 0 failed** (the 5 `test_sources_mangaz.py` failures the implementing session reported were confirmed sandbox-specific, not reproducible here — consistent pattern across several PRs this session). The new regression tests are genuinely preventive: `test_no_script_or_doc_installs_the_old_flat_file_directly` guards against a fifth drifted install path appearing later. CI green before squash-merge.
+
 ---
 
 ### Step 76 — Fix: `qwen-asr>=0.1` in `requirements-optional.txt` can never install — no such release exists on PyPI
