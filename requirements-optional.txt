@@ -167,8 +167,16 @@ trafilatura>=2.0
 # operation still runs through this library.
 cryptography>=41.0
 
+# --- HTTP API for the React frontend (api/), EXPERIMENTAL ---
+# The React + FastAPI migration's backend (docs/migration-react-fastapi.md).
+# Runs alongside the Streamlit app, which doesn't need either package.
+# Start with: python -m api
+fastapi>=0.115
+uvicorn>=0.30
+
 # --- development ---
 pytest>=7.4
+httpx>=0.27             # FastAPI's TestClient (tests/test_api_foundation.py)
 
 # --- audio emotion / sound-event tags (sensevoice_tags.py) ---
 # SenseVoiceSmall: a second, audio-derived emotion read shown next to the

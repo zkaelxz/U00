@@ -266,6 +266,18 @@ novel text at `library/dramas/<id>/novel_narration_source.txt` and set
 of this automatically when you use it — manual placement is only for
 adding dramas without ever opening the GUI).
 
+**Experimental: HTTP API + React frontend (migration branch only).** The
+start of a gradual move to FastAPI + React. It runs *alongside* the
+Streamlit app over the same library and currently offers a read-only
+Library view. Nothing above changes. Needs `pip install fastapi uvicorn`
+and, for the frontend, Node.js 20+:
+```bash
+BAIHE_API_ENV=development python -m api     # API on http://127.0.0.1:8600, docs at /api/docs
+cd frontend && npm install && npm run dev   # React on http://127.0.0.1:5173
+```
+Loopback-only by default and no login, so don't expose it beyond a trusted
+network. See [`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md).
+
 ### Trying it for free first
 
 Before spending anything, run a drama through with the `test_offline`

@@ -6,9 +6,10 @@ unambiguously where it belongs: anything ending `_tab.py` goes in
 `tabs/`, anything starting `test_` goes in `tests/`, everything else
 sits at the top level or in one of the subsystem packages below. The
 one expected exception is `__init__.py` (an empty marker in every
-package). The other exception to "Python" is `extension/`, which is
+package). The other exceptions to "Python" are `extension/`, which is
 browser-side JavaScript loaded by Chrome rather than anything Python
-imports.
+imports, and `frontend/` (experimental migration branch only), a
+TypeScript/React app built with npm that talks to `api/` over HTTP.
 
 ```
 baihe-subtitler/
@@ -16,6 +17,7 @@ baihe-subtitler/
 ├── app.py                     ← START HERE:  streamlit run app.py
 ├── common.py                     shared imports every tab pulls in
 ├── cli.py                        headless batch runner
+│                                 (experimental: `python -m api` starts the HTTP API, see api/ below)
 ├── run_tests.py                  test runner wrapper
 │
 ├── requirements-core.txt         minimum to launch + translate text
@@ -47,6 +49,8 @@ baihe-subtitler/
 │   ├── content-sources.md        every source the Sources tab can reach, and its status
 │   ├── handoff-browser-extension.md   handoff notes for the browser extension work
 │   ├── known-working-sources.md  quick "can I point the app at this site" status board
+│   ├── migration-react-fastapi.md   the React + FastAPI migration: architecture, how to run, what's next
+│   ├── migration-screenshots/    before/after screenshots referenced by that doc
 │   └── technical-notes.md        engineering changelog: real bugs found + how they were fixed
 │
 ├── tabs/                      ← UI ONLY. One file per tab, 10 tabs total.
@@ -97,6 +101,30 @@ baihe-subtitler/
 │   ├── project_state.py          the unified project-state model
 │   ├── status.py                 the shared background-job status block
 │   └── workflow.py               the pipeline-stage stepper
+│
+├── services/                   ← UI-INDEPENDENT application services (React/FastAPI migration).
+│   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
+│   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
+│   └── library_service.py        Library list/filter + one drama's details
+│
+├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
+│   ├── __init__.py               (empty, marks the package)
+│   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings
+│   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS
+│   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
+│   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
+│   └── routers/
+│       ├── __init__.py
+│       ├── system_routes.py      /api/health, /api/meta
+│       └── library_routes.py     /api/library/dramas[/{id}]
+│
+├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
+│   ├── package.json, vite.config.ts, tsconfig*.json, index.html
+│   ├── src/api/                   client.ts (all HTTP) + types.ts (mirrors api/schemas.py)
+│   ├── src/components/            LibraryList, DramaDetailPanel
+│   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
+│   └── playwright.config.ts
 │
 ├── extension/                  ← BROWSER SIDE. Loaded unpacked, not a Python package.
 │   ├── manifest.json              MV3; loopback host permission only
@@ -215,7 +243,9 @@ baihe-subtitler/
 | `epub_io.py` | EPUB import/export |
 | `export_package.py` | per-drama archive bundle |
 
-The `sources/` package (the adapter system proper, one file per supported
+The `services/` and `api/` packages and `frontend/` (the React + FastAPI
+migration's foundation, experimental, see `docs/migration-react-fastapi.md`)
+are listed in the tree above. The `sources/` package (the adapter system proper, one file per supported
 site under `sources/adapters/`) and the browser extension bridge
 (`page_server.py` plus everything in `extension/`) are broken out in the
 tree above rather than repeated here, since each is really its own
@@ -233,6 +263,9 @@ subsystem rather than a handful of top-level modules.
 
 - **UI code goes in `tabs/`**, named `*_tab.py`. Logic lives at the top
   level (or in `sources/`/`ui/`) so it stays testable without Streamlit.
+- **Logic a second UI will need goes in `services/`** (React/FastAPI
+  migration): a plain function the Streamlit tab and an `api/routers/*_routes.py`
+  file both call. Streamlit never calls the API over HTTP.
 - **Nothing writes outside `library/`** except exports you explicitly download.
 - **Optional dependencies are imported inside functions**, never at module
   top level — a missing package disables its own feature instead of
