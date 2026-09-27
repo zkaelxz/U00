@@ -1338,33 +1338,47 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
     Chinese term/name translated differently in different places. Works
     on the .zh/.en pairs already present -- doesn't call any external
     dictionary, just asks the LLM to spot drift across the batch it's
-    given. Returns a list of {"term", "variants": [...], "note"} for
-    review -- doesn't auto-fix anything, since the "right" choice
-    depends on context you'd want to confirm yourself.
+    given. Returns (issues, failed_batches, total_batches):
+    issues is a list of {"term", "variants": [...], "note"} for review --
+    doesn't auto-fix anything, since the "right" choice depends on
+    context you'd want to confirm yourself. failed_batches/total_batches
+    (Step 55) let the caller tell "nothing to flag" apart from "some
+    batches silently couldn't be checked at all" -- previously a batch
+    that errored or came back empty was skipped with no trace, so a run
+    that failed on every batch looked identical to one that genuinely
+    found nothing.
 
     Only meaningful with an LLM-capable engine; pure-MT engines return
-    an empty list (they don't reason about the whole set at once)."""
+    ([], 0, 0) (they don't reason about the whole set at once)."""
     if not getattr(engine, "supports_reference", False):
-        return []
+        return [], 0, 0
     translated = [ln for ln in lines if ln.en.strip()]
     if not translated:
-        return []
+        return [], 0, 0
 
     issues = []
+    failed_batches = 0
+    total_batches = 0
     for start in range(0, len(translated), batch_size):
         batch = translated[start:start + batch_size]
+        total_batches += 1
         prompt = build_consistency_prompt(batch)
         try:
             text = call_llm_json(engine, prompt, max_tokens=2000, fallback=None,
                                   usage_cb=usage_cb)
             if text is None:
+                failed_batches += 1
                 continue
-        except Exception:
-            continue  # a check failing shouldn't block anything -- just skip that batch
+        except Exception as e:
+            failed_batches += 1  # a check failing shouldn't block anything -- just skip that batch
+            import applog
+            applog.get_logger().warning(
+                f"consistency check batch {total_batches} failed: {redact_secrets(str(e))}")
+            continue
         batch_issues = _parse_json_array(text, 0)
         if isinstance(batch_issues, list):
             issues.extend(i for i in batch_issues if isinstance(i, dict) and i.get("term"))
-    return issues
+    return issues, failed_batches, total_batches
 
 
 # Kept intentionally to what's actually assessable from the text alone --
