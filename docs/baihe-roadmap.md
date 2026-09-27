@@ -2,6 +2,8 @@
 
 > **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state, not carried over from any earlier note here:
 >
+> **Steps 64, 66, 32 all merged (2026-09-27, PRs #162/#163/#164)** — Diagnostics button restyling, real throwaway-venv dependency-upgrade testing, and Workspace's look-ahead/batch-size sliders. All independently reviewed (real diffs, trial-merges, full suites — 3194/3194/3177 passed respectively, 0 failed), CI green before each squash-merge. Next in that queue: Step 71, then Step 31. Two items worth a manual look, not blocking: Step 64's icon may not fully address "user specifically dislikes the icon" (kept the emoji, just restyled); Step 68 (dark-mode/UX batch, Opus-flagged) is next in the other session's queue, followed by Step 73 (queued after it, same files).
+>
 > **Step 74 added (2026-09-27)** — from a user question about whether Step 32's context sliders could give real chapter/episode-level continuity: confirmed they can't scale that way (line-based, cost grows with every batch), and confirmed what already exists (`series_id`-scoped glossary/TM/character sheet — real, terminology-level continuity across episodes) vs. what's genuinely missing (no episode-ordering field in `db.py` at all — zero "episode" grep hits; no narrative-memory mechanism at any level). Proposes a once-per-episode running summary, local-model by default since it's a fixed per-episode cost, feeding only the immediately preceding episode's summary into the next episode's prompt. Not yet dispatched — a real, separate step from Step 73, not a follow-on to it.
 >
 > **Step 73 added (2026-09-27)** — a real, reproduced crash on Streamlit 1.49.1 itself, the version the requirements floor (`>=1.49`) claims to support: Workspace's stage tabs use `st.tabs(default=..., key=...)` (added in Step 19), and Read & Watch uses `st.iframe` — neither exists in 1.49.1. Distinct from Step 68's dark-mode/selectbox DOM findings (styling, not crashes), though likely the same underlying cause (an older Streamlit actually installed vs. what the app was really built against) — worth fixing before more DOM-dependent styling work chases version-specific symptoms. Not yet dispatched.
@@ -2796,6 +2798,8 @@ Found by direct code read, at the user's request, after asking whether translati
 - A test confirms a novel-narration drama's translation section pre-selects the higher starting values, while an audio-drama's still starts at today's defaults.
 - Manual check: translate a long novel-narration chapter with the look-ahead slider raised and confirm a pronoun/reference near the start of a batch that depends on something stated just after it resolves correctly, where it previously wouldn't have (or would have needed a lucky context_window value to catch it retroactively).
 
+**Built, reviewed, and merged (2026-09-27, PR #164).** Independently reviewed: real diff read in full, the "left `chunk_novel_text` alone" judgment call independently verified by diff (no changes to `core.py` at all, confirmed), trial-merged clean, full suite run on the merged tree — **3177 passed, 49 skipped, 0 failed** (the 5 `test_sources_mangaz.py` failures the implementing session reported were confirmed environment-specific to its own sandbox, not reproducible here). All three exit-criteria tests present and match. CI green before squash-merge. Manual check (translate a novel-narration chapter with the look-ahead slider raised, confirm a forward-resolved pronoun) still pending — real-app check, not verifiable from this session.
+
 ### Step 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path
 
 Flagged by the Step 16 implementing session while reading nearby files, not part of that step's own scope — independently confirmed by reading the real file at the repo root. **Its entire content is:**
@@ -3420,6 +3424,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - Manual check: open Diagnostics with both a real "not installed" row and a real "outdated" row showing, and confirm the buttons read as a deliberate design choice, not a bare default with an emoji.
 - Manual check: `db.py`'s real table count (e.g. `grep -c "CREATE TABLE" db.py` or equivalent) matches the figure `FILE_ORGANIZATION.md` now states.
 
+**Built, reviewed, and merged (2026-09-27, PR #162).** Independently reviewed: real diff read in full, trial-merged clean, full suite run on the combined Step 64+66 merge (both touch `tabs/diagnostics_tab.py`) — **3194 passed, 49 skipped, 0 failed**. Item 2's premise (FILE_ORGANIZATION.md's "19 tables") confirmed already stale/moot before this branch — the file states no table count at all, correctly left untouched. **One thing flagged for a manual look, not blocking**: the roadmap text says the user "specifically dislikes the icon," but the fix keeps the same emoji in Streamlit's native `icon=` slot rather than removing it — worth a real-browser check in case "dislikes the icon" meant removing it entirely rather than restyling how it's glued on. CI green before squash-merge.
+
 ---
 
 ### Step 65 — Reconsider "Read & Watch"'s tab name
@@ -3450,6 +3456,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms the isolated-venv/trial-install check actually catches a real, deliberately-broken candidate version (e.g. install an old version of a package this app's tests genuinely fail against, and confirm the check reports failure with real detail, not a bare "failed").
 - A test confirms a candidate version that passes cleanly is reported as such, distinctly from "untested."
 - Manual check: run the check against a real package upgrade (e.g. `huggingface_hub`, the one the user actually asked about) and confirm the report reflects the real test-suite outcome for that version, not a guess.
+
+**Built, reviewed, and merged (2026-09-27, PR #163).** Independently reviewed: real diff read in full, re-merged cleanly against the current tip after Step 64 (PR #162) landed first — no conflicts despite both touching `tabs/diagnostics_tab.py`, full suite run on the merged tree — **3194 passed, 49 skipped, 0 failed**. Tests are genuinely end-to-end (a real locally-built wheel, a real throwaway venv, a real nested pytest run), including a case reproducing the actual `huggingface_hub`/`transformers` conflict via pip's own real conflict-report parsing — both required exit-criteria tests present and match. CI green before squash-merge. Manual check (a real `huggingface_hub` upgrade test) still pending — real-app check, not verifiable from this session.
 
 ---
 
