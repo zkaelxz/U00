@@ -252,6 +252,94 @@ def kept_blob_bytes(page) -> dict:
     return out
 
 
+def _url_matches(url: str, pattern) -> bool:
+    """`pattern` is a plain substring or a compiled regex; either way,
+    answers "does this response belong to the endpoint a caller is
+    watching for"."""
+    if hasattr(pattern, "search"):
+        return bool(pattern.search(url))
+    return pattern in url
+
+
+def _capture_entry(url: str, status: int, content_type: str, body: bytes = None,
+                   max_body_bytes: int = 5_000_000) -> dict:
+    """One recorded response, with the body dropped (not raised past)
+    when it's missing or larger than the cap -- so one huge, merely
+    URL-matching download can't crowd out everything else a caller was
+    watching for."""
+    entry = {"url": url, "status": status, "content_type": content_type, "body": None}
+    if body is not None and len(body) <= max_body_bytes:
+        entry["body"] = body
+    return entry
+
+
+@contextmanager
+def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int = 3000,
+                        max_body_bytes: int = 5_000_000):
+    """Opens `url` in a real browser and records every network response
+    whose URL matches `url_pattern`, as the page's own JavaScript makes
+    them -- yielding `(page, captured)` so the caller can also drive the
+    page further (click, scroll, call a viewer's own API) the same way
+    `rendered_session()` already lets mangaz.py step through a reader.
+
+    For a site that protects its own content API with something computed
+    client-side -- a request signature built from a nonce, a timestamp,
+    a device token and a salt; a rotating token; anything this project
+    has no business reverse-engineering -- the site's own JavaScript
+    already knows how to build a valid request. So let it: capture the
+    real, already-signed request/response pairs the page makes on its
+    own, instead of porting the signing algorithm to Python. The same
+    "let the site's own execution path produce the result" principle
+    mangaz.py and manhuaku.py already apply to descrambling and AES,
+    extended here to an API a site protects with a computed signature
+    rather than encrypted output. Nothing about the signature is ever
+    inspected, guessed at, or reproduced -- only the response body the
+    site's own request already earned.
+
+    `url_pattern`: a substring, or a compiled regex, matched against
+    each response's URL -- e.g. `"/api/chapter/"` or a compiled
+    regex for a version-numbered content path.
+
+    `captured` is a plain list that fills in live as matching responses
+    arrive (read it after `page.wait_for_timeout()`, a click, or a
+    `page.evaluate()` -- whatever the caller does inside the `with`).
+    Each entry is `{"url", "status", "content_type", "body"}`; `body` is
+    `None` when it couldn't be read (aborted, redirected away, or over
+    `max_body_bytes`) rather than raising, since one bad response
+    shouldn't cost the caller every other one that did work. Empty if
+    the page never made a matching request at all -- that is itself a
+    real finding (the content loads a different way than expected), not
+    an error this function should paper over.
+    """
+    sync_playwright = _require_playwright()
+    captured = []
+
+    def on_response(response):
+        if not _url_matches(response.url, url_pattern):
+            return
+        body = None
+        try:
+            content_length = response.headers.get("content-length")
+            if not content_length or int(content_length) <= max_body_bytes:
+                body = response.body()
+        except Exception:
+            body = None
+        captured.append(_capture_entry(response.url, response.status,
+                                       response.headers.get("content-type", ""),
+                                       body, max_body_bytes))
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent="Mozilla/5.0 (compatible; BaiheStudio/1.0)")
+            page.on("response", on_response)
+            page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            page.wait_for_timeout(wait_ms)
+            yield page, captured
+        finally:
+            browser.close()
+
+
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --
