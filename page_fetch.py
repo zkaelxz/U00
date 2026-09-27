@@ -23,6 +23,7 @@ So this module does three things:
 import os
 import re
 import threading
+from contextlib import contextmanager
 
 # Root containers common to SPA frameworks. Their presence alongside
 # very little text is a strong signal the content hasn't rendered.
@@ -110,13 +111,173 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
     Returns (html, text). Raises ImportError with install instructions
     if Playwright isn't set up.
     """
-    sync_playwright = _require_playwright()
+    with _rendered_page(url, timeout, wait_selector, wait_ms) as page:
+        html = page.content()
+    return html, _visible_lines(html)
 
+
+# Resolves every `<img src="blob:...">` on the page into real bytes from
+# inside that page's own JS context, before the browser (and with it, the
+# blob's only storage) closes. Manhuaku's own real readPic() mechanism
+# (Step 23j) writes decrypted page images into the DOM exactly this way --
+# a blob: URL only exists in that one tab's memory and can never be
+# independently re-fetched afterward. Chunked base64 encoding avoids
+# blowing the call stack on a large image (a naive
+# String.fromCharCode(...spread) over a multi-MB Uint8Array can).
+_BLOB_RESOLVE_JS = """
+async () => {
+    const out = {};
+    const imgs = Array.from(document.querySelectorAll('img[src^="blob:"]'));
+    for (const img of imgs) {
+        try {
+            const resp = await fetch(img.src);
+            const buf = new Uint8Array(await resp.arrayBuffer());
+            let binary = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < buf.length; i += chunkSize) {
+                binary += String.fromCharCode.apply(null, buf.subarray(i, i + chunkSize));
+            }
+            out[img.src] = btoa(binary);
+        } catch (e) {
+            // left out; the Python side treats a missing key as
+            // "couldn't capture", not an error
+        }
+    }
+    return out;
+}
+"""
+
+
+def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: str = None,
+                                   wait_ms: int = 2500):
+    """Like fetch_rendered(), but additionally resolves any `blob:` object
+    URLs found in `<img>` tags into real bytes before the browser closes.
+
+    Returns (html, text, blob_bytes) -- blob_bytes maps each `blob:` URL
+    string to the real bytes fetched from inside the page context. A blob
+    whose fetch/decode failed is simply left out of the dict, not raised
+    as an error here; the caller decides what a missing blob means.
+    """
+    import base64
+    with _rendered_page(url, timeout, wait_selector, wait_ms) as page:
+        html = page.content()
+        raw = page.evaluate(_BLOB_RESOLVE_JS) or {}
+    blob_bytes = {}
+    for blob_url, b64 in raw.items():
+        try:
+            blob_bytes[blob_url] = base64.b64decode(b64)
+        except (ValueError, TypeError):
+            continue
+    return html, _visible_lines(html), blob_bytes
+
+
+# Keeps every Blob a page creates alive and its object URL resolvable.
+# Injected before the site's own scripts run. Some viewers (mangaz.com's
+# own, Step 23l) call URL.revokeObjectURL() inside the image's onload, so
+# by the time anything else looks the blob is already gone -- the rendered
+# bitmap is still on screen, but its bytes are unreachable. This only
+# declines to throw away what the page itself already produced for
+# display; it decodes nothing and defeats nothing.
+_BLOB_KEEPALIVE_JS = """
+window.__keptBlobs = {};
+const __origCreateObjectURL = URL.createObjectURL.bind(URL);
+URL.createObjectURL = function (obj) {
+    const url = __origCreateObjectURL(obj);
+    try { window.__keptBlobs[url] = obj; } catch (e) {}
+    return url;
+};
+URL.revokeObjectURL = function () { /* kept resolvable on purpose */ };
+"""
+
+# Reads back the kept blobs, newest first is irrelevant -- keyed by the
+# object URL the page itself handed to its own <img> tags, so a caller can
+# tie each one to whatever element referenced it.
+_KEPT_BLOBS_JS = """
+async () => {
+    const out = {};
+    for (const [url, blob] of Object.entries(window.__keptBlobs || {})) {
+        try {
+            const buf = new Uint8Array(await blob.arrayBuffer());
+            let binary = '';
+            for (let i = 0; i < buf.length; i += 8192) {
+                binary += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+            }
+            out[url] = btoa(binary);
+        } catch (e) {
+            // left out; a missing key means "couldn't capture"
+        }
+    }
+    return out;
+}
+"""
+
+
+@contextmanager
+def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
+                     keep_blobs: bool = False):
+    """An open, loaded page the caller drives itself, instead of the
+    one-shot fetch_rendered() shape.
+
+    For a site whose content only appears as its own viewer is navigated
+    (mangaz.com's paginated reader, Step 23l): the caller steps through
+    using that site's own public viewer API and reads what it produces,
+    rather than this project reproducing the site's rendering itself.
+    With `keep_blobs`, blobs the page creates stay resolvable for
+    `kept_blob_bytes()` to read back.
+    """
+    sync_playwright = _require_playwright()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent="Mozilla/5.0 (compatible; BaiheStudio/1.0)")
+            if keep_blobs:
+                page.add_init_script(_BLOB_KEEPALIVE_JS)
+            page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            page.wait_for_timeout(wait_ms)
+            yield page
+        finally:
+            browser.close()
+
+
+def kept_blob_bytes(page) -> dict:
+    """{object URL: real bytes} for every Blob a `keep_blobs` session's
+    page has created so far. A blob that couldn't be read is left out."""
+    import base64
+    out = {}
+    for blob_url, b64 in (page.evaluate(_KEPT_BLOBS_JS) or {}).items():
+        try:
+            out[blob_url] = base64.b64decode(b64)
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+@contextmanager
+def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
+    """A rendered, settled page, open for the caller to read from --
+    closed automatically on exit. Shared by fetch_rendered() and
+    fetch_rendered_resolving_blobs() so both wait the same way.
+
+    Scrolls to the bottom once after the initial load: a real, confirmed
+    need (manhuaku.net's chapter reader) for content some sites only
+    populate on a scroll/resize event (jquery.lazyload and similar), not
+    on the initial page load -- reproduced directly: the same chapter URL
+    rendered with zero real reader images without this scroll, and real
+    images consistently after it. Wrapped defensively, since a scroll can
+    itself trigger a navigation on some sites (also observed directly: a
+    responsive-redirect script reacting to the resulting resize event) --
+    that isn't fatal, just settled with another wait."""
+    sync_playwright = _require_playwright()
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
             page = browser.new_page(user_agent="Mozilla/5.0 (compatible; BaiheStudio/1.0)")
             page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            try:
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_load_state("networkidle", timeout=timeout * 1000)
+            except Exception:
+                pass  # a scroll-triggered navigation or a slow settle isn't fatal
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)
@@ -124,11 +285,9 @@ def fetch_rendered(url: str, timeout: int = 30, wait_selector: str = None,
                     pass  # selector guess was wrong; use whatever did render
             else:
                 page.wait_for_timeout(wait_ms)
-            html = page.content()
+            yield page
         finally:
             browser.close()
-
-    return html, _visible_lines(html)
 
 
 def _require_playwright():

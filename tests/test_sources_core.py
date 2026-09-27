@@ -85,14 +85,14 @@ class TestPacing:
         t = ScriptedTransport({u: html("x") for u in urls}, clock)
         policy = PacingPolicy.from_settings()
         assert (policy.min_delay, policy.max_delay, policy.max_concurrent, policy.max_retries) == \
-            (1.0, 3.0, 1, 3)
+            (3.0, 8.0, 1, 3)
         c = SourceClient("paced", policy=policy, transport=t, sleep=clock.sleep,
                          clock=clock.clock, rng=FixedRng(0.5))
         for u in urls:
             c.get(u)
         times = [call["t"] for call in t.calls]
         gaps = [b - a for a, b in zip(times, times[1:])]
-        assert gaps == pytest.approx([2.0] * 4)      # midpoint of the 1-3s default
+        assert gaps == pytest.approx([5.5] * 4)      # midpoint of the 3-8s default
         assert c.snapshot()["requests"] == 5
 
     def test_changing_settings_changes_the_pacing(self, isolated_db):
