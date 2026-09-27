@@ -102,6 +102,31 @@ class TestCaptionTracks:
         assert at.get("video") == []
         assert len(at.get("audio")) == 1
 
+    def test_audio_only_drama_shows_an_unsynced_caption_fallback(self, isolated_db):
+        # Step 45: a real reported bug -- a Streamer/VOD drama downloaded
+        # with no video file (only audio) has no way to show captions in
+        # the video player (there is none), leaving the user with no
+        # subtitles at all. Since st.audio genuinely can't overlay timed
+        # captions, show the same text as a plain readout instead of
+        # nothing.
+        did = self._media_drama(isolated_db, "audio")
+        at = _run(did)
+        assert not at.exception
+        _lang_radio = [r for r in at.radio if r.key == "reader_audio_captions_lang_" + str(did)][0]
+        assert list(_lang_radio.options) == ["Source", "English", "Bilingual"]
+        assert any("第一行" in c.value for c in at.caption)  # "Source" is the default selection
+
+        at = _lang_radio.set_value("English").run(timeout=30)
+        assert any("Line one" in c.value for c in at.caption)
+
+    def test_audio_only_drama_with_no_translation_shows_nothing_extra(self, isolated_db):
+        did = self._media_drama(isolated_db, "audio", en=False)
+        at = _run(did)
+        assert not at.exception
+        # Only "Source" text exists -- the fallback should still show it.
+        assert any(r.key == "reader_audio_captions_lang_" + str(did) for r in at.radio)
+        assert any("第一行" in c.value for c in at.caption)
+
 
 # ------------------------------------------- Step 15: Reader tab declutter
 

@@ -1551,6 +1551,14 @@ def _compute_workspace_stage_index(drama, lines, ddir):
     brand-new drama with no audio/video (or, for novel narration, no
     saved novel text) hasn't finished Source either, so that case checks
     for real source content before advancing past it.
+
+    Export/dub are checked before Diarize/Translate (Step 45): a drama
+    that's genuinely marked exported or has a dub track has clearly moved
+    well past those earlier stages, regardless of whether an earlier
+    stage's own signal (e.g. a line's `speaker` field) ever got
+    backfilled -- otherwise a drama with no persisted speaker data
+    reports Diarize as current forever, no matter how far translation and
+    export actually got.
     """
     content_mode = (drama or {}).get("content_mode") or "audio_drama"
     has_audio_pipeline = content_mode in ("audio_drama", "streamer_vod")
@@ -1562,14 +1570,15 @@ def _compute_workspace_stage_index(drama, lines, ddir):
             _has_source = bool(ddir and os.path.exists(
                 os.path.join(ddir, "novel_narration_source.txt")))
         return 1 if _has_source else 0
-    if has_audio_pipeline and not any(getattr(ln, "speaker", None) for ln in lines):
-        return 2
-    if any(not (ln.en or "").strip() for ln in lines):
-        return 3
     if (drama or {}).get("status") == "exported":
         return 6
     if ddir and os.path.exists(os.path.join(ddir, "dub_track.wav")):
         return 6
+    _untranslated = any(not (ln.en or "").strip() for ln in lines)
+    if has_audio_pipeline and not any(getattr(ln, "speaker", None) for ln in lines) and _untranslated:
+        return 2
+    if _untranslated:
+        return 3
     return 4
 
 
@@ -2034,10 +2043,23 @@ def render_workspace_tab():
                     "`pip install yt-dlp`."
                 )
                 dl_url = st.text_input("Video URL", key=f"dl_url_{picked_id}")
+                # Step 45: a Streamer/VOD drama with no kept video file has no
+                # way to ever show captions in the Reader tab's Watch/listen
+                # preview -- st.audio() has no subtitles support at all, unlike
+                # st.video(). Audio-only is still the right default for
+                # audio_drama (where there's no video worth keeping anyway),
+                # but defaulting it off for streamer_vod keeps this content
+                # mode's own core value (watching long-form video with
+                # captions) from silently breaking on the very first choice.
                 dl_audio_only = st.checkbox(
-                    "Audio only (recommended -- smaller, and this is all the pipeline needs "
-                    "unless you also want the video for hardsub/dub export later)",
-                    value=True, key=f"dl_audio_only_{picked_id}")
+                    "Audio only (smaller, and this is all the pipeline needs unless you also "
+                    "want the video for hardsub/dub export or in-app captions in the Reader tab)",
+                    value=(content_mode != "streamer_vod"), key=f"dl_audio_only_{picked_id}",
+                    help="Unchecked keeps the downloaded video file too (bigger download, "
+                         "needs local disk space) -- required for the Reader tab's video "
+                         "player to show captions, since Streamlit's audio-only player has no "
+                         "subtitles support at all."
+                         if content_mode == "streamer_vod" else None)
                 if st.button("⬇️ Download", disabled=not dl_url.strip()):
                     progress_bar = st.progress(0.0)
                     status = st.empty()
