@@ -3,12 +3,22 @@ tabs/settings.py -- a sidebar panel where API keys are entered once per
 session and reused as defaults across every tab, instead of retyping
 them in Workspace, Reader, Scanlate, Navigator, and Discover separately.
 
-Session-only: nothing here is written to disk. Each tab's own key
+Session-only by default: nothing here is written to disk unless you
+click "Save to .env" next to an API key/endpoint field, which writes
+that one value into the project's local .env file (plain text, not
+encrypted -- see the caption next to the button). Each tab's own key
 field still works independently if you want to override it there.
+
+Split into two tiers, Common and Advanced: Common holds what changes
+often (reading preferences, OCR default, per-drama defaults, API keys);
+Advanced holds what's set once and rarely touched again (offline
+model paths, GPU/performance tuning, spending cap, download cookies).
 """
 import os
 from common import st, synced_api_key_input
+import ocr
 import translate_engines
+import ui_theme
 import video_download
 
 
@@ -54,23 +64,7 @@ def _load_env_defaults(env_path: str = None):
         except Exception:
             pass  # a malformed .env should never stop the app starting
 
-    for settings_key, env_names in {
-        "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
-        "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
-        # Deliberately NOT falling back to GOOGLE_API_KEY here -- that name
-        # is already claimed by the separate Google Translate engine above,
-        # and a Cloud Translation key isn't guaranteed to also work as a
-        # Gemini API key (different products, often different projects).
-        "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
-        "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
-        "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
-        "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
-        "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
-        "ollama_url": ("BAIHE_OLLAMA_URL",),
-        "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
-        "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
-        "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
-    }.items():
+    for settings_key, env_names in _ENV_NAMES.items():
         if st.session_state.get(f"settings_{settings_key}"):
             continue
         for name in env_names:
@@ -78,6 +72,67 @@ def _load_env_defaults(env_path: str = None):
             if val:
                 st.session_state[f"settings_{settings_key}"] = val
                 break
+
+
+# Per settings key, the env var name(s) _load_env_defaults() reads on
+# startup, in priority order -- the first entry is also the canonical
+# name save_key_to_env() writes back, so a saved key round-trips through
+# the exact same name it would be read back under.
+_ENV_NAMES = {
+    "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
+    "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
+    # Deliberately NOT falling back to GOOGLE_API_KEY here -- that name
+    # is already claimed by the separate Google Translate engine above,
+    # and a Cloud Translation key isn't guaranteed to also work as a
+    # Gemini API key (different products, often different projects).
+    "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
+    "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
+    "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
+    "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
+    "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
+    "ollama_url": ("BAIHE_OLLAMA_URL",),
+    "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
+    "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
+    "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
+}
+
+
+def save_key_to_env(settings_key: str, value: str, env_path: str = None) -> str:
+    """Writes settings_key's current value into the local .env file under
+    its canonical name (_ENV_NAMES[settings_key][0] -- the same name
+    _load_env_defaults() reads back), updating an existing line in place
+    rather than appending a duplicate. Creates the file if it doesn't
+    exist yet. Plain text, same as every other .env value -- not
+    encrypted, which is why the Settings UI says so next to the button
+    that calls this.
+
+    Returns the env var name written, so the caller can confirm to the
+    user which line changed.
+    """
+    if env_path is None:
+        env_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    var_name = _ENV_NAMES[settings_key][0]
+
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, encoding="utf-8-sig") as fh:
+            lines = fh.readlines()
+
+    new_line = f"{var_name}={value}\n"
+    for i, line in enumerate(lines):
+        if line.strip().split("=", 1)[0].strip() == var_name:
+            lines[i] = new_line
+            break
+    else:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(new_line)
+
+    with open(env_path, "w", encoding="utf-8") as fh:
+        fh.writelines(lines)
+    return var_name
+
 
 SETTINGS_KEYS = {
     "claude": "Claude / Anthropic API key",
@@ -96,6 +151,7 @@ SETTINGS_KEYS = {
 def render_settings_sidebar():
     _load_env_defaults()
     with st.sidebar:
+        ui_theme.type_scale_scope()
         st.header("⚙️ Settings")
         st.session_state["app_dark_mode"] = st.toggle(
             "🌙 Dark mode", value=st.session_state.get("app_dark_mode", False),
@@ -103,8 +159,12 @@ def render_settings_sidebar():
                  "(light/sepia/dark) under Reading experience.")
         st.caption("Entered once, reused as defaults everywhere in this session. "
                   "Never written to the database. To avoid retyping them after a "
-                  "restart, put them in a `.env` file in the project folder -- it's "
-                  "gitignored. See .env.example.")
+                  "restart, either put them in a `.env` file yourself (gitignored -- "
+                  "see .env.example) or click \"Save to .env\" below each field.")
+
+        st.subheader("Common")
+        st.caption("Changed often -- start here.")
+
         with st.expander("Reading experience", expanded=False):
             st.session_state["spoiler_free_mode"] = st.checkbox(
                 "🙈 Spoiler-free mode", value=st.session_state.get("spoiler_free_mode", True),
@@ -124,16 +184,23 @@ def render_settings_sidebar():
                 index=["system", "serif", "sans-serif", "monospace"].index(
                     st.session_state.get("reader_font", "system")))
 
-        with st.expander("Offline / restricted networks", expanded=False):
-            st.session_state["settings_whisper_model_path"] = st.text_input(
-                "Local Whisper model folder (optional)",
-                value=st.session_state.get("settings_whisper_model_path", ""),
-                help="If this machine can't reach Hugging Face, download a faster-whisper "
-                     "model elsewhere and point at the folder here.")
-            st.caption("Leave blank to download automatically on first use. Models are cached "
-                      "after the first download, so this only matters once per model size.")
-
         with st.expander("OCR", expanded=False):
+            _default_ocr_backend = st.session_state.get("settings_ocr_backend", "auto")
+            if _default_ocr_backend not in ocr.OCR_BACKEND_OPTIONS:
+                _default_ocr_backend = "auto"
+            st.session_state["settings_ocr_backend"] = st.selectbox(
+                "Default OCR backend", ocr.OCR_BACKEND_OPTIONS,
+                format_func=lambda b: "🤖 Auto (by source language)" if b == "auto" else b,
+                index=ocr.OCR_BACKEND_OPTIONS.index(_default_ocr_backend),
+                help="Used everywhere OCR runs (Scanlate, novel narration from image pages) "
+                     "unless overridden for one page there. Auto picks manga_ocr for "
+                     "Japanese, paddle for Chinese/Korean, tesseract otherwise.")
+            st.session_state["settings_ocr_prefer_paddle_vl_manga"] = st.checkbox(
+                "For Japanese, Auto prefers PaddleOCR-VL-For-Manga over manga_ocr",
+                value=st.session_state.get("settings_ocr_prefer_paddle_vl_manga", False),
+                help="Opt-in second Japanese backend -- only affects what Auto picks. Its own "
+                     "model card doesn't benchmark against manga_ocr, so leave this off until "
+                     "a real side-by-side on your own pages says it's actually better.")
             st.session_state["settings_tesseract_cmd"] = st.text_input(
                 "Tesseract binary path (optional)",
                 value=st.session_state.get("settings_tesseract_cmd", ""),
@@ -143,6 +210,65 @@ def render_settings_sidebar():
                      "always add itself to PATH. Point this at tesseract.exe directly instead "
                      "of editing a system PATH variable by hand. Leave blank if OCR already "
                      "works.")
+
+        with st.expander("Defaults for new dramas", expanded=False):
+            _default_engine_options = ["claude", "deepseek", "deepl", "google", "ollama",
+                                        "libretranslate", "nllb"]
+            st.session_state["settings_default_engine"] = st.selectbox(
+                "Default translation engine", _default_engine_options,
+                index=_default_engine_options.index(
+                    st.session_state.get("settings_default_engine", "claude"))
+                    if st.session_state.get("settings_default_engine", "claude") in _default_engine_options
+                    else 0)
+            st.session_state["settings_default_locale"] = st.selectbox(
+                "Default English variant", ["en-US", "en-GB", "en-AU"],
+                index=["en-US", "en-GB", "en-AU"].index(st.session_state.get("settings_default_locale", "en-US")))
+            st.session_state["settings_default_style_note"] = st.text_input(
+                "Default style notes", value=st.session_state.get("settings_default_style_note", ""))
+
+        with st.expander("API keys & endpoints", expanded=False):
+            st.caption("\"Save to .env\" writes that one value into this project's local "
+                      "`.env` file, in plain text (not encrypted) -- fine for this app's "
+                      "single-user, local-machine threat model, but worth knowing before "
+                      "saving a key on a shared machine.")
+            for key, label in SETTINGS_KEYS.items():
+                is_url = key.endswith("_url")
+                val = synced_api_key_input(label, key, f"settings_input_{key}",
+                                            type="default" if is_url else "password")
+                if st.button("💾 Save to .env", key=f"save_env_{key}", disabled=not val,
+                             help=f"Writes {_ENV_NAMES[key][0]}=... to .env so this survives "
+                                  "an app restart."):
+                    var_name = save_key_to_env(key, val)
+                    st.toast(f"Saved {var_name} to .env.", icon="💾")
+                if key == "gemini":
+                    st.session_state["gemini_free_tier"] = st.checkbox(
+                        "My Gemini key is free-tier",
+                        value=st.session_state.get("gemini_free_tier", False),
+                        help="Free-tier Gemini keys are rate-limited: Flash allows "
+                             f"{translate_engines.GEMINI_FREE_TIER_LIMITS['flash']['rpm']} "
+                             f"requests/min / {translate_engines.GEMINI_FREE_TIER_LIMITS['flash']['rpd']}"
+                             "/day, Flash-Lite allows "
+                             f"{translate_engines.GEMINI_FREE_TIER_LIMITS['flash-lite']['rpm']}"
+                             f"/min / {translate_engines.GEMINI_FREE_TIER_LIMITS['flash-lite']['rpd']}"
+                             "/day, with a shared "
+                             f"{translate_engines.GEMINI_FREE_TIER_TPM:,} tokens/minute ceiling "
+                             "across models -- Pro isn't available on the free tier at all. Google "
+                             "may use the text you send to improve its products. Ticking this "
+                             "labels Gemini as free everywhere it's picked, and paces requests "
+                             "automatically against all three limits instead of hitting rate-limit "
+                             "errors.")
+
+        st.subheader("Advanced")
+        st.caption("Changed rarely -- tucked away so they don't crowd the settings above.")
+
+        with st.expander("Offline / restricted networks", expanded=False):
+            st.session_state["settings_whisper_model_path"] = st.text_input(
+                "Local Whisper model folder (optional)",
+                value=st.session_state.get("settings_whisper_model_path", ""),
+                help="If this machine can't reach Hugging Face, download a faster-whisper "
+                     "model elsewhere and point at the folder here.")
+            st.caption("Leave blank to download automatically on first use. Models are cached "
+                      "after the first download, so this only matters once per model size.")
 
         with st.expander("Performance", expanded=False):
             st.session_state["use_gpu"] = st.checkbox(
@@ -173,6 +299,16 @@ def render_settings_sidebar():
                      "silently does nothing if it's missing or your desktop has no notification "
                      "daemon.")
             background_jobs.set_notify_on_completion(st.session_state["settings_notify_on_job_done"])
+
+            st.session_state["settings_ollama_num_ctx_override"] = st.number_input(
+                "Ollama context window override (num_ctx, optional)",
+                min_value=0, step=1024,
+                value=st.session_state.get("settings_ollama_num_ctx_override", 0) or 0,
+                help="Leave at 0 to size this automatically from the actual prompt each "
+                     "time (recommended). Ollama's own default context window can be as "
+                     "small as 2-4k tokens and silently truncates a longer prompt with no "
+                     "error -- a value set here can only raise the window above the "
+                     "automatic estimate, never below it, so it can't reintroduce that bug.")
 
         with st.expander("Spending", expanded=False):
             try:
@@ -205,50 +341,3 @@ def render_settings_sidebar():
                 value=st.session_state.get("settings_cookies_file", ""),
                 help="Export one with a browser extension (e.g. \"Get cookies.txt\") if the "
                      "browser option above can't read your profile directly.")
-
-        with st.expander("Defaults for new dramas", expanded=False):
-            _default_engine_options = ["claude", "deepseek", "deepl", "google", "ollama",
-                                        "libretranslate", "nllb"]
-            st.session_state["settings_default_engine"] = st.selectbox(
-                "Default translation engine", _default_engine_options,
-                index=_default_engine_options.index(
-                    st.session_state.get("settings_default_engine", "claude"))
-                    if st.session_state.get("settings_default_engine", "claude") in _default_engine_options
-                    else 0)
-            st.session_state["settings_default_locale"] = st.selectbox(
-                "Default English variant", ["en-US", "en-GB", "en-AU"],
-                index=["en-US", "en-GB", "en-AU"].index(st.session_state.get("settings_default_locale", "en-US")))
-            st.session_state["settings_default_style_note"] = st.text_input(
-                "Default style notes", value=st.session_state.get("settings_default_style_note", ""))
-
-        with st.expander("API keys & endpoints", expanded=False):
-            for key, label in SETTINGS_KEYS.items():
-                is_url = key.endswith("_url")
-                synced_api_key_input(label, key, f"settings_input_{key}",
-                                      type="default" if is_url else "password")
-                if key == "gemini":
-                    st.session_state["gemini_free_tier"] = st.checkbox(
-                        "My Gemini key is free-tier",
-                        value=st.session_state.get("gemini_free_tier", False),
-                        help="Free-tier Gemini keys are rate-limited: Flash allows "
-                             f"{translate_engines.GEMINI_FREE_TIER_LIMITS['flash']['rpm']} "
-                             f"requests/min / {translate_engines.GEMINI_FREE_TIER_LIMITS['flash']['rpd']}"
-                             "/day, Flash-Lite allows "
-                             f"{translate_engines.GEMINI_FREE_TIER_LIMITS['flash-lite']['rpm']}"
-                             f"/min / {translate_engines.GEMINI_FREE_TIER_LIMITS['flash-lite']['rpd']}"
-                             "/day, with a shared "
-                             f"{translate_engines.GEMINI_FREE_TIER_TPM:,} tokens/minute ceiling "
-                             "across models -- Pro isn't available on the free tier at all. Google "
-                             "may use the text you send to improve its products. Ticking this "
-                             "labels Gemini as free everywhere it's picked, and paces requests "
-                             "automatically against all three limits instead of hitting rate-limit "
-                             "errors.")
-            st.session_state["settings_ollama_num_ctx_override"] = st.number_input(
-                "Ollama context window override (num_ctx, optional)",
-                min_value=0, step=1024,
-                value=st.session_state.get("settings_ollama_num_ctx_override", 0) or 0,
-                help="Leave at 0 to size this automatically from the actual prompt each "
-                     "time (recommended). Ollama's own default context window can be as "
-                     "small as 2-4k tokens and silently truncates a longer prompt with no "
-                     "error -- a value set here can only raise the window above the "
-                     "automatic estimate, never below it, so it can't reintroduce that bug.")

@@ -17,7 +17,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tabs.settings_tab import _load_env_defaults
+from tabs.settings_tab import _load_env_defaults, save_key_to_env
 
 
 @pytest.fixture(autouse=True)
@@ -281,6 +281,128 @@ class TestCookieBasedLoginSettings:
         import video_download
         at = self._run()
         assert self._browser_box(at).options[1:] == video_download.COOKIE_BROWSERS
+
+
+class TestSaveKeyToEnv:
+    """Step 16 item 6: a "Save to .env" action next to each API-key field,
+    writing/updating the matching BAIHE_<NAME>_KEY line in place -- so a
+    typed key survives a restart without requiring the user to hand-edit
+    .env themselves."""
+
+    def test_creates_the_file_when_it_does_not_exist_yet(self, tmp_path):
+        env_path = str(tmp_path / ".env")
+        var_name = save_key_to_env("hf_token", "hf_new_value", env_path)
+        assert var_name == "BAIHE_HF_TOKEN"
+        with open(env_path, encoding="utf-8") as f:
+            content = f.read()
+        assert content == "BAIHE_HF_TOKEN=hf_new_value\n"
+
+    def test_appends_a_new_line_when_the_file_exists_but_lacks_that_key(self, tmp_path):
+        env_path = _write_env(tmp_path / ".env", "BAIHE_CLAUDE_KEY=sk-ant-x\n")
+        save_key_to_env("hf_token", "hf_new_value", env_path)
+        with open(env_path, encoding="utf-8") as f:
+            lines = f.readlines()
+        assert lines == ["BAIHE_CLAUDE_KEY=sk-ant-x\n", "BAIHE_HF_TOKEN=hf_new_value\n"]
+
+    def test_updates_an_existing_line_in_place_rather_than_appending_a_duplicate(self, tmp_path):
+        env_path = _write_env(
+            tmp_path / ".env",
+            "BAIHE_CLAUDE_KEY=sk-ant-old\nBAIHE_HF_TOKEN=hf_old\n")
+        save_key_to_env("claude", "sk-ant-new", env_path)
+        with open(env_path, encoding="utf-8") as f:
+            lines = f.readlines()
+        assert lines == ["BAIHE_CLAUDE_KEY=sk-ant-new\n", "BAIHE_HF_TOKEN=hf_old\n"]
+        assert lines.count("BAIHE_CLAUDE_KEY=sk-ant-new\n") == 1
+
+    def test_preserves_comments_and_other_lines(self, tmp_path):
+        env_path = _write_env(
+            tmp_path / ".env",
+            "# a comment\nBAIHE_CLAUDE_KEY=sk-ant-old\n\nBAIHE_HF_TOKEN=hf_old\n")
+        save_key_to_env("claude", "sk-ant-new", env_path)
+        with open(env_path, encoding="utf-8") as f:
+            lines = f.readlines()
+        assert lines == [
+            "# a comment\n", "BAIHE_CLAUDE_KEY=sk-ant-new\n", "\n", "BAIHE_HF_TOKEN=hf_old\n"]
+
+    def test_round_trips_through_load_env_defaults(self, tmp_path):
+        env_path = str(tmp_path / ".env")
+        save_key_to_env("deepl", "dl-abc123", env_path)
+        _load_env_defaults(env_path)
+        assert st.session_state.get("settings_deepl") == "dl-abc123"
+
+
+class TestApiKeySaveToEnvButton:
+    """UI wiring for TestSaveKeyToEnv's underlying function -- clicking
+    the button calls save_key_to_env with the field's current value,
+    without ever touching a real file (save_key_to_env itself is
+    monkeypatched, since the button under test intentionally targets
+    the real project .env path when not given one)."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.settings_tab import render_settings_sidebar
+            render_settings_sidebar()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_clicking_save_calls_save_key_to_env_with_the_typed_value(self, monkeypatch):
+        import tabs.settings_tab as settings_tab
+        calls = []
+        monkeypatch.setattr(
+            settings_tab, "save_key_to_env",
+            lambda key, value, env_path=None: calls.append((key, value)) or "BAIHE_CLAUDE_KEY")
+
+        at = self._run()
+        claude_input = [t for t in at.text_input if t.key == "settings_input_claude"][0]
+        claude_input.set_value("sk-ant-typed").run(timeout=30)
+        save_btn = [b for b in at.button if b.key == "save_env_claude"][0]
+        save_btn.click().run(timeout=30)
+
+        assert calls == [("claude", "sk-ant-typed")]
+
+
+class TestOcrDefaultBackendSetting:
+    """Step 16: the OCR default-backend picker moves from being only in
+    Scanlate to living in Settings' OCR section, so it has a home even
+    for someone who hasn't opened Scanlate yet."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.settings_tab import render_settings_sidebar
+            render_settings_sidebar()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _backend_box(self, at):
+        matches = [b for b in at.selectbox if b.label == "Default OCR backend"]
+        assert matches, "Default OCR backend selectbox not found in Settings"
+        return matches[0]
+
+    def test_defaults_to_auto(self):
+        at = self._run()
+        assert self._backend_box(at).value == "auto"
+        assert at.session_state.get("settings_ocr_backend") == "auto"
+
+    def test_picking_a_backend_sets_session_state(self):
+        at = self._run()
+        self._backend_box(at).set_value("manga_ocr").run(timeout=30)
+        assert at.session_state.get("settings_ocr_backend") == "manga_ocr"
+
+    def test_prefer_paddle_vl_manga_checkbox_present_and_off_by_default(self):
+        at = self._run()
+        matches = [c for c in at.checkbox
+                   if c.label == "For Japanese, Auto prefers PaddleOCR-VL-For-Manga over manga_ocr"]
+        assert matches, "checkbox not found in Settings' OCR section"
+        assert matches[0].value is False
+        assert at.session_state.get("settings_ocr_prefer_paddle_vl_manga") is False
 
 
 class TestRepeatedCallsPickUpLateEdits:

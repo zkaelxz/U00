@@ -97,6 +97,55 @@ def _button(at, label):
     return matches[0]
 
 
+class TestOcrBackendDefaultFromSettings:
+    """Step 16: the OCR backend picker's default now comes from Settings'
+    own "Default OCR backend" setting, with Scanlate keeping only a
+    per-page override -- it's no longer the only place to set a default."""
+
+    def test_picker_defaults_to_the_settings_value(self, isolated_db):
+        did, page_id = _drama_with_page(isolated_db)
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.scanlate_tab as st_mod
+            st_mod.render_scanlate_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["scanlate_drama_pick"] = f"#{did} — Test Manga"
+        at.session_state["settings_ocr_backend"] = "manga_ocr"
+        at.run(timeout=30)
+
+        matches = [b for b in at.selectbox if b.key == "sc_ocr_backend"]
+        assert matches, "OCR backend selectbox not found"
+        assert matches[0].value == "manga_ocr"
+
+    def test_picker_still_overridable_per_page(self, isolated_db):
+        did, page_id = _drama_with_page(isolated_db)
+        at = _run(did)
+        matches = [b for b in at.selectbox if b.key == "sc_ocr_backend"]
+        assert matches[0].value == "auto"  # no Settings default set -> falls back to auto
+        matches[0].set_value("tesseract").run(timeout=30)
+        matches = [b for b in at.selectbox if b.key == "sc_ocr_backend"]
+        assert matches[0].value == "tesseract"
+
+    def test_prefer_paddle_vl_manga_checkbox_defaults_from_settings(self, isolated_db):
+        did, page_id = _drama_with_page(isolated_db)
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.scanlate_tab as st_mod
+            st_mod.render_scanlate_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["scanlate_drama_pick"] = f"#{did} — Test Manga"
+        at.session_state["settings_ocr_prefer_paddle_vl_manga"] = True
+        at.run(timeout=30)
+
+        matches = [c for c in at.checkbox if c.key == "sc_prefer_paddle_vl_manga"]
+        assert matches, "prefer-paddle-vl-manga checkbox not found"
+        assert matches[0].value is True
+
+
 class TestBulkFindAndReplace:
     """Step 25o: Scanlate's bulk find & replace didn't clear the on-screen
     bubble text-area widget after Apply -- the box kept showing the

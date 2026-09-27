@@ -511,14 +511,6 @@ def render_diagnostics_tab():
             for f in files["missing_tabs"]:
                 st.write(f"- `{f}`")
 
-    # ---- API keys ----
-    st.subheader("API keys (from Settings)")
-    kc = st.columns(len(api_keys_set))
-    for i, (key, is_set) in enumerate(api_keys_set.items()):
-        kc[i].metric(key, "✅ set" if is_set else "— not set")
-    if not any(api_keys_set.values()):
-        st.warning("No API keys configured yet -- add them in the ⚙️ Settings sidebar panel.")
-
     # ---- Dependencies ----
     st.subheader("Dependencies")
     deps = results["dependencies"]

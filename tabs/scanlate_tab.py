@@ -2,6 +2,7 @@
 tabs/scanlate.py -- Scanlate tab UI, extracted from the former monolithic app.py.
 """
 from common import *
+import ocr
 
 
 def render_scanlate_tab():
@@ -72,18 +73,23 @@ def render_scanlate_tab():
             st.caption("Inpainting (cleaning the original text) auto-selects the same way -- "
                        "LaMa-manga if its weights are cached, plain OpenCV inpainting otherwise.")
 
-            _ocr_backend_options = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
+            _ocr_backend_options = ocr.OCR_BACKEND_OPTIONS
+            _settings_ocr_backend = st.session_state.get("settings_ocr_backend", "auto")
+            if _settings_ocr_backend not in _ocr_backend_options:
+                _settings_ocr_backend = "auto"
             oc1, oc2 = st.columns([2, 3])
             sc_ocr_backend_choice = oc1.selectbox(
-                "OCR backend", _ocr_backend_options,
+                "OCR backend (this page)", _ocr_backend_options,
                 format_func=lambda b: "🤖 Auto (by source language)" if b == "auto" else b,
+                index=_ocr_backend_options.index(_settings_ocr_backend),
                 key="sc_ocr_backend",
-                help="Auto picks manga_ocr for Japanese, paddle for Chinese/Korean, tesseract "
-                     "otherwise -- override to force one, e.g. to compare paddle_vl_manga "
-                     "against manga_ocr on a Japanese page.")
+                help="Defaults to Settings → OCR's default backend; override here for just "
+                     "this page, e.g. to compare paddle_vl_manga against manga_ocr on a "
+                     "Japanese page.")
             sc_prefer_paddle_vl_manga = oc2.checkbox(
                 "For Japanese, Auto prefers PaddleOCR-VL-For-Manga over manga_ocr",
-                value=False, key="sc_prefer_paddle_vl_manga",
+                value=st.session_state.get("settings_ocr_prefer_paddle_vl_manga", False),
+                key="sc_prefer_paddle_vl_manga",
                 help="Opt-in second Japanese backend -- only affects what Auto picks. Its own "
                      "model card doesn't benchmark against manga_ocr, so leave this off until "
                      "a real side-by-side on your own pages says it's actually better.")
