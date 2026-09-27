@@ -556,18 +556,31 @@ class MangazSource(SourceAdapter):
                         "and only its own reader reassembles them.",
                         FailureReason.ENCRYPTED_RESOURCE)
                 seen = {}
-                for target in range(total):
-                    if len(seen) >= total:
-                        break
+
+                def visit(target, settle):
                     try:
                         page.evaluate("(n) => JCOMI.viewer.movePage(n)", target)
                     except Exception:
                         # A page the viewer declines to move to isn't
                         # fatal -- whatever it did produce is still kept.
                         pass
-                    page.wait_for_timeout(_page_settle_ms())
+                    page.wait_for_timeout(settle)
                     for no, blob_url in (page.evaluate(_VIEWER_PAGE_IMAGES_JS) or {}).items():
                         seen.setdefault(str(no), blob_url)
+
+                for target in range(total):
+                    if len(seen) >= total:
+                        break
+                    visit(target, _page_settle_ms())
+                # A page the viewer hadn't finished drawing when its turn
+                # came round is just slow, not missing: a live run left 5
+                # of 43 behind this way. Give each straggler one more
+                # visit, with longer to settle, before writing the book
+                # off as incomplete.
+                for target in range(total):
+                    if str(target) in seen:
+                        continue
+                    visit(target, _VIEWER_PAGE_SETTLE_MS[1] * 2)
                 blobs = page_fetch.kept_blob_bytes(page)
                 for no, blob_url in seen.items():
                     data = blobs.get(blob_url)

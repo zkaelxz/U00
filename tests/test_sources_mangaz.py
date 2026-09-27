@@ -211,9 +211,12 @@ class _FakeViewerPage:
     it has been moved to -- never revealing how a real page is
     descrambled, because the adapter never does that itself."""
 
-    def __init__(self, page_blobs, ready=True):
+    def __init__(self, page_blobs, ready=True, slow_pages=()):
         self.page_blobs = page_blobs          # {page no: bytes}
         self.ready = ready
+        # Pages that don't appear on their first visit, the way a real
+        # viewer that hasn't finished drawing one yet behaves.
+        self.slow_pages = set(slow_pages)
         self.moved_to = []
         self._displayed = {}
 
@@ -228,8 +231,9 @@ class _FakeViewerPage:
             return {f"blob:https://viewer.invalid/{no}": base64.b64encode(data).decode("ascii")
                     for no, data in self.page_blobs.items()}
         if "movePage" in js:
+            first_visit = arg not in self.moved_to
             self.moved_to.append(arg)
-            if arg in self.page_blobs:
+            if arg in self.page_blobs and not (first_visit and arg in self.slow_pages):
                 self._displayed[str(arg)] = f"blob:https://viewer.invalid/{arg}"
             return None
         raise AssertionError(f"unexpected evaluate(): {js[:60]}")
@@ -296,6 +300,18 @@ class TestPagesFromTheViewerManifest:
         # The .jpg the manifest points at is tile-scrambled; fetching it
         # would yield a strip of tiles, so it must never be requested.
         assert not [c for c in t.calls if "anne_Dtest" in c["url"]]
+
+    def test_a_page_the_viewer_was_slow_to_draw_is_revisited(self):
+        """A live run left 5 of 43 pages behind simply because the viewer
+        hadn't finished drawing them when their turn came round. Slow is
+        not missing -- each straggler gets one more visit."""
+        page = _FakeViewerPage({0: b"page-zero-bytes", 1: b"page-one-bytes"}, slow_pages={1})
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        assert a.download_page(refs[1]) == (b"page-one-bytes", ".jpg")
+        assert page.moved_to.count(1) > 1      # revisited, not given up on
 
     def test_viewer_that_never_comes_up_is_refused_not_guessed(self):
         page = _FakeViewerPage({}, ready=False)
