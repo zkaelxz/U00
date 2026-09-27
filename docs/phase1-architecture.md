@@ -5,8 +5,10 @@
 **Badly stale, describes an architecture that was never built:**
 - **§5 "Project structure"** — describes a `backend/`+`frontend/` split with FastAPI + React + SQLAlchemy. The real app is a single-process Streamlit application (`app.py`, `tabs/*.py`, plain top-level modules) with no FastAPI/React anywhere — confirmed directly against the real file tree (see `FILE_ORGANIZATION.md`, itself being corrected for its own staleness as roadmap Step 56). M8+ in the roadmap's own §3 deferred-milestones list explicitly still frames "FastAPI + React" as a possible *future* migration, not something already done — this section describes that unbuilt future state, not the current app.
 - **§6 "Data model (artifact-based, non-destructive)"** — describes an append-only, versioned-artifact-per-row schema where nothing is ever overwritten. The real `db.py` is plain `sqlite3`, no ORM, with schema changes via `ALTER TABLE ... ADD COLUMN` — a conventional mutable-row schema, not the artifact-versioning model described here. The real, actually-built mechanism for "don't destroy prior work" is Step 2's permanent line IDs + field-scoped writes (see `CLAUDE.md`'s own "Rules learned from real bugs" section), a different, simpler design that solves the same underlying problem this section worried about.
-- **§7 "GPU/VRAM strategy (RTX 3070 Ti, 8 GB)"** — wrong hardware. The user's real, confirmed-via-`nvidia-smi` GPU is an **RTX 3080 Ti, 12 GB VRAM**, not a 3070 Ti with 8 GB. Every specific VRAM budget number in this section (what fits, what doesn't, the 14B-model "won't fit cleanly" caveat) was calculated against the wrong card and should not be trusted without redoing the math against the real 12 GB figure — Step 41 items 7–8 (VRAM fit-check, NLLB cache release) are the real, current version of this concern, built against the actual hardware.
 - **§4 "Recommended MVP"** and **§8 "Implementation milestones" (M1–M8+)** — describes a CLI-first, UI-last build order ("no milestone starts until the previous one has one," UI work gated behind a benchmark harness). The real roadmap (this file's sibling, `baihe-roadmap.md`) built UI continuously from very early steps, not CLI-first — this section's *sequencing philosophy* doesn't match what actually happened, even though the underlying pipeline stages it describes (extract → VAD → ASR/diarize → merge → translate → export) are conceptually similar to what got built.
+
+**Corrected in this pass, not just flagged:**
+- **§7 "GPU/VRAM strategy"** — originally cited an RTX 3070 Ti / 8 GB, the wrong hardware; the user's real, confirmed-via-`nvidia-smi` GPU is an **RTX 3080 Ti, 12 GB VRAM**. Every VRAM figure in that section has been re-derived against the real 12 GB card (the 14B translation tier, previously flagged as "won't fit cleanly" on 8 GB, is now a comfortable fit with real headroom on 12 GB). Step 41 items 7–8 (VRAM fit-check, NLLB cache release) remain the real, current, code-grounded version of this concern — this section is corrected background research, not a substitute for checking the real code.
 
 **Still holds, worth keeping as background research — but check the real current default before assuming it matches:**
 - **§1 "Diarization and transcription must be decoupled, not sequential"** — this specific technical requirement is real and the general shape (independent branches merged later) matches how the actual app works.
@@ -250,9 +252,11 @@ Jobs are tracked per-artifact-per-segment (not per-video), so a 20-hour job that
 
 ---
 
-## 7. GPU/VRAM strategy (RTX 3070 Ti, 8 GB)
+## 7. GPU/VRAM strategy (RTX 3080 Ti, 12 GB)
 
-Nothing stays resident across stages. Approximate footprints (all fit comfortably alone in 8 GB; the point is they are **never loaded concurrently**):
+**Corrected 2026-09-27** — this section originally cited an RTX 3070 Ti / 8 GB, the wrong card. The user's real, confirmed-via-`nvidia-smi` GPU is an **RTX 3080 Ti with 12 GB VRAM**. Every figure below is re-derived against the real 12 GB figure; nothing here should be read as still describing an 8 GB budget.
+
+Nothing stays resident across stages. Approximate footprints (all fit comfortably alone in 12 GB; the point is they are **never loaded concurrently**):
 
 | Stage | Model | Approx. VRAM |
 |---|---|---|
@@ -260,9 +264,10 @@ Nothing stays resident across stages. Approximate footprints (all fit comfortabl
 | Alignment | Qwen3-ForcedAligner-0.6B | ~1–2 GB |
 | Diarization | pyannote community-1 | <2 GB |
 | Translation (default) | Qwen2.5/3-7B-Instruct Q4_K_M | ~4.5–5 GB |
-| Translation (opt-in, slower) | Qwen2.5/3-14B-Instruct Q4_K_M | ~8.7 GB — will not comfortably coexist with a real KV-cache/context window on an 8 GB card; treat as "may spill to CPU offload, expect slowdown," not a clean fit |
+| Translation (larger, now a comfortable fit at 12 GB) | Qwen2.5/3-14B-Instruct Q4_K_M | ~8.7 GB — fits cleanly on a 12 GB card with real headroom for KV-cache/context (roughly 3+ GB free), unlike the original 8 GB budget this section was written against. No longer needs an "opt-in, expect CPU offload" caveat at this quantization. |
+| Translation (large, tight) | Qwen2.5/3-14B-Instruct at higher precision, or a ~20B-class model, quantized | Realistically at or near the 12 GB ceiling once real context is loaded — treat as "may need CPU offload / a smaller context window," the caveat that used to apply to the 14B tier above. |
 
-`model_manager.py` owns explicit load → use → `torch.cuda.empty_cache()`/unload boundaries between stages, and refuses to load a second GPU-resident model while one is active. This is a real constraint to design around, not a nice-to-have: the 14B translation tier in particular must be presented to the user as "will not fit cleanly," not silently attempted.
+`model_manager.py` owns explicit load → use → `torch.cuda.empty_cache()`/unload boundaries between stages, and refuses to load a second GPU-resident model while one is active. This is a real constraint to design around, not a nice-to-have — but the specific tier this constraint bites hardest has moved up: on the real 12 GB card, the 14B translation tier is now a normal default-adjacent option, not the "won't fit cleanly" tier this section originally warned about. The current, real version of this whole concern is roadmap Step 41 items 7–8 (a real VRAM fit-before-load check, and fixing `release_gpu_models()` to actually clear the local-translation-model cache it currently misses) — that's the up-to-date, code-grounded version of what this section was trying to plan for.
 
 ---
 
