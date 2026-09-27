@@ -124,7 +124,7 @@ class TestReaderFollowsAppDarkMode:
     def test_resolve_reader_theme(self, choice, dark, expected):
         assert ui_theme.resolve_reader_theme(choice, dark) == expected
 
-    def test_match_app_is_the_default_setting(self):
+    def test_match_app_is_the_default_setting(self, isolated_db):
         def _render():
             from tabs.settings_tab import render_settings_sidebar
             render_settings_sidebar()
