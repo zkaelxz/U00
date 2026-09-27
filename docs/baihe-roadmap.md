@@ -334,6 +334,8 @@ Rules for every milestone:
 | 62 | On a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward. Click "Install everything in requirements-optional.txt" with `audio-separator` left in and confirm the bulk action reports that one failure clearly while still installing everything else. |
 | 63 | On a venv with `streamlit` importable but a different required package deliberately removed, run `start.ps1` and confirm it does NOT skip the install step -- same check as Step 53's own, applied to the PowerShell launcher. |
 | 64 | Open Diagnostics with a real "not installed" row and a real "outdated" row showing, and confirm the Install/Upgrade buttons read as a deliberate design choice. Confirm `FILE_ORGANIZATION.md`'s stated table count matches `db.py`'s real current count. |
+| 65 | Whichever way the tab-name decision goes, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab. |
+| 66 | Run the upgrade-safety check against a real package upgrade (e.g. `huggingface_hub`) and confirm the report reflects the real test-suite outcome for that version, not a guess. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3408,6 +3410,22 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 
 **Exit:**
 - Manual check: whichever way this is decided, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab (no stale name in one place and a new one in the other).
+
+---
+
+### Step 66 — Widen dependency-upgrade safety checking beyond Step 47's one curated entry
+
+**User-asked (2026-09-27), after using the just-merged Step 47 panel live and asking "if I update huggingface will it break? Is it possible to implement a version check to see if it breaks or is supported?"** Step 47 item 5 already built `KNOWN_UPGRADE_LIMITATIONS`, a curated dict naming a package/reason an upgrade is known-blocked — but it currently has exactly one entry (`audio-separator`/`diffq-fixed`, from Step 61). Predicting with certainty whether an arbitrary *future* release of an arbitrary package breaks this app isn't realistically automatable — nobody can test against a release that doesn't exist yet — but two real, buildable pieces widen the safety net honestly instead of promising more than that:
+
+1. **Grow `KNOWN_UPGRADE_LIMITATIONS` as real breakages are actually found** — not speculatively. Each new entry needs a real, reproduced failure (the same standard Step 61's own entry was held to), not a guess about what might break.
+2. **A real "test the candidate upgrade before committing" check**: given a package name and target version, create a throwaway isolated venv (or a trial pip install inside a temp dir added to `sys.path`, whichever is cheaper and still real), install the candidate version there, and run this app's own test suite against it. Report pass/fail plainly before the user commits to the real upgrade in their actual environment — this directly answers "will this break" with a real signal instead of a guess, for the one case that matters (does *this app's* actual usage of the package still work), rather than trying to predict compatibility from version numbers alone.
+3. Surface the check's result in the same Diagnostics "Upgrade" flow Step 47 already built — a button that runs the check and reports "safe to upgrade" / "N tests failed, see output" / "couldn't complete the check" (e.g. no network, no disk space for a throwaway venv), not a silent pass/fail with no detail.
+4. Keep this scoped to what's real: no attempt to predict breakage for a release that hasn't been tested this way, and no false confidence — a package with no `KNOWN_UPGRADE_LIMITATIONS` entry and no completed check result should read as "untested," not "confirmed safe."
+
+**Exit:**
+- A test confirms the isolated-venv/trial-install check actually catches a real, deliberately-broken candidate version (e.g. install an old version of a package this app's tests genuinely fail against, and confirm the check reports failure with real detail, not a bare "failed").
+- A test confirms a candidate version that passes cleanly is reported as such, distinctly from "untested."
+- Manual check: run the check against a real package upgrade (e.g. `huggingface_hub`, the one the user actually asked about) and confirm the report reflects the real test-suite outcome for that version, not a guess.
 
 ---
 
