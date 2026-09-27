@@ -258,6 +258,20 @@ def init_db():
         UNIQUE(series_id, term_original)
     );
 
+    -- Step 24: source->translation pairs a translator has approved by hand
+    -- (edited and saved, or accepted), reused as suggestions on later
+    -- near-identical source lines in the same series -- never auto-applied.
+    CREATE TABLE IF NOT EXISTS translation_memory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        series_id INTEGER NOT NULL,
+        source_text TEXT NOT NULL,
+        translation TEXT NOT NULL,
+        use_count INTEGER DEFAULT 1,
+        updated_at TEXT,
+        FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+        UNIQUE(series_id, source_text)
+    );
+
     -- Step 8: a voice-match suggestion ("SPEAKER_01 sounds like <name>")
     -- the user explicitly rejected for this exact (drama, speaker,
     -- candidate) triple -- never shown again for that combination, but a
@@ -551,6 +565,7 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_bubbles_page ON bubbles(page_id);
     CREATE INDEX IF NOT EXISTS idx_known_titles_lang ON known_titles(language);
     CREATE INDEX IF NOT EXISTS idx_glossary_series ON glossary_terms(series_id);
+    CREATE INDEX IF NOT EXISTS idx_tm_series ON translation_memory(series_id);
     CREATE INDEX IF NOT EXISTS idx_series_characters_series ON series_characters(series_id);
     CREATE INDEX IF NOT EXISTS idx_vocab_drama ON vocab_lookups(drama_id);
     CREATE INDEX IF NOT EXISTS idx_usage_drama ON usage_log(drama_id);
@@ -1791,6 +1806,30 @@ def distinct_custom_tags():
     return sorted(tags)
 
 
+# Step 24: personal organizational tags, kept in custom_tags alongside any
+# user-defined ones -- deliberately separate from dramas.status, which
+# tracks pipeline progress, not how the person is organizing their list.
+ORGANIZATIONAL_TAGS = ("Favorite", "On Hold", "Plan to Translate")
+
+
+def has_custom_tag(drama: dict, tag: str) -> bool:
+    """Case-insensitive, so a hand-typed "favorite" counts as Favorite."""
+    return tag.lower() in (t.strip().lower() for t in (drama.get("custom_tags") or "").split(","))
+
+
+def set_custom_tag(drama_id: int, tag: str, present: bool):
+    """Adds or removes one tag from a drama's custom_tags, leaving every
+    other tag (and every other column) untouched."""
+    drama = get_drama(drama_id)
+    if not drama:
+        return
+    tags = [t.strip() for t in (drama.get("custom_tags") or "").split(",")
+            if t.strip() and t.strip().lower() != tag.lower()]
+    if present:
+        tags.append(tag)
+    update_drama(drama_id, custom_tags=", ".join(tags))
+
+
 # ---------------------------------------------------------------------------
 # Translation versions -- keep alternate translations side by side
 # ---------------------------------------------------------------------------
@@ -1993,6 +2032,70 @@ def delete_glossary_term(term_id: int):
     conn.execute("DELETE FROM glossary_terms WHERE id = ?", (term_id,))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Translation memory (Step 24) -- see translation_memory.py for matching
+# ---------------------------------------------------------------------------
+
+def record_translation_memory(series_id: int, source_text: str, translation: str):
+    """Stores a translation the translator approved by hand. The same pair
+    again counts as another use; a different translation for the same
+    source replaces the old one and restarts its count."""
+    source_text, translation = (source_text or "").strip(), (translation or "").strip()
+    if not series_id or not source_text or not translation:
+        return
+    conn = get_conn()
+    conn.execute("""
+        INSERT INTO translation_memory (series_id, source_text, translation, use_count, updated_at)
+        VALUES (?, ?, ?, 1, ?)
+        ON CONFLICT(series_id, source_text) DO UPDATE SET
+            use_count = CASE WHEN translation_memory.translation = excluded.translation
+                             THEN translation_memory.use_count + 1 ELSE 1 END,
+            translation = excluded.translation,
+            updated_at = excluded.updated_at
+    """, (series_id, source_text, translation, datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def list_translation_memory(series_id: int):
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM translation_memory WHERE series_id = ? ORDER BY id",
+                        (series_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def bump_translation_memory_use(entry_id: int):
+    conn = get_conn()
+    conn.execute("UPDATE translation_memory SET use_count = use_count + 1, updated_at = ? WHERE id = ?",
+                 (datetime.datetime.utcnow().isoformat(), entry_id))
+    conn.commit()
+    conn.close()
+
+
+def update_translation_memory_after_replace(series_id: int, old_translation: str,
+                                            new_translation: str) -> int:
+    """Find-and-replace just changed a line's translation from old to new:
+    any stored entry still holding the old text is corrected to match (or
+    dropped, if the replacement emptied it), so memory doesn't keep
+    suggesting the mistake that was just fixed. Returns rows touched."""
+    old, new = (old_translation or "").strip(), (new_translation or "").strip()
+    if not series_id or not old or old == new:
+        return 0
+    conn = get_conn()
+    if new:
+        cur = conn.execute(
+            "UPDATE translation_memory SET translation = ?, updated_at = ? "
+            "WHERE series_id = ? AND translation = ?",
+            (new, datetime.datetime.utcnow().isoformat(), series_id, old))
+    else:
+        cur = conn.execute("DELETE FROM translation_memory WHERE series_id = ? AND translation = ?",
+                           (series_id, old))
+    conn.commit()
+    conn.close()
+    return cur.rowcount
 
 
 def update_glossary_term(term_id: int, term_original: str, term_translation: str,

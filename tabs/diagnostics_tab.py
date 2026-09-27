@@ -39,6 +39,32 @@ def _describe_job(job_id: str) -> str:
     return job_id
 
 
+def _benchmark_translation_engine(engine_choice: str):
+    """(engine, None), or (None, why it can't run) when the engine needs an
+    API key that isn't set."""
+    api_key = st.session_state.get(f"settings_{engine_choice}", "")
+    needs_key = engine_choice not in ("ollama", "test_offline", "libretranslate", "nllb")
+    if needs_key and not api_key:
+        return None, (f"no API key set for '{engine_choice}' -- set one in ⚙️ Settings, "
+                      f"or pick another engine")
+    # Step 25d item 7: same gap Step 5b item 1 already fixed elsewhere --
+    # without these, a custom Ollama URL was ignored and Gemini was always
+    # billed as paid-tier.
+    return translate_engines.get_engine(
+        engine_choice, api_key or "local",
+        free_tier=engine_choice == "gemini" and st.session_state.get("gemini_free_tier", False),
+        base_url=st.session_state.get("settings_ollama_url") or None
+        if engine_choice == "ollama" else None), None
+
+
+# Step 24: what "compare two engines" picks between, per benchmark stage.
+_BM_COMPARE_OPTIONS = {
+    "translation": ("Engine", lambda: list(translate_engines.ENGINES.keys())),
+    "ocr": ("OCR backend", lambda: ["tesseract", "paddle", "manga_ocr", "paddle_vl_manga"]),
+    "transcription": ("Whisper size", lambda: list(core_module.WHISPER_MODELS.keys())),
+}
+
+
 def _run_pip_stream(running_label: str, done_label: str, failed_label: str, stream_gen) -> dict:
     """Runs a diagnostics.stream_* generator inside an st.status box,
     writing each real output line as it arrives rather than just
@@ -472,23 +498,11 @@ def render_diagnostics_tab():
                         kwargs = {}
                         if stage == "translation":
                             engine_choice = st.session_state.get("settings_default_engine", "claude")
-                            api_key = st.session_state.get(f"settings_{engine_choice}", "")
-                            needs_key = engine_choice not in ("ollama", "test_offline", "libretranslate", "nllb")
-                            if needs_key and not api_key:
-                                skipped_stages.append(
-                                    f"translation (no API key set for '{engine_choice}' -- "
-                                    f"set one in ⚙️ Settings, or change the default engine there)")
+                            engine, skip_reason = _benchmark_translation_engine(engine_choice)
+                            if engine is None:
+                                skipped_stages.append(f"translation ({skip_reason})")
                                 continue
-                            # Step 25d item 7: same gap Step 5b item 1 already
-                            # fixed elsewhere -- without these, a custom Ollama
-                            # URL was ignored and Gemini was always billed as
-                            # paid-tier.
-                            kwargs["engine"] = translate_engines.get_engine(
-                                engine_choice, api_key or "local",
-                                free_tier=engine_choice == "gemini"
-                                and st.session_state.get("gemini_free_tier", False),
-                                base_url=st.session_state.get("settings_ollama_url") or None
-                                if engine_choice == "ollama" else None)
+                            kwargs["engine"] = engine
                         elif stage == "transcription":
                             kwargs["use_gpu"] = st.session_state.get("use_gpu", False)
 
@@ -499,6 +513,60 @@ def render_diagnostics_tab():
                     st.warning("Skipped: " + "; ".join(skipped_stages))
                 st.success("Done.")
                 st.rerun()
+
+            with st.expander("⚖️ Compare engines on one case"):
+                st.caption(
+                    "Runs one case through two engines back to back and shows both outputs side "
+                    "by side. Comparison runs aren't saved to the case's run history, so they "
+                    "never skew its regression check.")
+                cmp_case = st.selectbox(
+                    "Case", bm_cases, key="bm_cmp_case",
+                    format_func=lambda c: f"{c['label']} — {_bm_stage_labels[c['stage']]}")
+                cmp_label, cmp_options = _BM_COMPARE_OPTIONS[cmp_case["stage"]]
+                cmp_options = cmp_options()
+                cc1, cc2 = st.columns(2)
+                cmp_a = cc1.selectbox(f"{cmp_label} A", cmp_options, key=f"bm_cmp_a_{cmp_case['stage']}")
+                cmp_b = cc2.selectbox(f"{cmp_label} B", cmp_options, index=min(1, len(cmp_options) - 1),
+                                      key=f"bm_cmp_b_{cmp_case['stage']}")
+                if st.button("⚖️ Compare", key="bm_cmp_run", disabled=cmp_a == cmp_b):
+                    import benchmark
+                    case_dict = dict(cmp_case)
+                    if cmp_case.get("input_filename"):
+                        case_dict["input_path"] = os.path.join(db.BENCHMARK_DIR, cmp_case["input_filename"])
+                    configs, cmp_error = [], None
+                    for choice in (cmp_a, cmp_b):
+                        if cmp_case["stage"] == "translation":
+                            engine, skip_reason = _benchmark_translation_engine(choice)
+                            if engine is None:
+                                cmp_error = skip_reason
+                                break
+                            configs.append((choice, {"engine": engine}))
+                        elif cmp_case["stage"] == "ocr":
+                            configs.append((choice, {"backend": choice}))
+                        else:
+                            configs.append((choice, {"whisper_size": choice,
+                                                     "use_gpu": st.session_state.get("use_gpu", False)}))
+                    if cmp_error:
+                        st.warning(cmp_error)
+                    else:
+                        with st.spinner("Running both..."):
+                            st.session_state["bm_cmp_results"] = {
+                                "case_id": cmp_case["id"],
+                                "results": benchmark.compare_configs(case_dict, cmp_case["stage"], configs)}
+                _cmp = st.session_state.get("bm_cmp_results")
+                if _cmp and _cmp["case_id"] == cmp_case["id"]:
+                    for col, r in zip(st.columns(len(_cmp["results"])), _cmp["results"]):
+                        with col:
+                            st.markdown(f"**{r['label']}**")
+                            if r.get("error"):
+                                st.error(r["error"])
+                            elif r.get("score") is not None:
+                                st.metric("Score", f"{r['score']:.0%}")
+                            else:
+                                st.caption("No reference — unscored")
+                            st.caption(f"{r['duration_seconds']:.1f}s"
+                                       + (f" · ${r['cost_usd']:.4f}" if r.get("cost_usd") else ""))
+                            st.code(r.get("output_text") or "(no output)", language=None, wrap_lines=True)
 
             st.markdown("**Cases & latest results**")
             latest_runs = db.latest_benchmark_run_per_case()

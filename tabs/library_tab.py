@@ -62,6 +62,8 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
 
 BULK_SERIES_TRANSLATE_JOB_ID = "bulk_series_translate"
 
+_ORG_TAG_ICONS = {"Favorite": "⭐", "On Hold": "⏸️", "Plan to Translate": "📋"}
+
 
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
                                   ollama_base_url: str = None, gemini_free_tier: bool = False,
@@ -360,11 +362,15 @@ def render_library_tab():
         media_f = fc7.selectbox("Type", ["", "audio_drama", "video_drama", "anime", "novel", "manhwa", "manga", "manhua", "asmr", "other"],
                                  format_func=lambda m: "All" if m == "" else m.replace("_", " ").title())
 
+        org_f = st.pills("Quick filter", db.ORGANIZATIONAL_TAGS, selection_mode="single",
+                         format_func=lambda t: f"{_ORG_TAG_ICONS[t]} {t}", key="library_org_filter")
         all_tags = db.distinct_custom_tags()
         tag_f = st.multiselect("Custom tags", all_tags) if all_tags else []
 
         dramas = db.list_dramas(search=search, studio=studio_f, author=author_f,
                                  voice_actor=va_f, status=status_f, source_language=lang_f, media_type=media_f)
+        if org_f:
+            dramas = [d for d in dramas if db.has_custom_tag(d, org_f)]
         if tag_f:
             dramas = [d for d in dramas
                       if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")] for t in tag_f)]
@@ -388,6 +394,7 @@ def render_library_tab():
                         _d.get("voice_actors"), _d.get("voice_actors_romanized")),
                     "translation_engine": _d.get("translation_engine"),
                     "status": _d.get("status"),
+                    "tags": _d.get("custom_tags") or "",
                 })
             df = pd.DataFrame(_rows)
             df.insert(0, "Select", False)
@@ -443,6 +450,18 @@ def render_library_tab():
                         st.rerun()
                 if not untranslated_selected and selected_ids:
                     bc3.caption("None of the selected dramas are untranslated (status 'aligned').")
+
+                oc1, oc2, oc3 = st.columns(3)
+                org_pick = oc1.selectbox("List", db.ORGANIZATIONAL_TAGS, key="bulk_org_tag_pick",
+                                         format_func=lambda t: f"{_ORG_TAG_ICONS[t]} {t}")
+                if oc2.button("Add selected to list", key="bulk_org_tag_add"):
+                    for did in selected_ids:
+                        db.set_custom_tag(did, org_pick, True)
+                    st.rerun()
+                if oc3.button("Remove selected from list", key="bulk_org_tag_remove"):
+                    for did in selected_ids:
+                        db.set_custom_tag(did, org_pick, False)
+                    st.rerun()
 
             _bulk_job = background_jobs.get_status(BULK_SERIES_TRANSLATE_JOB_ID)
             if _bulk_job:

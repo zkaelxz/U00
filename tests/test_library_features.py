@@ -1166,3 +1166,67 @@ class TestBulkExportClampsOverlappingCues:
         exported_lines = calls[0]
         # Clamped to the next line's start, not the original overlapping end.
         assert exported_lines[0].end == 1.5
+
+
+class TestOrganizationalTags:
+    """Step 24 item 3: Favorite / On Hold / Plan to Translate, stored in
+    custom_tags and filterable in Library -- a personal layer that never
+    touches dramas.status (pipeline progress). The "Add selected to list"
+    button itself isn't driven here for the same reason as
+    TestBulkSeriesTranslateStatusUI: data_editor selection isn't settable
+    in AppTest; it just calls set_custom_tag per selected drama."""
+
+    def test_set_and_clear_leaves_other_tags_and_status_alone(self, isolated_db):
+        did = isolated_db.create_drama(title_en="A", custom_tags="slow burn", status="translated")
+        isolated_db.set_custom_tag(did, "Favorite", True)
+        d = isolated_db.get_drama(did)
+        assert d["custom_tags"] == "slow burn, Favorite"
+        assert d["status"] == "translated"
+        isolated_db.set_custom_tag(did, "Favorite", False)
+        d = isolated_db.get_drama(did)
+        assert d["custom_tags"] == "slow burn"
+        assert d["status"] == "translated"
+
+    def test_setting_twice_or_hand_typed_lowercase_doesnt_duplicate(self, isolated_db):
+        did = isolated_db.create_drama(title_en="A", custom_tags="favorite")
+        assert isolated_db.has_custom_tag(isolated_db.get_drama(did), "Favorite")
+        isolated_db.set_custom_tag(did, "Favorite", True)
+        isolated_db.set_custom_tag(did, "Favorite", True)
+        assert isolated_db.get_drama(did)["custom_tags"] == "Favorite"
+
+    def test_has_custom_tag_needs_the_whole_tag(self, isolated_db):
+        assert not isolated_db.has_custom_tag({"custom_tags": "Hold"}, "On Hold")
+        assert not isolated_db.has_custom_tag({"custom_tags": None}, "Favorite")
+
+    def _run(self, **session_state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        for k, v in session_state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def _listed_ids(self, at):
+        for el in at.dataframe:
+            if "tags" in el.value.columns:
+                return sorted(el.value["id"].tolist())
+        return []
+
+    def test_quick_filter_shows_only_that_list_with_real_status(self, isolated_db):
+        fav = isolated_db.create_drama(title_en="Fav", custom_tags="Favorite", status="dubbed")
+        hold = isolated_db.create_drama(title_en="Hold", custom_tags="On Hold, Favorite")
+        plan = isolated_db.create_drama(title_en="Plan", custom_tags="Plan to Translate")
+        isolated_db.create_drama(title_en="None")
+
+        at = self._run(library_org_filter="Favorite")
+        assert self._listed_ids(at) == sorted([fav, hold])
+        at = self._run(library_org_filter="Plan to Translate")
+        assert self._listed_ids(at) == [plan]
+        at = self._run()
+        assert len(self._listed_ids(at)) == 4
+        assert isolated_db.get_drama(fav)["status"] == "dubbed"
