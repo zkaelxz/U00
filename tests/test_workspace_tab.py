@@ -1834,6 +1834,26 @@ class TestBulkGlossaryAndPronounActions:
         at = self._run(did)
         assert not [m for m in at.multiselect if m.key == f"bulk_sc_pick_{sid}"]
 
+    def test_glossary_editor_saves_aliases_and_banned_translations(self, isolated_db):
+        """Step 30: the glossary term editor's two new fields (around the
+        existing category/policy/enforce_exact ones) save through to the
+        db columns of the same name."""
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi", category="person_name")
+        term_id = isolated_db.list_glossary_terms(sid)[0]["id"]
+        at = self._run(did)
+
+        self._button(at, "✏️").click()
+        at.run(timeout=30)
+        at.text_input(key=f"eglo_aliases_{term_id}").set_value("Shen Qing Yi").run()
+        at.text_input(key=f"eglo_banned_{term_id}").set_value("Chen Qingyi").run()
+        self._button(at, "💾 Save").click()
+        at.run(timeout=30)
+
+        term = isolated_db.list_glossary_terms(sid)[0]
+        assert term["aliases"] == "Shen Qing Yi"
+        assert term["banned_translations"] == "Chen Qingyi"
+
 
 class TestVoiceMatchSuggestions:
     """Step 8: the "sounds like <name>" suggestion row next to the
