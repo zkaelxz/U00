@@ -171,6 +171,87 @@ def fetch_rendered_resolving_blobs(url: str, timeout: int = 30, wait_selector: s
     return html, _visible_lines(html), blob_bytes
 
 
+# Keeps every Blob a page creates alive and its object URL resolvable.
+# Injected before the site's own scripts run. Some viewers (mangaz.com's
+# own, Step 23l) call URL.revokeObjectURL() inside the image's onload, so
+# by the time anything else looks the blob is already gone -- the rendered
+# bitmap is still on screen, but its bytes are unreachable. This only
+# declines to throw away what the page itself already produced for
+# display; it decodes nothing and defeats nothing.
+_BLOB_KEEPALIVE_JS = """
+window.__keptBlobs = {};
+const __origCreateObjectURL = URL.createObjectURL.bind(URL);
+URL.createObjectURL = function (obj) {
+    const url = __origCreateObjectURL(obj);
+    try { window.__keptBlobs[url] = obj; } catch (e) {}
+    return url;
+};
+URL.revokeObjectURL = function () { /* kept resolvable on purpose */ };
+"""
+
+# Reads back the kept blobs, newest first is irrelevant -- keyed by the
+# object URL the page itself handed to its own <img> tags, so a caller can
+# tie each one to whatever element referenced it.
+_KEPT_BLOBS_JS = """
+async () => {
+    const out = {};
+    for (const [url, blob] of Object.entries(window.__keptBlobs || {})) {
+        try {
+            const buf = new Uint8Array(await blob.arrayBuffer());
+            let binary = '';
+            for (let i = 0; i < buf.length; i += 8192) {
+                binary += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+            }
+            out[url] = btoa(binary);
+        } catch (e) {
+            // left out; a missing key means "couldn't capture"
+        }
+    }
+    return out;
+}
+"""
+
+
+@contextmanager
+def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
+                     keep_blobs: bool = False):
+    """An open, loaded page the caller drives itself, instead of the
+    one-shot fetch_rendered() shape.
+
+    For a site whose content only appears as its own viewer is navigated
+    (mangaz.com's paginated reader, Step 23l): the caller steps through
+    using that site's own public viewer API and reads what it produces,
+    rather than this project reproducing the site's rendering itself.
+    With `keep_blobs`, blobs the page creates stay resolvable for
+    `kept_blob_bytes()` to read back.
+    """
+    sync_playwright = _require_playwright()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(user_agent="Mozilla/5.0 (compatible; BaiheStudio/1.0)")
+            if keep_blobs:
+                page.add_init_script(_BLOB_KEEPALIVE_JS)
+            page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            page.wait_for_timeout(wait_ms)
+            yield page
+        finally:
+            browser.close()
+
+
+def kept_blob_bytes(page) -> dict:
+    """{object URL: real bytes} for every Blob a `keep_blobs` session's
+    page has created so far. A blob that couldn't be read is left out."""
+    import base64
+    out = {}
+    for blob_url, b64 in (page.evaluate(_KEPT_BLOBS_JS) or {}).items():
+        try:
+            out[blob_url] = base64.b64decode(b64)
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
 @contextmanager
 def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     """A rendered, settled page, open for the caller to read from --

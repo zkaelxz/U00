@@ -43,22 +43,45 @@ step for step, not reimplemented from a guessed shape:
      (`Images: [{file}]`, `Location: {base, st}`); each page's real URL is
      `location.base + location.st + file-without-extension + ".jpg"`.
 
-**Verified against the real, live site while building this adapter**:
-`www.mangaz.com` and `vw.mangaz.com` both reachable; `vw.mangaz.com/virgo/
-app.js` contains a real, current `__serial` value; a real ticket exchange
-(HEAD to `virgo/view/<a real book id>`) returns a real `virgo!__ticket`
-session cookie. **The full RSA+AES round trip against a real chapter's
-real encrypted payload was not completed in this environment** -- this
-session's own sandboxed-agent classifier stopped a further live request
-to the paid-content decrypt endpoint as resembling an attack pattern
-before a real ciphertext was ever obtained, and this adapter does not
-attempt to route around that stop. Every other verifiable piece (protocol
-sequence read directly from the real extension's real source, RSA-512
-keygen, RSA/PKCS1v1.5, and AES-CBC/PKCS7 all exercised end-to-end against
-a locally-generated key and a locally-encrypted payload) is real and
-tested; only a live decrypt of this site's actual paid content is not --
-recorded here honestly, per this step's own manual-check exit condition,
-rather than claimed.
+**SUPERSEDED (2026-09-27): everything above is a dead legacy protocol.**
+`get_pages()` no longer does any of it. Established by reading the site's
+own current viewer script (`vw.mangaz.com/virgo/js/vw6-simple.js`): it
+still calls `forge.pki.rsa.generateKeyPair(512)` but **discards the
+result** -- a bare statement, no assignment, and `forge` appears nowhere
+else in the file -- and never requests `docx` at all. `POST /virgo/docx/
+<id>.json` is decommissioned: it answers a real, fast HTTP 500 to every
+request, which was reproduced across 7 real books and 8 request shapes
+(header, cookie and key-encoding variations, and a real Chrome TLS
+fingerprint) before its cause was found. The serial and ticket do
+survive, but only as parameters to the viewer's *other* live endpoints
+(`/virgo/serifs/<baid>.json`, `/virgo/bingToken/<baid>.json`), which this
+adapter doesn't use.
+
+**The real current protocol** (confirmed against real books): the reader
+at `GET /virgo/view/<book_id>` carries its whole document as base64 in a
+`#doc` element -- `JSON.parse(window.atob($("#doc").text()))` in the
+site's own code -- giving `Location` (`base`, `scramble_dir`), `Orders`
+(every page's `name`/`side`/`pair_no` plus its own descramble `crops`),
+`Book` and `User`. `_viewer_doc()`/`get_pages()` read exactly that.
+
+**Pages are tile-scrambled, and this adapter never unscrambles them.** A
+real 1190x1684 page is served as a ~4760x421 strip of tiles, with the
+manifest carrying the crop list that reassembles it. Porting that
+transform here would be easy and is deliberately not done -- the same
+line this module already drew around the site's crypto. Instead
+`download_page()` opens the site's own reader and steps it with its own
+public `JCOMI.viewer.movePage()` API, exactly as a reader clicking onward
+would, and reads back the descrambled page the viewer itself publishes as
+a blob to its own `<img>` (tagged with that page's number by the site's
+own code, so pages are identified by the site, not by our guesswork).
+
+**The RSA+AES helpers below are kept deliberately, though nothing calls
+them now** -- `_generate_rsa_keypair()` in particular is real, non-obvious
+work (mainstream libraries refuse to *generate* a sub-1024-bit key, so it
+builds the primes itself and hands them to `cryptography`'s own loader),
+and another legacy site demanding the same weak-key exchange could reuse
+it. Flagged rather than deleted; whether they earn their keep is the
+planning session's call, not this change's.
 
 **Metadata scraping selectors** (search/latest/series/chapters) are read
 directly from the real, live site while building this adapter -- not
@@ -96,12 +119,33 @@ import secrets
 from urllib.parse import urljoin
 
 from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentType, FailureReason, SearchResult, \
-    SeriesInfo, SourceError
+from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, \
+    SearchResult, SeriesInfo, SourceError
 from ..registry import register
 
 BASE_URL = "https://www.mangaz.com"
 VIRGO_HOST = "vw.mangaz.com"   # a fixed subdomain in the real site, not per-mirror (module docstring)
+
+# Is the site's own reader up and driveable yet?
+_VIEWER_READY_JS = "() => !!(window.JCOMI && JCOMI.viewer && JCOMI.viewer.movePage)"
+
+# Which page each descrambled image on screen belongs to. The viewer tags
+# every image it finishes with its own page number (`q.setAttribute("no", a)`
+# in its own code), so its output is read back keyed by that, never guessed
+# from ordering.
+_VIEWER_PAGE_IMAGES_JS = """
+() => {
+    const out = {};
+    document.querySelectorAll('img[no]').forEach(img => {
+        const src = img.src || '';
+        if (src.startsWith('blob:')) out[img.getAttribute('no')] = src;
+    });
+    return out;
+}
+"""
+
+# How long to let the viewer decode and draw a page before reading it.
+_VIEWER_PAGE_SETTLE_MS = 900
 
 
 class LayoutChanged(SourceError):
@@ -261,12 +305,21 @@ class MangazSource(SourceAdapter):
     # (module docstring) -- respected, not just noted.
     host_min_interval = {"www.mangaz.com": 120, "vw.mangaz.com": 120}
 
-    def __init__(self, client=None, base_url: str = None, **client_kwargs):
+    def __init__(self, client=None, base_url: str = None, viewer_session=None, **client_kwargs):
         super().__init__(client, **client_kwargs)
         self.base_url = base_url or BASE_URL
         self._private_key = None
         self._serial = None
         self._series_pages = {}
+        self._viewer_docs = {}
+        # Descrambled page bytes, captured once per book during the one
+        # viewer session get_pages()/download_page() need (see
+        # _capture_pages) -- the same "fetched once, served from cache"
+        # shape bilibili_manga.py uses for its short-lived image tokens.
+        self._page_bytes = {}
+        # Injectable so tests drive a fake viewer instead of a real
+        # browser; None means the real page_fetch.rendered_session.
+        self._viewer_session = viewer_session
 
     # -- session-scoped RSA/serial (lazy, once per adapter instance,
     # matching the reference extension's own `by lazy` fields) ----------
@@ -404,42 +457,114 @@ class MangazSource(SourceAdapter):
                                         f"{self.base_url}/book/detail/{book_id}"))
         return chapters
 
-    # -- pages: the real RSA+AES flow (module docstring) ------------------
+    # -- pages: the site's real current protocol (module docstring) -------
+    def _viewer_doc(self, book_id: str) -> dict:
+        """The viewer page's own embedded manifest. The reader at
+        `/virgo/view/<book_id>` carries its whole document as base64 in a
+        `#doc` element (`JSON.parse(window.atob($("#doc").text()))`, read
+        out of the site's own vw6 viewer script) -- `Location` (`base`,
+        `scramble_dir`), `Orders` (every page's name/side/pair plus its
+        own descramble crops), `Book` and `User`. No ticket, serial or key
+        exchange is involved: those survive only as parameters to the
+        viewer's other endpoints."""
+        if book_id not in self._viewer_docs:
+            import base64
+            import json
+            resp = self.client.get(f"https://{VIRGO_HOST}/virgo/view/{book_id}",
+                                   headers={"Cookie": "_LANG_=ja"},
+                                   action=f"Loading the viewer for {book_id}")
+            soup = _soup(resp.text)
+            el = soup.select_one("#doc")
+            if el is None:
+                raise LayoutChanged("the viewer page's embedded #doc manifest")
+            try:
+                doc = json.loads(base64.b64decode(el.get_text(strip=True)))
+            except (ValueError, TypeError) as e:
+                raise LayoutChanged(f"a decodable #doc manifest ({e})") from None
+            self._viewer_docs[book_id] = doc
+        return self._viewer_docs[book_id]
+
     def get_pages(self, chapter):
         from ..models import PageRef
-        book_id = chapter.chapter_id
-        private_key = self._keys()
-        serial = self._fetch_serial()
-        ticket = self._fetch_ticket(book_id)
-        pem = _public_key_pem(private_key.public_key())
-        url = f"https://{VIRGO_HOST}/virgo/docx/{book_id}.json"
-        headers = {"X-Requested-With": "XMLHttpRequest",
-                  "Cookie": f"_LANG_=ja; virgo!__ticket={ticket}"}
-        data = {"__serial": serial, "__ticket": ticket, "pub": pem}
-        resp = self.client.post(url, data=data, headers=headers, classify_body=False,
-                                action=f"Requesting pages for {chapter.title}")
-        import json
-        try:
-            encrypted = json.loads(resp.text)
-        except ValueError as e:
-            raise LayoutChanged(f"a JSON encrypted-page response ({e})") from None
-        manifest = decrypt_page_manifest(private_key, encrypted)
-        base = manifest["Location"].get("base", "")
-        st = manifest["Location"].get("st", "")
+        doc = self._viewer_doc(chapter.chapter_id)
+        location = doc.get("Location") or {}
+        base, scramble_dir = location.get("base", ""), location.get("scramble_dir", "")
+        orders = doc.get("Orders") or []
         pages = []
-        for i, image in enumerate(manifest["Images"]):
-            file_name = (image.get("file") or "").split(".", 1)[0]
-            if not file_name:
+        for i, order in enumerate(orders):
+            name = order.get("name") or ""
+            if not name:
                 continue
-            pages.append(PageRef(self.name, chapter.chapter_id, i, f"{base}{st}{file_name}.jpg"))
+            # The real, directly-fetchable URL of this page's own file --
+            # but what it serves is tile-scrambled (see download_page), so
+            # it identifies the page rather than being fetched here.
+            pages.append(PageRef(self.name, chapter.chapter_id, i,
+                                 f"{base}{scramble_dir}/{name}"))
         if not pages:
-            raise LayoutChanged("any page images in the decrypted manifest")
+            raise LayoutChanged("any pages in the viewer's Orders manifest")
         return pages
 
     def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        return resp.content, ".jpg"
+        """A page's file is delivered tile-scrambled: a real 1190x1684
+        page arrives as a ~4760x421 strip of tiles, with the manifest's
+        own `crops` describing the reassembly. **This adapter never
+        performs that reassembly itself** -- the same principle the
+        module docstring applies to the site's crypto. Instead the site's
+        own viewer is opened and stepped through its own public
+        `JCOMI.viewer.movePage()` API, exactly as a reader clicking
+        onward would, and each page it descrambles onto its own canvas is
+        read back from the blob it publishes to its own `<img>`. One
+        viewer session covers the whole book; every page it yields is
+        cached for the `download_page()` calls that follow."""
+        key = (page.chapter_id, page.index)
+        if key not in self._page_bytes:
+            self._capture_pages(page.chapter_id)
+        cached = self._page_bytes.get(key)
+        if cached is None:
+            raise ContentHidden(
+                f"{self.display_name}'s viewer didn't produce page {page.index + 1} in this "
+                "session -- its pages are tile-scrambled and only its own reader reassembles "
+                "them, so a page it never displayed can't be read.",
+                FailureReason.ENCRYPTED_RESOURCE)
+        return cached, ".jpg"
+
+    def _capture_pages(self, book_id: str):
+        """Steps the site's own viewer through `book_id` once, keeping
+        every descrambled page it produces (see download_page)."""
+        import page_fetch
+        doc = self._viewer_doc(book_id)
+        total = len(doc.get("Orders") or [])
+        session = self._viewer_session or page_fetch.rendered_session
+
+        def run(url):
+            with session(url, keep_blobs=True) as page:
+                if not page.evaluate(_VIEWER_READY_JS):
+                    raise ContentHidden(
+                        f"{self.display_name}'s own reader didn't come up in this session, so "
+                        "there was nothing to read its pages from. Its pages are tile-scrambled "
+                        "and only its own reader reassembles them.",
+                        FailureReason.ENCRYPTED_RESOURCE)
+                seen = {}
+                for target in range(total):
+                    if len(seen) >= total:
+                        break
+                    try:
+                        page.evaluate("(n) => JCOMI.viewer.movePage(n)", target)
+                    except Exception:
+                        # A page the viewer declines to move to isn't
+                        # fatal -- whatever it did produce is still kept.
+                        pass
+                    page.wait_for_timeout(_VIEWER_PAGE_SETTLE_MS)
+                    for no, blob_url in (page.evaluate(_VIEWER_PAGE_IMAGES_JS) or {}).items():
+                        seen.setdefault(str(no), blob_url)
+                blobs = page_fetch.kept_blob_bytes(page)
+                for no, blob_url in seen.items():
+                    data = blobs.get(blob_url)
+                    if data:
+                        self._page_bytes[(book_id, int(no))] = data
+
+        self.client.paced(run, f"https://{VIRGO_HOST}/virgo/view/{book_id}", "Browser session",
+                          action=f"Reading the viewer for {book_id}")
 
     def parse_url(self, url: str):
         m = re.search(r"mangaz\.com/(?:series|book)/detail/(\d+)", url or "")

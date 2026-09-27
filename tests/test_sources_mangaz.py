@@ -189,57 +189,131 @@ class TestPageDecryptionUnit:
             mangaz.decrypt_page_manifest(wrong_key, encrypted)
 
 
-class TestGetPagesRoundTrip:
-    """The roadmap's own exit condition: the full ticket/serial/RSA/AES
-    flow against a mocked key-exchange fixture, no hardcoded plaintext
-    shortcut standing in for the real decrypt step."""
+def _viewer_html(orders, base="https://img.example.invalid/Books/11/114/",
+                 scramble_dir="anne_Dtest"):
+    """The real viewer page shape: its whole document as base64 in a
+    `#doc` element, exactly what the site's own vw6 viewer reads with
+    `JSON.parse(window.atob($("#doc").text()))`."""
+    doc = {"Location": {"viewer": "anne", "base": base, "scramble_dir": scramble_dir},
+           "Book": {"baid": "114"}, "Images": [], "Orders": orders,
+           "User": {"login": False}}
+    encoded = base64.b64encode(json.dumps(doc).encode("utf-8")).decode("ascii")
+    return html(f"<html><body><div id='doc'>{encoded}</div></body></html>")
 
-    def test_full_flow_against_a_mocked_key_exchange(self):
-        pytest.importorskip("cryptography")
-        from cryptography.hazmat.primitives.asymmetric import padding
-        from cryptography.hazmat.primitives import serialization
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        import os
 
-        manifest = {"Images": [{"file": "001abc.jpg"}, {"file": "002def.jpg"}],
-                   "Location": {"base": "https://img.example.invalid/", "st": "book/114/"}}
-        plain = json.dumps(manifest).encode("utf-8")
-        aes_key, iv = os.urandom(32), os.urandom(16)
-        pad_len = 16 - (len(plain) % 16)
-        padded = plain + bytes([pad_len]) * pad_len
-        ciphertext = Cipher(algorithms.AES(aes_key), modes.CBC(iv)).encryptor()
-        ciphertext = ciphertext.update(padded) + ciphertext.finalize()
+ORDERS = [{"no": 0, "name": "001abc.jpg", "side": "right", "pair_no": 1},
+          {"no": 1, "name": "002def.jpg", "side": "left", "pair_no": 0}]
 
-        clock = FakeClock()
-        t = ScriptedTransport({}, clock)
 
-        def docx_responder(url):
-            # Reads the adapter's own freshly-generated public key straight
-            # off the just-recorded request body -- the adapter's real key
-            # isn't known ahead of time (a new one is generated per
-            # instance), so this responds to whatever it actually sent.
-            pem = t.calls[-1]["data"]["pub"]
-            pub_key = serialization.load_pem_public_key(pem.encode())
-            ek = pub_key.encrypt(aes_key, padding.PKCS1v15())
-            body = json.dumps({"bi": base64.b64encode(iv).decode(),
-                              "ek": base64.b64encode(ek).decode(),
-                              "data": base64.b64encode(ciphertext).decode()}).encode()
-            return Response(200, {"content-type": "application/json"}, body, url)
+class _FakeViewerPage:
+    """Stands in for the site's own reader: answers the adapter's probes
+    the way a real, working viewer would, and hands back a blob per page
+    it has been moved to -- never revealing how a real page is
+    descrambled, because the adapter never does that itself."""
 
-        t.routes = {
-            f"https://{VIRGO}/virgo/app.js": html('var __serial = "abc123";'),
-            f"https://{VIRGO}/virgo/view/114": Response(200, {}, b"", "",
-                                                         cookies={"virgo!__ticket": "tick-1"}),
-            f"https://{VIRGO}/virgo/docx/114.json": docx_responder,
-        }
-        client = make_client("mangaz", t, clock, max_retries=0)
-        a = mangaz.MangazSource(client=client)
+    def __init__(self, page_blobs, ready=True):
+        self.page_blobs = page_blobs          # {page no: bytes}
+        self.ready = ready
+        self.moved_to = []
+        self._displayed = {}
+
+    def evaluate(self, js, arg=None):
+        from page_fetch import _KEPT_BLOBS_JS
+        # Exact matches first: the readiness probe mentions movePage too.
+        if js.strip() == mangaz._VIEWER_READY_JS.strip():
+            return self.ready
+        if js.strip() == mangaz._VIEWER_PAGE_IMAGES_JS.strip():
+            return dict(self._displayed)
+        if js.strip() == _KEPT_BLOBS_JS.strip():
+            return {f"blob:https://viewer.invalid/{no}": base64.b64encode(data).decode("ascii")
+                    for no, data in self.page_blobs.items()}
+        if "movePage" in js:
+            self.moved_to.append(arg)
+            if arg in self.page_blobs:
+                self._displayed[str(arg)] = f"blob:https://viewer.invalid/{arg}"
+            return None
+        raise AssertionError(f"unexpected evaluate(): {js[:60]}")
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+def _fake_session(page):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def session(url, **kw):
+        page.opened_url = url
+        page.opened_kw = kw
+        yield page
+    return session
+
+
+class TestPagesFromTheViewerManifest:
+    """The site's real current protocol (confirmed live 2026-09-27): the
+    viewer page carries its own manifest, and the decommissioned
+    RSA+AES `docx` endpoint is not involved at all."""
+
+    def test_pages_come_from_the_embedded_doc_manifest(self):
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})
         chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
         refs = a.get_pages(chapter)
         assert [r.url for r in refs] == [
-            "https://img.example.invalid/book/114/001abc.jpg",
-            "https://img.example.invalid/book/114/002def.jpg",
+            "https://img.example.invalid/Books/11/114/anne_Dtest/001abc.jpg",
+            "https://img.example.invalid/Books/11/114/anne_Dtest/002def.jpg",
         ]
+        # No key exchange, no ticket, no docx request -- just the viewer page.
+        assert [c["url"] for c in t.calls] == [f"https://{VIRGO}/virgo/view/114"]
+
+    def test_missing_manifest_is_reported_plainly(self):
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114":
+                         html("<html><body>no doc element</body></html>")})
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        with pytest.raises(SourceError):
+            a.get_pages(chapter)
+
+    def test_download_page_serves_what_the_sites_own_viewer_descrambled(self):
+        page = _FakeViewerPage({0: b"page-zero-bytes", 1: b"page-one-bytes"})
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        assert a.download_page(refs[0]) == (b"page-zero-bytes", ".jpg")
+        # One viewer session covers the whole book: the second page is
+        # already cached, so nothing further is driven for it.
+        moved = list(page.moved_to)
+        assert a.download_page(refs[1]) == (b"page-one-bytes", ".jpg")
+        assert page.moved_to == moved
+        assert page.opened_kw.get("keep_blobs") is True
+
+    def test_scrambled_page_file_is_never_downloaded_directly(self):
+        page = _FakeViewerPage({0: b"page-zero-bytes", 1: b"page-one-bytes"})
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        a.download_page(refs[0])
+        # The .jpg the manifest points at is tile-scrambled; fetching it
+        # would yield a strip of tiles, so it must never be requested.
+        assert not [c for c in t.calls if "anne_Dtest" in c["url"]]
+
+    def test_viewer_that_never_comes_up_is_refused_not_guessed(self):
+        page = _FakeViewerPage({}, ready=False)
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        with pytest.raises(SourceError) as exc_info:
+            a.download_page(refs[0])
+        from sources.models import FailureReason
+        assert exc_info.value.reason == FailureReason.ENCRYPTED_RESOURCE
+
+
+class TestLegacyKeyExchangeHelpers:
+    """The RSA+AES helpers are kept (another legacy site needing a
+    sub-1024-bit key could reuse them) but the site itself no longer uses
+    this flow -- see the module docstring. These cover the helpers
+    directly, not a page fetch."""
 
     def test_no_second_key_exchange_needed_but_ticket_is_per_book(self):
         # Confirms the adapter re-requests a ticket per book id (the real
