@@ -2094,6 +2094,8 @@ Found on a proper section-by-section pass through the vision doc's remaining par
 - A test shows filtering Library by a quick-filter tag (Favorite/On Hold/Plan to Translate) returns the right dramas, and setting one doesn't affect `dramas.status`.
 - Manual check: mark a drama as a Favorite, confirm it's filterable in Library, and confirm it still shows its real processing status unaffected.
 
+**Built, reviewed, and merged (2026-09-27, PR #136).** Independently verified: real diff read across all 11 touched files, trial-merged cleanly against current `baihe-subtitler` tip, full suite run in an isolated worktree — 2999 passed, 47 skipped, 0 failed. Matches this step's spec closely: TM only ever suggests (nothing writes to a line until Accept), only hand-approved translations are remembered (not AI output saved unchanged), find-and-replace correctly updates/drops stale TM entries, the engine-comparison panel deliberately doesn't save to run history so it can't corrupt the regression check, and the quick-filter tags reuse `custom_tags` without touching `dramas.status`. Two pre-existing issues noted by the implementing session but left unfixed (flagged, not silently patched, per this repo's own convention): `FILE_ORGANIZATION.md` still says `db.py` has "19 tables" (Step 56 will fix this properly), and the pre-existing "Custom tags" filter is case-sensitive while the new quick filter isn't.
+
 ### Step 25 — Fix: a transcription that finishes in a new browser session can delete a drama's entire line set
 Found by a full-codebase adversarial QC review (2026-09-26), dispatched because the last such pass (which found Steps 4i/4j) was scoped to the early autonomous-mode range only, and ~40 more steps had merged since with no equivalent pass. **Reproduced directly by the planning session too**, not taken on the review's word alone: read `tabs/workspace_tab.py`'s transcribe-job completion path directly and confirmed the exact mechanism.
 
@@ -3457,7 +3459,7 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
   | 23j — manhuaku browser-tier adapter | `step-23j-manhuaku` | ✅ Merged (PR #95, autonomous, verified) | ⏳ Pending |
   | 23k — Authenticated browser-assisted extraction | — | ✅ Merged (PR #105, autonomous, verified) | ⏳ Pending |
   | 23l — zerosumonline/mangaz dedicated adapters (5 others use the generic pipeline) | — | ✅ Merged (PR #106, autonomous, verified — **final step in the 23-series adapter batch**) | ⏳ Pending |
-  | 24 — Translation memory, benchmark A/B, library status | — | Sent (`session_014zMSq3KbwPNoU1J2KseLrU`) | — |
+  | 24 — Translation memory, benchmark A/B, library status | `step-24-tm-benchmark-compare-library-status` | ✅ Merged (PR #136) | ⏳ Pending |
   | 25 — Fix: a transcription finishing in a new browser session can delete a drama's lines | `step-25-transcript-completion-data-loss` | ✅ Merged (PR #76) | ⏳ Pending |
   | 25b — Fix: switching dramas can copy character names/voices into another drama | `claude/step-25b-roadmap-v6u7oj` | ✅ Merged (PR #78) | ⏳ Pending |
   | 25c — Fix four more QC findings (offline TTS broken, history restore loses corrections, Reader apply-to-wrong-line, CLI retry doesn't retry) | `claude/step-25c-rebase-testing-tx9qwh` | ✅ Merged (PR #84) | — |
