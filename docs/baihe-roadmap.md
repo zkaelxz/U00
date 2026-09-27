@@ -332,6 +332,7 @@ Rules for every milestone:
 | 60 | Give the maintenance assistant a real, deliberately-flawed proposed fix and confirm the independent review role (a different backend than the implement role) catches something the implement role's own self-report didn't flag. |
 | 61 | On a real Python 3.14 environment, run the install step that currently fails on `diffq-fixed` and confirm it now either skips `audio-separator` with a clear message, or installs successfully some other way -- never a raw pip traceback as the only output. Confirm Demucs still installs/runs normally regardless. |
 | 62 | On a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward. Click "Install everything in requirements-optional.txt" with `audio-separator` left in and confirm the bulk action reports that one failure clearly while still installing everything else. |
+| 63 | On a venv with `streamlit` importable but a different required package deliberately removed, run `start.ps1` and confirm it does NOT skip the install step -- same check as Step 53's own, applied to the PowerShell launcher. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3365,6 +3366,22 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms the Deno install action checks for `winget` availability before assuming it, and correctly reports when Deno was installed but isn't yet on the current process's PATH.
 - Manual check: on a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward (after a terminal restart if the app's own message said one was needed).
 - Manual check: on a real environment, click "Install everything in `requirements-optional.txt`" with `audio-separator` deliberately left in (reproducing Step 61's own failure) and confirm the bulk action reports that one package's failure clearly while still installing everything else in the file.
+
+---
+
+### Step 63 — Three small findings from Steps 50/53/56, bundled: dead code in `build_llm_instructions()`, `start.ps1` sharing Step 53's stale-import gate, and a stale duplicate root `conftest.py`
+
+**All three flagged-not-fixed by their own implementing sessions, resolved here rather than left open indefinitely.**
+
+1. **Dead code in `translate_engines.py`'s `build_llm_instructions()`, found while building Step 50.** Its `novel_reference` parameter is accepted but never used inside the function body — no effect. Its second return value, `meta_block`, is redundant: that content is already folded into the returned `instructions` string, and the one caller (`build_stable_prompt`) discards it via `_`. Remove the unused parameter and the redundant second return value; update the one caller and any tests referencing the two-value return.
+2. **`start.ps1` has the identical `import streamlit`-only dependency-check gate Step 53 just fixed in `start.bat`**, found while building Step 53 — same bug class (a stale/partially-installed venv where `streamlit` still imports but another required package is missing skips the install step and fails later with a less clear error), left alone at the time since Step 53's roadmap text named only `start.bat`. Apply the same fix here: check `streamlit, pandas, requests, bs4, anthropic` (matching `requirements-core.txt`, same as Step 53), not just `streamlit`.
+3. **A stale duplicate `conftest.py` at the repo root, found while building Step 56, independently confirmed real (2026-09-27)**: its docstring literally says `"tests/conftest.py"`, and it duplicates several fixtures (`isolated_db`, `tmp_path_str`, `sample_lines`, `sample_drama_meta`) that also live in the real `tests/conftest.py` — but is missing that file's own `_keep_real_torch_importable` autouse fixture entirely (the guard that stops a test-swapped fake `torch` from crashing a later, unrelated test's real `import torch`). Since `tests/conftest.py` is the closer conftest for anything under `tests/`, pytest's own fixture-resolution rules mean the root copy's duplicated fixtures are already shadowed there — genuinely dead weight, not a second code path silently in use. Delete the root `conftest.py`; confirm nothing outside `tests/` actually needs a root-level conftest first (check for any test collection run from outside the `tests/` directory that would rely on it).
+4. Keep all three fixes minimal and scoped exactly as their source steps already described — no broader rework of any of the three files.
+
+**Exit:**
+- A test confirms `build_llm_instructions()`'s signature/return no longer carries the unused parameter or redundant second value, and the existing translation-prompt tests still pass unchanged in behavior.
+- Manual check (item 2, same as Step 53's own exit condition, applied to PowerShell): on a venv with `streamlit` importable but a different required package deliberately removed, run `start.ps1` and confirm it does NOT skip the install step.
+- Full suite still passes with the root `conftest.py` removed, confirming its fixtures really were shadowed duplicates and not load-bearing from some other entry point.
 
 ---
 
