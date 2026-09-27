@@ -1261,6 +1261,8 @@ Automates the one piece of Step 10's own manual-check list that's actually autom
 - Manual check: run `start.bat` on one machine, confirm the printed LAN URL is correct, and successfully load/use the app (browse a drama, start a real job) from a browser on a different machine on the same network.
 - Manual check: confirm a background job started from the second machine's browser session shows up and completes correctly, same as if run locally — no job-visibility gap between sessions.
 
+**Revisited (2026-09-27) — item 3's "no multi-user work" narrowed, not reversed, by a directly-requested feature built in a separate session.** See Step 78: the user asked a different (functionality-testing) session for household profiles — separate reading progress/history/notes per named person, Jellyfin-style — while exploring whether to remote-access this app from multiple devices/people. That is real per-identity *state*, which this item's original scope didn't have in mind. It is **not** the login/access-control machinery this item actually warned against: profiles carry no password, and access to the app itself is still gated by nothing beyond whatever already reaches it (running it locally, or a reverse proxy/Tailscale for remote use) — the same trust boundary this step already assumed. Recorded here so this line doesn't read as an unreviewed scope violation to anyone checking it later.
+
 ### Step 11 — Scanlate: finish the ML detector, add real inpainting, auto-route OCR
 `scanlate.py`'s own comments already point at the right fix — a `detect_bubbles_ml()` stub naming a real model that was never wired up, and an honest note that inpainting is "a plain rectangular inset, not a shape-aware mask." Checked seven comparable open-source manga/comic translators' actual code and license (not just their READMEs) to find what's real, free, and safe to build on:
 
@@ -3684,6 +3686,35 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 **Exit:**
 - A test confirms the voice-bank delete button is disabled until its confirm checkbox is checked, and still deletes for real once confirmed — same shape as Step 71's own new tests.
 - Manual check: attempt to delete a voice bank entry and confirm a single click no longer immediately deletes it.
+
+---
+
+### Step 78 — Household profiles (Jellyfin-style) + GPU-awareness, built directly at the user's request in a separate session — reconciling with Step 10e, and what's still needed
+
+**Built outside this roadmap's normal dispatch process, at the user's direct request in the functionality-testing session, while exploring remote/multi-device access to this app.** The user first described a broader "public deployment, multiple concurrent users" goal, walked it back on questioning to "still just me, 2-3 concurrent sessions, household-scale," then explicitly asked for "one level of auth, but 3 user profiles... similar to how Jellyfin can be set up." Built and pushed to branch `docs-testing-cffi-note`, not `baihe-subtitler` directly.
+
+**What was actually built, confirmed against the real diff:**
+1. New `profiles` table (`id`, `name`, `color`, `created_at`) — no password field. This is the point of the Step 10e note above: a profile is "which household member is this," picked from a list, not a login.
+2. **A real schema migration, not just a new table**: `progress`'s primary key changed from `drama_id` alone to `(drama_id, profile_id)`. SQLite can't `ALTER` a `PRIMARY KEY` in place, so this is a backup-then-rebuild migration (`_migrate_step26e_profiles`), same pattern as the existing `_migrate_line_refs_to_ids`. This closes a real, structural bug the old schema made unavoidable: two people reading the same drama would silently overwrite each other's page on every save, not merely "miss out on separate progress."
+3. `reading_history` gained a `profile_id` column (no FK constraint — added via `ALTER TABLE`, which can't add one; `delete_profile` explicitly deletes that profile's rows itself instead of leaving them orphaned).
+4. A new `personal_notes` table replaces the old shared `dramas.personal_notes` column (left in place, unread/unwritten from here on — matches this file's own "migrations never `DROP COLUMN`" convention, see `db.py`'s existing migrations).
+5. `get_active_profile_id()` in `common.py`, session-state-scoped the same way `active_drama_id` already is.
+6. A picker in Settings' sidebar (create/rename/delete). Auto-creates a single default profile ("Me") on first run, so a single-person household never has to think about any of this — every pre-profiles caller and every existing test keeps working completely unchanged, since `profile_id` defaults to `None` everywhere and resolves to that one profile.
+7. **Bundled in the same branch, a separate concern**: GPU-awareness. Neither of Baihe's own two GPU locks (the in-process guard, or Step 25w's cross-process `db.gpu_lock`) can see a *different* application using the same physical GPU — Jellyfin doing hardware-accelerated transcoding on the same card was the motivating case. `diagnostics.external_gpu_is_busy()` reads real `nvidia-smi` utilization/free-VRAM, independent of anything Baihe tracks, and is now a third check inside the existing GPU-slot guard.
+
+**Reviewed once already by this planning session; two required fixes, both applied:** profile deletion had no confirm-before-delete step (same class of bug Step 71 exists to fix elsewhere — now uses the same checkbox-gated pattern); the new profile functions in `db.py` used bare `get_conn()`/`close()` instead of the `contextlib.closing` pattern Step 69 established across the file — now converted. The branch was then rebased onto the current `baihe-subtitler` tip (through Step 32) and repushed; full suite green (3,017 passed, 0 failed, 61 skipped) on the rebased tree.
+
+**Not yet merged into `baihe-subtitler`** — still sitting on `docs-testing-cffi-note`, awaiting this session's re-review/merge decision. No merge-tracking row exists for it in §2's status table yet, unlike every dispatched step above, since it didn't go through that process.
+
+**Real gaps, flagged rather than silently fixed, per this doc's own §5 rule:**
+1. `profiles.color` is stored on every profile but never rendered anywhere — no avatar/swatch in the picker or elsewhere. The schema promises more than the UI currently delivers.
+2. No "acting as <profile>" indicator anywhere outside the Settings sidebar itself — Library's Continue-reading shelf, the Reader, and Workspace's metadata notes all silently act on the current profile with no on-page reminder of which one is active. Easy to misattribute a note or progress update to the wrong household member if you forget which profile is picked.
+3. GPU-busy thresholds (`EXTERNAL_GPU_BUSY_UTIL_PERCENT`/`_MIN_FREE_MB` in `diagnostics.py`: 50% / 1024MB) are hardcoded constants, not user-configurable — worth a Settings control if real use on a shared GPU shows the defaults wrong for a given card.
+
+**Exit:**
+- Manual check: confirm `docs-testing-cffi-note` merges into `baihe-subtitler` cleanly (or is re-reviewed and merged) with both review fixes intact.
+- Manual check: with 2+ profiles, confirm switching the active profile in Settings shows a different reading position/history/personal notes for the same drama, and that Library's Continue-reading shelf only shows the active profile's own in-progress dramas.
+- Manual check: with Jellyfin (or any other GPU-using application) actively transcoding on the same card, confirm a real Baihe transcription/dubbing job queues rather than starting immediately, and resumes once that load clears.
 
 ---
 
