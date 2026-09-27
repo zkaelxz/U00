@@ -29,7 +29,7 @@ import time
 from dataclasses import dataclass, field
 
 from . import ai_extract as ax
-from . import generic_import, profiles, store
+from . import detect, generic_import, profiles, store
 from .generic_import import GENERIC_SOURCE, ComicImportResult, NoContentFound, NovelImportResult
 from .ladder import TIER_LABELS, access_facts
 from .models import PROTECTION_REASONS, AccessTier
@@ -99,6 +99,31 @@ def _note_access(report: ExtractionReport, lr):
     if report.protection:
         report.note("Protection detected: " + ", ".join(report.protection) +
                     " -- recorded, never decoded or worked around.")
+    _note_if_translated(report, getattr(lr, "html", "") or "")
+
+
+def _note_if_translated(report: ExtractionReport, html: str):
+    """Warn when the page arrived already machine-translated.
+
+    A browser translator replaces the original text in the page rather
+    than annotating it, so everything downstream would be working from
+    the translation: the source text saved for a chapter would be English,
+    and this app would then "translate" English it believes is Chinese.
+    That failure is completely silent -- the import succeeds and the text
+    looks fine -- which is exactly why it is worth saying out loud.
+
+    Reaches the user-assisted tier most often, since that HTML comes
+    straight from the person's own browser.
+    """
+    translators = detect.machine_translated(html)
+    if not translators:
+        return
+    report.needs_review = True
+    report.note(
+        "This page arrived already translated by " + ", ".join(translators) +
+        ". The translator replaces the original text, so anything read from this page "
+        "would be the translation, not the source. Turn the browser's page translation "
+        "off for this site and fetch it again.")
 
 
 def _unreachable_reason(report: ExtractionReport) -> str:
