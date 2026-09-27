@@ -4,6 +4,8 @@
 >
 > **Steps 64, 66, 32 all merged (2026-09-27, PRs #162/#163/#164)** — Diagnostics button restyling, real throwaway-venv dependency-upgrade testing, and Workspace's look-ahead/batch-size sliders. All independently reviewed (real diffs, trial-merges, full suites — 3194/3194/3177 passed respectively, 0 failed), CI green before each squash-merge. Next in that queue: Step 71, then Step 31. Two items worth a manual look, not blocking: Step 64's icon may not fully address "user specifically dislikes the icon" (kept the emoji, just restyled); Step 68 (dark-mode/UX batch, Opus-flagged) is next in the other session's queue, followed by Step 73 (queued after it, same files).
 >
+> **Step 76 added (2026-09-27)** — flagged by the Step 75 implementing session, independently confirmed via `pip index versions qwen-asr`: the real published releases top out at 0.0.6, so `requirements-optional.txt`'s `qwen-asr>=0.1` line can never install (feeds `asr_backend.py`'s Qwen3-ASR backend and `forced_align.py`'s Qwen3-ForcedAligner). Not yet dispatched.
+>
 > **Step 75 added (2026-09-27)** — from a user question about a screenshot of the four requirements files open side by side: confirmed real drift, not just duplication — `requirements.txt` (flat, what `requirements-install.bat`/README's manual install use) is missing `audio-separator`/`funasr` (present in the tiered split `start.bat` actually uses); the tiered split is missing `cryptography` (needed for the mangaz.com adapter). Proposes consolidating on the tiered core/media/optional split as the one source of truth, retiring or thinning the flat file. Distinct from Step 33 (that file's hardcoded path, a narrower bug). Not yet dispatched.
 >
 > **Step 74 added (2026-09-27)** — from a user question about whether Step 32's context sliders could give real chapter/episode-level continuity: confirmed they can't scale that way (line-based, cost grows with every batch), and confirmed what already exists (`series_id`-scoped glossary/TM/character sheet — real, terminology-level continuity across episodes) vs. what's genuinely missing (no episode-ordering field in `db.py` at all — zero "episode" grep hits; no narrative-memory mechanism at any level). Proposes a once-per-episode running summary, local-model by default since it's a fixed per-episode cost, feeding only the immediately preceding episode's summary into the next episode's prompt. Not yet dispatched — a real, separate step from Step 73, not a follow-on to it.
@@ -357,6 +359,7 @@ Rules for every milestone:
 | 73 | Install the chosen minimum Streamlit version in an isolated throwaway venv, run the real app, open a drama in Workspace and in Read & Watch, and confirm neither tab errors; also confirm the version just below the new floor still fails. |
 | 74 | Translate two episodes of the same series in order, with a plot point from episode 1 relevant to disambiguating something in episode 2, and confirm episode 2's translation resolves it correctly using the stored summary. |
 | 75 | On a fresh clone, run whichever install path(s) remain and confirm no `ModuleNotFoundError` for a feature the tier claims to cover, including the mangaz.com adapter; confirm no remaining direct `pip install -r requirements.txt` reference outside what was intentionally kept. |
+| 76 | `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and the Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3648,6 +3651,21 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 - A test (or a simple script-level check, since this is mostly file content) confirms the tiered files' combined package set has no discrepancy against what the app's own code actually imports/needs — no package used by a real, non-dead code path is missing from all three tiers.
 - Manual check: on a fresh clone, run whichever install path(s) remain after this step and confirm no `ModuleNotFoundError` for a feature the tier claims to cover, including the mangaz.com adapter (the `cryptography` gap this step was prompted by).
 - Manual check: confirm `requirements.txt`'s new role (deleted, or a thin pointer) doesn't silently reintroduce the flat 43-package file as a fifth thing to keep in sync — grep the repo for any remaining direct `pip install -r requirements.txt` reference outside what this step intentionally kept.
+
+---
+
+### Step 76 — Fix: `qwen-asr>=0.1` in `requirements-optional.txt` can never install — no such release exists on PyPI
+
+**Flagged by the Step 75 implementing session, self-described as out of scope for that step ("keep changes minimal") and independently confirmed here.** `pip index versions qwen-asr` shows the real published releases are 0.0.1 through **0.0.6** — nothing at or above 0.1 has ever shipped. `requirements-optional.txt`'s `qwen-asr>=0.1` line (feeding both the optional Qwen3-ASR transcription backend, `asr_backend.py:94`'s `from qwen_asr import Qwen3ASRModel`, and Qwen3-ForcedAligner timing in `forced_align.py`) can **never resolve** — anyone who tries to install it (via `requirements-optional.txt`, Diagnostics' Install button, or the combined `requirements.txt`) gets a hard pip failure, not a working install. Pre-existing, unrelated to Step 75's own drift fix.
+
+1. **Verify first, don't guess**: check whether `asr_backend.py`'s real `Qwen3ASRModel` usage and `forced_align.py`'s usage are actually compatible with the real latest published release (0.0.6) — install it in an isolated throwaway venv (same pattern Step 66 already built — `diagnostics.check_upgrade_candidate` or the same manual venv technique) and confirm both modules actually import and, ideally, run against it for real, not just that the import line resolves.
+2. **If 0.0.6 is compatible**: lower the floor to the real version (e.g. `qwen-asr>=0.0.6`, or pin the exact version if the package has no stability guarantee across 0.0.x releases) so the line can actually install.
+3. **If the code genuinely needs functionality that doesn't exist until a real 1.0+ release** (check the package's own changelog/release notes for what changed across 0.0.1–0.0.6, don't assume): document this backend as currently non-installable/broken in both `asr_backend.py`'s own docstring and `requirements-optional.txt`'s comment, so Diagnostics' Install button and the requirements file don't silently promise something that can't work, and consider whether the optional-dependency registration (`diagnostics.py`'s `OPTIONAL_DEPENDENCIES`, if `qwen-asr` is in there) needs the same "known limitation" treatment Step 47/61's `KNOWN_UPGRADE_LIMITATIONS` gives other broken installs.
+4. Keep this scoped to the one package/version mismatch — no broader rework of the ASR backend selection.
+
+**Exit:**
+- A test confirms `requirements-optional.txt`'s `qwen-asr` line specifies a version that a real `pip index versions` (or an equivalent resolvable check) confirms actually exists on PyPI — regression coverage against this exact class of bug recurring, similar in spirit to Step 75's own drift-prevention tests.
+- Manual check: `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and `asr_backend.py`'s Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional, whichever step 2/3 above concluded.
 
 ---
 
