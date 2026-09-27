@@ -13,7 +13,8 @@ from common import *
 import background_jobs
 from sources import (adaptive, ai_extract, auth_browser, cache as src_cache, chapter_check,
                      chapter_order, front_door, generic_import, health, ladder as src_ladder,
-                     pipeline, profiles as src_profiles, registry, store as src_store)
+                     pipeline, preflight as src_preflight, profiles as src_profiles,
+                     registry, store as src_store)
 from sources.models import (AccessTier, CapabilityStatus, CHALLENGE_HANDOFF_MESSAGE,
                             ChallengeDetected, FailureReason, NotSupportedError, SourceError,
                             TermsProhibited)
@@ -77,6 +78,25 @@ def _render_front_door():
             except SourceError as e:
                 st.session_state.src_fd_result = None
                 st.error(f"{e.reason.value}: {e}")
+
+    if st.button("✅ Will this site work?", key="src_fd_preflight_btn",
+                 disabled=not url.strip(),
+                 help="Checks whether this site can actually be imported -- is the page "
+                      "reachable, does its text survive the same checks an import uses, can "
+                      "chapters be followed from here, and do the site's terms allow it -- "
+                      "without importing anything. One fetch."):
+        with st.spinner("Checking the site (one fetch, paced like every other request)..."):
+            st.session_state.src_fd_preflight = src_preflight.preflight(url.strip())
+
+    pre = st.session_state.get("src_fd_preflight")
+    if pre is not None:
+        (st.success if pre.ok else st.warning)(pre.verdict)
+        for warning in pre.warnings:
+            st.warning(warning)
+        if pre.lines:
+            with st.expander("What the check found", expanded=not pre.ok):
+                for line in pre.lines:
+                    st.write(f"- {line}")
 
     handoff = st.session_state.get("src_fd_handoff")
     p = st.session_state.get("src_fd_result")

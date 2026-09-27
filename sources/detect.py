@@ -41,6 +41,44 @@ _VUE_MARKERS = ("v-if=", "v-for=", "{{ ", "vue.min.js", "vue.js", "__vue__", "da
 _DRM_MARKERS = ("requestmediakeysystemaccess", "com.widevine.alpha", "com.microsoft.playready",
                 "com.apple.fps", "encrypted-media")
 
+# A page the *person's own browser* has already machine-translated. This
+# is not a failure -- the page loaded fine -- but it quietly ruins an
+# extraction, because the translator REPLACES the source text in the DOM
+# rather than annotating it. Confirmed directly against a real Google
+# translation: the original Japanese was gone from the page afterwards,
+# so extracting would hand this app English text to translate as though
+# it were the original. It matters most for the user-assisted tier, where
+# the HTML comes from the person's own browser.
+#
+# Each marker below was chosen from a real before/after diff of a live
+# translation, keeping only the ones that appear *because* of it:
+#   - `translated-ltr`/`translated-rtl` land on <html> when a translation
+#     is applied (Chrome's built-in translate and the website widget
+#     both set it).
+#   - `goog-gt-tt`/`goog-gt-vt` are the tooltip and viewer elements
+#     injected at translation time.
+#   - Google rewrites every translated text node into nested
+#     `<font style="vertical-align: inherit;">` wrappers.
+# Deliberately NOT used: a bare `skiptranslate` class or a
+# `google_translate_element` div. Both are present when the widget is
+# merely embedded and idle, so matching them would report an untranslated
+# page as translated.
+_TRANSLATED_MARKERS = (
+    ('class="translated-ltr"', "Google Translate (page marked translated-ltr)"),
+    ("class='translated-ltr'", "Google Translate (page marked translated-ltr)"),
+    ('class="translated-rtl"', "Google Translate (page marked translated-rtl)"),
+    ("class='translated-rtl'", "Google Translate (page marked translated-rtl)"),
+    ('id="goog-gt-tt"', "Google Translate (tooltip element present)"),
+    ('id="goog-gt-vt"', "Google Translate (viewer element present)"),
+    ("_msttexthash", "Microsoft/Edge Translator (text hashes on elements)"),
+    ("_mstmutation", "Microsoft/Edge Translator (mutation markers)"),
+)
+# Google's own rewrite of each translated text node. Counted rather than
+# matched once: a single stray <font> tag is ordinary old HTML, but a
+# page full of vertical-align:inherit font wrappers is a translation.
+_GT_FONT_RE = re.compile(r"<font[^>]*vertical-align:\s*inherit", re.I)
+_GT_FONT_MIN = 2
+
 
 def page_title(html: str) -> str:
     m = _TITLE_RE.search(html or "")
@@ -50,6 +88,28 @@ def page_title(html: str) -> str:
 def visible_text(html: str) -> str:
     text = _TAG_RE.sub(" ", html or "")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def machine_translated(html: str) -> list:
+    """Which browser translator, if any, has already rewritten this page.
+
+    Returns a list of plain descriptions (empty when the page looks
+    untouched). This is deliberately NOT a `FailureReason`: the page
+    loaded perfectly well, and nothing here should stop or escalate the
+    access ladder. It is a warning, because the translator has replaced
+    the original text and anything extracted from this page would be the
+    translation rather than the source.
+    """
+    lower = (html or "").lower()
+    found = []
+    for marker, description in _TRANSLATED_MARKERS:
+        if marker in lower and description not in found:
+            found.append(description)
+    if len(_GT_FONT_RE.findall(html or "")) >= _GT_FONT_MIN:
+        description = "Google Translate (text rewritten into <font> wrappers)"
+        if description not in found:
+            found.append(description)
+    return found
 
 
 def _lower_headers(headers) -> dict:
@@ -137,4 +197,24 @@ def evidence(status, headers, body, url, final_url="") -> dict:
         "page_title": page_title(body),
         "text_length": len(visible_text(body)),
         "headers": {k: h[k] for k in keep if k in h},
+        # Recorded as a fact per attempt, like everything else here, so a
+        # puzzling extraction ("why is my Chinese novel in English?") has
+        # the answer sitting in its own diagnostics.
+        "machine_translated": machine_translated(body),
+        # `looks_like_unrendered_shell` already works out *how* confident
+        # it is and *why*, and `classify` above throws both away, keeping
+        # only its boolean. They are the closest thing this project has to
+        # a "is the text really in the DOM?" measurement, so they are kept
+        # here as facts rather than recomputed by whoever wants them.
+        **_shell_evidence(body),
     }
+
+
+def _shell_evidence(body: str) -> dict:
+    try:
+        from page_fetch import looks_like_unrendered_shell
+        shell = looks_like_unrendered_shell(body, visible_text(body))
+    except Exception:
+        return {"shell_confidence": None, "shell_reasons": []}
+    return {"shell_confidence": shell.get("confidence"),
+            "shell_reasons": list(shell.get("reasons") or [])}
