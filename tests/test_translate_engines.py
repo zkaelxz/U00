@@ -2530,6 +2530,96 @@ class TestStablePromptPrefix:
             bodies[2]["systemInstruction"]
 
 
+class TestBoundedNovelReference:
+    """Step 50: build_stable_prompt() used to append context['novel_reference']
+    to every batch's prompt whole and unbounded, however long the reference
+    novel was -- crowding out instructions/dialogue, inflating cost, or
+    exceeding a provider's context limit outright. It's now selected per
+    batch by _select_relevant_novel_passages(), bounded to
+    te.NOVEL_REFERENCE_BUDGET_CHARS, and scored for relevance against the
+    batch's own speaker names / glossary hits rather than always sending the
+    novel's opening passage."""
+
+    def test_a_reference_at_or_under_budget_is_returned_whole(self):
+        ref = "Short reference, well under budget."
+        assert te._select_relevant_novel_passages(ref, budget_chars=1000) == ref
+
+    def test_a_long_reference_with_no_relevance_signal_is_still_bounded(self):
+        ref = "\n\n".join(f"Filler paragraph {i}. " * 20 for i in range(10))
+        assert len(ref) > 500
+        excerpt = te._select_relevant_novel_passages(ref, budget_chars=500)
+        assert len(excerpt) <= 500
+        assert excerpt != ref
+        # Falls back to the beginning, still bounded, not silently empty --
+        # there's no relevance signal to rank by here.
+        assert excerpt.startswith("Filler paragraph 0.")
+
+    def test_selects_the_paragraph_matching_the_batchs_speaker_name(self):
+        paragraphs = [
+            "Opening chapter, sets the scene, no character named yet. " * 5,
+            "A quiet scene about the weather, nothing relevant here. " * 5,
+            "Xiaoling smiled and said something warm to her friend. " * 5,
+        ]
+        ref = "\n\n".join(paragraphs)
+        excerpt = te._select_relevant_novel_passages(
+            ref, speaker_labels=["Xiaoling"], budget_chars=200)
+        assert "Xiaoling" in excerpt
+        assert "Opening chapter" not in excerpt
+
+    def test_selects_the_paragraph_matching_a_glossary_terms_english_side(self):
+        paragraphs = [
+            "Opening chapter, sets the scene, nothing relevant here. " * 5,
+            "Su Shan walked quietly through the garden at dusk. " * 5,
+        ]
+        ref = "\n\n".join(paragraphs)
+        excerpt = te._select_relevant_novel_passages(
+            ref, batch_source_lines=["苏杉说了什么"],
+            glossary_terms=[{"term_original": "苏杉", "term_translation": "Su Shan"}],
+            budget_chars=200)
+        assert "Su Shan" in excerpt
+        assert "Opening chapter" not in excerpt
+
+    def test_build_stable_prompt_records_which_excerpt_a_batch_actually_saw(self):
+        """Step 50 item 3: the passages a batch actually saw are recorded
+        on its own context, the same pattern as speaker_labels/line_ids,
+        so a later "why did this line translate this way" check has
+        something to look at."""
+        context = {"drama_meta": {}, "novel_reference": "Short reference, under budget.",
+                  "batch_source_lines": ["你好"]}
+        _, novel_block = te.build_stable_prompt(context)
+        assert context["novel_reference_excerpt_used"] == "Short reference, under budget."
+        assert "Short reference, under budget." in novel_block
+
+    def test_translate_lines_with_engine_sends_a_bounded_relevant_excerpt_per_batch(self):
+        engine = _claude_engine_with_fake_client()
+        lines = [
+            Line(idx=0, start=0, end=1, zh="第0句", id=100, speaker="A"),
+            Line(idx=1, start=1, end=2, zh="第1句", id=101, speaker="B"),
+        ]
+        paragraphs = [
+            "Opening chapter, sets the scene, no character named yet. " * 40,
+            "Filler about the weather that nobody asked for. " * 40,
+            "Xiaoling walked into the room and smiled warmly. " * 40,
+            "Bo Wen sat quietly by the window, deep in thought. " * 40,
+        ]
+        ref = "\n\n".join(paragraphs)
+        assert len(ref) > te.NOVEL_REFERENCE_BUDGET_CHARS
+        te.translate_lines_with_engine(
+            lines, engine, {}, batch_size=1, novel_reference=ref,
+            character_names={"A": "Xiaoling", "B": "Bo Wen"})
+        calls = engine.client.messages.calls
+        assert len(calls) == 2
+        system_0 = "".join(b["text"] for b in calls[0]["system"])
+        system_1 = "".join(b["text"] for b in calls[1]["system"])
+        # Each batch gets the passage naming ITS OWN speaker, not the
+        # novel's opening chapter every time, and not the whole file.
+        assert "Xiaoling walked into the room" in system_0
+        assert "Bo Wen sat quietly" not in system_0
+        assert "Bo Wen sat quietly" in system_1
+        assert "Xiaoling walked into the room" not in system_1
+        assert len(system_0) < len(ref) and len(system_1) < len(ref)
+
+
 class TestCacheUsageAccounting:
     def test_claude_usage_counts_cached_tokens_as_part_of_the_prompt(self):
         u = te.claude_usage(_FakeClaudeUsage(input_tokens=50, output_tokens=10,

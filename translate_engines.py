@@ -452,6 +452,73 @@ def build_standalone_instructions(source_language: str, target_language: str) ->
     )
 
 
+# Step 50: a reference novel at or under this size is sent whole and
+# unchanged (this is why every short-reference prompt/test is unaffected);
+# a longer one is trimmed to the passages most likely to matter for THIS
+# batch instead of the whole file, unbounded, every time.
+NOVEL_REFERENCE_BUDGET_CHARS = 6000
+
+
+def _select_relevant_novel_passages(novel_reference: str, batch_source_lines: list = None,
+                                    speaker_labels: list = None, glossary_terms: list = None,
+                                    budget_chars: int = NOVEL_REFERENCE_BUDGET_CHARS) -> str:
+    """Bounded, relevance-based excerpt of `novel_reference` for one
+    translation batch (Step 50) -- replaces sending the whole reference,
+    unbounded, to every batch regardless of the batch's actual content.
+
+    The reference novel is itself an existing English translation (see
+    tabs/workspace_tab.py's "Upload novel translation" uploader), so
+    relevance can't be scored by keyword-matching it against the batch's
+    own source-language text directly. Instead it's scored against query
+    terms this batch already has in English: each line's already-resolved
+    speaker name, plus the English side of any glossary term whose
+    source-language form appears in this batch's source lines. The
+    highest-scoring paragraphs are kept, in their original order (so the
+    excerpt still reads as continuous prose), up to budget_chars.
+
+    Falls back to the reference's own beginning, still bounded, when no
+    query term matches anywhere -- there's no relevance signal to rank by
+    in that case, but the unbounded-whole-file problem this step exists
+    to fix still needs fixing regardless."""
+    if not novel_reference:
+        return ""
+    if len(novel_reference) <= budget_chars:
+        return novel_reference
+
+    terms = {label for label in (speaker_labels or []) if label}
+    batch_text = "".join(batch_source_lines or [])
+    for term in (glossary_terms or []):
+        original, translation = term.get("term_original"), term.get("term_translation")
+        if original and translation and original in batch_text:
+            terms.add(translation)
+
+    paragraphs = [p for p in re.split(r"\n\s*\n", novel_reference) if p.strip()]
+    if not paragraphs:
+        return novel_reference[:budget_chars]
+
+    scored = []
+    if terms:
+        lowered_terms = [t.lower() for t in terms]
+        for i, para in enumerate(paragraphs):
+            lowered = para.lower()
+            score = sum(lowered.count(t) for t in lowered_terms)
+            if score > 0:
+                scored.append((score, i, para))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+
+    if not scored:
+        return novel_reference[:budget_chars]
+
+    picked, total = [], 0
+    for _, i, para in scored:
+        picked.append((i, para))
+        total += len(para)
+        if total >= budget_chars:
+            break
+    picked.sort(key=lambda x: x[0])
+    return "\n\n".join(p for _, p in picked)[:budget_chars]
+
+
 def build_stable_prompt(context: dict):
     """(instructions, novel_reference_block) -- the two stable pieces of
     a translation prompt, in cache order: instructions (style guide and
@@ -475,8 +542,16 @@ def build_stable_prompt(context: dict):
     novel_reference = context.get("novel_reference")
     novel_block = ""
     if novel_reference and novel_reference.strip():
+        excerpt = _select_relevant_novel_passages(
+            novel_reference.strip(), batch_source_lines=context.get("batch_source_lines"),
+            speaker_labels=context.get("speaker_labels"), glossary_terms=context.get("glossary_terms"))
+        # Step 50 item 3: recorded on the per-batch context (same pattern as
+        # speaker_labels/line_ids below) so "why did this line translate
+        # this way" can inspect exactly what reference text this batch
+        # actually saw, not just that a reference existed.
+        context["novel_reference_excerpt_used"] = excerpt
         novel_block = ("REFERENCE NOVEL TRANSLATION (authoritative for THIS drama only):\n\n"
-                       + novel_reference.strip())
+                       + excerpt)
     return instructions, novel_block
 
 
@@ -2223,6 +2298,7 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
                                          if ln.zh.strip() and ln.idx not in batch_idxs]
         context["speaker_labels"] = [character_names.get(ln.speaker) for ln in batch]
         context["line_ids"] = [getattr(ln, "id", None) for ln in batch]
+        context["batch_source_lines"] = [ln.zh for ln in batch]
         try:
             if reflect:
                 translations, critiques = call_with_backoff(

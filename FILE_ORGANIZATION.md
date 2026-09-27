@@ -150,6 +150,7 @@ baihe-subtitler/
 | `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
 | `storage.py` | disk usage, cache cleanup |
 | `benchmark.py` | the Benchmark Lab: regression tracking against your own reference cases, across every content type (audio drama, streamer VOD, novel, manhua) |
+| `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
 
 **ASR / transcription & alignment**
 | File | Does |
@@ -181,6 +182,7 @@ baihe-subtitler/
 |---|---|
 | `dub.py` | TTS, voice cloning, track mixing |
 | `video_export.py` | subtitle burn-in, softsub mux, dub muxing |
+| `media_inspect.py` | probes a dropped file (duration/resolution/tracks) and suggests a pipeline, before a drama exists |
 | `subtitle_formats.py` | WebVTT and ASS subtitle export, plus format checks |
 | `video_download.py` | yt-dlp wrapper: fetch audio/video from a URL |
 

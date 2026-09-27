@@ -276,9 +276,14 @@ def build_bulk_requests(drama_id: int, lines, provider, context: dict, batch_siz
                                  if (ln.en or "").strip()] if context_window > 0 else []
         ctx["upcoming_lines"] = [ln.zh for ln in lines[last_pos + 1:last_pos + 1 + context_window_ahead]
                                  if ln.zh.strip() and ln.id not in batch_ids] if context_window_ahead > 0 else []
+        speaker_labels = [character_names.get(ln.speaker) for ln in batch]
+        # Step 50: same per-batch signal the live translation loop already
+        # sets, so build_stable_prompt()'s bounded novel-reference retrieval
+        # works identically for a bulk-submitted batch.
+        ctx["batch_source_lines"] = [ln.zh for ln in batch]
+        ctx["speaker_labels"] = speaker_labels
         ids = [ln.id for ln in batch]
-        numbered = translate_engines._build_numbered_lines(
-            ids, [ln.zh for ln in batch], [character_names.get(ln.speaker) for ln in batch])
+        numbered = translate_engines._build_numbered_lines(ids, [ln.zh for ln in batch], speaker_labels)
         key = request_key(drama_id, bi)
         requests_.append(provider.build_request(key, ctx, numbered))
         line_rows.extend((ln.id, key, zh_hash(ln.zh), ln.en or "") for ln in batch)
