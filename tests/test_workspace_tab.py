@@ -6555,6 +6555,92 @@ class TestStageTabsReplaceTheExpanderScroll:
         assert '"bh-stage-item">○ Export</span>' in stepper_html
 
 
+class TestStageTabsOpenOnTheCurrentStage:
+    """Step 19: without `default=`, st.tabs() always opened on "Source"
+    regardless of how far a drama had actually progressed -- confirmed
+    live in a real browser, the stepper would show e.g. "Diarize" as
+    current while the tab strip opened on Source's own content, an extra
+    click away from the drama's real next action. AppTest has no way to
+    ask which tab is visually selected (`st.tabs` renders every tab's
+    body regardless of selection, and the test element tree carries no
+    "open" flag), so this spies on the real `st.tabs` call instead and
+    checks it was asked for the right default -- the same technique
+    other tests in this suite use to check a call's own arguments rather
+    than an effect AppTest can't observe."""
+
+    def _drama(self, isolated_db, **fields):
+        return isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", **fields)
+
+    def _run(self, did, monkeypatch):
+        from streamlit.testing.v1 import AppTest
+        import streamlit as st
+
+        # undo() first so a second _run() in the same test re-wraps the
+        # real st.tabs, not the previous call's own spy -- otherwise the
+        # two spies chain and each call after the first overwrites both
+        # captured dicts with its own (latest) arguments.
+        monkeypatch.undo()
+        captured = {}
+        real_tabs = st.tabs
+
+        def spy(labels, *args, **kwargs):
+            captured["labels"] = labels
+            captured["kwargs"] = kwargs
+            return real_tabs(labels, *args, **kwargs)
+        monkeypatch.setattr(st, "tabs", spy)
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at, captured
+
+    def test_a_new_drama_defaults_to_source(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db, status="new")
+        _, captured = self._run(did, monkeypatch)
+        assert captured["kwargs"]["default"] == "Source"
+
+    def test_an_aligned_drama_with_no_speakers_defaults_to_diarize(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db, status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+        _, captured = self._run(did, monkeypatch)
+        assert captured["kwargs"]["default"] == "Diarize"
+
+    def test_a_partly_translated_drama_defaults_to_translate(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db, status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A"),
+            Line(idx=1, start=1, end=2, zh="再见", en="", speaker="B"),
+        ])
+        _, captured = self._run(did, monkeypatch)
+        assert captured["kwargs"]["default"] == "Translate"
+
+    def test_a_fully_translated_drama_defaults_to_review(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db, status="translated")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")])
+        _, captured = self._run(did, monkeypatch)
+        assert captured["kwargs"]["default"] == "Review"
+
+    def test_the_default_key_is_scoped_per_drama(self, isolated_db, monkeypatch):
+        # So switching to a different drama re-seeds the default, but a
+        # manual tab click within the SAME drama isn't reset by an
+        # unrelated rerun (verified live: clicking a different tab, then
+        # clicking the "Refresh" button, left the manual pick in place).
+        did_a = self._drama(isolated_db, status="new")
+        did_b = self._drama(isolated_db, status="translated")
+        isolated_db.save_lines(did_b, [
+            Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")])
+        _, captured_a = self._run(did_a, monkeypatch)
+        _, captured_b = self._run(did_b, monkeypatch)
+        assert captured_a["kwargs"]["key"] != captured_b["kwargs"]["key"]
+
+
 class TestReviewTabGroupedSubsections:
     """Step 14 item 3 (added 2026-09-27 after the file-size correction):
     Review's dozen sub-features -- confirmed too numerous for a flat list
