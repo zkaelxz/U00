@@ -802,7 +802,7 @@ def test_consistency_job_persists_and_logs_usage(isolated_db):
     run_consistency_job(job_id, did, lines, FakeConsistencyEngine(), "claude")
 
     result = background_jobs.get_status(job_id)["result"]
-    assert result == {"issue_count": 1}
+    assert result == {"issue_count": 1, "failed_batches": 0, "total_batches": 1}
     saved = isolated_db.load_consistency_issues(did)
     assert saved[0]["term"] == "沈清疑"
     summary = isolated_db.get_usage_summary(did)

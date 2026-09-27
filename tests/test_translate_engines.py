@@ -1935,14 +1935,66 @@ class TestCheckConsistencyLlm:
             supports_reference = False
         lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
         result = te.check_consistency_llm(lines, PureMT())
-        assert result == []
+        assert result == ([], 0, 0)
 
     def test_no_translated_lines_returns_empty(self):
         class MockLlm:
             supports_reference = True
         lines = [Line(idx=0, start=0, end=1, zh="a", en="")]  # untranslated
         result = te.check_consistency_llm(lines, MockLlm())
-        assert result == []
+        assert result == ([], 0, 0)
+
+    def test_a_failed_batch_is_counted_not_silently_dropped(self, isolated_db, monkeypatch):
+        """Step 55: check_consistency_llm used to `except Exception: continue`
+        with no trace at all -- a run that failed on every batch looked
+        identical, from the caller's side, to one that genuinely found
+        nothing. The batch that fails is now counted, and the batch after
+        it still runs and still contributes its own issues."""
+        monkeypatch.setattr("time.sleep", lambda *_: None)  # skip call_with_backoff's real retry delay
+
+        class FlakyEngine:
+            """Always fails on batch 1's own line, even across
+            call_with_backoff's internal retry -- a plain call-counter
+            would let the retry attempt land on batch 2 instead."""
+            supports_reference = True
+            model = "fake-model"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, model, max_tokens, messages):
+                if "a -> b" in messages[0]["content"]:
+                    raise RuntimeError("simulated API failure")
+                text = '[{"term": "term", "variants": ["a", "b"], "note": "n"}]'
+                return type("Resp", (), {"content": [_FakeBlock(text)]})()
+
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b"),
+                 Line(idx=1, start=1, end=2, zh="c", en="d")]
+        issues, failed_batches, total_batches = te.check_consistency_llm(
+            lines, FlakyEngine(), batch_size=1)
+        assert failed_batches == 1
+        assert total_batches == 2
+        assert len(issues) == 1  # the batch that succeeded still contributes its own issue
+
+    def test_a_batch_with_no_usable_response_is_also_counted_as_failed(self, monkeypatch):
+        """call_llm_json returns its `fallback` (None, here) rather than
+        raising when a provider's response can't be parsed at all -- that
+        has to be counted the same as an outright exception."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"candidates": []}  # no content at all
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+        issues, failed_batches, total_batches = te.check_consistency_llm(
+            lines, te.GeminiEngine("fake-key"))
+        assert issues == []
+        assert failed_batches == 1
+        assert total_batches == 1
 
 
 class _FakeBlock:
@@ -2183,7 +2235,10 @@ class TestOfflineTestEngine:
         # Free-form LLM helpers check for .client; None must not crash them.
         engine = te.get_engine("test_offline")
         assert engine.client is None
-        assert te.check_consistency_llm([Line(idx=0, start=0, end=1, zh="a", en="b")], engine) == []
+        # Step 55: a decline-cleanly response is still a batch that couldn't
+        # actually be checked -- counted as failed, not silently zeroed out.
+        assert te.check_consistency_llm(
+            [Line(idx=0, start=0, end=1, zh="a", en="b")], engine) == ([], 1, 1)
 
 
 class TestResumeAfterCrash:

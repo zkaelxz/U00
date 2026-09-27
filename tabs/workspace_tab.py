@@ -1069,13 +1069,17 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
     actually lets it run at the same time as those instead of forcing them
     to queue up one after another.
     """
-    issues = translate_engines.check_consistency_llm(
+    issues, failed_batches, total_batches = translate_engines.check_consistency_llm(
         lines, engine,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
     db.save_consistency_issues(drama_id, issues)
-    background_jobs.set_result(job_id, {"issue_count": len(issues)})
+    background_jobs.set_result(job_id, {
+        "issue_count": len(issues),
+        "failed_batches": failed_batches,
+        "total_batches": total_batches,
+    })
 
 
 def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, source_language):
@@ -4853,8 +4857,20 @@ def render_workspace_tab():
                         elif _cjob["status"] == "queued":
                             _render_queued_job_panel(_cjob, _consistency_job_id, f"cc_{picked_id}")
                         elif _cjob["status"] == "done":
-                            _count = (_cjob.get("result") or {}).get("issue_count", 0)
-                            if _count:
+                            _result = _cjob.get("result") or {}
+                            _count = _result.get("issue_count", 0)
+                            _failed = _result.get("failed_batches", 0)
+                            _total = _result.get("total_batches", 0)
+                            if _failed:
+                                # Step 55: a batch that errored or came back empty used to be
+                                # skipped with no trace -- a run that failed on every batch
+                                # looked identical to "no issues found." Surfaced instead of
+                                # a clean toast, whatever _count came back as.
+                                st.warning(
+                                    f"Checked {_total} batch(es), {_total - _failed} succeeded, "
+                                    f"{_failed} failed to check (see log) -- {_count} consistency "
+                                    "issue(s) found so far.")
+                            elif _count:
                                 st.warning(f"{_count} consistency issue(s) found.")
                             else:
                                 st.toast("No consistency issues detected.", icon="✅")
