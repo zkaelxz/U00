@@ -801,6 +801,85 @@ class TestUpgradePipArgs:
         assert "-c" not in args
 
 
+class TestRedundantTtsInstallWarning:
+    """Step 47 item 4: warn, never block, before installing a second heavy
+    local voice-cloning/TTS backend when a functionally-equivalent one is
+    already installed."""
+
+    def test_none_for_a_package_outside_the_group(self):
+        assert diagnostics.redundant_tts_install_warning("faster-whisper", {"chatterbox-tts"}) is None
+
+    def test_none_when_nothing_else_in_the_group_is_installed(self):
+        assert diagnostics.redundant_tts_install_warning("omnivoice", set()) is None
+        assert diagnostics.redundant_tts_install_warning("omnivoice", {"faster-whisper"}) is None
+
+    def test_warns_when_a_group_sibling_is_already_installed(self):
+        msg = diagnostics.redundant_tts_install_warning("omnivoice", {"chatterbox-tts"})
+        assert msg is not None
+        assert "Chatterbox" in msg
+        assert "OmniVoice" in msg
+        assert "won't replace" in msg
+
+    def test_never_warns_against_itself(self):
+        # Already-installed rows never show an Install button in the first
+        # place, but the function itself should still be self-consistent.
+        assert diagnostics.redundant_tts_install_warning("omnivoice", {"omnivoice"}) is None
+
+    def test_names_every_sibling_already_installed_not_just_one(self):
+        msg = diagnostics.redundant_tts_install_warning(
+            "hume-tada", {"chatterbox-tts", "omnivoice"})
+        assert "Chatterbox" in msg and "OmniVoice" in msg
+
+    def test_underscore_and_hyphen_spellings_are_treated_the_same(self):
+        # OPTIONAL_DEPENDENCIES' own key is "f5_tts" (underscore);
+        # MODEL_ENGINE_REGISTRY's is "f5-tts" (hyphen) -- both call sites
+        # pass whichever spelling their own registry uses.
+        msg = diagnostics.redundant_tts_install_warning("f5_tts", {"chatterbox-tts"})
+        assert msg is not None
+        msg2 = diagnostics.redundant_tts_install_warning("f5-tts", {"chatterbox-tts"})
+        assert msg2 is not None
+
+
+class TestUpgradeBlockedReason:
+    """Step 47 item 5: an "Upgrade" action that can't actually reach the
+    latest release for a real reason must say why instead of silently
+    offering nothing, or a doomed-to-fail upgrade."""
+
+    def test_none_for_an_ordinary_package_with_no_known_limitation(self, tmp_path):
+        assert diagnostics.upgrade_blocked_reason(
+            "somepkg", "9.9.9", project_root=str(tmp_path)) is None
+
+    def test_known_python_314_limitation_only_applies_on_python_314(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 14, 0, "final", 0))
+        reason = diagnostics.upgrade_blocked_reason(
+            "audio-separator", "0.3.0", project_root=str(tmp_path))
+        assert reason is not None
+        assert "3.14" in reason
+        assert "diffq-fixed" in reason
+
+    def test_known_limitation_does_not_apply_on_a_different_python_version(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 11, 0, "final", 0))
+        assert diagnostics.upgrade_blocked_reason(
+            "audio-separator", "0.3.0", project_root=str(tmp_path)) is None
+
+    def test_constraints_cap_explains_why_when_latest_exceeds_it(self, tmp_path):
+        (tmp_path / "constraints.txt").write_text("torch<3  # some real reason\n")
+        reason = diagnostics.upgrade_blocked_reason(
+            "torch", "3.1.0", project_root=str(tmp_path))
+        assert reason is not None
+        assert "torch<3" in reason
+        assert "constraints.txt" in reason
+
+    def test_no_reason_when_latest_is_still_within_the_cap(self, tmp_path):
+        (tmp_path / "constraints.txt").write_text("torch<3\n")
+        assert diagnostics.upgrade_blocked_reason(
+            "torch", "2.9.0", project_root=str(tmp_path)) is None
+
+    def test_no_reason_when_constraints_file_is_missing(self, tmp_path):
+        assert diagnostics.upgrade_blocked_reason(
+            "torch", "3.1.0", project_root=str(tmp_path)) is None
+
+
 class TestRedactForSupport:
     def test_strips_api_keys(self):
         text = diagnostics.redact_for_support("key=sk-ant-api03-" + "X" * 40)

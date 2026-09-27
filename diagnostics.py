@@ -723,6 +723,110 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     return args
 
 
+# ---------------------------------------------------------------------------
+# Step 47 item 4: warn (never block) before installing a heavy local
+# voice-cloning/TTS backend when a functionally-equivalent one is already
+# installed -- e.g. Chatterbox is already there and someone clicks Install
+# on OmniVoice. Both an Install button covering the same four packages
+# exist today (Dependencies' own per-tier buttons, and the Model & engine
+# versions panel's own row buttons above), so this is shared by both
+# rather than checked twice. "Hume" the user separately asked about isn't
+# a distinct engine this app wires into anything -- "hume-tada" (TADA) is
+# already the one Hume Labs engine here, so it's the only Hume-related
+# entry in this group; nothing else to add without a real, separate
+# candidate to evaluate.
+# ---------------------------------------------------------------------------
+
+REDUNDANT_LOCAL_TTS_PACKAGES = {"f5-tts", "omnivoice", "chatterbox-tts", "hume-tada"}
+_REDUNDANT_LOCAL_TTS_LABELS = {
+    "f5-tts": "F5-TTS", "omnivoice": "OmniVoice",
+    "chatterbox-tts": "Chatterbox", "hume-tada": "TADA",
+}
+
+
+def redundant_tts_install_warning(package: str, installed_packages) -> str:
+    """None unless `package` is one of the heavy local voice-cloning/TTS
+    backends above AND at least one of the other three is already
+    installed (per `installed_packages`, an iterable of pip/distribution
+    names -- accepts either OPTIONAL_DEPENDENCIES's own keys, like
+    "f5_tts", or MODEL_ENGINE_REGISTRY's, like "f5-tts"; both spellings
+    normalize the same way pip itself treats "_"/"-" as equivalent).
+    Otherwise a plain-English confirmation message naming what's already
+    installed, for an Install button's own confirm-before-a-large-
+    redundant-download step. Never a reason to block outright -- Step 38's
+    Model Arena wants more than one installed to compare."""
+    key = package.replace("_", "-").lower()
+    if key not in REDUNDANT_LOCAL_TTS_PACKAGES:
+        return None
+    installed_norm = {p.replace("_", "-").lower() for p in installed_packages}
+    already = [_REDUNDANT_LOCAL_TTS_LABELS[p] for p in sorted(REDUNDANT_LOCAL_TTS_PACKAGES)
+               if p != key and p in installed_norm]
+    if not already:
+        return None
+    names = " and ".join(already)
+    return (f"{names} already installed and covers this -- also install "
+            f"{_REDUNDANT_LOCAL_TTS_LABELS[key]}? It's a large download and won't replace "
+            f"{names}; both stay available.")
+
+
+# ---------------------------------------------------------------------------
+# Step 47 item 5: when an "Upgrade" action can't actually reach the latest
+# release for a real, known reason (a constraints.txt cap, or a package
+# with no published wheel for the running Python version), say so instead
+# of silently offering an upgrade that would fail, or offering nothing
+# with no explanation. Seeded with the one real, already-confirmed case
+# (Step 61's audio-separator/diffq-fixed/Python-3.14 finding) rather than
+# a hypothetical one -- add to this dict as more real cases turn up, the
+# same way OPTIONAL_DEPENDENCIES itself grows.
+# ---------------------------------------------------------------------------
+
+KNOWN_UPGRADE_LIMITATIONS = {
+    "audio-separator": {
+        "python_version": (3, 14),
+        "reason": "its diffq-fixed sub-dependency has wheels only through cp313, and its "
+                  "sdist build also fails independently (Step 61); Demucs, this app's "
+                  "default vocal-separation backend, is unaffected.",
+    },
+}
+
+
+def _constraints_cap(pip_name: str, project_root: str = None):
+    """The raw constraint line (e.g. "torch<3") capping `pip_name` in
+    constraints.txt, or None if it isn't capped there. Matches on the
+    package name before the operator, normalizing "_"/"-" the same way
+    pip itself treats them as equivalent."""
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(project_root, "constraints.txt")
+    if not os.path.exists(path):
+        return None
+    target = pip_name.replace("_", "-").lower()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            m = re.match(r"([A-Za-z0-9_.\-]+)\s*<\s*([0-9]+)", line)
+            if m and m.group(1).replace("_", "-").lower() == target:
+                return line, int(m.group(2))
+    return None
+
+
+def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
+                           project_root: str = None) -> str:
+    """None if a normal "Upgrade" should be offered for `pip_name`.
+    Otherwise a short, plain-English reason the row should show INSTEAD
+    of the button, so a known-doomed upgrade never just looks like a real
+    option with no explanation (Step 47 item 5)."""
+    known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
+    if known and sys.version_info[:2] == known["python_version"]:
+        py = ".".join(str(p) for p in known["python_version"])
+        return f"latest available for Python {py} -- {known['reason']}"
+    cap = _constraints_cap(pip_name, project_root)
+    if cap and latest_version and _version_sort_key(latest_version)[:1] >= [cap[1]]:
+        return f"capped at `{cap[0]}` in constraints.txt (see its own comment for why)"
+    return None
+
+
 def get_gpu_status() -> dict:
     """A live GPU/VRAM readout for Diagnostics' routine view (Step 18 item
     3) -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",

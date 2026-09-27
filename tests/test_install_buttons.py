@@ -358,3 +358,140 @@ class TestDiagnosticsTabGpuTorchButtonVisibility:
         monkeypatch.setattr(diagnostics, "gpu_torch_mismatch", lambda: False)
         at = self._run()
         assert not [b for b in at.button if b.label == "⚡ Install GPU PyTorch"]
+
+
+class TestModelPanelRedundantTtsConfirm:
+    """Step 47 item 4: installing a heavy local TTS backend when a
+    functionally-equivalent one is already installed asks first (a full
+    second click), rather than either silently proceeding or blocking
+    outright."""
+
+    def _run(self, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["diagnostics_results"] = _FAKE_RESULTS
+        monkeypatch = state.pop("_monkeypatch")
+        monkeypatch.setattr(diagnostics, "get_model_engine_versions", lambda ollama_model=None: [
+            {"name": "Chatterbox", "version": "1.0.0", "url": "https://example.com/chatterbox",
+             "installed": True, "package": "chatterbox-tts",
+             "help": "A local voice-cloning engine."},
+            {"name": "OmniVoice", "version": "not installed", "url": "https://example.com/omnivoice",
+             "installed": False, "package": "omnivoice", "help": "Another local voice-cloning engine."},
+        ])
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_first_click_shows_a_warning_instead_of_installing(self, isolated_db, monkeypatch):
+        called = {"n": 0}
+        monkeypatch.setattr(diagnostics, "stream_dependency_install",
+                            lambda *a, **k: called.__setitem__("n", called["n"] + 1) or iter(
+                                [{"done": True, "ok": True, "returncode": 0}]))
+        at = self._run(_monkeypatch=monkeypatch)
+        at.button(key="install_model_btn_OmniVoice").click().run(timeout=30)
+        assert not at.exception
+        assert called["n"] == 0
+        warnings = [w.value for w in at.warning]
+        assert any("Chatterbox" in w and "OmniVoice" in w for w in warnings)
+        assert [b for b in at.button if b.label == "⬇️ Install anyway"]
+        assert [b for b in at.button if b.label == "Cancel"]
+
+    def test_install_anyway_actually_installs(self, isolated_db, monkeypatch):
+        captured = {}
+
+        def fake_stream(name, python_executable=None, project_root=None):
+            captured["name"] = name
+            yield {"line": "Successfully installed omnivoice"}
+            yield {"done": True, "ok": True, "returncode": 0}
+        monkeypatch.setattr(diagnostics, "stream_dependency_install", fake_stream)
+        at = self._run(_monkeypatch=monkeypatch)
+        at.button(key="install_model_btn_OmniVoice").click().run(timeout=30)
+        at.button(key="install_model_btn_OmniVoice__proceed").click().run(timeout=30)
+        assert not at.exception
+        assert captured["name"] == "omnivoice"
+
+    def test_cancel_clears_the_confirmation_without_installing(self, isolated_db, monkeypatch):
+        called = {"n": 0}
+        monkeypatch.setattr(diagnostics, "stream_dependency_install",
+                            lambda *a, **k: called.__setitem__("n", called["n"] + 1) or iter(
+                                [{"done": True, "ok": True, "returncode": 0}]))
+        at = self._run(_monkeypatch=monkeypatch)
+        at.button(key="install_model_btn_OmniVoice").click().run(timeout=30)
+        at.button(key="install_model_btn_OmniVoice__cancel").click().run(timeout=30)
+        assert not at.exception
+        assert called["n"] == 0
+        assert not [b for b in at.button if b.label == "⬇️ Install anyway"]
+        # back to a plain, unconfirmed Install button
+        assert [b for b in at.button if b.label == "⬇️ Install"]
+
+    def test_no_confirmation_needed_when_nothing_redundant_is_installed(self, isolated_db, monkeypatch):
+        from streamlit.testing.v1 import AppTest
+        captured = {}
+
+        def fake_stream(name, python_executable=None, project_root=None):
+            captured["name"] = name
+            yield {"done": True, "ok": True, "returncode": 0}
+        monkeypatch.setattr(diagnostics, "stream_dependency_install", fake_stream)
+        monkeypatch.setattr(diagnostics, "get_model_engine_versions", lambda ollama_model=None: [
+            {"name": "OmniVoice", "version": "not installed", "url": "https://example.com/omnivoice",
+             "installed": False, "package": "omnivoice", "help": "A local voice-cloning engine."},
+        ])
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["diagnostics_results"] = _FAKE_RESULTS
+        at.run(timeout=30)
+        at.button(key="install_model_btn_OmniVoice").click().run(timeout=30)
+        assert not at.exception
+        assert captured.get("name") == "omnivoice"
+
+
+class TestDependenciesUpgradeExplainsWhenBlocked:
+    """Step 47 item 5: an Upgrade action that can't reach the real latest
+    release for a known reason explains why instead of offering a
+    doomed-to-fail upgrade."""
+
+    def _run(self, version_results, monkeypatch, python_version=(3, 14, 0, "final", 0)):
+        from streamlit.testing.v1 import AppTest
+        monkeypatch.setattr(diagnostics.sys, "version_info", python_version)
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        fake_results = dict(_FAKE_RESULTS)
+        fake_results["dependencies"] = dict(_FAKE_RESULTS["dependencies"])
+        fake_results["dependencies"]["audio-separator"] = {
+            "installed": True, "powers": "background-music removal", "tier": "feature"}
+        at.session_state["diagnostics_results"] = fake_results
+        at.session_state["dependency_version_results"] = version_results
+        at.run(timeout=30)
+        return at
+
+    def test_known_python_314_limitation_shows_a_reason_not_a_button(self, isolated_db, monkeypatch):
+        at = self._run({"audio-separator": {
+            "installed_version": "0.2.0", "latest_version": "0.3.0", "outdated": True}}, monkeypatch)
+        assert not at.exception
+        upgrade_buttons = [b for b in at.button if b.label == "⬆️ Upgrade"
+                          and b.key == "upgrade_dep_btn_audio-separator"]
+        assert not upgrade_buttons
+        captions = " ".join(c.value for c in at.caption)
+        assert "audio-separator" in captions
+        assert "3.14" in captions
+
+    def test_upgrade_button_appears_normally_on_a_different_python_version(self, isolated_db, monkeypatch):
+        at = self._run({"audio-separator": {
+            "installed_version": "0.2.0", "latest_version": "0.3.0", "outdated": True}}, monkeypatch,
+            python_version=(3, 11, 0, "final", 0))
+        assert not at.exception
+        assert [b for b in at.button if b.key == "upgrade_dep_btn_audio-separator"]
