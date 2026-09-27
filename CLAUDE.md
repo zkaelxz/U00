@@ -11,6 +11,13 @@ git show FETCH_HEAD:docs/baihe-roadmap.md
 It lists every step in build order, what each one changes, and its exit
 condition. If you were told to "do Step X", that's Step X in this doc.
 
+## Current work
+
+- **User (Airbear):** Setting up local repo, integrating local files
+- **Claude:** Ready to assist with roadmap steps
+
+Update this section when starting or finishing work to prevent overlaps.
+
 ## How to work
 
 - **One step, one branch, off the latest `baihe-subtitler`.**
