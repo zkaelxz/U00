@@ -2,6 +2,8 @@
 
 > **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state, not carried over from any earlier note here:
 >
+> **Step 74 added (2026-09-27)** — from a user question about whether Step 32's context sliders could give real chapter/episode-level continuity: confirmed they can't scale that way (line-based, cost grows with every batch), and confirmed what already exists (`series_id`-scoped glossary/TM/character sheet — real, terminology-level continuity across episodes) vs. what's genuinely missing (no episode-ordering field in `db.py` at all — zero "episode" grep hits; no narrative-memory mechanism at any level). Proposes a once-per-episode running summary, local-model by default since it's a fixed per-episode cost, feeding only the immediately preceding episode's summary into the next episode's prompt. Not yet dispatched — a real, separate step from Step 73, not a follow-on to it.
+>
 > **Step 73 added (2026-09-27)** — a real, reproduced crash on Streamlit 1.49.1 itself, the version the requirements floor (`>=1.49`) claims to support: Workspace's stage tabs use `st.tabs(default=..., key=...)` (added in Step 19), and Read & Watch uses `st.iframe` — neither exists in 1.49.1. Distinct from Step 68's dark-mode/selectbox DOM findings (styling, not crashes), though likely the same underlying cause (an older Streamlit actually installed vs. what the app was really built against) — worth fixing before more DOM-dependent styling work chases version-specific symptoms. Not yet dispatched.
 >
 > **Step 26c merged (2026-09-27, PR #161)** — novel narration in the original language with bilingual subtitles, independently reviewed (real diff read, trial-merged clean, full suite 3170 passed/49 skipped/0 failed on the merged tree, all six build items and exit tests confirmed present), CI green before squash-merge. Next in its queue: Step 32.
@@ -349,6 +351,7 @@ Rules for every milestone:
 | 71 | Attempt to delete a saved translation version, a preset, a glossary term (single and bulk), a series character, and a saved bug bundle, and confirm each now requires a confirm step before it's actually deleted. |
 | 72 | Once Step 42 exists and produces a real proposed fix, confirm clicking "Deliver as GitHub PR" opens an actual, reviewable PR on the configured repo with the exact diff shown in-app; also confirm the integration makes no GitHub calls at all while disabled or with no token set. |
 | 73 | Install the chosen minimum Streamlit version in an isolated throwaway venv, run the real app, open a drama in Workspace and in Read & Watch, and confirm neither tab errors; also confirm the version just below the new floor still fails. |
+| 74 | Translate two episodes of the same series in order, with a plot point from episode 1 relevant to disambiguating something in episode 2, and confirm episode 2's translation resolves it correctly using the stored summary. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3590,6 +3593,28 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 **Exit:**
 - A test confirms the requirements floor is parsed and asserts it's at or above the real minimum Streamlit version found in step 1.
 - Manual check (per step 3 above): the chosen minimum version runs both Workspace and Read & Watch with no tab-crash error; the version just below it does still fail, confirming the floor is tight.
+
+---
+
+### Step 74 — Per-episode running summary, for real cross-episode narrative continuity (distinct from glossary/TM's terminology-only continuity)
+
+**From a user conversation about whether Step 32's context sliders could give the model real chapter/episode-level awareness.** Checked directly: they can't, and shouldn't be pushed that far — `context_window`/`context_window_ahead` are line-based and scale with every batch, so covering a whole chapter or episode that way would blow up prompt size (and, for Ollama, real local VRAM/time) on every single translation call, for a job a fixed, once-per-episode summary already does far more cheaply.
+
+**Re-verified what already exists for cross-episode continuity before writing this, so it isn't duplicated:** `dramas.series_id` (`db.py`) links episodes of the same series together, and `glossary_terms`/`translation_memory`/`series_characters` are already keyed by `series_id`, not `drama_id` — so established character names/terms genuinely do carry across episodes today (Step 7b/24). **What's actually missing, confirmed by grep — zero results for "episode" anywhere in `db.py`:**
+1. **No explicit episode-ordering field at all.** `list_dramas_by_series` (`db.py` ~line 1052) orders by `created_at DESC` only — a real gap for "previous episode" even before this step's own summary feature, since re-importing or adding an episode out of upload order silently breaks the ordering.
+2. **No narrative memory at any level.** Glossary/TM carry *terminology* (a name, a term, a phrase) forward — not "what happened," so a callback to a specific prior event or an unresolved plot thread from last episode has nothing to resolve against, unlike a name or term.
+
+1. Add an explicit episode-ordering field to `dramas` (e.g. `episode_number INTEGER`), defaulting to null/unset so existing dramas aren't forced to renumber; `list_dramas_by_series` orders by it when set, falling back to `created_at` when not (don't silently reorder an existing series with no episode numbers set).
+2. After an episode's translation finishes, one LLM call produces a short running summary (a few sentences: key events, unresolved threads, character state) — **default to a local model for this specifically**, since it's a fixed, once-per-episode cost regardless of episode length or translation-batch count, unlike context_window_ahead's per-batch cost; the user can still pick a cloud engine if they prefer.
+3. Store the summary per-episode (a new column or small table, `series_id`-scoped like glossary/TM). When translating an episode, feed only the **immediately preceding** episode's stored summary (by the new ordering field) into the prompt as fixed, small context — not the whole prior episode's line text, and not growing with batch size.
+4. Show the stored summary in the UI, editable — same "suggestion the user can fix" pattern already used for glossary/TM (Step 7b/8's Accept/Reject pattern) — a bad auto-summary shouldn't silently poison every future episode's context with no way to correct it.
+5. Scope check: this is about narrative continuity between episodes of the *same series*, not chapter-to-chapter continuity *within* a single novel drama (Step 32's context sliders already handle in-drama local continuity reasonably; a single novel is one `drama_id`, not multiple episodes).
+
+**Exit:**
+- A test confirms a summary is generated once per finished episode (not once per batch), and that only the immediately preceding episode's summary (by the ordering field) reaches the next episode's translation prompt.
+- A test confirms episodes with no `episode_number` set fall back to `created_at` ordering rather than crashing or silently reordering an existing series.
+- A test confirms editing a stored summary changes what's sent to the next episode's translation, the same "suggestion, editable, not silently auto-applied" pattern as glossary/TM.
+- Manual check: translate two episodes of the same series in order, with a plot point from episode 1 relevant to disambiguating something in episode 2 (a callback, a pronoun resolved by a prior event), and confirm episode 2's translation resolves it correctly using the stored summary.
 
 ---
 
