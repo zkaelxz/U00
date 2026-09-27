@@ -5,6 +5,7 @@ classes (the real ones need a GPU/network this sandbox doesn't have).
 """
 import os
 import sys
+import types
 
 import pytest
 
@@ -43,9 +44,33 @@ class TestRunStageIsolatesFailures:
         assert stage.data == {}
 
     def test_vram_helpers_degrade_gracefully_without_torch(self, monkeypatch):
-        # This sandbox has no torch installed -- confirms the real,
-        # unmocked behavior on a CPU-only machine reports None rather
-        # than crashing, which is exactly the case this exists to handle.
+        # sys.modules[name] = None is the standard, thread-safe way to
+        # simulate "not installed" (see tests/test_diagnostics_and_export.py's
+        # own comment on the same technique) -- this genuinely forces
+        # `import torch` to raise ImportError, rather than relying on this
+        # sandbox happening to not have torch installed, which was the
+        # real gap here: that never actually exercised the ImportError
+        # branch, it just coincided with an environment that has the same
+        # symptom for an unrelated reason.
+        monkeypatch.setitem(sys.modules, "torch", None)
+        with pytest.raises(ImportError):
+            import torch  # noqa: F401  -- confirms the mock actually took effect
+        assert asr_benchmark._peak_vram_mb() is None
+        asr_benchmark._reset_vram_counter()  # must not raise
+
+    def test_vram_helpers_return_none_when_torch_present_but_cuda_unavailable(self, monkeypatch):
+        # Distinct from the "torch absent" case above: torch genuinely
+        # importable, but no CUDA device (a CPU-only machine, or a real
+        # Windows box without a supported GPU). Real intended behavior,
+        # decided here: same as torch-absent -- report None ("N/A"), not
+        # 0.0, since there's no real VRAM reading to give either way. The
+        # fake torch's `cuda` namespace deliberately has no
+        # `reset_peak_memory_stats`/`max_memory_allocated`, so calling
+        # either one by mistake (instead of short-circuiting on
+        # `is_available() is False`) would raise AttributeError here.
+        fake_torch = types.SimpleNamespace(
+            cuda=types.SimpleNamespace(is_available=lambda: False))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
         assert asr_benchmark._peak_vram_mb() is None
         asr_benchmark._reset_vram_counter()  # must not raise
 

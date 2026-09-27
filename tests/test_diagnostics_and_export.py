@@ -6,6 +6,7 @@ export_package.py, and db.py's line history (undo) functions.
 import sys
 import os
 import json
+import shutil
 import types
 import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -343,7 +344,18 @@ def _make_fake_hf_repo(cache_dir, repo_type_prefix, org, name, commit_hash="a" *
         blob_path = os.path.join(blobs_dir, blob_hash)
         with open(blob_path, "wb") as f:
             f.write(content)
-        os.symlink(blob_path, os.path.join(snapshot_dir, filename))
+        snapshot_path = os.path.join(snapshot_dir, filename)
+        try:
+            os.symlink(blob_path, snapshot_path)
+        except OSError:
+            # Real huggingface_hub cache downloads fall back to a plain
+            # copy on Windows when the user lacks
+            # SeCreateSymbolicLinkPrivilege (no Developer Mode) --
+            # scan_cache_dir() already handles a non-symlinked snapshot
+            # file the same way (treats it as its own blob), so this
+            # fixture should too rather than failing outright for any
+            # Windows contributor without that privilege.
+            shutil.copy2(blob_path, snapshot_path)
     with open(os.path.join(refs_dir, "main"), "w") as f:
         f.write(commit_hash)
     return repo_dir
