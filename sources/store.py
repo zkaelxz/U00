@@ -41,7 +41,7 @@ DEFAULT_SETTINGS = {
     "disabled_sources": [],
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
     "extraction_diagnostics": False,  # Step 23g: always show Review Extraction + diagnostics
-    # Step 32: whether the browser extension's localhost endpoint runs.
+    # Step 33: whether the browser extension's localhost endpoint runs.
     # Off by default -- it opens a port, so it's opt-in, never something
     # a fresh install starts on its own. Lives here because this is the
     # app's only persisted settings store and the flag has to survive a

@@ -1,5 +1,5 @@
 """
-tests/test_page_server.py -- Step 32's localhost endpoint.
+tests/test_page_server.py -- Step 33's localhost endpoint.
 
 Mocked throughout, per this repo's testing rules: no real browser, no
 real OCR backend, no model download, no network. `scanlate`'s pipeline
@@ -226,6 +226,23 @@ class TestTheEndpointRefusesWhatItShould:
     def test_an_unknown_endpoint_is_a_404(self, token):
         assert _get(token, path="/anything-else").status == 404
         assert _post(token, {"images": []}, path="/other").status == 404
+
+    def test_a_refusal_closes_the_connection_instead_of_desyncing_it(self, token):
+        """Keep-alive is on, and a POST is refused on its headers before
+        its body is read. Leaving that body in the socket would make the
+        next request on the same connection parse from the middle of it,
+        so a refusal must close rather than keep the connection."""
+        body = json.dumps({"images": [{"data": "", "content_type": "image/png"}]}).encode()
+        handler = _FakeHandler("/page", "POST", {"Content-Length": str(len(body))}, body)
+        handler.do_POST()
+        assert handler.status == 401
+        assert handler.close_connection is True
+
+    def test_the_handler_has_a_per_connection_timeout(self):
+        """A peer that opens a socket and stops talking must not hold a
+        worker thread for ever."""
+        assert page_server._Handler.timeout == page_server.REQUEST_TIMEOUT_SECONDS
+        assert page_server._Handler.timeout > 0
 
 
 class TestTheTokenItself:
@@ -454,3 +471,10 @@ class TestTheConfigBridge:
     def test_no_engine_without_a_key(self):
         page_server.set_translation_config(engine="claude", api_key="")
         assert page_server._build_engine(page_server.get_translation_config()) is None
+
+    def test_an_engine_name_this_build_does_not_know_reads_as_none(self, isolated_db):
+        """/health answers "is an engine configured?" the same way, so a
+        stale or misspelled name must not fail the health check."""
+        page_server.set_translation_config(engine="not_a_real_engine", api_key="k")
+        assert page_server._build_engine(page_server.get_translation_config()) is None
+        assert _get(page_server.load_or_create_token()).status == 200

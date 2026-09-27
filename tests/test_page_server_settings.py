@@ -1,5 +1,5 @@
 """
-tests/test_page_server_settings.py -- Step 32's Settings expander: the
+tests/test_page_server_settings.py -- Step 33's Settings expander: the
 opt-in switch, the token display, and the bridge that carries translation
 settings to the endpoint's background thread.
 

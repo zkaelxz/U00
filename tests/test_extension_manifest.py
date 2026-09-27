@@ -1,6 +1,6 @@
 """
 tests/test_extension_manifest.py -- static checks on the browser
-extension (Step 32).
+extension (Step 33).
 
 The extension is the one part of this project that runs inside a browser
 alongside every site the person visits, and it holds a token that can

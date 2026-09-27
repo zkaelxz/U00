@@ -1,6 +1,6 @@
 """
 page_server.py -- the small, localhost-only HTTP endpoint the browser
-extension talks to (roadmap Step 32).
+extension talks to (roadmap Step 33).
 
 **Why this exists at all.** The adapters in `sources/` do bulk import:
 they fetch a chapter, track new ones, and build an offline library. This
@@ -221,10 +221,16 @@ def _build_engine(config):
     if not (config.get("api_key") or "").strip() and name != "ollama":
         return None
     import translate_engines
-    return translate_engines.get_engine(
-        name, config.get("api_key") or "",
-        free_tier=bool(config.get("free_tier")) and name == "gemini",
-        base_url=config.get("base_url") if name == "ollama" else None)
+    try:
+        return translate_engines.get_engine(
+            name, config.get("api_key") or "",
+            free_tier=bool(config.get("free_tier")) and name == "gemini",
+            base_url=config.get("base_url") if name == "ollama" else None)
+    except Exception:
+        # "Is an engine available?" is also what /health answers, so an
+        # engine name this build doesn't know must read as "none
+        # configured" rather than failing the health check itself.
+        return None
 
 
 # -- the work ----------------------------------------------------------
@@ -434,6 +440,11 @@ def select_page_images(images, page_url: str):
 class _Handler(BaseHTTPRequestHandler):
     server_version = "BaihePageServer/1.0"
     protocol_version = "HTTP/1.1"
+    # socketserver reads this per connection: without it a peer that
+    # opens a socket and then stops talking holds a worker thread for
+    # ever, which is the standing "a hung peer must never leave work
+    # stuck" rule applied to the server side.
+    timeout = REQUEST_TIMEOUT_SECONDS
 
     # -- helpers -------------------------------------------------------
     def _client_is_local(self) -> bool:
@@ -475,6 +486,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _fail(self, error):
+        # Keep-alive is on (HTTP/1.1), and a refusal usually happens
+        # *before* the request body has been read -- an unauthenticated
+        # POST is rejected on its headers alone. Leaving that body in the
+        # socket would desync the connection: the next request on it
+        # would be parsed starting mid-body. Closing is both simpler and
+        # safer than reading megabytes we've already decided to refuse.
+        self.close_connection = True
         self._send_json(error.status, {"error": error.message})
 
     # -- routes --------------------------------------------------------
