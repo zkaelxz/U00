@@ -2603,10 +2603,10 @@ class TestJobEtaDisplay:
         # A single run -- the "done" branch clears the job as its last
         # step, so a second render (as the shared helper's default does
         # for other tests, to reach steady state) would see no job left
-        # and lose the very success message this test checks for.
+        # and lose the very toast this test checks for.
         at = self._run(did, runs=1)
         assert not at.get("progress")
-        assert any("complete" in m.value for m in at.success)
+        assert any("complete" in m.value for m in at.toast)
 
 
 class TestMergePreviewDoesNotMutateLiveLines:
@@ -2999,7 +2999,7 @@ class TestTranslateJobRefreshesStaleEnBoxes:
         }
         at.run(timeout=30)
 
-        assert any("Translation complete." in s.value for s in at.success)
+        assert any("Translation complete." in s.value for s in at.toast)
         assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["Hello."]
         background_jobs.clear_job(job_id)
 
@@ -4076,7 +4076,7 @@ class TestVerticalShortsExport:
         assert calls["start"] == 0.0 and calls["end"] == 60.0
         assert calls["crop_position"] == 0.5
         assert "Dialogue:" in calls["ass_text"]  # a real ASS body, not the raw en text
-        assert any("Vertical clip ready" in s.value for s in at.success)
+        assert any("Vertical clip ready" in s.value for s in at.toast)
         assert any(dl.label.startswith("Download") for dl in at.download_button)
 
 
