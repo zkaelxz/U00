@@ -60,12 +60,14 @@ def test_a_control_change_updates_the_same_dict_in_place():
     assert after["style"]["size"] == 40
 
 
-def test_library_scanlate_and_live_opt_into_the_type_scale():
-    """Step 12 item 6: the scale is scoped to these three tabs (the rest
-    are rebuilt by Steps 14-18), via a marker each one drops first thing."""
+def test_library_scanlate_live_and_discover_opt_into_the_type_scale():
+    """Step 12 item 6: the scale is scoped to these tabs (the rest are
+    rebuilt by Steps 14-18), via a marker each one drops first thing.
+    discover_tab.py joined this list in Step 17."""
     for path, fn in (("tabs/library_tab.py", "render_library_tab"),
                      ("tabs/scanlate_tab.py", "render_scanlate_tab"),
-                     ("tabs/live_tab.py", "render_live_tab")):
+                     ("tabs/live_tab.py", "render_live_tab"),
+                     ("tabs/discover_tab.py", "render_discover_tab")):
         with open(os.path.join(PROJECT_ROOT, path), encoding="utf-8") as f:
             tree = ast.parse(f.read())
         [func] = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == fn]
