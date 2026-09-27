@@ -351,55 +351,92 @@ def delete_piper_voice(voice: str, voices_dir: str = None) -> bool:
 
 MODEL_ENGINE_REGISTRY = [
     {"name": "Whisper (faster-whisper)", "kind": "package", "package": "faster-whisper",
-     "url": "https://github.com/SYSTRAN/faster-whisper"},
+     "url": "https://github.com/SYSTRAN/faster-whisper",
+     "help": "The default speech-to-text engine used to transcribe dialogue when you start a "
+             "new drama."},
     {"name": "Qwen3-ASR", "kind": "package", "package": "qwen-asr",
-     "url": "https://github.com/QwenLM/Qwen3-ASR"},
+     "url": "https://github.com/QwenLM/Qwen3-ASR",
+     "help": "An alternative speech-to-text engine to Whisper, used for transcription when "
+             "selected in Settings."},
     {"name": "SenseVoice (FunASR)", "kind": "package", "package": "funasr",
-     "url": "https://github.com/modelscope/FunASR"},
+     "url": "https://github.com/modelscope/FunASR",
+     "help": "An alternate transcription engine that also tags emotion and non-speech sounds "
+             "(laughing, sighing, etc.) in the audio."},
     {"name": "pyannote.audio", "kind": "package", "package": "pyannote.audio",
-     "url": "https://github.com/pyannote/pyannote-audio"},
+     "url": "https://github.com/pyannote/pyannote-audio",
+     "help": "Figures out who's speaking and when, so lines can be split and labeled by speaker "
+             "(speaker diarization)."},
     {"name": "pyannote diarization model", "kind": "repo",
      "repo_ids": diarize.DIARIZATION_MODELS,
-     "url": "https://huggingface.co/pyannote/speaker-diarization-community-1"},
+     "url": "https://huggingface.co/pyannote/speaker-diarization-community-1",
+     "help": "The actual model weights pyannote.audio uses to tell speakers apart -- a gated "
+             "Hugging Face download, not a pip package."},
     {"name": "manga-ocr", "kind": "package", "package": "manga-ocr",
-     "url": "https://github.com/kha-white/manga-ocr"},
+     "url": "https://github.com/kha-white/manga-ocr",
+     "help": "Reads Japanese text out of manga page images (Scanlate's OCR step)."},
     {"name": "PaddleOCR", "kind": "package", "package": "paddleocr",
-     "url": "https://github.com/PaddlePaddle/PaddleOCR"},
+     "url": "https://github.com/PaddlePaddle/PaddleOCR",
+     "help": "An alternate OCR backend for reading text out of manga/manhua page images."},
     {"name": "audio-separator", "kind": "package", "package": "audio-separator",
-     "url": "https://github.com/nomadkaraoke/python-audio-separator"},
+     "url": "https://github.com/nomadkaraoke/python-audio-separator",
+     "help": "Strips background music out of the audio track before transcription, so dialogue "
+             "is easier to hear and transcribe."},
     {"name": "Demucs", "kind": "package", "package": "demucs",
-     "url": "https://github.com/facebookresearch/demucs"},
+     "url": "https://github.com/facebookresearch/demucs",
+     "help": "A fallback background-music remover, used when audio-separator isn't installed."},
     {"name": "F5-TTS", "kind": "package", "package": "f5-tts",
-     "url": "https://github.com/SWivid/F5-TTS"},
+     "url": "https://github.com/SWivid/F5-TTS",
+     "help": "A local text-to-speech engine that can clone a character's voice for dubbing or "
+             "novel narration."},
     {"name": "OmniVoice", "kind": "package", "package": "omnivoice",
-     "url": "https://github.com/k2-fsa/OmniVoice"},
+     "url": "https://github.com/k2-fsa/OmniVoice",
+     "help": "A local voice-cloning engine that can also design a new voice from a text "
+             "description, not just clone an existing sample."},
     {"name": "GPT-SoVITS", "kind": "service",
      "note": "separate local server (not pip-installed)",
-     "url": "https://github.com/RVC-Boss/GPT-SoVITS"},
+     "url": "https://github.com/RVC-Boss/GPT-SoVITS",
+     "help": "A separate local voice-cloning server you run yourself -- the app talks to it over "
+             "its own local API rather than installing it as a package."},
     {"name": "Chatterbox", "kind": "package", "package": "chatterbox-tts",
-     "url": "https://github.com/resemble-ai/chatterbox"},
+     "url": "https://github.com/resemble-ai/chatterbox",
+     "help": "A local voice-cloning engine that can vary emotional delivery; adds an inaudible "
+             "watermark to its output."},
     {"name": "TADA", "kind": "package", "package": "hume-tada",
-     "url": "https://github.com/HumeAI/tada"},
+     "url": "https://github.com/HumeAI/tada",
+     "help": "A local voice engine tuned for long narration (e.g. novel narration) rather than "
+             "short dubbed lines."},
     {"name": "edge-tts", "kind": "package", "package": "edge-tts",
-     "url": "https://github.com/rany2/edge-tts"},
+     "url": "https://github.com/rany2/edge-tts",
+     "help": "A free, online (Microsoft-hosted) text-to-speech engine used for dubbing when no "
+             "local voice-cloning engine is set up."},
 ]
 
 
 def get_model_engine_versions(ollama_model: str = None) -> list:
-    """[{"name", "version", "url", "installed"}, ...], one row per
-    MODEL_ENGINE_REGISTRY entry plus the active Ollama tag if given. A
-    "package" entry's version comes from importlib.metadata (no import of
-    the package itself, so no heavy ML import-time cost just to check a
-    version) -- "not installed" if it isn't present. A "repo" entry (a bare
-    model checkpoint this app's own code names directly, not a
-    pip-versioned package) shows its Hugging Face repo id(s) as its
+    """[{"name", "version", "url", "installed", "package", "help"}, ...],
+    one row per MODEL_ENGINE_REGISTRY entry plus the active Ollama tag if
+    given. A "package" entry's version comes from importlib.metadata (no
+    import of the package itself, so no heavy ML import-time cost just to
+    check a version) -- "not installed" if it isn't present. A "repo"
+    entry (a bare model checkpoint this app's own code names directly, not
+    a pip-versioned package) shows its Hugging Face repo id(s) as its
     identifier instead of a version number; a "service" entry (an engine
     running as its own separate server) shows its note. Neither a "repo"
     nor a "service" entry has a real "not installed" state of its own, so
     both count as installed. "installed" is a real boolean computed here
     from the actual check, not a string match against "not installed" in
     whatever renders it (Step 18 item 2 -- that match would silently break
-    if this literal ever changed). Makes no network call."""
+    if this literal ever changed). Makes no network call. "package" (Step
+    47) is the real pip/importlib.metadata distribution name for a
+    "package" kind entry, None otherwise -- the exact string a caller
+    should pass to stream_dependency_install/stream_pip_install for that
+    row's own Install button, straight from the registry rather than
+    re-derived by matching against OPTIONAL_DEPENDENCIES's own keys (those
+    use import-style names -- "faster_whisper", "manga_ocr" -- that don't
+    all match the real pip names here, and some registry packages, like
+    Qwen3-ASR's "qwen-asr", have no OPTIONAL_DEPENDENCIES entry at all).
+    "help" is a short plain-English description of what the row is and
+    which app feature uses it, for a "?" affordance in the UI."""
     out = []
     for entry in MODEL_ENGINE_REGISTRY:
         if entry["kind"] == "repo":
@@ -416,10 +453,14 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
                 version = "not installed"
                 installed = False
         out.append({"name": entry["name"], "version": version, "url": entry["url"],
-                    "installed": installed})
+                    "installed": installed, "package": entry.get("package"),
+                    "help": entry.get("help", "")})
     if ollama_model:
         out.append({"name": "Ollama (active tag)", "version": ollama_model,
-                    "url": "https://ollama.com/library", "installed": True})
+                    "url": "https://ollama.com/library", "installed": True,
+                    "package": None,
+                    "help": "The local Ollama model tag currently selected in Settings for "
+                            "free local translation."})
     return out
 
 

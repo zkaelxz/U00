@@ -222,8 +222,12 @@ class TestDiagnosticsTabInstallButtonGating:
         return at
 
     def test_exactly_the_missing_feature_and_engine_deps_get_a_button(self, isolated_db):
+        # Scoped to "Check my setup" -- Step 47 added its own, separate
+        # "⬇️ Install" buttons to the Model & engine versions panel below,
+        # so filtering the whole page's buttons would also catch those.
         at = self._run()
-        install_buttons = [b for b in at.button if b.label == "⬇️ Install"]
+        setup = next(e for e in at.expander if e.label == "🩺 Check my setup")
+        install_buttons = [b for b in setup.button if b.label == "⬇️ Install"]
         assert len(install_buttons) == 2
         keys = {b.key for b in install_buttons}
         assert keys == {"install_dep_btn_fixture_feature_missing",

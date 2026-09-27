@@ -248,12 +248,23 @@ def render_diagnostics_tab():
                   "something newer exists, only what's here right now.")
         model_versions = diagnostics.get_model_engine_versions(
             st.session_state.get("settings_ollama_model"))
-        table_rows = ["| | Model / engine | Version |", "|---|---|---|"]
         for m in model_versions:
             icon = "✅" if m["installed"] else "❌"
             version_text = f"`{m['version']}`" if m["installed"] else "*not installed*"
-            table_rows.append(f"| {icon} | [**{m['name']}**]({m['url']}) | {version_text} |")
-        st.markdown("\n".join(table_rows))
+            row_c1, row_c2, row_c3, row_c4 = st.columns([0.5, 4, 2, 1.6])
+            if m.get("help"):
+                with row_c1.popover("❓"):
+                    st.caption(m["help"])
+            row_c2.markdown(f"{icon} [**{m['name']}**]({m['url']})")
+            row_c3.markdown(version_text)
+            if not m["installed"] and m.get("package"):
+                if row_c4.button("⬇️ Install", key=f"install_model_btn_{m['name']}"):
+                    model_result = _run_pip_stream(
+                        f"Installing {m['name']}...", f"Installed {m['name']}.",
+                        f"Install failed for {m['name']} -- see output above.",
+                        diagnostics.stream_dependency_install(m["package"], project_root=project_root))
+                    if model_result["ok"]:
+                        st.rerun()
 
         st.markdown("**GPU status**")
         gpu_status = diagnostics.get_gpu_status()
