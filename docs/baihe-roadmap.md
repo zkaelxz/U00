@@ -6,7 +6,7 @@
 >
 > **Ready to send now:** Step 74 (per-episode running summary) — confirmed unblocked, no file overlap with anything in flight. Both known implementing sessions are idle.
 >
-> **Not yet dispatched:** Step 79 (start.bat's Python-stub detection bug + version pinning — small, concrete). Step 80 (design-only Windows installer/uninstaller & update-distribution architecture — see its own Exit section; explicitly no implementation).
+> **Not yet dispatched:** Step 79 (start.bat's Python-stub detection bug + version pinning — small, concrete). Step 80 (design-only Windows installer/uninstaller & update-distribution architecture — see its own Exit section; explicitly no implementation). Step 81 (full dead-code/redundancy sweep of `baihe-subtitler`, added 2026-09-27 at the user's request — flagged for Opus per §4's model table, gated review, not autonomous).
 >
 > **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42, which doesn't exist yet). Steps 36–44 (deliberately a later, subscription-independence phase — see the note above Step 36). Steps 19, 26, 40b, 60, 61, 62 are simply not started and not currently prioritized — no blocker beyond "not sent yet."
 >
@@ -334,6 +334,7 @@ Rules for every milestone:
 | 78 | With 2+ profiles, confirm switching the active profile in Settings shows a different reading position/history/personal notes for the same drama, and that Library's Continue-reading shelf only shows the active profile's own in-progress dramas; with another GPU-using application (e.g. Jellyfin) actively transcoding, confirm a real Baihe job queues rather than starting immediately, and resumes once that load clears. |
 | 79 | On a real Windows machine with the Store aliases enabled and no real Python installed, run `start.bat` and confirm the new message correctly names the Settings toggle fix; with two real Python versions installed, confirm `start.bat --python-version 3.12` builds the venv against 3.12 specifically. |
 | 80 | Design-only step — no manual check on the running app; the exit condition is a reviewed written design document (see the step's own Exit section). |
+| 81 | After the cleanup PR(s) land, click through Workspace's transcribe→translate→export flow, Library, and Scanlate once each, and confirm nothing that used to work now errors. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3781,6 +3782,30 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 
 ---
 
+### Step 81 — Full dead-code/redundancy sweep of `baihe-subtitler` (a real audit, not a name-guessing pass)
+
+**Prompted by the user's own request (2026-09-27) to "stress test and clean up redundant code/broken code/temporary notes or files" across the project.** This planning session is docs-only and can't touch application code directly (see this repo's own `CLAUDE.md`) — this step is the write-up so an implementing session can actually do the sweep. It's distinct from, and builds on, three prior *targeted* dead-code fixes already merged (Step 25e, Step 50's flagged-then-fixed `build_llm_instructions()` finding, and Step 63's own three-item bundle) — those were single findings noticed while building something else; this step is the first time a *full, deliberate* pass across the whole app is actually scoped.
+
+1. **Read every top-level `.py` module and every `tabs/*.py` file** (per `FILE_ORGANIZATION.md`'s own tree — confirm that doc is still current first, since it's drifted badly once already, per Step 56) and identify candidates for each of:
+   - **Unused functions/classes/parameters** — confirmed by grepping every call site across the whole repo (including `tests/`, `cli.py`, and any `tabs/*.py` that might call it dynamically), not just "doesn't appear nearby." A parameter accepted but never read inside its own function body (the exact shape of the `build_llm_instructions()`/`novel_reference` finding Step 63 already fixed) counts too.
+   - **Duplicated logic** — the same check, transform, or request/retry pattern implemented more than once instead of sharing one helper (e.g. `start.bat`/`start.ps1` having independently-maintained dependency-check gates was exactly this shape, fixed piecemeal across Steps 53/63 already — look for other pairs like it).
+   - **Unreachable branches / dead `if` arms** — code guarded by a condition that can no longer be true given the current schema/config (e.g. a fallback for a field `db.py` no longer writes, or a UI branch for a mode `settings_tab.py` no longer exposes).
+   - **Stray temporary/scratch files that shouldn't be tracked** — debug scripts, one-off migration helpers, duplicate `conftest.py`s (Step 63 already found and removed one at the repo root), anything with a name or docstring signaling it was a throwaway aid rather than part of the app.
+2. **Never delete on a name-guess.** Every candidate needs an actual "grep every call site, confirm zero real references" check before it's proposed for removal — the same standard this project's own research-discipline section already holds every other finding to. If a function is only reachable via `getattr`/dynamic dispatch/a string-keyed registry (this app has a few, e.g. the source-adapter registry, the TTS-backend registry), confirm that specifically before calling it dead.
+3. **Cross-check `FILE_ORGANIZATION.md`'s own file tree and module descriptions against the real repo** as part of the same pass (same drift class as Step 56 already fixed once) — update it if it's stale again.
+4. **Bundle the confirmed findings into one or more PRs, each scoped and minimal** (same discipline as Step 63) — a removal-only diff for genuinely dead code, kept separate from any behavior-changing fix a finding might also suggest (a behavior fix, if one turns up, gets its own follow-up step rather than riding along in a "cleanup" PR).
+5. **Anything found but not confidently dead** (used only by a code path this pass couldn't fully trace, or genuinely ambiguous) gets flagged in the write-up, not deleted speculatively — same "flag, don't silently fix or silently skip" standard as every other finding in this project.
+
+**Model recommendation: Opus, not the Sonnet default** — added to §4's model table below. The failure mode here is asymmetric: a wrongly-confirmed "dead" removal that turns out to be reachable via a dynamic path is a real, silent regression, and "confirm every call site across the whole repo before deleting" is exactly the kind of exhaustive, easy-to-get-almost-right verification work that table already flags Opus for elsewhere (Step 66, Step 23g).
+
+**Exit:**
+- A written list of every confirmed-dead finding (file, function/class, why it's confirmed unused — the specific grep/trace that proved it) is produced before any deletion PR is opened.
+- At least one PR removes the confirmed-dead code, passes the full existing test suite with no new failures, and is reviewed under this repo's normal gate (Step 81 is not in the autonomous-mode exception list, so it goes through the standard planning-chat review, real diff read, independent test run).
+- `FILE_ORGANIZATION.md` is re-checked against the real file tree as part of this step and corrected if it's drifted.
+- **Manual check**: after the cleanup PR(s) land, click through the app's main flows once (Workspace transcribe→translate→export, Library, Scanlate) and confirm nothing that used to work now errors — the fastest possible manual signal that something removed as "dead" actually wasn't.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3844,8 +3869,9 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 23k — Authenticated browser-assisted extraction | The highest policy-boundary stakes on this table: a mistake here means either session cookies/tokens leaking into an LLM prompt, or a site whose ToS explicitly bans automated access getting wrongly unlocked just because authentication succeeded — exactly the technical/policy conflation this session already had to catch and correct once in its own vetting notes. Getting `automation_permission`'s enforcement subtly wrong here is a real, not hypothetical, failure mode. |
   | 66 — Widen dependency-upgrade safety checking | Real edge-case surface, not just following a clear spec: spinning up a throwaway isolated venv/trial install, running the real test suite against a candidate package version, and reporting the result correctly across several distinct failure modes (network unavailable, no disk space for the throwaway venv, the install itself failing vs. the tests failing) — easy to get the "untested" vs. "confirmed safe" vs. "confirmed broken" distinction subtly wrong, which is exactly what this step exists to get right. |
   | 68 — Dark-mode/UX bug batch | Less a data-correctness risk than the others on this table, but flagged for a different reason: several of its findings (the selectbox CSS rule existing but not matching the real rendered DOM; the "Checks" popover's scroll-trapping bug) need genuine live-DOM diagnosis to find the real root cause, not spec-following — the same "figure out why a selector that should work doesn't" shape that made Step 25t's tab-bar bug take real investigation the first time. A wrong diagnosis here risks a fix that looks plausible but doesn't actually change the rendered DOM. |
+  | 81 — Full dead-code/redundancy sweep | Asymmetric failure mode: a wrongly-confirmed "dead" removal that's actually reachable via a dynamic/registry path (this app has a few — the source-adapter registry, the TTS-backend registry) is a real, silent regression, not just a missed cleanup opportunity. Exactly the exhaustive, easy-to-get-almost-right verification shape this table already flags Opus for elsewhere (Step 66, Step 23g). |
 
-  Added the eight rows above (four on 2026-09-26, four more on 2026-09-27 at the user's confirmation) — these are steps that landed after the table was first set, checked against the same criteria as the original four, not new criteria invented for them.
+  Added the eight rows above (four on 2026-09-26, four more on 2026-09-27 at the user's confirmation), plus Step 81 (2026-09-27, same day) — these are steps that landed after the table was first set, checked against the same criteria as the original four, not new criteria invented for them.
 
   Everything else — including Step 11's model-swap fix, Step 10's uninstaller — is normal-risk, well-specified work; Sonnet has already handled comparable steps (1, 1b, 1c) correctly.
 - **Status** (last checked against the real branch state on 2026-09-24). For Steps 1e–10 in autonomous mode, there's no per-step "check Step X" request to trigger a table update — the planning chat should re-sync this table by checking real git state (§5 rule 1) whenever asked, or on its own initiative when picking the thread back up, rather than waiting to be told a step finished. **Manual check** tracks the user's own real-model check from §2's table, separately from merge status — a step can be merged with its manual check still pending, and that's expected to lag further behind in autonomous mode since steps land back-to-back. It moves to ✅ only when the user says "manual check passed for Step X"; the planning chat doesn't infer it.
@@ -3995,6 +4021,9 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 60 — Multi-agent orchestration: specialized roles, cross-provider review | — | Not started | — |
   | 61 — Fix: `audio-separator`'s `diffq-fixed` has no Python 3.14 wheel, broken sdist | — | Not started | — |
   | 62 — Real install actions for requirement tiers and Deno, not just pip packages | — | Not started | — |
+  | 40b — Scheduled model re-evaluation and promotion | — | Not started | — |
+  | 67 — Three confirmed test-suite defects from a real Windows disposable-copy run | — | ✅ Merged (PR #157) | ⏳ Pending |
+  | 69 — URGENT: `db.py`'s leaked-connection cleanup can silently fail under real concurrency | — | ✅ Merged (PR #158) | ⏳ Pending |
   | 63 — Three small bundled findings: dead code in `build_llm_instructions()`, `start.ps1`'s stale-import gate, stale root `conftest.py` | — | ✅ Merged (PR #155) | ⏳ Pending |
   | 64 — Restyle Diagnostics' Install/Upgrade buttons; fix `FILE_ORGANIZATION.md`'s stale table count | — | ✅ Merged (PR #162) | ⏳ Pending (icon-dislike wording) |
   | 65 — "Read & Watch" tab name | — | ✅ Resolved (2026-09-27) — reviewed and closed, keeping the current name, no build | — |
@@ -4011,6 +4040,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 78 — Household profiles (Jellyfin-style) + GPU-awareness | — | ✅ Merged (PR #167) | ⏳ Pending (three items) |
   | 79 — Fix `start.bat`'s Python-stub check; add version pinning | — | Not started — not yet dispatched | — |
   | 80 — Design-only: Windows installer/uninstaller & distribution architecture | — | Not started — not yet dispatched | — |
+  | 81 — Full dead-code/redundancy sweep of `baihe-subtitler` | — | Not started — not yet dispatched | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |

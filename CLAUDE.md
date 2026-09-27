@@ -90,7 +90,45 @@ external project checked so far.
   PRs that are, confirmed directly, actually merged.
 - **Keep the roadmap's three tracking structures in sync**: the `### Step`
   headers, the §4 status table, and the §2 manual-check table. Their counts
-  must always match.
+  must always match. **This rule existed and was still violated (caught and
+  fixed 2026-09-27, commit `52bbc3c`)**: §4's table had silently stopped
+  growing at Step 62 — 11 already-merged steps had no row there at all, and
+  3 more still read "Not started" despite being merged the same day. Root
+  cause: verification in practice only ever checked headers-vs-§2 (both are
+  a trivial `grep -c "^### Step"` vs. a row count), never §4 — because §4
+  rows get added at review/merge time, not at step-creation time like §2's
+  do, so a step added and later merged without a planning-chat pass in
+  between could skip §4 entirely. **Going forward, run all three checks
+  together, every time, not just the header/§2 pair:**
+  ```
+  grep -c "^### Step" docs/baihe-roadmap.md
+  sed -n '/^## 2\. Roadmap/,/^## Steps 36/p' docs/baihe-roadmap.md | grep -c "^| [0-9]"
+  grep -n "Step | Branch | Merged | Manual check" docs/baihe-roadmap.md   # find §4's table start
+  grep -n "^- \*\*After Step 10" docs/baihe-roadmap.md                    # find §4's table end
+  sed -n '<start+2>,<end-1>p' docs/baihe-roadmap.md | grep -c "^  | "     # §4 row count, using those two line numbers
+  ```
+  (Verified working against the real file 2026-09-27 — the first pass at
+  this exact command undercounted by 3 real, still-missing rows, caught
+  only by then diffing step ids between headers and the §4 table directly;
+  a bare count match is necessary but don't assume it's sufficient without
+  at least spot-checking a few ids the first time you use this.)
+  All three numbers must match (adjust the `sed` ranges if a section header
+  moves). If §4 is short, that's not "pending future work" — it means real
+  steps are untracked; add the missing rows immediately, don't defer it to
+  the next review pass. **When adding a brand-new step to the roadmap, add
+  its §4 row in the same edit**, even if the only thing known about it yet
+  is "Not started" — don't wait for it to be sent/merged before it exists
+  in the table at all.
+- **Replace the roadmap's "NEXT" pointer wholesale, not by appending.** This
+  rule also already existed in the note's own footer and was still violated
+  (caught and fixed 2026-09-27, same commit): it had grown to ~13 stacked,
+  dated entries, some already contradicted by later entries sitting above
+  them. **Concrete trigger, so "replace wholesale" isn't just a vague
+  intention**: if the note is about to get a new entry appended and already
+  has more than ~4-5 entries in it, or if any new entry would restate or
+  contradict something an existing entry already says, stop and rewrite the
+  whole block as one current summary instead — don't add a 14th entry on
+  top of 13.
 - **Handoff prompts to the implementing session should be one line**, e.g.
   "Build Step 4k from the roadmap." Its own `docs/ai-setup/CLAUDE.md` (copied
   into its repo root) already tells it to fetch this planning branch, read
