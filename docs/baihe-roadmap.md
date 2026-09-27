@@ -9,10 +9,11 @@
 > **Two new user-reported bugs this round, both added as steps out of numeric order:**
 > - **Step 45 (URGENT, sent)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read before sending (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`, checks for any line having a `speaker` set *before* checking translation/export status — so unsaved diarization data would explain the stuck indicator) but explicitly flagged as needing reproduction against the real drama's data before trusting that diagnosis. Sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU`.
 > - **Step 46 (not yet sent)** — dark mode is visually inconsistent: a screenshot of the Reader tab shows the sidebar/page background switching to dark while the video player card, stat boxes, the line-reading table, and the bottom bars all stay light/white. Different root cause than the already-fixed Step 25t (that was a tab-bar selector silently matching nothing) — likely a broader selector-scope gap in `inject_dark_css`. Queued, ready to send.
+> - **Step 47 (not yet sent)** — Diagnostics' "Model & engine versions" panel (a different panel from Step 18c's own "Dependencies" section, which already has install buttons) has no install action for "not installed" rows and no explanation of what each model does. Queued, ready to send.
 >
 > **Still in progress, no report yet**: **Step 24** (translation memory/benchmark/library status) → sent to the main implementing session at the user's explicit direction.
 >
-> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Step 46** (dark mode fix, above).
+> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Steps 46, 47** (both above).
 >
 > **Ready, but mutually exclusive with Step 24 above on `workspace_tab.py`/`library_tab.py`/`translate_engines.py` — don't send until 24 lands**: **26** (voice bank), **26c** (original-language narration, shares `dub.py`/`workspace_tab.py`), **31** (content-moderation refusal detection), **32** (expose look-ahead context/batch size as adjustable, bigger novel-narration defaults).
 >
@@ -313,6 +314,7 @@ Rules for every milestone:
 | 44 | Trigger a real job failure with Discord notifications enabled and confirm a real message arrives; repeat with ntfy and confirm an action button round-trips correctly and asks for confirmation before doing anything consequential. |
 | 45 | On the reported drama (or a reproduction of its data shape), confirm the stage stepper now shows the correct current stage instead of stuck on Diarize, and confirm subtitles actually appear in the export/preview player. |
 | 46 | Toggle Dark mode on, visit every top-level tab, and confirm every visible card/container/table actually switches to the dark background -- no light-background surfaces left over, especially the Reader tab where this was first reported. |
+| 47 | In Diagnostics' "Model & engine versions" panel, install a real not-installed model via its new install action and confirm the row updates; click the "?" on a few rows and confirm each explains that specific model in plain words. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3012,6 +3014,22 @@ If diarization results aren't persisting to the `speaker` field on this drama's 
 
 ---
 
+### Step 47 — Diagnostics' "Model & engine versions" panel: no install action, no explanation of what each model is for
+
+**User-reported, with a live screenshot (2026-09-27)** — Diagnostics' "Model & engine versions" panel lists every AI model/engine the app wires into a feature (Whisper, Qwen3-ASR, SenseVoice, pyannote, manga-ocr, PaddleOCR, audio-separator, Demucs, F5-TTS, OmniVoice, GPT-SoVITS, Chatterbox, TADA, edge-tts) with a green/red installed indicator and a version, but rows marked "not installed" (red ✗) have no visible action to install them, and no row explains in plain words what that model actually does or when the app uses it — a name and a link is all a non-technical user gets.
+
+**Not the same gap Step 18c already closed.** Step 18c's own review (see its section above) found this exact panel's data source, `get_model_engine_versions()`, has no `tier` field, and correctly put the Install buttons in the separate "Dependencies" section instead rather than force a wrong fit here. That was the right call for Step 18c's scope, but it leaves this specific panel — the one a user actually looks at when wondering "why is X red" — with no action and no explanation, which is exactly what got reported.
+
+1. Add a per-row install action for anything showing "not installed," reusing Step 18c's existing `stream_pip_install`/tier-gated install machinery rather than building a second one — this may mean adding the `tier` field to `get_model_engine_versions()`'s data (or joining it against `OPTIONAL_DEPENDENCIES` by name) so the existing button logic can drive this panel too, or simply linking each red row to the matching entry in the Dependencies section rather than duplicating the button here. Investigate which is the smaller, more correct change before building either.
+2. Add a "?" / help affordance per row (or one shared legend) explaining in plain words what each model/engine does and which app feature uses it (e.g. "Qwen3-ASR — an alternative speech-to-text engine to Whisper, used for transcription when selected in Settings"). Keep the copy short — this is a tooltip, not documentation.
+3. Keep the panel's existing "no network call, only what's installed right now" behavior unchanged — this is additive, not a rework of what the panel checks.
+
+**Exit:**
+- Manual check: open Diagnostics with at least one real "not installed" model showing (e.g. Qwen3-ASR on a fresh environment), click its install action, and confirm it actually installs and the row flips to installed without restarting the app — same standard as Step 18c's own exit criteria.
+- Manual check: hover/click the "?" on at least three different rows and confirm each shows a distinct, accurate, plain-English description of what that specific model does, not a generic placeholder.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3184,6 +3202,7 @@ If diarization results aren't persisting to the `speaker` field on this drama's 
   | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | `step-35-bubble-detector-dedupe` | ✅ Merged (PR #132) | ⏳ Pending |
   | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | Sent (`session_014zMSq3KbwPNoU1J2KseLrU`) | — |
   | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | Not started | — |
+  | 47 — Fix: Model & engine versions panel has no install action or explanation | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
