@@ -464,16 +464,29 @@ class TestMlBackendFallback:
         # this only confirms detect_bubbles_ml() doesn't hang trying a
         # real network download against a fake path -- it still must
         # raise (and fall back), just via a different exception branch.
-        try:
-            import torch  # noqa: F401
-            import transformers  # noqa: F401
-        except ImportError:
-            with pytest.raises(scanlate.BubbleModelUnavailable) as exc_info:
-                scanlate.detect_bubbles(synthetic_page, backend="ml")
-            assert exc_info.value.fell_back_to_cv is True
-        else:
+        # Asked with `find_spec`, which answers "is it installed?" from
+        # the import system without executing the module. Importing torch
+        # here would re-run its module body whenever an earlier test has
+        # left it evicted from sys.modules, and torch registers C++
+        # operators at import, so the second run dies on duplicate
+        # registration -- failing this test for a reason that has nothing
+        # to do with what it checks. (tests/conftest.py now keeps the real
+        # module in place as well; this probe simply has no need to
+        # import anything.)
+        import importlib.util
+
+        def installed(name):
+            try:
+                return importlib.util.find_spec(name) is not None
+            except (ImportError, ValueError):
+                return False
+
+        if installed("torch") and installed("transformers"):
             pytest.skip("torch and transformers are both installed -- see the mocked "
                         "TestHfTokenInScanlateMlDetector tests for the loads-and-runs path")
+        with pytest.raises(scanlate.BubbleModelUnavailable) as exc_info:
+            scanlate.detect_bubbles(synthetic_page, backend="ml")
+        assert exc_info.value.fell_back_to_cv is True
 
 
 class TestAutoBackendSelection:
