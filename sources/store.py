@@ -20,8 +20,16 @@ import db
 # Step 23 item 3's concrete starting defaults, plus item 4's cache mode
 # and item 5's chapter-check schedule. All user-editable in Settings.
 DEFAULT_SETTINGS = {
-    "pace_min_delay": 1.0,          # seconds between requests to one source
-    "pace_max_delay": 3.0,
+    # Seconds between requests to one source, picked fresh at random in
+    # this range for every request. Raised from 1-3s after a real live
+    # pass (2026-09-27) got throttled mid-read on a site that had been
+    # answering fine: a steady 1-3s is quick and regular enough to read
+    # as automated, and the cost of being slower is patience, while the
+    # cost of being blocked is the source not working at all. A source
+    # can still insist on more via its own robots.txt crawl delay
+    # (`host_min_interval`), which is a floor, never lowered by this.
+    "pace_min_delay": 3.0,
+    "pace_max_delay": 8.0,
     "max_concurrent": 1,            # requests in flight per source
     "max_retries": 3,               # for 429/5xx/timeouts only -- never for a challenge
     "backoff_base": 2.0,            # seconds; doubles each retry

@@ -139,6 +139,29 @@ class TestGetPagesIsBrowserRenderedOnly:
         # must never be silently returned as a real page.
         assert not t.calls
 
+    def test_resolves_blob_urls_when_the_render_step_captured_them(self):
+        """The real fix: when the injected render function also returns a
+        blob_bytes map (the 3-tuple fetch_rendered_resolving_blobs() shape,
+        vs. the 2-tuple fetch_rendered() shape the other tests above use),
+        a blob: candidate is served from its captured real bytes instead
+        of being refused or re-downloaded over HTTP."""
+        blob_url = "blob:https://www.manhuaku.net/11111111-1111-1111-1111-111111111111"
+        rendered_html = (f"<html><body><div class='reader'>"
+                         f"<img src='{blob_url}'>"
+                         "</div></body></html>")
+        chapter_url = f"{BASE}/chapter/ch1.html"
+        blob_content = image(800, 1200, 1).content
+        rendered_fetch = lambda url: (rendered_html, "", {blob_url: blob_content})
+        a, t = _adapter({}, rendered_fetch=rendered_fetch)
+        chapter = ChapterInfo("manhuaku", "test-slug", "ch1", "第1话", chapter_url)
+        refs = a.get_pages(chapter)
+        assert [r.url for r in refs] == [blob_url]
+        # Never re-fetched over HTTP -- the bytes came from the render step.
+        assert not t.calls
+        content, ext = a.download_page(refs[0])
+        assert content == blob_content
+        assert ext == ".png"
+
 
 class TestNoIndependentCryptoImplementation:
     """The roadmap's own exit condition: a structural check that
