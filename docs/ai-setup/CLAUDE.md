@@ -187,6 +187,37 @@ screenshot specifically if it wants one.
   for a real, gated-access-accepted token up front** rather than
   discovering the gap from a failed run.
 
+## Background tasks — avoid stuck monitor loops
+
+Multiple `while pgrep ...; do sleep N; done` loops have been left running
+for hours (in one case 425+ minutes) after the thing they were waiting on
+had already finished. Root cause, confirmed directly: a loop shaped like
+`while pgrep -f "python run_tests.py" >/dev/null; do sleep 15; done; echo
+DONE` **matches its own command line** — the bash process running the
+loop has "python run_tests.py" sitting right there in its own `-c` string
+(in the `pgrep` pattern and/or a later `echo`/`tail` line), so `pgrep -f`
+finds it and the loop never sees "no process found," even after the real
+test run exited. It then loops forever, silently.
+
+- **Capture the PID once, don't re-search by pattern every iteration.**
+  Launch the real command, save `$!` immediately, and poll that exact PID
+  (`while kill -0 "$PID" 2>/dev/null; do sleep N; done`) — never
+  `pgrep -f` a pattern that could also match the polling loop's own
+  command text.
+- **If you must `pgrep -f` a pattern, make sure the loop's own command
+  line can't contain that same substring** (e.g. don't `echo` or `tail`
+  a message that repeats the process name you're grepping for in the
+  same `bash -c` string).
+- **Don't stack a second monitor loop for the same wait.** Check running
+  background tasks before starting another "wait for tests to finish"
+  loop — several redundant ones for the same suite run is a sign
+  something already went wrong, not a reason to add one more.
+- **Before starting a new long-running background task, glance at
+  already-running ones for anything that's been going far longer than
+  the operation it's waiting on should take** (a full suite run is a few
+  minutes; a loop still going after 20+ is stuck, not slow) and stop it
+  with `TaskStop` rather than leaving it to accumulate.
+
 ## Rules learned from real bugs — don't reintroduce these
 
 - **Never match AI results back to lines by list position.** An LLM
