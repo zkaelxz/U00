@@ -179,6 +179,8 @@ def init_db():
             summary TEXT,
             status TEXT DEFAULT 'not started',   -- not started / aligned / translated / dubbed / exported
             content_mode TEXT DEFAULT 'audio_drama',  -- 'audio_drama', 'streamer_vod', or 'novel_narration'
+            narration_language TEXT DEFAULT 'translation',  -- novel_narration only: 'translation' or
+                                                       -- 'original' (Step 26c)
             source_language TEXT DEFAULT 'zh',        -- 'zh', 'ja', or 'ko'
             media_type TEXT DEFAULT 'audio_drama',    -- 'audio_drama', 'video_drama', 'novel',
                                                        -- 'manhwa', 'manga', 'manhua', 'asmr', 'other'
@@ -704,6 +706,12 @@ def init_db():
             conn.execute("ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
         if "content_mode" not in drama_cols:
             conn.execute("ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
+        if "narration_language" not in drama_cols:
+            # Step 26c: novel narration only -- 'translation' (default, existing
+            # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
+            # source-text field, holding ja/ko source text too when that's the
+            # drama's actual source_language).
+            conn.execute("ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
         if "source_video_filename" not in drama_cols:
             conn.execute("ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
         if "source_language" not in drama_cols:

@@ -3902,7 +3902,7 @@ class TestDubGenerationRealMidRunStop:
 
         def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
                         is_narration, emotion_map, max_speedup, max_slowdown, offline_voice_map,
-                        result_queue):
+                        narrate_original, source_language, result_queue):
             lines[0].dub_filename = "dub_clips/line_0000.wav"
             result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
         monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)
@@ -6015,7 +6015,7 @@ class TestNarrationVoiceSetup:
         m4b = os.path.join(ddir, "narration.m4b")
         exported = []
 
-        def fake_export(lines, drama_dir, title=None):
+        def fake_export(lines, drama_dir, title=None, narrate_original=False):
             exported.append((len(lines), title))
             open(m4b, "wb").close()
             return m4b

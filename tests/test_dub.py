@@ -109,6 +109,29 @@ def _install_fake_edge_tts(monkeypatch, save_exception=None):
     monkeypatch.setitem(sys.modules, "edge_tts", fake_module)
 
 
+def _install_fake_requests(monkeypatch, captured):
+    """Registers a fake requests module -- real requests calls out over the
+    network. Appends each posted JSON payload to `captured`, so a test can
+    assert on exactly what GPT-SoVITS's /tts endpoint was asked to say."""
+    fake_module = types.ModuleType("requests")
+
+    class FakeResponse:
+        status_code = 200
+        content = b"fake-audio"
+        text = ""
+
+    def fake_post(url, json=None, timeout=None):
+        captured.append(json)
+        return FakeResponse()
+
+    class FakeConnectionError(Exception):
+        pass
+
+    fake_module.post = fake_post
+    fake_module.ConnectionError = FakeConnectionError
+    monkeypatch.setitem(sys.modules, "requests", fake_module)
+
+
 class TestEdgeTTSBlockedErrorHandling:
     """Regression coverage for a real, periodic Microsoft-side block:
     edge-tts's WebSocket handshake gets rejected with a 403 (latest
@@ -242,7 +265,10 @@ class TestFillMissingVoices:
         import inspect
         from tabs import workspace_tab
         src = inspect.getsource(workspace_tab)
-        assert "fill_missing_voices(voice_map, speakers)" in src
+        # Step 26c: the pool is now the drama's source-language pool in
+        # original-narration mode, English otherwise -- no longer a bare
+        # call with the implicit (always-English) default pool.
+        assert "fill_missing_voices(voice_map, speakers, _default_voice_pool)" in src
         assert "fill_missing_voices(\n                    offline_voice_map, speakers, " \
                "dub_module.DEFAULT_OFFLINE_VOICE_POOL)" in src
 
@@ -368,6 +394,184 @@ class TestBuildNarrationTrack:
 
         assert len(errors) == 1
         assert lines[0].end == pytest.approx(0.35)
+
+
+class TestNarrateOriginalLanguage:
+    """Step 26c: novel narration can speak the drama's own source text
+    (narrate_original) instead of always speaking the translation."""
+
+    def test_original_mode_speaks_source_text_not_translation(self, timed, tmp_path):
+        lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True)
+        assert timed.synth == ["你好"]
+
+    def test_translation_mode_still_speaks_the_translation_by_default(self, timed, tmp_path):
+        lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {})
+        assert timed.synth == ["Hello"]
+
+    def test_original_mode_generates_audio_with_no_translation_at_all(self, timed, tmp_path):
+        """Exit condition: narration still works with no ln.en in original
+        mode -- only the exported bilingual subtitle needs it (warned
+        about at the UI level, see tabs/workspace_tab.py)."""
+        lines = [Line(idx=0, start=0, end=0, zh="你好世界", en="", speaker="A")]
+        out_path, errors = dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True)
+        assert timed.synth == ["你好世界"]
+        assert errors == []
+        assert lines[0].dub_filename is not None
+
+    def test_a_line_with_no_source_text_is_still_treated_as_blank_in_original_mode(self, timed, tmp_path):
+        lines = [Line(idx=0, start=0, end=0, zh="", en="Hello", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True)
+        assert timed.synth == []
+        assert lines[0].start == lines[0].end == 0.0
+
+    def test_switching_narration_language_changes_the_clip_cache_signature_even_with_identical_text(
+            self, timed, tmp_path):
+        """Isolates the signature's explicit language marker: even when the
+        source and translated text happen to be identical (e.g. a proper
+        noun), switching narration language must still regenerate the
+        clip rather than silently reusing the other mode's cached audio."""
+        lines_translation = [Line(idx=0, start=0, end=0, zh="Amy", en="Amy", speaker="A")]
+        dub.build_narration_track(lines_translation, str(tmp_path), {})
+        translation_clip = lines_translation[0].dub_filename
+
+        lines_original = [Line(idx=0, start=0, end=0, zh="Amy", en="Amy", speaker="A")]
+        dub.build_narration_track(lines_original, str(tmp_path), {}, narrate_original=True,
+                                  source_language="zh")
+        original_clip = lines_original[0].dub_filename
+
+        assert translation_clip != original_clip
+        assert len(timed.synth) == 2  # both actually (re)synthesized, neither reused the other
+
+    def test_original_mode_splits_unit_timing_by_the_source_text_length(self, monkeypatch, tmp_path):
+        """A unit joining two same-speaker lines splits its one clip's time
+        proportionally by whichever text was actually spoken."""
+        _install_fake_pydub(monkeypatch, clip_lengths={
+            str(tmp_path / "dub_clips" / "line_0000-0001.wav"): 1000,
+        })
+        monkeypatch.setattr(dub, "synthesize_line",
+                             lambda text, voice, out_path, **kwargs: open(out_path, "w").close())
+        # Source text lengths are 1:3 -- very different from the (unused)
+        # English lengths, so a pass that still split by ln.en would fail.
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="Same length", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="bbb", en="Same length", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True, source_language="zh")
+        assert lines[0].end < lines[1].end
+        # roughly 1/4 vs 3/4 of the clip -- not a 50/50 split
+        assert lines[0].end < 0.4
+
+    def test_original_mode_reaches_gpt_sovits_with_the_drama_source_language(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        clone_map = {"A": {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi",
+                           "ref_language": "zh"}}
+        lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map=clone_map,
+                                  narrate_original=True, source_language="zh")
+        assert captured[0]["text"] == "你好"
+        assert captured[0]["text_lang"] == "zh"
+
+    def test_translation_mode_still_reaches_gpt_sovits_with_english(self, monkeypatch, tmp_path):
+        _install_fake_pydub(monkeypatch)
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        clone_map = {"A": {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi",
+                           "ref_language": "zh"}}
+        lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {}, character_clone_map=clone_map)
+        assert captured[0]["text"] == "Hello"
+        assert captured[0]["text_lang"] == "en"
+
+    def test_original_mode_narration_lines_still_export_bilingual_subtitles(self, timed, tmp_path):
+        import subtitle_formats
+        lines = [Line(idx=0, start=0, end=0, zh="你好", en="Hello", speaker="A")]
+        dub.build_narration_track(lines, str(tmp_path), {}, narrate_original=True, source_language="zh")
+        vtt = subtitle_formats.lines_to_vtt(lines, field="bilingual")
+        assert "Hello" in vtt
+        assert "你好" in vtt
+
+
+class TestNarrationChaptersOriginalLanguage:
+    def test_original_mode_uses_source_text_for_titles_and_voiced_filter(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="第一章", en="", speaker="N"),
+                 Line(idx=1, start=1.0, end=2.0, zh="正文内容", en="Body text", speaker="N")]
+        chapters = dub.narration_chapters(lines, narrate_original=True)
+        assert chapters[0][1] == "第一章"
+
+    def test_translation_mode_is_unaffected(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="第一章", en="Chapter One", speaker="N")]
+        chapters = dub.narration_chapters(lines)
+        assert chapters[0][1] == "Chapter One"
+
+
+class TestGPTSoVITSTextLang:
+    """Step 26c: text_lang (the language of the text being spoken) used to
+    be hardcoded "en" -- now driven by narration mode."""
+
+    def test_defaults_to_english(self, tmp_path, monkeypatch):
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        dub.synthesize_line_gpt_sovits("Hello", "/ref.wav", "ref text", str(tmp_path / "out.wav"))
+        assert captured[0]["text_lang"] == "en"
+
+    def test_an_explicit_text_lang_is_mapped_to_gpt_sovits_own_codes(self, tmp_path, monkeypatch):
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        dub.synthesize_line_gpt_sovits("你好", "/ref.wav", "ref text", str(tmp_path / "out.wav"),
+                                       text_lang="zh")
+        assert captured[0]["text_lang"] == "zh"
+
+    def test_an_unrecognized_text_lang_falls_back_to_english(self, tmp_path, monkeypatch):
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        dub.synthesize_line_gpt_sovits("Hello", "/ref.wav", "ref text", str(tmp_path / "out.wav"),
+                                       text_lang="fr")
+        assert captured[0]["text_lang"] == "en"
+
+    def test_synthesize_cloned_threads_text_lang_through_without_touching_ref_language(
+            self, tmp_path, monkeypatch):
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        clone = {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi", "ref_language": "ja"}
+        dub._synthesize_cloned(clone, "こんにちは", str(tmp_path / "out.wav"), text_lang="ja")
+        assert captured[0]["text_lang"] == "ja"
+        assert captured[0]["prompt_lang"] == "ja"  # the reference clip's own language, unaffected
+
+    def test_synthesize_cloned_defaults_text_lang_to_english(self, tmp_path, monkeypatch):
+        """build_dub_track's own call site never passes text_lang -- video
+        dubbing always speaks the translation (Step 26c item 5)."""
+        captured = []
+        _install_fake_requests(monkeypatch, captured)
+        clone = {"engine": "gpt_sovits", "ref_audio": "/ref.wav", "ref_text": "hi", "ref_language": "zh"}
+        dub._synthesize_cloned(clone, "Hello", str(tmp_path / "out.wav"))
+        assert captured[0]["text_lang"] == "en"
+
+
+class TestCloneEngineOriginalLanguages:
+    """Step 26c: which of the multi-engine clone backends are confirmed to
+    speak zh/ja/ko well, gating novel narration's original-language mode
+    in the Workspace character-engine picker."""
+
+    def test_omnivoice_supports_all_three(self):
+        for lang in ("zh", "ja", "ko"):
+            assert dub.clone_engine_supports_language("omnivoice", lang)
+
+    def test_tada_supports_zh_and_ja_but_not_ko(self):
+        assert dub.clone_engine_supports_language("tada", "zh")
+        assert dub.clone_engine_supports_language("tada", "ja")
+        assert not dub.clone_engine_supports_language("tada", "ko")
+
+    def test_chatterbox_is_not_confirmed_for_any_of_them(self):
+        for lang in ("zh", "ja", "ko"):
+            assert not dub.clone_engine_supports_language("chatterbox", lang)
+
+    def test_engines_outside_the_table_are_unrestricted(self):
+        # F5-TTS and GPT-SoVITS are already language-aware on their own
+        # terms (ref_language/text_lang) -- not gated by this table.
+        assert dub.clone_engine_supports_language("f5tts", "ko")
+        assert dub.clone_engine_supports_language("gpt_sovits", "ko")
 
 
 class TestExtractReferenceClips:

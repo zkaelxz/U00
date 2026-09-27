@@ -4220,18 +4220,37 @@ def render_workspace_tab():
                         if ref_text_input != (c["ref_text"] or ""):
                             db.upsert_character(picked_id, c["speaker_label"], ref_text=ref_text_input)
 
+                        # Step 26c: in novel narration's original-language mode, don't
+                        # offer a clone engine that isn't confirmed to speak the
+                        # drama's source language well -- avoids a silent
+                        # bad-quality (or wrong-language) clone.
+                        _narrate_original_mode = (content_mode == "novel_narration"
+                                                  and (drama.get("narration_language") or "translation")
+                                                  == "original")
+                        _source_lang_for_gate = drama.get("source_language") or "zh"
                         _engine_options = list(dub_module.CLONE_ENGINES)
+                        if _narrate_original_mode:
+                            _engine_options = [e for e in _engine_options if dub_module
+                                                .clone_engine_supports_language(e, _source_lang_for_gate)]
                         _stored_engine = c.get("clone_engine") or dub_module.DEFAULT_CLONE_ENGINE
+                        _engine_shown = _stored_engine if _stored_engine in _engine_options else _engine_options[0]
                         ve1, ve2 = st.columns([1, 1])
                         picked_engine = ve1.selectbox(
                             f"Voice engine ({name or c['speaker_label']})", _engine_options,
-                            index=_engine_options.index(_stored_engine) if _stored_engine in _engine_options else 0,
+                            index=_engine_options.index(_engine_shown),
                             format_func=lambda e: dub_module.CLONE_ENGINES[e],
                             key=f"cengine_{picked_id}_{c['speaker_label']}",
                             help="Which local engine clones this character's reference clip. Chatterbox "
                                  "also works with no clip (its own built-in voice).")
-                        if picked_engine != _stored_engine:
+                        if picked_engine != _engine_shown:
                             db.upsert_character(picked_id, c["speaker_label"], clone_engine=picked_engine)
+                        if _narrate_original_mode and not dub_module.clone_engine_supports_language(
+                                _stored_engine, _source_lang_for_gate):
+                            st.warning(
+                                f"{dub_module.CLONE_ENGINES[_stored_engine]} isn't confirmed to generate "
+                                f"'{_source_lang_for_gate}' well -- this character is set to narrate in "
+                                "the original language, but this engine may sound flat, mispronounce, "
+                                "or fail outright. Consider OmniVoice or GPT-SoVITS instead.")
                         design_input = ve2.text_input(
                             f"Or describe a voice ({name or c['speaker_label']}, no clip needed)",
                             value=c.get("voice_design") or "", placeholder="female, low pitch, british accent",
@@ -5736,6 +5755,32 @@ def render_workspace_tab():
                 "engine needs installing once (`f5-tts`, `omnivoice`, `chatterbox-tts`, `hume-tada`), "
                 "or GPT-SoVITS's own server running. Requires ffmpeg on PATH."
             )
+            narration_language = drama.get("narration_language") or "translation"
+            if content_mode == "novel_narration":
+                # Step 26c: defaults to "translation" so existing narrations
+                # are unaffected unless a drama explicitly opts in.
+                _narr_lang_options = ["translation", "original"]
+                narration_language = st.radio(
+                    "Narrate in",
+                    _narr_lang_options,
+                    index=_narr_lang_options.index(narration_language)
+                          if narration_language in _narr_lang_options else 0,
+                    format_func=lambda v: "🌐 Translation (English)" if v == "translation"
+                                 else f"📖 Original language ({drama.get('source_language') or 'zh'})",
+                    horizontal=True, key=f"narration_language_{picked_id}",
+                    help="Original: speaks the source text (section 6's clone references need to be "
+                         "in that language too), with exported subtitles staying bilingual (source + "
+                         "English). Translation: speaks the English translation, same as before.")
+                if narration_language != (drama.get("narration_language") or "translation"):
+                    db.update_drama(picked_id, narration_language=narration_language)
+                if narration_language == "original":
+                    _narr_missing_en = sum(1 for ln in st.session_state.lines if not ln.en.strip())
+                    if _narr_missing_en:
+                        st.warning(
+                            f"{_narr_missing_en} line(s) have no translation yet. Narration will still "
+                            "generate for them (it speaks the source text), but their exported "
+                            "subtitles will be missing the English half of the bilingual pair -- "
+                            "translate first if you want complete subtitles.")
             tts_engine = st.radio(
                 "Fallback TTS engine (used where no clone reference is set)",
                 ["edge_tts", "offline"],
@@ -5766,28 +5811,36 @@ def render_workspace_tab():
             _dub_job = background_jobs.get_status(_dub_job_id)
             _dub_job_active = bool(_dub_job and _dub_job["status"] in ("running", "queued"))
             if st.button(dub_button_label, disabled=_dub_job_active):
+                _narrate_original = (content_mode == "novel_narration" and narration_language == "original")
+                _source_lang = drama.get("source_language") or "zh"
+                _default_voice_pool = (dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(
+                    _source_lang, dub_module.DEFAULT_VOICE_POOL) if _narrate_original
+                    else dub_module.DEFAULT_VOICE_POOL)
                 chars = db.list_characters(picked_id)
                 voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c["tts_voice"]}
                 offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
                                      if c.get("offline_voice")}
                 # Same as `cli.py dub`: characters with no voice picked get
-                # distinct pool voices, not one shared fallback.
+                # distinct pool voices, not one shared fallback. Step 26c:
+                # that pool is in the source language for original-mode
+                # narration, English otherwise.
                 speakers = {ln.speaker for ln in st.session_state.lines if ln.speaker}
-                voice_map = dub_module.fill_missing_voices(voice_map, speakers)
+                voice_map = dub_module.fill_missing_voices(voice_map, speakers, _default_voice_pool)
                 offline_voice_map = dub_module.fill_missing_voices(
                     offline_voice_map, speakers, dub_module.DEFAULT_OFFLINE_VOICE_POOL)
                 clone_map = dub_module.clone_map_from_characters(
                     chars, ddir, gpt_sovits_url=st.session_state.get("settings_gpt_sovits_url") or None,
-                    ref_language=drama.get("source_language") or "zh")
+                    ref_language=_source_lang)
                 # Only the local voice engines (F5-TTS, OmniVoice, GPT-SoVITS,
                 # Chatterbox, TADA) touch the GPU -- edge_tts is an online
                 # service and "offline" fallback TTS is CPU-only, so
                 # this only takes a GPU slot when it's actually needed.
                 background_jobs.start_process_job(
                     _dub_job_id, dub_module.build_track_subprocess_worker,
-                    args=(_copy_lines(st.session_state.lines), ddir, voice_map, "en-US-AvaNeural",
+                    args=(_copy_lines(st.session_state.lines), ddir, voice_map, _default_voice_pool[0],
                           clone_map, tts_engine, content_mode == "novel_narration",
-                          db.load_emotions(picked_id), max_speedup, max_slowdown, offline_voice_map),
+                          db.load_emotions(picked_id), max_speedup, max_slowdown, offline_voice_map,
+                          _narrate_original, _source_lang),
                     gpu_touching=dub_module.clone_map_uses_local_model(clone_map),
                     description=f"Dub generation ({_drama_label(drama)})")
                 st.info("Generating in the background -- come back here for progress or to "
@@ -6059,7 +6112,8 @@ def render_workspace_tab():
                             with st.spinner("Encoding audiobook..."):
                                 m4b_path = dub_module.export_narration_m4b(
                                     st.session_state.lines, ddir,
-                                    title=drama["title_en"] or drama["title_zh"] or None)
+                                    title=drama["title_en"] or drama["title_zh"] or None,
+                                    narrate_original=(narration_language == "original"))
                             with open(m4b_path, "rb") as f:
                                 st.download_button("Download .m4b", f.read(), file_name=f"{_base_name}.m4b")
                         except Exception as e:
