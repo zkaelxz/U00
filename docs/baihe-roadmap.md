@@ -363,6 +363,7 @@ Rules for every milestone:
 | 75 | On a fresh clone, run whichever install path(s) remain and confirm no `ModuleNotFoundError` for a feature the tier claims to cover, including the mangaz.com adapter; confirm no remaining direct `pip install -r requirements.txt` reference outside what was intentionally kept. |
 | 76 | `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and the Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional. |
 | 77 | Attempt to delete a voice bank entry and confirm a single click no longer immediately deletes it. |
+| 78 | With 2+ profiles, confirm switching the active profile in Settings shows a different reading position/history/personal notes for the same drama, and that Library's Continue-reading shelf only shows the active profile's own in-progress dramas; with another GPU-using application (e.g. Jellyfin) actively transcoding, confirm a real Baihe job queues rather than starting immediately, and resumes once that load clears. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3704,7 +3705,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 
 **Reviewed once already by this planning session; two required fixes, both applied:** profile deletion had no confirm-before-delete step (same class of bug Step 71 exists to fix elsewhere — now uses the same checkbox-gated pattern); the new profile functions in `db.py` used bare `get_conn()`/`close()` instead of the `contextlib.closing` pattern Step 69 established across the file — now converted. The branch was then rebased onto the current `baihe-subtitler` tip (through Step 32) and repushed; full suite green (3,017 passed, 0 failed, 61 skipped) on the rebased tree.
 
-**Not yet merged into `baihe-subtitler`** — still sitting on `docs-testing-cffi-note`, awaiting this session's re-review/merge decision. No merge-tracking row exists for it in §2's status table yet, unlike every dispatched step above, since it didn't go through that process.
+**Built, reviewed, and merged (2026-09-27, PR #167).** Two rounds of review by this planning session: first found the two fixes named above and sent the branch back rather than merging through it; both independently re-verified as correctly applied (delete confirmation reads exactly what's lost before enabling; all 12 profile functions in `db.py` confirmed converted to `contextlib.closing`, with the one remaining bare `get_conn()` correctly being `_migrate_step26e_profiles`'s own legitimate manual-transaction exception, matching this file's existing `_migrate_line_refs_to_ids` precedent). Trial-merged clean against current tip, full suite run on the merged tree — 3231 passed, 49 skipped, 0 failed. CI green before squash-merge.
 
 **Real gaps, flagged rather than silently fixed, per this doc's own §5 rule:**
 1. `profiles.color` is stored on every profile but never rendered anywhere — no avatar/swatch in the picker or elsewhere. The schema promises more than the UI currently delivers.
@@ -3712,7 +3713,6 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 3. GPU-busy thresholds (`EXTERNAL_GPU_BUSY_UTIL_PERCENT`/`_MIN_FREE_MB` in `diagnostics.py`: 50% / 1024MB) are hardcoded constants, not user-configurable — worth a Settings control if real use on a shared GPU shows the defaults wrong for a given card.
 
 **Exit:**
-- Manual check: confirm `docs-testing-cffi-note` merges into `baihe-subtitler` cleanly (or is re-reviewed and merged) with both review fixes intact.
 - Manual check: with 2+ profiles, confirm switching the active profile in Settings shows a different reading position/history/personal notes for the same drama, and that Library's Continue-reading shelf only shows the active profile's own in-progress dramas.
 - Manual check: with Jellyfin (or any other GPU-using application) actively transcoding on the same card, confirm a real Baihe transcription/dubbing job queues rather than starting immediately, and resumes once that load clears.
 
