@@ -808,3 +808,95 @@ class TestDenoInstallUI:
         at.button(key="install_deno_btn").click().run(timeout=30)
         assert not at.exception
         assert not [i for i in at.info if "restart" in i.value.lower()]
+
+
+class TestUpgradeCheckUI:
+    """Step 66: a "Test first" check next to Upgrade, and a row that's never
+    been checked for this exact version reads "untested", not safe."""
+
+    OUTDATED = {"fixture_feature_installed": {
+        "installed_version": "1.0.0", "latest_version": "2.0.0", "outdated": True}}
+
+    def _run(self, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["diagnostics_results"] = _FAKE_RESULTS
+        at.session_state["dependency_version_results"] = self.OUTDATED
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def _captions(self, at):
+        return " ".join(c.value for c in at.caption)
+
+    def test_outdated_row_reads_untested_and_offers_the_check(self, isolated_db):
+        at = self._run()
+        assert "upgrade untested" in self._captions(at)
+        assert [b for b in at.button if b.key == "test_upgrade_btn_fixture_feature_installed"]
+
+    def test_a_broken_result_is_shown_with_the_failing_tests(self, isolated_db, monkeypatch):
+        calls = {}
+
+        def fake_check(name, version=None, project_root=None):
+            calls["args"] = (name, version)
+            yield {"line": "FAILED tests/test_x.py::test_y - boom"}
+            yield {"done": True, "ok": False, "verdict": "broken", "version": "2.0.0",
+                   "reason": "1 test(s) that pass on the current version fail against "
+                             "fixture_feature_installed 2.0.0",
+                   "new_failures": ["tests/test_x.py::test_y"], "preexisting_failures": []}
+        monkeypatch.setattr(diagnostics, "check_upgrade_candidate", fake_check)
+        at = self._run()
+        at.button(key="test_upgrade_btn_fixture_feature_installed").click().run(timeout=30)
+
+        assert not at.exception
+        assert calls["args"] == ("fixture_feature_installed", "2.0.0")
+        assert [e for e in at.error if "fail against fixture_feature_installed 2.0.0" in e.value]
+        assert "breaks this app's tests" in self._captions(at)
+        assert any("tests/test_x.py::test_y" in c.value for c in at.code)
+
+    def test_a_safe_result_is_shown_as_such(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_upgrade_candidate", lambda *a, **k: iter([
+            {"done": True, "ok": True, "verdict": "safe", "version": "2.0.0",
+             "reason": "every test passed", "new_failures": [], "preexisting_failures": []}]))
+        at = self._run()
+        at.button(key="test_upgrade_btn_fixture_feature_installed").click().run(timeout=30)
+        assert [s for s in at.success if "every test passed" in s.value]
+        assert "no new test failures" in self._captions(at)
+
+    def test_an_incomplete_check_is_neither_safe_nor_broken(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_upgrade_candidate", lambda *a, **k: iter([
+            {"done": True, "ok": False, "verdict": "incomplete", "version": "2.0.0",
+             "reason": "not enough disk space for the throwaway environment",
+             "new_failures": [], "preexisting_failures": []}]))
+        at = self._run()
+        at.button(key="test_upgrade_btn_fixture_feature_installed").click().run(timeout=30)
+        assert [w for w in at.warning if "disk space" in w.value]
+        assert "didn't complete" in self._captions(at)
+
+    def test_a_result_for_an_older_target_version_still_reads_untested(self, isolated_db):
+        at = self._run(upgrade_check_results={"fixture_feature_installed": {
+            "verdict": "safe", "target": "1.5.0", "reason": "old"}})
+        assert "upgrade untested" in self._captions(at)
+        assert not [s for s in at.success if "old" in s.value]
+
+    def test_a_conflict_result_is_a_warning_with_pips_own_report(self, isolated_db, monkeypatch):
+        line = ("transformers 5.17.0 requires huggingface-hub<2.0,>=1.5.0, but you have "
+                "huggingface-hub 2.0.0 which is incompatible.")
+        monkeypatch.setattr(diagnostics, "check_upgrade_candidate", lambda *a, **k: iter([
+            {"done": True, "ok": False, "verdict": "conflict", "version": "2.0.0",
+             "reason": "every test passed, but pip reports 1 installed package(s) that declare "
+                       "they don't support it", "new_failures": [], "preexisting_failures": [],
+             "conflicts": [line]}]))
+        at = self._run()
+        at.button(key="test_upgrade_btn_fixture_feature_installed").click().run(timeout=30)
+        assert not at.exception
+        assert [w for w in at.warning if "don't support it" in w.value]
+        assert not [s for s in at.success if "Upgrade test" in s.value]
+        assert "conflicts with installed packages" in self._captions(at)
+        assert any(line in c.value for c in at.code)

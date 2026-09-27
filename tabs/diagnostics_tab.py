@@ -114,6 +114,55 @@ def _run_bulk_install_stream(tier_label: str, requirements_path: str) -> dict:
     return results
 
 
+def _capture_output_tail(stream_gen, store: dict, n: int = 60):
+    """Passes a diagnostics.stream_* generator through unchanged, keeping its
+    last `n` output lines in store["tail"] -- the upgrade check reruns the
+    page once it's done, which would otherwise lose the streamed output
+    along with the status box it was shown in."""
+    tail = []
+    for item in stream_gen:
+        if "line" in item:
+            tail = (tail + [item["line"]])[-n:]
+        yield item
+    store["tail"] = tail
+
+
+def _upgrade_check_note(name: str, target: str) -> str:
+    """Step 66: the caption suffix for an outdated, upgradeable row. No
+    completed check for this exact target version reads as "untested" --
+    never as safe."""
+    check = (st.session_state.get("upgrade_check_results") or {}).get(name)
+    if not check or check.get("target") != target:
+        return " -- upgrade untested"
+    return {"safe": " -- ✅ upgrade tested: no new test failures",
+            "broken": " -- ❌ upgrade tested: breaks this app's tests",
+            "conflict": " -- ⚠️ upgrade tested: conflicts with installed packages"}.get(
+        check.get("verdict"), " -- ⚠️ upgrade test didn't complete")
+
+
+def _render_upgrade_check_result(name: str, target: str):
+    check = (st.session_state.get("upgrade_check_results") or {}).get(name)
+    if not check or check.get("target") != target:
+        return
+    show = {"safe": st.success, "broken": st.error}.get(check.get("verdict"), st.warning)
+    show(f"Upgrade test for {name} {target}: {check.get('reason')}.")
+    if (check.get("new_failures") or check.get("preexisting_failures") or check.get("conflicts")
+            or check.get("output_tail")):
+        with st.expander(f"Upgrade test details -- {name}", expanded=False):
+            if check.get("conflicts"):
+                st.markdown("**Installed packages that declare they don't support it (from pip):**")
+                st.code("\n".join(check["conflicts"]), language="text")
+            if check.get("new_failures"):
+                st.markdown("**Fail with the upgrade, pass today:**")
+                st.code("\n".join(check["new_failures"]), language="text")
+            if check.get("preexisting_failures"):
+                st.markdown("**Already fail today (not caused by the upgrade):**")
+                st.code("\n".join(check["preexisting_failures"]), language="text")
+            if check.get("output_tail"):
+                st.markdown("**Last lines of output:**")
+                st.code("\n".join(check["output_tail"]), language="text")
+
+
 def _install_confirmed(container, key: str, warning: str) -> bool:
     """Renders an "⬇️ Install" button in `container`; returns True the
     instant the install should actually run. Step 47 item 4: when
@@ -271,6 +320,8 @@ def render_diagnostics_tab():
                                     version_suffix += f" -- {blocked_reason}"
                                 else:
                                     upgradeable = tier in diagnostics.INSTALLABLE_TIERS
+                                    if upgradeable:
+                                        version_suffix += _upgrade_check_note(name, lv)
                             elif version_info["outdated"] is False:
                                 version_suffix = f" -- 🟢 up to date (`{iv}`)"
                             elif iv:
@@ -318,6 +369,21 @@ def render_diagnostics_tab():
                                     # network call unless you click" rule).
                                     st.session_state.pop("dependency_version_results", None)
                                     st.rerun()
+                            if dep_c2.button("Test first", key=f"test_upgrade_btn_{name}", icon="🧪",
+                                             help=f"Installs {lv} into a throwaway environment and runs "
+                                                  f"this app's own test suite against it -- takes a few "
+                                                  f"minutes. Your real install isn't touched."):
+                                captured = {}
+                                check = _run_pip_stream(
+                                    f"Testing {name} {lv} in a throwaway environment...",
+                                    f"{name} {lv}: no new test failures.",
+                                    f"{name} {lv}: see the result below.",
+                                    _capture_output_tail(diagnostics.check_upgrade_candidate(
+                                        name, lv, project_root=project_root), captured))
+                                check.update(target=lv, output_tail=captured.get("tail", []))
+                                st.session_state.setdefault("upgrade_check_results", {})[name] = check
+                                st.rerun()
+                            _render_upgrade_check_result(name, lv)
 
             missing_required = [k for k, v in deps.items() if v["tier"] == "required" and not v["installed"]]
             if missing_required:
