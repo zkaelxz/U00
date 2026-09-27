@@ -539,6 +539,131 @@ class TestModelEngineVersions:
         monkeypatch.setattr("requests.post", boom)
         diagnostics.get_model_engine_versions("qwen3:8b")  # must not raise
 
+    def test_installed_is_a_real_boolean_not_a_string_match(self):
+        """Step 18 item 2: the render step branches on a real boolean this
+        function computes, not a fragile `version == "not installed"`
+        string match in the caller."""
+        rows = {v["name"]: v for v in diagnostics.get_model_engine_versions()}
+        # a "package" kind: installed iff importlib.metadata found a version
+        pkg_row = rows["pyannote.audio"]
+        assert pkg_row["installed"] == (pkg_row["version"] != "not installed")
+        # a "repo" kind has no real "not installed" state -- always installed
+        assert rows["pyannote diarization model"]["installed"] is True
+        # a "service" kind (a separate server, not pip-installed) likewise
+        assert rows["GPT-SoVITS"]["installed"] is True
+
+    def test_ollama_row_is_installed(self):
+        rows = {v["name"]: v for v in diagnostics.get_model_engine_versions("qwen3:8b")}
+        assert rows["Ollama (active tag)"]["installed"] is True
+
+
+class TestGpuStatus:
+    """Step 18 item 3: a live GPU/VRAM readout for Diagnostics' routine
+    view -- always a plain dict, never an exception, whether or not torch
+    or a GPU is actually present."""
+
+    def test_unavailable_when_torch_not_installed(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: False)
+        status = diagnostics.get_gpu_status()
+        assert status["available"] is False
+        assert "torch isn't installed" in status["message"]
+
+    def test_unavailable_no_error_when_no_gpu_present(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        fake_torch = types.SimpleNamespace(
+            version=types.SimpleNamespace(cuda=None),
+            cuda=types.SimpleNamespace(is_available=lambda: False))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        status = diagnostics.get_gpu_status()
+        assert status["available"] is False
+        assert "unavailable" in status["message"]
+        assert "GPU" not in status["message"] or "no CUDA-capable GPU" in status["message"]
+
+    def test_names_the_real_mismatch_when_gpu_present_but_torch_is_cpu_only(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        monkeypatch.setattr(diagnostics.shutil, "which",
+                            lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
+        fake_torch = types.SimpleNamespace(
+            version=types.SimpleNamespace(cuda=None),
+            cuda=types.SimpleNamespace(is_available=lambda: False))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        status = diagnostics.get_gpu_status()
+        assert status["available"] is False
+        assert "CPU-only" in status["message"]
+
+    def test_available_reports_real_name_and_vram(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        props = types.SimpleNamespace(name="NVIDIA GeForce RTX 3080 Ti", total_memory=12 * 1024 ** 3)
+        fake_torch = types.SimpleNamespace(
+            version=types.SimpleNamespace(cuda="12.8"),
+            cuda=types.SimpleNamespace(
+                is_available=lambda: True,
+                current_device=lambda: 0,
+                get_device_properties=lambda idx: props,
+                memory_allocated=lambda idx: 2 * 1024 ** 3))
+        monkeypatch.setitem(sys.modules, "torch", fake_torch)
+        status = diagnostics.get_gpu_status()
+        assert status["available"] is True
+        assert status["name"] == "NVIDIA GeForce RTX 3080 Ti"
+        assert status["vram_used_gb"] == pytest.approx(2.0)
+        assert status["vram_total_gb"] == pytest.approx(12.0)
+        assert status["torch_cuda_version"] == "12.8"
+
+    def test_broken_torch_import_does_not_crash(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+        monkeypatch.setitem(sys.modules, "torch", None)  # forces ImportError on `import torch`
+        status = diagnostics.get_gpu_status()
+        assert status["available"] is False
+        assert status["message"]
+
+
+class TestStreamDependencyInstall:
+    """Step 18 item 7: the generic per-dependency Install button must not
+    reproduce the CPU-only-torch footgun the dedicated GPU-PyTorch button
+    already exists to fix."""
+
+    def test_torch_with_gpu_present_uses_the_gpu_aware_reinstall(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which",
+                            lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
+        called = {}
+
+        def fake_gpu_reinstall(python_executable=None, project_root=None):
+            called["used"] = True
+            yield {"done": True, "ok": True, "returncode": 0}
+        monkeypatch.setattr(diagnostics, "stream_gpu_torch_reinstall", fake_gpu_reinstall)
+
+        def boom(*a, **k):
+            raise AssertionError("should not fall back to a bare pip install")
+        monkeypatch.setattr(diagnostics, "stream_pip_install", boom)
+
+        list(diagnostics.stream_dependency_install("torch"))
+        assert called.get("used") is True
+
+    def test_torch_with_no_gpu_uses_a_plain_install(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        captured = {}
+
+        def fake_plain_install(pip_args, python_executable=None):
+            captured["pip_args"] = pip_args
+            yield {"done": True, "ok": True, "returncode": 0}
+        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
+
+        list(diagnostics.stream_dependency_install("torch"))
+        assert captured["pip_args"] == ["torch"]
+
+    def test_other_dependencies_always_use_a_plain_install(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        captured = {}
+
+        def fake_plain_install(pip_args, python_executable=None):
+            captured["pip_args"] = pip_args
+            yield {"done": True, "ok": True, "returncode": 0}
+        monkeypatch.setattr(diagnostics, "stream_pip_install", fake_plain_install)
+
+        list(diagnostics.stream_dependency_install("audio-separator"))
+        assert captured["pip_args"] == ["audio-separator"]
+
 
 class TestPyannoteGatedAccessCheck:
     class _FakeApi:
