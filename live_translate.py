@@ -90,6 +90,21 @@ class LiveCaptureError(RuntimeError):
 # and yt-dlp keep adjusting, so several are tried rather than betting on one.
 _YOUTUBE_CLIENT_FALLBACKS = ["android", "tv", "web_safari"]
 
+# Deliberately small: these fail identically on every attempt (wrong link,
+# no access, gone), so retrying would just waste time. Everything else --
+# including yt-dlp/YouTube error strings not seen before, like "no video
+# formats found" or "the page needs to be reloaded" -- is assumed to be a
+# transient/format-availability issue worth retrying through the
+# player-client fallbacks below, rather than hardcoding each new error
+# string as it's discovered.
+_NON_RETRYABLE_STREAM_ERROR_PHRASES = (
+    "private video",
+    "video unavailable",
+    "video has been removed",
+    "this video is no longer available",
+    "not available in your country",
+)
+
 
 def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str = None) -> str:
     """
@@ -135,10 +150,7 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
             break
         except Exception as exc:
             last_exc = exc
-            # Only worth ever retrying for this exact failure shape -- any
-            # other error (private video, bad URL, network) will fail the
-            # same way on every attempt, so don't burn time looping on it.
-            if "no video formats found" not in str(exc).lower():
+            if any(phrase in str(exc).lower() for phrase in _NON_RETRYABLE_STREAM_ERROR_PHRASES):
                 raise LiveCaptureError(
                     f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
                     "Common causes: the link is wrong/private/region-locked, the stream "
@@ -147,18 +159,16 @@ def resolve_stream_url(url: str, cookies_browser: str = None, cookies_file: str 
     else:
         raise LiveCaptureError(
             f"Couldn't resolve that stream URL.\n\n{type(last_exc).__name__}: {last_exc}\n\n"
-            "\"No video formats found\" even on a confirmed-live stream with current yt-dlp "
-            "usually means either YouTube's proof-of-origin token requirement -- tried the "
-            "standard player-client workarounds "
-            f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}) without success -- or that yt-dlp has "
-            "no JavaScript runtime to use (Deno, Node, Bun or QuickJS; check the Diagnostics "
-            "tab). If you don't have one, install Deno (https://deno.land) and run "
-            "`pip install -U yt-dlp`. Otherwise this is a known, actively-shifting "
-            "YouTube/yt-dlp issue, not specific to this app -- check "
-            "https://github.com/yt-dlp/yt-dlp/issues for the current recommended workaround "
-            "(often a specific --extractor-args player_client value, or supplying browser "
-            "cookies via --cookies-from-browser), since which client currently works changes "
-            "as both sides keep adjusting."
+            "Still failed after trying every known player-client workaround "
+            f"({', '.join(_YOUTUBE_CLIENT_FALLBACKS)}). This usually means either YouTube's "
+            "proof-of-origin token requirement, or that yt-dlp has no JavaScript runtime to "
+            "use (Deno, Node, Bun or QuickJS; check the Diagnostics tab). If you don't have "
+            "one, install Deno (https://deno.land) and run `pip install -U yt-dlp`. Otherwise "
+            "this is a known, actively-shifting YouTube/yt-dlp issue, not specific to this "
+            "app -- check https://github.com/yt-dlp/yt-dlp/issues for the current recommended "
+            "workaround (often a specific --extractor-args player_client value, or supplying "
+            "browser cookies via --cookies-from-browser), since which client currently works "
+            "changes as both sides keep adjusting."
         ) from last_exc
 
     stream_url = info.get("url")
