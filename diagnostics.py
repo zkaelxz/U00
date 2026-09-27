@@ -384,30 +384,40 @@ MODEL_ENGINE_REGISTRY = [
 
 
 def get_model_engine_versions(ollama_model: str = None) -> list:
-    """[{"name", "version", "url"}, ...], one row per MODEL_ENGINE_REGISTRY
-    entry plus the active Ollama tag if given. A "package" entry's version
-    comes from importlib.metadata (no import of the package itself, so no
-    heavy ML import-time cost just to check a version) -- "not installed"
-    if it isn't present. A "repo" entry (a bare model checkpoint this
-    app's own code names directly, not a pip-versioned package) shows its
-    Hugging Face repo id(s) as its identifier instead of a version number;
-    a "service" entry (an engine running as its own separate server)
-    shows its note. Makes no network call."""
+    """[{"name", "version", "url", "installed"}, ...], one row per
+    MODEL_ENGINE_REGISTRY entry plus the active Ollama tag if given. A
+    "package" entry's version comes from importlib.metadata (no import of
+    the package itself, so no heavy ML import-time cost just to check a
+    version) -- "not installed" if it isn't present. A "repo" entry (a bare
+    model checkpoint this app's own code names directly, not a
+    pip-versioned package) shows its Hugging Face repo id(s) as its
+    identifier instead of a version number; a "service" entry (an engine
+    running as its own separate server) shows its note. Neither a "repo"
+    nor a "service" entry has a real "not installed" state of its own, so
+    both count as installed. "installed" is a real boolean computed here
+    from the actual check, not a string match against "not installed" in
+    whatever renders it (Step 18 item 2 -- that match would silently break
+    if this literal ever changed). Makes no network call."""
     out = []
     for entry in MODEL_ENGINE_REGISTRY:
         if entry["kind"] == "repo":
             version = ", ".join(entry["repo_ids"])
+            installed = True
         elif entry["kind"] == "service":
             version = entry["note"]
+            installed = True
         else:
             try:
                 version = importlib.metadata.version(entry["package"])
+                installed = True
             except importlib.metadata.PackageNotFoundError:
                 version = "not installed"
-        out.append({"name": entry["name"], "version": version, "url": entry["url"]})
+                installed = False
+        out.append({"name": entry["name"], "version": version, "url": entry["url"],
+                    "installed": installed})
     if ollama_model:
         out.append({"name": "Ollama (active tag)", "version": ollama_model,
-                    "url": "https://ollama.com/library"})
+                    "url": "https://ollama.com/library", "installed": True})
     return out
 
 
@@ -670,6 +680,54 @@ def upgrade_pip_args(pip_name: str, project_root: str = None) -> list:
     return args
 
 
+def get_gpu_status() -> dict:
+    """A live GPU/VRAM readout for Diagnostics' routine view (Step 18 item
+    3) -- {"available": bool, "name", "vram_used_gb", "vram_total_gb",
+    "torch_cuda_version", "message"}. "available" is False, with a plain
+    "message" (never an exception), for every case that isn't a real,
+    torch-visible CUDA device: torch not installed, torch installed but
+    can't see a GPU with no NVIDIA GPU on the machine, and torch installed
+    but CPU-only despite a real NVIDIA GPU being present (the same
+    footgun gpu_torch_mismatch() already detects, worded here as a plain
+    status message rather than a warning+action). "torch_cuda_version"
+    (torch.version.cuda -- what torch was built against, distinct from
+    whether a GPU is actually available right now) is included whenever
+    torch is installed, even when no GPU is available, since it's useful
+    context either way. Never imports torch if it isn't installed."""
+    if not check_dependency("torch"):
+        return {"available": False, "message": "torch isn't installed -- GPU info unavailable."}
+    try:
+        import torch
+    except Exception:
+        return {"available": False, "message": "GPU info unavailable."}
+    torch_cuda_version = getattr(torch.version, "cuda", None)
+    try:
+        cuda_available = bool(torch.cuda.is_available())
+    except Exception:
+        cuda_available = False
+    if not cuda_available:
+        if shutil.which("nvidia-smi"):
+            message = ("A real NVIDIA GPU is on this machine, but the installed PyTorch build "
+                       "is CPU-only -- reinstall following pytorch.org's own selector for your "
+                       "driver (or use the Install GPU PyTorch button below).")
+        else:
+            message = "GPU info unavailable -- no CUDA-capable GPU detected."
+        return {"available": False, "torch_cuda_version": torch_cuda_version, "message": message}
+    try:
+        device_index = torch.cuda.current_device()
+        props = torch.cuda.get_device_properties(device_index)
+        return {
+            "available": True,
+            "name": props.name,
+            "vram_used_gb": torch.cuda.memory_allocated(device_index) / (1024 ** 3),
+            "vram_total_gb": props.total_memory / (1024 ** 3),
+            "torch_cuda_version": torch_cuda_version,
+        }
+    except Exception:
+        return {"available": False, "torch_cuda_version": torch_cuda_version,
+                "message": "GPU info unavailable."}
+
+
 def gpu_torch_mismatch() -> bool:
     """True only when a real NVIDIA GPU is on this machine (nvidia-smi on
     PATH) but the installed torch build can't see it -- the exact
@@ -723,3 +781,20 @@ def stream_gpu_torch_reinstall(python_executable: str = None, project_root: str 
     if os.path.exists(constraints_path):
         install_args += ["-c", constraints_path]
     yield from stream_pip_install(install_args, python_executable)
+
+
+def stream_dependency_install(name: str, python_executable: str = None,
+                              project_root: str = None):
+    """Same shape as stream_pip_install, for Diagnostics' generic
+    per-dependency "Install" button (Step 18c). Routes `torch` specifically
+    through the same GPU-aware CUDA-index reinstall stream_gpu_torch_reinstall
+    already uses for the dedicated "Install GPU PyTorch" action, whenever a
+    real NVIDIA GPU is present -- a bare `pip install torch` always resolves
+    to the CPU-only PyPI wheel (Step 18 item 7's install-time footgun), and
+    the generic Install button would otherwise reproduce that exact gap
+    through a second path. Every other dependency, and torch on a
+    non-NVIDIA machine, installs exactly as stream_pip_install always did."""
+    if name == "torch" and shutil.which("nvidia-smi"):
+        yield from stream_gpu_torch_reinstall(python_executable, project_root)
+    else:
+        yield from stream_pip_install([name], python_executable)
