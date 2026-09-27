@@ -11,6 +11,25 @@ git show FETCH_HEAD:docs/baihe-roadmap.md
 It lists every step in build order, what each one changes, and its exit
 condition. If you were told to "do Step X", that's Step X in this doc.
 
+## Current work
+
+Kept current by the planning session and by implementing sessions
+themselves — update it when you start or finish a step, so a session
+picking up next (human or AI) can see what's already in flight without
+re-deriving it from git state. This is a live coordination board, not
+part of the roadmap's own tracked history — the roadmap's own NEXT
+pointer and status table remain the source of truth for what's actually
+merged.
+
+- **User (Kae):** exploring bringing Codex in alongside Claude to split
+  work — flag anything that's a good isolated candidate for it, or a
+  merged PR worth an independent second review pass.
+- **Planning session:** reviewing/merging PRs as they land, keeping the
+  roadmap in sync.
+- See the roadmap's own NEXT pointer for exactly which steps are
+  currently sent/in-progress/ready — don't duplicate that list here, it
+  goes stale faster than the roadmap does.
+
 ## How to work
 
 - **One step, one branch, off the latest `baihe-subtitler`.**
