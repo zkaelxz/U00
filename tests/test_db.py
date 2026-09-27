@@ -4,10 +4,12 @@ nothing here ever touches your real library.
 """
 
 import shutil
+import sqlite3
 import subprocess
 import sys
 import os
 import tempfile
+import threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Line
@@ -1037,7 +1039,12 @@ class TestConnectionLeakRecovery:
     """Regression tests for a real bug: a statement raising between
     get_conn() and conn.close() leaked the connection, and under WAL that
     made every subsequent write fail with 'database is locked' -- one bad
-    call poisoned the whole session until restart."""
+    call poisoned the whole session until restart. Step 69 wrapped every
+    public function's own get_conn()/close() pair in try/finally, so a
+    failure inside one of them (like log_usage below) no longer leaks a
+    connection at all -- see TestLeakedConnectionCleanup for the
+    still-needed last-resort net this leaves in get_conn() itself, for a
+    caller that opens one directly without going through that pattern."""
 
     def test_healthy_calls_leave_no_open_connections(self, isolated_db):
         did = isolated_db.create_drama(title_en="X")
@@ -1065,13 +1072,16 @@ class TestConnectionLeakRecovery:
         isolated_db.update_drama(did, status="translated")
         assert isolated_db.get_drama(did)["status"] == "translated"
 
-    def test_leaked_connection_is_tracked_then_reclaimed(self, isolated_db):
+    def test_a_failed_write_no_longer_leaks_a_connection(self, isolated_db):
+        # Before Step 69, this same failing call left its connection
+        # tracked as "leaked" until the next get_conn() call reclaimed it
+        # -- log_usage's own get_conn()/close() pair had no try/finally.
+        # Now the failure is caught by its own with-block on the way out,
+        # so nothing is ever tracked as open in the first place.
         try:
             isolated_db.log_usage(99999, "c", "m", "t", 1, 1, 0.0)
         except Exception:
             pass
-        assert len(isolated_db._open_connections) == 1
-        isolated_db.list_dramas()  # next call reclaims it
         assert len(isolated_db._open_connections) == 0
 
 
@@ -1476,3 +1486,137 @@ class TestImportTimeSafety:
         did = isolated_db.create_drama(title_en="New Path")
         assert isolated_db.get_drama(did)["title_en"] == "New Path"
         assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
+
+
+class TestLeakedConnectionCleanup:
+    """Step 69: get_conn()'s own connection-tracking exists to catch a
+    connection leaked by a mid-statement failure (get_conn() called, but
+    the exception skips the matching close()). This app runs real
+    background_jobs.py threading.Thread workers concurrently with the
+    main Streamlit thread, so that leak is routinely left by one thread
+    and only discovered by a get_conn() call on another."""
+
+    def test_leaked_connection_from_a_dead_background_thread_is_genuinely_closed(self, isolated_db):
+        leaked = {}
+
+        def worker():
+            conn = isolated_db.get_conn()
+            leaked["conn"] = conn
+            # Simulates a mid-statement failure (a transient "database is
+            # locked", a bad parameter) that skips conn.close() -- exactly
+            # the scenario this cleanup exists to catch. The thread then
+            # exits without ever closing its own connection. Caught here
+            # (rather than left to propagate) only so the test doesn't
+            # also have to deal with pytest's own unraisable-in-thread
+            # warning -- the leak itself doesn't depend on that.
+            try:
+                raise RuntimeError("simulated transient db failure")
+            except RuntimeError:
+                pass
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+        assert not t.is_alive()
+
+        leaked_conn = leaked["conn"]
+        assert leaked_conn in isolated_db._open_connections.values()
+
+        # The dead worker thread can never touch its own connection again,
+        # so the main thread's next get_conn() call should be able to
+        # actually close it -- not just drop it from tracking (the bug:
+        # closing it used to raise sqlite3.ProgrammingError for being on
+        # the wrong thread, caught and silently discarded, leaving the
+        # connection open but untracked and never retried).
+        import pytest
+
+        conn2 = isolated_db.get_conn()
+        try:
+            assert leaked_conn not in isolated_db._open_connections.values()
+            with pytest.raises(sqlite3.ProgrammingError):
+                leaked_conn.execute("SELECT 1")
+        finally:
+            conn2.close()
+
+    def test_a_still_running_threads_own_connection_is_never_closed_by_another_thread(self, isolated_db):
+        # The other half of the same fix: a connection isn't a leak just
+        # because it's still open when another thread calls get_conn() --
+        # it might be in perfectly ordinary use by a thread that's still
+        # running. Closing it out from under that thread is a worse bug
+        # than the one this cleanup exists to catch (this reproduced for
+        # real during this step: Streamlit's own AppTest runs the app
+        # script in its own thread while the test thread also calls
+        # db.py, and an earlier version of this fix closed the script
+        # thread's still-in-use connection, which then failed its very
+        # next statement with "Cannot operate on a closed database").
+        conn_opened = threading.Event()
+        release = threading.Event()
+        holder = {}
+
+        def worker():
+            conn = isolated_db.get_conn()
+            holder["conn"] = conn
+            conn_opened.set()
+            release.wait(timeout=5)
+            conn.execute("SELECT 1")  # must still work -- conn must still be open
+            conn.close()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        try:
+            assert conn_opened.wait(timeout=5), "worker never opened its connection"
+            # The worker's own thread is still alive and hasn't closed its
+            # connection yet -- a get_conn() call on the main thread must
+            # not treat that as a leak.
+            conn2 = isolated_db.get_conn()
+            try:
+                assert holder["conn"] in isolated_db._open_connections.values()
+            finally:
+                conn2.close()
+        finally:
+            release.set()
+            t.join(timeout=5)
+        assert not t.is_alive()
+
+    def test_leaked_connection_close_failure_is_logged_not_silently_discarded(self, isolated_db, monkeypatch):
+        # sqlite3.Connection is a C type that forbids monkeypatching its
+        # own close() (an "immutable type" TypeError), so a real close
+        # failure is triggered here instead: a connection opened with
+        # sqlite3's default check_same_thread=True (get_conn() itself
+        # always passes False, but this exercises the fallback logging
+        # path in case some other close failure ever occurs) on a
+        # now-dead thread genuinely raises ProgrammingError when closed
+        # from a different thread -- exactly the failure this cleanup's
+        # own warning exists to surface instead of silently discarding.
+        import applog
+
+        holder = {}
+
+        def worker():
+            holder["conn"] = sqlite3.connect(isolated_db.DB_PATH)
+            holder["ident"] = threading.get_ident()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+        assert not t.is_alive()
+
+        # Register it as if it were a leak left by that (now-dead) thread.
+        isolated_db._open_connections[holder["ident"]] = holder["conn"]
+
+        logged = []
+
+        class FakeLogger:
+            def warning(self, *args, **kwargs):
+                logged.append((args, kwargs))
+
+        monkeypatch.setattr(applog, "get_logger", lambda: FakeLogger())
+
+        # The next get_conn() call sweeps the dead-thread entry, hits the
+        # real cross-thread close failure, and must log it rather than pass.
+        conn2 = isolated_db.get_conn()
+        try:
+            assert logged, "a failed leaked-connection close should be logged via applog"
+            assert holder["ident"] not in isolated_db._open_connections
+        finally:
+            conn2.close()
