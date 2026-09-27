@@ -313,6 +313,27 @@ class TestPagesFromTheViewerManifest:
         assert a.download_page(refs[1]) == (b"page-one-bytes", ".jpg")
         assert page.moved_to.count(1) > 1      # revisited, not given up on
 
+    def test_browser_that_cannot_reach_the_reader_fails_cleanly(self):
+        """A live run hit net::ERR_TOO_MANY_RETRIES navigating to the
+        reader. That has to surface as a plain reason like every other
+        failure here, not a raw Playwright traceback out of the adapter."""
+        from contextlib import contextmanager
+        from sources.models import FailureReason
+
+        @contextmanager
+        def broken_session(url, **kw):
+            raise RuntimeError("net::ERR_TOO_MANY_RETRIES")
+            yield  # pragma: no cover
+
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})
+        a._viewer_session = broken_session
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        with pytest.raises(SourceError) as exc_info:
+            a.download_page(refs[0])
+        assert exc_info.value.reason == FailureReason.ENCRYPTED_RESOURCE
+        assert "RuntimeError" in str(exc_info.value)
+
     def test_viewer_that_never_comes_up_is_refused_not_guessed(self):
         page = _FakeViewerPage({}, ready=False)
         a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(ORDERS)})

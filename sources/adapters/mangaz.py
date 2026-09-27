@@ -548,6 +548,22 @@ class MangazSource(SourceAdapter):
         session = self._viewer_session or page_fetch.rendered_session
 
         def run(url):
+            # A browser that can't reach or drive the reader (a failed
+            # navigation, a dead session) is reported the way every other
+            # failure in this project is -- a plain reason, never a raw
+            # Playwright traceback escaping through the adapter.
+            try:
+                return drive(url)
+            except SourceError:
+                raise
+            except Exception as e:
+                raise ContentHidden(
+                    f"{self.display_name}'s own reader couldn't be opened to read this book's "
+                    f"pages from ({type(e).__name__}). Its pages are tile-scrambled and only "
+                    "its own reader reassembles them, so there's nothing to fall back to.",
+                    FailureReason.ENCRYPTED_RESOURCE) from e
+
+        def drive(url):
             with session(url, keep_blobs=True) as page:
                 if not page.evaluate(_VIEWER_READY_JS):
                     raise ContentHidden(
