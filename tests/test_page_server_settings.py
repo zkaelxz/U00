@@ -60,6 +60,25 @@ def _render(enabled, session=None):
     return at
 
 
+class TestItIsActuallyReachableInTheApp:
+    def test_the_settings_sidebar_calls_the_expander(self):
+        """Every other test here calls `_render_browser_extension_settings`
+        directly, which would still pass if it were never wired into the
+        sidebar -- leaving the whole feature unreachable in the running
+        app with a green suite. This checks the call really is there."""
+        import ast
+
+        import tabs.settings_tab as settings_tab
+        source = open(settings_tab.__file__, encoding="utf-8").read()
+        tree = ast.parse(source)
+        sidebar = next(node for node in ast.walk(tree)
+                       if isinstance(node, ast.FunctionDef)
+                       and node.name == "render_settings_sidebar")
+        called = {node.func.id for node in ast.walk(sidebar)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+        assert "_render_browser_extension_settings" in called
+
+
 class TestTheOptInSwitch:
     def test_off_by_default_and_nothing_is_started(self, isolated_db, no_real_server):
         at = _render(False)
