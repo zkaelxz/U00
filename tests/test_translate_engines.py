@@ -247,6 +247,28 @@ class TestBuildLlmInstructions:
         assert "livestream VOD" in instructions
         assert "Japanese baihe" in instructions
 
+    def test_baihe_tagged_genre_keeps_the_baihe_framing(self):
+        instructions, _ = te.build_llm_instructions("", {"genre": "baihe"}, None)
+        assert "baihe (GL/yuri)" in instructions
+
+    def test_yuri_tagged_genre_keeps_the_baihe_framing(self):
+        instructions, _ = te.build_llm_instructions("", {"genre": "Yuri, slow burn"}, None)
+        assert "baihe (GL/yuri)" in instructions
+
+    def test_a_different_genre_drops_the_baihe_framing(self):
+        """Step 54: this exact framing used to be hardcoded into every
+        translation prompt regardless of the project's actual content --
+        a VTuber stream or a historical drama with no romantic content at
+        all still got told it was baihe/yuri, risking an unwarranted
+        romantic-interpretation bias."""
+        instructions, _ = te.build_llm_instructions("", {"genre": "historical"}, None)
+        assert "baihe (GL/yuri)" not in instructions
+        assert "You are translating Chinese content" in instructions
+
+    def test_a_genre_that_merely_contains_gl_as_a_substring_is_not_a_false_positive(self):
+        instructions, _ = te.build_llm_instructions("", {"genre": "tangled romance"}, None)
+        assert "baihe (GL/yuri)" not in instructions
+
     def test_upcoming_lines_included_when_provided(self):
         block = te.build_batch_context(upcoming_lines=["下一句话"])
         assert "下一句话" in block
