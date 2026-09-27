@@ -3398,6 +3398,19 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 
 ---
 
+### Step 65 — Reconsider "Read & Watch"'s tab name
+
+**User-asked (2026-09-27): "Should Read & Watch be renamed to something else? What about the other tabs."** Checked all 9 real tab names directly (`app.py`'s `st.tabs()` call): Library, Workspace, Read & Watch, Scanlate, Sources, Discover, Translate, Live, Diagnostics. Eight of the nine are already single, clear nouns naming what the tab does. "Read & Watch" is the one genuine outlier — the only "X & Y" name, because the tab covers three real modes at once (reading text, listening to audio-only, watching video with captions), and no single word cleanly covers all three: "Reader" alone undersells the audio/video piece; "Reader & Player" isn't a real improvement over the current name. This step exists to make that call deliberately rather than leave it as an unresolved "should we?" — "keep the current name" is a legitimate, fully acceptable outcome of this step, not a placeholder for a rename that must happen.
+
+1. Decide, and record the decision either way: keep "📖 Read & Watch" as-is, or pick a real replacement that's actually clearer for all three modes (reading/listening/watching) — not just shorter for its own sake.
+2. If renamed: update `app.py`'s tab label, every place the roadmap/docs/tests reference the tab by name (`FILE_ORGANIZATION.md`, this roadmap's own many references to "Read & Watch"/"Reader tab"), and confirm no test asserts on the literal old label string.
+3. The other 8 tab names are confirmed fine as of this check — don't re-litigate them without a fresh, real reason.
+
+**Exit:**
+- Manual check: whichever way this is decided, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab (no stale name in one place and a new one in the other).
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
