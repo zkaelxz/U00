@@ -17,6 +17,68 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import db
 
+# --- keeping the real torch importable -------------------------------
+#
+# torch registers C++ operators when its module body runs, so running
+# that body a second time in one process raises
+#
+#   RuntimeError: Only a single TORCH_LIBRARY can be used to register
+#   the namespace triton
+#
+# i.e. **torch cannot be re-imported**. Plenty of tests here legitimately
+# put a fake torch in `sys.modules` to exercise the "not installed" path.
+# That is fine in itself; the damage is done only when the real module is
+# left evicted afterwards, because the next honest `import torch`
+# anywhere in the suite then re-executes it and dies -- failing a test
+# that has nothing to do with whoever swapped the module out.
+#
+# This bites only when torch is genuinely installed, which is why it went
+# unnoticed: it makes the suite red for every contributor who has the ML
+# bubble-detection stack set up, and stays invisible to everyone else.
+# Rather than rely on each test remembering to restore it, the invariant
+# is enforced in one place for the whole suite.
+_REAL_MODULES = {}
+# torchvision and torchaudio register operators the same way, so they are
+# protected too rather than waiting to be discovered the same way.
+_PROTECTED = ("torch", "torchvision", "torchaudio")
+
+
+def _is_real_module(module) -> bool:
+    """A genuinely imported module has a file on disk. The stand-ins
+    tests install -- plain ModuleType objects, mocks, or None -- do not."""
+    return module is not None and bool(getattr(module, "__file__", None))
+
+
+def remember_real_modules():
+    """Records each protected module the first time it is really
+    imported, so it can be put back later."""
+    for name in _PROTECTED:
+        if name not in _REAL_MODULES:
+            current = sys.modules.get(name)
+            if _is_real_module(current):
+                _REAL_MODULES[name] = current
+    return _REAL_MODULES
+
+
+def restore_real_modules() -> list:
+    """Puts back any protected module a test replaced or removed.
+    Returns the names it had to restore."""
+    restored = []
+    for name, real in _REAL_MODULES.items():
+        if sys.modules.get(name) is not real:
+            sys.modules[name] = real
+            restored.append(name)
+    return restored
+
+
+@pytest.fixture(autouse=True)
+def _keep_real_torch_importable():
+    """Restores the real torch (and friends) after every test, so a fake
+    left behind can never turn into a re-import crash in a later test."""
+    remember_real_modules()
+    yield
+    restore_real_modules()
+
 
 @pytest.fixture
 def isolated_db():
