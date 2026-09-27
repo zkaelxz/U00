@@ -107,25 +107,40 @@ before your step is finished (a genuine blocker, a finding worth flagging
 immediately rather than waiting), you can reach the planning session
 directly by that id rather than only ever waiting passively to be asked.
 
-## UI-changing steps: capture real before/after screenshots
+## Structural UI redesign steps: capture real before/after screenshots
 
-If your step visibly changes the UI (a redesign, a moved/regrouped
-section, a new control), **run the app in a real browser and capture
-before/after screenshots**, not just a text description of what changed —
-a screenshot is what actually lets the planning session and the user
-confirm the change looks right, the same way "manual check" entries
-already ask for something concrete to try, not a vague "verify it works."
-Chromium is pre-installed in a cloud session (Playwright is already
-configured to find it); start the app (`streamlit run app.py` or the
-project's own launch command), drive it with Playwright to the affected
-screen, and save a screenshot before your change (on the branch's base
-commit, or from a stashed diff) and after (on your finished branch).
-Include both images (or their saved paths, if this environment doesn't
-let you attach images directly) in your step's finish-up summary, next to
-the manual-check note. If a real browser genuinely isn't available in your
-environment, say so explicitly in the summary rather than skipping this
-silently — same as this project's standing rule for any other manual check
-that can't be run from here.
+**Narrowed on purpose (2026-09-27), after weighing this directly** — this
+does NOT apply to every UI-touching step. A screenshot only proves one
+static state renders; it doesn't catch the harder bugs (session-state
+leaking across dramas, a value only wrong after switching lines) that
+real code review already has to catch anyway, and starting a real
+Streamlit server + headless browser costs real time on every step it
+runs on. For a small, localized UI tweak (a relabeled button, a
+moved caption, a tightened layout), the existing manual-check text is
+enough — don't add browser automation just for that.
+
+**Reserve this for structural redesign steps specifically** — the
+Steps-13-through-18-scale rebuilds that replace a tab's whole layout
+(stage tabs instead of an expander scroll, a whole section folded into a
+popover, tabs merged together). For one of those: run the app in a real
+browser and capture before/after screenshots, not just a text
+description — a screenshot is what actually lets the planning session
+and the user confirm a whole-layout change looks right, the same way
+Step 14's own review needed a live browser probe to confirm `st.popover`
+actually behaved correctly across a rerun. Chromium is pre-installed in a
+cloud session (Playwright is already configured to find it); start the
+app (`streamlit run app.py` or the project's own launch command), drive
+it with Playwright to the affected screen, and save a screenshot before
+your change (on the branch's base commit, or from a stashed diff) and
+after (on your finished branch). Include both images (or their saved
+paths, if this environment doesn't let you attach images directly) in
+your step's finish-up summary, next to the manual-check note. If a real
+browser genuinely isn't available in your environment, say so explicitly
+in the summary rather than skipping this silently — same as this
+project's standing rule for any other manual check that can't be run
+from here. When in doubt whether your step counts as "structural," treat
+it as not requiring this and let the planning session ask for a
+screenshot specifically if it wants one.
 
 ## Tests
 
