@@ -175,6 +175,42 @@ external project checked so far.
   steps to send, a fresh finding the user hasn't seen yet, or a tool
   call that comes back denied (don't silently retry the identical call —
   say so and ask once, then act on the answer).
+- **Dispatch-side efficiency (2026-09-27, from an external review of this
+  project's own governance the user requested and relayed).** The full
+  implementing-side rules live in `docs/ai-setup/CLAUDE.md`'s own "Coding-
+  session efficiency" section — this is this session's half of the same
+  practice, for the decisions only the planning session makes:
+  - **Prefer resuming an existing session over spawning a fresh one** when
+    it still has relevant context for the next step — this already is the
+    default for the big long-running "Multilingual VOD transcription
+    workstation" session; extend the same preference to any implementing
+    session that just finished a step and has more compatible work ready,
+    rather than defaulting to a new one out of habit.
+  - **Batch closely related, compatible steps into one handoff** when they
+    share files/scope and don't need a human decision or review pass
+    between them — name the batch explicitly in the handoff (e.g. "Build
+    Steps 50, 51, 52 from the roadmap, in one session") rather than
+    sending them one at a time by default. This already happened once,
+    informally, for Steps 46/48/50/52/53/57's grouped review — the change
+    here is making it a deliberate dispatch choice, not something that
+    only happens by accident. Don't batch steps just because they're both
+    small if they don't actually share scope; don't batch across an
+    autonomous/gated mode boundary or past a step this file already
+    singles out for its own review.
+  - **Don't reopen a settled architectural/product decision** (§0's
+    "Decisions already made," or "Product preferences" below) when
+    reviewing a PR or writing a new step, unless the diff or a fresh
+    finding reveals a concrete conflict with it — note the conflict and
+    ask, don't silently relitigate or silently paper over it.
+  - **Automate the mechanical part of a sync check before reasoning about
+    it by hand** — the triple-check commands under "Keep the roadmap's
+    three tracking structures in sync" above exist for exactly this; run
+    them and investigate only what they flag, rather than manually
+    re-deriving 170+ rows of status from git history each time.
+  - This is an efficiency layer, not a relaxation of the review gate —
+    nothing here shortens the actual diff read, test run, or CI check
+    before a merge; it only cuts context spent re-deriving things this
+    repo already has written down.
 - **"Build Queue" chart — a reusable good practice, kept fresh on request.**
   When several steps are in flight across parallel implementing chats, a
   published Artifact chart (three columns: **Assigned** — handed off,
