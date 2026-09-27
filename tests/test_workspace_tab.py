@@ -2426,6 +2426,108 @@ class TestFixFlaggedLinesCapUI:
         assert captured.get("cost_cap_usd") is None
 
 
+class TestContentBlockedRetryWithDifferentEngine:
+    """Step 31 item 5: a content_blocked-flagged line (set by
+    translate_lines_with_engine when a provider's own content moderation
+    blocked it -- see TestTranslateLinesWithEngine's bisection test and
+    TestGeminiEngine/TestDeepSeekEngine in test_translate_engines.py for
+    the detection side) gets a real "retry with a different engine"
+    action in Review & edit, reusing the existing flag/flag_note display
+    rather than a new surface, and defaulting the suggested engine to
+    Ollama -- the one engine with no cloud-side moderation -- while still
+    letting the user pick any configured engine."""
+
+    def _drama(self, isolated_db, engine_note="gemini: SAFETY"):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="gemini")
+        lines = [Line(idx=0, start=0, end=1, zh="敏感内容", en="",
+                       flag="content_blocked", flag_note=engine_note)]
+        isolated_db.save_lines(did, lines)
+        return did
+
+    def _run(self, did, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_gemini"] = "fake-gemini-key"
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_flag_display_shows_the_real_engine_and_reason(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert any("gemini: SAFETY" in w.value for w in at.warning)
+
+    def test_retry_picker_defaults_to_ollama(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        assert at.selectbox(key="retry_engine_0").value == "ollama"
+
+    def test_retry_with_ollama_translates_the_line_and_clears_the_flag(self, isolated_db, monkeypatch):
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"message": {"content": '{"1": "A retried translation."}'}}
+
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.button(key="retry_blocked_0").click()
+        at.run(timeout=30)
+
+        loaded = isolated_db.load_lines(did)
+        assert loaded[0]["en"] == "A retried translation."
+        assert not loaded[0]["flag"]
+        assert not loaded[0]["flag_note"]
+
+    def test_retry_does_not_change_the_drama_s_own_translation_engine(self, isolated_db, monkeypatch):
+        """The retry is scoped to just this one line -- it must not
+        switch the drama's default engine to whatever was picked for the
+        retry."""
+        monkeypatch.setattr("requests.post", lambda *a, **k: type(
+            "R", (), {"raise_for_status": lambda self: None,
+                     "json": lambda self: {"message": {"content": '{"1": "Retried."}'}}})())
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.button(key="retry_blocked_0").click()
+        at.run(timeout=30)
+
+        assert db.get_drama(did)["translation_engine"] == "gemini"
+
+    def test_a_second_provider_also_blocking_the_retry_keeps_the_line_flagged(self, isolated_db, monkeypatch):
+        """If the newly-picked engine blocks it too, the line stays
+        flagged (with the new engine's own reason) instead of silently
+        clearing the flag on a translation that never actually happened."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"message": {"content": "I can't translate this."}}
+
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        at.button(key="retry_blocked_0").click()
+        at.run(timeout=30)
+
+        loaded = isolated_db.load_lines(did)
+        assert loaded[0]["flag"] == "content_blocked"
+        assert "ollama" in loaded[0]["flag_note"]
+        assert not loaded[0]["en"]
+
+
 class _FakeBulkProvider:
     """Stands in for the Claude/Gemini batch APIs in UI tests."""
     def __init__(self):

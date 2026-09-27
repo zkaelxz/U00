@@ -1507,9 +1507,13 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
 
     # A translation too dense to read in the time it's on screen goes into
     # the review queue like any other flag (never replacing an existing one).
+    # Unconditional (not just when flag_dense_lines finds something new):
+    # translate_lines_with_engine may already have set a content_blocked flag
+    # on some lines (Step 31), and that has to reach the database too, or it
+    # only ever exists on this run's in-memory copies.
     import subtitle_formats
-    if subtitle_formats.flag_dense_lines(lines):
-        db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
+    subtitle_formats.flag_dense_lines(lines)
+    db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
 
     line_ids = [ln.id for ln in lines if getattr(ln, "id", None) is not None]
     if line_ids and not db.line_ids_exist(drama_id, line_ids):

@@ -4547,6 +4547,57 @@ def render_workspace_tab():
                         ln.flag, ln.flag_note = None, ""
                         db.save_lines(picked_id, all_lines)
                         st.rerun()
+                    if ln.flag == "content_blocked":
+                        # Step 31 item 5: a content-moderation block is usually
+                        # engine-specific, not a real translation problem -- offer
+                        # a one-line retry against a different engine (default to
+                        # Ollama, which runs locally with no cloud moderation)
+                        # rather than making the user redo the whole drama.
+                        _retry_engines = list(translate_engines.ENGINES.keys())
+                        _retry_default = "ollama" if "ollama" in _retry_engines else _retry_engines[0]
+                        rtc1, rtc2 = st.columns([3, 1])
+                        _retry_engine_choice = rtc1.selectbox(
+                            "Retry this line with", _retry_engines,
+                            index=_retry_engines.index(_retry_default),
+                            key=f"retry_engine_{ln.idx}", label_visibility="collapsed",
+                            format_func=lambda e: f"Retry with {e}",
+                            help="Retries just this one line with the engine picked here -- "
+                                 "doesn't change the drama's own translation engine above.")
+                        if rtc2.button("🔁 Retry", key=f"retry_blocked_{ln.idx}"):
+                            _retry_needs_key = _retry_engine_choice not in (
+                                "test_offline", "ollama", "libretranslate", "nllb")
+                            if _retry_engine_choice == "test_offline":
+                                _retry_api_key = "offline"
+                            else:
+                                _retry_api_key = st.session_state.get(f"settings_{_retry_engine_choice}")
+                                if not _retry_needs_key:
+                                    _retry_api_key = _retry_api_key or "local"
+                            if _retry_needs_key and not _retry_api_key:
+                                st.error(f"No API key set for {_retry_engine_choice} -- add one "
+                                         "in ⚙️ Settings first.")
+                            else:
+                                try:
+                                    _retry_eng = translate_engines.get_engine(
+                                        _retry_engine_choice, _retry_api_key, None,
+                                        free_tier=_retry_engine_choice == "gemini" and _gemini_free_tier,
+                                        base_url=_ollama_base_url if _retry_engine_choice == "ollama" else None)
+                                    with st.spinner(f"Retrying with {_retry_engine_choice}..."):
+                                        _retry_result = _retry_eng.translate_batch(
+                                            [ln.zh], {"source_language": source_language})[0]
+                                    ln.en = _retry_result
+                                    ln.flag, ln.flag_note = None, ""
+                                    db.save_lines(picked_id, [ln], fields=("en", "flag", "flag_note"))
+                                    st.session_state.pop(f"en_{ln.idx}", None)
+                                    st.toast(f"Retried with {_retry_engine_choice}.", icon="✅")
+                                    st.rerun()
+                                except translate_engines.ContentModerationBlocked as _blocked:
+                                    ln.flag_note = f"{_blocked.engine}: {_blocked.reason}"
+                                    db.save_lines(picked_id, [ln], fields=("flag_note",))
+                                    st.error(f"{_retry_engine_choice} also blocked this line: "
+                                             f"{_blocked.reason}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Retry failed: {translate_engines.redact_secrets(str(e))}")
                 _tm = _tm_suggestions.get(ln.idx)
                 _tm_dismiss_key = (ln.zh.strip(), _tm["entry"]["translation"]) if _tm else None
                 if _tm and _tm_dismiss_key not in _tm_dismissed:

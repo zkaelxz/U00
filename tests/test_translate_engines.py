@@ -189,6 +189,54 @@ class TestTranslateLinesWithEngine:
         te.translate_lines_with_engine(lines, RecordingEngine(), {})
         assert seen_context["source_language"] == "zh"
 
+    def test_content_moderation_block_bisects_and_isolates_the_blocked_line(self, monkeypatch):
+        """Step 31 item 3: a ContentModerationBlocked on the whole batch
+        retries once by bisecting into two halves rather than leaving
+        every line in the batch blank. With a 2-line batch this bisects
+        all the way down to single lines, so the one that actually
+        triggers the block ends up flagged alone while its batch-mate --
+        genuinely fine, just unlucky enough to share a batch -- still
+        gets translated."""
+        monkeypatch.setattr("time.sleep", lambda *_: None)  # skip call_with_backoff's retry delay
+
+        class BlockedOnContentEngine:
+            supports_reference = False
+            name = "blocktest"
+
+            def __init__(self):
+                self.calls = []
+
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(zh_lines))
+                if any("BLOCKED" in z for z in zh_lines):
+                    raise te.ContentModerationBlocked("blocktest", "simulated safety block")
+                return [f"EN:{z}" for z in zh_lines]
+
+        lines = [Line(idx=0, start=0, end=1, zh="a BLOCKED passage"),
+                 Line(idx=1, start=0, end=1, zh="a perfectly normal line")]
+        engine = BlockedOnContentEngine()
+        result, errors = te.translate_lines_with_engine(lines, engine, {}, batch_size=2)
+
+        blocked_line, clean_line = result[0], result[1]
+        assert blocked_line.flag == "content_blocked"
+        assert "blocktest" in blocked_line.flag_note
+        assert "simulated safety block" in blocked_line.flag_note
+        assert not blocked_line.en
+        assert clean_line.en == "EN:a perfectly normal line"  # not blanked out by the other line's block
+        assert clean_line.flag is None
+        assert len(errors) == 1
+        # whole batch, then each bisected half -- narrowed down, not a full
+        # per-line search on every batch. Each raising attempt appears
+        # twice: call_with_backoff gives any non-rate-limit exception one
+        # extra retry before letting it propagate.
+        assert engine.calls == [
+            ["a BLOCKED passage", "a perfectly normal line"],
+            ["a BLOCKED passage", "a perfectly normal line"],
+            ["a BLOCKED passage"],
+            ["a BLOCKED passage"],
+            ["a perfectly normal line"],
+        ]
+
 
 class TestBuildLlmInstructions:
     def test_locale_us_default(self):
@@ -868,6 +916,45 @@ class TestGeminiEngine:
         assert engine.last_usage == {"input_tokens": 0, "output_tokens": 0,
                                      "cache_read_tokens": 0, "cache_write_tokens": 0}
 
+    def test_empty_candidates_with_prompt_feedback_raises_content_moderation_blocked(
+            self, monkeypatch):
+        """Step 31 item 1, shape one: blocked before generation even
+        started -- no `candidates` key at all, the real reason sitting in
+        `promptFeedback.blockReason` instead. Used to raise a bare
+        IndexError from the old `data["candidates"][0]...` indexing."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"promptFeedback": {"blockReason": "SAFETY"}}
+
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key")
+        with pytest.raises(te.ContentModerationBlocked) as exc_info:
+            engine.translate_batch(["a graphic passage"], {})
+        assert exc_info.value.engine == "gemini"
+        assert exc_info.value.reason == "SAFETY"
+
+    def test_safety_finish_reason_with_no_content_raises_content_moderation_blocked(
+            self, monkeypatch):
+        """Step 31 item 1, shape two: a candidate came back, but with
+        finishReason SAFETY/PROHIBITED_CONTENT and no `content` key --
+        used to raise a bare KeyError from `candidates[0]["content"]...`."""
+        class FakeResponse:
+            def raise_for_status(self):
+                pass
+            def json(self):
+                return {"candidates": [{"finishReason": "PROHIBITED_CONTENT"}]}
+
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        monkeypatch.setattr("requests.post", lambda *a, **k: FakeResponse())
+        engine = te.GeminiEngine("fake-key")
+        with pytest.raises(te.ContentModerationBlocked) as exc_info:
+            engine.translate_batch(["a graphic passage"], {})
+        assert exc_info.value.engine == "gemini"
+        assert exc_info.value.reason == "PROHIBITED_CONTENT"
+
 
 class TestGeminiFreeTierThrottle:
     """Step 1d item 4 added RPM-only throttling; Step 1f extends it to all
@@ -1052,6 +1139,46 @@ class TestGeminiProGoneFromFreeTier:
     def test_flash_and_flash_lite_are_not_flagged(self):
         assert "gemini-flash-latest" not in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
         assert "gemini-flash-lite-latest" not in te.GEMINI_FREE_TIER_UNAVAILABLE_MODELS
+
+
+def _deepseek_engine_with_fake_client(message_content, refusal=None):
+    """Builds a real DeepSeekEngine without going through __init__ (which
+    imports the `openai` package -- not installed in this core-only test
+    environment, same reasoning as _claude_engine_with_fake_client above
+    not needing one for `anthropic`, which IS installed here)."""
+    engine = te.DeepSeekEngine.__new__(te.DeepSeekEngine)
+    engine.model = "deepseek-fake"
+    engine.last_usage = te._empty_usage()
+
+    message = type("Message", (), {"content": message_content, "refusal": refusal})()
+    choice = type("Choice", (), {"message": message})()
+    resp = type("Resp", (), {"choices": [choice], "usage": None})()
+
+    class _Completions:
+        def create(self, **kwargs):
+            return resp
+    engine.client = type("Client", (), {"chat": type("Chat", (), {"completions": _Completions()})()})()
+    return engine
+
+
+class TestDeepSeekEngine:
+    def test_null_content_with_refusal_raises_content_moderation_blocked(self, monkeypatch):
+        """Step 31 item 1: the OpenAI-compatible refusal shape -- content
+        is None/empty and a separate `refusal` field explains why. Used
+        to raise a bare AttributeError from the old `.content.strip()`
+        (None has no .strip())."""
+        monkeypatch.setattr("time.sleep", lambda *_: None)
+        engine = _deepseek_engine_with_fake_client(
+            message_content=None, refusal="This request violates our usage policies.")
+        with pytest.raises(te.ContentModerationBlocked) as exc_info:
+            engine.translate_batch(["a graphic passage"], {})
+        assert exc_info.value.engine == "deepseek"
+        assert exc_info.value.reason == "This request violates our usage policies."
+
+    def test_ordinary_response_still_translates_normally(self):
+        engine = _deepseek_engine_with_fake_client(message_content='{"1": "Hello."}')
+        result = engine.translate_batch(["你好"], {})
+        assert result == ["Hello."]
 
 
 class TestOllamaEngine:
