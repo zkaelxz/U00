@@ -18,11 +18,10 @@ baihe-subtitler/
 ├── cli.py                        headless batch runner
 ├── run_tests.py                  test runner wrapper
 │
-├── requirements.txt              everything (simplest install)
 ├── requirements-core.txt         minimum to launch + translate text
 ├── requirements-media.txt        audio/video: align, dub, burn subtitles
 ├── requirements-optional.txt     per-feature extras
-├── requirements-install.bat      Windows: installs the right requirements file(s)
+├── requirements.txt              everything, in one shot -- just the three files above combined
 ├── constraints.txt               upper bounds for packages that have broken this app before
 ├── start.bat                     one-click Windows launcher
 ├── start.ps1                     PowerShell version of the launcher (start.bat is primary)
