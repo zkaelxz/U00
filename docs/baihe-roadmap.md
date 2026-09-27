@@ -10,10 +10,11 @@
 > - **Step 45 (URGENT, sent)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read before sending (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`, checks for any line having a `speaker` set *before* checking translation/export status — so unsaved diarization data would explain the stuck indicator) but explicitly flagged as needing reproduction against the real drama's data before trusting that diagnosis. Sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU`.
 > - **Step 46 (not yet sent)** — dark mode is visually inconsistent: a screenshot of the Reader tab shows the sidebar/page background switching to dark while the video player card, stat boxes, the line-reading table, and the bottom bars all stay light/white. Different root cause than the already-fixed Step 25t (that was a tab-bar selector silently matching nothing) — likely a broader selector-scope gap in `inject_dark_css`. Queued, ready to send.
 > - **Step 47 (not yet sent)** — Diagnostics' "Model & engine versions" panel (a different panel from Step 18c's own "Dependencies" section, which already has install buttons) has no install action for "not installed" rows and no explanation of what each model does. Queued, ready to send.
+> - **Step 48 (not yet sent)** — Live capture failed on a real YouTube URL with `DownloadError: The page needs to be reloaded`. Root cause found by direct code read: `live_translate.py`'s player-client retry loop only retries when the error message contains the literal substring "no video formats found" — this different, also-real yt-dlp/YouTube error message skips the retry loop and the helpful "try `pip install -U yt-dlp`" message entirely, failing immediately with the generic message instead. Queued, ready to send.
 >
 > **Still in progress, no report yet**: **Step 24** (translation memory/benchmark/library status) → sent to the main implementing session at the user's explicit direction.
 >
-> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Steps 46, 47** (both above).
+> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Steps 46, 47, 48** (all above).
 >
 > **Ready, but mutually exclusive with Step 24 above on `workspace_tab.py`/`library_tab.py`/`translate_engines.py` — don't send until 24 lands**: **26** (voice bank), **26c** (original-language narration, shares `dub.py`/`workspace_tab.py`), **31** (content-moderation refusal detection), **32** (expose look-ahead context/batch size as adjustable, bigger novel-narration defaults).
 >
@@ -315,6 +316,7 @@ Rules for every milestone:
 | 45 | On the reported drama (or a reproduction of its data shape), confirm the stage stepper now shows the correct current stage instead of stuck on Diarize, and confirm subtitles actually appear in the export/preview player. |
 | 46 | Toggle Dark mode on, visit every top-level tab, and confirm every visible card/container/table actually switches to the dark background -- no light-background surfaces left over, especially the Reader tab where this was first reported. |
 | 47 | In Diagnostics' "Model & engine versions" panel, install a real not-installed model via its new install action and confirm the row updates; click the "?" on a few rows and confirm each explains that specific model in plain words. |
+| 48 | Start Live capture on a real YouTube stream that previously hit "The page needs to be reloaded" (or a mocked equivalent) and confirm it now retries across player clients instead of failing immediately with the generic message. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3030,6 +3032,39 @@ If diarization results aren't persisting to the `speaker` field on this drama's 
 
 ---
 
+### Step 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize, including a real one just hit
+
+**User-reported, with a real error trace (2026-09-27)**:
+```
+Live capture stopped with an error: LiveCaptureError: Couldn't resolve that stream URL.
+DownloadError: ERROR: [youtube] UZ9V4lB0HKQ: The page needs to be reloaded.
+Common causes: the link is wrong/private/region-locked, the stream hasn't started yet, or it's already ended.
+```
+
+**Root cause, found by direct code read of `live_translate.py`'s `resolve_live_stream_url()`** (or its equivalent name in the current file — re-verify the exact function before fixing). The retry loop that tries multiple YouTube player-client fallbacks (`bestaudio/best`, `best`, then each of `_YOUTUBE_CLIENT_FALLBACKS`) only keeps retrying when the caught exception's message contains the literal substring `"no video formats found"`:
+
+```python
+if "no video formats found" not in str(exc).lower():
+    raise LiveCaptureError(
+        f"Couldn't resolve that stream URL.\n\n{type(exc).__name__}: {exc}\n\n"
+        "Common causes: the link is wrong/private/region-locked, the stream "
+        "hasn't started yet, or it's already ended."
+    ) from exc
+```
+
+"The page needs to be reloaded" is a real, known yt-dlp/YouTube failure message (documented in yt-dlp's own issue tracker as a symptom of a stale extractor or a specific player-client mismatch) — the same general family of "yt-dlp needs a workaround" failure the `else` branch already has a much better, actionable message for (checks for a JS runtime, suggests `pip install -U yt-dlp`, points at the client-fallback list actually tried, links yt-dlp's issue tracker). But because this exact message doesn't contain "no video formats found," it never reaches that branch or the retry loop at all — it fails immediately on the very first attempt (`bestaudio/best`, no player-client override) and drops the user straight into the least helpful, generic message, with none of the fallback client types ever tried.
+
+1. **Reproduce first** against a real live/recently-live YouTube URL, ideally the one that produced this exact error, and confirm the failure still reproduces as described before changing anything.
+2. Broaden the retry-worthy check beyond the single hardcoded substring — either match a short list of known-retryable yt-dlp/YouTube error phrases (this one plus "no video formats found"), or invert the logic to retry on any `DownloadError`-family exception except a small, explicit "definitely not retryable" list (private video, region-locked, video unavailable/removed) — whichever is the more robust, less fragile match against yt-dlp's actual exception shapes. Don't just add "the page needs to be reloaded" as a second hardcoded substring if a more general fix is cleanly available; that would just move this same bug to the next new yt-dlp error string instead of fixing the pattern.
+3. Once retryable, this error should get the same fallback-exhausted message quality (JS runtime check, `pip install -U yt-dlp` suggestion, yt-dlp issue tracker link) as the existing "no video formats found" path — not a second, separately-written message.
+
+**Exit:**
+- A test confirms a mocked `DownloadError` with "The page needs to be reloaded" in its message triggers the full player-client retry loop, not an immediate raise.
+- A test confirms a genuinely non-retryable error (e.g. a mocked "Private video" message) still fails immediately without wasting time on the retry loop.
+- Manual check: reproduce against a real YouTube stream if one that triggers this specific error is available; otherwise confirm via the mocked test above and note in the finish-up summary that a live repro wasn't available.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3203,6 +3238,7 @@ If diarization results aren't persisting to the `speaker` field on this drama's 
   | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | Sent (`session_014zMSq3KbwPNoU1J2KseLrU`) | — |
   | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | Not started | — |
   | 47 — Fix: Model & engine versions panel has no install action or explanation | — | Not started | — |
+  | 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
