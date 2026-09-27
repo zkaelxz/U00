@@ -188,3 +188,89 @@ class TestRunSuite:
         assert results[1]["output_text"] == "ok"
 
 
+
+class TestCompareConfigs:
+    """Step 24 item 2: one case through two engines, side by side."""
+
+    class NamedEngine:
+        def __init__(self, output):
+            self.output = output
+
+        def translate_batch(self, texts, context):
+            return [self.output]
+
+    def test_runs_one_case_through_each_config_and_labels_results(self):
+        case = {"id": 7, "source_text": "你好世界", "reference_text": "Hello world"}
+        results = benchmark.compare_configs(case, "translation", [
+            ("A", {"engine": self.NamedEngine("Hello world")}),
+            ("B", {"engine": self.NamedEngine("Hi planet")})])
+        assert [r["label"] for r in results] == ["A", "B"]
+        assert [r["case_id"] for r in results] == [7, 7]
+        assert results[0]["output_text"] == "Hello world" and results[0]["score"] == 1.0
+        assert results[1]["output_text"] == "Hi planet" and results[1]["score"] < 1.0
+
+    def test_one_configs_failure_doesnt_stop_the_other(self, monkeypatch):
+        def fake_extract(paths, backend="tesseract", source_language="zh"):
+            if backend == "paddle":
+                raise RuntimeError("paddle not installed")
+            return "你好"
+        monkeypatch.setattr(ocr_module, "extract_text_from_images", fake_extract)
+        results = benchmark.compare_configs({"id": 1, "input_path": "/p.png"}, "ocr", [
+            ("paddle", {"backend": "paddle"}), ("tesseract", {"backend": "tesseract"})])
+        assert results[0]["error"] == "paddle not installed"
+        assert results[1]["output_text"] == "你好"
+
+    def test_saves_nothing_to_run_history(self, isolated_db):
+        cid = isolated_db.create_benchmark_case("c", "translation", "novel", source_text="你好")
+        isolated_db.save_benchmark_run(cid, {"output_text": "old", "score": 0.5, "duration_seconds": 1.0})
+        benchmark.compare_configs(isolated_db.list_benchmark_cases()[0], "translation", [
+            ("A", {"engine": self.NamedEngine("x")}), ("B", {"engine": self.NamedEngine("y")})])
+        assert [r["output_text"] for r in isolated_db.list_benchmark_runs(cid)] == ["old"]
+
+
+class TestCompareEnginesInDiagnostics:
+    def _run(self, **session_state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        for k, v in session_state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_shows_both_engines_outputs_and_leaves_history_alone(self, isolated_db, monkeypatch):
+        import translate_engines
+
+        class Fake:
+            def __init__(self, name):
+                self.name = name
+
+            def translate_batch(self, texts, context):
+                return [{"claude": "Hello world", "deepseek": "Hi planet"}[self.name]]
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda name, key, *a, **k: Fake(name))
+        cid = isolated_db.create_benchmark_case("Excerpt", "translation", "novel",
+                                                source_text="你好世界", reference_text="Hello world")
+        isolated_db.save_benchmark_run(cid, {"output_text": "prior", "score": 0.9, "duration_seconds": 1.0})
+        at = self._run(settings_claude="k1", settings_deepseek="k2")
+        at.selectbox(key="bm_cmp_a_translation").select("claude")
+        at.selectbox(key="bm_cmp_b_translation").select("deepseek")
+        at.button(key="bm_cmp_run").click().run(timeout=120)
+
+        codes = [c.value for c in at.code]
+        assert "Hello world" in codes and "Hi planet" in codes
+        assert "100%" in [m.value for m in at.metric]
+        assert [r["output_text"] for r in isolated_db.list_benchmark_runs(cid)] == ["prior"]
+
+    def test_missing_api_key_warns_instead_of_running(self, isolated_db):
+        isolated_db.create_benchmark_case("Excerpt", "translation", "novel", source_text="你好")
+        at = self._run()
+        at.selectbox(key="bm_cmp_a_translation").select("claude")
+        at.selectbox(key="bm_cmp_b_translation").select("test_offline")
+        at.button(key="bm_cmp_run").click().run(timeout=120)
+        assert any("no API key set for 'claude'" in w.value for w in at.warning)
+        assert "bm_cmp_results" not in at.session_state

@@ -12,6 +12,7 @@ import resegment
 import sensevoice_tags
 import subtitle_formats
 import bulk_translate
+import translation_memory
 from ui import project_header, project_state
 from ui import status as ui_status
 
@@ -4233,6 +4234,7 @@ def render_workspace_tab():
                     # clobbered by a stale replacement.
                     _fr_by_id = {m["id"]: (m["old_text"], m["new_text"]) for m in _fr_pending_line}
                     _fr_applied, _fr_stale = 0, 0
+                    _fr_changed = []
                     for ln in all_lines:
                         if ln.id not in _fr_by_id:
                             continue
@@ -4242,8 +4244,15 @@ def render_workspace_tab():
                             continue
                         ln.en = new_text
                         _fr_applied += 1
+                        _fr_changed.append((old_text, new_text))
                     if _fr_applied:
                         db.save_lines(picked_id, all_lines, fields=("en",))
+                        # Step 24: a corrected translation must not keep being
+                        # suggested back by translation memory.
+                        if drama.get("series_id"):
+                            for old_text, new_text in _fr_changed:
+                                db.update_translation_memory_after_replace(
+                                    drama["series_id"], old_text, new_text)
                     st.session_state[f"lines_fr_matches_{picked_id}"] = []
                     _clear_line_widget_state()
                     if _fr_applied:
@@ -4316,6 +4325,10 @@ def render_workspace_tab():
 
             edited_page_rows = []
             _raw = raw_transcript.load_latest(ddir)
+            _tm_series = drama.get("series_id")
+            _tm_entries = db.list_translation_memory(_tm_series) if _tm_series else []
+            _tm_suggestions = translation_memory.suggest_for_lines(page_slice, _tm_entries)
+            _tm_dismissed = st.session_state.setdefault(f"tm_dismissed_{picked_id}", set())
             for ln in page_slice:
                 if ln.flag:
                     fc1, fc2 = st.columns([5, 1])
@@ -4324,6 +4337,24 @@ def render_workspace_tab():
                     if fc2.button("✅ Dismiss", key=f"dismiss_flag_{ln.idx}"):
                         ln.flag, ln.flag_note = None, ""
                         db.save_lines(picked_id, all_lines)
+                        st.rerun()
+                _tm = _tm_suggestions.get(ln.idx)
+                _tm_dismiss_key = (ln.zh.strip(), _tm["entry"]["translation"]) if _tm else None
+                if _tm and _tm_dismiss_key not in _tm_dismissed:
+                    _tm_entry = _tm["entry"]
+                    tmc1, tmc2, tmc3 = st.columns([5, 1, 1])
+                    _tm_how = "exact match" if _tm["exact"] else f"{_tm['similarity']:.0%} similar"
+                    tmc1.info(f"💡 **Translation memory** ({_tm_how}, used {_tm_entry['use_count']}×): "
+                              f"{_tm_entry['translation']}"
+                              + ("" if _tm["exact"] else f"  \n_Remembered for: {_tm_entry['source_text']}_"))
+                    if tmc2.button("✅ Accept", key=f"tm_accept_{picked_id}_{ln.idx}"):
+                        ln.en = _tm_entry["translation"]
+                        db.save_lines(picked_id, [ln], fields=("en",))
+                        db.bump_translation_memory_use(_tm_entry["id"])
+                        st.session_state.pop(f"en_{ln.idx}", None)
+                        st.rerun()
+                    if tmc3.button("✖ Dismiss", key=f"tm_dismiss_{picked_id}_{ln.idx}"):
+                        _tm_dismissed.add(_tm_dismiss_key)
                         st.rerun()
                 cols = st.columns([1, 1, 1, 3, 3, 0.5, 0.5])
                 start = cols[0].number_input("start", value=round(ln.start, 2), step=0.1,
@@ -4371,6 +4402,8 @@ def render_workspace_tab():
                                 if _r.idx == ln.idx:
                                     _r.en = _improved
                             db.save_lines(picked_id, all_lines)
+                            if _tm_series:
+                                db.record_translation_memory(_tm_series, zh, _improved)
                             st.session_state[f"rv_improved_{ln.idx}"] = None
                             # Same reason as re-transcribe's zh_<idx> pop below: the
                             # en box would otherwise read its old text back over the
@@ -4541,6 +4574,12 @@ def render_workspace_tab():
                         if before and ln.en and before.strip() != ln.en.strip():
                             db.record_edit_sample(picked_id, ln.zh, before, ln.en)
                     db.save_lines(picked_id, edited_rows)
+                    # Step 24: a translation typed or corrected by hand is an
+                    # approved one -- remember it for later near-identical lines.
+                    if _tm_series:
+                        for ln in edited_page_rows:
+                            if ln.en.strip() and _prev.get(ln.idx, "").strip() != ln.en.strip():
+                                db.record_translation_memory(_tm_series, ln.zh, ln.en)
                 except Exception as e:
                     _save_error = str(e)
             # Checked against the database, not session state, so leaving

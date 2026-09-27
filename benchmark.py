@@ -180,3 +180,22 @@ def run_suite(cases: list, stage: str, **kwargs):
         result["case_id"] = case.get("id")
         results.append(result)
     return results
+
+
+def compare_configs(case: dict, stage: str, configs: list):
+    """
+    Step 24: runs ONE case through each config back to back, for a
+    side-by-side view. configs: [(label, kwargs), ...] -- e.g. two
+    translation engines, two OCR backends, two Whisper sizes.
+
+    Returns one result per config, each with its "label" added. Nothing
+    is saved: a comparison isn't a run of "the current pipeline", so
+    writing it into the case's run history would make the next
+    run-over-run regression check compare engine A against engine B.
+    """
+    results = []
+    for label, kwargs in configs:
+        result = run_suite([case], stage, **kwargs)[0]
+        result["label"] = label
+        results.append(result)
+    return results
