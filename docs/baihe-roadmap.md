@@ -3440,18 +3440,11 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 
 ---
 
-### Step 65 — Reconsider "Read & Watch"'s tab name
+### Step 65 — "Read & Watch"'s tab name — reviewed and closed, keeping the current name, no action
 
-**User-asked (2026-09-27): "Should Read & Watch be renamed to something else? What about the other tabs."** Checked all 9 real tab names directly (`app.py`'s `st.tabs()` call): Library, Workspace, Read & Watch, Scanlate, Sources, Discover, Translate, Live, Diagnostics. Eight of the nine are already single, clear nouns naming what the tab does. "Read & Watch" is the one genuine outlier — the only "X & Y" name, because the tab covers three real modes at once (reading text, listening to audio-only, watching video with captions), and no single word cleanly covers all three: "Reader" alone undersells the audio/video piece; "Reader & Player" isn't a real improvement over the current name. This step exists to make that call deliberately rather than leave it as an unresolved "should we?" — "keep the current name" is a legitimate, fully acceptable outcome of this step, not a placeholder for a rename that must happen.
+**RESOLVED (2026-09-27), NOT A PENDING TASK — do not re-surface or re-queue this step; there is no branch/PR to send anywhere for it.** The question was asked, checked against real code, and decided: keep "📖 Read & Watch" as-is. "Keep the current name" was always a fully acceptable outcome of this step, not a placeholder for a rename that must still happen.
 
-1. Decide, and record the decision either way: keep "📖 Read & Watch" as-is, or pick a real replacement that's actually clearer for all three modes (reading/listening/watching) — not just shorter for its own sake.
-2. If renamed: update `app.py`'s tab label, every place the roadmap/docs/tests reference the tab by name (`FILE_ORGANIZATION.md`, this roadmap's own many references to "Read & Watch"/"Reader tab"), and confirm no test asserts on the literal old label string.
-3. The other 8 tab names are confirmed fine as of this check — don't re-litigate them without a fresh, real reason.
-
-**Exit:**
-- Manual check: whichever way this is decided, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab (no stale name in one place and a new one in the other).
-
-**Decided (2026-09-27): keep "📖 Read & Watch" as-is — no rename, no code change.** Re-verified against real code before deciding: `app.py:90-91` confirms all 9 real tab labels; `reader_tab.py` confirms the tab genuinely does three distinct things (`st.video(..., subtitles=...)` for watching with captions, `st.audio()` for listening, plus the text reading/translation table) — a real three-mode tab, not an inflated justification for two. Considered "Reader" alone (undersells the audio/video piece) and "Reader & Player" (same "X & Y" shape, less specific words) — neither is actually clearer. Exit condition confirmed: `FILE_ORGANIZATION.md:59` describes the tab by function, not by literal label, so no stale-name mismatch exists; every "Read & Watch" reference in the repo (`app.py`, `tabs/library_tab.py`, `README.md`, `tests/test_reader_tab.py`) is either the label itself or a message pointing at the tab by name, none asserting on the string in a way a rename would've broken — moot now that there's no rename, but confirms the check was done properly. No branch/PR for this step — nothing to build.
+**Decision, in full**: checked all 9 real tab names directly (`app.py`'s `st.tabs()` call) — Library, Workspace, Read & Watch, Scanlate, Sources, Discover, Translate, Live, Diagnostics. Eight are already single, clear nouns; "Read & Watch" is the one "X & Y" name, because `reader_tab.py` genuinely does three distinct things (`st.video(..., subtitles=...)` for watching, `st.audio()` for listening, plus the text reading/translation table) — a real three-mode tab, not an inflated justification for two. Considered "Reader" alone (undersells the audio/video piece) and "Reader & Player" (same "X & Y" shape, less specific words) — neither is actually clearer than the current name. `FILE_ORGANIZATION.md:59` describes the tab by function already, so no stale-name mismatch exists either way. The other 8 tab names are confirmed fine as of this check and don't need re-litigating without a fresh, real reason.
 
 ---
 
@@ -3539,29 +3532,25 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 
 ---
 
-### Step 70 — HIGH: `page_fetch.py`'s fetch path bypasses this app's own ToS-enforcement system entirely, and its UI defaults point at an explicitly-prohibited site
+### Step 70 — `page_fetch.py`'s fetch path vs. ToS-enforcement — reviewed and closed, no action
 
-**Found by the same background code-review pass across the app's sources/Scanlate/UI subsystem (2026-09-27), independently re-verified against the real code before being trusted.** Confirmed directly: `sources/generic_import.py` and `sources/front_door.py` both call `ladder.check_terms(source, default, url=url)` before fetching anything, which consults `sources/site_terms.py`'s `SITE_TERMS` table and raises `TermsProhibited` for a site recorded `EXPLICITLY_RESTRICTED` — but `page_fetch.py`'s `fetch_static()`/`fetch_rendered()`/`smart_fetch()` (grepped directly: zero hits for `check_terms`/`site_terms`/`TermsProhibited` anywhere in the file) have no such call at all, and none of its three real UI callers add one themselves:
+**RESOLVED (2026-09-27), NOT A PENDING TASK — do not re-surface or re-prioritize this step.** A background code-review pass raised this as a possible HIGH-severity gap; the user then reviewed the actual design directly and confirmed it's deliberate, already correct, and not an oversight. There is nothing queued here for any implementing session to pick up. The original finding is kept below only as a record of what was checked, not as an active task list — none of its numbered items or Exit criteria are open.
 
-- `bulk_import.fetch_and_extract_listing()` (`bulk_import.py:78`, `page_fetch.smart_fetch(url, ...)`) → Discover's "📥 Bulk import from a tag/ranking listing page."
-- `title_library.import_title_from_url()` (`title_library.py:198`) → Discover's "Import a title from a URL."
-- `metadata_lookup.py:59` → Workspace's "🔍 Auto-fill from a public listing page" expander.
+<details>
+<summary>Original finding (closed, kept for the record only)</summary>
 
-**Not a theoretical gap — the feature's own UI default targets a site this app's own vetting already recorded as explicitly banned.** `tabs/discover_tab.py:271-272`'s bulk-import "Source label" field defaults to `value="jjwxc_baihe_tag"`, and its URL-pattern field's own placeholder text is `https://www.jjwxc.net/tag.php?tag=百合&page={page}` — confirmed directly in `sources/site_terms.py:53-61`: jjwxc.net is recorded `AutomationPermission.EXPLICITLY_RESTRICTED`, citing "§4.3 bans any manner of crawling or scraping (爬取/抓取) of its database materials; §4.9 invokes civil and criminal liability for serious violations." Clicking "🔍 Extract entries" against that default fetches every generated page with no refusal, no warning — exactly what `site_terms.py`'s own docstring says the whole mechanism exists to stop.
+Found by the same background code-review pass across the app's sources/Scanlate/UI subsystem, independently re-verified against the real code before being trusted. `sources/generic_import.py` and `sources/front_door.py` both call `ladder.check_terms()` before fetching; `page_fetch.py`'s `fetch_static()`/`fetch_rendered()`/`smart_fetch()` don't, and its three UI callers (`bulk_import.py`, `title_library.py`, `metadata_lookup.py`) don't add one themselves. The bulk-import UI's default source label (`jjwxc_baihe_tag`, pointing at jjwxc.net) also matches a site `sources/site_terms.py` records as `EXPLICITLY_RESTRICTED`, and the same path has no rate-limiting.
 
-**Compounding, medium severity**: the same `page_fetch.py` path also has no pacing/rate-limiting at all — no delay, no per-host concurrency limit, no shared state with `sources/http.py`'s existing `PacingPolicy` (3-8s randomized gap, 1 concurrent request per source, already built specifically to read as non-automated traffic). `bulk_import.bulk_extract()` loops over every generated URL back-to-back with no sleep, and the bulk-import pagination range field has no enforced upper bound — combined with the ToS gap above, a generated URL range can hammer a prohibited site at whatever rate the LLM extraction step allows.
+~~1. Add `ladder.check_terms()` to `page_fetch.py`'s fetch functions or its three callers.~~
+~~2. Route `page_fetch.py` through `sources/http.py`'s existing `PacingPolicy`.~~
+~~3. Cap the bulk-import pagination range.~~
+~~4. Change the bulk-import UI's default source label away from a ToS-prohibited site.~~
 
-1. **Add the same `ladder.check_terms()` call (or equivalent) to `page_fetch.py`'s fetch functions, or to each of its three UI-facing callers** — whichever is the more correct architectural fit (a single check inside `page_fetch.py` itself is probably right, since every caller needs it and a caller-by-caller fix risks a fourth caller someday skipping it the same way these three did).
-2. **Route `page_fetch.py`'s requests through the same pacing mechanism `sources/http.py` already provides**, rather than building a second, separate one — reuse `PacingPolicy`/the paced request wrapper, not a new implementation.
-3. **Cap the bulk-import pagination range** (`discover_tab.py`'s `pattern_end` field) at a reasonable upper bound, the same "don't let one field generate an unbounded fetch storm" discipline the rest of the app already applies elsewhere.
-4. **Change the bulk-import UI's default source label away from a real ToS-prohibited site** — a default that actively walks a first-time user toward the one thing this app's own vetting flagged as prohibited is a design bug on its own, independent of the missing enforcement check.
+~~**Exit:** a test confirms page_fetch-backed fetching refuses an EXPLICITLY_RESTRICTED site; a test confirms the pagination field clamps an unbounded range; manual check against a real restricted site.~~
 
-**Exit:**
-- A test confirms `page_fetch`-backed fetching (via any of the three real callers) refuses a known-`EXPLICITLY_RESTRICTED` site the same way `sources/generic_import.py`'s path already does, rather than fetching it.
-- A test confirms the bulk-import pagination field rejects or clamps an unbounded page range.
-- Manual check: attempt the bulk-import flow against a real `EXPLICITLY_RESTRICTED` site and confirm it's refused with a clear message, not silently fetched.
+</details>
 
-**Decided (2026-09-27): leave as-is, no code change.** The user reviewed and jointly green-lit this exact design — `page_fetch.py`'s metadata-only fetch path and the bulk-import default were built together, deliberately, not an oversight this review surfaced for the first time. Not critical; not pending.
+**Decision, in full**: the user reviewed this exact design and jointly green-lit it — `page_fetch.py`'s metadata-only fetch path and the bulk-import default were built together, deliberately, not an oversight this review surfaced for the first time. No code change. No test needed. No manual check needed. This step is closed.
 
 ---
 
