@@ -1680,6 +1680,65 @@ class TestDownloadButtonUsesCookieSettings:
         assert captured.get("cookies_file") is None
 
 
+class TestDownloadAudioOnlyDefault:
+    """Step 45: a Streamer/VOD drama downloaded with "Audio only" checked
+    keeps no video file, so the Reader tab's Watch/listen player can never
+    show captions (st.audio has no subtitles support) -- the exact shape of
+    a real reported bug. "Audio only" should default off for streamer_vod,
+    unlike audio_drama where there's no video worth keeping anyway."""
+
+    def _drama(self, isolated_db, content_mode):
+        return isolated_db.create_drama(title_en="Test Drama", media_type=content_mode,
+                                        content_mode=content_mode, status="not started")
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _audio_only_checkbox(self, at, did):
+        return [c for c in at.checkbox if c.key == f"dl_audio_only_{did}"][0]
+
+    def test_streamer_vod_defaults_to_keeping_the_video(self, isolated_db):
+        did = self._drama(isolated_db, "streamer_vod")
+        at = self._run(did)
+        [r for r in at.radio if r.key == f"import_method_{did}"][0].set_value("url").run()
+        assert self._audio_only_checkbox(at, did).value is False
+
+    def test_audio_drama_still_defaults_to_audio_only(self, isolated_db):
+        did = self._drama(isolated_db, "audio_drama")
+        at = self._run(did)
+        [r for r in at.radio if r.key == f"import_method_{did}"][0].set_value("url").run()
+        assert self._audio_only_checkbox(at, did).value is True
+
+    def test_streamer_vod_download_defaults_to_audio_only_false(self, isolated_db, monkeypatch):
+        did = self._drama(isolated_db, "streamer_vod")
+        captured = {}
+
+        def fake_download(url, out_dir, **kwargs):
+            captured.update(kwargs)
+            raise video_download.DownloadError("stop here -- only checking what was passed in")
+
+        monkeypatch.setattr(video_download, "download", fake_download)
+        at = self._run(did)
+        [r for r in at.radio if r.key == f"import_method_{did}"][0].set_value("url").run()
+        [t for t in at.text_input if t.key == f"dl_url_{did}"][0].set_value(
+            "https://example.com/v").run()
+        [b for b in at.button if b.label == "⬇️ Download"][0].click()
+        at.run(timeout=30)
+
+        assert captured.get("audio_only") is False
+
+
 class TestReflectModeUI:
     """Step 7: the "High quality (Reflect mode)" checkbox next to the
     Translate button -- hidden for translation-only engines (Reflect mode
@@ -6489,6 +6548,27 @@ class TestWorkspaceStageIndex:
         from ui.workflow import stage_statuses_from_index
         assert stage_statuses_from_index(self.STAGES, idx) == \
             ["done", "done", "done", "done", "done", "done", "current"]
+
+    def test_exported_with_no_persisted_speaker_still_shows_export_not_diarize(self, tmp_path):
+        # Step 45: a real reported drama had fully translated lines and was
+        # marked exported, but no line ever had a `speaker` value persisted
+        # (diarization was skipped, or its result never saved) -- the old
+        # check order treated "no speaker on any line" as unconditionally
+        # meaning Diarize is current, even though translation/export had
+        # clearly moved well past that. Export/dub now outrank Diarize.
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker=None),
+                 Line(idx=1, start=1, end=2, zh="再见", en="Goodbye", speaker=None)]
+        idx = _compute_workspace_stage_index(
+            {"content_mode": "audio_drama", "status": "exported"}, lines, str(tmp_path))
+        assert idx == 6
+
+    def test_fully_translated_with_no_persisted_speaker_shows_review_not_diarize(self, tmp_path):
+        # Same missing-speaker shape as above, but not yet exported/dubbed --
+        # translation being fully done should still take the stepper past
+        # Diarize to Review, not leave it stuck reporting Diarize forever.
+        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker=None)]
+        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
+        assert idx == 4
 
 
 class TestStageTabsReplaceTheExpanderScroll:
