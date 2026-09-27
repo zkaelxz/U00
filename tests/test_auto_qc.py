@@ -118,6 +118,62 @@ def test_name_list_only_uses_name_categories_and_cjk_aliases():
     assert names == []
 
 
+def test_name_list_builds_multiple_source_and_target_forms_from_glossary_aliases():
+    """Step 30: closes the asymmetry with the series_characters branch --
+    a glossary term with recorded aliases now gets multiple source forms
+    (other CJK spellings) and multiple target forms (romanized alias
+    forms alongside the canonical translation), the same richness
+    series_characters.aliases already produced below."""
+    names = auto_qc.build_name_list(
+        [{"term_original": "沈清疑", "term_translation": "Shen Qingyi", "category": "person_name",
+          "aliases": "沈清儀|Shen Qing Yi"}])
+    assert len(names) == 1
+    src_forms, tgt_forms = names[0]
+    assert set(src_forms) == {"沈清疑", "沈清儀"}
+    assert set(tgt_forms) == {"Shen Qingyi", "Shen Qing Yi"}
+
+    # And it's put to use: a line using only the CJK alias, translated with
+    # only the romanized alias, still counts as the name being carried over.
+    issues = auto_qc.check_line("沈清儀来了。", "Shen Qing Yi is here.", names)
+    assert issues == []
+
+
+def test_build_banned_terms_uses_term_original_and_aliases_as_source_forms():
+    banned = auto_qc.build_banned_terms(
+        [{"term_original": "沈清疑", "aliases": "沈清儀", "banned_translations": "Chen Qingyi|Shen Qingyu"},
+         {"term_original": "无用词", "banned_translations": ""},   # no banned list -- excluded
+         {"term_original": "另一个词", "term_translation": "Whatever"}])  # no field at all -- excluded
+    assert banned == [(("沈清疑", "沈清儀"), ("Chen Qingyi", "Shen Qingyu"))]
+
+
+def test_check_line_flags_banned_translation_but_leaves_canonical_untouched():
+    """Step 30: banned_translations is flag-only -- it never rewrites the
+    line, unlike the older enforce_exact hard-substitution mechanism."""
+    banned = auto_qc.build_banned_terms(
+        [{"term_original": "沈清疑", "banned_translations": "Chen Qingyi|Shen Qingyu"}])
+
+    bad_issues = auto_qc.check_line("沈清疑来了。", "Chen Qingyi is here.", banned_terms=banned)
+    assert {"direction": "banned", "kind": "banned_translation", "text": "Chen Qingyi"} in bad_issues
+    note = auto_qc.issue_note(bad_issues)
+    assert "Chen Qingyi" in note and "flagged as prohibited" in note
+
+    good_issues = auto_qc.check_line("沈清疑来了。", "Shen Qingyi is here.", banned_terms=banned)
+    assert good_issues == []
+
+
+def test_run_auto_qc_flags_banned_translation_without_rewriting_the_line():
+    banned = auto_qc.build_banned_terms(
+        [{"term_original": "沈清疑", "banned_translations": "Chen Qingyi"}])
+    bad = _ln(0, "沈清疑来了。", "Chen Qingyi is here.")
+    good = _ln(1, "沈清疑来了。", "Shen Qingyi is here.")
+    result = auto_qc.run_auto_qc([bad, good], banned_terms=banned)
+    assert result["flagged"] == 1
+    assert bad.flag == auto_qc.AUTO_QC_FLAG
+    assert "Chen Qingyi" in bad.flag_note
+    assert bad.en == "Chen Qingyi is here."     # flagged, not rewritten
+    assert good.flag is None and good.en == "Shen Qingyi is here."
+
+
 # ------------------------------------------------------- flags on lines
 
 def _ln(idx, zh, en, **kw):
