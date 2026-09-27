@@ -2,9 +2,9 @@
 
 > **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state, not carried over from any earlier note here:
 >
-> **Every step from 1 through 24, plus 30, 33, 34, 35, 49, is merged.** Latest: **Step 24** (PR #136, translation memory + side-by-side engine comparison + library quick-filter tags — independently reviewed, full suite 2999 passed/47 skipped/0 failed) and **Step 27** (PR #121, confirmed already merged). Full history of this round's earlier merges (Steps 1–20, 33–35, 49, plus the `fix-torch-reimport-crash-in-tests`/`claude/verify-sources-k7eyoz`/`sources-preflight` branches) is in each step's own section — not repeated here to avoid this note growing without bound; see the §4 status table for the authoritative current list.
+> **Every step from 1 through 24, plus 30, 33, 34, 35, 46, 48, 49, 50, 52, 53, 57, is merged.** Latest batch: **Steps 46, 48, 50, 52, 53, 57** (PRs #140–#145, all landed 2026-09-27) — reviewed together: real diffs read in full, trial-merged as a group in an isolated worktree with no file overlap and no conflicts, full combined suite run clean (3034 passed, 47 skipped, 0 failed), then each PR opened and squash-merged individually once its own CI came back green. Step 50 flagged (not fixed, out of scope) a pre-existing dead-code pair in `build_llm_instructions()` (`novel_reference` param unused, `meta_block` return redundant). Before that: **Step 24** (PR #136, translation memory + side-by-side engine comparison + library quick-filter tags — independently reviewed, full suite 2999 passed/47 skipped/0 failed) and **Step 27** (PR #121, confirmed already merged). Full history of earlier merges (Steps 1–20, 33–35, 49, plus the `fix-torch-reimport-crash-in-tests`/`claude/verify-sources-k7eyoz`/`sources-preflight` branches) is in each step's own section — not repeated here to avoid this note growing without bound.
 >
-> **Steps 45–48, 50–59 all just dispatched to real, separate implementing sessions on `baihe-subtitler` (2026-09-27)** — see each step's own §4 row for its session ID. Steps 50/54/55 were sent to **one** session, sequentially, since all three touch `translate_engines.py`. **Step 60 not sent yet** — it's an explicit extension of Step 42, which hasn't been built (Steps 36–44 remain the later, gated phase per the note above Step 36; not next-in-line despite the numbering). A real mistake was caught and corrected before this dispatch: an earlier attempt used the `Agent` tool (which spawns subagents inside this docs-only planning repo checkout) instead of `create_session` (real implementing sessions on `baihe-subtitler`) — all 12 wrongly-spawned subagents were stopped via `TaskStop` before any of them wrote anything, confirmed via `git status`/`git worktree list`/`git branch` showing no stray changes, worktrees, or branches from that attempt.
+> **Steps 45, 47, 51, 54–56, 58, 59 dispatched to real, separate implementing sessions on `baihe-subtitler` (2026-09-27), still in flight — no report yet.** Steps 50/54/55 were sent to **one** session, sequentially, since all three touch `translate_engines.py`; Step 50 has since landed (above), so that session should now be clear to continue with 54, then 55. **Step 60 not sent yet** — it's an explicit extension of Step 42, which hasn't been built (Steps 36–44 remain the later, gated phase per the note above Step 36; not next-in-line despite the numbering). A real mistake was caught and corrected before the original dispatch round: an earlier attempt used the `Agent` tool (which spawns subagents inside this docs-only planning repo checkout) instead of `create_session` (real implementing sessions on `baihe-subtitler`) — all 12 wrongly-spawned subagents were stopped via `TaskStop` before any of them wrote anything, confirmed via `git status`/`git worktree list`/`git branch` showing no stray changes, worktrees, or branches from that attempt.
 >
 > **Two documentation-drift fixes this round, both at the user's direct request:**
 > - `FILE_ORGANIZATION.md` confirmed badly stale (7 tabs listed vs. 10 real, 6 top-level files vs. 58 real) — a matching `CLAUDE.md` rule (mirroring the existing `OPTIONAL_DEPENDENCIES` one) is already live on both the staging copy and the real `baihe-subtitler` branch so this stops recurring; the one-time rewrite itself is Step 56, now sent.
@@ -3062,6 +3062,8 @@ If diarization results aren't persisting to the `speaker` field on this drama's 
 - Manual check, on a real running app: toggle Dark mode on, visit every top-level tab (Library, Workspace, Read & Watch, Scanlate, Sources, Discover, Translate, Live, Diagnostics) and confirm every visible card/container/table actually switches to the dark background — no light-background surfaces left over. Screenshot before/after per this repo's structural-UI-redesign convention isn't required here (this is a CSS fix, not a layout rebuild), but a screenshot of the fixed Reader tab specifically is worth including since that's the one directly reported.
 - Manual check: in Standalone Translate with Dark mode on, run a real translation and confirm the "Source text (read-only)" box's text is clearly readable (light text on the dark background), then check every other disabled/readonly text widget found in item 4 the same way.
 
+**Built, reviewed, and merged (2026-09-27, PR #140).** Independent review: diff read in full, trial-merged alongside 5 other ready branches with no conflicts, full suite run clean (3034 passed, 47 skipped, 0 failed), CI green.
+
 ---
 
 ### Step 47 — Diagnostics' "Model & engine versions" panel: no install action, no explanation of what each model is for
@@ -3115,6 +3117,8 @@ if "no video formats found" not in str(exc).lower():
 - A test confirms a genuinely non-retryable error (e.g. a mocked "Private video" message) still fails immediately without wasting time on the retry loop.
 - Manual check: reproduce against a real YouTube stream if one that triggers this specific error is available; otherwise confirm via the mocked test above and note in the finish-up summary that a live repro wasn't available.
 
+**Built, reviewed, and merged (2026-09-27, PR #141).** Independent review: diff read in full, trial-merged alongside 5 other ready branches with no conflicts, full suite run clean (3034 passed, 47 skipped, 0 failed), CI green.
+
 ---
 
 ### Step 49 — Fix: `test_background_jobs.py`'s notification test has a real, confirmed-genuine race window
@@ -3155,6 +3159,8 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
 - A test confirms the retrieved passages are actually relevant to the batch's source lines (e.g. contain a shared character name/term), not an arbitrary slice.
 - Manual check: translate a batch from partway through a long novel-narration project and confirm the retrieved reference passages plausibly relate to that batch's content, not the novel's opening chapter every time.
 
+**Built, reviewed, and merged (2026-09-27, PR #142).** Independent review: diff read in full, trial-merged alongside 5 other ready branches with no conflicts, full suite run clean (3034 passed, 47 skipped, 0 failed), CI green. Flagged, not fixed (pre-existing, outside scope): `build_llm_instructions()`'s `novel_reference` parameter is unused, and its `meta_block` return value is redundant with what's already folded into `instructions`.
+
 ---
 
 ### Step 51 — URGENT: test isolation is unsafe — `db.py` initializes the real library database at import time, before `isolated_db` redirects it
@@ -3186,6 +3192,8 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
 - A test confirms a ZIP crafted to expand far beyond a reasonable size limit is rejected before extraction, with a clear message, not partway through with a full disk.
 - Manual check: attempt to restore a real, valid backup and confirm it still works normally with the new limits in place (the limits shouldn't be so tight they reject legitimate backups).
 
+**Built, reviewed, and merged (2026-09-27, PR #143).** Independent review: diff read in full, trial-merged alongside 5 other ready branches with no conflicts, full suite run clean (3034 passed, 47 skipped, 0 failed), CI green.
+
 ---
 
 ### Step 53 — Fix: `start.bat`'s dependency check only verifies `streamlit` imports, not the full dependency set
@@ -3197,6 +3205,8 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
 
 **Exit:**
 - Manual check: on a venv with `streamlit` importable but a different required package deliberately removed, run `start.bat` and confirm it does NOT skip the install step — the missing package gets installed rather than the launcher proceeding straight to a later, less clear failure.
+
+**Built, reviewed, and merged (2026-09-27, PR #144).** Independent review: diff read in full, trial-merged alongside 5 other ready branches with no conflicts, full suite run clean (3034 passed, 47 skipped, 0 failed), CI green.
 
 ---
 
@@ -3263,6 +3273,8 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
 - A test confirms a 🔴-tier action attempted without its separate confirmation is refused, distinctly from a 🟡-tier action (which only needs the isolated-branch-then-diff flow, not a second confirmation).
 - A test confirms a change touching the maintenance-agent's own permission/tool-list code is classified 🔴 even though its diff shape looks like an ordinary code edit.
 - Manual check: once Step 42 is built and references this classification, confirm the maintenance assistant genuinely cannot perform a 🔴-tier action (e.g. deleting a drama) without the user seeing a distinct, explicit prompt for it — not the same click that approved a 🟡-tier code proposal.
+
+**Built, reviewed, and merged (2026-09-27, PR #145).** Independent review: diff read in full, trial-merged alongside 5 other ready branches with no conflicts, full suite run clean (3034 passed, 47 skipped, 0 failed), CI green. Pure infrastructure landed with no caller yet — the third exit condition (manual check against Step 42) stays pending until Step 42 is built, tracked in §2's manual-check backlog.
 
 ---
 
