@@ -57,7 +57,7 @@ def _series_picker(picked_id, drama, key_prefix):
         if new_series_name and st.button("Create & assign series", key=f"{key_prefix}_create_series_btn_{_key_suffix}"):
             sid = db.get_or_create_series(new_series_name)
             db.update_drama(picked_id, series_id=sid)
-            st.success(f"Assigned to series '{new_series_name}'.")
+            st.toast(f"Assigned to series '{new_series_name}'.", icon="✅")
             st.rerun()
         return None
     if series_pick == "-- none --":
@@ -248,22 +248,57 @@ def _subtitle_style_fragment(picked_id, lines, speaker_names, notes_alignment, w
          "speaker_names": speaker_names, "wrap_chars": wrap_chars})
 
 
+def _page_for_line(line_idx, all_lines, page_size):
+    """Which 1-based Review & edit page holds `line_idx`, against the
+    full, unfiltered line list -- a line flagged as too-long-for-slot
+    isn't necessarily also flagged for review, so a caller filtering by
+    "Show flagged lines only" first would land on the wrong page (or an
+    empty one)."""
+    position = next((i for i, ln in enumerate(all_lines) if ln.idx == line_idx), 0)
+    return (position // page_size) + 1
+
+
+def _jump_to_review_page(picked_id, line_idx, all_lines):
+    """Points Review & edit's page number at whichever page contains
+    `line_idx`. Turns off both "show only" filters so _page_for_line's
+    unfiltered-list math lines up with what's actually shown. Shared by
+    the jump button below, Step 20's next/previous-flagged navigation,
+    and its transcript search -- one page-jump calculation, not three."""
+    st.session_state[f"flagged_only_{picked_id}"] = False
+    st.session_state[f"untranslated_only_{picked_id}"] = False
+    page_size = st.session_state.get("review_page_size", 40)
+    st.session_state["review_page"] = _page_for_line(line_idx, all_lines, page_size)
+
+
 def _jump_to_line_button(picked_id, line_idx, all_lines, key):
     """A button that lands on the right page of the Review & edit table
     for a specific line, instead of leaving a flagged-line list (pacing
     check, translation notes) as plain text with no way to act on it.
-    Turns off both "show only" filters so the page number lines up
-    against the full, unfiltered line list -- a line flagged as
-    too-long-for-slot isn't necessarily also flagged for review, so
-    leaving "Show flagged lines only" on could land on an empty page.
     """
     if st.button(f"↳ Jump to line {line_idx + 1} in Review & edit", key=key):
-        st.session_state[f"flagged_only_{picked_id}"] = False
-        st.session_state[f"untranslated_only_{picked_id}"] = False
-        page_size = st.session_state.get("review_page_size", 40)
-        position = next((i for i, ln in enumerate(all_lines) if ln.idx == line_idx), 0)
-        st.session_state["review_page"] = (position // page_size) + 1
+        _jump_to_review_page(picked_id, line_idx, all_lines)
         st.rerun()
+
+
+def _adjacent_flagged_idx(all_lines, ref_idx, forward):
+    """The nearest flagged line's idx strictly after (forward=True) or
+    before (forward=False) ref_idx, or None if there isn't one. Step 20's
+    next/previous-flagged navigation -- there was previously no way to
+    step through flagged lines one at a time, only the "Show flagged
+    lines only" filter."""
+    if forward:
+        return next((ln.idx for ln in all_lines if ln.flag and ln.idx > ref_idx), None)
+    return next((ln.idx for ln in reversed(all_lines) if ln.flag and ln.idx < ref_idx), None)
+
+
+def _search_transcript(all_lines, term):
+    """Lines whose source or translated text contains `term`
+    (case-insensitive), in line order. Step 20's transcript search --
+    today, jumping to a line only works from a flagged-item list."""
+    term = term.strip().lower()
+    if not term:
+        return []
+    return [ln for ln in all_lines if term in (ln.zh or "").lower() or term in (ln.en or "").lower()]
 
 
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
@@ -1303,7 +1338,9 @@ def _render_review_player(picked_id, ddir, media, lines):
     pc1.button("🔁 Play current segment", key=f"rv_play_segment_{picked_id}",
                disabled=selected is None, on_click=_seek_to_line,
                args=(picked_id, state["line_idx"]), kwargs={"segment_only": True},
-               help="Plays just the selected line, from its start to its end, then stops.")
+               shortcut="Alt+Space",
+               help="Plays just the selected line, from its start to its end, then stops. "
+                    "Shortcut: Alt+Space.")
     if selected is not None:
         pc2.caption(f"Selected: line #{selected.idx + 1} "
                     f"({selected.start:.2f}s – {selected.end:.2f}s)")
@@ -1420,7 +1457,7 @@ def _apply_diarization_job_result(picked_id, ddir, expected_speakers, job, pendi
             st.session_state[pending_key] = len(conflicts)
         else:
             res = _apply_speaker_turns(picked_id, turns, overwrite_manual=False)
-            st.success(f"Speakers re-detected ({model}): {res['changed']} line(s) relabelled.")
+            st.toast(f"Speakers re-detected ({model}): {res['changed']} line(s) relabelled.", icon="✅")
     background_jobs.clear_job(f"diarize_{picked_id}")
 
 
@@ -1491,8 +1528,8 @@ def _render_speaker_rerun(picked_id, ddir, audio_path, hf_token, expected_speake
         if keep or overwrite:
             res = _apply_speaker_turns(picked_id, diarize.load_turns(ddir), overwrite_manual=overwrite)
             st.session_state.pop(pending_key, None)
-            st.success(f"Speakers re-detected: {res['changed']} line(s) relabelled"
-                       + (f", {res['kept_manual']} hand-corrected line(s) kept." if keep else "."))
+            st.toast(f"Speakers re-detected: {res['changed']} line(s) relabelled"
+                     + (f", {res['kept_manual']} hand-corrected line(s) kept." if keep else "."), icon="✅")
 
 
 def _compute_workspace_stage_index(drama, lines, ddir):
@@ -1619,7 +1656,7 @@ def render_workspace_tab():
                     found_m, status_m = metadata_lookup.lookup_metadata_from_text(pasted_page, engine_m)
                     if found_m:
                         st.session_state["autofill_metadata"] = found_m
-                        st.success(f"Found: {', '.join(found_m.keys())}.")
+                        st.toast(f"Found: {', '.join(found_m.keys())}.", icon="✅")
                         st.rerun()
                     else:
                         st.warning(status_m["message"])
@@ -1760,7 +1797,7 @@ def render_workspace_tab():
                         studio_romanized=_rom.get("studio"),
                         director_romanized=_rom.get("director"),
                         voice_actors_romanized=_rom.get("voice_actors"))
-                    st.success("Credits romanized — originals kept alongside.")
+                    st.toast("Credits romanized — originals kept alongside.", icon="✅")
                     st.rerun()
                 else:
                     st.warning("Couldn't romanize those credits.")
@@ -1790,7 +1827,7 @@ def render_workspace_tab():
                              chapter_count=int(chapter_count) if chapter_count else None,
                              custom_tags=custom_tags, personal_notes=personal_notes,
                              source_url=source_url)
-            st.success("Saved.")
+            st.toast("Saved.", icon="✅")
             st.rerun()
         # Step 25z added the checkbox-plus-type-DELETE confirmation below.
         # Step 25d item 8 additionally blocks the button while a
@@ -1930,7 +1967,7 @@ def render_workspace_tab():
                                 raw_novel_file.getvalue(), raw_novel_file.name)
                             with open(_raw_novel_path, "w", encoding="utf-8") as f:
                                 f.write(_raw_text)
-                            st.success(f"Loaded {len(_raw_text):,} characters.")
+                            st.toast(f"Loaded {len(_raw_text):,} characters.", icon="✅")
                             _has_raw_novel = True
                         except ImportError as e:
                             st.error(str(e))
@@ -2173,7 +2210,7 @@ def render_workspace_tab():
                                     epub_path, chapter_range=(ch_start - 1, ch_end),
                                     images_dir=os.path.join(ddir, "epub_images"))
                             st.session_state[f"ocr_text_{picked_id}"] = extracted
-                            st.success(f"Imported {len(extracted):,} characters from chapters {ch_start}-{ch_end}.")
+                            st.toast(f"Imported {len(extracted):,} characters from chapters {ch_start}-{ch_end}.", icon="✅")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Couldn't read that EPUB: {e}")
@@ -2305,7 +2342,7 @@ def render_workspace_tab():
                                 policy=row.get("policy"))
                             n_added += 1
                         st.session_state[f"novel_glossary_{picked_id}"] = []
-                        st.success(f"Added {n_added} term(s) to the glossary.")
+                        st.toast(f"Added {n_added} term(s) to the glossary.", icon="✅")
                         st.rerun()
 
                 st.divider()
@@ -2323,7 +2360,7 @@ def render_workspace_tab():
                                 _gl_series, t["term_original"], t["term_translation"],
                                 notes=t["notes"], category=t["category"],
                                 policy=t["policy"], enforce_exact=t["enforce_exact"])
-                        st.success(f"Imported {len(imported)} term(s).")
+                        st.toast(f"Imported {len(imported)} term(s).", icon="✅")
                         st.rerun()
                     else:
                         st.error("Nothing could be imported from that file.")
@@ -2842,7 +2879,7 @@ def render_workspace_tab():
                                 policy=row.get("policy"))
                             added += 1
                         st.session_state[f"proposed_terms_{picked_id}"] = []
-                        st.success(f"Added {added} term(s).")
+                        st.toast(f"Added {added} term(s).", icon="✅")
                         st.rerun()
 
                 st.markdown("**Current glossary**")
@@ -2905,7 +2942,7 @@ def render_workspace_tab():
                                         t["id"], e_orig, e_trans, e_notes, e_cat, e_pol, e_enforce,
                                         e_aliases, e_banned)
                                     st.session_state[_editing_key] = False
-                                    st.success("Saved.")
+                                    st.toast("Saved.", icon="✅")
                                     st.rerun()
                                 if esc2.button("Cancel", key=f"eglo_cancel_{t['id']}"):
                                     st.session_state[_editing_key] = False
@@ -2924,7 +2961,7 @@ def render_workspace_tab():
                         for t in terms:
                             if t["term_original"] in _bulk_gl_pick:
                                 db.delete_glossary_term(t["id"])
-                        st.success(f"Deleted {len(_bulk_gl_pick)} term(s).")
+                        st.toast(f"Deleted {len(_bulk_gl_pick)} term(s).", icon="✅")
                         st.rerun()
 
                 with st.form(f"add_glossary_{sid}", clear_on_submit=True):
@@ -2953,7 +2990,7 @@ def render_workspace_tab():
                     if st.form_submit_button("Add term") and g_orig and g_trans:
                         db.upsert_glossary_term(sid, g_orig, g_trans, g_notes, g_cat, g_pol, g_enforce,
                                                 g_aliases, g_banned)
-                        st.success("Added.")
+                        st.toast("Added.", icon="✅")
                         st.rerun()
 
                 st.markdown("**👥 People & pronouns**")
@@ -3020,7 +3057,7 @@ def render_workspace_tab():
                                 db.upsert_series_character(
                                     sid, sc["character_name"], aliases=sc["aliases"] or "",
                                     notes=sc["notes"] or "", gender=_bulk_sc_pronouns)
-                        st.success(f"Updated {len(_bulk_sc_pick)} person/people.")
+                        st.toast(f"Updated {len(_bulk_sc_pick)} person/people.", icon="✅")
                         st.rerun()
 
                 with st.form(f"add_series_char_{sid}", clear_on_submit=True):
@@ -3029,7 +3066,7 @@ def render_workspace_tab():
                         "Pronouns", "", key=f"add_sc_pronouns_{sid}", in_form=True)
                     if st.form_submit_button("Add") and new_char_name:
                         db.upsert_series_character(sid, new_char_name, gender=new_char_pronouns)
-                        st.success(f"Added '{new_char_name}'.")
+                        st.toast(f"Added '{new_char_name}'.", icon="✅")
                         st.rerun()
 
 
@@ -3145,7 +3182,7 @@ def render_workspace_tab():
                 default_female_pronouns=st.session_state.get(
                     f"default_female_pronouns_{picked_id}", False),
                 include_genre_notes=include_genre_notes)
-            st.success(f"Saved preset \"{_new_preset_name.strip()}\".")
+            st.toast(f"Saved preset \"{_new_preset_name.strip()}\".", icon="✅")
         context_window = st.slider(
             "Context lines shown from before each batch", 0, 20, 6,
             help="Shows the model how the immediately preceding lines were already "
@@ -3460,7 +3497,7 @@ def render_workspace_tab():
                     picked_id, _existing_lines_before, "before chunk & tag speakers")
             db.save_lines(picked_id, lines)
             db.update_drama(picked_id, status="aligned")
-            st.success(f"Prepared {len(lines)} narration chunks.")
+            st.toast(f"Prepared {len(lines)} narration chunks.", icon="✅")
 
         # Not gated on run_prep -- this has to keep checking on every rerun
         # while the job above is still going, not just the one where the
@@ -3663,7 +3700,7 @@ def render_workspace_tab():
                             mode=_result_tmode if _result_tmode in ("hardsub_ocr", "whisper")
                             else "aligned_transcript")
                         db.update_drama(picked_id, status="aligned")
-                        st.success(f"Aligned {len(lines)} lines.")
+                        st.toast(f"Aligned {len(lines)} lines.", icon="✅")
                         if _start_diarization_after_align:
                             import diarize
                             background_jobs.start_process_job(
@@ -3848,7 +3885,7 @@ def render_workspace_tab():
                               f"{failed_line_nums} are still untranslated, but everything else was "
                               f"saved. Click Translate again to retry just the missing lines.")
                 else:
-                    st.success("Translation complete.")
+                    st.toast("Translation complete.", icon="✅")
                 background_jobs.clear_job(_translate_job_id)
             elif _job["status"] == "error":
                 ui_status.render_failure_card(_job, reason=f"Translation failed: {_job['error']}",
@@ -3900,7 +3937,7 @@ def render_workspace_tab():
                                 _ref_text_match_failed.add(label)
                         st.session_state[f"clip_skip_reasons_{picked_id}"] = skipped
                         st.session_state[f"ref_text_match_failed_{picked_id}"] = _ref_text_match_failed
-                        st.success(f"Extracted {len(clips)} reference clip(s).")
+                        st.toast(f"Extracted {len(clips)} reference clip(s).", icon="✅")
                         st.rerun()
 
                 _series_chars = db.list_series_characters(drama["series_id"]) if drama.get("series_id") else []
@@ -3934,7 +3971,7 @@ def render_workspace_tab():
                                     db.update_series_character_voice_fingerprint(
                                         sug["series_character_id"],
                                         _voice_embeddings[sug["speaker_label"]])
-                                    st.success(f"{sug['speaker_label']} set to {sug['character_name']}.")
+                                    st.toast(f"{sug['speaker_label']} set to {sug['character_name']}.", icon="✅")
                                     st.rerun()
                                 if vc3.button("❌ Reject", key=f"voicereject_{picked_id}_{sug['speaker_label']}_"
                                                               f"{sug['series_character_id']}"):
@@ -4210,11 +4247,30 @@ def render_workspace_tab():
                     st.session_state[f"lines_fr_matches_{picked_id}"] = []
                     _clear_line_widget_state()
                     if _fr_applied:
-                        st.success(f"Applied {_fr_applied} change(s).")
+                        st.toast(f"Applied {_fr_applied} change(s).", icon="✅")
                     if _fr_stale:
                         st.warning(f"Skipped {_fr_stale} change(s) -- the matched line's text "
                                    "changed since Preview. Re-preview to see the current matches.")
                     st.rerun()
+
+            with st.expander("🔍 Search transcript"):
+                st.caption(
+                    "Finds a word or phrase in either the source or translated text of any "
+                    "line, and jumps straight to it -- instead of paging through the table "
+                    "below by hand.")
+                _search_term = st.text_input("Find a word or phrase", key=f"rv_search_{picked_id}")
+                _search_matches = _search_transcript(all_lines, _search_term)
+                if _search_term.strip():
+                    if not _search_matches:
+                        st.caption("No matches.")
+                    else:
+                        st.caption(f"{len(_search_matches)} match(es):")
+                        for _sm in _search_matches[:50]:
+                            smc1, smc2 = st.columns([4, 1])
+                            smc1.caption(f"Line #{_sm.idx + 1}: {_sm.en.strip() or _sm.zh.strip()}")
+                            with smc2:
+                                _jump_to_line_button(picked_id, _sm.idx, all_lines,
+                                                      key=f"jump_search_{_sm.idx}")
 
             _n_flagged_total = sum(1 for ln in all_lines if ln.flag)
             _n_untranslated_total = sum(1 for ln in all_lines if ln.zh.strip() and not ln.en.strip())
@@ -4242,6 +4298,21 @@ def render_workspace_tab():
                                            max_value=n_review_pages, step=1, key="review_page")
             page_start = (review_page - 1) * review_page_size
             page_slice = visible_lines[page_start: page_start + review_page_size]
+
+            _ref_idx = page_slice[0].idx if page_slice else (all_lines[0].idx if all_lines else 0)
+            _prev_flagged_idx = _adjacent_flagged_idx(all_lines, _ref_idx, forward=False)
+            _next_flagged_idx = _adjacent_flagged_idx(all_lines, _ref_idx, forward=True)
+            nvc1, nvc2, _nvc3 = st.columns([1, 1, 2])
+            if nvc1.button("⏮ Previous flagged", key=f"rv_prev_flagged_{picked_id}",
+                           disabled=_prev_flagged_idx is None, shortcut="Alt+Up",
+                           help="Jump to the nearest flagged line before this page."):
+                _jump_to_review_page(picked_id, _prev_flagged_idx, all_lines)
+                st.rerun()
+            if nvc2.button("⏭ Next flagged", key=f"rv_next_flagged_{picked_id}",
+                           disabled=_next_flagged_idx is None, shortcut="Alt+Down",
+                           help="Jump to the nearest flagged line after this page."):
+                _jump_to_review_page(picked_id, _next_flagged_idx, all_lines)
+                st.rerun()
 
             edited_page_rows = []
             _raw = raw_transcript.load_latest(ddir)
@@ -4458,7 +4529,8 @@ def render_workspace_tab():
             sv1, sv2 = st.columns([1, 3])
             _save_status = sv2.empty()
             _save_error = None
-            if sv1.button("💾 Save edits (this page)"):
+            if sv1.button("💾 Save edits (this page)", shortcut="Ctrl+S",
+                          help="Shortcut: Ctrl+S (Cmd+S on Mac)."):
                 _save_status.caption("⏳ Saving...")
                 try:
                     # Capture what you actually changed, so the style profile can learn
@@ -4527,7 +4599,7 @@ def render_workspace_tab():
                             st.session_state[f"pacing_flags_{picked_id}"] = flags
                             st.warning(f"{len(flags)} line(s) flagged.")
                         else:
-                            st.success("No pacing issues detected.")
+                            st.toast("No pacing issues detected.", icon="✅")
                     flags = st.session_state.get(f"pacing_flags_{picked_id}", [])
                     if flags:
                         for f in flags:
@@ -4615,7 +4687,7 @@ def render_workspace_tab():
                             if _count:
                                 st.warning(f"{_count} consistency issue(s) found.")
                             else:
-                                st.success("No consistency issues detected.")
+                                st.toast("No consistency issues detected.", icon="✅")
                             background_jobs.clear_job(_consistency_job_id)
                         elif _cjob["status"] == "error":
                             ui_status.render_failure_card(
@@ -4686,7 +4758,7 @@ def render_workspace_tab():
                             st.warning(f"{_count} line(s) flagged -- see the review table below, or "
                                       "turn on \"Show flagged lines only\" to jump straight to them.")
                         else:
-                            st.success("Nothing flagged.")
+                            st.toast("Nothing flagged.", icon="✅")
                         background_jobs.clear_job(_flag_job_id)
                     elif _fjob["status"] == "error":
                         ui_status.render_failure_card(_fjob, reason=f"Flagging failed: {_fjob['error']}",
@@ -4715,7 +4787,7 @@ def render_workspace_tab():
                                    "Find them in the review table below, or turn on \"Show "
                                    "flagged lines only\" to jump straight to them.")
                     else:
-                        st.success(f"Auto QC checked {_qc['checked']} line(s) and found nothing.")
+                        st.toast(f"Auto QC checked {_qc['checked']} line(s) and found nothing.", icon="✅")
                     if _qc["cleared"]:
                         st.caption(f"Cleared {_qc['cleared']} earlier Auto QC flag(s) that no "
                                    "longer apply.")
@@ -4796,8 +4868,8 @@ def render_workspace_tab():
                             edited_rows = st.session_state.lines
                             _ff_result = _ffjob.get("result") or {}
                             _ff_errors = _ff_result.get("errors") or []
-                            st.success(f"Fixed {_ff_result.get('fixed_count', 0)} of "
-                                      f"{_ff_result.get('total_flagged', 0)} flagged line(s).")
+                            st.toast(f"Fixed {_ff_result.get('fixed_count', 0)} of "
+                                     f"{_ff_result.get('total_flagged', 0)} flagged line(s).", icon="✅")
                             _ff_cap_spent = _ff_result.get("cap_reached")
                             if _ff_cap_spent is not None:
                                 st.warning(f"Stopped at your spending cap after about "
@@ -5000,7 +5072,7 @@ def render_workspace_tab():
                                     translate_engines.estimate_cost_for_engine(eng_a, inp, out)))
                         if result.get("preferences"):
                             db.save_style_profile(scope, result, sample_count=len(all_samples))
-                            st.success(f"Learned {len(result['preferences'])} preference(s).")
+                            st.toast(f"Learned {len(result['preferences'])} preference(s).", icon="✅")
                             st.rerun()
                         else:
                             st.info(result.get("summary", "No clear patterns found yet."))
@@ -5135,7 +5207,7 @@ def render_workspace_tab():
                         elif _njob["status"] == "done":
                             _count = (_njob.get("result") or {}).get("note_count", 0)
                             if _count:
-                                st.success(f"Found {_count} note(s).")
+                                st.toast(f"Found {_count} note(s).", icon="✅")
                             else:
                                 st.info("Nothing flagged as needing a note.")
                             background_jobs.clear_job(_notes_job_id)
@@ -5177,7 +5249,7 @@ def render_workspace_tab():
                                 db.save_translation_notes(picked_id, [{
                                     "line_idx": an_line - 1, "term": an_term,
                                     "note_type": an_type, "note": an_text}])
-                                st.success("Added.")
+                                st.toast("Added.", icon="✅")
                                 st.rerun()
 
             with st.popover("✂️ Restructure lines", width="stretch"):
@@ -5420,7 +5492,7 @@ def render_workspace_tab():
                             if snapshot is None:
                                 st.error("That snapshot could not be read.")
                             elif _restore_saved_lines(picked_id, snapshot, "before restore"):
-                                st.success(f"Restored '{h['label']}'.")
+                                st.toast(f"Restored '{h['label']}'.", icon="✅")
                                 st.rerun()
 
         else:
@@ -5824,7 +5896,7 @@ def render_workspace_tab():
                                     if out_ext.lower() not in (".mp4", ".mkv"):
                                         out_path = os.path.splitext(out_path)[0] + ".mp4"
                                     video_export.mux_soft_subtitles(source_video_path, sub_text_map[sub_language], out_path)
-                            st.success("Subtitled episode ready.")
+                            st.toast("Subtitled episode ready.", icon="✅")
                             _dl_name = f"{_base_name}_subtitled{os.path.splitext(out_path)[1]}"
                             with open(out_path, "rb") as f:
                                 st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
@@ -5845,7 +5917,7 @@ def render_workspace_tab():
                                         source_video_path, dub_track_path, out_path,
                                         keep_original_at_db=-20.0 if keep_orig else None,
                                     )
-                                st.success("Dubbed episode ready.")
+                                st.toast("Dubbed episode ready.", icon="✅")
                                 _dl_name = f"{_base_name}_dubbed{os.path.splitext(out_path)[1]}"
                                 with open(out_path, "rb") as f:
                                     st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
@@ -5904,7 +5976,7 @@ def render_workspace_tab():
                                             source_video_path, _clip_ass, out_path,
                                             start=_clip_start, end=_clip_end,
                                             crop_position=_crop_position)
-                                    st.success("Vertical clip ready.")
+                                    st.toast("Vertical clip ready.", icon="✅")
                                     _dl_name = f"{_base_name}_vertical{os.path.splitext(out_path)[1]}"
                                     with open(out_path, "rb") as f:
                                         st.download_button(f"Download {_dl_name}", f.read(), file_name=_dl_name)
@@ -5931,7 +6003,7 @@ def render_workspace_tab():
                         with st.spinner("Building package..."):
                             _, manifest = export_package.build_drama_export_package(
                                 db, picked_id, pkg_path, lines_to_srt, lines_to_bilingual_srt, Line)
-                        st.success(f"Package built with {len(manifest)} item(s).")
+                        st.toast(f"Package built with {len(manifest)} item(s).", icon="✅")
                         for m in manifest:
                             st.caption(f"• {m}")
                         with open(pkg_path, "rb") as f:
@@ -5943,7 +6015,7 @@ def render_workspace_tab():
 
             if st.button("Mark as exported"):
                 db.update_drama(picked_id, status="exported")
-                st.success("Marked exported.")
+                st.toast("Marked exported.", icon="✅")
         else:
             st.info("Run **Transcribe & Align** above to get started on this drama.")
 
