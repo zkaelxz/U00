@@ -114,6 +114,7 @@ specifically, found by tracing the real DOM (a bare `a > img` matches the
 site's own header logo first -- confirmed directly, not guessed).
 """
 
+import random
 import re
 import secrets
 from urllib.parse import urljoin
@@ -144,8 +145,18 @@ _VIEWER_PAGE_IMAGES_JS = """
 }
 """
 
-# How long to let the viewer decode and draw a page before reading it.
-_VIEWER_PAGE_SETTLE_MS = 900
+# How long to let the viewer decode and draw a page before reading it,
+# picked fresh per page. A real reader doesn't turn pages on a metronome,
+# and a fixed sub-second beat across dozens of turns is the most
+# automated-looking thing this adapter does -- a live pass driving the
+# viewer that way got throttled partway through (its scripts stopped
+# coming back at all), which is also slower in the end than reading at a
+# human pace would have been.
+_VIEWER_PAGE_SETTLE_MS = (1500, 4000)
+
+
+def _page_settle_ms() -> int:
+    return random.randint(*_VIEWER_PAGE_SETTLE_MS)
 
 
 class LayoutChanged(SourceError):
@@ -554,7 +565,7 @@ class MangazSource(SourceAdapter):
                         # A page the viewer declines to move to isn't
                         # fatal -- whatever it did produce is still kept.
                         pass
-                    page.wait_for_timeout(_VIEWER_PAGE_SETTLE_MS)
+                    page.wait_for_timeout(_page_settle_ms())
                     for no, blob_url in (page.evaluate(_VIEWER_PAGE_IMAGES_JS) or {}).items():
                         seen.setdefault(str(no), blob_url)
                 blobs = page_fetch.kept_blob_bytes(page)
