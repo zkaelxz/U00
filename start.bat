@@ -74,11 +74,13 @@ if not exist %PY% (
 )
 
 REM --- Dependencies --------------------------------------------------------
-REM Only actually installs anything the first time, or after
-REM requirements-core.txt changes -- importing streamlit is a cheap way
-REM to tell "already installed" from "needs installing" without shelling
-REM out to pip just to ask.
-%PY% -c "import streamlit" >nul 2>nul
+REM Checks every package requirements-core.txt actually installs, not
+REM just streamlit -- a stale or partially-installed venv where
+REM streamlit still imports fine but something else is missing used to
+REM make this skip the install step entirely and fail later with a much
+REM less clear error (Step 53). Keep this import list in sync with
+REM requirements-core.txt's own packages.
+%PY% -c "import streamlit, pandas, requests, bs4, anthropic" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies -- this can take a few minutes the first time...
     if exist constraints.lock.txt (

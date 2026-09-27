@@ -1,5 +1,8 @@
 # Minimum to launch the app and do text translation + subtitle export.
 # Install:  pip install -r requirements-core.txt
+# If you add a package here, also add its import to start.bat's
+# dependency check (Step 53) -- that's what decides whether the
+# launcher skips reinstalling.
 streamlit>=1.49          # width='stretch' replaced use_container_width
 pandas>=2.0
 requests>=2.31
