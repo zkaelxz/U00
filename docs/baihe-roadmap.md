@@ -321,11 +321,12 @@ Rules for every milestone:
 | 33 | On a fresh Windows checkout, run `requirements-install.bat` from a folder other than `C:\Users\Airbear\Documents\baihe-subtitler` and confirm it installs and launches correctly instead of failing to find/creating files in the wrong place. |
 | 34 | Reserved slot, not yet scoped — see Step 34's own section. |
 | 35 | Run the ML backend on a real chapter and confirm the returned bubble count roughly matches the actual balloon count on the page (not close to double), with exactly one overlay box per balloon in the review table; separately, with the ML weights not yet downloaded (`backend="auto"` resolving to `cv`), open Scanlate on a real full-color manhua/webtoon page and confirm the UI states plainly that the free detector struggles on color art and offers the ML backend, rather than a bare "no bubbles detected." |
-| 36 | Change a capability's configured backend in Settings and confirm the next translation actually uses the new engine with no code change. |
+| 36 | Change a capability's configured backend in Settings and confirm the next translation actually uses the new engine with no code change; with a real valid key for one provider and a deliberately wrong key for another, confirm "Test" correctly reports pass/fail for each. |
 | 37 | Look up a real, obscure title/character name through Discover with grounding enabled and confirm the sourced answer is more accurate than the current non-grounded call, with sources shown. |
 | 38 | Run the benchmark against two different configured translation engines and confirm the comparison table shows a real, believable quality delta matching what manual reading of the outputs suggests. |
 | 39 | Point the app at a real (or test) Jellyfin server, run a scan, confirm the report matches the real library state, and confirm a translated file actually appears as a selectable subtitle track in Jellyfin's own player after refresh. |
 | 40 | Temporarily point a config at a deliberately-invalid/retired model string and confirm Diagnostics surfaces a specific, actionable message rather than a generic API error the next time that engine is used. |
+| 40b | Register a real new model as a candidate, run a scheduled re-evaluation manually, confirm the report shows a believable quality/cost/speed comparison against the current production model, and confirm nothing changes until the promotion is explicitly approved. |
 | 41 | Start transcribing a long file, kill the process partway through, restart, and confirm it resumes rather than reprocessing already-done segments. |
 | 42 | Ask the assistant to diagnose a real, reproduced bug and confirm its proposed fix (as a shown diff/patch, not an applied change) is actually correct when reviewed by hand. |
 | 43 | Soft-delete a drama, confirm it's recoverable from a "Deleted items" view before the retention window expires, and confirm it's actually gone after manually advancing past it. |
@@ -3710,6 +3711,8 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 - A test confirms `requirements-optional.txt`'s `qwen-asr` line specifies a version that a real `pip index versions` (or an equivalent resolvable check) confirms actually exists on PyPI — regression coverage against this exact class of bug recurring, similar in spirit to Step 75's own drift-prevention tests.
 - Manual check: `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and `asr_backend.py`'s Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional, whichever step 2/3 above concluded.
 
+**Built, reviewed, and merged (2026-09-27, PR #171).** Independently reviewed: real diff read in full, verified compatible not just installable (real throwaway-venv run against 0.0.6, real HF download, real CPU inference against both `asr_backend.py` and `forced_align.py` unchanged). The new test pins the confirmed-published-version fact as a constant rather than calling PyPI live, consistent with this project's own testing conventions. Trial-merged clean (combined with Step 77, no file overlap), full suite run on the merged tree — 3291 passed, 49 skipped, 0 failed. CI green before squash-merge.
+
 ---
 
 ### Step 77 — Fix: voice bank entry delete (Library) has the identical no-confirmation gap Step 71 just fixed everywhere else
@@ -3722,6 +3725,8 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 **Exit:**
 - A test confirms the voice-bank delete button is disabled until its confirm checkbox is checked, and still deletes for real once confirmed — same shape as Step 71's own new tests.
 - Manual check: attempt to delete a voice bank entry and confirm a single click no longer immediately deletes it.
+
+**Built, reviewed, and merged (2026-09-27, PR #172).** Independently reviewed: real diff read in full — the exact same `disabled=not <checkbox>` pattern Step 71 used everywhere else. Trial-merged clean (combined with Step 76, no file overlap), full suite run on the merged tree — 3291 passed, 49 skipped, 0 failed. CI green before squash-merge.
 
 ---
 
