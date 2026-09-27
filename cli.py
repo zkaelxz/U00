@@ -326,6 +326,17 @@ def cmd_translate(args):
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     engine = translate_engines.get_engine(
         args.engine, args.api_key, args.model, base_url=getattr(args, "ollama_url", None))
+    # Step 74: UI parity -- Workspace's own Translate button builds this
+    # same optional summary_engine before starting the job (defaulting to
+    # local Ollama); a missing/unreachable one just skips the summary
+    # rather than failing the translate command.
+    summary_engine_choice = getattr(args, "episode_summary_engine", None) or "ollama"
+    try:
+        summary_engine = translate_engines.get_engine(
+            summary_engine_choice, getattr(args, "episode_summary_api_key", None),
+            base_url=getattr(args, "ollama_url", None) if summary_engine_choice == "ollama" else None)
+    except Exception:
+        summary_engine = None
 
     def step(d):
         rows = db.load_lines(d["id"])
@@ -409,7 +420,8 @@ def cmd_translate(args):
         # left, so the retry suggested below (default --status aligned)
         # still finds this drama.
         bulk_translate.finish_translation_run(
-            d["id"], lines, engine, args.engine, style_preset, glossary_terms, batch_errors)
+            d["id"], lines, engine, args.engine, style_preset, glossary_terms, batch_errors,
+            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice)
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")
@@ -593,6 +605,16 @@ def main():
     p_translate.add_argument("--engine", default="claude", choices=list(translate_engines.ENGINES))
     p_translate.add_argument("--api-key", required=True)
     p_translate.add_argument("--model", default=None)
+    p_translate.add_argument("--episode-summary-engine", default="ollama",
+                             choices=list(translate_engines.ENGINES),
+                             help="Step 74: engine for the once-per-episode running-summary call "
+                                  "made after a drama finishes translating, fed forward as "
+                                  "continuity context into the next episode of the same series. "
+                                  "Defaults to local Ollama (a fixed once-per-episode cost); if "
+                                  "it's unreachable, or a cloud engine is picked with no key, the "
+                                  "summary is skipped rather than failing the translate run.")
+    p_translate.add_argument("--episode-summary-api-key", default=None,
+                             help="API key for --episode-summary-engine, if it isn't ollama.")
     p_translate.add_argument("--style-note", default=None)
     p_translate.add_argument("--style-preset", default=None,
                               choices=list(tguide.STYLE_PRESETS),
