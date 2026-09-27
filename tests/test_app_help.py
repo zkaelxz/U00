@@ -54,7 +54,7 @@ class TestBuildGroundingContext:
         whole point of generating this from real source instead of a
         hand-maintained doc."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "fixture_tab.py"), "w") as f:
+            with open(os.path.join(tmpdir, "fixture_tab.py"), "w", encoding="utf-8") as f:
                 f.write(FIXTURE_TAB_SOURCE)
             context = app_help.build_grounding_context(tabs_dir=tmpdir)
         assert "fixture_tab" in context
@@ -63,9 +63,9 @@ class TestBuildGroundingContext:
 
     def test_ignores_non_tab_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "fixture_tab.py"), "w") as f:
+            with open(os.path.join(tmpdir, "fixture_tab.py"), "w", encoding="utf-8") as f:
                 f.write(FIXTURE_TAB_SOURCE)
-            with open(os.path.join(tmpdir, "helpers.py"), "w") as f:
+            with open(os.path.join(tmpdir, "helpers.py"), "w", encoding="utf-8") as f:
                 f.write('st.subheader("Should not appear")\n')
             context = app_help.build_grounding_context(tabs_dir=tmpdir)
         assert "Should not appear" not in context
@@ -96,7 +96,7 @@ class _FakeClaudeLike:
 class TestAskAboutApp:
     def test_grounding_is_passed_into_the_system_prompt(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "fixture_tab.py"), "w") as f:
+            with open(os.path.join(tmpdir, "fixture_tab.py"), "w", encoding="utf-8") as f:
                 f.write(FIXTURE_TAB_SOURCE)
             engine = _FakeClaudeLike("Widget calibration is under Fixture > Advanced.")
             answer = app_help.ask_about_app("where is the widget setting?", engine,
@@ -119,7 +119,7 @@ class TestAskAboutApp:
         setting name -- so a model actually following that instruction has
         no grounding text to hallucinate an answer from."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with open(os.path.join(tmpdir, "fixture_tab.py"), "w") as f:
+            with open(os.path.join(tmpdir, "fixture_tab.py"), "w", encoding="utf-8") as f:
                 f.write(FIXTURE_TAB_SOURCE)
             engine = _FakeClaudeLike("I don't see a setting for that.")
             app_help.ask_about_app("where is the warp drive frobnicator?", engine,
