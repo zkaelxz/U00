@@ -3413,6 +3413,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 **Exit:**
 - Manual check: whichever way this is decided, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab (no stale name in one place and a new one in the other).
 
+**Decided (2026-09-27): keep "📖 Read & Watch" as-is — no rename, no code change.** Re-verified against real code before deciding: `app.py:90-91` confirms all 9 real tab labels; `reader_tab.py` confirms the tab genuinely does three distinct things (`st.video(..., subtitles=...)` for watching with captions, `st.audio()` for listening, plus the text reading/translation table) — a real three-mode tab, not an inflated justification for two. Considered "Reader" alone (undersells the audio/video piece) and "Reader & Player" (same "X & Y" shape, less specific words) — neither is actually clearer. Exit condition confirmed: `FILE_ORGANIZATION.md:59` describes the tab by function, not by literal label, so no stale-name mismatch exists; every "Read & Watch" reference in the repo (`app.py`, `tabs/library_tab.py`, `README.md`, `tests/test_reader_tab.py`) is either the label itself or a message pointing at the tab by name, none asserting on the string in a way a rename would've broken — moot now that there's no rename, but confirms the check was done properly. No branch/PR for this step — nothing to build.
+
 ---
 
 ### Step 66 — Widen dependency-upgrade safety checking beyond Step 47's one curated entry
