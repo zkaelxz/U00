@@ -267,6 +267,12 @@ class ManhuakuSource(SourceAdapter):
                                  "jsjiami-wrapped code or reimplements its AES decryption, even "
                                  "though the embedded key is real and findable (module docstring).",
             "browser_required_for_pages": True,
+            "blob_backed_pages": "protected chapters' real pages are `blob:` object URLs that "
+                                 "exist only inside the rendering tab, so the page bytes are "
+                                 "read out of that same tab (page_fetch keeps the objects alive "
+                                 "for the session). A chapter whose blobs can't be read out is "
+                                 "refused outright, never filled with the reader's decorative "
+                                 "images.",
             "protection_detected": "chapter-reader image data passed through a readPic(...) call "
                                    "wrapped in a commercial JS obfuscator (jsjiami.com.v7) and "
                                    "AES-encrypted with an embedded key -- corroborated by a public "

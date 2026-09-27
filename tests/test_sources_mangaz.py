@@ -211,12 +211,15 @@ class _FakeViewerPage:
     it has been moved to -- never revealing how a real page is
     descrambled, because the adapter never does that itself."""
 
-    def __init__(self, page_blobs, ready=True, slow_pages=()):
+    def __init__(self, page_blobs, ready=True, slow_pages=(), never_pages=()):
         self.page_blobs = page_blobs          # {page no: bytes}
         self.ready = ready
         # Pages that don't appear on their first visit, the way a real
         # viewer that hasn't finished drawing one yet behaves.
         self.slow_pages = set(slow_pages)
+        # Pages the viewer never manages to draw at all, however often
+        # it's asked -- a throttled real run genuinely ends up here.
+        self.never_pages = set(never_pages)
         self.moved_to = []
         self._displayed = {}
 
@@ -233,7 +236,8 @@ class _FakeViewerPage:
         if "movePage" in js:
             first_visit = arg not in self.moved_to
             self.moved_to.append(arg)
-            if arg in self.page_blobs and not (first_visit and arg in self.slow_pages):
+            if (arg in self.page_blobs and arg not in self.never_pages
+                    and not (first_visit and arg in self.slow_pages)):
                 self._displayed[str(arg)] = f"blob:https://viewer.invalid/{arg}"
             return None
         raise AssertionError(f"unexpected evaluate(): {js[:60]}")
@@ -312,6 +316,88 @@ class TestPagesFromTheViewerManifest:
         refs = a.get_pages(chapter)
         assert a.download_page(refs[1]) == (b"page-one-bytes", ".jpg")
         assert page.moved_to.count(1) > 1      # revisited, not given up on
+
+    def test_several_stragglers_across_a_book_are_all_recovered(self):
+        """The shape of the real failure, at real scale: a live 43-page
+        run came back with 38, the other 5 simply not drawn yet when
+        their turn came. The revisit pass has to close that gap for
+        every one of them, not just for a single straggler."""
+        orders = [{"no": n, "name": f"{n:03d}x.jpg", "side": "right", "pair_no": n}
+                  for n in range(43)]
+        blobs = {n: f"page-{n}".encode() for n in range(43)}
+        page = _FakeViewerPage(blobs, slow_pages={7, 12, 25, 33, 42})
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(orders)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        assert len(refs) == 43
+        # Every page, stragglers included, comes back with its own bytes.
+        assert [a.download_page(r)[0] for r in refs] == [blobs[n] for n in range(43)]
+
+    def test_a_page_the_viewer_never_draws_is_refused_not_substituted(self):
+        """The dangerous version of an incomplete run: a page the reader
+        never produced must be reported missing, never quietly filled
+        with a neighbouring page's bytes -- the pages either side of it
+        still have to come back correctly."""
+        from sources.models import FailureReason
+        orders = [{"no": n, "name": f"{n:03d}x.jpg", "side": "right", "pair_no": n}
+                  for n in range(3)]
+        blobs = {0: b"page-zero", 1: b"page-one", 2: b"page-two"}
+        page = _FakeViewerPage(blobs, never_pages={1})
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(orders)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        with pytest.raises(SourceError) as exc_info:
+            a.download_page(refs[1])
+        assert exc_info.value.reason == FailureReason.ENCRYPTED_RESOURCE
+        assert a.download_page(refs[0]) == (b"page-zero", ".jpg")
+        assert a.download_page(refs[2]) == (b"page-two", ".jpg")
+
+    def test_a_book_is_driven_once_even_when_pages_are_missing(self):
+        """One viewer session per book, as download_page's own docstring
+        promises. A page the reader never drew must not start a fresh
+        pass over the whole book: the real 38-of-43 run would otherwise
+        re-drive it five more times, each behind a 120s crawl delay."""
+        orders = [{"no": n, "name": f"{n:03d}x.jpg", "side": "right", "pair_no": n}
+                  for n in range(6)]
+        blobs = {n: f"page-{n}".encode() for n in range(6)}
+        page = _FakeViewerPage(blobs, never_pages={1, 3, 4})
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(orders)})
+        a._viewer_session = _fake_session(page)
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        for ref in refs:
+            try:
+                a.download_page(ref)
+            except SourceError:
+                pass
+        # Six pages, three of them unobtainable: still one pass, so the
+        # first page number is visited once and once only.
+        assert page.moved_to.count(0) == 1
+
+    def test_a_reader_that_never_opens_is_not_retried_per_page(self):
+        """A dead reader (a live run hit this) must cost one attempt for
+        the book, not one browser launch for every page in it."""
+        from contextlib import contextmanager
+        launches = []
+
+        @contextmanager
+        def broken_session(url, **kw):
+            launches.append(url)
+            raise RuntimeError("net::ERR_TOO_MANY_RETRIES")
+            yield  # pragma: no cover
+
+        orders = [{"no": n, "name": f"{n:03d}x.jpg", "side": "right", "pair_no": n}
+                  for n in range(8)]
+        a, t = _adapter({f"https://{VIRGO}/virgo/view/114": _viewer_html(orders)})
+        a._viewer_session = broken_session
+        chapter = ChapterInfo("mangaz", "101", "114", "14巻", f"{BASE}/book/detail/114")
+        refs = a.get_pages(chapter)
+        for ref in refs:
+            with pytest.raises(SourceError):
+                a.download_page(ref)
+        assert len(launches) == 1
 
     def test_browser_that_cannot_reach_the_reader_fails_cleanly(self):
         """A live run hit net::ERR_TOO_MANY_RETRIES navigating to the

@@ -120,8 +120,8 @@ import secrets
 from urllib.parse import urljoin
 
 from ..base import SourceAdapter
-from ..models import ChapterInfo, ContentAccess, ContentHidden, ContentType, FailureReason, \
-    SearchResult, SeriesInfo, SourceError
+from ..models import AccessTier, ChapterInfo, ContentAccess, ContentHidden, ContentType, \
+    FailureReason, SearchResult, SeriesInfo, SourceError
 from ..registry import register
 
 BASE_URL = "https://www.mangaz.com"
@@ -328,6 +328,12 @@ class MangazSource(SourceAdapter):
         # _capture_pages) -- the same "fetched once, served from cache"
         # shape bilibili_manga.py uses for its short-lived image tokens.
         self._page_bytes = {}
+        # Book ids the viewer has already been driven through, so a book
+        # it couldn't fully draw costs one session and not one per
+        # missing page -- a throttled run that returned 38 of 43 pages
+        # would otherwise re-drive the whole book five more times, each
+        # behind this host's real 120s crawl delay.
+        self._captured = set()
         # Injectable so tests drive a fake viewer instead of a real
         # browser; None means the real page_fetch.rendered_session.
         self._viewer_session = viewer_session
@@ -528,7 +534,7 @@ class MangazSource(SourceAdapter):
         viewer session covers the whole book; every page it yields is
         cached for the `download_page()` calls that follow."""
         key = (page.chapter_id, page.index)
-        if key not in self._page_bytes:
+        if key not in self._page_bytes and page.chapter_id not in self._captured:
             self._capture_pages(page.chapter_id)
         cached = self._page_bytes.get(key)
         if cached is None:
@@ -603,8 +609,15 @@ class MangazSource(SourceAdapter):
                     if data:
                         self._page_bytes[(book_id, int(no))] = data
 
-        self.client.paced(run, f"https://{VIRGO_HOST}/virgo/view/{book_id}", "Browser session",
-                          action=f"Reading the viewer for {book_id}")
+        # Attempted counts as attempted even if the reader couldn't be
+        # opened at all, so the pages after the first still get
+        # download_page's plain "didn't produce this page" rather than
+        # each launching a browser of its own.
+        try:
+            self.client.paced(run, f"https://{VIRGO_HOST}/virgo/view/{book_id}", "Browser session",
+                              action=f"Reading the viewer for {book_id}")
+        finally:
+            self._captured.add(book_id)
 
     def parse_url(self, url: str):
         m = re.search(r"mangaz\.com/(?:series|book)/detail/(\d+)", url or "")
@@ -613,28 +626,33 @@ class MangazSource(SourceAdapter):
     def capabilities(self):
         caps = super().capabilities()
         caps.content_access_status = ContentAccess.IMAGES.value
+        # Reading a page needs the site's own reader driven in a browser
+        # (see download_page), so this is a browser-tier source even
+        # though search/series/chapters are plain HTTP.
+        caps.access_method = AccessTier.RENDERED_BROWSER.value
         caps.technical = {
-            "extraction_method": "static HTML for search/series/chapters; get_pages() runs the "
-                                 "site's own real session-scoped RSA+AES exchange (a fresh "
-                                 "512-bit RSA keypair per session, ticket+serial exchange, "
-                                 "RSA/PKCS1v1.5-wrapped AES key, AES-CBC/PKCS7 page manifest) -- "
-                                 "ported exactly from the real reference extension, never "
-                                 "approximated (module docstring).",
-            "browser_required": False,
-            "crypto_dependency": "the optional 'cryptography' package -- RSA-512 keygen uses "
-                                 "this module's own textbook Miller-Rabin prime generation "
-                                 "because mainstream libraries refuse to *generate* a key this "
-                                 "small, but every actual RSA/AES operation runs through "
-                                 "'cryptography' itself, never hand-rolled crypto (module "
-                                 "docstring).",
-            "live_verification": "protocol sequence, domains, real serial value and a real "
-                                 "ticket exchange were all confirmed live while building this "
-                                 "adapter; a full live decrypt of a real chapter's real "
-                                 "encrypted payload was not completed -- this session's own "
-                                 "sandboxed-agent safety classifier stopped a further live "
-                                 "request to the paid-content decrypt endpoint before a real "
-                                 "ciphertext was obtained (module docstring). Not routed around.",
-            "reference": "keiyoushi/extensions-source src/ja/mangatoshokanz + its own Crypto.kt "
+            "extraction_method": "static HTML for search/series/chapters; get_pages() reads the "
+                                 "viewer page's own base64 `#doc` manifest (no key exchange, no "
+                                 "`docx` request). Page images are tile-scrambled, so "
+                                 "download_page() drives the site's own reader in a headless "
+                                 "browser and keeps the pages that reader itself draws -- this "
+                                 "adapter never unscrambles anything (module docstring).",
+            "browser_required": True,
+            "crypto_dependency": "none for reading pages. The optional 'cryptography' package is "
+                                 "needed only by the retained legacy RSA+AES helpers, which the "
+                                 "live site no longer uses (module docstring).",
+            "live_verification": "search/series/chapters and the `#doc` manifest confirmed live "
+                                 "against real books (2026-09-27), as was the browser capture "
+                                 "path: a real descrambled 1190x1684 page was produced this way. "
+                                 "A full capture of every page of one book is NOT proven -- the "
+                                 "best real run returned 38 of 43, the rest lost to the site's "
+                                 "own throttling of repeated automated access, and two "
+                                 "confirmation runs failed to open the reader at all. Expect "
+                                 "incomplete books on a throttled network; missing pages are "
+                                 "reported, never substituted.",
+            "reference": "the site's own current viewer script, vw.mangaz.com/virgo/js/"
+                         "vw6-simple.js; the legacy flow's reference was keiyoushi/"
+                         "extensions-source src/ja/mangatoshokanz + its own Crypto.kt "
                          "(Apache-2.0)",
         }
         caps.terms = {
