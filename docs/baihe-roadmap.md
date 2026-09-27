@@ -1,22 +1,22 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state (`git fetch origin baihe-subtitler`, tip currently `Add 'Current work' tracking section to CLAUDE.md`), not carried over from any earlier note here:
+> **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state (`git fetch origin baihe-subtitler`), not carried over from any earlier note here:
 >
-> **Every step from 1 through 18, plus Step 30, is merged.** Step 18 (PR #127) landed this round — reviewed, accepted as also substantially completing Step 18c at the user's direction (see Step 18's own section for the noted small test-coverage follow-up), re-pushed once for a real merge conflict against Steps 15–17's landing (the exact fix was sent, and it came back correct — old duplicate "API keys" block gone, clean merge commit), independently re-verified in a clean isolated worktree after an in-place run was accidentally invalidated by an unrelated branch switch (full suite: 2838 passed, 46 skipped, 0 failed), then squash-merged. **This closes the entire Steps 13–18 UI-redesign run.**
+> **Every step from 1 through 18, plus 20, 30, 33, 34, 35, is merged.** This round's merges (all independently reviewed, tested in isolated worktrees, and squash-merged by the planning session per the established "clean is the gate, not the ask" practice): `fix-torch-reimport-crash-in-tests` (PR #128, root-caused the recurring "pre-existing torch failure" seen across many runs), `claude/verify-sources-k7eyoz` (PR #129, mangaz dead-protocol fix + manhuaku blob-image capture + slower pacing — from the "Source verification" session's live-site work, see `CLAUDE.md`'s "Known implementing/utility sessions" note for the full branch history), `sources-preflight` (PR #130, a "will this site work?" preflight check + a real Sources-tab key-collision fix; `sources-translated-page-and-extraction-fixes` was a strict commit subset and correctly not merged separately), **Step 33** (PR #131), **Step 35** (PR #132), **Step 20** (PR #133), **Step 34** (PR #134, the browser extension — its earlier-flagged `tabs/settings_tab.py` conflict resolved cleanly via git's own three-way merge once the base had moved past Step 16, verified directly: no duplicated sections). Full suite on the final combined state: 2966 passed, 47 skipped, 0 failed.
 >
-> **Sent this round, in progress, no report yet**:
-> - **Step 24** (translation memory/benchmark/library status — needs an Opus confirmation stop) → sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU` ("Multilingual VOD transcription workstation"), at the user's explicit direction (despite that session being at ~77% of its 1M-token context ceiling — a deliberate choice, not the default).
-> - **Step 20** (UX polish, unblocked since Step 15 landed) → `session_01XpF5WD4Eqev9Za4JnoKMRY`.
-> - **Step 33** (`requirements-install.bat` path fix) → `session_01MfHZmbBrtviLUYQQ3dj8SH`.
-> - **Step 35** (ML bubble-detector double-counting + weak CV fallback) → `session_01SqSBzwfM3V5Xo7Q2qgaB4J`.
+> **Also fixed this round: `baihe-subtitler`'s root `CLAUDE.md` was broken** — two earlier pushes (`ab42d35`, `d37823a`) had written the file as a base64 string instead of decoded content (a tool-parameter misuse: `create_or_update_file`'s `content` field auto-encodes, so passing an already-base64'd string double-encoded it). Every AI session reading `CLAUDE.md` since got a gibberish blob instead of real instructions. Fixed (commit `ac5c16b`), verified byte-for-byte against the staging copy (`docs/ai-setup/CLAUDE.md`) after the fix landed.
 >
-> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18 all landed) is now satisfied.
+> **Two new user-reported bugs this round, both added as steps out of numeric order:**
+> - **Step 45 (URGENT, sent)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read before sending (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`, checks for any line having a `speaker` set *before* checking translation/export status — so unsaved diarization data would explain the stuck indicator) but explicitly flagged as needing reproduction against the real drama's data before trusting that diagnosis. Sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU`.
+> - **Step 46 (not yet sent)** — dark mode is visually inconsistent: a screenshot of the Reader tab shows the sidebar/page background switching to dark while the video player card, stat boxes, the line-reading table, and the bottom bars all stay light/white. Different root cause than the already-fixed Step 25t (that was a tab-bar selector silently matching nothing) — likely a broader selector-scope gap in `inject_dark_css`. Queued, ready to send.
+>
+> **Still in progress, no report yet**: **Step 24** (translation memory/benchmark/library status) → sent to the main implementing session at the user's explicit direction.
+>
+> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Step 46** (dark mode fix, above).
 >
 > **Ready, but mutually exclusive with Step 24 above on `workspace_tab.py`/`library_tab.py`/`translate_engines.py` — don't send until 24 lands**: **26** (voice bank), **26c** (original-language narration, shares `dub.py`/`workspace_tab.py`), **31** (content-moderation refusal detection), **32** (expose look-ahead context/batch size as adjustable, bigger novel-narration defaults).
 >
-> **Step 34 reserved, not yet scoped — real overlap risk with Step 35, deliberately left alone per the user's explicit instruction.** The "Source verification" session (`session_0178qeyaiQXHz2QMAepnCF2b`) has renamed its branch a third time (`step-32-...` → `step-33-...` → now `sources-translated-page-and-extraction-fixes`, dropping the step-number scheme) — hasn't picked up "34" yet. Its own work (debugging a `detect_bubbles`-adjacent test) looks like it overlaps `scanlate.py` with Step 35. Neither has pushed yet — no real git conflict exists right now. **User's call: leave both running, review for a real conflict later — don't preempt this.**
->
-> **New this round**: the user pushed a live "Current work" tracking section directly to `baihe-subtitler`'s root `CLAUDE.md` (commit visible on tip), for implementing sessions to self-report what they're doing and avoid overlaps. Also: the user is exploring using Codex alongside Claude to split work — flag anything that looks like a good isolated candidate to hand to it, or a PR worth an independent second review pass.
+> The user is exploring using Codex alongside Claude to split work — flag anything that looks like a good isolated candidate to hand to it, or a PR worth an independent second review pass.
 >
 > **Steps 36–44 added — a later, subscription-independence phase, explicitly NOT next-in-line.** From a user-shared ChatGPT architecture proposal, independently reviewed against the real repo. **This review went through two real correction rounds, both at the user's insistence, not this session's own initiative** — worth being honest about since it reflects a real process failure the first time: (1) the first pass used a keyword-filtered extraction of the shared conversation that silently dropped whole topics (notifications, VRAM management, job queue, context manager, reproducibility) because they didn't contain words like "Whisper" or "Gemini" — caught only when the user re-pasted content and pointed out it wasn't new material at all, just material this session had already been asked to review in full and hadn't; (2) several "already exists" claims from the first review turned out to be only partially true on a real code audit the user explicitly demanded ("just because I have the feature doesn't mean the UI, function, etc. is all there") — self-diagnostics, cost controls, the GPU job lock, and the job queue were all more partial than first claimed, and notifications turned out to be completely absent, not partially present. See the "Verified-gaps note" above Step 36 for the full, cited findings. Also reversed two outright disagreements after the user pushed back with direct quotes from their own conversation — see Steps 42's and 36's own text, and Step 43 (added new, not merely corrected — the user's own real message in the source conversation, missed in the first pass, explicitly wanted universal soft-delete with no hard deletion anywhere, directly contradicting this session's first-pass "keep it simple" objection).
 >
@@ -311,6 +311,8 @@ Rules for every milestone:
 | 42 | Ask the assistant to diagnose a real, reproduced bug and confirm its proposed fix (as a shown diff/patch, not an applied change) is actually correct when reviewed by hand. |
 | 43 | Soft-delete a drama, confirm it's recoverable from a "Deleted items" view before the retention window expires, and confirm it's actually gone after manually advancing past it. |
 | 44 | Trigger a real job failure with Discord notifications enabled and confirm a real message arrives; repeat with ntfy and confirm an action button round-trips correctly and asks for confirmation before doing anything consequential. |
+| 45 | On the reported drama (or a reproduction of its data shape), confirm the stage stepper now shows the correct current stage instead of stuck on Diarize, and confirm subtitles actually appear in the export/preview player. |
+| 46 | Toggle Dark mode on, visit every top-level tab, and confirm every visible card/container/table actually switches to the dark background -- no light-background surfaces left over, especially the Reader tab where this was first reported. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -2965,6 +2967,51 @@ Prompted by the same architecture proposal. **Confirmed genuinely absent by dire
 
 ---
 
+### Step 45 — URGENT, out of numeric order: stage indicator stuck on "Diarize" despite finished translation/export, and exported subtitles missing from the player
+
+**User-reported production bug (2026-09-27), with a live screenshot** — a real drama (#5, "[Valentine's Day Q&A]...") shows the header's stage stepper highlighting **Diarize** as current, but the Review tab underneath is showing real, populated English translations across 92 pages of lines, and the user reports this drama **has already been fully exported** — yet subtitles don't show up in the player. Not a hypothetical; jump on this ahead of the numbered queue.
+
+**Root cause lead already found by direct code read, not yet confirmed against this exact drama's data** — `_compute_workspace_stage_index()` (`tabs/workspace_tab.py:1535`, called at `tabs/workspace_tab.py:1868`) decides the stepper's position with a strictly-ordered set of checks, and the Diarize check runs *before* the translate/export checks:
+
+```python
+if has_audio_pipeline and not any(getattr(ln, "speaker", None) for ln in lines):
+    return 2   # Diarize -- short-circuits here if speaker is unset
+if any(not (ln.en or "").strip() for ln in lines):
+    return 3   # Translate
+if (drama or {}).get("status") == "exported":
+    return 6   # Export
+...
+```
+
+If diarization results aren't persisting to the `speaker` field on this drama's lines, the function returns 2 (Diarize) unconditionally, no matter how far translation/export actually got — this matches the reported symptom exactly. **Re-verify before fixing, per this repo's own standing rule**: don't assume this is the actual cause until confirmed against drama #5's real row data.
+
+1. **Reproduce first.** Pull this exact drama's lines from the database (or ask the user for a DB/project export) and check directly whether `speaker` is null/empty across all of them despite Diarize having apparently run. If it's populated, the stage-index theory is wrong and the real cause is elsewhere in this same function or its caller — say so plainly rather than forcing this diagnosis to fit.
+2. **If confirmed: find why diarization results aren't saving.** Check whether this is the same class of bug this repo's CLAUDE.md already warns about (`db.save_lines(..., fields=None)` full-sync silently dropping a field the caller didn't carry through, or a background job racing another job/edit) — grep the diarization apply path (`_apply_speaker_turns`, `_apply_diarization_job_result` in `tabs/workspace_tab.py`) for exactly what it writes and whether `fields=` scoping actually includes `speaker`.
+3. **Separately investigate "subs do not show in the player" despite a completed export** — this may or may not share a root cause with (1)/(2). Check the export path actually writes/muxes a subtitle track the reported player can read, and check whether `status == "exported"` can get set without a real subtitle file existing (a false-positive "done" state would itself be a second bug worth its own fix). Ask the user which player (in-app preview vs. an external player) before assuming.
+4. **Fix scope stays minimal per this repo's own rule** — fix the actual confirmed defect(s) only; don't restructure `_compute_workspace_stage_index` beyond what's needed to make it correctly reflect real per-drama state.
+
+**Exit:**
+- A test reproduces the exact bug shape found in (1) against a drama with translated lines but no persisted `speaker` data, confirming the stage index currently misreports Diarize as current, then confirms the fix.
+- A test confirms a drama's `status` only reads as `exported` when a real subtitle file actually exists for it (if that's confirmed as part of the bug).
+- Manual check: **on this exact reported drama** (or a reproduction of its data shape), confirm the stage stepper now shows the correct current stage, and confirm subtitles actually appear in the export/preview player. Do not close this step on a synthetic-only reproduction if the real drama's data is available to check against directly.
+
+---
+
+### Step 46 — Fix: dark mode is visually inconsistent -- several UI surfaces don't switch with the toggle
+
+**User-reported, with a live screenshot (2026-09-27)** — the Reader tab (`Reading experience`) with Dark mode on: the sidebar and page background go dark, but the video player card, the Length/Progress/Lines stat boxes, the line-reading table (source/pinyin/translation), and the bottom "Story"/"My notes"/"Vocabulary export" bars all stay on a light/white background. The effect is a page that's half dark-themed and half not, not a deliberate light-on-dark accent.
+
+**Different bug from Step 25t** (already fixed, merged) — that was a *tab-bar* selector silently matching nothing on the installed Streamlit version. This is broader: entire content containers in at least the Reader tab aren't picking up `inject_dark_css`'s rules at all, which suggests either a selector scope issue (targeting a container class Streamlit doesn't apply to these specific widgets) or these specific components use Streamlit-native styling (e.g. `st.container(border=True)`, `st.dataframe`) that a custom CSS injection doesn't reach without a more targeted selector.
+
+1. **Reproduce first, in the same tab the screenshot shows (Reader / reading-experience view)**, then check every other tab for the same pattern — don't assume it's Reader-only until checked.
+2. Find the actual selectors `inject_dark_css` (`ui_theme.py`) targets today, and diff against what Streamlit 1.64.0 actually renders for: a bordered `st.container`, `st.dataframe`/the custom line-reading table, and the bottom expander bars — same kind of selector-drift root cause Step 25t already found once for tabs, so check whether this is the same class of bug recurring elsewhere rather than a fresh one.
+3. Fix the actual mismatched selectors. Keep the fix scoped to making dark mode consistent — not a broader visual redesign.
+
+**Exit:**
+- Manual check, on a real running app: toggle Dark mode on, visit every top-level tab (Library, Workspace, Read & Watch, Scanlate, Sources, Discover, Translate, Live, Diagnostics) and confirm every visible card/container/table actually switches to the dark background — no light-background surfaces left over. Screenshot before/after per this repo's structural-UI-redesign convention isn't required here (this is a CSS fix, not a layout rebuild), but a screenshot of the fixed Reader tab specifically is worth including since that's the one directly reported.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3079,7 +3126,7 @@ Prompted by the same architecture proposal. **Confirmed genuinely absent by dire
   | 18b — App Assistant | `step-18b-app-assistant` | ✅ Merged (PR #45; a duplicate PR #47 off the same commit was later opened by mistake and merged today as a no-op — same head SHA, nothing new landed) | ⏳ Pending |
   | 18c — In-app Install buttons for optional dependencies | `step-18c-install-buttons` | ✅ Merged (PR #46; same duplicate-PR situation — #48 off the same commit, merged today as a no-op) | ⏳ Pending |
   | 19 — Full click-through UX test | — | Not started | — |
-  | 20 — UX polish: shortcuts, toasts, transcript search | — | Sent (`session_01XpF5WD4Eqev9Za4JnoKMRY`) | — |
+  | 20 — UX polish: shortcuts, toasts, transcript search | `step-20-ux-polish` | ✅ Merged (PR #133) | ⏳ Pending |
   | 20b — Richer Anki export: sentence + audio | `step-20b-richer-anki-export` | ✅ Merged (PR #66) | ⏳ Pending |
   | 21 — Review workspace: per-line audio and save-status | `claude/step-21-roadmap-sp7f31` | ✅ Merged (PR #68) | ⏳ Pending |
   | 22 — Series-level library view | `step-22-series-library-view` | ✅ Merged (PR #70) — the implementing session resolved the earlier `_series_picker()`/series-instructions conflict itself, and also caught a real consistency gap (`list_dramas_by_series` used a plain `SELECT *` instead of `_DRAMA_SELECT`, fixed) | ⏳ Pending |
@@ -3132,9 +3179,11 @@ Prompted by the same architecture proposal. **Confirmed genuinely absent by dire
   | 30 — Glossary: term-level aliases + a prohibited-translation list | `step-30-glossary-aliases-banned-translations` | ✅ Merged (PR #123) | ⏳ Pending |
   | 31 — Detect a content-moderation refusal distinctly, and offer a real retry | — | Not started | — |
   | 32 — Expose look-ahead context and batch size as adjustable; bigger novel-narration defaults | — | Not started | — |
-  | 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path | — | Sent (`session_01MfHZmbBrtviLUYQQ3dj8SH`) | — |
-  | 34 — Reserved for "Source verification" session's own work (scope not yet confirmed) | `step-33-page-translate-extension` (pending rename to `step-34-*` once scoped) | Not started | — |
-  | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | — | Sent (`session_01SqSBzwfM3V5Xo7Q2qgaB4J`) | — |
+  | 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path | `step-33-requirements-install-path` | ✅ Merged (PR #131) | ⏳ Pending |
+  | 34 — Browser extension: translate the page you're looking at, live | `step-34-page-translate-extension` | ✅ Merged (PR #134) | ⏳ Pending |
+  | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | `step-35-bubble-detector-dedupe` | ✅ Merged (PR #132) | ⏳ Pending |
+  | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | Sent (`session_014zMSq3KbwPNoU1J2KseLrU`) | — |
+  | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
