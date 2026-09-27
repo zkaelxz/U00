@@ -1503,6 +1503,103 @@ class TestTranslateButtonUsesConfiguredOllamaUrl:
         assert captured.get("base_url") == "http://gpu-box:11434"
 
 
+class TestContextAheadAndBatchSizeSliders:
+    """Step 32: look-ahead context and batch size, previously hardcoded
+    (translate_lines_with_engine's own defaults, context_window_ahead=3,
+    batch_size=20), are now adjustable sliders next to the existing
+    look-back one -- and a novel-narration drama pre-selects higher
+    starting values than an audio drama, though the user can still move
+    any of them."""
+
+    def _drama(self, isolated_db, content_mode="audio_drama"):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type=content_mode,
+                                        content_mode=content_mode, status="aligned",
+                                        translation_engine="claude")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好")])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.session_state["settings_claude"] = "sk-ant-fake"
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _slider(self, at, label):
+        matches = [s for s in at.slider if s.label == label]
+        assert matches, f"slider {label!r} not found on the page"
+        return matches[0]
+
+    def test_audio_drama_starts_at_todays_defaults(self, isolated_db):
+        did = self._drama(isolated_db, content_mode="audio_drama")
+        at = self._run(did)
+        assert self._slider(at, "Context lines shown from before each batch").value == 6
+        assert self._slider(at, "Context lines shown from after each batch").value == 3
+        assert self._slider(at, "Lines translated per request").value == 20
+
+    def test_novel_narration_pre_selects_higher_starting_values(self, isolated_db):
+        did = self._drama(isolated_db, content_mode="novel_narration")
+        at = self._run(did)
+        assert self._slider(at, "Context lines shown from before each batch").value == 10
+        assert self._slider(at, "Context lines shown from after each batch").value == 6
+        assert self._slider(at, "Lines translated per request").value == 30
+
+    def test_look_ahead_and_batch_size_reach_the_translate_job(self, isolated_db, monkeypatch):
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: started.update(kwargs=kw) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click().run(timeout=30)
+        assert started["kwargs"]["context_window_ahead"] == 3
+        assert started["kwargs"]["batch_size"] == 20
+
+    def test_moving_the_sliders_changes_what_reaches_the_job(self, isolated_db, monkeypatch):
+        started = {}
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda job_id, target, *a, **kw: started.update(kwargs=kw) or True)
+        did = self._drama(isolated_db)
+        at = self._run(did)
+        self._slider(at, "Context lines shown from after each batch").set_value(9).run(timeout=30)
+        self._slider(at, "Lines translated per request").set_value(15).run(timeout=30)
+        [b for b in at.button if b.label == "🌐 Translate all lines"][0].click().run(timeout=30)
+        assert started["kwargs"]["context_window_ahead"] == 9
+        assert started["kwargs"]["batch_size"] == 15
+
+    def test_run_translate_job_forwards_both_to_translate_lines_with_engine(
+            self, isolated_db, monkeypatch):
+        """Unit-level check of the wiring inside run_translate_job itself,
+        independent of the UI -- the same shape as the existing
+        character_names tests just above."""
+        job_id = "test_translate_context_ahead_batch_size"
+        _clear(job_id)
+        background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        did = isolated_db.create_drama(title_en="Test")
+        lines = [Line(idx=0, start=0, end=1, zh="你好")]
+
+        seen = {}
+        def fake_translate(lines, engine, **kwargs):
+            seen["context_window_ahead"] = kwargs.get("context_window_ahead")
+            seen["batch_size"] = kwargs.get("batch_size")
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+
+        run_translate_job(job_id, did, lines, object(), {"id": did}, "", None, False, "en-US",
+                          None, "", "claude", "audio_drama", context_window_ahead=8, batch_size=25)
+
+        assert seen == {"context_window_ahead": 8, "batch_size": 25}
+        _clear(job_id)
+
+
 class TestGlossaryReviewBeforeTranslating:
     """Step 23c item 3: an optional review step before a translate run
     starts -- shows the glossary terms Step 7b's extraction pass would
