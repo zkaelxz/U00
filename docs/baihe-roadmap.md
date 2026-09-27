@@ -339,7 +339,7 @@ Rules for every milestone:
 | 67 | Re-run the full suite on a real Windows machine and confirm exactly which failure groups from the original report are now resolved versus still open; specifically confirm `test_app_help.py` and the HF cache tests behave correctly without manual env-var workarounds. |
 | 68 | With Dark mode on, use App Assistant (input + chat bubbles readable) and check whether Translate History's blank "Translation" column is a CSS gap or an empty saved value; click through every tab once more after the systematic widget audit. |
 | 69 | With a real background translation job running, deliberately trigger a transient db error in that job and confirm the app's main thread doesn't start seeing "database is locked" errors on unrelated saves afterward. |
-| 70 | Attempt the bulk-import flow against a real `EXPLICITLY_RESTRICTED` site (e.g. jjwxc.net) and confirm it's refused with a clear message, not silently fetched. |
+| 70 | Decided (2026-09-27): no action — user reviewed and jointly green-lit this design. Not pending. |
 | 71 | Attempt to delete a saved translation version, a preset, a glossary term (single and bulk), a series character, and a saved bug bundle, and confirm each now requires a confirm step before it's actually deleted. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
@@ -3521,6 +3521,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms `page_fetch`-backed fetching (via any of the three real callers) refuses a known-`EXPLICITLY_RESTRICTED` site the same way `sources/generic_import.py`'s path already does, rather than fetching it.
 - A test confirms the bulk-import pagination field rejects or clamps an unbounded page range.
 - Manual check: attempt the bulk-import flow against a real `EXPLICITLY_RESTRICTED` site and confirm it's refused with a clear message, not silently fetched.
+
+**Decided (2026-09-27): leave as-is, no code change.** The user reviewed and jointly green-lit this exact design — `page_fetch.py`'s metadata-only fetch path and the bulk-import default were built together, deliberately, not an oversight this review surfaced for the first time. Not critical; not pending.
 
 ---
 
