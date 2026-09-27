@@ -101,6 +101,7 @@ baihe-subtitler/
 | `forced_align.py` | Qwen3-ForcedAligner timing (alternative to core.py's Whisper-diff alignment) |
 | `dub.py` | TTS, voice cloning, track mixing |
 | `video_export.py` | subtitle burn-in, softsub mux, dub muxing |
+| `media_inspect.py` | probes a dropped file (duration/resolution/tracks) and suggests a pipeline, before a drama exists |
 
 **Text & images**
 | File | Does |
