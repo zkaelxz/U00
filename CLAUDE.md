@@ -98,20 +98,22 @@ external project checked so far.
   a trivial `grep -c "^### Step"` vs. a row count), never §4 — because §4
   rows get added at review/merge time, not at step-creation time like §2's
   do, so a step added and later merged without a planning-chat pass in
-  between could skip §4 entirely. **Going forward, run all three checks
-  together, every time, not just the header/§2 pair:**
+  between could skip §4 entirely. **Going forward, run the automated check
+  below, every time, not the header/§2 pair alone:**
   ```
-  grep -c "^### Step" docs/baihe-roadmap.md
-  sed -n '/^## 2\. Roadmap/,/^## Steps 36/p' docs/baihe-roadmap.md | grep -c "^| [0-9]"
-  grep -n "Step | Branch | Merged | Manual check" docs/baihe-roadmap.md   # find §4's table start
-  grep -n "^- \*\*After Step 10" docs/baihe-roadmap.md                    # find §4's table end
-  sed -n '<start+2>,<end-1>p' docs/baihe-roadmap.md | grep -c "^  | "     # §4 row count, using those two line numbers
+  python3 scripts/roadmap_sync_check.py
   ```
-  (Verified working against the real file 2026-09-27 — the first pass at
-  this exact command undercounted by 3 real, still-missing rows, caught
-  only by then diffing step ids between headers and the §4 table directly;
-  a bare count match is necessary but don't assume it's sufficient without
-  at least spot-checking a few ids the first time you use this.)
+  This script (added 2026-09-27, commit-checked working against the real
+  file) diffs the actual step-id sets across headers/§2/§4, not just their
+  counts — a bare count match once passed here while 3 real steps (40b,
+  67, 69) were still missing from §4, because a different step happened to
+  be absent from §2 too, canceling the count out. Exit code 0 means the
+  three tracking structures genuinely agree; anything else prints exactly
+  which ids are missing from which structure — fix those, then re-run
+  before moving on. The script only checks structural sync (does every
+  step exist in all three places); it can't independently confirm a merge
+  status is correct — cross-check that against real `git log`/PR state
+  separately, per this file's own squash-merge-aware method below.
   All three numbers must match (adjust the `sed` ranges if a section header
   moves). If §4 is short, that's not "pending future work" — it means real
   steps are untracked; add the missing rows immediately, don't defer it to
@@ -211,6 +213,37 @@ external project checked so far.
     nothing here shortens the actual diff read, test run, or CI check
     before a merge; it only cuts context spent re-deriving things this
     repo already has written down.
+- **Concurrency safeguards for parallel dispatch (2026-09-27, same review).**
+  Two named, real failure modes to guard against before running steps in
+  parallel across sessions, not just a general caution:
+  - **Compare intended file footprint before parallelizing.** Don't hand
+    out two ready steps at once if their real footprints overlap on a
+    shared, sensitive file (`db.py`, `background_jobs.py`,
+    `translate_engines.py` are the recurring ones) unless the overlap is
+    small and non-conflicting and you've actually checked, not assumed.
+    The Build Queue chart already tracks each card's file footprint and
+    overlap risk for exactly this — treat that field as load-bearing, not
+    decorative.
+  - **Before starting a step with a real dependency on another step,
+    verify the dependency is actually merged into `baihe-subtitler`**
+    (`git log`/the GitHub API, per this file's own squash-merge-aware
+    method above) **rather than trusting another session's own report that
+    it's done.** Two sessions can otherwise branch off the same stale base
+    — one merges, the other's dependent work then either conflicts or,
+    worse, silently builds against the pre-dependency code. Same "never
+    trust memory" principle already governs every merge-status check in
+    this file; this is that principle applied to dispatch timing, not a
+    new rule.
+- **`list_sessions()`/`get_session` is the authoritative record of what
+  implementing sessions exist and their current state — the "Known
+  implementing/utility sessions" list below is color/history for the ones
+  worth remembering by name, not a substitute for checking live state.**
+  If it's been a while, or a listed session might have gone idle, been
+  archived, or gotten retitled, check the live tool before trusting the
+  list — the list already says this about itself; this is just making the
+  practical consequence explicit: prefer resuming a real, currently-listed
+  relevant session over creating a duplicate, and don't let this static
+  list silently go stale as the source of truth for what's running.
 - **"Build Queue" chart — a reusable good practice, kept fresh on request.**
   When several steps are in flight across parallel implementing chats, a
   published Artifact chart (three columns: **Assigned** — handed off,
