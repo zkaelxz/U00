@@ -84,6 +84,132 @@ class TestStreamPipUninstall:
                                    "torch", "torchaudio"]
 
 
+class TestParseRequirementsFile:
+    def test_skips_comments_and_blank_lines(self, tmp_path):
+        p = tmp_path / "reqs.txt"
+        p.write_text("# a header comment\n\nstreamlit>=1.49\n\n# section\npandas>=2.0\n")
+        assert diagnostics.parse_requirements_file(str(p)) == ["streamlit>=1.49", "pandas>=2.0"]
+
+    def test_strips_trailing_inline_comments(self, tmp_path):
+        p = tmp_path / "reqs.txt"
+        p.write_text("requests>=2.31  # needed for X\n")
+        assert diagnostics.parse_requirements_file(str(p)) == ["requests>=2.31"]
+
+    def test_a_fully_commented_out_line_is_never_returned(self, tmp_path):
+        # requirements-optional.txt's own pattern: three TTS engines whose
+        # deps conflict, only one ever uncommented at a time.
+        p = tmp_path / "reqs.txt"
+        p.write_text("# omnivoice>=0.2\nf5-tts>=0.9\n")
+        assert diagnostics.parse_requirements_file(str(p)) == ["f5-tts>=0.9"]
+
+    def test_missing_file_returns_empty_list(self, tmp_path):
+        assert diagnostics.parse_requirements_file(str(tmp_path / "nope.txt")) == []
+
+
+class TestStreamBulkInstall:
+    def test_installs_every_package_and_reports_all_results(self, monkeypatch, tmp_path):
+        p = tmp_path / "reqs.txt"
+        p.write_text("foo>=1\nbar>=2\n")
+        popen_calls = []
+
+        def fake_popen(cmd, **kw):
+            popen_calls.append(cmd)
+            ok = "bar" not in cmd[-1]
+            return _FakePopen([f"installing {cmd[-1]}\n"], 0 if ok else 1)
+        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
+
+        items = list(diagnostics.stream_bulk_install(str(p)))
+        assert len(popen_calls) == 2  # bar's failure didn't stop foo... or itself
+        bulk_done = [i for i in items if i.get("bulk_done")][0]
+        assert bulk_done["results"] == {"foo>=1": True, "bar>=2": False}
+
+    def test_tags_every_event_with_its_own_package(self, monkeypatch, tmp_path):
+        p = tmp_path / "reqs.txt"
+        p.write_text("foo>=1\n")
+        monkeypatch.setattr(diagnostics.subprocess, "Popen",
+                            lambda cmd, **kw: _FakePopen(["a line\n"], 0))
+        items = list(diagnostics.stream_bulk_install(str(p)))
+        assert {"package": "foo>=1", "start": True} in items
+        assert {"package": "foo>=1", "line": "a line"} in items
+        assert {"package": "foo>=1", "done": True, "ok": True} in items
+
+    def test_empty_file_yields_only_the_bulk_done_summary(self, tmp_path):
+        p = tmp_path / "reqs.txt"
+        p.write_text("# nothing real in here\n")
+        assert list(diagnostics.stream_bulk_install(str(p))) == [{"bulk_done": True, "results": {}}]
+
+
+class TestStreamDenoInstall:
+    def test_already_on_path_does_nothing(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/deno")
+        items = list(diagnostics.stream_deno_install())
+        assert items[-1] == {"done": True, "ok": True, "on_path": True, "needs_restart": False}
+
+    def test_prefers_winget_on_windows_when_available(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which",
+                            lambda name: None if name == "deno" else "/x/winget")
+        monkeypatch.setattr(diagnostics.platform, "system", lambda: "Windows")
+        captured = {}
+
+        def fake_popen(cmd, **kw):
+            captured["cmd"] = cmd
+            return _FakePopen([], 0)
+        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(diagnostics.os.path, "exists", lambda p: True)
+
+        list(diagnostics.stream_deno_install())
+        assert captured["cmd"][:2] == ["winget", "install"]
+
+    def test_falls_back_to_the_powershell_script_on_windows_without_winget(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics.platform, "system", lambda: "Windows")
+        captured = {}
+
+        def fake_popen(cmd, **kw):
+            captured["cmd"] = cmd
+            return _FakePopen([], 0)
+        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
+
+        list(diagnostics.stream_deno_install())
+        assert "deno.land/install.ps1" in captured["cmd"][-1]
+
+    def test_uses_the_shell_script_on_linux_and_mac(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics.platform, "system", lambda: "Linux")
+        captured = {}
+
+        def fake_popen(cmd, **kw):
+            captured["cmd"] = cmd
+            return _FakePopen([], 0)
+        monkeypatch.setattr(diagnostics.subprocess, "Popen", fake_popen)
+
+        list(diagnostics.stream_deno_install())
+        assert captured["cmd"][0] == "sh"
+        assert "deno.land/install.sh" in captured["cmd"][-1]
+
+    def test_success_but_not_yet_on_path_reports_needs_restart(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(diagnostics.subprocess, "Popen",
+                            lambda cmd, **kw: _FakePopen(["installed to ~/.deno/bin\n"], 0))
+        monkeypatch.setattr(diagnostics, "_deno_default_install_path", lambda: str(tmp_path / "deno"))
+        (tmp_path / "deno").write_text("")
+
+        items = list(diagnostics.stream_deno_install())
+        assert items[-1] == {"done": True, "ok": True, "on_path": False, "needs_restart": True}
+
+    def test_failed_install_reports_not_ok(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        monkeypatch.setattr(diagnostics.platform, "system", lambda: "Linux")
+        monkeypatch.setattr(diagnostics.subprocess, "Popen",
+                            lambda cmd, **kw: _FakePopen(["curl: command not found\n"], 127))
+        monkeypatch.setattr(diagnostics, "_deno_default_install_path", lambda: str(tmp_path / "deno"))
+
+        items = list(diagnostics.stream_deno_install())
+        assert items[-1]["ok"] is False
+        assert items[-1]["needs_restart"] is False
+
+
 class TestGpuTorchMismatch:
     def test_false_when_nvidia_smi_not_on_path(self, monkeypatch):
         monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
@@ -495,3 +621,112 @@ class TestDependenciesUpgradeExplainsWhenBlocked:
             python_version=(3, 11, 0, "final", 0))
         assert not at.exception
         assert [b for b in at.button if b.key == "upgrade_dep_btn_audio-separator"]
+
+
+class TestBulkTierInstallUI:
+    """Step 62 item 1: real "install everything in this tier" buttons,
+    reusing stream_bulk_install so one bad package never aborts the rest
+    (Step 61's own audio-separator/diffq-fixed case is exactly why)."""
+
+    def _run(self, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["diagnostics_results"] = _FAKE_RESULTS
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_all_three_tier_buttons_exist(self, isolated_db):
+        at = self._run()
+        labels = {b.label for b in at.button}
+        assert "Install everything in requirements-core.txt" in labels
+        assert "Install everything in requirements-media.txt" in labels
+        assert "Install everything in requirements-optional.txt" in labels
+
+    def test_clicking_shows_a_per_package_result_summary(self, isolated_db, monkeypatch):
+        def fake_stream(path):
+            yield {"package": "streamlit>=1.49", "start": True}
+            yield {"package": "streamlit>=1.49", "done": True, "ok": True}
+            yield {"package": "pandas>=2.0", "start": True}
+            yield {"package": "pandas>=2.0", "done": True, "ok": False}
+            yield {"bulk_done": True, "results": {"streamlit>=1.49": True, "pandas>=2.0": False}}
+        monkeypatch.setattr(diagnostics, "stream_bulk_install", fake_stream)
+
+        at = self._run()
+        [b for b in at.button
+         if b.label == "Install everything in requirements-core.txt"][0].click().run(timeout=30)
+
+        assert not at.exception
+        assert [s for s in at.success if "streamlit>=1.49" in s.value]
+        assert [e for e in at.error if "pandas>=2.0" in e.value]
+
+    def test_a_later_rerun_keeps_showing_the_last_results(self, isolated_db, monkeypatch):
+        # The status box's own streamed log only exists during the click's
+        # own run; the summary below it is what has to survive afterward.
+        monkeypatch.setattr(diagnostics, "stream_bulk_install", lambda path: iter(
+            [{"package": "foo>=1", "start": True}, {"package": "foo>=1", "done": True, "ok": True},
+             {"bulk_done": True, "results": {"foo>=1": True}}]))
+        at = self._run()
+        [b for b in at.button
+         if b.label == "Install everything in requirements-media.txt"][0].click().run(timeout=30)
+        at.run(timeout=30)
+        assert [s for s in at.success if "foo>=1" in s.value]
+
+
+class TestDenoInstallUI:
+    """Step 62 item 2: a real Deno install action next to the existing
+    "no JS runtime found" warning, instead of only a text link."""
+
+    def _run(self, found=False, **state):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        fake_results = dict(_FAKE_RESULTS)
+        fake_results["js_runtime"] = {"found": found, "name": "deno" if found else None,
+                                      "path": "/usr/bin/deno" if found else None}
+        at.session_state["diagnostics_results"] = fake_results
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run(timeout=30)
+        return at
+
+    def test_install_button_appears_only_when_no_runtime_found(self, isolated_db):
+        assert [b for b in self._run(found=False).button if b.key == "install_deno_btn"]
+        assert not [b for b in self._run(found=True).button if b.key == "install_deno_btn"]
+
+    def test_success_and_already_on_path_offers_no_restart_notice(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics, "stream_deno_install", lambda: iter(
+            [{"line": "downloading..."},
+             {"done": True, "ok": True, "on_path": True, "needs_restart": False}]))
+        at = self._run(found=False)
+        at.button(key="install_deno_btn").click().run(timeout=30)
+        assert not at.exception
+        assert not [i for i in at.info if "restart" in i.value]
+
+    def test_success_but_not_on_path_shows_a_restart_notice(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics, "stream_deno_install", lambda: iter(
+            [{"line": "downloading..."},
+             {"done": True, "ok": True, "on_path": False, "needs_restart": True}]))
+        at = self._run(found=False)
+        at.button(key="install_deno_btn").click().run(timeout=30)
+        assert not at.exception
+        assert [i for i in at.info if "restart" in i.value.lower()]
+
+    def test_failed_install_shows_the_failure_not_a_restart_notice(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics, "stream_deno_install", lambda: iter(
+            [{"line": "curl: command not found"},
+             {"done": True, "ok": False, "on_path": False, "needs_restart": False}]))
+        at = self._run(found=False)
+        at.button(key="install_deno_btn").click().run(timeout=30)
+        assert not at.exception
+        assert not [i for i in at.info if "restart" in i.value.lower()]
