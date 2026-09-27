@@ -811,14 +811,39 @@ def _constraints_cap(pip_name: str, project_root: str = None):
     return None
 
 
+def _known_python_version_limitation(pip_name: str):
+    """The KNOWN_UPGRADE_LIMITATIONS entry for `pip_name`, if one exists AND
+    this process is actually running the affected Python version -- shared
+    by upgrade_blocked_reason (an installed package that can't go further)
+    and known_install_limitation_reason (Step 61: the same package failing
+    to install in the first place, same root cause, different moment)."""
+    known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
+    if known and sys.version_info[:2] == known["python_version"]:
+        return known
+    return None
+
+
+def known_install_limitation_reason(pip_name: str) -> str:
+    """None, or a short, plain-English reason `pip_name` is known to fail
+    to install at all on this Python version (Step 61) -- shown next to a
+    "not installed" row before the user ever clicks Install, and again if
+    they click it anyway and it fails, so a raw pip/Cython traceback is
+    never the only signal."""
+    known = _known_python_version_limitation(pip_name)
+    if not known:
+        return None
+    py = ".".join(str(p) for p in known["python_version"])
+    return f"known not to install on Python {py} -- {known['reason']}"
+
+
 def upgrade_blocked_reason(pip_name: str, latest_version: str = None,
                            project_root: str = None) -> str:
     """None if a normal "Upgrade" should be offered for `pip_name`.
     Otherwise a short, plain-English reason the row should show INSTEAD
     of the button, so a known-doomed upgrade never just looks like a real
     option with no explanation (Step 47 item 5)."""
-    known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
-    if known and sys.version_info[:2] == known["python_version"]:
+    known = _known_python_version_limitation(pip_name)
+    if known:
         py = ".".join(str(p) for p in known["python_version"])
         return f"latest available for Python {py} -- {known['reason']}"
     cap = _constraints_cap(pip_name, project_root)

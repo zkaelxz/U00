@@ -495,3 +495,76 @@ class TestDependenciesUpgradeExplainsWhenBlocked:
             python_version=(3, 11, 0, "final", 0))
         assert not at.exception
         assert [b for b in at.button if b.key == "upgrade_dep_btn_audio-separator"]
+
+
+class TestNotInstalledExplainsAKnownLimitationUpFront:
+    """Step 61: a package known not to install at all on this Python
+    version says so right in its "not installed" row, before the user
+    ever clicks Install and hits a raw pip/Cython traceback -- and still
+    offers the button, since the known case might not apply (a different
+    machine, or upstream having since fixed it)."""
+
+    def _run(self, monkeypatch, python_version=(3, 14, 0, "final", 0)):
+        from streamlit.testing.v1 import AppTest
+        monkeypatch.setattr(diagnostics.sys, "version_info", python_version)
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        fake_results = dict(_FAKE_RESULTS)
+        fake_results["dependencies"] = dict(_FAKE_RESULTS["dependencies"])
+        fake_results["dependencies"]["audio-separator"] = {
+            "installed": False, "powers": "background-music removal", "tier": "feature"}
+        at.session_state["diagnostics_results"] = fake_results
+        at.run(timeout=30)
+        return at
+
+    def test_known_python_314_limitation_shown_in_the_caption(self, isolated_db, monkeypatch):
+        at = self._run(monkeypatch)
+        captions = " ".join(c.value for c in at.caption)
+        assert "audio-separator" in captions and "3.14" in captions and "diffq-fixed" in captions
+
+    def test_install_button_still_offered_despite_the_known_limitation(self, isolated_db, monkeypatch):
+        at = self._run(monkeypatch)
+        assert [b for b in at.button if b.key == "install_dep_btn_audio-separator"]
+
+    def test_no_known_limitation_mentioned_on_a_different_python_version(self, isolated_db, monkeypatch):
+        at = self._run(monkeypatch, python_version=(3, 11, 0, "final", 0))
+        captions = " ".join(c.value for c in at.caption)
+        assert "diffq-fixed" not in captions
+
+    def test_a_failed_install_adds_the_known_reason_after_the_real_traceback(
+            self, isolated_db, monkeypatch):
+        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 14, 0, "final", 0))
+
+        def fake_stream(name, project_root=None):
+            yield {"line": "ERROR: Failed building wheel for diffq-fixed"}
+            yield {"done": True, "ok": False, "returncode": 1}
+        monkeypatch.setattr(diagnostics, "stream_dependency_install", fake_stream)
+
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        fake_results = dict(_FAKE_RESULTS)
+        fake_results["dependencies"] = dict(_FAKE_RESULTS["dependencies"])
+        fake_results["dependencies"]["audio-separator"] = {
+            "installed": False, "powers": "background-music removal", "tier": "feature"}
+        at.session_state["diagnostics_results"] = fake_results
+        at.run(timeout=30)
+        [b for b in at.button if b.key == "install_dep_btn_audio-separator"][0].click()
+        at.run(timeout=30)
+
+        assert not at.exception
+        infos = " ".join(i.value for i in at.info)
+        assert "known issue" in infos and "diffq-fixed" in infos
+        # The real pip/Cython output is never hidden, only supplemented --
+        # _run_pip_stream writes every line into the status box via
+        # st.write(), which AppTest surfaces as markdown.
+        written = " ".join(m.value for m in at.markdown)
+        assert "Failed building wheel for diffq-fixed" in written
