@@ -14,6 +14,15 @@ def cache_hit_share(usage: dict) -> float:
     return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
 
 
+# Step 52: a full library backup legitimately includes media (audio, video),
+# so these are generous, not tight -- they exist to catch a corrupted or
+# accidentally-huge zip failing safely (before it fills the disk), not to
+# defend against a malicious upload in this single-user app.
+_MAX_RESTORE_MEMBERS = 500_000
+_MAX_RESTORE_MEMBER_BYTES = 50 * 1024 ** 3  # 50 GiB, any one file
+_MAX_RESTORE_TOTAL_BYTES = 200 * 1024 ** 3  # 200 GiB, expanded total
+
+
 def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
     """Step 25k: validate an uploaded backup zip and swap it in for
     library_dir, without ever destroying the existing library if the
@@ -21,11 +30,12 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
 
     Extracts to a staging directory first, and only after the zip is
     confirmed to be a real, intact backup (opens as a zip, contains
-    library.db, no corrupt member) does it touch library_dir at all --
-    by renaming it aside and renaming the staging directory into its
-    place, restoring the original on any failure of that last step.
-    Raises (ValueError, zipfile.BadZipFile, OSError, ...) with nothing
-    yet deleted if validation fails.
+    library.db, no corrupt member, and within the Step 52 size/member
+    limits below) does it touch library_dir at all -- by renaming it
+    aside and renaming the staging directory into its place, restoring
+    the original on any failure of that last step. Raises (ValueError,
+    zipfile.BadZipFile, OSError, ...) with nothing yet deleted if
+    validation fails.
     """
     import shutil
     import tempfile
@@ -36,6 +46,28 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str) -> None:
             if "library.db" not in zf.namelist():
                 raise ValueError("This doesn't look like a Baihe library "
                                   "backup (no library.db found inside the zip).")
+
+            infos = zf.infolist()
+            if len(infos) > _MAX_RESTORE_MEMBERS:
+                raise ValueError(
+                    f"Backup zip contains {len(infos):,} files, more than the "
+                    f"{_MAX_RESTORE_MEMBERS:,}-file limit -- this looks corrupted "
+                    "or unsafe to extract.")
+            total_size = 0
+            for info in infos:
+                if info.file_size > _MAX_RESTORE_MEMBER_BYTES:
+                    raise ValueError(
+                        f"Backup zip contains a file ({info.filename}) that would "
+                        f"expand to {info.file_size / 1024 ** 3:.1f} GiB, more than "
+                        f"the {_MAX_RESTORE_MEMBER_BYTES / 1024 ** 3:.0f} GiB "
+                        "per-file limit -- this looks corrupted or unsafe to extract.")
+                total_size += info.file_size
+                if total_size > _MAX_RESTORE_TOTAL_BYTES:
+                    raise ValueError(
+                        f"Backup zip would expand to more than "
+                        f"{_MAX_RESTORE_TOTAL_BYTES / 1024 ** 3:.0f} GiB total -- "
+                        "this looks corrupted or unsafe to extract.")
+
             if zf.testzip() is not None:
                 raise ValueError("Backup zip is corrupted.")
             parent_dir = os.path.dirname(os.path.abspath(library_dir)) or "."
