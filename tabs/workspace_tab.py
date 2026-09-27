@@ -1927,8 +1927,16 @@ def render_workspace_tab():
     project_state.set_stage(_current_stage_index)
     project_header.render_project_header(_project, drama, stage_labels)
 
+    # Step 19: without `default=`, the tab strip always opened on "Source"
+    # regardless of how far the drama had actually progressed -- the
+    # stepper above would show e.g. "Diarize" as current, but the tabs
+    # below it opened on Source's content every time, an extra click away
+    # from the drama's real next action. `key=` scopes this per drama, so
+    # switching dramas re-seeds the default, but clicking a different tab
+    # within the same drama isn't overridden on the next rerun.
     (tab_source, tab_transcript, tab_diarize, tab_translate, tab_review, tab_dub,
-     tab_export) = st.tabs(stage_labels)
+     tab_export) = st.tabs(stage_labels, default=stage_labels[_current_stage_index],
+                            key=f"workspace_stage_tabs_{picked_id}")
 
     with tab_source:
 
