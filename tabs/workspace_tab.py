@@ -780,7 +780,8 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
-_LINE_WIDGET_KEY = re.compile(r"^(zh|en|start|end|speaker|sfx|rv_improved|rv_retrans)_\d+$")
+_LINE_WIDGET_KEY = re.compile(
+    r"^(zh|en|start|end|speaker|sfx|rv_improved|rv_retrans|rv_why|rv_alts|rv_gram)_\d+$")
 
 
 def _clear_line_widget_state():

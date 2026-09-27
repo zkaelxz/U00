@@ -2866,6 +2866,33 @@ class TestPerLineExplainToolsMovedFromReader:
         assert any("explanation for Line one" in m.value for m in at.info)
         assert any("explanation for Line two" in m.value for m in at.info)
 
+    def test_why_this_result_does_not_survive_a_switch_to_another_drama(self, isolated_db, monkeypatch):
+        # Same bug class as Step 4j/25x, on the newly-added keys specifically:
+        # rv_why_<idx>/rv_alts_<idx>/rv_gram_<idx> are positional (keyed by
+        # idx, not by line id), so switching to a DIFFERENT drama whose own
+        # line 0 exists must clear them -- otherwise drama A's cached
+        # explanation would render under drama B's unrelated line 0.
+        import line_tools
+        monkeypatch.setattr(line_tools, "explain_translation",
+                             lambda zh, en, eng, source_language="zh": f"explanation for {en}")
+        did_a = self._drama_with_a_line(isolated_db)
+        did_b = isolated_db.create_drama(title_en="Other Drama", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated",
+                                         translation_engine="test_offline")
+        isolated_db.save_lines(did_b, [Line(idx=0, start=0.0, end=1.0, zh="另一行", en="A different line.")])
+
+        at = self._run(did_a)
+        [b for b in at.button if b.key == "rvwhy_0"][0].click()
+        at.run(timeout=30)
+        assert any("explanation for Hi there." in m.value for m in at.info)
+
+        [box] = [s for s in at.selectbox if s.label == "Drama"]
+        [b_label] = [o for o in box.options if "Other Drama" in o]
+        box.set_value(b_label).run(timeout=30)
+
+        assert "rv_why_0" not in at.session_state
+        assert not any("explanation for Hi there." in m.value for m in at.info)
+
     def test_why_this_shows_an_explanation(self, isolated_db, monkeypatch):
         import line_tools
         monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "Because reasons.")
