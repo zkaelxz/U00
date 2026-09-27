@@ -236,6 +236,34 @@ work".
 | **Pages your browser already translated** | A browser translator (Google Translate, Edge's) **replaces** a page's text rather than annotating it — confirmed against a live translation, after which the original Japanese was gone from the page. Reading such a page would hand this app the translation as though it were the source, so it would "translate" English it believes is Chinese, or save an English chapter as the original — silently, because the import succeeds and the text looks fine. This is now detected and reported, with what to do about it (turn the browser's page translation off for that site and fetch again). It matters most when you paste page source from your own browser. It is a warning, never a failure: the page loaded fine, so it never stops or escalates the access ladder. Detected from the fingerprints a real translation leaves — `translated-ltr`/`translated-rtl` on `<html>`, the `goog-gt-tt`/`goog-gt-vt` elements, and text rewritten into nested `vertical-align:inherit` `<font>` wrappers. A merely *embedded, idle* translate widget is deliberately not matched, or every page offering translation would be flagged. |
 | Tests | `tests/test_sources_workflows.py` |
 
+### "Will this site work?" — `sources/preflight.py`
+
+Paste a URL and press **✅ Will this site work?** in the Sources tab to
+find out whether a site can be imported *before* committing to it. One
+fetch, through the normal access ladder, answering:
+
+| | |
+|---|---|
+| Permitted? | `ladder.check_terms`, including that site's own `sources/site_terms` entry |
+| Reachable? | which tier got there — plain HTTP or a browser render |
+| Readable? | the real deterministic extractor, judged by the same `validate_novel` checks an import uses, so the preflight can never promise something the importer would then refuse |
+| Prose or chrome? | the duplicate-paragraph, short-fragment and link-text rates behind that score |
+| Navigable? | whether next / previous / contents links were found, i.e. whether a whole series can be followed or chapters must be added one URL at a time |
+| Warnings | a page your own browser has already machine-translated |
+
+**Every ordinary "no" is an answer, not an exception.** Prohibited terms,
+an unreachable page, a challenge, and text that fails the checks all come
+back as a readable finding rather than a traceback.
+
+**Why not just check whether Google Translate works on the site.** That
+rule of thumb is sound — a translator and a scraper both need the text to
+be real DOM text rather than pixels in an image or glyphs on a canvas —
+but it measures the property indirectly. `validate_novel` already scores
+exactly that property here, offline, without sending anyone's URLs to a
+third party, and it also answers the three things a translation check
+never could: is there a chapter list, is this prose or navigation, and
+are we allowed to read it at all.
+
 ### Adaptive extraction (Step 23g) — `sources/adaptive.py`, `sources/ai_extract.py`, `sources/profiles.py`
 
 Order tried for a pasted novel/comic URL, stopping at the first that
