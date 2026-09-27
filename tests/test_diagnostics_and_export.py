@@ -892,6 +892,32 @@ class TestUpgradeBlockedReason:
             "torch", "3.1.0", project_root=str(tmp_path)) is None
 
 
+class TestKnownInstallLimitationReason:
+    """Step 61: the same known, Python-version-specific limitation
+    upgrade_blocked_reason shows for an already-installed package should
+    also be visible for one that isn't installed yet at all -- a "not
+    installed" row shouldn't leave that as the only signal until the
+    user clicks Install and hits a raw pip/Cython traceback."""
+
+    def test_none_for_an_ordinary_package(self):
+        assert diagnostics.known_install_limitation_reason("somepkg") is None
+
+    def test_known_limitation_on_the_affected_python_version(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 14, 0, "final", 0))
+        reason = diagnostics.known_install_limitation_reason("audio-separator")
+        assert reason is not None
+        assert "3.14" in reason and "diffq-fixed" in reason
+
+    def test_underscore_and_hyphen_names_are_equivalent(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 14, 0, "final", 0))
+        assert diagnostics.known_install_limitation_reason("audio_separator") == \
+            diagnostics.known_install_limitation_reason("audio-separator")
+
+    def test_does_not_apply_on_a_different_python_version(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 11, 0, "final", 0))
+        assert diagnostics.known_install_limitation_reason("audio-separator") is None
+
+
 class TestRedactForSupport:
     def test_strips_api_keys(self):
         text = diagnostics.redact_for_support("key=sk-ant-api03-" + "X" * 40)

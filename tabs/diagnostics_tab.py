@@ -207,6 +207,17 @@ def render_diagnostics_tab():
                         version_suffix = ""
                         version_info = version_results.get(name)
                         upgradeable = False
+                        # Step 61: a not-yet-installed package can have the same
+                        # kind of known, Python-version-specific install gap
+                        # upgrade_blocked_reason already tracks for an outdated
+                        # one (audio-separator/diffq-fixed on Python 3.14) --
+                        # say so up front rather than a bare "not installed"
+                        # that only reveals the real reason once Install is
+                        # clicked and fails.
+                        known_install_reason = (diagnostics.known_install_limitation_reason(name)
+                                                if installable else None)
+                        if known_install_reason:
+                            version_suffix = f" -- ⚠️ {known_install_reason}"
                         if version_info:
                             iv, lv = version_info["installed_version"], version_info["latest_version"]
                             if version_info["outdated"] is True:
@@ -235,6 +246,15 @@ def render_diagnostics_tab():
                                     f"Installing {name}...", f"Installed {name}.",
                                     f"Install failed for {name} -- see output above.",
                                     diagnostics.stream_dependency_install(name, project_root=project_root))
+                                if not dep_result["ok"] and known_install_reason:
+                                    # Step 61: the real pip/Cython traceback above is
+                                    # never hidden (see stream_pip_install's own
+                                    # docstring on why), but a known, already-diagnosed
+                                    # failure shouldn't leave that traceback as the
+                                    # only signal either -- say plainly what's going
+                                    # on and that the app still works without it.
+                                    st.info(f"This is a known issue, not something wrong with your "
+                                            f"setup: {known_install_reason}")
                                 if dep_result["ok"]:
                                     st.session_state["diagnostics_results"] = diagnostics.run_full_diagnostics(
                                         project_root, db.LIBRARY_DIR, api_keys_set)
