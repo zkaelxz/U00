@@ -316,7 +316,7 @@ Rules for every milestone:
 | 44 | Trigger a real job failure with Discord notifications enabled and confirm a real message arrives; repeat with ntfy and confirm an action button round-trips correctly and asks for confirmation before doing anything consequential. |
 | 45 | On the reported drama (or a reproduction of its data shape), confirm the stage stepper now shows the correct current stage instead of stuck on Diarize, and confirm subtitles actually appear in the export/preview player. |
 | 46 | Toggle Dark mode on, visit every top-level tab, and confirm every visible card/container/table actually switches to the dark background -- no light-background surfaces left over, especially the Reader tab where this was first reported. Also run a real translation in Standalone Translate and confirm the "Source text (read-only)" box's text is actually readable, not black-on-dark. |
-| 47 | In Diagnostics' "Model & engine versions" panel, install a real not-installed model via its new install action and confirm the row updates; click the "?" on a few rows and confirm each explains that specific model in plain words. |
+| 47 | In Diagnostics' "Model & engine versions" panel, install a real not-installed model via its new install action and confirm the row updates; click the "?" on a few rows and confirm each explains that specific model in plain words. With one heavy local TTS backend already installed, click install on a different one covering the same role and confirm a redundancy warning appears (dismissible, never blocking). On a package capped below its latest release (e.g. `diffq-fixed` on Python 3.14), confirm the row explains why. |
 | 48 | Start Live capture on a real YouTube stream that previously hit "The page needs to be reloaded" (or a mocked equivalent) and confirm it now retries across player clients instead of failing immediately with the generic message. |
 | 49 | Run `test_background_jobs.py::TestNotifyOnCompletion::test_failed_job_notifies_with_error_status` at least 10 times in a row (or under a stress-loop) and confirm it passes every time, not just once. |
 | 50 | Translate a batch from partway through a long novel-narration project and confirm the retrieved reference passages plausibly relate to that batch's content, not the novel's opening chapter every time. |
@@ -330,6 +330,7 @@ Rules for every milestone:
 | 58 | Pick a real flagged or unusual-looking line, open "What happened here?", and confirm every field shown is accurate against the line's actual translation history (cross-check against the database directly for at least one field). |
 | 59 | Drop a real video file into the new Analyze step and confirm the reported duration/resolution/audio language match the file's real properties, and the suggested pipeline is sensible for that file's actual content. |
 | 60 | Give the maintenance assistant a real, deliberately-flawed proposed fix and confirm the independent review role (a different backend than the implement role) catches something the implement role's own self-report didn't flag. |
+| 61 | On a real Python 3.14 environment, run the install step that currently fails on `diffq-fixed` and confirm it now either skips `audio-separator` with a clear message, or installs successfully some other way -- never a raw pip traceback as the only output. Confirm Demucs still installs/runs normally regardless. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3071,10 +3072,14 @@ If diarization results aren't persisting to the `speaker` field on this drama's 
 1. Add a per-row install action for anything showing "not installed," reusing Step 18c's existing `stream_pip_install`/tier-gated install machinery rather than building a second one — this may mean adding the `tier` field to `get_model_engine_versions()`'s data (or joining it against `OPTIONAL_DEPENDENCIES` by name) so the existing button logic can drive this panel too, or simply linking each red row to the matching entry in the Dependencies section rather than duplicating the button here. Investigate which is the smaller, more correct change before building either.
 2. Add a "?" / help affordance per row (or one shared legend) explaining in plain words what each model/engine does and which app feature uses it (e.g. "Qwen3-ASR — an alternative speech-to-text engine to Whisper, used for transcription when selected in Settings"). Keep the copy short — this is a tooltip, not documentation.
 3. Keep the panel's existing "no network call, only what's installed right now" behavior unchanged — this is additive, not a rework of what the panel checks.
+4. **Warn before installing a redundant heavy local TTS backend, at the user's direct request (2026-09-27).** If a functionally-equivalent optional TTS engine is already installed (e.g. Chatterbox), the install action for a different heavy alternative covering the same role (OmniVoice, or any future addition — note the user asked about "Hume" specifically, which isn't currently in this app's engine list at all; confirm whether it's a real candidate worth adding before building anything Hume-specific, rather than assuming) should show a plain confirmation first ("Chatterbox is already installed and covers this — also install OmniVoice? It's a large download and won't replace Chatterbox, both stay available.") rather than silently proceeding — same "confirm before a consequential action" pattern used everywhere else in this app, scaled down since installing an extra package is reversible, not destructive. Never block the install outright — the user may genuinely want both for comparison (ties into Step 38's Model Arena) — just don't let a large, redundant download happen without the user seeing that it's redundant first.
+5. **When an "Upgrade" action can't offer the latest version, say why, at the user's direct request.** If a package is pinned below its latest release for a real reason (a known incompatibility, a `constraints.txt` cap, or — per Step 61's own finding — no published wheel for the running Python version), the row's upgrade action should show that reason next to the version number ("0.2.4 — latest available for Python 3.14; no newer wheel published yet") rather than silently offering an upgrade that would fail the same way Step 61 found, or silently offering nothing with no explanation. Reuse Step 61's own finding as the first real case to wire this against, rather than inventing a hypothetical one.
 
 **Exit:**
 - Manual check: open Diagnostics with at least one real "not installed" model showing (e.g. Qwen3-ASR on a fresh environment), click its install action, and confirm it actually installs and the row flips to installed without restarting the app — same standard as Step 18c's own exit criteria.
 - Manual check: hover/click the "?" on at least three different rows and confirm each shows a distinct, accurate, plain-English description of what that specific model does, not a generic placeholder.
+- Manual check (item 4): with one heavy local TTS backend already installed, click install on a different one covering the same role and confirm the redundancy warning appears and can be dismissed to proceed anyway — it never silently blocks the install.
+- Manual check (item 5): on a package known to be capped below its latest release (e.g. `diffq-fixed` on Python 3.14, per Step 61), confirm the row explains why rather than offering a silent, doomed-to-fail upgrade.
 
 ---
 
@@ -3312,6 +3317,27 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 
 ---
 
+### Step 61 — Fix: `audio-separator`'s `diffq-fixed` dependency has no Python 3.14 wheel and its sdist fails to build
+
+**User-reported, with a real install error (2026-09-27)**: `pip install audio-separator` (part of a full `requirements.txt` install) fails building `diffq-fixed`'s wheel with `ValueError: 'bitpack.pyx' doesn't match any files` during Cython's `cythonize()` step — a raw 38-line traceback, not a clear message.
+
+**Root cause, confirmed directly against the real PyPI package index (2026-09-27)**: `diffq-fixed` has exactly one released version, `0.2.4`, with wheels published for `cp310`/`cp311`/`cp312`/`cp313` (Windows + Linux, `cp313` Windows-only) — **but no `cp314` wheel exists at all.** On Python 3.14 (the user's confirmed real interpreter version), pip has no choice but to fall back to building from the sdist, and that sdist build independently fails — its own tarball is missing `bitpack.pyx`, a file `setup.py`'s `cythonize()` call expects to find, a real upstream packaging defect unrelated to which Python version is used.
+
+**Same underlying class of problem already flagged once for `torch`** (Step 18/18c's "a very new Python version outrunning what packages have published wheels for," and Step 18c item 5's own note that `diffq-fixed`'s README "3.9+" claim doesn't guarantee a published wheel for every 3.9+ version) — but unlike `torch`, which has a working CUDA-index install path once the right index is picked, `diffq-fixed` currently has **no working install path at all on Python 3.14**, since even the source-build fallback is broken.
+
+`audio-separator` is `requirements-optional.txt`'s alternate vocal-separation backend, not the app's default (Demucs is; `requirements.txt` line: `audio-separator>=0.30`, unpinned) — so this doesn't block the app itself, only a full "everything" install or explicitly picking `audio-separator` as the backend.
+
+1. **Give this a clear, actionable install-time message instead of a raw pip traceback** — matching the project's own established pattern for the `torch` CPU-only-wheel case (Step 18 item 7, Step 18c item 6): detect a `diffq-fixed`/Cython build failure during `requirements-install.bat`'s install step and print something like "audio-separator's diffq-fixed dependency doesn't have a prebuilt wheel for your Python version (3.14) yet — vocal separation will still work via Demucs, the app's default; audio-separator is an optional alternate backend you can skip for now" rather than letting the raw traceback be the only signal.
+2. **Check whether `audio-separator` can be made to work without `diffq-fixed` at all** — re-verify what `diffq-fixed` is actually used for inside `audio-separator`'s own dependency tree (it may be an optional extra, not a hard requirement, in which case installing `audio-separator` without it might already work) before assuming the only fix is a wrapper message.
+3. **Register this as a known current install gap in `diagnostics.py`'s `OPTIONAL_DEPENDENCIES` handling** (per `CLAUDE.md`'s own standing rule) if it isn't already surfaced there — so Diagnostics' dependency panel can say "not installed, known build issue on Python 3.14" rather than a bare "not installed."
+4. **Don't attempt to fix `diffq-fixed`'s own upstream sdist** — that's someone else's package; this step's job is making the failure clear and non-blocking for this app, not fixing a third-party PyPI package.
+
+**Exit:**
+- Manual check: on a real Python 3.14 environment, run the install step that currently fails and confirm it now either skips `audio-separator` with a clear explanatory message, or installs successfully some other way — never a raw, unexplained pip traceback as the only output.
+- Manual check: confirm Demucs (the default vocal-separation backend) is completely unaffected and still installs/runs normally regardless of this fix.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3498,6 +3524,7 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
   | 58 — "What happened here?" per-segment debugging view | — | Sent (`session_016FukM8hJrX1xkfzQQvzeFi`) | — |
   | 59 — Media/Project Inspector: analyze dropped media before creating a project | — | Sent (`session_01HtZpbua7t4QikLDfE5BLL6`) | — |
   | 60 — Multi-agent orchestration: specialized roles, cross-provider review | — | Not started | — |
+  | 61 — Fix: `audio-separator`'s `diffq-fixed` has no Python 3.14 wheel, broken sdist | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
