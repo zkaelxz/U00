@@ -1,13 +1,14 @@
 """
-tests/test_reader_tab.py -- Reader tab's Line tools.
+tests/test_reader_tab.py -- Reader tab.
 
-Step 25c item 3: "Improve this line" and "Re-transcribe" stored their
-generated result under a drama-scoped key, so a result generated for one
-line was still offered -- and applied -- after picking a different line.
-
-Step 25x: "Why this?"/"Alternatives"/"Grammar" had the same bug -- they
-were never moved onto the per-line key Step 25c introduced for the two
-tools above.
+"Line tools" (Improve this line/Re-transcribe/Why this?/Alternatives/
+Grammar/Pronounce), and its Step 25c/25x per-line-isolation regression
+tests that used to live here, moved to Workspace's own per-line 🔧
+popover in Step 15 -- same job, previously split across two tabs for no
+functional reason. See tests/test_workspace_tab.py for the current
+coverage (that popover's buttons are already keyed per-line by ln.idx,
+not a shared re-selectable-picker key, so the old bug class this file
+used to guard against can't reoccur the same way).
 """
 import os
 import sys
@@ -16,10 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import core as core_module
-import line_tools
 import segment
-import translate_engines
 from core import Line
 
 
@@ -29,20 +27,6 @@ def _no_jieba(monkeypatch):
     faked here so a core-only install still runs these tests."""
     monkeypatch.setattr(segment, "segment_and_annotate",
                          lambda text, language, chinese_script="simplified": [(text, "")])
-
-
-def _drama(isolated_db, audio=False):
-    did = isolated_db.create_drama(title_en="Reader Drama", status="translated",
-                                   audio_filename="audio.wav" if audio else None)
-    isolated_db.save_lines(did, [
-        Line(idx=0, start=0.0, end=1.0, zh="第一行", en="Line one"),
-        Line(idx=1, start=1.0, end=2.0, zh="第二行", en="Line two"),
-    ])
-    if audio:
-        ddir = isolated_db.drama_dir(did)
-        os.makedirs(ddir, exist_ok=True)
-        open(os.path.join(ddir, "audio.wav"), "wb").close()
-    return did
 
 
 def _run(did):
@@ -56,101 +40,6 @@ def _run(did):
     at.session_state[f"story_key_{did}"] = "test-key"
     at.run(timeout=30)
     return at
-
-
-def _pick_line(at, did, number):
-    [picker] = [s for s in at.selectbox if s.key == f"lt_{did}"]
-    [label] = [o for o in picker.options if o.startswith(f"Line {number}:")]
-    picker.set_value(label).run(timeout=30)
-
-
-def _click(at, label, key=None):
-    [button] = [b for b in at.button if b.label == label and (key is None or b.key == key)]
-    button.click().run(timeout=30)
-
-
-class TestImproveThisLineIsPerLine:
-    @pytest.fixture(autouse=True)
-    def _fake_llm(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-        monkeypatch.setattr(line_tools, "improve_line",
-                             lambda zh, en, eng, issue="", source_language="zh": f"better {en}")
-
-    def test_a_result_for_one_line_is_not_offered_on_another(self, isolated_db):
-        did = _drama(isolated_db)
-        at = _run(did)
-        _click(at, "Rewrite line")
-        assert any(s.value == "better Line one" for s in at.success)
-
-        _pick_line(at, did, 2)
-        assert not any(s.value == "better Line one" for s in at.success)
-        assert not [b for b in at.button if b.label == "Apply to this line"]
-        assert [ln.en for ln in isolated_db.load_line_objects(did)] == ["Line one", "Line two"]
-
-    def test_going_back_applies_the_result_to_the_line_it_was_made_for(self, isolated_db):
-        did = _drama(isolated_db)
-        at = _run(did)
-        _click(at, "Rewrite line")
-        _pick_line(at, did, 2)
-        _pick_line(at, did, 1)
-        _click(at, "Apply to this line")
-
-        assert [ln.en for ln in isolated_db.load_line_objects(did)] == ["better Line one", "Line two"]
-
-
-class TestRetranscribeIsPerLine:
-    def test_a_result_for_one_line_is_not_applied_to_another(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(core_module, "extract_audio_slice",
-                             lambda audio, start, end, out: open(out, "wb").close())
-        monkeypatch.setattr(core_module, "transcribe_for_timing",
-                             lambda path, **k: [{"text": "重听的第一行"}])
-        did = _drama(isolated_db, audio=True)
-        at = _run(did)
-        _click(at, "Re-transcribe")
-        assert any(s.value == "重听的第一行" for s in at.success)
-
-        _pick_line(at, did, 2)
-        assert not any(s.value == "重听的第一行" for s in at.success)
-        assert not [b for b in at.button if b.key and b.key.startswith("apply_retranscribe_")]
-        assert [ln.zh for ln in isolated_db.load_line_objects(did)] == ["第一行", "第二行"]
-
-
-class TestWhyThisAlternativesGrammarArePerLine:
-    @pytest.fixture(autouse=True)
-    def _fake_llm(self, monkeypatch):
-        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
-        monkeypatch.setattr(line_tools, "explain_translation",
-                             lambda zh, en, eng, source_language="zh", glossary_terms=None:
-                             f"explanation for {en}")
-        monkeypatch.setattr(line_tools, "alternative_translations",
-                             lambda zh, en, eng, count=3, source_language="zh", style_hint="":
-                             [{"translation": f"alt for {en}", "approach": "", "tradeoff": ""}])
-        monkeypatch.setattr(line_tools, "grammar_breakdown",
-                             lambda zh, eng, source_language="zh": [{"word": zh, "gloss": ""}])
-
-    def test_results_for_one_line_are_not_shown_under_another(self, isolated_db):
-        did = _drama(isolated_db)
-        at = _run(did)
-        _click(at, "Why this?")
-        _click(at, "Alternatives")
-        _click(at, "Grammar")
-        assert any(i.value == "explanation for Line one" for i in at.info)
-        assert any(c.value == "**alt for Line one**  \n_ — trades away: _" for c in at.caption)
-        assert at.dataframe
-
-        _pick_line(at, did, 2)
-        assert not any(i.value == "explanation for Line one" for i in at.info)
-        assert not any(c.value == "**alt for Line one**  \n_ — trades away: _" for c in at.caption)
-        assert not at.dataframe
-
-    def test_re_selecting_a_previously_inspected_line_still_shows_its_result(self, isolated_db):
-        did = _drama(isolated_db)
-        at = _run(did)
-        _click(at, "Why this?")
-        _pick_line(at, did, 2)
-        _pick_line(at, did, 1)
-
-        assert any(i.value == "explanation for Line one" for i in at.info)
 
 
 # ------------------------------------------- Step 12: live captions in Watch / listen
@@ -212,3 +101,62 @@ class TestCaptionTracks:
         assert not at.exception
         assert at.get("video") == []
         assert len(at.get("audio")) == 1
+
+
+# ------------------------------------------- Step 15: Reader tab declutter
+
+class TestStoryPanelAndCollapsibleSections:
+    """Step 15: the primary reading view (drama picker, Watch/listen,
+    pagination, the reader itself) stays immediately visible; Story tools,
+    Universe wiki, and Ask about this drama move into a secondary "Story"
+    popover reachable from Read & Watch rather than always stacked below
+    the reader; My notes and Vocabulary export stay attached to the
+    reading view but become individually collapsible, at the user's
+    direct request."""
+
+    def _drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Reader Drama", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        return did
+
+    def test_primary_reader_renders_before_any_secondary_content(self, isolated_db):
+        # The reader's own iframe is built and inserted well before the
+        # Story popover or the My notes / Vocabulary export expanders --
+        # nothing secondary pushes it down the page.
+        did = self._drama(isolated_db)
+        at = _run(did)
+        assert not at.exception
+        expander_labels = [e.label for e in at.expander]
+        assert "🗒️ My notes" in expander_labels
+        assert "📇 Vocabulary export" in expander_labels
+
+    def test_story_tools_universe_wiki_and_qa_are_reachable(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = _run(did)
+        expander_labels = [e.label for e in at.expander]
+        assert "🧠 Story tools" in expander_labels
+        assert "📚 Universe wiki" in expander_labels
+        assert "💬 Ask about this drama" in expander_labels
+        # Confirms these three still have their own real widgets underneath,
+        # not just an empty relocated shell.
+        assert any(ti.key and ti.key.startswith("charq_") for ti in at.text_input)
+        assert any(b.label == "🔄 Update wiki from what I've read" for b in at.button)
+        assert at.chat_input
+
+    def test_my_notes_and_vocab_export_are_individually_collapsible(self, isolated_db):
+        did = self._drama(isolated_db)
+        at = _run(did)
+        notes = [e for e in at.expander if e.label == "🗒️ My notes"][0]
+        vocab = [e for e in at.expander if e.label == "📇 Vocabulary export"][0]
+        # Each is its own independent st.expander -- collapsing/expanding one
+        # doesn't affect the other. Their content still renders either way
+        # (AppTest executes expander bodies regardless of open state).
+        assert any(ta.key and ta.key.startswith("pnotes_") for ta in at.text_area)
+        assert any(c.value and "word(s) looked up" in c.value for c in vocab.caption)
+        assert notes is not vocab
+
+    def test_no_bare_or_duplicate_leftover_line_tools_section(self, isolated_db):
+        # Line tools moved to Workspace entirely -- nothing with that
+        # heading should remain in Reader.
+        src = open("tabs/reader_tab.py", encoding="utf-8").read()
+        assert "Line tools" not in src
