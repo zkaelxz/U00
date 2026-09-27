@@ -2,6 +2,8 @@
 
 > **NEXT (2026-09-27, wholesale-replaced)** — verified fresh against real git state, not carried over from any earlier note here:
 >
+> **Step 73 added (2026-09-27)** — a real, reproduced crash on Streamlit 1.49.1 itself, the version the requirements floor (`>=1.49`) claims to support: Workspace's stage tabs use `st.tabs(default=..., key=...)` (added in Step 19), and Read & Watch uses `st.iframe` — neither exists in 1.49.1. Distinct from Step 68's dark-mode/selectbox DOM findings (styling, not crashes), though likely the same underlying cause (an older Streamlit actually installed vs. what the app was really built against) — worth fixing before more DOM-dependent styling work chases version-specific symptoms. Not yet dispatched.
+>
 > **Step 26c merged (2026-09-27, PR #161)** — novel narration in the original language with bilingual subtitles, independently reviewed (real diff read, trial-merged clean, full suite 3170 passed/49 skipped/0 failed on the merged tree, all six build items and exit tests confirmed present), CI green before squash-merge. Next in its queue: Step 32.
 >
 > **Every step from 1 through 24, plus 26, 26c, 30, 33, 34, 35, 46, 48, 49, 50, 52, 53, 57, is merged.** Latest batch: **Steps 46, 48, 50, 52, 53, 57** (PRs #140–#145, all landed 2026-09-27) — reviewed together: real diffs read in full, trial-merged as a group in an isolated worktree with no file overlap and no conflicts, full combined suite run clean (3034 passed, 47 skipped, 0 failed), then each PR opened and squash-merged individually once its own CI came back green. Step 50 flagged (not fixed, out of scope) a pre-existing dead-code pair in `build_llm_instructions()` (`novel_reference` param unused, `meta_block` return redundant). Before that: **Step 24** (PR #136, translation memory + side-by-side engine comparison + library quick-filter tags — independently reviewed, full suite 2999 passed/47 skipped/0 failed) and **Step 27** (PR #121, confirmed already merged). Full history of earlier merges (Steps 1–20, 33–35, 49, plus the `fix-torch-reimport-crash-in-tests`/`claude/verify-sources-k7eyoz`/`sources-preflight` branches) is in each step's own section — not repeated here to avoid this note growing without bound.
@@ -346,6 +348,7 @@ Rules for every milestone:
 | 70 | Decided (2026-09-27): no action — user reviewed and jointly green-lit this design. Not pending. |
 | 71 | Attempt to delete a saved translation version, a preset, a glossary term (single and bulk), a series character, and a saved bug bundle, and confirm each now requires a confirm step before it's actually deleted. |
 | 72 | Once Step 42 exists and produces a real proposed fix, confirm clicking "Deliver as GitHub PR" opens an actual, reviewable PR on the configured repo with the exact diff shown in-app; also confirm the integration makes no GitHub calls at all while disabled or with no token set. |
+| 73 | Install the chosen minimum Streamlit version in an isolated throwaway venv, run the real app, open a drama in Workspace and in Read & Watch, and confirm neither tab errors; also confirm the version just below the new floor still fails. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3567,6 +3570,26 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms a mocked proposed-fix diff results in a real branch + PR created against the configured repo, never a direct push to the default branch.
 - A test confirms the integration stays inert (no GitHub calls) until explicitly enabled and a token is set, same as Jellyfin/Discord's own default-OFF behavior.
 - Manual check: once Step 42 exists and produces a real proposed fix, confirm clicking "Deliver as GitHub PR" opens an actual, reviewable PR on the configured repo with the exact diff shown in-app.
+
+---
+
+### Step 73 — Fix: `requirements.txt`'s Streamlit floor (`>=1.49`) is below what the app actually needs, crashing two tabs
+
+**Bug, reproduced live against the real app on Streamlit 1.49.1 (2026-09-27).** `requirements.txt`/`requirements-core.txt` declare `streamlit>=1.49` (`constraints.txt` caps `<2`), but two tabs crash on 1.49.1 itself — the floor the app claims to support doesn't actually work:
+
+1. **Workspace**: opening any drama shows "The Workspace tab hit an error" — `TypeError: LayoutsMixin.tabs() got an unexpected keyword argument 'default'`. Cause: `tabs/workspace_tab.py`'s stage tabs, `st.tabs(stage_labels, default=..., key=f"workspace_stage_tabs_{picked_id}")` (added in Step 19). `inspect.signature(st.tabs)` confirms `default`/`key` are absent in 1.49.1 and present in 1.56.0 through 1.64.0 (1.50–1.55 not yet checked).
+2. **Read & Watch**: opening a drama shows "The Read & Watch tab hit an error" — `st.iframe` (used by `tabs/reader_tab.py`'s reader table and `tabs/discover_tab.py`) doesn't exist at all in 1.49.1 (`hasattr(st, "iframe")` is `False`).
+
+This is a distinct, more foundational issue from Step 68's dark-mode/selectbox DOM findings (which are about styling, not crashes) — likely the same root cause (an old Streamlit actually installed vs. the version the app was really built/tested against), worth fixing before more DOM-dependent styling work chases version-specific symptoms.
+
+1. Find the real minimum Streamlit version the app needs — check every newer-API use, not only the two crashes above: `st.tabs(default=/key=)`, `st.iframe`, `st.popover(width=)`, `st.button(icon=)`, `st.pills`, `width="stretch"`, and anything else found by grepping the tabs for Streamlit calls.
+2. Raise the floor in both `requirements.txt` and `requirements-core.txt` to that real minimum, with a comment naming which feature needs it. Also check `start.bat`/`check_setup.py`/`diagnostics.py` for any stated minimum-Streamlit-version text that needs updating to match.
+3. Verify in an isolated throwaway venv (`python -m venv --without-pip`, a `.pth` file pointing back at the main env's site-packages, then `python -m pip --python <venv python> install streamlit==X` — never touches the real environment): install the chosen minimum, run `streamlit run app.py` from it, open a drama in Workspace and in Read & Watch, confirm neither tab errors. Also confirm the version just below the new floor still fails, so the floor is tight, not padded.
+4. Add a cheap regression test if practical — e.g. one that parses the requirements floor and asserts it's at least the version where `st.tabs` accepts `default`.
+
+**Exit:**
+- A test confirms the requirements floor is parsed and asserts it's at or above the real minimum Streamlit version found in step 1.
+- Manual check (per step 3 above): the chosen minimum version runs both Workspace and Read & Watch with no tab-crash error; the version just below it does still fail, confirming the floor is tight.
 
 ---
 
