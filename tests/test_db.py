@@ -22,6 +22,15 @@ class TestDramaCRUD:
         assert drama["title_en"] == "Test Drama"
         assert drama["status"] == "not started"  # default
 
+    def test_narration_language_defaults_to_translation_and_persists_original(self, isolated_db):
+        """Step 26c: existing dramas (and any new one that doesn't opt in)
+        keep narrating the translation -- 'original' only takes effect
+        once a drama explicitly sets it."""
+        did = isolated_db.create_drama(title_en="Novel", content_mode="novel_narration")
+        assert isolated_db.get_drama(did)["narration_language"] == "translation"
+        isolated_db.update_drama(did, narration_language="original")
+        assert isolated_db.get_drama(did)["narration_language"] == "original"
+
     def test_source_url_persists(self, isolated_db):
         did = isolated_db.create_drama(title_en="Stream", title_zh="直播原名")
         isolated_db.update_drama(did, source_url="https://youtube.com/watch?v=fake123")
