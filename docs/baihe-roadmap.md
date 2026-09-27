@@ -2582,7 +2582,7 @@ From a user request, explored on branch `claude/iqiyi-ai-vertical-shorts-mzim4n`
 
 1. A `voice_bank` table in the shared library DB, plus a copied clip file under the library folder (not a reference into the source drama's folder) — so deleting the source drama doesn't break a bank entry.
 2. "💾 Save to voice bank" next to each character's clone reference in Workspace, in any project — copies the clip and the fields listed above into a new bank entry.
-3. "Use a voice from the bank" on each character, in any project — copies the bank entry's clip into that drama's folder and sets the matching clone fields (`ref_audio_filename`, `ref_text`, `clone_engine`, `voice_design`, and `tts_voice`/`offline_voice` where relevant).
+3. "Use a voice from the bank" on each character, in any project — copies the bank entry's clip into that drama's folder and sets the matching clone fields (`ref_audio_filename`, `ref_text`, `clone_engine`, `voice_design` — the bank's own field list per the "Decided" note above; `tts_voice`/`offline_voice` are edge-tts/Piper *fallback* voice names, unrelated to cloning, and a bank entry never stores or sets them).
 4. A preview button (play the clip in place) and delete/rename on each bank entry. Natural home: a new collapsible section in the Library tab (no new top-level tab needed for this alone — consistent with keeping the tab bar from growing without cause).
 5. A short, visible note wherever a bank entry is created or applied: voices cloned from commercial audio dramas are for personal use only.
 
