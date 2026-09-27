@@ -111,6 +111,18 @@ external project checked so far.
   session's own session list/notifications when it pushes or needs
   attention — treat its pushed branch exactly like any other implementing
   branch under the review-gate rules above.
+- **Pass `permission_mode: "auto"` on every `create_session` call for an
+  implementing session (confirmed with the user, 2026-09-27).** Without it,
+  a spawned session defaults to a more restrictive mode and repeatedly
+  prompts the user for approval on ordinary build/test/push actions the
+  handoff already authorizes — the user's own directly-created sessions
+  already run in `auto` mode, so this just gives a planning-spawned session
+  the same standing authorization instead of a stricter default by
+  accident. This doesn't widen what the session is allowed to do (still
+  bounded by `docs/ai-setup/CLAUDE.md`'s own gated-mode rules) — it only
+  stops it from asking permission for what's already authorized. A session
+  already running under a stricter mode when this was written can't be
+  changed retroactively; this only applies to future spawns.
 - **Streamline session/handoff creation — don't add approval round-trips
   the user has already waived (2026-09-27).** Once a step is confirmed
   ready to send (per the roadmap's own NEXT pointer, or an explicit user
