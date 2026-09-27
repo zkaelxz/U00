@@ -140,6 +140,7 @@ baihe-subtitler/
 | `storage.py` | disk usage, cache cleanup |
 | `diagnostics.py` | environment self-check |
 | `ui_theme.py` | design system (CSS, layout primitives) |
+| `action_tiers.py` | 🟢/🟡/🔴 action-permission-tier classification an AI-driven feature checks before acting |
 
 ## Rules of thumb
 
