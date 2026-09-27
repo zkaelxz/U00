@@ -725,7 +725,12 @@ def render_library_tab():
                         db.rename_preset(_p["id"], _new_name.strip())
                         st.rerun()
                 with _pc3:
-                    if st.button("🗑️", key=f"delete_preset_{_p['id']}", help=f"Delete \"{_p['name']}\""):
+                    # Step 71: same confirm-before-delete pattern used elsewhere in this app.
+                    _confirm_del_preset = st.checkbox(
+                        "Confirm", key=f"confirm_delete_preset_{_p['id']}", label_visibility="collapsed",
+                        help=f"Confirm delete \"{_p['name']}\"")
+                    if st.button("🗑️", key=f"delete_preset_{_p['id']}", help=f"Delete \"{_p['name']}\"",
+                                disabled=not _confirm_del_preset):
                         db.delete_preset(_p["id"])
                         st.rerun()
 

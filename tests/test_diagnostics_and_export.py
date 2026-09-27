@@ -12,6 +12,8 @@ import zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
+import db
+import debug_view
 import diagnostics
 import export_package
 from core import Line, lines_to_srt, lines_to_bilingual_srt
@@ -496,6 +498,46 @@ class TestPiperVoicesPanelUI:
     def test_nothing_shown_when_no_piper_voices_downloaded(self, isolated_db):
         at = self._run()
         assert not any("Piper voices" in c.value for c in at.caption)
+
+
+class TestBugBundleDeleteNeedsConfirmation:
+    """Step 71: "Delete bundle" used to fire on a single click with no
+    confirmation, unlike every other destructive action in the app."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.diagnostics_tab as dt
+            dt.render_diagnostics_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _bundle(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama")
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")]
+        isolated_db.save_lines(did, lines)
+        return debug_view.save_bug_bundle(
+            did, lines[0], lines, "claude", None, glossary_terms=[], locale="en-US")
+
+    def test_delete_bundle_disabled_until_confirmed(self, isolated_db):
+        report_id = self._bundle(isolated_db)
+        at = self._run()
+
+        assert [b for b in at.button if b.key == f"bug_delete_{report_id}"][0].disabled
+        at.checkbox(key=f"confirm_bug_delete_{report_id}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"bug_delete_{report_id}"][0].disabled
+
+    def test_delete_bundle_removes_it_once_confirmed(self, isolated_db):
+        report_id = self._bundle(isolated_db)
+        at = self._run()
+
+        at.checkbox(key=f"confirm_bug_delete_{report_id}").set_value(True).run(timeout=30)
+        [b for b in at.button if b.key == f"bug_delete_{report_id}"][0].click().run(timeout=30)
+
+        assert isolated_db.get_bug_report(report_id) is None
 
 
 class TestModelEngineVersions:

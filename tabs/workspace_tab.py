@@ -2988,7 +2988,11 @@ def render_workspace_tab():
                                     f"_{pol_label}_" + (f" — {t['notes']}" if t.get("notes") else ""))
                         if gtc2.button("✏️", key=f"editglo_btn_{t['id']}"):
                             st.session_state[_editing_key] = not st.session_state.get(_editing_key, False)
-                        if gtc3.button("🗑️", key=f"delglo_{t['id']}"):
+                        # Step 71: same confirm-before-delete pattern used elsewhere in this app.
+                        _confirm_delglo = gtc3.checkbox(
+                            "Confirm", key=f"confirm_delglo_{t['id']}", label_visibility="collapsed",
+                            help=f"Confirm delete '{t['term_original']}'")
+                        if gtc3.button("🗑️", key=f"delglo_{t['id']}", disabled=not _confirm_delglo):
                             db.delete_glossary_term(t["id"])
                             st.rerun()
 
@@ -3049,14 +3053,20 @@ def render_workspace_tab():
                     _bulk_gl_pick = st.multiselect(
                         "Select terms", [t["term_original"] for t in terms],
                         key=f"bulk_glossary_pick_{sid}")
-                    if _bulk_gl_pick and st.button(
-                            f"🗑️ Delete {len(_bulk_gl_pick)} selected term(s)",
-                            key=f"bulk_glossary_delete_{sid}"):
-                        for t in terms:
-                            if t["term_original"] in _bulk_gl_pick:
-                                db.delete_glossary_term(t["id"])
-                        st.toast(f"Deleted {len(_bulk_gl_pick)} term(s).", icon="✅")
-                        st.rerun()
+                    if _bulk_gl_pick:
+                        # Step 71: matches the analogous bulk drama-delete pattern in Library,
+                        # which already confirms -- this bulk action didn't.
+                        _confirm_bulk_gl_delete = st.checkbox(
+                            f"Confirm delete {len(_bulk_gl_pick)} selected term(s)",
+                            key=f"bulk_glossary_delete_confirm_{sid}")
+                        if st.button(f"🗑️ Delete {len(_bulk_gl_pick)} selected term(s)",
+                                    key=f"bulk_glossary_delete_{sid}",
+                                    disabled=not _confirm_bulk_gl_delete):
+                            for t in terms:
+                                if t["term_original"] in _bulk_gl_pick:
+                                    db.delete_glossary_term(t["id"])
+                            st.toast(f"Deleted {len(_bulk_gl_pick)} term(s).", icon="✅")
+                            st.rerun()
 
                 with st.form(f"add_glossary_{sid}", clear_on_submit=True):
                     gc1, gc2 = st.columns(2)
@@ -3102,7 +3112,11 @@ def render_workspace_tab():
                             new_sc_name = scc1.text_input(
                                 "name", value=sc["character_name"], label_visibility="collapsed",
                                 key=f"scname_{sc['id']}")
-                            if scc2.button("🗑️ Remove", key=f"scdel_{sc['id']}"):
+                            # Step 71: same confirm-before-delete pattern used elsewhere in this app.
+                            _confirm_scdel = scc2.checkbox(
+                                "Confirm", key=f"confirm_scdel_{sc['id']}",
+                                help=f"Confirm remove '{sc['character_name']}' from this series")
+                            if scc2.button("🗑️ Remove", key=f"scdel_{sc['id']}", disabled=not _confirm_scdel):
                                 db.delete_series_character(sc["id"])
                                 st.rerun()
                             if new_sc_name and new_sc_name != sc["character_name"]:
@@ -5406,7 +5420,14 @@ def render_workspace_tab():
                                                    "these lines were merged/split, so its own lines "
                                                    "(timing, speakers) were restored with it.")
                                         st.rerun()
-                            if vc3.button("🗑️", key=f"delv_{v['id']}"):
+                            # Step 71: the most consequential of the four permanent-delete
+                            # actions this step adds confirmation to -- no undo, and it sits
+                            # right next to the compare/restore feature whose whole purpose
+                            # is being able to go back to an earlier version.
+                            _confirm_delv = vc3.checkbox(
+                                "Confirm", key=f"confirm_delv_{v['id']}", label_visibility="collapsed",
+                                help=f"Confirm permanently delete '{v['label']}' -- no undo.")
+                            if vc3.button("🗑️", key=f"delv_{v['id']}", disabled=not _confirm_delv):
                                 db.delete_translation_version(v["id"])
                                 st.rerun()
 
