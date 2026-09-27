@@ -76,7 +76,7 @@ def _render_front_door():
                 st.session_state.src_fd_result = None
                 st.error(f"{e.reason.value}: {e}")
 
-    if st.button("✅ Will this site work?", key="src_fd_preflight",
+    if st.button("✅ Will this site work?", key="src_fd_preflight_btn",
                  disabled=not url.strip(),
                  help="Checks whether this site can actually be imported -- is the page "
                       "reachable, does its text survive the same checks an import uses, can "
