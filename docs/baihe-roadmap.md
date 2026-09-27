@@ -337,6 +337,7 @@ Rules for every milestone:
 | 65 | Whichever way the tab-name decision goes, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab. |
 | 66 | Run the upgrade-safety check against a real package upgrade (e.g. `huggingface_hub`) and confirm the report reflects the real test-suite outcome for that version, not a guess. |
 | 67 | Re-run the full suite on a real Windows machine and confirm exactly which failure groups from the original report are now resolved versus still open; specifically confirm `test_app_help.py` and the HF cache tests behave correctly without manual env-var workarounds. |
+| 68 | With Dark mode on, use App Assistant (input + chat bubbles readable) and check whether Translate History's blank "Translation" column is a CSS gap or an empty saved value; click through every tab once more after the systematic widget audit. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3444,6 +3445,21 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - The Hugging Face cache tests either pass or skip cleanly (with a clear reason) on a real Windows run without Developer Mode enabled, rather than failing with a raw `WinError`.
 - `test_vram_helpers_degrade_gracefully_without_torch` genuinely mocks torch's absence and asserts the real intended behavior; a test confirms the mock actually takes effect (e.g. by checking the code path taken, not just the return value).
 - Manual check: re-run the full suite once more on a real Windows machine and confirm exactly which groups from the original report are now resolved versus still open — update this note (or a follow-up step) with that real, current state rather than assuming these three fixes cover everything.
+
+---
+
+### Step 68 — Two more dark-mode gaps found live, after Step 46's fix already merged
+
+**User-reported, with live screenshots (2026-09-27), from the real running app** — Step 46 (already merged) fixed three specific dark-mode gaps (expander headers, disabled text inputs, popover buttons), but two more widget types weren't covered, found by actually using the app rather than re-auditing the CSS in the abstract.
+
+1. **Diagnostics' "App Assistant" chat box renders as a plain white bar with invisible text.** Root cause, confirmed by reading the real code: it's a `st.chat_input()` widget (`tabs/diagnostics_tab.py:410`), a distinct Streamlit component `inject_dark_css()` has no selector for at all — Step 46's fix covered `stExpander summary`, `:disabled` text inputs, and `stPopoverButton` specifically, not chat components. `st.chat_message()` (used just above it to render the conversation history) may have the same gap — check it in the same pass rather than fixing only the input box and finding the message bubbles are also unstyled.
+2. **The Translate tab's History section shows an apparently-blank "Translation" column for a saved entry, "Source" showing text normally.** Two real candidate causes, needs a live check to tell apart (they'd look identical in a screenshot): (a) that row renders via `st.text(h["translated_text"])` (`tabs/translate_tab.py:192`), which Streamlit renders inside a `<pre>` element — if `inject_dark_css()` has no rule for it, this is the same dark-on-dark text-color bug as Step 46's original find, just on a different widget type; or (b) `translated_text` is genuinely empty/unsaved in the database for that history row, a real data bug unrelated to CSS. Reproduce first (a real translation, check the saved row's `translated_text` value directly in the database) before assuming which one it is.
+3. **Given two separate widget-coverage gaps have now turned up after Step 46's own "fix every occurrence of this pattern" pass, do a real, systematic check this time** — grep the codebase for every distinct Streamlit widget type in use (chat_input, chat_message, and anything else beyond the four already covered: expander, disabled text input, popover, button) and confirm each one actually has a dark-mode rule, rather than fixing only the two reported here and risking a third report later.
+
+**Exit:**
+- Manual check: open Diagnostics' App Assistant with Dark mode on, type a question, and confirm both the input box and the resulting chat bubbles are readable (light text on dark background), not a white bar or white bubble.
+- Manual check: run a real Standalone Translate, confirm it's saved to History, then check the database directly to see whether `translated_text` is actually populated for that row — if it is, the fix is CSS; if it's empty, that's a different, real data bug requiring its own investigation (translation saved with no translated text), not a dark-mode fix.
+- Manual check: with the systematic widget audit from item 3 done, toggle Dark mode and click through every tab once more, confirming no further widget type shows unstyled/invisible text.
 
 ---
 
