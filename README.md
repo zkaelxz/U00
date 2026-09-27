@@ -1167,6 +1167,27 @@ before final render.
 
 ## Metadata & site tools
 
+### Translate the page you're reading (browser extension)
+
+A Chrome/Edge extension that sends the comic page you're looking at into
+Baihe and draws the translation over it in place, with a toggle to hide
+the overlays and click-to-see-the-original.
+
+It complements the Sources tab rather than replacing it: the adapters do
+bulk import and chapter tracking, this is "translate what I'm looking at
+right now." It also reaches pages an adapter structurally can't — ones
+delivered as `blob:` objects that only exist inside the tab, ones a site's
+own reader unscrambles, ones behind a signed-in session — because your own
+browser has already done that work, so nothing has to be circumvented.
+And it works on sites with no adapter at all, which is most of them.
+
+Turn it on in **Settings -> Browser extension**, then load the
+`extension/` folder unpacked (`chrome://extensions` -> Developer mode ->
+Load unpacked) and paste the token Settings shows you. It talks only to
+`127.0.0.1`, and every request needs that token.
+
+Full setup, limits and security notes: [`docs/browser-extension.md`](docs/browser-extension.md).
+
 ### Metadata romanization
 
 Credits are stored in the original script and gain a romanized companion

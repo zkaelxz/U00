@@ -4,7 +4,9 @@ Every filename in this project is unique — no two files share a name,
 even across folders. If you're downloading files individually, a file's
 name tells you unambiguously where it belongs: anything ending `_tab.py`
 goes in `tabs/`, anything starting `test_` goes in `tests/`, everything
-else sits at the top level.
+else sits at the top level. The one exception is `extension/`, which is
+browser-side JavaScript loaded by Chrome rather than anything Python
+imports.
 
 ```
 baihe-subtitler/
@@ -38,6 +40,13 @@ baihe-subtitler/
 │   ├── discover_tab.py           title discovery, bulk import, site navigation help
 │   ├── settings_tab.py           sidebar: API keys, appearance, defaults
 │   └── diagnostics_tab.py        "check my setup"
+│
+├── extension/                 ← BROWSER SIDE. Loaded unpacked, not a Python package.
+│   ├── manifest.json             MV3; loopback host permission only
+│   ├── background.js             service worker: holds the token, calls the app
+│   ├── content.js                injected on a click: reads pages, draws overlays
+│   ├── popup.html / popup.js     pick a drama, send, toggle
+│   └── options.html / options.js paste the token
 │
 ├── tests/                     ← 860+ tests. Run: python run_tests.py
 │   ├── __init__.py
@@ -115,6 +124,7 @@ baihe-subtitler/
 | File | Does |
 |---|---|
 | `page_fetch.py` | fetching, JS-shell detection, render fallback |
+| `page_server.py` | localhost-only endpoint the browser extension sends pages to |
 | `metadata_lookup.py` | extract metadata from a listing page |
 | `bulk_import.py` | many titles from one tag/ranking page |
 | `title_library.py` | known-titles catalog + seed data |

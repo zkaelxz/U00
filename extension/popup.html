@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Baihe Subtitler</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { width: 300px; margin: 0; padding: 12px;
+           font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+    h1 { font-size: 14px; margin: 0 0 8px; }
+    label { display: block; margin: 10px 0 4px; font-weight: 600; }
+    select, button { width: 100%; padding: 7px; font: inherit; box-sizing: border-box; }
+    button { margin-top: 8px; cursor: pointer; }
+    button.primary { font-weight: 600; }
+    .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .row input { margin: 0; }
+    .row label { margin: 0; font-weight: 400; }
+    #status { margin-top: 10px; padding: 8px; border-radius: 6px;
+              background: rgba(127,127,127,0.14); min-height: 18px; }
+    #status.bad { background: rgba(200,60,60,0.18); }
+    .muted { opacity: 0.75; font-size: 12px; }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <h1>Baihe Subtitler</h1>
+  <div id="status">Checking the app…</div>
+
+  <label for="drama">Send pages to</label>
+  <select id="drama"><option value="">— pick a drama —</option></select>
+
+  <div class="row">
+    <input type="checkbox" id="store" checked>
+    <label for="store">Also save the page into that drama</label>
+  </div>
+  <div class="row">
+    <input type="checkbox" id="overlay" checked>
+    <label for="overlay">Draw translations over the page</label>
+  </div>
+
+  <button id="translate" class="primary">Translate this page</button>
+  <button id="translateAll">Translate everything visible</button>
+  <button id="toggle">Show / hide translations</button>
+
+  <p class="muted">No token yet? Open <a href="#" id="options">options</a> and paste the
+    one from Baihe's Settings → Browser extension.</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
