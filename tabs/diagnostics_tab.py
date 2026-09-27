@@ -200,6 +200,40 @@ def _install_confirmed(container, key: str, warning: str) -> bool:
     return False
 
 
+@st.fragment(run_every="2s")
+def _render_running_jobs_panel():
+    """Step 26c: its own auto-refreshing fragment so a job started from
+    another concurrent session (a second browser tab/device, still just
+    one person -- background_jobs._jobs is a single process-wide dict,
+    not per-session) shows up and updates here without a manual click.
+    `run_every` reruns only this fragment, not the whole Diagnostics
+    tab, so it doesn't re-trigger the dependency/model-cache scans
+    elsewhere on the page every 2 seconds.
+
+    Step 26d: also nudges the GPU queue on every tick. A job queued
+    because nvidia-smi showed the GPU busy with something Baihe didn't
+    start (Jellyfin transcoding on the same card, say) only gets
+    re-checked when another GPU-touching job finishes -- this fills that
+    gap while this panel is open, at no extra cost since it's already
+    rerunning every 2 seconds anyway."""
+    background_jobs.recheck_gpu_queue()
+    st.caption("Everything currently running in the background across every drama -- "
+              "translation, transcription, review checks, and Live capture all show up here "
+              "the moment they start, not just in the tab that started them. Updates on its "
+              "own every couple seconds -- no need to switch back to this tab to check.")
+    running = background_jobs.list_running_jobs()
+    if not running:
+        st.caption("Nothing running right now.")
+    else:
+        for job_id, job in running.items():
+            jc1, jc2 = st.columns([5, 1])
+            jc1.progress(job.get("progress", 0.0) or 0.0,
+                         text=f"{_describe_job(job_id)} -- {job.get('message') or 'Running...'}")
+            if jc2.button("⏹️ Cancel", key=f"jobs_panel_cancel_{job_id}"):
+                background_jobs.request_cancel(job_id)
+                st.rerun()
+
+
 def render_diagnostics_tab():
     ui_theme.type_scale_scope()
 
@@ -417,22 +451,7 @@ def render_diagnostics_tab():
                     (st.success if ok else st.error)(f"{'✅' if ok else '❌'} {pkg}")
 
     with st.expander("🏃 Running jobs", expanded=True):
-        st.caption("Everything currently running in the background across every drama -- "
-                  "translation, transcription, review checks, and Live capture all show up here "
-                  "the moment they start, not just in the tab that started them.")
-        running = background_jobs.list_running_jobs()
-        if not running:
-            st.caption("Nothing running right now.")
-        else:
-            for job_id, job in running.items():
-                jc1, jc2 = st.columns([5, 1])
-                jc1.progress(job.get("progress", 0.0) or 0.0,
-                             text=f"{_describe_job(job_id)} -- {job.get('message') or 'Running...'}")
-                if jc2.button("⏹️ Cancel", key=f"jobs_panel_cancel_{job_id}"):
-                    background_jobs.request_cancel(job_id)
-                    st.rerun()
-            if st.button("🔄 Refresh", key="jobs_panel_refresh"):
-                st.rerun()
+        _render_running_jobs_panel()
 
     with st.expander("🔍 What happened? (job history)", expanded=False):
         st.caption("Step 58: \"why did my last job take so long / fail?\" for a job still "

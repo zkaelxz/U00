@@ -483,19 +483,51 @@ def init_db():
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            color TEXT,
+            created_at TEXT
+        );
+
+        -- Step 26e: household profiles (Jellyfin-style) -- one shared library,
+        -- but each profile's own reading position, history and notes. No
+        -- password field: this app has no accounts/auth of its own, so a
+        -- profile is "which household member is this" (picked from a list),
+        -- not a login -- whatever gets you to the app at all (running it
+        -- locally, or Tailscale/a reverse proxy for remote access) already
+        -- established that you're a trusted person before you ever see this.
         CREATE TABLE IF NOT EXISTS progress (
-            drama_id INTEGER PRIMARY KEY,
+            drama_id INTEGER NOT NULL,
+            profile_id INTEGER NOT NULL,
             last_line_idx INTEGER DEFAULT 0,
             audio_position_seconds REAL DEFAULT 0,
             last_page INTEGER DEFAULT 1,
             percent_complete REAL DEFAULT 0,
             last_accessed_at TEXT,
+            PRIMARY KEY (drama_id, profile_id),
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+        );
+
+        -- Replaces dramas.personal_notes (left in place, unread/unwritten from
+        -- here on -- see _migrate_step26e_profiles) now that notes are private
+        -- per profile rather than one shared field everyone on the household
+        -- server would otherwise see and overwrite.
+        CREATE TABLE IF NOT EXISTS personal_notes (
+            profile_id INTEGER NOT NULL,
+            drama_id INTEGER NOT NULL,
+            notes TEXT,
+            updated_at TEXT,
+            PRIMARY KEY (profile_id, drama_id),
+            FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE,
             FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS reading_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             drama_id INTEGER NOT NULL,
+            profile_id INTEGER,
             line_id INTEGER,
             line_idx INTEGER,
             percent_complete REAL,
@@ -860,6 +892,7 @@ def init_db():
             conn.execute("ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
         conn.commit()
     _migrate_line_refs_to_ids()
+    _migrate_step26e_profiles()
 
 
 _LINE_REF_TABLE_DDL = {
@@ -952,6 +985,80 @@ def _line_id_for_idx(conn, drama_id, line_idx):
     row = conn.execute("SELECT id FROM lines WHERE drama_id = ? AND idx = ? ORDER BY id LIMIT 1",
                        (drama_id, int(line_idx))).fetchone()
     return row["id"] if row else None
+
+
+def _migrate_step26e_profiles():
+    """One-time (Step 26e): creates the default profile every pre-profiles
+    install's existing progress/reading_history/personal_notes data gets
+    attached to, and rebuilds `progress` for its new (drama_id, profile_id)
+    primary key -- SQLite can't ALTER a PRIMARY KEY in place, so this is a
+    backup-then-rebuild, same pattern as _migrate_line_refs_to_ids above.
+
+    Keyed off `profiles` being empty: a fresh install (via the
+    CREATE TABLE IF NOT EXISTS block above) already gets the new `progress`
+    schema directly and starts with zero profiles too, so this still runs
+    for it -- it just has no old rows to migrate, and creates the same
+    default profile a real upgrade would. Once at least one profile exists
+    this is a no-op forever after (delete_profile refuses to remove the
+    last one, so that stays true)."""
+    conn = get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    try:
+        if conn.execute("SELECT 1 FROM profiles LIMIT 1").fetchone():
+            return
+        conn.execute("BEGIN")
+        now = datetime.datetime.utcnow().isoformat()
+        cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
+                           ("Me", None, now))
+        default_id = cur.lastrowid
+
+        progress_cols = {r[1] for r in conn.execute("PRAGMA table_info(progress)").fetchall()}
+        if "profile_id" not in progress_cols:
+            conn.execute("""
+                CREATE TABLE progress_step26e_new (
+                    drama_id INTEGER NOT NULL,
+                    profile_id INTEGER NOT NULL,
+                    last_line_idx INTEGER DEFAULT 0,
+                    audio_position_seconds REAL DEFAULT 0,
+                    last_page INTEGER DEFAULT 1,
+                    percent_complete REAL DEFAULT 0,
+                    last_accessed_at TEXT,
+                    PRIMARY KEY (drama_id, profile_id),
+                    FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE,
+                    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("""
+                INSERT INTO progress_step26e_new
+                    (drama_id, profile_id, last_line_idx, audio_position_seconds,
+                     last_page, percent_complete, last_accessed_at)
+                SELECT drama_id, ?, last_line_idx, audio_position_seconds,
+                       last_page, percent_complete, last_accessed_at
+                FROM progress
+            """, (default_id,))
+            conn.execute("DROP TABLE progress")
+            conn.execute("ALTER TABLE progress_step26e_new RENAME TO progress")
+
+        history_cols = {r[1] for r in conn.execute("PRAGMA table_info(reading_history)").fetchall()}
+        if "profile_id" not in history_cols:
+            conn.execute("ALTER TABLE reading_history ADD COLUMN profile_id INTEGER")
+        conn.execute("UPDATE reading_history SET profile_id = ? WHERE profile_id IS NULL",
+                     (default_id,))
+
+        drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
+        if "personal_notes" in drama_cols:
+            conn.execute("""
+                INSERT INTO personal_notes (profile_id, drama_id, notes, updated_at)
+                SELECT ?, id, personal_notes, ?
+                FROM dramas WHERE personal_notes IS NOT NULL AND personal_notes != ''
+            """, (default_id, now))
+        conn.execute("COMMIT")
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
 
 
 def drama_dir(drama_id: int) -> str:
@@ -1763,39 +1870,125 @@ def load_emotions(drama_id: int) -> dict:
 # Progress tracking & reading history
 # ---------------------------------------------------------------------------
 
-def save_progress(drama_id: int, last_line_idx: int = None, audio_position_seconds: float = None,
-                   last_page: int = None, percent_complete: float = None,
-                   record_history: bool = True):
-    """Upserts the resume point for a drama. Only the fields you pass are
-    updated, so saving an audio position doesn't clobber the reading page."""
+def _default_profile_id(conn) -> int:
+    """The profile progress/history/notes falls back to when no profile_id
+    is given -- the first profile ever created (lowest id), which is the
+    one _migrate_step26e_profiles creates on every install (a fresh one or
+    an upgrade alike). Lets every caller/test that predates profiles keep
+    working completely unchanged, and is what a single-profile household
+    transparently keeps using forever if it never adds a second one."""
+    row = conn.execute("SELECT id FROM profiles ORDER BY id LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
+def create_profile(name: str, color: str = None) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute("INSERT INTO profiles (name, color, created_at) VALUES (?, ?, ?)",
+                           (name, color, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def list_profiles():
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute("SELECT * FROM profiles ORDER BY name COLLATE NOCASE").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_profile(profile_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM profiles WHERE id = ?", (profile_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def rename_profile(profile_id: int, new_name: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE profiles SET name = ? WHERE id = ?", (new_name, profile_id))
+        conn.commit()
+
+
+def delete_profile(profile_id: int):
+    """Refuses to remove the last remaining profile -- the app always
+    needs at least one to attach progress/history/notes to (and for
+    _migrate_step26e_profiles's own "profiles is empty" check to stay a
+    true one-time marker). progress and personal_notes cascade via their
+    own FOREIGN KEY ... ON DELETE CASCADE; reading_history predates
+    profiles and only gained the column via ALTER TABLE (which can't add
+    a FK), so its rows for this profile are cleaned up explicitly here
+    instead of being left orphaned."""
+    with contextlib.closing(get_conn()) as conn:
+        count = conn.execute("SELECT COUNT(*) AS n FROM profiles").fetchone()["n"]
+        if count <= 1:
+            raise ValueError("Can't delete the last remaining profile.")
+        conn.execute("DELETE FROM reading_history WHERE profile_id = ?", (profile_id,))
+        conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+        conn.commit()
+
+
+def get_personal_notes(drama_id: int, profile_id: int = None) -> str:
+    with contextlib.closing(get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        row = conn.execute("SELECT notes FROM personal_notes WHERE profile_id = ? AND drama_id = ?",
+                           (profile_id, drama_id)).fetchone()
+    return (row["notes"] or "") if row else ""
+
+
+def save_personal_notes(drama_id: int, notes: str, profile_id: int = None):
+    with contextlib.closing(get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        conn.execute("""
+            INSERT INTO personal_notes (profile_id, drama_id, notes, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(profile_id, drama_id) DO UPDATE SET
+                notes = excluded.notes, updated_at = excluded.updated_at
+        """, (profile_id, drama_id, notes, datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+
+
+def save_progress(drama_id: int, profile_id: int = None, last_line_idx: int = None,
+                   audio_position_seconds: float = None, last_page: int = None,
+                   percent_complete: float = None, record_history: bool = True):
+    """Upserts the resume point for a drama, for one profile. Only the
+    fields you pass are updated, so saving an audio position doesn't
+    clobber the reading page. profile_id defaults to the household's
+    first/only profile (_default_profile_id) -- every pre-profiles caller
+    keeps working unchanged against that one profile."""
     now = datetime.datetime.utcnow().isoformat()
     with contextlib.closing(get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
         # Raw values (possibly NULL) go in deliberately: coalescing them here would
         # make excluded.<col> a real 0 and defeat the COALESCE in the conflict clause,
         # so a partial update would silently zero out the fields it didn't touch.
         conn.execute("""
-            INSERT INTO progress (drama_id, last_line_idx, audio_position_seconds, last_page,
-                                   percent_complete, last_accessed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(drama_id) DO UPDATE SET
+            INSERT INTO progress (drama_id, profile_id, last_line_idx, audio_position_seconds,
+                                   last_page, percent_complete, last_accessed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(drama_id, profile_id) DO UPDATE SET
                 last_line_idx = COALESCE(excluded.last_line_idx, progress.last_line_idx),
                 audio_position_seconds = COALESCE(excluded.audio_position_seconds, progress.audio_position_seconds),
                 last_page = COALESCE(excluded.last_page, progress.last_page),
                 percent_complete = COALESCE(excluded.percent_complete, progress.percent_complete),
                 last_accessed_at = excluded.last_accessed_at
-        """, (drama_id, last_line_idx, audio_position_seconds, last_page, percent_complete, now))
+        """, (drama_id, profile_id, last_line_idx, audio_position_seconds, last_page,
+             percent_complete, now))
         if record_history and (last_line_idx is not None or percent_complete is not None):
             conn.execute(
-                "INSERT INTO reading_history (drama_id, line_id, line_idx, percent_complete, accessed_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (drama_id, _line_id_for_idx(conn, drama_id, last_line_idx), last_line_idx,
+                "INSERT INTO reading_history (drama_id, profile_id, line_id, line_idx, "
+                "percent_complete, accessed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (drama_id, profile_id, _line_id_for_idx(conn, drama_id, last_line_idx), last_line_idx,
                  percent_complete, now))
         conn.commit()
 
 
-def get_progress(drama_id: int):
+def get_progress(drama_id: int, profile_id: int = None):
     with contextlib.closing(get_conn()) as conn:
-        row = conn.execute("SELECT * FROM progress WHERE drama_id = ?", (drama_id,)).fetchone()
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
+        row = conn.execute("SELECT * FROM progress WHERE drama_id = ? AND profile_id = ?",
+                           (drama_id, profile_id)).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -1808,45 +2001,55 @@ def get_progress(drama_id: int):
     return d
 
 
-def list_continue_reading(limit: int = 8):
+def list_continue_reading(limit: int = 8, profile_id: int = None):
     """Dramas with partial progress, most recently touched first -- the
-    'Continue' shelf. Excludes anything finished (>=99%) or untouched."""
+    'Continue' shelf. Excludes anything finished (>=99%) or untouched.
+    `limit` stays the first positional parameter (profile_id was added
+    later) so `list_continue_reading(8)` keeps meaning "limit=8"."""
     with contextlib.closing(get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
         rows = conn.execute("""
             SELECT d.*, p.last_line_idx, p.audio_position_seconds, p.last_page,
                    p.percent_complete, p.last_accessed_at
             FROM progress p JOIN dramas d ON d.id = p.drama_id
-            WHERE p.percent_complete > 0 AND p.percent_complete < 99
+            WHERE p.profile_id = ? AND p.percent_complete > 0 AND p.percent_complete < 99
             ORDER BY p.last_accessed_at DESC LIMIT ?
-        """, (limit,)).fetchall()
+        """, (profile_id, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
-def list_reading_history(drama_id: int = None, limit: int = 50):
+def list_reading_history(drama_id: int = None, limit: int = 50, profile_id: int = None):
     with contextlib.closing(get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
         if drama_id:
             rows = conn.execute(
                 "SELECT h.id, h.drama_id, h.line_id, COALESCE(l.idx, h.line_idx) AS line_idx, "
                 "h.percent_complete, h.accessed_at, d.title_en, d.title_zh FROM reading_history h "
                 "JOIN dramas d ON d.id = h.drama_id LEFT JOIN lines l ON l.id = h.line_id "
-                "WHERE h.drama_id = ? "
-                "ORDER BY h.accessed_at DESC LIMIT ?", (drama_id, limit)).fetchall()
+                "WHERE h.drama_id = ? AND h.profile_id = ? "
+                "ORDER BY h.accessed_at DESC LIMIT ?", (drama_id, profile_id, limit)).fetchall()
         else:
             rows = conn.execute(
                 "SELECT h.id, h.drama_id, h.line_id, COALESCE(l.idx, h.line_idx) AS line_idx, "
                 "h.percent_complete, h.accessed_at, d.title_en, d.title_zh FROM reading_history h "
                 "JOIN dramas d ON d.id = h.drama_id LEFT JOIN lines l ON l.id = h.line_id "
+                "WHERE h.profile_id = ? "
                 "ORDER BY h.accessed_at DESC LIMIT ?",
-                (limit,)).fetchall()
+                (profile_id, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
-def clear_reading_history(drama_id: int = None):
+def clear_reading_history(drama_id: int = None, profile_id: int = None):
     with contextlib.closing(get_conn()) as conn:
+        if profile_id is None:
+            profile_id = _default_profile_id(conn)
         if drama_id:
-            conn.execute("DELETE FROM reading_history WHERE drama_id = ?", (drama_id,))
+            conn.execute("DELETE FROM reading_history WHERE drama_id = ? AND profile_id = ?",
+                         (drama_id, profile_id))
         else:
-            conn.execute("DELETE FROM reading_history")
+            conn.execute("DELETE FROM reading_history WHERE profile_id = ?", (profile_id,))
         conn.commit()
 
 

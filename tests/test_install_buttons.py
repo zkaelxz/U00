@@ -235,6 +235,63 @@ class TestGpuTorchMismatch:
         assert diagnostics.gpu_torch_mismatch() is False
 
 
+class TestExternalGpuLoad:
+    """Step 26d: real GPU load straight from nvidia-smi, independent of
+    anything Baihe itself is tracking -- the only way to see a different
+    application (Jellyfin's hardware-accelerated transcoding on the same
+    card, say) using the same physical GPU."""
+
+    def _fake_run(self, stdout):
+        def run(cmd, capture_output, text, timeout, check):
+            assert cmd[0] == "nvidia-smi"
+            class _Result:
+                pass
+            r = _Result()
+            r.stdout = stdout
+            return r
+        return run
+
+    def test_none_when_nvidia_smi_not_on_path(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: None)
+        assert diagnostics.external_gpu_load() is None
+        assert diagnostics.external_gpu_is_busy() is False
+
+    def test_parses_a_real_nvidia_smi_response(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics.subprocess, "run",
+                            self._fake_run("72, 9500, 12288\n"))
+        load = diagnostics.external_gpu_load()
+        assert load == {"utilization_percent": 72.0, "memory_used_mb": 9500.0,
+                        "memory_total_mb": 12288.0, "memory_free_mb": 2788.0}
+
+    def test_none_on_a_failed_or_malformed_query(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+
+        def raises(*a, **kw):
+            raise diagnostics.subprocess.SubprocessError("nvidia-smi timed out")
+        monkeypatch.setattr(diagnostics.subprocess, "run", raises)
+        assert diagnostics.external_gpu_load() is None
+        assert diagnostics.external_gpu_is_busy() is False  # never blocks when it can't tell
+
+    def test_busy_when_utilization_crosses_the_threshold(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics.subprocess, "run",
+                            self._fake_run("55, 2000, 12288\n"))  # busy: high util, plenty free
+        assert diagnostics.external_gpu_is_busy() is True
+
+    def test_busy_when_free_vram_is_low_even_at_low_utilization(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics.subprocess, "run",
+                            self._fake_run("5, 11800, 12288\n"))  # idle compute, almost no VRAM left
+        assert diagnostics.external_gpu_is_busy() is True
+
+    def test_not_busy_when_idle_and_plenty_free(self, monkeypatch):
+        monkeypatch.setattr(diagnostics.shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+        monkeypatch.setattr(diagnostics.subprocess, "run",
+                            self._fake_run("3, 500, 12288\n"))
+        assert diagnostics.external_gpu_is_busy() is False
+
+
 class TestGpuTorchCudaIndex:
     def test_python_3_14_uses_cu128(self, monkeypatch):
         monkeypatch.setattr(diagnostics.sys, "version_info",

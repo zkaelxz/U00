@@ -115,7 +115,9 @@ def gpu_busy_description():
     for a "Waiting -- GPU busy with <this>" message. None if the GPU is free.
     Step 25w: also checks the cross-process lock (see _gpu_slot_available_locked)
     so this can name a `cli.py` run holding the GPU, not just another job in
-    this same process."""
+    this same process. Step 26d: falls back to a generic name when neither of
+    those explains it but the GPU is still loaded per nvidia-smi -- some
+    other application entirely (Jellyfin transcoding on the same card, say)."""
     with _lock:
         jid = _other_gpu_job_running_locked(None)
         if jid is not None:
@@ -123,36 +125,64 @@ def gpu_busy_description():
     try:
         import db
         _, description = db.gpu_lock_status()
-        return description
+        if description:
+            return description
     except Exception:
         # Best-effort only, same as _gpu_slot_available_locked below -- an
         # unreachable library DB shouldn't break this status message.
-        return None
+        pass
+    try:
+        import diagnostics
+        if diagnostics.external_gpu_is_busy():
+            return "another application"
+    except Exception:
+        pass
+    return None
 
 
 def _gpu_slot_available_locked(job_id, description):
     """Caller must already hold _lock. True if job_id may actually start
-    running right now -- nothing else, in this process or (Step 25w)
-    another one, currently holds the GPU. background_jobs' own guard
-    (Step 5c) is plain in-process module state, invisible to a separate OS
-    process; `cli.py`'s GPU-touching commands never went through it at all
-    (confirmed: cli.py never imports this module), so a CLI run and a live
-    UI job could previously both hold the GPU at once. db.gpu_lock's
-    single-row table in the shared library.db is the cross-process
-    coordination point instead.
+    running right now -- nothing else, in this process, another one
+    (Step 25w), or (Step 26d) a completely different application, currently
+    holds the GPU. background_jobs' own guard (Step 5c) is plain in-process
+    module state, invisible to a separate OS process; `cli.py`'s
+    GPU-touching commands never went through it at all (confirmed: cli.py
+    never imports this module), so a CLI run and a live UI job could
+    previously both hold the GPU at once. db.gpu_lock's single-row table in
+    the shared library.db is the cross-process coordination point instead.
 
-    On True, this also claims that cross-process lock for job_id as a side
+    Step 26d: both of those locks only know about GPU-touching work Baihe
+    itself started -- neither can see a different application on the same
+    machine using the same physical GPU (Jellyfin's hardware-accelerated
+    transcoding on the same card is the motivating case). nvidia-smi's own
+    utilization/free-VRAM numbers (diagnostics.external_gpu_is_busy) are
+    checked as a third, independent guard for exactly that: real driver-
+    level load, whoever caused it. Same accepted-latency tradeoff as Step
+    25w's cross-process check below: nothing polls this on its own, so a
+    job queued purely because of external load resumes the next time some
+    *other* GPU-touching job's finish triggers _promote_next_queued_gpu_job()
+    again, not the instant the external load actually clears -- not a
+    correctness gap (the GPU is never actually shared either way), just the
+    same soft, best-effort latency this guard already accepts elsewhere.
+
+    On True, this also claims the cross-process lock for job_id as a side
     effect, the same moment the in-process side is about to mark job_id
     "running" -- so a caller must be about to actually start the job right
     after this returns True, not just probe.
 
-    Best-effort: this module is deliberately usable with no library DB at
-    all (plain in-process job tracking, per its own docstring, and several
-    tests exercise it standalone) -- if the DB isn't reachable for any
-    reason, this falls back to the in-process check alone rather than
-    blocking a job from starting."""
+    Best-effort throughout: this module is deliberately usable with no
+    library DB and no nvidia-smi at all (plain in-process job tracking, per
+    its own docstring, and several tests exercise it standalone) -- if
+    either check isn't reachable/available, this falls back to whatever
+    checks still are, rather than blocking a job from starting."""
     if _other_gpu_job_running_locked(job_id):
         return False
+    try:
+        import diagnostics
+        if diagnostics.external_gpu_is_busy():
+            return False
+    except Exception:
+        pass
     try:
         import db
         return db.try_acquire_gpu_lock(f"ui:{job_id}", description)
@@ -670,3 +700,14 @@ def list_all_jobs():
     process's own memory, never one from a prior run of the app."""
     with _lock:
         return {jid: dict(j) for jid, j in _jobs.items()}
+
+
+def recheck_gpu_queue():
+    """Public entry point for _promote_next_queued_gpu_job(), for callers
+    outside this module. Nothing here polls the GPU queue on its own (see
+    _gpu_slot_available_locked's own docstring) -- a job queued because
+    nvidia-smi showed the GPU busy with something Baihe didn't start
+    otherwise only gets re-checked the next time some *other* GPU-touching
+    job finishes. The Running Jobs panel's auto-refresh calls this on every
+    tick specifically to close that gap while it's open."""
+    _promote_next_queued_gpu_job()

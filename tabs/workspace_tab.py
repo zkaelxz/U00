@@ -1841,8 +1841,16 @@ def render_workspace_tab():
                                          min_value=0, step=1)
         custom_tags = st.text_input("Custom tags (comma-separated)", value=drama.get("custom_tags") or "",
                                      placeholder="favorite, slow burn, rec to friends")
+        # Step 26e: private per profile now, not one field shared by
+        # everyone with access to this drama -- the widget key includes
+        # profile_id, or switching profiles wouldn't refresh this box
+        # (Streamlit only applies `value=` on a widget key's very first
+        # render; see common.py's synced_api_key_input for the same bug
+        # elsewhere).
+        _meta_profile_id = get_active_profile_id()
         personal_notes = st.text_area("Personal notes (private, yours only)",
-                                       value=drama.get("personal_notes") or "", height=80)
+                                       value=db.get_personal_notes(picked_id, profile_id=_meta_profile_id),
+                                       height=80, key=f"meta_notes_{picked_id}_{_meta_profile_id}")
         if st.button("🔤 Romanize credits", key=f"roman_{picked_id}"):
             _rk = st.session_state.get(f"settings_{drama.get('translation_engine') or 'claude'}", "")
             if not _rk:
@@ -1898,8 +1906,9 @@ def render_workspace_tab():
                              summary=summary, media_type=media_type, genre=genre,
                              publication_status=pub_status,
                              chapter_count=int(chapter_count) if chapter_count else None,
-                             custom_tags=custom_tags, personal_notes=personal_notes,
+                             custom_tags=custom_tags,
                              source_url=source_url)
+            db.save_personal_notes(picked_id, personal_notes, profile_id=_meta_profile_id)
             st.toast("Saved.", icon="✅")
             st.rerun()
         # Step 25z added the checkbox-plus-type-DELETE confirmation below.

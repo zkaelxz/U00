@@ -40,6 +40,29 @@ from core import (
 )
 
 
+def get_active_profile_id() -> int:
+    """The household profile (Step 26e) the current browser session is
+    acting as, for reading progress/history and personal notes -- Jellyfin-
+    style, not an accounts/login system: this app has no auth of its own,
+    so a profile is "which household member is this" picked from a list,
+    not a password-protected identity. Session-state-scoped like
+    active_drama_id, so each concurrent session/tab picks its own profile
+    independently. The Settings sidebar's picker is what actually sets
+    this when someone switches profiles; this is a read-with-fallback so
+    every other tab has something sane even if that picker never ran (a
+    script/test context, or the sidebar hit its own try/except in app.py).
+    A single-profile household never has to think about any of this."""
+    active = st.session_state.get("active_profile_id")
+    if active is not None:
+        return active
+    profiles = db.list_profiles()
+    if not profiles:
+        db.init_db()  # creates the default profile (Step 26e's migration)
+        profiles = db.list_profiles()
+    st.session_state.active_profile_id = profiles[0]["id"]
+    return st.session_state.active_profile_id
+
+
 def _pull_canonical_settings_value(settings_key: str, widget_key: str):
     """
     The actual fix inside synced_api_key_input(), split out as a pure

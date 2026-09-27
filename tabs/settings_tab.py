@@ -16,6 +16,7 @@ model paths, GPU/performance tuning, spending cap, download cookies).
 """
 import os
 from common import st, synced_api_key_input
+import db
 import ocr
 import translate_engines
 import ui_theme
@@ -148,11 +149,68 @@ SETTINGS_KEYS = {
 }
 
 
+def _render_profile_picker():
+    """Step 26e: a lightweight, Jellyfin-style profile picker -- not an
+    accounts/login system. This app has no auth of its own, so a profile
+    is "which household member is this", picked from a list, not a
+    password-protected identity; whatever already got you to the app at
+    all (running it locally, or Tailscale/a reverse proxy for remote
+    access) is what actually establishes trust. Reading progress,
+    history, and personal notes are kept separate per profile; the
+    library itself (dramas, translations, subtitles) stays fully shared."""
+    profiles = db.list_profiles()
+    if not profiles:
+        db.init_db()  # creates the default profile (Step 26e's migration)
+        profiles = db.list_profiles()
+    names = [p["name"] for p in profiles]
+    ids = [p["id"] for p in profiles]
+    current_id = st.session_state.get("active_profile_id")
+    if current_id not in ids:
+        current_id = ids[0]
+    picked = st.selectbox("👤 Profile", names, index=ids.index(current_id), key="profile_picker_select",
+                          help="Reading progress, history, and personal notes are kept "
+                               "separate per profile. The library itself -- dramas, "
+                               "translations, subtitles -- is shared by everyone.")
+    st.session_state.active_profile_id = ids[names.index(picked)]
+
+    with st.expander("Manage profiles", expanded=False):
+        new_name = st.text_input("Add a profile", key="new_profile_name", placeholder="e.g. Alex")
+        if st.button("➕ Add", key="add_profile_btn") and new_name.strip():
+            st.session_state.active_profile_id = db.create_profile(new_name.strip())
+            st.session_state.new_profile_name = ""
+            st.rerun()
+
+        rename_target = st.selectbox("Rename", names, key="rename_profile_target")
+        rename_to = st.text_input("New name", key="rename_profile_to")
+        if st.button("✏️ Rename", key="rename_profile_btn") and rename_to.strip():
+            db.rename_profile(ids[names.index(rename_target)], rename_to.strip())
+            st.session_state.rename_profile_to = ""
+            st.rerun()
+
+        if len(profiles) > 1:
+            delete_target = st.selectbox("Delete", names, key="delete_profile_target")
+            st.caption(f"Permanently deletes {delete_target}'s reading progress, history, "
+                      "and personal notes. The shared library itself is untouched. "
+                      "Cannot be undone.")
+            confirm_delete_profile = st.checkbox("Confirm delete", key="confirm_delete_profile")
+            if st.button("🗑️ Delete", key="delete_profile_btn", disabled=not confirm_delete_profile):
+                deleted_id = ids[names.index(delete_target)]
+                db.delete_profile(deleted_id)
+                if st.session_state.get("active_profile_id") == deleted_id:
+                    st.session_state.active_profile_id = None
+                st.session_state.confirm_delete_profile = False
+                st.rerun()
+        else:
+            st.caption("Add a second profile to enable deleting one.")
+
+
 def render_settings_sidebar():
     _load_env_defaults()
     with st.sidebar:
         ui_theme.type_scale_scope()
         st.header("⚙️ Settings")
+        _render_profile_picker()
+        st.divider()
         st.session_state["app_dark_mode"] = st.toggle(
             "🌙 Dark mode", value=st.session_state.get("app_dark_mode", False),
             help="Applies to the whole app. The Reader has its own separate theme "

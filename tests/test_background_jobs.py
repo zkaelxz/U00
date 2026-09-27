@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs as bg
+import diagnostics
 
 
 def _wait(job_id, timeout=2.0):
@@ -535,6 +536,55 @@ class TestGpuJobGuard:
         assert bg.get_status("gpu_j") is None
         assert calls == []
         bg.clear_job("gpu_i")
+
+
+class TestExternalGpuLoadGuard:
+    """Step 26d: the GPU guard also respects real load from nvidia-smi
+    (diagnostics.external_gpu_is_busy), not just its own two locks --
+    so a completely different application on the same GPU (Jellyfin
+    transcoding on the same card, say) is respected too, not just other
+    Baihe jobs."""
+
+    def setup_method(self):
+        bg.set_gpu_limit_enabled(True)
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)  # never leak into other tests
+
+    def test_queues_when_gpu_is_externally_busy_even_with_no_baihe_job_running(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        calls = []
+        assert bg.start_job("gpu_ext_a", lambda: calls.append(1), gpu_touching=True) is True
+        assert bg.get_status("gpu_ext_a")["status"] == "queued"
+        assert calls == []  # queued, not started -- nothing Baihe-side is even running
+        bg.clear_job("gpu_ext_a")
+
+    def test_recheck_gpu_queue_promotes_once_external_load_clears(self, monkeypatch):
+        busy = {"value": True}
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: busy["value"])
+        started = threading.Event()
+        bg.start_job("gpu_ext_b", lambda: started.set(), gpu_touching=True)
+        assert bg.get_status("gpu_ext_b")["status"] == "queued"
+        assert not started.is_set()
+
+        busy["value"] = False  # e.g. Jellyfin's transcode finished
+        bg.recheck_gpu_queue()
+        assert started.wait(timeout=2.0), "queued job never started after external load cleared"
+        _wait("gpu_ext_b")
+        assert bg.get_status("gpu_ext_b")["status"] == "done"
+        bg.clear_job("gpu_ext_b")
+
+    def test_a_non_gpu_job_is_unaffected_by_external_gpu_load(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        calls = []
+        assert bg.start_job("cpu_ext", lambda: calls.append(1), gpu_touching=False) is True
+        _wait("cpu_ext")
+        assert calls == [1]  # non-GPU jobs never consult the GPU guard at all
+        bg.clear_job("cpu_ext")
+
+    def test_gpu_busy_description_falls_back_to_a_generic_name_for_external_load(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
+        assert bg.gpu_busy_description() == "another application"
 
 
 class TestCancelQueued:

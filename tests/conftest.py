@@ -84,11 +84,24 @@ def _keep_real_torch_importable():
 def isolated_db():
     """Redirects db.py to a fresh temp directory for the duration of
     one test, then cleans up afterward. Use this fixture in any test
-    that touches the database."""
+    that touches the database.
+
+    Restores the previous LIBRARY_DIR afterward -- previously left
+    pointing at this test's now-deleted temp_dir for every test after
+    it in the same pytest process, since configure_library_dir just
+    overwrites db.py's module-level globals with no way to undo it.
+    Harmless as long as nothing later touched db without its own
+    isolation; a real, if latent, footgun the moment something did (a
+    profile picker rendered from Settings' sidebar, Step 26e, was the
+    first thing to actually hit it: `sqlite3.OperationalError: unable to
+    open database file`, from a test with no isolated_db of its own that
+    merely happened to run after one that had it, alphabetically)."""
+    previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
     temp_dir = tempfile.mkdtemp(prefix="baihe_test_")
     db.configure_library_dir(temp_dir)
     db.init_db()
     yield db
+    db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 

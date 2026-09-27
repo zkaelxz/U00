@@ -120,6 +120,127 @@ class TestProgressTracking:
         assert isolated_db.list_reading_history(did) == []
 
 
+class TestProfiles:
+    """Step 26e: household profiles (Jellyfin-style) -- one shared
+    library, but each profile's own reading position, history and notes.
+    isolated_db's own init_db() call always creates a default profile
+    (see _migrate_step26e_profiles), so every test here already has one
+    before it starts."""
+
+    def test_init_db_creates_a_default_profile(self, isolated_db):
+        profiles = isolated_db.list_profiles()
+        assert len(profiles) == 1
+        assert profiles[0]["name"] == "Me"
+
+    def test_create_list_get(self, isolated_db):
+        pid = isolated_db.create_profile("Alex", color="#ff0000")
+        names = {p["name"] for p in isolated_db.list_profiles()}
+        assert names == {"Me", "Alex"}
+        assert isolated_db.get_profile(pid)["color"] == "#ff0000"
+
+    def test_get_unknown_profile_returns_none(self, isolated_db):
+        assert isolated_db.get_profile(99999) is None
+
+    def test_rename(self, isolated_db):
+        pid = isolated_db.create_profile("Alex")
+        isolated_db.rename_profile(pid, "Alexandra")
+        assert isolated_db.get_profile(pid)["name"] == "Alexandra"
+
+    def test_delete_a_second_profile(self, isolated_db):
+        pid = isolated_db.create_profile("Alex")
+        isolated_db.delete_profile(pid)
+        names = {p["name"] for p in isolated_db.list_profiles()}
+        assert names == {"Me"}
+
+    def test_cannot_delete_the_last_remaining_profile(self, isolated_db):
+        [default_profile] = isolated_db.list_profiles()
+        with pytest.raises(ValueError):
+            isolated_db.delete_profile(default_profile["id"])
+        assert len(isolated_db.list_profiles()) == 1
+
+    def test_deleting_a_profile_drops_its_reading_history(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        pid = isolated_db.create_profile("Alex")
+        isolated_db.save_progress(did, profile_id=pid, last_line_idx=1, percent_complete=10.0)
+        assert len(isolated_db.list_reading_history(did, profile_id=pid)) == 1
+        isolated_db.delete_profile(pid)
+        # profile_id no longer exists -- calling with it now falls back to
+        # the (only remaining) default profile's own, separate history
+        assert isolated_db.list_reading_history(did) == []
+
+    def test_progress_is_isolated_per_profile(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        [me] = isolated_db.list_profiles()
+        alex = isolated_db.create_profile("Alex")
+
+        isolated_db.save_progress(did, profile_id=me["id"], last_page=12, percent_complete=50.0)
+        isolated_db.save_progress(did, profile_id=alex, last_page=3, percent_complete=10.0)
+
+        assert isolated_db.get_progress(did, profile_id=me["id"])["last_page"] == 12
+        assert isolated_db.get_progress(did, profile_id=alex)["last_page"] == 3
+        # the exact bug the old schema (drama_id alone as primary key)
+        # made structurally impossible to avoid -- two profiles reading
+        # the same drama would silently overwrite each other's page
+        assert isolated_db.get_progress(did, profile_id=me["id"])["last_page"] == 12
+
+    def test_continue_shelf_is_isolated_per_profile(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        [me] = isolated_db.list_profiles()
+        alex = isolated_db.create_profile("Alex")
+        isolated_db.save_progress(did, profile_id=me["id"], percent_complete=40.0)
+
+        assert len(isolated_db.list_continue_reading(profile_id=me["id"])) == 1
+        assert isolated_db.list_continue_reading(profile_id=alex) == []
+
+    def test_reading_history_is_isolated_per_profile(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        [me] = isolated_db.list_profiles()
+        alex = isolated_db.create_profile("Alex")
+        isolated_db.save_progress(did, profile_id=me["id"], last_line_idx=1, percent_complete=10.0)
+        isolated_db.save_progress(did, profile_id=alex, last_line_idx=1, percent_complete=10.0)
+        isolated_db.save_progress(did, profile_id=alex, last_line_idx=2, percent_complete=20.0)
+
+        assert len(isolated_db.list_reading_history(did, profile_id=me["id"])) == 1
+        assert len(isolated_db.list_reading_history(did, profile_id=alex)) == 2
+
+    def test_clear_reading_history_only_clears_that_profile(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        [me] = isolated_db.list_profiles()
+        alex = isolated_db.create_profile("Alex")
+        isolated_db.save_progress(did, profile_id=me["id"], last_line_idx=1, percent_complete=10.0)
+        isolated_db.save_progress(did, profile_id=alex, last_line_idx=1, percent_complete=10.0)
+
+        isolated_db.clear_reading_history(did, profile_id=me["id"])
+        assert isolated_db.list_reading_history(did, profile_id=me["id"]) == []
+        assert len(isolated_db.list_reading_history(did, profile_id=alex)) == 1
+
+    def test_personal_notes_are_isolated_per_profile(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        [me] = isolated_db.list_profiles()
+        alex = isolated_db.create_profile("Alex")
+
+        isolated_db.save_personal_notes(did, "My private note", profile_id=me["id"])
+        isolated_db.save_personal_notes(did, "Alex's own note", profile_id=alex)
+
+        assert isolated_db.get_personal_notes(did, profile_id=me["id"]) == "My private note"
+        assert isolated_db.get_personal_notes(did, profile_id=alex) == "Alex's own note"
+
+    def test_personal_notes_default_to_empty_string_not_none(self, isolated_db):
+        did = isolated_db.create_drama(title_en="T")
+        assert isolated_db.get_personal_notes(did) == ""
+
+    def test_calls_without_profile_id_all_resolve_to_the_same_default(self, isolated_db):
+        """Every pre-Step-26e caller (and every test that predates
+        profiles) never passes profile_id at all -- this is what keeps
+        them all working unchanged, against one consistent profile."""
+        did = isolated_db.create_drama(title_en="T")
+        isolated_db.save_progress(did, last_line_idx=1, percent_complete=10.0)
+        isolated_db.save_progress(did, last_line_idx=2, percent_complete=20.0)
+        [default_profile] = isolated_db.list_profiles()
+        assert isolated_db.get_progress(did, profile_id=default_profile["id"])["last_line_idx"] == 2
+        assert len(isolated_db.list_reading_history(did, profile_id=default_profile["id"])) == 2
+
+
 class TestTranslationVersions:
     def test_save_and_list(self, isolated_db):
         did = isolated_db.create_drama(title_en="T")

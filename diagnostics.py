@@ -1344,6 +1344,54 @@ def gpu_torch_mismatch() -> bool:
     return bool(cuda["torch_installed"]) and cuda["cuda_available"] is False
 
 
+# Step 26d: how busy the GPU actually is, straight from the driver --
+# independent of anything Baihe itself is tracking. background_jobs.py's
+# in-process guard and db.py's cross-process gpu_lock (Step 25w) both only
+# know about GPU-touching work Baihe itself started; neither can see a
+# completely different application (Jellyfin doing hardware-accelerated
+# transcoding on the same card, say) using the same physical GPU. This is
+# the only signal that can.
+EXTERNAL_GPU_BUSY_UTIL_PERCENT = 50
+EXTERNAL_GPU_BUSY_MIN_FREE_MB = 1024
+
+
+def external_gpu_load() -> dict | None:
+    """Real utilization/VRAM for the first GPU nvidia-smi reports, or None
+    if nvidia-smi isn't on PATH or the query fails for any reason --
+    best-effort, same as the rest of this module's GPU detection, never
+    raises. Deliberately reads the driver directly rather than anything
+    torch-based, since torch may not even be installed/loaded at the
+    point this gets called (background_jobs.py checks this before a job
+    that would import torch has started)."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5, check=True)
+        line = result.stdout.strip().splitlines()[0]
+        util_percent, used_mb, total_mb = (float(x.strip()) for x in line.split(","))
+        return {"utilization_percent": util_percent, "memory_used_mb": used_mb,
+                "memory_total_mb": total_mb, "memory_free_mb": total_mb - used_mb}
+    except Exception:
+        return None
+
+
+def external_gpu_is_busy() -> bool:
+    """True if the GPU looks meaningfully loaded by *something* right now,
+    per nvidia-smi -- whether or not Baihe itself started it. False (never
+    blocks a job) if nvidia-smi isn't available: this is a belt-and-suspenders
+    check layered on top of Baihe's own two GPU locks, not a replacement for
+    either, so its absence shouldn't be treated as "GPU busy" any more than
+    it already is today."""
+    load = external_gpu_load()
+    if load is None:
+        return False
+    return (load["utilization_percent"] >= EXTERNAL_GPU_BUSY_UTIL_PERCENT or
+            load["memory_free_mb"] < EXTERNAL_GPU_BUSY_MIN_FREE_MB)
+
+
 # cu128, not cu124 -- confirmed directly against download.pytorch.org that
 # cu124's index only publishes wheels through cp313, nothing for cp314,
 # while cu128 already carries real Windows cp314 CUDA wheels (matches the
