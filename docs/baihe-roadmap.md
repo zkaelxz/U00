@@ -10,9 +10,9 @@
 >
 > **Not ready**: **Step 19** (full click-through test) needs Steps 13–18 all landed — only 18 remains, blocked as above. **Step 20** (UX polish) touches Workspace's Review section, the same file Step 15 just landed in — now unblocked, ready to send once picked.
 >
-> **New this round — two real, independently-verified findings, both queued, neither sent**:
-> - **Step 33** — `requirements-install.bat` hardcodes a personal Windows path (`cd C:\Users\Airbear\Documents\baihe-subtitler`), flagged by the Step 16 session and confirmed by reading the real file. Fix specified: `cd /d %~dp0`, not a location prompt. Trivial, low-risk, sendable any time.
-> - **Step 35** — the ML bubble detector double-counts every balloon (returns all 3 of the model's classes with no IoU dedup; a real measurement showed 46 of 63 regions on one page overlapping another by >70%, roughly doubling OCR/translation cost and stacking two overlay boxes per bubble), and the free CV heuristic fallback is a near-no-op on color artwork while being the silent `auto` default whenever the ML weights aren't already cached. Reported by the user, independently traced through the real `scanlate.py` code before write-up (not taken on the report alone) — both bugs confirmed real. Not yet sent; worth prioritizing given real cost/quality impact, similar severity class to 25/25b.
+> **Sent this round, no report yet**: **Step 20** (UX polish, now unblocked since Step 15 landed) → `session_01XpF5WD4Eqev9Za4JnoKMRY`. **Step 33** (`requirements-install.bat` path fix) → `session_01MfHZmbBrtviLUYQQ3dj8SH`. **Step 35** (ML bubble-detector double-counting + weak CV fallback) → `session_01SqSBzwfM3V5Xo7Q2qgaB4J`. All three sent to fresh sessions rather than the existing long-running one, which is at 77% of its 1M-token context ceiling (771K used) with $2,163 already spent — sending unrelated new steps there would only hasten a forced compaction with no clear cost win, given caching only helps while that session's cache stays warm. **Note**: this planning session's own permission mode was "plan" at send time, which blocks granting a child `auto` mode (cannot be more permissive than the parent) — all three were created in the default mode instead of the usual `auto`, so they may prompt for approval on ordinary actions; their own `docs/ai-setup/CLAUDE.md` already tells them that's expected and to continue past it, not stop the step.
+>
+> **Queued, not yet sent**: none currently — 33/35/20 above were the ready backlog.
 >
 > **Step 34 reserved, not yet scoped.** The "Source verification" session (`session_0178qeyaiQXHz2QMAepnCF2b`) has twice self-assigned roadmap-style step numbers to its own, apparently uncoordinated work (`step-32-page-translate-extension`, then renamed to `step-33-page-translate-extension` once this file's real Step 32/33 existed) — its own task summary has also drifted inconsistently across at least two unrelated descriptions. At the user's request, Step 34 is now reserved as a real, non-colliding number for it to use; the user will tell it directly to stick to 34. Explicitly a placeholder in this file until that session's real scope is known — decided to leave the session itself alone for now rather than interrupt it, since it hasn't pushed/opened a PR yet (no real git conflict exists yet).
 >
@@ -2900,7 +2900,7 @@ Reported directly by the user with a real measurement from running the ML detect
   | 18b — App Assistant | `step-18b-app-assistant` | ✅ Merged (PR #45; a duplicate PR #47 off the same commit was later opened by mistake and merged today as a no-op — same head SHA, nothing new landed) | ⏳ Pending |
   | 18c — In-app Install buttons for optional dependencies | `step-18c-install-buttons` | ✅ Merged (PR #46; same duplicate-PR situation — #48 off the same commit, merged today as a no-op) | ⏳ Pending |
   | 19 — Full click-through UX test | — | Not started | — |
-  | 20 — UX polish: shortcuts, toasts, transcript search | — | Not started | — |
+  | 20 — UX polish: shortcuts, toasts, transcript search | — | Sent (`session_01XpF5WD4Eqev9Za4JnoKMRY`) | — |
   | 20b — Richer Anki export: sentence + audio | `step-20b-richer-anki-export` | ✅ Merged (PR #66) | ⏳ Pending |
   | 21 — Review workspace: per-line audio and save-status | `claude/step-21-roadmap-sp7f31` | ✅ Merged (PR #68) | ⏳ Pending |
   | 22 — Series-level library view | `step-22-series-library-view` | ✅ Merged (PR #70) — the implementing session resolved the earlier `_series_picker()`/series-instructions conflict itself, and also caught a real consistency gap (`list_dramas_by_series` used a plain `SELECT *` instead of `_DRAMA_SELECT`, fixed) | ⏳ Pending |
@@ -2953,9 +2953,9 @@ Reported directly by the user with a real measurement from running the ML detect
   | 30 — Glossary: term-level aliases + a prohibited-translation list | `step-30-glossary-aliases-banned-translations` | ✅ Merged (PR #123) | ⏳ Pending |
   | 31 — Detect a content-moderation refusal distinctly, and offer a real retry | — | Not started | — |
   | 32 — Expose look-ahead context and batch size as adjustable; bigger novel-narration defaults | — | Not started | — |
-  | 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path | — | Not started | — |
+  | 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path | — | Sent (`session_01MfHZmbBrtviLUYQQ3dj8SH`) | — |
   | 34 — Reserved for "Source verification" session's own work (scope not yet confirmed) | `step-33-page-translate-extension` (pending rename to `step-34-*` once scoped) | Not started | — |
-  | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | — | Not started | — |
+  | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | — | Sent (`session_01SqSBzwfM3V5Xo7Q2qgaB4J`) | — |
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
