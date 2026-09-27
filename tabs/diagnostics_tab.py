@@ -503,7 +503,10 @@ def render_diagnostics_tab():
                         with st.spinner("Replaying..."):
                             debug_view.replay_bug_bundle(b["id"], replay_engine)
                         st.rerun()
-                    if st.button("🗑️ Delete bundle", key=f"bug_delete_{b['id']}"):
+                    # Step 71: same confirm-before-delete pattern used elsewhere in this app.
+                    _confirm_bug_delete = st.checkbox("Confirm delete", key=f"confirm_bug_delete_{b['id']}")
+                    if st.button("🗑️ Delete bundle", key=f"bug_delete_{b['id']}",
+                                disabled=not _confirm_bug_delete):
                         db.delete_bug_report(b["id"])
                         st.rerun()
 

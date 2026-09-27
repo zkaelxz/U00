@@ -1957,6 +1957,7 @@ class TestBulkGlossaryAndPronounActions:
         at = self._run(did)
 
         at.multiselect(key=f"bulk_glossary_pick_{sid}").set_value(["Zhu Jue"]).run()
+        at.checkbox(key=f"bulk_glossary_delete_confirm_{sid}").set_value(True).run(timeout=30)
         self._button(at, "🗑️ Delete 1 selected term(s)").click()
         at.run(timeout=30)
 
@@ -3619,6 +3620,107 @@ class TestDestructiveActionsNeedConfirmation:
         assert not self._button(at, "🗑️ Remove raw novel context").disabled
         self._button(at, "🗑️ Remove raw novel context").click().run(timeout=30)
         assert not os.path.exists(os.path.join(ddir, "raw_novel_context.txt"))
+
+
+class TestFourMoreDestructiveActionsNeedConfirmation:
+    """Step 71: deleting a saved translation version, a glossary term
+    (single and bulk), and removing a series character all used to fire
+    on a single click with no confirmation, unlike this app's own
+    established pattern (Step 25z's Workspace deletes, Library's
+    bulk-drama-delete checkbox)."""
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def _drama_with_two_versions(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated")
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")]
+        isolated_db.save_lines(did, lines)
+        isolated_db.save_translation_version(did, lines, "First try", engine="claude")
+        vid = isolated_db.save_translation_version(did, lines, "Second try", engine="claude")
+        return did, vid
+
+    def test_delete_version_button_disabled_until_confirmed(self, isolated_db):
+        did, vid = self._drama_with_two_versions(isolated_db)
+        at = self._run(did)
+        assert [b for b in at.button if b.key == f"delv_{vid}"][0].disabled
+
+    def test_delete_version_removes_it_once_confirmed(self, isolated_db):
+        did, vid = self._drama_with_two_versions(isolated_db)
+        at = self._run(did)
+        at.checkbox(key=f"confirm_delv_{vid}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"delv_{vid}"][0].disabled
+        [b for b in at.button if b.key == f"delv_{vid}"][0].click().run(timeout=30)
+        assert all(v["id"] != vid for v in isolated_db.list_translation_versions(did))
+
+    def _drama_with_glossary_term_and_series_character(self, isolated_db):
+        series_id = isolated_db.get_or_create_series("Test Series")
+        did = isolated_db.create_drama(title_en="Test Drama", series_id=series_id,
+                                        media_type="audio_drama", content_mode="audio_drama",
+                                        status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        isolated_db.upsert_glossary_term(series_id, "小玲", "Xiaoling")
+        term_id = isolated_db.list_glossary_terms(series_id)[0]["id"]
+        isolated_db.upsert_series_character(series_id, "Xiaoling")
+        sc_id = isolated_db.list_series_characters(series_id)[0]["id"]
+        return did, term_id, sc_id
+
+    def test_delete_glossary_term_button_disabled_until_confirmed(self, isolated_db):
+        did, term_id, _ = self._drama_with_glossary_term_and_series_character(isolated_db)
+        at = self._run(did)
+        assert [b for b in at.button if b.key == f"delglo_{term_id}"][0].disabled
+
+    def test_delete_glossary_term_removes_it_once_confirmed(self, isolated_db):
+        did, term_id, _ = self._drama_with_glossary_term_and_series_character(isolated_db)
+        at = self._run(did)
+        at.checkbox(key=f"confirm_delglo_{term_id}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"delglo_{term_id}"][0].disabled
+        [b for b in at.button if b.key == f"delglo_{term_id}"][0].click().run(timeout=30)
+        assert not any(t["id"] == term_id for t in isolated_db.list_glossary_terms(
+            isolated_db.get_drama(did)["series_id"]))
+
+    def test_bulk_delete_glossary_terms_button_disabled_until_confirmed(self, isolated_db):
+        did, term_id, _ = self._drama_with_glossary_term_and_series_character(isolated_db)
+        at = self._run(did)
+        sid = isolated_db.get_drama(did)["series_id"]
+        at.multiselect(key=f"bulk_glossary_pick_{sid}").set_value(["小玲"]).run(timeout=30)
+        assert [b for b in at.button if b.key == f"bulk_glossary_delete_{sid}"][0].disabled
+
+    def test_bulk_delete_glossary_terms_removes_them_once_confirmed(self, isolated_db):
+        did, term_id, _ = self._drama_with_glossary_term_and_series_character(isolated_db)
+        at = self._run(did)
+        sid = isolated_db.get_drama(did)["series_id"]
+        at.multiselect(key=f"bulk_glossary_pick_{sid}").set_value(["小玲"]).run(timeout=30)
+        at.checkbox(key=f"bulk_glossary_delete_confirm_{sid}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"bulk_glossary_delete_{sid}"][0].disabled
+        [b for b in at.button if b.key == f"bulk_glossary_delete_{sid}"][0].click().run(timeout=30)
+        assert isolated_db.list_glossary_terms(sid) == []
+
+    def test_remove_series_character_button_disabled_until_confirmed(self, isolated_db):
+        did, _, sc_id = self._drama_with_glossary_term_and_series_character(isolated_db)
+        at = self._run(did)
+        assert [b for b in at.button if b.key == f"scdel_{sc_id}"][0].disabled
+
+    def test_remove_series_character_removes_it_once_confirmed(self, isolated_db):
+        did, _, sc_id = self._drama_with_glossary_term_and_series_character(isolated_db)
+        at = self._run(did)
+        at.checkbox(key=f"confirm_scdel_{sc_id}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"scdel_{sc_id}"][0].disabled
+        [b for b in at.button if b.key == f"scdel_{sc_id}"][0].click().run(timeout=30)
+        sid = isolated_db.get_drama(did)["series_id"]
+        assert not any(sc["id"] == sc_id for sc in isolated_db.list_series_characters(sid))
 
 
 class TestDiarizationEstimateCaption:
