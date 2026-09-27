@@ -85,3 +85,51 @@ class TestSmartFetchContract:
         r = pf.smart_fetch("http://127.0.0.1:9/nope", allow_render=False, timeout=2)
         for key in ("text", "method", "shell_check", "needs_manual", "message"):
             assert key in r
+
+
+class TestApiCaptureEntryLogic:
+    """Pure logic behind `api_capture_session` -- the part that decides
+    what to keep from a matched network response -- tested without a
+    real browser. The session itself (opening Playwright, wiring
+    `page.on("response", ...)`) is a thin, untestable-without-a-browser
+    shell around this."""
+
+    def test_substring_pattern_matches(self):
+        assert pf._url_matches("https://site.invalid/api/v2/chapter/7", "/api/v2/chapter/")
+        assert not pf._url_matches("https://site.invalid/static/logo.png", "/api/v2/chapter/")
+
+    def test_regex_pattern_matches(self):
+        import re
+        pattern = re.compile(r"/v\d+/content")
+        assert pf._url_matches("https://site.invalid/v3/content?id=1", pattern)
+        assert not pf._url_matches("https://site.invalid/v3/other", pattern)
+
+    def test_a_normal_response_keeps_its_body(self):
+        entry = pf._capture_entry("https://site.invalid/api/x", 200, "application/json",
+                                  b'{"ok": true}')
+        assert entry == {"url": "https://site.invalid/api/x", "status": 200,
+                         "content_type": "application/json", "body": b'{"ok": true}'}
+
+    def test_a_missing_body_is_recorded_as_none_not_dropped(self):
+        """A response the caller was watching for still shows up -- e.g.
+        to notice it happened and failed -- even when its body couldn't
+        be read (aborted, redirected away)."""
+        entry = pf._capture_entry("https://site.invalid/api/x", 200, "application/json", None)
+        assert entry["body"] is None
+
+    def test_an_oversized_body_is_dropped_not_kept_whole(self):
+        """One huge, merely URL-matching download (a bundled asset that
+        happens to share the API path prefix) must not be kept in full --
+        the caller is watching for small signed API responses, not for
+        whatever else shares that URL shape."""
+        big = b"x" * 100
+        entry = pf._capture_entry("https://site.invalid/api/x", 200, "application/octet-stream",
+                                  big, max_body_bytes=50)
+        assert entry["body"] is None
+        assert entry["status"] == 200   # the rest of the entry still records what happened
+
+    def test_a_body_exactly_at_the_cap_is_kept(self):
+        body = b"x" * 50
+        entry = pf._capture_entry("https://site.invalid/api/x", 200, "text/plain",
+                                  body, max_body_bytes=50)
+        assert entry["body"] == body
