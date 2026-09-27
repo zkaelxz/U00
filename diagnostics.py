@@ -12,6 +12,7 @@ import getpass
 import importlib.metadata
 import importlib.util
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -614,6 +615,94 @@ def stream_pip_uninstall(pip_args: list, python_executable: str = None):
         yield {"line": line.rstrip("\n")}
     returncode = proc.wait()
     yield {"done": True, "ok": returncode == 0, "returncode": returncode}
+
+
+# ---------------------------------------------------------------------------
+# Step 62: install a whole requirements tier, and a real Deno install
+# action -- both real subprocess actions triggered only from an explicit
+# button click, matching stream_pip_install's own "never swallow the real
+# error" discipline.
+# ---------------------------------------------------------------------------
+
+def parse_requirements_file(path: str) -> list:
+    """Package specifiers from a requirements.txt-style file: comments
+    (a leading `#`, or trailing after a real spec) and blank lines
+    skipped, everything else returned in file order. A line commented out
+    entirely (e.g. one of two TTS engines whose dependencies conflict --
+    see requirements-optional.txt's own note) is correctly never
+    installed, the same as a plain `pip install -r` would skip it."""
+    if not os.path.exists(path):
+        return []
+    specs = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                specs.append(line)
+    return specs
+
+
+def stream_bulk_install(requirements_path: str, python_executable: str = None):
+    """Installs every package in `requirements_path` one at a time --
+    never a single `pip install -r`, which aborts the entire batch on the
+    first failure (exactly the problem Step 61's audio-separator/
+    diffq-fixed case would cause for everyone else in the same file).
+    Yields {"package", "line"} per output line, {"package", "done", "ok"}
+    per package, then a final {"bulk_done": True, "results": {package:
+    ok}} once every package has been attempted, failures included."""
+    specs = parse_requirements_file(requirements_path)
+    results = {}
+    for spec in specs:
+        yield {"package": spec, "start": True}
+        for item in stream_pip_install([spec], python_executable):
+            if item.get("done"):
+                results[spec] = item["ok"]
+                yield {"package": spec, "done": True, "ok": item["ok"]}
+            else:
+                yield {"package": spec, "line": item["line"]}
+    yield {"bulk_done": True, "results": results}
+
+
+def _deno_default_install_path() -> str:
+    """Where Deno's own official installer puts the binary, regardless of
+    whether the CURRENT process's PATH has picked it up yet -- used to
+    tell "installed, but this process hasn't seen it yet" apart from
+    "genuinely not installed" after a real install attempt."""
+    home = os.path.expanduser("~")
+    name = "deno.exe" if platform.system() == "Windows" else "deno"
+    return os.path.join(home, ".deno", "bin", name)
+
+
+def stream_deno_install():
+    """Installs Deno, a system tool rather than a pip package, so it needs
+    its own mechanism distinct from stream_pip_install: winget on Windows
+    when it's on PATH (the officially documented package-manager route),
+    otherwise Deno's own official install script -- PowerShell's on
+    Windows, the shell one everywhere else. Yields {"line"} per output
+    line, then {"done", "ok", "on_path", "needs_restart"} -- installing a
+    binary doesn't guarantee this same process's PATH picks it up without
+    a restart, so "ok but needs_restart" is a real, distinct outcome from
+    a plain "ok"."""
+    if shutil.which("deno"):
+        yield {"line": "deno is already on PATH -- nothing to do."}
+        yield {"done": True, "ok": True, "on_path": True, "needs_restart": False}
+        return
+    system = platform.system()
+    if system == "Windows" and shutil.which("winget"):
+        cmd = ["winget", "install", "-e", "--id", "DenoLand.Deno"]
+    elif system == "Windows":
+        cmd = ["powershell", "-NoProfile", "-Command", "irm https://deno.land/install.ps1 | iex"]
+    else:
+        cmd = ["sh", "-c", "curl -fsSL https://deno.land/install.sh | sh"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    for line in proc.stdout:
+        yield {"line": line.rstrip("\n")}
+    returncode = proc.wait()
+    on_path = bool(shutil.which("deno"))
+    installed = on_path or os.path.exists(_deno_default_install_path())
+    ok = returncode == 0 and installed
+    yield {"done": True, "ok": ok, "on_path": on_path, "needs_restart": ok and not on_path}
 
 
 # ---------------------------------------------------------------------------

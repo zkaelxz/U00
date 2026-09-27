@@ -68,20 +68,50 @@ _BM_COMPARE_OPTIONS = {
 def _run_pip_stream(running_label: str, done_label: str, failed_label: str, stream_gen) -> dict:
     """Runs a diagnostics.stream_* generator inside an st.status box,
     writing each real output line as it arrives rather than just
-    spinning, and returns {"ok": bool} once it's done. Shared by the
-    generic per-package Install button and the GPU-PyTorch reinstall
-    button below -- both need the exact same "show real progress, never
-    swallow the real error" handling."""
+    spinning, and returns the final {"done": True, ...} item (minus that
+    marker key) once it's done -- always at least {"ok": bool}, plus
+    whatever else that particular stream reports (Step 62's Deno install
+    also reports "on_path"/"needs_restart"). Shared by the generic
+    per-package Install button, the GPU-PyTorch reinstall button, and
+    Step 62's bulk/Deno installs below -- all need the exact same "show
+    real progress, never swallow the real error" handling."""
     result = {"ok": False}
     with st.status(running_label, expanded=True) as box:
         for item in stream_gen:
             if item.get("done"):
-                result["ok"] = item["ok"]
+                result = {k: v for k, v in item.items() if k != "done"}
             else:
                 box.write(item["line"])
         box.update(label=done_label if result["ok"] else failed_label,
                    state="complete" if result["ok"] else "error")
     return result
+
+
+def _run_bulk_install_stream(tier_label: str, requirements_path: str) -> dict:
+    """Runs diagnostics.stream_bulk_install inside one st.status box, with
+    a header line before each package's own output so a bad package's
+    failure is easy to find in a long combined log even though the whole
+    batch keeps going past it. Returns {package: ok} for every package
+    the file named, once all of them have been attempted."""
+    results = {}
+    with st.status(f"Installing everything in {tier_label}...", expanded=True) as box:
+        for item in diagnostics.stream_bulk_install(requirements_path):
+            if item.get("bulk_done"):
+                results = item["results"]
+            elif item.get("start"):
+                box.write(f"**{item['package']}**")
+            elif item.get("done"):
+                box.write("✅ done" if item["ok"] else "❌ failed")
+            else:
+                box.write(item["line"])
+        if not results:
+            box.update(label=f"Nothing to install in {tier_label} (file empty or missing).",
+                       state="complete")
+        else:
+            n_ok = sum(1 for ok in results.values() if ok)
+            box.update(label=f"{tier_label}: {n_ok}/{len(results)} installed.",
+                       state="complete" if n_ok == len(results) else "error")
+    return results
 
 
 def _install_confirmed(container, key: str, warning: str) -> bool:
@@ -151,10 +181,23 @@ def render_diagnostics_tab():
             elif ff.get("version"):
                 st.caption(ff["version"])
             if not js_rt["found"]:
-                st.warning("No JavaScript runtime (Deno, Node, Bun or QuickJS) found on PATH -- "
-                           "downloads and Live capture from any site (not just YouTube) may silently "
-                           "lose formats without one. Install Deno (https://deno.land) and run "
-                           "`pip install -U yt-dlp`.")
+                jsc1, jsc2 = st.columns([5, 1])
+                jsc1.warning("No JavaScript runtime (Deno, Node, Bun or QuickJS) found on PATH -- "
+                            "downloads and Live capture from any site (not just YouTube) may silently "
+                            "lose formats without one. Install Deno below (or install one of the "
+                            "others yourself) and run `pip install -U yt-dlp`.")
+                if jsc2.button("⬇️ Install Deno", key="install_deno_btn"):
+                    deno_result = _run_pip_stream(
+                        "Installing Deno...", "Deno installed.",
+                        "Deno install failed -- see output above.",
+                        diagnostics.stream_deno_install())
+                    if deno_result["ok"] and deno_result.get("needs_restart"):
+                        st.info("Deno was installed, but this app needs a restart before it can "
+                               "see it on PATH -- close and reopen it (or just your terminal) "
+                               "once, then re-run diagnostics.")
+                    elif deno_result["ok"]:
+                        st.success("Done -- re-checking...")
+                        st.rerun()
             st.caption("If a download or Live capture fails because the site needs you signed in "
                       "(common on TikTok and Instagram, less so on YouTube), turn on cookie-based "
                       "login under ⚙️ Settings → Downloads.")
@@ -280,6 +323,23 @@ def render_diagnostics_tab():
             if missing_required:
                 st.error(f"Missing required dependencies: {', '.join(missing_required)}. "
                          f"Run `pip install -r requirements.txt` again.")
+
+            st.markdown("**Bulk install a whole tier**")
+            st.caption(
+                "Installs every package in the file one at a time -- unlike a plain `pip install "
+                "-r`, one package failing (Step 61's audio-separator/diffq-fixed case, for example) "
+                "doesn't abort the rest; every package still gets attempted and reported.")
+            bulk_files = {"requirements-core.txt": "Core", "requirements-media.txt": "Media",
+                         "requirements-optional.txt": "Optional"}
+            bulk_cols = st.columns(len(bulk_files))
+            for col, (fname, label) in zip(bulk_cols, bulk_files.items()):
+                if col.button(f"Install everything in {fname}", key=f"bulk_install_{fname}"):
+                    st.session_state["bulk_install_results"] = _run_bulk_install_stream(
+                        label, os.path.join(project_root, fname))
+            _bulk_results = st.session_state.get("bulk_install_results")
+            if _bulk_results:
+                for pkg, ok in _bulk_results.items():
+                    (st.success if ok else st.error)(f"{'✅' if ok else '❌'} {pkg}")
 
     with st.expander("🏃 Running jobs", expanded=True):
         st.caption("Everything currently running in the background across every drama -- "
