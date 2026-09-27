@@ -1,4 +1,4 @@
-# Translate the page you're reading (Step 33 / 33b)
+# Translate the page you're reading (Step 34 / 34b)
 
 A browser extension that sends the comic page you're looking at into
 Baihe, and draws the translation over it in place.

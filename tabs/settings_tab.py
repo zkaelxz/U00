@@ -346,7 +346,7 @@ def render_settings_sidebar():
 
 
 def _render_browser_extension_settings():
-    """Step 33's expander: the local endpoint the browser extension talks
+    """Step 34's expander: the local endpoint the browser extension talks
     to, plus the token to paste into it.
 
     This is also the bridge that gets translation settings to the

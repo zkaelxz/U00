@@ -1,6 +1,6 @@
 """
 page_server.py -- the small, localhost-only HTTP endpoint the browser
-extension talks to (roadmap Step 33).
+extension talks to (roadmap Step 34).
 
 **Why this exists at all.** The adapters in `sources/` do bulk import:
 they fetch a chapter, track new ones, and build an offline library. This

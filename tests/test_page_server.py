@@ -1,5 +1,5 @@
 """
-tests/test_page_server.py -- Step 33's localhost endpoint.
+tests/test_page_server.py -- Step 34's localhost endpoint.
 
 Mocked throughout, per this repo's testing rules: no real browser, no
 real OCR backend, no model download, no network. `scanlate`'s pipeline
