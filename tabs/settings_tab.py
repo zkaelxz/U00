@@ -341,3 +341,74 @@ def render_settings_sidebar():
                 value=st.session_state.get("settings_cookies_file", ""),
                 help="Export one with a browser extension (e.g. \"Get cookies.txt\") if the "
                      "browser option above can't read your profile directly.")
+
+        _render_browser_extension_settings()
+
+
+def _render_browser_extension_settings():
+    """Step 32's expander: the local endpoint the browser extension talks
+    to, plus the token to paste into it.
+
+    This is also the bridge that gets translation settings to the
+    endpoint's background thread, which has no `st.session_state` of its
+    own -- the same shape as `background_jobs.set_gpu_limit_enabled`
+    above. API keys stay in session state and are handed over in memory;
+    nothing here writes a key to disk.
+    """
+    import page_server
+    from sources import store as src_store
+
+    with st.expander("Browser extension (translate the page you're on)", expanded=False):
+        st.caption(
+            "Lets a browser extension send the comic page you're reading straight into "
+            "Baihe -- useful for a site with no adapter, and for pages an adapter can't "
+            "reach because only your own browser can unscramble or decrypt them. Opens a "
+            "small HTTP endpoint on this computer only (127.0.0.1); nothing on your "
+            "network can reach it, and every request needs the token below.")
+        stored = bool(src_store.get_setting("page_server_enabled"))
+        enabled = st.checkbox(
+            "Run the local endpoint", value=stored, key="settings_page_server_enabled",
+            help="Off by default, because it opens a port. Turn it on only while you want "
+                 "to use the extension.")
+        if enabled != stored:
+            src_store.set_setting("page_server_enabled", enabled)
+
+        if not enabled:
+            return
+
+        page_server.ensure_server_started()
+        if page_server.server_running():
+            st.success(f"Listening on http://127.0.0.1:{page_server.server_port() or page_server.DEFAULT_PORT}")
+        else:
+            st.error(
+                f"Couldn't start on port {page_server.DEFAULT_PORT} -- most likely something "
+                "else is already using it. Close that program and reload this page.")
+
+        # The engine is chosen here rather than reusing whatever a tab
+        # last used, because the endpoint runs without a tab open.
+        engine_names = list(translate_engines.ENGINES.keys())
+        engine_choice = st.selectbox(
+            "Translate extension pages with", engine_names,
+            format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, st.session_state.get('gemini_free_tier', False))}",
+            key="settings_page_server_engine",
+            help="Uses the matching API key from 'API keys & endpoints' above. With no key "
+                 "set, pages still come back with their original text read by OCR -- clearly "
+                 "marked as untranslated rather than passed off as a translation.")
+        page_server.set_translation_config(
+            engine=engine_choice,
+            api_key=st.session_state.get(f"settings_{engine_choice}", "") or "",
+            free_tier=bool(st.session_state.get("gemini_free_tier", False)),
+            base_url=st.session_state.get("settings_ollama_url") or None,
+            hf_token=st.session_state.get("settings_hf_token", "") or None,
+            tesseract_cmd=st.session_state.get("settings_tesseract_cmd") or None)
+
+        st.text_input(
+            "Token for the extension", value=page_server.load_or_create_token(),
+            key="settings_page_server_token", disabled=True,
+            help="Paste this into the extension's own settings. It's what stops any other "
+                 "page in your browser from quietly sending things to this app. Treat it "
+                 "like a password.")
+        st.caption(
+            f"Load the extension from the `extension/` folder in this project "
+            f"(chrome://extensions → Developer mode → Load unpacked), then paste the token "
+            f"above into it. See `docs/browser-extension.md`.")
