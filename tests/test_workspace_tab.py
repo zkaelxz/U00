@@ -2810,6 +2810,98 @@ class TestImproveTranslationUseThisRefreshesTheEnBox:
         assert isolated_db.load_lines(did)[0]["en"] == "A much better line."
 
 
+class TestPerLineExplainToolsMovedFromReader:
+    """Step 15: Reader's "Line tools" (Why this?/Alternatives/Grammar/
+    Pronounce) moved into Workspace's own per-line 🔧 popover, next to the
+    Improve translation/Re-transcribe it already had -- same per-line job,
+    previously split across two tabs for no functional reason."""
+
+    def _drama_with_a_line(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi there.")])
+        return did
+
+    def _drama_with_two_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="第一行", en="Line one"),
+            Line(idx=1, start=1.0, end=2.0, zh="第二行", en="Line two"),
+        ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_why_this_result_for_one_line_is_not_shown_under_another(self, isolated_db, monkeypatch):
+        # Step 25x's bug class, re-checked under the new home: each line's
+        # result is keyed by ln.idx directly (rv_why_0/rv_why_1, ...), not a
+        # single shared key re-pointed at whichever line is currently
+        # selected -- so line 1's row simply never reads line 0's key.
+        import line_tools
+        monkeypatch.setattr(line_tools, "explain_translation",
+                             lambda zh, en, eng, source_language="zh": f"explanation for {en}")
+        at = self._run(self._drama_with_two_lines(isolated_db))
+        [b for b in at.button if b.key == "rvwhy_0"][0].click()
+        at.run(timeout=30)
+        assert any("explanation for Line one" in m.value for m in at.info)
+        assert not any("explanation for Line two" in m.value for m in at.info)
+
+        [b for b in at.button if b.key == "rvwhy_1"][0].click()
+        at.run(timeout=30)
+        assert any("explanation for Line one" in m.value for m in at.info)
+        assert any("explanation for Line two" in m.value for m in at.info)
+
+    def test_why_this_shows_an_explanation(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "Because reasons.")
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvwhy_0"][0].click()
+        at.run(timeout=30)
+        assert any("Because reasons." in m.value for m in at.info)
+
+    def test_alternatives_lists_each_option(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "alternative_translations", lambda *a, **k: [
+            {"translation": "Hey there.", "approach": "casual", "tradeoff": "less formal"}])
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvalts_0"][0].click()
+        at.run(timeout=30)
+        assert any("Hey there." in c.value for c in at.caption)
+
+    def test_grammar_shows_a_breakdown_table(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "grammar_breakdown", lambda *a, **k: [
+            {"word": "你好", "role": "greeting"}])
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvgram_0"][0].click()
+        at.run(timeout=30)
+        assert len(at.dataframe) >= 1
+
+    def test_pronounce_plays_audio(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "pronunciation_audio", lambda *a, **k: b"fake-mp3-bytes")
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvpronounce_0"][0].click()
+        at.run(timeout=30)
+        assert not at.exception
+        assert len(at.get("audio")) >= 1
+
+
 class TestTranslateJobRefreshesStaleEnBoxes:
     """Step 9h: a real, confirmed gap -- a translate job correctly writes
     ln.en and reloads st.session_state.lines from the database before
