@@ -1129,6 +1129,66 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
 
         assert os.path.exists(os.path.join(library_dir, "library.db"))
 
+    def test_backup_over_total_size_limit_is_rejected_before_extraction(self, tmp_path_str, monkeypatch):
+        """Step 52: a zip whose members would expand past the total-size
+        limit must be rejected before extractall() ever runs, not partway
+        through with a full disk -- and the existing library survives."""
+        import tabs.library_tab as lt
+
+        monkeypatch.setattr(lt, "_MAX_RESTORE_TOTAL_BYTES", 10)
+
+        marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
+        os.makedirs(os.path.dirname(marker))
+        with open(marker, "w") as f:
+            f.write("original data")
+
+        oversized_zip = self._make_zip_bytes({"library.db": "x" * 100})
+        with pytest.raises(ValueError, match="expand to more than"):
+            lt.restore_library_backup(oversized_zip, tmp_path_str)
+
+        assert os.path.exists(marker)
+        with open(marker) as f:
+            assert f.read() == "original data"
+
+    def test_backup_with_oversized_single_member_is_rejected(self, tmp_path_str, monkeypatch):
+        """Step 52: the per-file limit catches one huge member even if the
+        total-size limit wouldn't (e.g. it's the only file in the zip)."""
+        import tabs.library_tab as lt
+
+        monkeypatch.setattr(lt, "_MAX_RESTORE_MEMBER_BYTES", 10)
+
+        oversized_zip = self._make_zip_bytes({"library.db": "x" * 100})
+        with pytest.raises(ValueError, match="per-file limit"):
+            lt.restore_library_backup(oversized_zip, tmp_path_str)
+
+    def test_backup_over_member_count_limit_is_rejected(self, tmp_path_str, monkeypatch):
+        """Step 52: a zip with too many members is rejected up front,
+        without ever calling extractall()."""
+        import tabs.library_tab as lt
+
+        monkeypatch.setattr(lt, "_MAX_RESTORE_MEMBERS", 1)
+
+        many_files_zip = self._make_zip_bytes({
+            "library.db": "fake sqlite bytes",
+            "dramas/extra_file.txt": "one file too many",
+        })
+        with pytest.raises(ValueError, match="file limit"):
+            lt.restore_library_backup(many_files_zip, tmp_path_str)
+
+    def test_backup_within_limits_still_restores_normally(self, tmp_path_str):
+        """Step 52's new checks shouldn't reject an ordinary, legitimate
+        backup -- the limits are generous by design."""
+        import tabs.library_tab as lt
+
+        good_zip = self._make_zip_bytes({
+            "library.db": "fake sqlite bytes",
+            "dramas/new_drama.txt": "restored data",
+        })
+        lt.restore_library_backup(good_zip, tmp_path_str)
+
+        assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
+        assert os.path.exists(os.path.join(tmp_path_str, "dramas", "new_drama.txt"))
+
 
 class TestBulkExportClampsOverlappingCues:
     """Step 25d item 6: Workspace's own export already promises "never
