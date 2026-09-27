@@ -729,3 +729,42 @@ def render_library_tab():
                         db.delete_preset(_p["id"])
                         st.rerun()
 
+    with st.expander("🎙️ Voice bank", expanded=False):
+        st.caption("Voices sampled from a character's clone reference in any drama, saved here for "
+                  "reuse as a clone reference for a character in a *different* drama -- see each "
+                  "drama's 🎭 Name your characters & set up voice cloning section for \"Save to "
+                  "voice bank\" / \"Use a voice from the bank\". Deleting the drama a voice was "
+                  "sampled from never affects its entry here; each entry keeps its own copy of the "
+                  "clip. Voices cloned from commercial audio dramas are for personal use only.")
+        _voice_bank_entries = db.list_voice_bank_entries()
+        if not _voice_bank_entries:
+            st.caption("No voices saved to the bank yet.")
+        else:
+            for _vb in _voice_bank_entries:
+                with st.container(border=True):
+                    _vbc1, _vbc2, _vbc3 = st.columns([3, 2, 1])
+                    with _vbc1:
+                        st.markdown(f"**{_vb['name']}**")
+                        _vb_fields = [f for f in (_vb.get("language"), _vb.get("clone_engine")) if f]
+                        if _vb.get("source_drama"):
+                            _vb_fields.append(f"from {_vb['source_drama']}"
+                                               + (f" ({_vb['source_speaker']})" if _vb.get("source_speaker") else ""))
+                        if _vb_fields:
+                            st.caption(" · ".join(_vb_fields))
+                        _vb_clip_path = os.path.join(db.VOICE_BANK_DIR, _vb["clip_filename"])
+                        if os.path.exists(_vb_clip_path):
+                            st.audio(_vb_clip_path)
+                        else:
+                            st.caption("⚠️ Clip file missing.")
+                    with _vbc2:
+                        _vb_new_name = st.text_input("Rename to", value=_vb["name"],
+                                                      key=f"rename_vb_{_vb['id']}", label_visibility="collapsed")
+                        if st.button("Rename", key=f"rename_vb_btn_{_vb['id']}",
+                                    disabled=not _vb_new_name.strip() or _vb_new_name.strip() == _vb["name"]):
+                            db.rename_voice_bank_entry(_vb["id"], _vb_new_name.strip())
+                            st.rerun()
+                    with _vbc3:
+                        if st.button("🗑️", key=f"delete_vb_{_vb['id']}", help=f"Delete \"{_vb['name']}\""):
+                            db.delete_voice_bank_entry(_vb["id"])
+                            st.rerun()
+

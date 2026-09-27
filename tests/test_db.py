@@ -1206,6 +1206,138 @@ class TestTranslateHistory:
         assert isolated_db.list_translate_history() == []
 
 
+class TestVoiceBank:
+    """Step 26: reuse a cloned voice across projects. Exit conditions:
+    saving a clone reference to the bank copies the clip (not a path into
+    the source drama's folder); applying a bank entry to a character in a
+    different drama copies the clip into that drama's folder and sets its
+    clone fields; deleting the source drama afterward leaves the bank
+    entry's own clip intact."""
+
+    def _make_clip(self, tmp_path_str, name="ref.wav"):
+        p = os.path.join(tmp_path_str, name)
+        with open(p, "wb") as f:
+            f.write(b"fake wav bytes")
+        return p
+
+    def test_save_copies_the_clip_not_a_reference(self, isolated_db, tmp_path_str):
+        src_dir = os.path.join(tmp_path_str, "source_drama")
+        os.makedirs(src_dir)
+        clip = self._make_clip(src_dir)
+
+        eid = isolated_db.save_voice_bank_entry(
+            "Su Shan", clip, ref_text="hello there", clone_engine="f5_tts",
+            voice_design="", language="zh", source_drama="Streamer Archive",
+            source_speaker="SPEAKER_00")
+
+        entry = isolated_db.get_voice_bank_entry(eid)
+        assert entry["name"] == "Su Shan"
+        assert entry["ref_text"] == "hello there"
+        assert entry["clone_engine"] == "f5_tts"
+        assert entry["language"] == "zh"
+        assert entry["source_drama"] == "Streamer Archive"
+        assert entry["source_speaker"] == "SPEAKER_00"
+        clip_path = os.path.join(isolated_db.VOICE_BANK_DIR, entry["clip_filename"])
+        # A real, separate file under the library's own voice_bank folder --
+        # not a path back into the source drama's directory.
+        assert os.path.exists(clip_path)
+        assert not clip_path.startswith(src_dir)
+        with open(clip_path, "rb") as f:
+            assert f.read() == b"fake wav bytes"
+
+    def test_list_is_sorted_by_name(self, isolated_db, tmp_path_str):
+        isolated_db.save_voice_bank_entry("Zed", self._make_clip(tmp_path_str, "a.wav"))
+        isolated_db.save_voice_bank_entry("Amy", self._make_clip(tmp_path_str, "b.wav"))
+        assert [e["name"] for e in isolated_db.list_voice_bank_entries()] == ["Amy", "Zed"]
+
+    def test_apply_copies_clip_into_the_new_drama_and_sets_clone_fields(self, isolated_db, tmp_path_str):
+        clip = self._make_clip(tmp_path_str)
+        eid = isolated_db.save_voice_bank_entry(
+            "Su Shan", clip, ref_text="a line", clone_engine="gpt_sovits", voice_design="")
+
+        did = isolated_db.create_drama(title_en="A New Drama")
+        drama_dir = os.path.join(tmp_path_str, "new_drama")
+        isolated_db.upsert_character(did, "SPEAKER_01")
+
+        dest_filename = isolated_db.apply_voice_bank_entry(eid, drama_dir, did, "SPEAKER_01")
+
+        dest_path = os.path.join(drama_dir, dest_filename)
+        assert os.path.exists(dest_path)
+        with open(dest_path, "rb") as f:
+            assert f.read() == b"fake wav bytes"
+        chars = {c["speaker_label"]: c for c in isolated_db.list_characters(did)}
+        c = chars["SPEAKER_01"]
+        assert c["ref_audio_filename"] == dest_filename
+        assert c["ref_text"] == "a line"
+        assert c["clone_engine"] == "gpt_sovits"
+
+    def test_apply_writes_a_separate_copy_not_shared_with_the_bank_or_other_dramas(
+            self, isolated_db, tmp_path_str):
+        clip = self._make_clip(tmp_path_str)
+        eid = isolated_db.save_voice_bank_entry("Su Shan", clip)
+        bank_clip_path = os.path.join(
+            isolated_db.VOICE_BANK_DIR, isolated_db.get_voice_bank_entry(eid)["clip_filename"])
+
+        did1 = isolated_db.create_drama(title_en="Drama One")
+        did2 = isolated_db.create_drama(title_en="Drama Two")
+        dir1 = os.path.join(tmp_path_str, "drama_one")
+        dir2 = os.path.join(tmp_path_str, "drama_two")
+        isolated_db.upsert_character(did1, "SPEAKER_00")
+        isolated_db.upsert_character(did2, "SPEAKER_00")
+
+        f1 = isolated_db.apply_voice_bank_entry(eid, dir1, did1, "SPEAKER_00")
+        f2 = isolated_db.apply_voice_bank_entry(eid, dir2, did2, "SPEAKER_00")
+
+        assert os.path.join(dir1, f1) != os.path.join(dir2, f2)
+        assert os.path.exists(bank_clip_path)  # the bank's own copy is untouched
+
+    def test_deleting_the_source_drama_leaves_the_bank_entrys_clip_intact(self, isolated_db, tmp_path_str):
+        src_dir = os.path.join(tmp_path_str, "source_drama")
+        os.makedirs(src_dir)
+        clip = self._make_clip(src_dir)
+        did = isolated_db.create_drama(title_en="Source Drama")
+        eid = isolated_db.save_voice_bank_entry("Su Shan", clip, source_drama="Source Drama")
+        clip_path = os.path.join(
+            isolated_db.VOICE_BANK_DIR, isolated_db.get_voice_bank_entry(eid)["clip_filename"])
+
+        isolated_db.delete_drama(did)
+        import shutil as _shutil
+        _shutil.rmtree(src_dir, ignore_errors=True)  # what a real drama deletion also removes
+
+        assert os.path.exists(clip_path)
+        assert isolated_db.get_voice_bank_entry(eid) is not None
+
+    def test_rename_changes_only_the_name(self, isolated_db, tmp_path_str):
+        eid = isolated_db.save_voice_bank_entry("Old name", self._make_clip(tmp_path_str),
+                                                 clone_engine="f5_tts", language="zh")
+        isolated_db.rename_voice_bank_entry(eid, "New name")
+        entry = isolated_db.get_voice_bank_entry(eid)
+        assert entry["name"] == "New name"
+        assert entry["clone_engine"] == "f5_tts"
+        assert entry["language"] == "zh"
+
+    def test_delete_removes_the_entry_and_its_clip_file(self, isolated_db, tmp_path_str):
+        eid = isolated_db.save_voice_bank_entry("Doomed", self._make_clip(tmp_path_str))
+        clip_path = os.path.join(
+            isolated_db.VOICE_BANK_DIR, isolated_db.get_voice_bank_entry(eid)["clip_filename"])
+
+        isolated_db.delete_voice_bank_entry(eid)
+
+        assert isolated_db.get_voice_bank_entry(eid) is None
+        assert not os.path.exists(clip_path)
+
+    def test_delete_only_removes_that_one_entry(self, isolated_db, tmp_path_str):
+        eid1 = isolated_db.save_voice_bank_entry("Keep me", self._make_clip(tmp_path_str, "a.wav"))
+        eid2 = isolated_db.save_voice_bank_entry("Delete me", self._make_clip(tmp_path_str, "b.wav"))
+        isolated_db.delete_voice_bank_entry(eid2)
+        assert [e["id"] for e in isolated_db.list_voice_bank_entries()] == [eid1]
+
+    def test_apply_raises_a_clear_error_for_an_unknown_entry_id(self, isolated_db, tmp_path_str):
+        import pytest
+        with pytest.raises(ValueError):
+            isolated_db.apply_voice_bank_entry(99999, tmp_path_str, 1, "SPEAKER_00")
+
+
 class TestGpuLock:
     """Step 25w: the cross-process "one GPU job at a time" guard.
     background_jobs.py's own guard (Step 5c) is plain in-process module

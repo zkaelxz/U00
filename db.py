@@ -18,6 +18,7 @@ LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "library"
 DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
 DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
 BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
+VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
 
 # Whether the library dir/schema have been initialized for the *current*
 # LIBRARY_DIR. Left False here so importing this module alone never touches
@@ -33,7 +34,7 @@ def configure_library_dir(path: str):
     test suite to point at a temp directory instead of the real
     library, so tests never touch your actual data. Not something
     you'd normally call yourself."""
-    global LIBRARY_DIR, DRAMAS_DIR, DB_PATH, BENCHMARK_DIR, _db_ready
+    global LIBRARY_DIR, DRAMAS_DIR, DB_PATH, BENCHMARK_DIR, VOICE_BANK_DIR, _db_ready
     LIBRARY_DIR = path
     DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
     DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
@@ -42,6 +43,7 @@ def configure_library_dir(path: str):
     # case file-upload path (Diagnostics tab) would have silently written
     # into the actual production library folder instead of the temp one.
     BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
+    VOICE_BANK_DIR = os.path.join(LIBRARY_DIR, "voice_bank")
     os.makedirs(DRAMAS_DIR, exist_ok=True)
     # The new path hasn't been initialized yet -- clear readiness so the
     # next get_conn() (or an explicit init_db() call) sets it up there
@@ -588,6 +590,28 @@ def init_db():
         created_at TEXT
     );
 
+    -- Step 26: reusable voice clips sampled from any drama's clone
+    -- reference, for reuse as a character's clone reference in a
+    -- *different* project -- library-level, not tied to any one
+    -- drama/series, so the source drama can be deleted afterward with no
+    -- effect on this entry. clip_filename is a COPY under
+    -- db.VOICE_BANK_DIR, never a path back into the source drama's own
+    -- folder. source_drama/source_speaker are provenance text only, not a
+    -- live foreign key.
+    CREATE TABLE IF NOT EXISTS voice_bank (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        clip_filename TEXT NOT NULL,
+        ref_text TEXT,
+        clone_engine TEXT,
+        voice_design TEXT,
+        language TEXT,
+        notes TEXT,
+        source_drama TEXT,
+        source_speaker TEXT,
+        created_at TEXT
+    );
+
     -- Step 25w: cross-process "one GPU job at a time" guard. background_jobs.py's
     -- own guard (Step 5c) is plain in-process module state, invisible to a
     -- separate OS process -- this single-row table is the shared coordination
@@ -618,6 +642,7 @@ def init_db():
     CREATE INDEX IF NOT EXISTS idx_edits_drama ON edit_samples(drama_id);
     CREATE INDEX IF NOT EXISTS idx_benchmark_runs_case ON benchmark_runs(case_id);
     CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
+    CREATE INDEX IF NOT EXISTS idx_voice_bank_name ON voice_bank(name);
     """)
     # Lightweight migrations for DBs created before these columns existed
     existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
@@ -2593,6 +2618,91 @@ def clear_translate_history():
     conn.execute("DELETE FROM translate_history")
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Step 26: voice bank -- reuse a cloned voice across projects
+# ---------------------------------------------------------------------------
+
+def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
+                           clone_engine: str = None, voice_design: str = "",
+                           language: str = None, notes: str = "",
+                           source_drama: str = None, source_speaker: str = None) -> int:
+    """Copies clip_source_path into the shared library's voice bank folder
+    (never a reference into the source drama's own folder) and records a
+    new voice_bank row -- so deleting the source drama afterward leaves
+    this entry's own clip intact. Returns the new entry's id."""
+    import shutil
+    import uuid
+    os.makedirs(VOICE_BANK_DIR, exist_ok=True)
+    ext = os.path.splitext(clip_source_path)[1]
+    clip_filename = f"{uuid.uuid4().hex}{ext}"
+    shutil.copyfile(clip_source_path, os.path.join(VOICE_BANK_DIR, clip_filename))
+    conn = get_conn()
+    cur = conn.execute("""
+        INSERT INTO voice_bank (name, clip_filename, ref_text, clone_engine, voice_design,
+                                 language, notes, source_drama, source_speaker, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, clip_filename, ref_text, clone_engine, voice_design, language, notes,
+          source_drama, source_speaker, datetime.datetime.utcnow().isoformat()))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return new_id
+
+
+def list_voice_bank_entries() -> List[dict]:
+    """Alphabetical by name -- this is a picklist, not an activity log."""
+    conn = get_conn()
+    rows = conn.execute("SELECT * FROM voice_bank ORDER BY name").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_voice_bank_entry(entry_id: int) -> dict:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM voice_bank WHERE id = ?", (entry_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def apply_voice_bank_entry(entry_id: int, drama_dir: str, drama_id: int, speaker_label: str) -> str:
+    """Copies a bank entry's clip into drama_dir (a new file, not shared
+    with the bank's own copy or any other drama's) and sets the matching
+    character clone fields. Returns the clip's filename relative to
+    drama_dir, as stored in characters.ref_audio_filename."""
+    import shutil
+    entry = get_voice_bank_entry(entry_id)
+    if not entry:
+        raise ValueError(f"No voice bank entry with id {entry_id}")
+    ext = os.path.splitext(entry["clip_filename"])[1]
+    dest_filename = f"voicebank_{entry_id}_{speaker_label}{ext}"
+    os.makedirs(drama_dir, exist_ok=True)
+    shutil.copyfile(os.path.join(VOICE_BANK_DIR, entry["clip_filename"]),
+                     os.path.join(drama_dir, dest_filename))
+    upsert_character(drama_id, speaker_label, ref_audio_filename=dest_filename,
+                     ref_text=entry["ref_text"] or "", clone_engine=entry["clone_engine"],
+                     voice_design=entry["voice_design"] or "")
+    return dest_filename
+
+
+def rename_voice_bank_entry(entry_id: int, new_name: str):
+    conn = get_conn()
+    conn.execute("UPDATE voice_bank SET name = ? WHERE id = ?", (new_name, entry_id))
+    conn.commit()
+    conn.close()
+
+
+def delete_voice_bank_entry(entry_id: int):
+    entry = get_voice_bank_entry(entry_id)
+    conn = get_conn()
+    conn.execute("DELETE FROM voice_bank WHERE id = ?", (entry_id,))
+    conn.commit()
+    conn.close()
+    if entry:
+        clip_path = os.path.join(VOICE_BANK_DIR, entry["clip_filename"])
+        if os.path.exists(clip_path):
+            os.remove(clip_path)
 
 
 # ---------------------------------------------------------------------------
