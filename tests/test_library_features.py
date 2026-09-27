@@ -893,6 +893,7 @@ class TestManagePresetsUI:
         pid2 = isolated_db.save_preset("Delete me")
         at = self._run()
 
+        at.checkbox(key=f"confirm_delete_preset_{pid2}").set_value(True).run(timeout=30)
         [b for b in at.button if b.key == f"delete_preset_{pid2}"][0].click().run()
 
         assert [p["id"] for p in isolated_db.list_presets()] == [pid1]
@@ -903,10 +904,23 @@ class TestManagePresetsUI:
         before = isolated_db.get_drama(did)
         at = self._run()
 
+        at.checkbox(key=f"confirm_delete_preset_{pid}").set_value(True).run(timeout=30)
         [b for b in at.button if b.key == f"delete_preset_{pid}"][0].click().run()
 
         assert not any(p["id"] == pid for p in isolated_db.list_presets())
         assert isolated_db.get_drama(did) == before
+
+    def test_delete_button_disabled_until_confirmed(self, isolated_db):
+        """Step 71: this preset delete used to fire on a single click with
+        no confirmation, unlike the rest of the app's own established
+        pattern (Library's bulk-drama-delete checkbox, Step 25z's Workspace
+        deletes)."""
+        pid = isolated_db.save_preset("Delete me")
+        at = self._run()
+
+        assert [b for b in at.button if b.key == f"delete_preset_{pid}"][0].disabled
+        at.checkbox(key=f"confirm_delete_preset_{pid}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"delete_preset_{pid}"][0].disabled
 
 
 class TestListDramasBySeries:
