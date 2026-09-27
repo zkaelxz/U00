@@ -80,6 +80,13 @@ cached by image content hash, so nothing is ever translated twice.
   to the part you care about.
 - **Firefox is not supported yet.** MV3 covers Chrome and Edge; Firefox
   differs enough to be its own work.
+- **Bubble detection is the weak link on colour artwork.** Measured on a
+  real mangaz page (see below): the free OpenCV heuristic found no
+  bubbles at all on a colour 4-koma page full of dialogue. The extension
+  delivered the page correctly; the detector couldn't find the text in
+  it. If pages come back with nothing overlaid, that's usually this, not
+  the extension — the ML detection backend is the fix, and it's a
+  Settings choice, not something this step changes.
 
 ## How it's put together
 
@@ -185,11 +192,47 @@ than per connection, so a peer that opened a socket and stopped talking
 held a worker thread. Both are fixed and covered by tests that were
 confirmed to fail without the fix.
 
-**Not verified:** a real run against any of the named sites
-(mangaz.com, manhuaku.net, Bilibili Manga). The mechanism is proven on a
-local page that reproduces the hard part (`blob:`), but nobody has yet
-clicked this extension on a real chapter of a real site, and OCR quality
-on real artwork is a separate question from whether the plumbing works.
-The browser-side test suite is static only — there is no automated test
-that drives a real browser, deliberately, since this project's tests are
-mocked throughout and CI has no browser.
+### Against the real mangaz.com
+
+The extension was then pointed at a real chapter on **mangaz.com** — the
+sharpest possible test, because its pages are tile-scrambled and only its
+own reader reassembles them. A real Chromium, the real viewer, one page
+load:
+
+- The page the extension captured was **1190x1684** — a real,
+  **descrambled** page, read straight out of the `blob:` the site's own
+  reader produced. A scrambled strip would have been ~4760x421. It landed
+  in the library as a 4.3MB PNG.
+- It took **one page view**, at reading speed. For comparison, the
+  adapter's headless path takes ~3 minutes for a 43-page book, is flaky,
+  has to be paced against a 120s crawl delay, and its best real run still
+  only recovered 38 of 43 pages. Nothing here is unscrambled, driven or
+  paced — the browser had already done it.
+
+**But bubble detection found nothing on that page.** The page is a
+colour 4-koma full of Japanese speech bubbles, and the free OpenCV
+heuristic (`scanlate.detect_bubbles_cv`) returned zero regions, rejecting
+its handful of candidates as "too small". So nothing was OCR'd and
+nothing was overlaid.
+
+That limitation is in `scanlate`'s existing detector, not in anything
+this step added — the same detector the Scanlate tab has always used, on
+artwork it struggles with (coloured, irregular, overlapping bubbles on
+busy backgrounds). Its own error message already recommends the ML
+backend, which this environment can't run (no `torch`/`transformers`).
+**So the plumbing is proven on a real site and the detection quality on
+real colour artwork is not.** They're separate problems, and the second
+one is worth its own step.
+
+**Also not verified:** manhuaku.net and Bilibili Manga, and the real
+toolbar-click flow. Clicking the extension's icon grants `activeTab`,
+which is what lets the content script be injected; Playwright can't click
+browser chrome, so that one grant was simulated by loading a throwaway
+copy of the extension with a host permission for that single site. The
+shipped manifest is untouched and stays loopback-only. That copy isn't
+committed, deliberately — a script that rewrites the manifest is too easy
+to mistake for the real configuration.
+
+The browser-side test suite is static only. There is no automated test
+that drives a real browser, on purpose: this project's tests are mocked
+throughout and CI has no browser.

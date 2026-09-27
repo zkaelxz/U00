@@ -79,9 +79,17 @@ async function run(all) {
   say(all ? "Reading every visible page…" : "Reading this page…");
   try {
     await ensureContentScript(tab.id);
-    if (dramaId) {
-      await chrome.runtime.sendMessage({
-        type: "rememberDrama", site: siteOf(tab.url), dramaId });
+    // Prefer the host the page reports about itself: `tab.url` is only
+    // populated when this extension has access to that tab, and keying
+    // the per-site memory on an empty string would make every site share
+    // one remembered drama.
+    let site = siteOf(tab.url);
+    if (!site) {
+      const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
+      if (status && status.ok) site = status.data.host || "";
+    }
+    if (dramaId && site) {
+      await chrome.runtime.sendMessage({ type: "rememberDrama", site, dramaId });
     }
     await chrome.tabs.sendMessage(tab.id, {
       type: "setOverlays", visible: els.overlay.checked });

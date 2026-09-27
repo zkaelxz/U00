@@ -396,6 +396,12 @@
               images: candidateElements().length,
               translated: state.active.size,
               overlaysVisible: state.overlaysVisible,
+              // The page's own host. The popup uses this to key "which
+              // drama does this site go to", rather than reading
+              // `tab.url` -- that needs the `tabs` permission or an
+              // activeTab grant, and keying on an empty string would
+              // quietly make every site share one remembered drama.
+              host: location.host,
             } });
             break;
           default:
