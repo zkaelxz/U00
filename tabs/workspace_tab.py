@@ -780,7 +780,8 @@ def run_hardsub_ocr_job(job_id, video_path, language, sample_interval, ocr_backe
     background_jobs.set_result(job_id, {"segments": cues})
 
 
-_LINE_WIDGET_KEY = re.compile(r"^(zh|en|start|end|speaker|sfx|rv_improved|rv_retrans)_\d+$")
+_LINE_WIDGET_KEY = re.compile(
+    r"^(zh|en|start|end|speaker|sfx|rv_improved|rv_retrans|rv_why|rv_alts|rv_gram)_\d+$")
 
 
 def _clear_line_widget_state():
@@ -986,11 +987,19 @@ def _auto_qc_names(drama) -> list:
                                    db.list_series_characters(sid) if sid else [])
 
 
+def _auto_qc_banned_terms(drama) -> list:
+    """Step 30: the series' glossary terms' banned_translations, for Auto
+    QC's flag-only prohibited-translation check (none for a drama outside
+    a series)."""
+    sid = drama.get("series_id")
+    return auto_qc.build_banned_terms(db.list_glossary_terms(sid) if sid else [])
+
+
 def _run_auto_qc(drama_id, drama, lines) -> dict:
     """Step 12b: runs Auto QC's factual-detail check over `lines` in place
     and saves only the flag fields if anything changed (the line text
     itself is never touched). Returns auto_qc.run_auto_qc's counts."""
-    result = auto_qc.run_auto_qc(lines, _auto_qc_names(drama))
+    result = auto_qc.run_auto_qc(lines, _auto_qc_names(drama), _auto_qc_banned_terms(drama))
     if result["flagged"] or result["cleared"]:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return result
@@ -2880,10 +2889,21 @@ def render_workspace_tab():
                                 e_enforce = st.checkbox("🔒 Enforce exactly",
                                                          value=bool(t.get("enforce_exact")),
                                                          key=f"eglo_enforce_{t['id']}")
+                                egc5, egc6 = st.columns(2)
+                                e_aliases = egc5.text_input(
+                                    "Aliases (pipe-separated alt spellings of the original term)",
+                                    value=t.get("aliases") or "", key=f"eglo_aliases_{t['id']}")
+                                e_banned = egc6.text_input(
+                                    "Banned translations (pipe-separated)",
+                                    value=t.get("banned_translations") or "",
+                                    help="A line whose translation matches one of these is "
+                                         "flagged for review -- never auto-corrected.",
+                                    key=f"eglo_banned_{t['id']}")
                                 esc1, esc2 = st.columns(2)
                                 if esc1.button("💾 Save", key=f"eglo_save_{t['id']}"):
                                     db.update_glossary_term(
-                                        t["id"], e_orig, e_trans, e_notes, e_cat, e_pol, e_enforce)
+                                        t["id"], e_orig, e_trans, e_notes, e_cat, e_pol, e_enforce,
+                                        e_aliases, e_banned)
                                     st.session_state[_editing_key] = False
                                     st.success("Saved.")
                                     st.rerun()
@@ -2921,8 +2941,18 @@ def render_workspace_tab():
                                              help="For enforced terms, list variants to auto-correct, "
                                                   "e.g. Shen Qing Yi|Chen Qingyi")
                     g_enforce = st.checkbox("🔒 Enforce exactly (hard find-replace after translation)")
+                    gc5, gc6 = st.columns(2)
+                    g_aliases = gc5.text_input(
+                        "Aliases (pipe-separated alt spellings of the original term)",
+                        help="Alternate spellings/transliterations of the SOURCE term, e.g. "
+                             "沈清疑|沈清仪 -- a line using any of these still surfaces this term.")
+                    g_banned = gc6.text_input(
+                        "Banned translations (pipe-separated)",
+                        help="A line whose translation matches one of these is flagged for "
+                             "review -- never auto-corrected.")
                     if st.form_submit_button("Add term") and g_orig and g_trans:
-                        db.upsert_glossary_term(sid, g_orig, g_trans, g_notes, g_cat, g_pol, g_enforce)
+                        db.upsert_glossary_term(sid, g_orig, g_trans, g_notes, g_cat, g_pol, g_enforce,
+                                                g_aliases, g_banned)
                         st.success("Added.")
                         st.rerun()
 
@@ -4276,6 +4306,50 @@ def render_workspace_tab():
                             # just-accepted translation on the next rerun.
                             st.session_state.pop(f"en_{ln.idx}", None)
                             st.rerun()
+                    # Step 15: moved from Reader's own "Line tools" section --
+                    # same per-line inspection job as this popover's Improve/
+                    # Re-transcribe already do, previously split across two
+                    # tabs for no functional reason.
+                    ltc1, ltc2, ltc3, ltc4 = st.columns(4)
+                    if ltc1.button("Why this?", key=f"rvwhy_{ln.idx}") and api_key:
+                        eng_lt = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                        with st.spinner("Explaining..."):
+                            st.session_state[f"rv_why_{ln.idx}"] = line_tools.explain_translation(
+                                zh, en, eng_lt, source_language=source_language)
+                    if ltc2.button("Alternatives", key=f"rvalts_{ln.idx}") and api_key:
+                        eng_lt = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                        with st.spinner("Generating..."):
+                            st.session_state[f"rv_alts_{ln.idx}"] = line_tools.alternative_translations(
+                                zh, en, eng_lt, source_language=source_language)
+                    if ltc3.button("Grammar", key=f"rvgram_{ln.idx}") and api_key:
+                        eng_lt = translate_engines.get_engine(
+                            engine_choice, api_key, engine_model,
+                            free_tier=engine_choice == "gemini" and _gemini_free_tier,
+                            base_url=_ollama_base_url if engine_choice == "ollama" else None)
+                        with st.spinner("Breaking down..."):
+                            st.session_state[f"rv_gram_{ln.idx}"] = line_tools.grammar_breakdown(
+                                zh, eng_lt, source_language=source_language)
+                    if ltc4.button("🔊 Pronounce", key=f"rvpronounce_{ln.idx}"):
+                        _pron_out = os.path.join(ddir, "pronounce.mp3")
+                        _got = line_tools.pronunciation_audio(zh, _pron_out, source_language=source_language)
+                        if _got:
+                            st.audio(_got)
+                        else:
+                            st.warning("Couldn't generate audio -- check edge-tts is installed.")
+                    if st.session_state.get(f"rv_why_{ln.idx}"):
+                        st.info(st.session_state[f"rv_why_{ln.idx}"])
+                    for _alt in st.session_state.get(f"rv_alts_{ln.idx}", []):
+                        st.caption(f"**{_alt.get('translation', '')}**  \n_{_alt.get('approach', '')} "
+                                  f"— trades away: {_alt.get('tradeoff', '')}_")
+                    _gram = st.session_state.get(f"rv_gram_{ln.idx}", [])
+                    if _gram:
+                        st.dataframe(pd.DataFrame(_gram), width='stretch', hide_index=True)
                     if drama.get("audio_filename"):
                         # Only one line's clip is held at a time, and only
                         # after its button is clicked -- extracting a clip for
@@ -5556,7 +5630,8 @@ def render_workspace_tab():
                 # Read-only on render, same reason as the overlap check above --
                 # flagging needs the click.
                 if st.session_state.get(f"auto_qc_{picked_id}"):
-                    _qc_issues = auto_qc.find_issues(st.session_state.lines, _auto_qc_names(drama))
+                    _qc_issues = auto_qc.find_issues(st.session_state.lines, _auto_qc_names(drama),
+                                                     _auto_qc_banned_terms(drama))
                     _qc_new = [ln for ln, _ in _qc_issues if not ln.flag]
                     if _qc_issues:
                         st.warning(f"🔎 Auto QC: {len(_qc_issues)} line(s) drop or add a number, date, "

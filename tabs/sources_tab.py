@@ -63,6 +63,9 @@ def _render_handoff(handoff: dict, key: str, on_resume=None):
 def _render_front_door():
     st.caption("Paste a chapter, series, novel-chapter or video link. The app works out what it "
                "is and shows a preview first -- nothing is imported until you press Import.")
+    st.caption("This fetches the actual content into a working drama. For a catalog-only entry "
+               "(title/author/tags, no chapters/episodes), use Discover's \"Import a title from "
+               "a URL\" instead.")
     url = st.text_input("URL", key="src_fd_url", placeholder="https://...")
     if st.button("🔍 Preview", key="src_fd_preview", disabled=not url.strip()):
         with st.spinner("Looking at the page (paced like every other request)..."):

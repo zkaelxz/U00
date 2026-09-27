@@ -1834,6 +1834,26 @@ class TestBulkGlossaryAndPronounActions:
         at = self._run(did)
         assert not [m for m in at.multiselect if m.key == f"bulk_sc_pick_{sid}"]
 
+    def test_glossary_editor_saves_aliases_and_banned_translations(self, isolated_db):
+        """Step 30: the glossary term editor's two new fields (around the
+        existing category/policy/enforce_exact ones) save through to the
+        db columns of the same name."""
+        did, sid = self._drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi", category="person_name")
+        term_id = isolated_db.list_glossary_terms(sid)[0]["id"]
+        at = self._run(did)
+
+        self._button(at, "✏️").click()
+        at.run(timeout=30)
+        at.text_input(key=f"eglo_aliases_{term_id}").set_value("Shen Qing Yi").run()
+        at.text_input(key=f"eglo_banned_{term_id}").set_value("Chen Qingyi").run()
+        self._button(at, "💾 Save").click()
+        at.run(timeout=30)
+
+        term = isolated_db.list_glossary_terms(sid)[0]
+        assert term["aliases"] == "Shen Qing Yi"
+        assert term["banned_translations"] == "Chen Qingyi"
+
 
 class TestVoiceMatchSuggestions:
     """Step 8: the "sounds like <name>" suggestion row next to the
@@ -2808,6 +2828,125 @@ class TestImproveTranslationUseThisRefreshesTheEnBox:
         assert [ta.value for ta in at.text_area if ta.key == "en_0"] == ["A much better line."]
         assert at.session_state.lines[0].en == "A much better line."
         assert isolated_db.load_lines(did)[0]["en"] == "A much better line."
+
+
+class TestPerLineExplainToolsMovedFromReader:
+    """Step 15: Reader's "Line tools" (Why this?/Alternatives/Grammar/
+    Pronounce) moved into Workspace's own per-line 🔧 popover, next to the
+    Improve translation/Re-transcribe it already had -- same per-line job,
+    previously split across two tabs for no functional reason."""
+
+    def _drama_with_a_line(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hi there.")])
+        return did
+
+    def _drama_with_two_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
+                                        content_mode="audio_drama", status="translated",
+                                        translation_engine="test_offline")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="第一行", en="Line one"),
+            Line(idx=1, start=1.0, end=2.0, zh="第二行", en="Line two"),
+        ])
+        return did
+
+    def _run(self, did):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = did
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        at.run(timeout=30)
+        return at
+
+    def test_why_this_result_for_one_line_is_not_shown_under_another(self, isolated_db, monkeypatch):
+        # Step 25x's bug class, re-checked under the new home: each line's
+        # result is keyed by ln.idx directly (rv_why_0/rv_why_1, ...), not a
+        # single shared key re-pointed at whichever line is currently
+        # selected -- so line 1's row simply never reads line 0's key.
+        import line_tools
+        monkeypatch.setattr(line_tools, "explain_translation",
+                             lambda zh, en, eng, source_language="zh": f"explanation for {en}")
+        at = self._run(self._drama_with_two_lines(isolated_db))
+        [b for b in at.button if b.key == "rvwhy_0"][0].click()
+        at.run(timeout=30)
+        assert any("explanation for Line one" in m.value for m in at.info)
+        assert not any("explanation for Line two" in m.value for m in at.info)
+
+        [b for b in at.button if b.key == "rvwhy_1"][0].click()
+        at.run(timeout=30)
+        assert any("explanation for Line one" in m.value for m in at.info)
+        assert any("explanation for Line two" in m.value for m in at.info)
+
+    def test_why_this_result_does_not_survive_a_switch_to_another_drama(self, isolated_db, monkeypatch):
+        # Same bug class as Step 4j/25x, on the newly-added keys specifically:
+        # rv_why_<idx>/rv_alts_<idx>/rv_gram_<idx> are positional (keyed by
+        # idx, not by line id), so switching to a DIFFERENT drama whose own
+        # line 0 exists must clear them -- otherwise drama A's cached
+        # explanation would render under drama B's unrelated line 0.
+        import line_tools
+        monkeypatch.setattr(line_tools, "explain_translation",
+                             lambda zh, en, eng, source_language="zh": f"explanation for {en}")
+        did_a = self._drama_with_a_line(isolated_db)
+        did_b = isolated_db.create_drama(title_en="Other Drama", media_type="audio_drama",
+                                         content_mode="audio_drama", status="translated",
+                                         translation_engine="test_offline")
+        isolated_db.save_lines(did_b, [Line(idx=0, start=0.0, end=1.0, zh="另一行", en="A different line.")])
+
+        at = self._run(did_a)
+        [b for b in at.button if b.key == "rvwhy_0"][0].click()
+        at.run(timeout=30)
+        assert any("explanation for Hi there." in m.value for m in at.info)
+
+        [box] = [s for s in at.selectbox if s.label == "Drama"]
+        [b_label] = [o for o in box.options if "Other Drama" in o]
+        box.set_value(b_label).run(timeout=30)
+
+        assert "rv_why_0" not in at.session_state
+        assert not any("explanation for Hi there." in m.value for m in at.info)
+
+    def test_why_this_shows_an_explanation(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "explain_translation", lambda *a, **k: "Because reasons.")
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvwhy_0"][0].click()
+        at.run(timeout=30)
+        assert any("Because reasons." in m.value for m in at.info)
+
+    def test_alternatives_lists_each_option(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "alternative_translations", lambda *a, **k: [
+            {"translation": "Hey there.", "approach": "casual", "tradeoff": "less formal"}])
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvalts_0"][0].click()
+        at.run(timeout=30)
+        assert any("Hey there." in c.value for c in at.caption)
+
+    def test_grammar_shows_a_breakdown_table(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "grammar_breakdown", lambda *a, **k: [
+            {"word": "你好", "role": "greeting"}])
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvgram_0"][0].click()
+        at.run(timeout=30)
+        assert len(at.dataframe) >= 1
+
+    def test_pronounce_plays_audio(self, isolated_db, monkeypatch):
+        import line_tools
+        monkeypatch.setattr(line_tools, "pronunciation_audio", lambda *a, **k: b"fake-mp3-bytes")
+        at = self._run(self._drama_with_a_line(isolated_db))
+        [b for b in at.button if b.key == "rvpronounce_0"][0].click()
+        at.run(timeout=30)
+        assert not at.exception
+        assert len(at.get("audio")) >= 1
 
 
 class TestTranslateJobRefreshesStaleEnBoxes:

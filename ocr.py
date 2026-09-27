@@ -18,6 +18,10 @@ Backends:
 TESSERACT_LANG = {"zh": "chi_sim", "ja": "jpn", "ko": "kor"}
 TESSERACT_LANG_ZH_TRADITIONAL = "chi_tra"
 
+# Shared with the UI: Settings' own default-backend picker and Scanlate's
+# per-page override both offer the same choices, from this one list.
+OCR_BACKEND_OPTIONS = ["auto", "manga_ocr", "paddle", "paddle_vl_manga", "tesseract"]
+
 
 def resolve_tesseract_lang(source_language: str, chinese_script: str = "simplified") -> str:
     """chinese_script only matters for "zh" -- ja/ko ignore it. Traditional
