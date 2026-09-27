@@ -315,6 +315,20 @@ def build_project_instructions_block(drama_meta: dict) -> str:
             + "\n".join(parts) + "\n")
 
 
+# Step 54: markers in a drama's own (freeform) genre field that mean "yes,
+# this really is baihe/yuri content" -- matched as whole words so a genre
+# like "tangled romance" doesn't false-positive on "gl". An unset/blank
+# genre still defaults to the baihe framing below (this app's original,
+# and still primary, use case) -- only an explicit, DIFFERENT genre tag
+# turns the framing off.
+_BAIHE_GENRE_MARKERS = re.compile(r"\b(baihe|yuri|gl)\b", re.IGNORECASE)
+
+
+def _wants_baihe_framing(drama_meta: dict) -> bool:
+    genre = (drama_meta.get("genre") or "").strip()
+    return not genre or bool(_BAIHE_GENRE_MARKERS.search(genre))
+
+
 def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, locale: str = "en-US",
                             glossary_terms=None, style_guidelines: str = ""):
     """The STABLE part of every translation prompt for one drama/job --
@@ -366,8 +380,9 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
     medium = _MEDIUM_DESCRIPTIONS.get(
         drama_meta.get("content_mode") or drama_meta.get("media_type"), "content")
 
+    genre_framing = "baihe (GL/yuri) " if _wants_baihe_framing(drama_meta) else ""
     instructions = (
-        f"You are translating {source_language_name} baihe (GL/yuri) {medium} into "
+        f"You are translating {source_language_name} {genre_framing}{medium} into "
         "natural, idiomatic English subtitles. You will be given numbered lines to "
         "translate in each request, each optionally prefixed with the name of the "
         "character speaking it in [brackets] -- use that to get pronouns, honorifics, "
