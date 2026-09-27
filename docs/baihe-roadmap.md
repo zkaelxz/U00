@@ -11,10 +11,11 @@
 > - **Step 46 (not yet sent)** — dark mode is visually inconsistent: a screenshot of the Reader tab shows the sidebar/page background switching to dark while the video player card, stat boxes, the line-reading table, and the bottom bars all stay light/white. Different root cause than the already-fixed Step 25t (that was a tab-bar selector silently matching nothing) — likely a broader selector-scope gap in `inject_dark_css`. Queued, ready to send.
 > - **Step 47 (not yet sent)** — Diagnostics' "Model & engine versions" panel (a different panel from Step 18c's own "Dependencies" section, which already has install buttons) has no install action for "not installed" rows and no explanation of what each model does. Queued, ready to send.
 > - **Step 48 (not yet sent)** — Live capture failed on a real YouTube URL with `DownloadError: The page needs to be reloaded`. Root cause found by direct code read: `live_translate.py`'s player-client retry loop only retries when the error message contains the literal substring "no video formats found" — this different, also-real yt-dlp/YouTube error message skips the retry loop and the helpful "try `pip install -U yt-dlp`" message entirely, failing immediately with the generic message instead. Queued, ready to send.
+> - **Step 49 (not yet sent)** — a genuine, confirmed-intermittent race in `test_background_jobs.py`'s notification test (found while re-verifying Step 34, now merged): the test's `_wait()` returns as soon as `is_running()` goes false, but `background_jobs.py` sets status *before* firing the notification (lines 206/212), so a busy full-suite run can occasionally assert too early. Test-side fix only, not a `background_jobs.py` behavior change. Queued, ready to send.
 >
 > **Still in progress, no report yet**: **Step 24** (translation memory/benchmark/library status) → sent to the main implementing session at the user's explicit direction.
 >
-> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Steps 46, 47, 48** (all above).
+> **Ready to send now**: **Step 19** (full click-through UX test) — its only dependency (Steps 13–18) is satisfied. **Steps 46, 47, 48, 49** (all above).
 >
 > **Ready, but mutually exclusive with Step 24 above on `workspace_tab.py`/`library_tab.py`/`translate_engines.py` — don't send until 24 lands**: **26** (voice bank), **26c** (original-language narration, shares `dub.py`/`workspace_tab.py`), **31** (content-moderation refusal detection), **32** (expose look-ahead context/batch size as adjustable, bigger novel-narration defaults).
 >
@@ -317,6 +318,7 @@ Rules for every milestone:
 | 46 | Toggle Dark mode on, visit every top-level tab, and confirm every visible card/container/table actually switches to the dark background -- no light-background surfaces left over, especially the Reader tab where this was first reported. |
 | 47 | In Diagnostics' "Model & engine versions" panel, install a real not-installed model via its new install action and confirm the row updates; click the "?" on a few rows and confirm each explains that specific model in plain words. |
 | 48 | Start Live capture on a real YouTube stream that previously hit "The page needs to be reloaded" (or a mocked equivalent) and confirm it now retries across player clients instead of failing immediately with the generic message. |
+| 49 | Run `test_background_jobs.py::TestNotifyOnCompletion::test_failed_job_notifies_with_error_status` at least 10 times in a row (or under a stress-loop) and confirm it passes every time, not just once. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3065,6 +3067,29 @@ if "no video formats found" not in str(exc).lower():
 
 ---
 
+### Step 49 — Fix: `test_background_jobs.py`'s notification test has a real, confirmed-genuine race window
+
+**Found by the implementing session working Step 34 (already merged, PR #134), then independently re-diagnosed rather than just accepted at face value** — a full-suite run on that branch showed `test_background_jobs.py::TestNotifyOnCompletion::test_failed_job_notifies_with_error_status` failing once (2966 passed, 1 failed) and passing clean on a second run (2967 passed, 0 failed), while a base-only run passed clean too (2909 passed, 0 failed). Genuinely intermittent, not caused by that branch — confirmed by a real ordering argument, not just a re-run: `test_background_jobs.py` sorts alphabetically before every file that branch added, so none of its new tests had even run yet when the failure happened; it could not have loaded the machine ahead of it.
+
+**Root cause, found directly in `background_jobs.py`:**
+```python
+background_jobs.py:206   _jobs[job_id]["status"] = "error"          # is_running() goes False here
+background_jobs.py:212   _notify_job_finished(description, "error") # the notification fires here
+```
+The test's own `_wait()` helper polls `is_running(job_id)` and returns the instant it goes `False` — which happens at line 206, *before* the notification at line 212 has necessarily fired. The test then immediately asserts the notification was recorded. There's a genuine window between the two lines; the notification usually wins the race, which is why this doesn't fail every run, but a busy full-suite run can deschedule the thread inside that window.
+
+This is a **test-side timing bug, not a defect in `background_jobs.py` itself** — the fix is in the test, not the job tracker: have `_wait()` (or the test's own assertion) wait for the notification to actually arrive (e.g. poll for the notification, or wait on an event/callback `_notify_job_finished` could set) instead of waiting for `is_running()` to go false and assuming the notification already happened by then.
+
+1. Reproduce first — this may take several runs given it's intermittent; don't "fix" it without having actually seen it fail locally at least once.
+2. Fix the test's wait condition, not `background_jobs.py`'s status/notify ordering (reordering lines 206/212 risks other callers that currently rely on `is_running()` going false promptly on error).
+3. Keep the fix scoped to this one test/helper — don't go looking for the same pattern elsewhere in this pass unless it's trivial to check while already in the file.
+
+**Exit:**
+- The specific test above passes reliably across at least 10 consecutive local runs (or an equivalent stress-loop), not just once.
+- A test confirms the fixed `_wait()`/assertion genuinely waits for the notification rather than for job-status alone (e.g. by artificially delaying `_notify_job_finished` in a test double and confirming the test still passes rather than racing past it).
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3239,6 +3264,7 @@ if "no video formats found" not in str(exc).lower():
   | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | Not started | — |
   | 47 — Fix: Model & engine versions panel has no install action or explanation | — | Not started | — |
   | 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize | — | Not started | — |
+  | 49 — Fix: `test_background_jobs.py`'s notification test has a genuine race window | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
