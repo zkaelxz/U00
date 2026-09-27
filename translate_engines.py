@@ -329,7 +329,7 @@ def _wants_baihe_framing(drama_meta: dict) -> bool:
     return not genre or bool(_BAIHE_GENRE_MARKERS.search(genre))
 
 
-def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, locale: str = "en-US",
+def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-US",
                             glossary_terms=None, style_guidelines: str = ""):
     """The STABLE part of every translation prompt for one drama/job --
     identical across all of its batches, so provider prompt caching
@@ -407,7 +407,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, novel_reference, l
         "were given, and no numbers you weren't. No preamble, no markdown fences, no "
         "commentary."
     )
-    return instructions, meta_block
+    return instructions
 
 
 def build_batch_context(recent_context=None, upcoming_lines=None) -> str:
@@ -548,9 +548,9 @@ def build_stable_prompt(context: dict):
         instructions = build_standalone_instructions(
             context.get("source_language", "zh"), context.get("target_language", "en"))
         return instructions, ""
-    instructions, _ = build_llm_instructions(
+    instructions = build_llm_instructions(
         context.get("style_note", ""), context.get("drama_meta", {}),
-        context.get("novel_reference"), locale=context.get("locale", "en-US"),
+        locale=context.get("locale", "en-US"),
         glossary_terms=context.get("glossary_terms"),
         style_guidelines=context.get("style_guidelines", ""),
     )

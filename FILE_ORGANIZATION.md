@@ -5,11 +5,10 @@ if you're downloading files individually, a file's name tells you
 unambiguously where it belongs: anything ending `_tab.py` goes in
 `tabs/`, anything starting `test_` goes in `tests/`, everything else
 sits at the top level or in one of the subsystem packages below. The
-two expected exceptions are `__init__.py` (an empty marker in every
-package) and `conftest.py`, which exists at both the repo root and in
-`tests/` — see the infrastructure table below. The other exception to
-"Python" is `extension/`, which is browser-side JavaScript loaded by
-Chrome rather than anything Python imports.
+one expected exception is `__init__.py` (an empty marker in every
+package). The other exception to "Python" is `extension/`, which is
+browser-side JavaScript loaded by Chrome rather than anything Python
+imports.
 
 ```
 baihe-subtitler/
@@ -18,7 +17,6 @@ baihe-subtitler/
 ├── common.py                     shared imports every tab pulls in
 ├── cli.py                        headless batch runner
 ├── run_tests.py                  test runner wrapper
-├── conftest.py                   root-level pytest path/fixture setup (see tests/conftest.py too)
 │
 ├── requirements.txt              everything (simplest install)
 ├── requirements-core.txt         minimum to launch + translate text
@@ -138,7 +136,6 @@ baihe-subtitler/
 | `common.py` | shared imports every tab pulls in |
 | `cli.py` | headless batch runner (kept in parity with the Workspace tab) |
 | `run_tests.py` | test runner wrapper |
-| `conftest.py` | root-level pytest path setup so `pytest` works from any directory |
 | `core.py` | timing, alignment, SRT formatting, line merging |
 | `db.py` | all database access (plain `sqlite3`, no ORM) |
 | `background_jobs.py` | in-memory background-job tracker (thread + dict) |

@@ -522,8 +522,8 @@ def submit_bulk_translation_notes(drama_id: int, lines: list, engine, engine_cho
 
 def _reflect_instructions(translate_args: dict) -> str:
     args = translate_args or {}
-    instructions, _ = translate_engines.build_llm_instructions(
-        args.get("style_note", ""), args.get("drama_meta", {}), args.get("novel_reference"),
+    instructions = translate_engines.build_llm_instructions(
+        args.get("style_note", ""), args.get("drama_meta", {}),
         locale=args.get("locale", "en-US"), glossary_terms=args.get("glossary_terms"),
         style_guidelines=args.get("style_guidelines", ""))
     return instructions
