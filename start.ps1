@@ -60,7 +60,13 @@ if (-not (Test-Path $Py)) {
     }
 }
 
-& $Py -c "import streamlit" 2>$null
+# Checks every package requirements-core.txt actually installs, not
+# just streamlit -- a stale or partially-installed venv where
+# streamlit still imports fine but something else is missing used to
+# make this skip the install step entirely and fail later with a much
+# less clear error (Step 53, applied here in Step 63). Keep this import
+# list in sync with requirements-core.txt's own packages.
+& $Py -c "import streamlit, pandas, requests, bs4, anthropic" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing dependencies -- this can take a few minutes the first time..."
     $constraints = if (Test-Path "constraints.lock.txt") { "constraints.lock.txt" } else { "constraints.txt" }

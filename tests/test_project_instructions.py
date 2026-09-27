@@ -9,8 +9,7 @@ import translate_engines as te
 
 
 def _prompt(drama_meta, style_note=""):
-    instructions, _meta_block = te.build_llm_instructions(style_note, drama_meta, None)
-    return instructions
+    return te.build_llm_instructions(style_note, drama_meta)
 
 
 class TestInstructionsInPrompt:

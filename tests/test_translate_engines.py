@@ -8,6 +8,7 @@ estimation. Uses mock engines instead of real API calls.
 import sys
 import os
 import time
+import inspect
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
@@ -191,36 +192,36 @@ class TestTranslateLinesWithEngine:
 
 class TestBuildLlmInstructions:
     def test_locale_us_default(self):
-        instructions, _ = te.build_llm_instructions("", {}, None)
+        instructions = te.build_llm_instructions("", {})
         assert "American English" in instructions
 
     def test_locale_gb_uses_british_spelling_note(self):
-        instructions, _ = te.build_llm_instructions("", {}, None, locale="en-GB")
+        instructions = te.build_llm_instructions("", {}, locale="en-GB")
         assert "British English" in instructions
         assert "colour" in instructions
 
     def test_glossary_terms_included(self):
         glossary = [{"term_original": "拾", "term_translation": "Shi", "notes": "surname"}]
-        instructions, _ = te.build_llm_instructions("", {}, None, glossary_terms=glossary)
+        instructions = te.build_llm_instructions("", {}, glossary_terms=glossary)
         assert "拾 -> Shi" in instructions
         assert "surname" in instructions
 
     def test_no_glossary_omits_glossary_section(self):
-        instructions, _ = te.build_llm_instructions("", {}, None, glossary_terms=None)
+        instructions = te.build_llm_instructions("", {}, glossary_terms=None)
         assert "Series glossary" not in instructions
 
     def test_style_note_included_when_provided(self):
-        instructions, _ = te.build_llm_instructions("keep it warm", {}, None)
+        instructions = te.build_llm_instructions("keep it warm", {})
         assert "keep it warm" in instructions
 
     def test_drama_metadata_included(self):
-        instructions, meta_block = te.build_llm_instructions(
-            "", {"title_en": "My Drama", "author": "An Author"}, None)
+        instructions = te.build_llm_instructions(
+            "", {"title_en": "My Drama", "author": "An Author"})
         assert "My Drama" in instructions
         assert "An Author" in instructions
 
     def test_defaults_to_chinese_when_source_language_unset(self):
-        instructions, _ = te.build_llm_instructions("", {}, None)
+        instructions = te.build_llm_instructions("", {})
         assert "Chinese baihe" in instructions
 
     def test_japanese_source_language_reaches_the_prompt(self):
@@ -228,31 +229,31 @@ class TestBuildLlmInstructions:
         prompt used to hardcode "Chinese baihe" regardless of the drama's
         actual source language, so a Japanese or Korean drama's own
         translator was told it was translating Chinese the whole time."""
-        instructions, _ = te.build_llm_instructions("", {"source_language": "ja"}, None)
+        instructions = te.build_llm_instructions("", {"source_language": "ja"})
         assert "Japanese baihe" in instructions
         assert "Chinese baihe" not in instructions
 
     def test_korean_source_language_reaches_the_prompt(self):
-        instructions, _ = te.build_llm_instructions("", {"source_language": "ko"}, None)
+        instructions = te.build_llm_instructions("", {"source_language": "ko"})
         assert "Korean baihe" in instructions
 
     def test_content_mode_reaches_the_prompt(self):
-        instructions, _ = te.build_llm_instructions(
-            "", {"source_language": "zh", "content_mode": "novel_narration"}, None)
+        instructions = te.build_llm_instructions(
+            "", {"source_language": "zh", "content_mode": "novel_narration"})
         assert "novel" in instructions
 
     def test_streamer_vod_content_mode_reaches_the_prompt(self):
-        instructions, _ = te.build_llm_instructions(
-            "", {"source_language": "ja", "content_mode": "streamer_vod"}, None)
+        instructions = te.build_llm_instructions(
+            "", {"source_language": "ja", "content_mode": "streamer_vod"})
         assert "livestream VOD" in instructions
         assert "Japanese baihe" in instructions
 
     def test_baihe_tagged_genre_keeps_the_baihe_framing(self):
-        instructions, _ = te.build_llm_instructions("", {"genre": "baihe"}, None)
+        instructions = te.build_llm_instructions("", {"genre": "baihe"})
         assert "baihe (GL/yuri)" in instructions
 
     def test_yuri_tagged_genre_keeps_the_baihe_framing(self):
-        instructions, _ = te.build_llm_instructions("", {"genre": "Yuri, slow burn"}, None)
+        instructions = te.build_llm_instructions("", {"genre": "Yuri, slow burn"})
         assert "baihe (GL/yuri)" in instructions
 
     def test_a_different_genre_drops_the_baihe_framing(self):
@@ -261,12 +262,12 @@ class TestBuildLlmInstructions:
         a VTuber stream or a historical drama with no romantic content at
         all still got told it was baihe/yuri, risking an unwarranted
         romantic-interpretation bias."""
-        instructions, _ = te.build_llm_instructions("", {"genre": "historical"}, None)
+        instructions = te.build_llm_instructions("", {"genre": "historical"})
         assert "baihe (GL/yuri)" not in instructions
         assert "You are translating Chinese content" in instructions
 
     def test_a_genre_that_merely_contains_gl_as_a_substring_is_not_a_false_positive(self):
-        instructions, _ = te.build_llm_instructions("", {"genre": "tangled romance"}, None)
+        instructions = te.build_llm_instructions("", {"genre": "tangled romance"})
         assert "baihe (GL/yuri)" not in instructions
 
     def test_upcoming_lines_included_when_provided(self):
@@ -281,7 +282,7 @@ class TestBuildLlmInstructions:
         # The model needs to be told what the [Name] prefix means and
         # that it shouldn't leak into the translation -- not just have
         # names silently appear in the numbered lines with no explanation.
-        instructions, _ = te.build_llm_instructions("", {}, None)
+        instructions = te.build_llm_instructions("", {})
         assert "[" in instructions and "speaking" in instructions.lower()
 
     def test_returns_object_shaped_json_instruction_not_array(self):
@@ -289,9 +290,23 @@ class TestBuildLlmInstructions:
         prompt asked for a bare JSON array (position-trust); the fix asks
         for an id-keyed object so a missing/extra/reordered response
         entry can only ever affect its own line."""
-        instructions, _ = te.build_llm_instructions("", {}, None)
+        instructions = te.build_llm_instructions("", {})
         assert "JSON object" in instructions
         assert "JSON array of strings" not in instructions
+
+    def test_signature_has_no_unused_novel_reference_param(self):
+        """Step 63: novel_reference used to be accepted but never read
+        inside the function body -- the reference novel only ever
+        reaches the prompt via build_stable_prompt()'s own novel_block."""
+        params = list(inspect.signature(te.build_llm_instructions).parameters)
+        assert "novel_reference" not in params
+
+    def test_returns_a_single_string_not_a_tuple(self):
+        """Step 63: the second return value (meta_block) was redundant --
+        its content is already folded into the returned instructions
+        string, and the one caller (build_stable_prompt) discarded it."""
+        result = te.build_llm_instructions("", {})
+        assert isinstance(result, str)
 
 
 class TestEstimateCost:
