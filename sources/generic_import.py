@@ -402,6 +402,35 @@ _DROP_HINT = re.compile(r"comment|sidebar|footer|header|nav|menu|breadcrumb|shar
                         r"advert|\bads?\b|recommend|login|copyright", re.I)
 
 
+def _link_text_len(el) -> int:
+    return sum(len(a.get_text(" ", strip=True)) for a in el.find_all("a"))
+
+
+def _best_by_descendant_text(containers):
+    """The container holding the most prose *anywhere* beneath it, not
+    just in its direct children.
+
+    Link text is discounted, so a dense block of chapter links can't
+    out-score the chapter itself, and ties go to the shallower element so
+    a whole chapter beats one of its own paragraphs. Returns
+    `(element, plain_text_size)` -- the size is undiscounted, so the
+    caller compares like with like against the direct-child pass.
+    """
+    best, best_score, best_size, best_depth = None, 0, 0, None
+    for el in containers:
+        paras = [p.get_text(" ", strip=True) for p in el.find_all("p")]
+        direct = [s.strip() for s in el.find_all(string=True, recursive=False) if s.strip()]
+        size = sum(len(p) for p in paras) + sum(len(s) for s in direct)
+        score = size - _link_text_len(el)
+        if score <= 0:
+            continue
+        depth = len(list(el.parents))
+        shallower_tie = score == best_score and best_depth is not None and depth < best_depth
+        if score > best_score or shallower_tie:
+            best, best_score, best_size, best_depth = el, score, size, depth
+    return best, best_size
+
+
 def extract_main_text_heuristic(html: str) -> str:
     """Largest contiguous text block: strip page chrome, then score each
     container by the text it holds directly in paragraphs/line breaks."""
@@ -417,13 +446,31 @@ def extract_main_text_heuristic(html: str) -> str:
     for t in doomed:
         if not t.decomposed:
             t.decompose()
+    containers = soup.find_all(["article", "div", "section", "main", "td"])
     best, best_len = None, 0
-    for el in soup.find_all(["article", "div", "section", "main", "td"]):
+    for el in containers:
         paras = [p.get_text(" ", strip=True) for p in el.find_all("p", recursive=False)]
         direct = [s.strip() for s in el.find_all(string=True, recursive=False) if s.strip()]
         size = sum(len(p) for p in paras) + sum(len(s) for s in direct)
         if size > best_len:
             best, best_len = el, size
+    # The scan above counts only a container's *direct* children, which
+    # misses a very ordinary shape: one wrapper element per paragraph
+    # (`<div class=content><div><p>..</p></div><div><p>..</p></div>`).
+    # There the outer container scores zero and each inner one scores a
+    # single paragraph, so the winner is one paragraph and the rest of the
+    # chapter is dropped -- silently, since what comes back still looks
+    # like text.
+    #
+    # Note this can't be gated on "the direct pass came up short": one
+    # long paragraph already clears MIN_NOVEL_CHARS, so such a gate never
+    # fires on exactly the pages that need it. Instead the deeper scan
+    # always runs and only wins when it finds *substantially* more prose,
+    # so a marginal difference can't flip a page that already extracted
+    # correctly.
+    alt, alt_len = _best_by_descendant_text(containers)
+    if alt is not None and alt_len > best_len * 1.5:
+        best = alt
     if best is None:
         return ""
     lines = []

@@ -301,6 +301,16 @@ class AttemptRecord:
     text_length: Optional[int] = None
     headers: dict = field(default_factory=dict)
     at: Optional[float] = None
+    # Which browser translator, if any, had already rewritten the page
+    # before this app ever saw it. Not a failure -- the page loaded --
+    # but it means the text here is a translation, not the source.
+    machine_translated: list = field(default_factory=list)
+    # How strongly the page looked like an unrendered JS shell, and why.
+    # `page_fetch.looks_like_unrendered_shell` works both out and
+    # `detect.classify` used to keep only its boolean; they are the
+    # closest thing here to "is the text really in the DOM?".
+    shell_confidence: Optional[float] = None
+    shell_reasons: list = field(default_factory=list)
 
     def describe(self) -> str:
         if self.ok:
