@@ -224,7 +224,17 @@ recognizes them instead of re-discovering them via `list_sessions` each time:
 - **"Source verification"** (`session_0178qeyaiQXHz2QMAepnCF2b`) — ad hoc
   live-verification passes against real source-adapter sites (not a single
   roadmap step). Opened PR #118 (4 real bugs found/fixed: kuaikan, manhuaku,
-  52shuku, xbanxia).
+  52shuku, xbanxia). Also produced 4 more branches, all merged 2026-09-27
+  by the planning session, independently reviewed/tested first: PR #128
+  (torch test-suite reimport-crash fix), PR #129 (mangaz dead-protocol
+  fix, manhuaku blob-image capture, slower request pacing), PR #130
+  (sources preflight check + a Sources-tab key-collision fix), and PR #134
+  (Step 34, the browser extension — its `tabs/settings_tab.py` merge
+  conflict, which pre-dated Step 16's Settings restructure, resolved
+  cleanly via git's own three-way merge once the base moved past Step 16;
+  no manual fix was ever needed). A 5th branch,
+  `sources-translated-page-and-extraction-fixes`, was a strict commit
+  subset of #130 and wasn't merged separately.
 - **"Functionality testing"** (`session_011vAVPUF2XG5JScPBd6t3z1`) — ad hoc
   functionality/doc-accuracy passes (e.g. fixed 5 README doc bugs against
   real current behavior, branch `docs-testing-cffi-note`).
