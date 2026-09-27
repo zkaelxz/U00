@@ -45,7 +45,7 @@ EXPECTED_TOP_LEVEL_FILES = [
 ]
 EXPECTED_TABS_FILES = [
     "__init__.py", "settings_tab.py", "library_tab.py", "workspace_tab.py",
-    "reader_tab.py", "scanlate_tab.py", "navigator_tab.py", "discover_tab.py",
+    "reader_tab.py", "scanlate_tab.py", "discover_tab.py",
     "diagnostics_tab.py",
     # Step 25d item 9: same drift as EXPECTED_TOP_LEVEL_FILES above.
     "live_tab.py", "sources_tab.py", "translate_tab.py",

@@ -198,9 +198,6 @@ class TestNoUseBeforeDefinition:
     def test_scanlate_tab(self):
         self._assert_clean("scanlate_tab.py")
 
-    def test_navigator_tab(self):
-        self._assert_clean("navigator_tab.py")
-
     def test_discover_tab(self):
         self._assert_clean("discover_tab.py")
 
@@ -383,9 +380,6 @@ class TestNoUndefinedNames:
 
     def test_scanlate_tab(self):
         self._assert_clean("scanlate_tab.py")
-
-    def test_navigator_tab(self):
-        self._assert_clean("navigator_tab.py")
 
     def test_discover_tab(self):
         self._assert_clean("discover_tab.py")
