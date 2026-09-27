@@ -3510,6 +3510,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - Manual check: open and close Reader's "Story tools" section a few times and confirm the page no longer visibly jumps/scrolls during the transition.
 - Manual check: with the systematic audits from item 6 done, toggle Dark mode and click through every tab once more, confirming no further widget type, iframe, or popover shows unstyled/invisible/light content.
 
+**Built, reviewed, and merged (2026-09-27, PR #169).** Root cause: Streamlit 1.59 replaced BaseWeb with react-aria in selectboxes/dropdowns/tooltips/popover panels, so the old `[data-baseweb=...]` rules matched nothing on a current install — real-browser-audited on both 1.64 and 1.58, new selectors cover both. Independently reviewed: real diff read in full, trial-merged clean against current tip (after Step 78/household-profiles and Step 73 both merged). **Found and fixed one real test failure on first run, exposed only by combining this branch with Step 78** (neither branch alone shows it): `test_match_app_is_the_default_setting` renders `render_settings_sidebar()`, which now calls Step 78's profile picker and hits the real database — added the missing `isolated_db` fixture, matching Step 78's own established isolation pattern. Full suite run on the final merged tree: 3276 passed, 49 skipped, 0 failed. CI green (after several transient GitHub runner stalls, confirmed via per-step job timing — not a workflow/test problem) before squash-merge.
+
 ---
 
 ### Step 69 — URGENT: `db.py`'s leaked-connection cleanup can silently fail to actually close a connection, under the app's own real concurrency model
