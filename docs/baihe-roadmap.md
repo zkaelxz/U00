@@ -8,8 +8,10 @@
 >
 > **Step 49 also merged this round** (PR #135) — a genuine, confirmed-intermittent race in `test_background_jobs.py`'s notification test (found while re-verifying Step 34): the test's `_wait()` returned as soon as `is_running()` went false, but `background_jobs.py` sets status *before* firing the notification, so a busy full-suite run could occasionally assert too early. Test-only fix (three tests, not just the one that visibly failed), verified by forcing the race deterministically rather than just re-running. Independently reviewed and tested by the planning session before merge, same as every other PR this round.
 >
-> **Five user-reported bugs this round, all added as steps out of numeric order — Step 45 sent, Steps 46–48 queued:**
-> - **Step 45 (URGENT, sent)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read before sending (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`) but flagged as needing reproduction against the real drama's data before trusting that diagnosis. **Real file-overlap risk with Step 24 (in flight)**, both touching `tabs/workspace_tab.py` — watch for a merge conflict when both come back. Sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU`.
+> **Correction (2026-09-27): Step 45 was never actually dispatched — a real error in this planning session's own record-keeping, caught when the user asked "sent where, what is in-flight, I see nothing running."** This doc previously said "Sent to `session_014zMSq3KbwPNoU1J2KseLrU`" for Step 45, but no `create_trigger`/`create_session` call was ever made — the roadmap recorded an action that was never taken. Checked the real session directly (`get_session`): it's idle/completed, sitting stalled on Step 24 pending an Opus-confirmation ask that was also never actually made to the user. Both are corrected below — **neither Step 24 nor Step 45 is actually running right now.**
+>
+> **Five user-reported bugs this round, all added as steps out of numeric order — none actually dispatched yet, all still queued:**
+> - **Step 45 (URGENT, queued, NOT yet sent — see correction above)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`) but flagged as needing reproduction against the real drama's data before trusting that diagnosis. **Real file-overlap risk with Step 24**, both touching `tabs/workspace_tab.py` — watch for a merge conflict if both are dispatched around the same time.
 > - **Step 46 (not yet sent)** — dark mode is visually inconsistent (Reader tab containers stay light/white), plus a second, more serious confirmed instance: Standalone Translate's "Source text (read-only)" box shows black text on a dark background, genuinely unreadable. Queued, ready to send.
 > - **Step 47 (not yet sent)** — Diagnostics' "Model & engine versions" panel has no install action for "not installed" rows and no explanation of what each model does. Queued, ready to send.
 > - **Step 48 (not yet sent)** — Live capture failed with `DownloadError: The page needs to be reloaded`. Root cause found by direct code read: `live_translate.py`'s retry loop only retries on the literal substring "no video formats found," so this different, also-real yt-dlp error skips the retry loop entirely. Queued, ready to send.
@@ -328,6 +330,7 @@ Rules for every milestone:
 | 53 | On a venv with `streamlit` importable but a different required package deliberately removed, run `start.bat` and confirm it does NOT skip the install step. |
 | 54 | Translate a non-romantic drama/VTuber stream and confirm the output doesn't show an unwarranted romantic-interpretation bias compared to before this fix. |
 | 55 | Trigger a real consistency-check failure (temporarily break one batch's input) and confirm the UI shows that some batches failed, rather than reporting a clean "no issues found." |
+| 56 | Diff `FILE_ORGANIZATION.md`'s own file listing against a fresh `git ls-tree -r HEAD --name-only` of the repo and confirm every real top-level `.py` file and every real `tabs/*.py` file is actually listed. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3196,6 +3199,27 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
 
 ---
 
+### Step 56 — `FILE_ORGANIZATION.md` is badly stale, and nothing stops it drifting again
+
+**Directly prompted by the user asking whether the "keep a document explaining the app's architecture, so an AI session can understand it without a paid coding-agent subscription" idea from the source ChatGPT conversation (their own `AI_MAINTENANCE.md` proposal) is being done — checked directly rather than assumed (2026-09-27).**
+
+**The closest existing thing, `FILE_ORGANIZATION.md`, is real but badly out of date — confirmed by direct comparison against the actual current repo tree:**
+- Lists 7 tabs; the real `tabs/` directory has **10** — missing `live_tab.py`, `sources_tab.py`, `translate_tab.py` entirely.
+- Lists 6 top-level `.py` files (`app.py`, `common.py`, `cli.py`, `asr_benchmark.py`, `video_download.py`, `run_tests.py`); the real repo root has **58** — missing `background_jobs.py`, `db.py`, `translate_engines.py`, `diagnostics.py`, and roughly 45 others, including entire subsystems this roadmap has built (dubbing, OCR/scanlation, diarization, source adapters, the browser extension's `page_server.py`).
+- Its own test count (already flagged stale once in this doc's own §0/history, "285 → 761") has drifted again since — the real current count is 93 test files.
+
+**Root cause, found by checking `CLAUDE.md` directly**: this repo already has a working pattern for exactly this problem — `CLAUDE.md`'s own "Rules learned from real bugs" section explicitly requires registering every new optional dependency in `diagnostics.py`'s `OPTIONAL_DEPENDENCIES` dict in the same step/PR that adds it, specifically so Diagnostics' dependency panel doesn't silently go stale. **No equivalent rule exists for `FILE_ORGANIZATION.md`** — nothing has ever told an implementing session to update it when adding a new top-level module or tab, which is exactly why dozens of steps added real files with nobody updating this doc once.
+
+1. **Rewrite `FILE_ORGANIZATION.md` to match the real current tree** — all 10 tabs, all 58 top-level modules (grouped sensibly by subsystem: ASR/transcription, translation, dubbing, OCR/scanlation, sources/discovery, the browser extension bridge, etc. — not just a flat alphabetical dump), the real test file count, and the `extension/` directory's own files (already partly covered).
+2. **Add a new rule to `CLAUDE.md`'s existing "Rules learned from real bugs" section, mirroring the `OPTIONAL_DEPENDENCIES` one**: "Update `FILE_ORGANIZATION.md` in the same step/PR that adds a new top-level module or tab file." This is the actual fix to the recurring problem, not just a one-time cleanup — without it, the rewrite from item 1 starts drifting again on the very next step that adds a file.
+3. **Don't build the source conversation's fuller `AI_MAINTENANCE.md` vision yet** (safety boundaries, what files should never be auto-modified, rollback procedures, what requires human approval) — that's a genuinely separate, larger document that depends on Step 43 (soft-delete/rollback) and Step 42 (the maintenance assistant itself) actually existing first, so its "how to roll back" and "what requires approval" sections describe real mechanisms rather than aspirational ones. Note this explicitly as a forward dependency for whoever eventually scopes that fuller document, rather than trying to write it now against machinery that doesn't exist yet.
+
+**Exit:**
+- Manual check: diff `FILE_ORGANIZATION.md`'s own file listing against a fresh `git ls-tree -r HEAD --name-only` of the repo and confirm every real top-level `.py` file and every real `tabs/*.py` file is actually listed.
+- Manual check: confirm the new `CLAUDE.md` rule text is added and reads clearly, matching the tone/structure of the existing `OPTIONAL_DEPENDENCIES` rule right above/below it.
+
+---
+
 ## 3. Deferred: revisit only if a real need appears
 
 | Milestone | Why it's deferred | Revisit when |
@@ -3366,7 +3390,7 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
   | 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path | `step-33-requirements-install-path` | ✅ Merged (PR #131) | ⏳ Pending |
   | 34 — Browser extension: translate the page you're looking at, live | `step-34-page-translate-extension` | ✅ Merged (PR #134) | ⏳ Pending |
   | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | `step-35-bubble-detector-dedupe` | ✅ Merged (PR #132) | ⏳ Pending |
-  | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | Sent (`session_014zMSq3KbwPNoU1J2KseLrU`) | — |
+  | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | Not started (correction 2026-09-27: previously marked "Sent" in error, never actually dispatched) | — |
   | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | Not started | — |
   | 47 — Fix: Model & engine versions panel has no install action or explanation | — | Not started | — |
   | 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize | — | Not started | — |
@@ -3377,6 +3401,7 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
   | 53 — Fix: `start.bat` dependency check only verifies `streamlit` imports | — | Not started | — |
   | 54 — Fix: hardcoded "baihe (GL/yuri)" genre framing on every translation | — | Not started | — |
   | 55 — Fix: `check_consistency_llm` silently swallows batch failures | — | Not started | — |
+  | 56 — `FILE_ORGANIZATION.md` badly stale, no rule to keep it current | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
