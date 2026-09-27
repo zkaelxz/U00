@@ -336,6 +336,7 @@ Rules for every milestone:
 | 64 | Open Diagnostics with a real "not installed" row and a real "outdated" row showing, and confirm the Install/Upgrade buttons read as a deliberate design choice. Confirm `FILE_ORGANIZATION.md`'s stated table count matches `db.py`'s real current count. |
 | 65 | Whichever way the tab-name decision goes, confirm the tab bar reads consistently with `FILE_ORGANIZATION.md`'s own description of that tab. |
 | 66 | Run the upgrade-safety check against a real package upgrade (e.g. `huggingface_hub`) and confirm the report reflects the real test-suite outcome for that version, not a guess. |
+| 67 | Re-run the full suite on a real Windows machine and confirm exactly which failure groups from the original report are now resolved versus still open; specifically confirm `test_app_help.py` and the HF cache tests behave correctly without manual env-var workarounds. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3426,6 +3427,23 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms the isolated-venv/trial-install check actually catches a real, deliberately-broken candidate version (e.g. install an old version of a package this app's tests genuinely fail against, and confirm the check reports failure with real detail, not a bare "failed").
 - A test confirms a candidate version that passes cleanly is reported as such, distinctly from "untested."
 - Manual check: run the check against a real package upgrade (e.g. `huggingface_hub`, the one the user actually asked about) and confirm the report reflects the real test-suite outcome for that version, not a guess.
+
+---
+
+### Step 67 — Three confirmed test-suite defects from a real Windows disposable-copy run
+
+**User directly corrected an earlier chat-only pytest triage this session that had characterized a batch of reported failures as "all environment-specific" without isolating each one — that triage was informal (never written to this doc) and is corrected here with real, reproduced evidence instead of being silently left as-is.** A real Windows run, each failure re-run in isolation (not just accepted from the original noisy full-suite report), found three distinct, confirmed defects — plus an explicit acknowledgment that other full-suite failures remain unisolated and are NOT covered by this step.
+
+1. **`tests/test_app_help.py`'s failures are caused by Windows' non-UTF-8 default console encoding** — confirmed by re-running with `PYTHONUTF8=1` (12/12 pass). The test process (or `app_help.py` itself, whichever actually does the encoding-sensitive work) should set UTF-8 explicitly rather than depend on the OS default, so this doesn't silently fail for every Windows user running the suite without that env var set.
+2. **The Hugging Face cache tests' failures are caused by `os.symlink` requiring a Windows privilege (`SeCreateSymbolicLinkPrivilege`) a regular user doesn't have without Developer Mode enabled** — confirmed via the exact `WinError 1314` trace. This is a real gap in the test's own setup, not a product bug: it should skip gracefully (or use a non-symlink fallback) when the privilege isn't available, rather than failing outright for any Windows contributor who hasn't separately enabled Developer Mode.
+3. **`test_vram_helpers_degrade_gracefully_without_torch` is a real, confirmed test defect**: it asserts `_peak_vram_mb()` returns `None` when torch is absent, but never actually mocks torch as absent — run directly with torch genuinely installed and CUDA unavailable, it returns `0.0` instead, and the test's own stated premise was never actually exercised. Fix the test to genuinely simulate torch's absence (the same technique other "gracefully degrade without X" tests in this suite already use), and confirm what the real intended behavior is (should a torch-present-but-no-CUDA case return `0.0` or `None`? decide and assert it explicitly, rather than leaving the case untested).
+4. **Explicitly not covered by this step, not claimed resolved**: the rest of the original full-suite failure report hasn't been isolated the same way — don't treat this step's fixes as closing out that whole report. If more of it needs the same direct-reproduction treatment, that's separate follow-up work, tracked here as still open rather than silently dropped.
+
+**Exit:**
+- `tests/test_app_help.py` passes on a real Windows run without requiring `PYTHONUTF8=1` to be set manually first.
+- The Hugging Face cache tests either pass or skip cleanly (with a clear reason) on a real Windows run without Developer Mode enabled, rather than failing with a raw `WinError`.
+- `test_vram_helpers_degrade_gracefully_without_torch` genuinely mocks torch's absence and asserts the real intended behavior; a test confirms the mock actually takes effect (e.g. by checking the code path taken, not just the return value).
+- Manual check: re-run the full suite once more on a real Windows machine and confirm exactly which groups from the original report are now resolved versus still open — update this note (or a follow-up step) with that real, current state rather than assuming these three fixes cover everything.
 
 ---
 
