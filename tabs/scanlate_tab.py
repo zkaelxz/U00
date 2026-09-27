@@ -72,6 +72,15 @@ def render_scanlate_tab():
                 }[b], horizontal=False, key="sc_backend")
             st.caption("Inpainting (cleaning the original text) auto-selects the same way -- "
                        "LaMa-manga if its weights are cached, plain OpenCV inpainting otherwise.")
+            if sc_backend == "auto":
+                import scanlate
+                if not scanlate.bubble_ml_weights_cached():
+                    st.warning(
+                        "🆓 Auto is currently using the free heuristic detector -- the trained "
+                        "ML model isn't downloaded yet. This works well on black-and-white "
+                        "scans but often finds nothing on full-color art. Pick '🎯 ML model' "
+                        "above to download it."
+                    )
 
             _ocr_backend_options = ocr.OCR_BACKEND_OPTIONS
             _settings_ocr_backend = st.session_state.get("settings_ocr_backend", "auto")
