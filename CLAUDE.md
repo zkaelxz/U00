@@ -264,6 +264,18 @@ test run exited. It then loops forever, silently.
   component, a notification library, etc.) without adding it here means
   Diagnostics silently won't report it as missing, and the launcher's
   output stays incomplete without anyone noticing.
+- **Update `FILE_ORGANIZATION.md` in the same step/PR that adds a new
+  top-level module or a new `tabs/*.py` file.** This doc is the map an
+  AI session (or a person) uses to understand the app's shape without
+  reading every file first — including, eventually, an AI session
+  working through an API/local model rather than a paid coding-agent
+  subscription, which won't have this conversation's accumulated
+  context to fall back on. It drifted badly once already (Step 56,
+  2026-09-27: listed 7 tabs when there were 10, and 6 top-level `.py`
+  files when there were 58) specifically because no rule required
+  keeping it current, unlike `OPTIONAL_DEPENDENCIES` above. Add your new
+  file to its tree listing, in the right subsystem grouping, as part of
+  finishing the step that creates it — not a separate cleanup pass.
 
 ## Where things are
 
