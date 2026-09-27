@@ -48,3 +48,15 @@ def tail(n: int = 50):
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
     return [ln.rstrip("\n") for ln in lines[-n:]]
+
+
+def filter_lines(lines: list, keyword: str = "") -> list:
+    """Returns only the entries of `lines` containing `keyword`
+    (case-insensitive) -- every line unchanged if `keyword` is blank. Used
+    by Diagnostics' log keyword filter box (Step 18 item 4), so finding
+    "what happened with drama X" doesn't mean reading every line by eye."""
+    keyword = (keyword or "").strip()
+    if not keyword:
+        return list(lines)
+    keyword_lower = keyword.lower()
+    return [ln for ln in lines if keyword_lower in ln.lower()]
