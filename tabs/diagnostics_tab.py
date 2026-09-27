@@ -115,7 +115,7 @@ def _run_bulk_install_stream(tier_label: str, requirements_path: str) -> dict:
 
 
 def _install_confirmed(container, key: str, warning: str) -> bool:
-    """Renders an "⬇️ Install" button in `container`; returns True the
+    """Renders an "Install" button in `container`; returns True the
     instant the install should actually run. Step 47 item 4: when
     `warning` is set (a redundant heavy local TTS backend is already
     installed), the first click only arms a confirmation -- shown as a
@@ -123,19 +123,27 @@ def _install_confirmed(container, key: str, warning: str) -> bool:
     rather than installing immediately. Never blocks the install, only
     adds one extra deliberate click, matching this app's existing
     "confirm before a consequential action" pattern scaled down for a
-    reversible one. With no warning, behaves exactly like a plain button."""
+    reversible one. With no warning, behaves exactly like a plain button.
+
+    Step 64: `type="primary"` (the app's one accent colour, per
+    ui_theme.py) plus the icon in its own native `icon=` slot rather than
+    glued onto the label text -- the same emoji as before, just rendered
+    as a real icon instead of a leading character, so this reads as a
+    deliberate action button rather than a bare default with an emoji
+    stuck on the front. Visual only; the confirm/cancel/install behavior
+    itself is unchanged."""
     confirm_key = f"{key}__confirm_redundant"
     if st.session_state.get(confirm_key):
         st.warning(warning)
         wc1, wc2 = st.columns(2)
-        if wc1.button("⬇️ Install anyway", key=f"{key}__proceed"):
+        if wc1.button("Install anyway", key=f"{key}__proceed", icon="⬇️", type="primary"):
             st.session_state.pop(confirm_key, None)
             return True
         if wc2.button("Cancel", key=f"{key}__cancel"):
             st.session_state.pop(confirm_key, None)
             st.rerun()
         return False
-    if container.button("⬇️ Install", key=key):
+    if container.button("Install", key=key, icon="⬇️", type="primary"):
         if warning:
             st.session_state[confirm_key] = True
             st.rerun()
@@ -303,7 +311,8 @@ def render_diagnostics_tab():
                                         project_root, db.LIBRARY_DIR, api_keys_set)
                                     st.rerun()
                         elif upgradeable:
-                            if dep_c2.button("⬆️ Upgrade", key=f"upgrade_dep_btn_{name}"):
+                            if dep_c2.button("Upgrade", key=f"upgrade_dep_btn_{name}",
+                                            icon="⬆️", type="primary"):
                                 dep_result = _run_pip_stream(
                                     f"Upgrading {name}...", f"Upgraded {name}.",
                                     f"Upgrade failed for {name} -- see output above.",

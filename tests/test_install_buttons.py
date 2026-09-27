@@ -349,11 +349,11 @@ class TestDiagnosticsTabInstallButtonGating:
 
     def test_exactly_the_missing_feature_and_engine_deps_get_a_button(self, isolated_db):
         # Scoped to "Check my setup" -- Step 47 added its own, separate
-        # "⬇️ Install" buttons to the Model & engine versions panel below,
+        # "Install" buttons to the Model & engine versions panel below,
         # so filtering the whole page's buttons would also catch those.
         at = self._run()
         setup = next(e for e in at.expander if e.label == "🩺 Check my setup")
-        install_buttons = [b for b in setup.button if b.label == "⬇️ Install"]
+        install_buttons = [b for b in setup.button if b.label == "Install"]
         assert len(install_buttons) == 2
         keys = {b.key for b in install_buttons}
         assert keys == {"install_dep_btn_fixture_feature_missing",
@@ -382,23 +382,23 @@ class TestDiagnosticsTabUpgradeButtonGating:
     def test_upgrade_button_appears_for_an_outdated_feature_tier_dependency(self, isolated_db):
         at = self._run({"fixture_feature_installed": {
             "installed_version": "1.0.0", "latest_version": "2.0.0", "outdated": True}})
-        upgrade_buttons = [b for b in at.button if b.label == "⬆️ Upgrade"]
+        upgrade_buttons = [b for b in at.button if b.label == "Upgrade"]
         assert len(upgrade_buttons) == 1
         assert upgrade_buttons[0].key == "upgrade_dep_btn_fixture_feature_installed"
 
     def test_no_upgrade_button_when_up_to_date(self, isolated_db):
         at = self._run({"fixture_feature_installed": {
             "installed_version": "2.0.0", "latest_version": "2.0.0", "outdated": False}})
-        assert not [b for b in at.button if b.label == "⬆️ Upgrade"]
+        assert not [b for b in at.button if b.label == "Upgrade"]
 
     def test_no_upgrade_button_for_required_tier_even_if_flagged_outdated(self, isolated_db):
         at = self._run({"fixture_required": {
             "installed_version": "1.0.0", "latest_version": "2.0.0", "outdated": True}})
-        assert not [b for b in at.button if b.label == "⬆️ Upgrade"]
+        assert not [b for b in at.button if b.label == "Upgrade"]
 
     def test_no_upgrade_button_before_the_check_has_ever_run(self, isolated_db):
         at = self._run({})
-        assert not [b for b in at.button if b.label == "⬆️ Upgrade"]
+        assert not [b for b in at.button if b.label == "Upgrade"]
 
     def test_clicking_upgrade_calls_pip_install_with_the_upgrade_flag_and_streams_output(
             self, isolated_db, monkeypatch):
@@ -525,7 +525,7 @@ class TestModelPanelRedundantTtsConfirm:
         assert called["n"] == 0
         warnings = [w.value for w in at.warning]
         assert any("Chatterbox" in w and "OmniVoice" in w for w in warnings)
-        assert [b for b in at.button if b.label == "⬇️ Install anyway"]
+        assert [b for b in at.button if b.label == "Install anyway"]
         assert [b for b in at.button if b.label == "Cancel"]
 
     def test_install_anyway_actually_installs(self, isolated_db, monkeypatch):
@@ -552,9 +552,9 @@ class TestModelPanelRedundantTtsConfirm:
         at.button(key="install_model_btn_OmniVoice__cancel").click().run(timeout=30)
         assert not at.exception
         assert called["n"] == 0
-        assert not [b for b in at.button if b.label == "⬇️ Install anyway"]
+        assert not [b for b in at.button if b.label == "Install anyway"]
         # back to a plain, unconfirmed Install button
-        assert [b for b in at.button if b.label == "⬇️ Install"]
+        assert [b for b in at.button if b.label == "Install"]
 
     def test_no_confirmation_needed_when_nothing_redundant_is_installed(self, isolated_db, monkeypatch):
         from streamlit.testing.v1 import AppTest
@@ -608,7 +608,7 @@ class TestDependenciesUpgradeExplainsWhenBlocked:
         at = self._run({"audio-separator": {
             "installed_version": "0.2.0", "latest_version": "0.3.0", "outdated": True}}, monkeypatch)
         assert not at.exception
-        upgrade_buttons = [b for b in at.button if b.label == "⬆️ Upgrade"
+        upgrade_buttons = [b for b in at.button if b.label == "Upgrade"
                           and b.key == "upgrade_dep_btn_audio-separator"]
         assert not upgrade_buttons
         captions = " ".join(c.value for c in at.caption)

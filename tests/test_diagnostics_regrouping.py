@@ -117,7 +117,7 @@ class TestModelEngineVersionsInstallAndHelp:
         ])
         at = _run()
         panel = next(e for e in at.expander if e.label == "🧩 Model & engine versions")
-        install_buttons = [b for b in panel.button if b.label == "⬇️ Install"]
+        install_buttons = [b for b in panel.button if b.label == "Install"]
         assert len(install_buttons) == 1
         assert install_buttons[0].key == "install_model_btn_Fixture Engine"
 
@@ -127,7 +127,7 @@ class TestModelEngineVersionsInstallAndHelp:
         # installed=True), so neither should ever grow an Install button.
         at = _run()
         panel = next(e for e in at.expander if e.label == "🧩 Model & engine versions")
-        install_keys = {b.key for b in panel.button if b.label == "⬇️ Install"}
+        install_keys = {b.key for b in panel.button if b.label == "Install"}
         assert "install_model_btn_pyannote diarization model" not in install_keys
         assert "install_model_btn_GPT-SoVITS" not in install_keys
 
@@ -142,7 +142,7 @@ class TestModelEngineVersionsInstallAndHelp:
         at = _run()
         assert not at.exception
         panel = next(e for e in at.expander if e.label == "🧩 Model & engine versions")
-        assert not [b for b in panel.button if b.label == "⬇️ Install"]
+        assert not [b for b in panel.button if b.label == "Install"]
 
     def test_clicking_install_calls_stream_dependency_install_with_the_registry_package_name(
             self, isolated_db, monkeypatch):
