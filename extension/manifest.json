@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Baihe Subtitler — translate this page",
+  "version": "1.0.0",
+  "description": "Sends the comic page you're reading to your own local Baihe Subtitler, and draws the translation over it.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "action": {
+    "default_title": "Baihe Subtitler",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html"
+}

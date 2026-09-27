@@ -381,6 +381,19 @@ def _usage_cb(drama, config, engine):
     return log
 
 
+_MAX_ECHOED_URL = 200
+
+
+def _short_url(url) -> str:
+    """A URL only ever echoed back for a person to recognise the image
+    by, so an inline `data:`/`blob:` one is truncated instead of copied
+    whole into the response."""
+    text = str(url or "")
+    if len(text) <= _MAX_ECHOED_URL:
+        return text
+    return text[:_MAX_ECHOED_URL] + "…"
+
+
 def _image_size(data: bytes):
     try:
         import io
@@ -544,7 +557,12 @@ class _Handler(BaseHTTPRequestHandler):
                 raise EndpointError(400, "an image's data was not valid base64") from None
             decoded.append({
                 "key": str(image.get("key") or ""),
-                "url": str(image.get("url") or ""),
+                # A `data:` or `blob:` image's "URL" is the image itself,
+                # which would otherwise be echoed back whole in every
+                # response (a real 12-image send measured megabytes of
+                # pure echo). It's only ever shown to a person, so it is
+                # capped here rather than carried in full.
+                "url": _short_url(image.get("url")),
                 "content_type": str(image.get("content_type") or ""),
                 "content": content,
             })
