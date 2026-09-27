@@ -606,9 +606,10 @@ class TestCmdDubNarration:
         did = self._narration_drama(isolated_db)
         seen = {}
 
-        def fake_build_narration_track(lines, drama_dir, voice_map, character_clone_map=None,
-                                       progress_cb=None, emotion_map=None, offline_voice_map=None,
-                                       tts_engine=None):
+        def fake_build_narration_track(lines, drama_dir, voice_map, default_voice=None,
+                                       character_clone_map=None, progress_cb=None, emotion_map=None,
+                                       offline_voice_map=None, tts_engine=None,
+                                       narrate_original=False, source_language=None):
             seen.update(clone_map=character_clone_map, emotion_map=emotion_map)
             for i, ln in enumerate(lines):
                 ln.start, ln.end, ln.dub_filename = 10.0 + i, 10.5 + i, "dub_clips/line_0000-0001.wav"
@@ -629,10 +630,55 @@ class TestCmdDubNarration:
                             lambda lines, *a, **k: ("narration_track.wav", []))
         exported = []
         monkeypatch.setattr(dub_module, "export_narration_m4b",
-                            lambda lines, ddir, title=None: exported.append(title) or "x.m4b")
+                            lambda lines, ddir, title=None, **k: exported.append(title) or "x.m4b")
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_dub(_dub_args(id=did, m4b=True))
         assert exported == ["Novel"]
+
+    def test_original_mode_passes_narrate_original_and_source_language_through(
+            self, isolated_db, monkeypatch):
+        """Step 26c: same CLI/UI parity the rest of cmd_dub already keeps --
+        original-language narration works from the CLI, driven by the
+        drama's own saved narration_language, with no separate CLI flag."""
+        did = self._narration_drama(isolated_db)
+        isolated_db.update_drama(did, narration_language="original")
+        seen = {}
+
+        def fake_build_narration_track(lines, drama_dir, voice_map, default_voice=None,
+                                       character_clone_map=None, progress_cb=None, emotion_map=None,
+                                       offline_voice_map=None, tts_engine=None,
+                                       narrate_original=False, source_language=None):
+            seen.update(narrate_original=narrate_original, source_language=source_language,
+                       default_voice=default_voice)
+            return "narration_track.wav", []
+        monkeypatch.setattr(dub_module, "build_narration_track", fake_build_narration_track)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did))
+
+        assert seen["narrate_original"] is True
+        assert seen["source_language"] == "ja"
+        assert seen["default_voice"] in dub_module.DEFAULT_VOICE_POOL_BY_LANGUAGE["ja"]
+
+    def test_original_mode_still_narrates_a_drama_with_no_translation_at_all(
+            self, isolated_db, monkeypatch):
+        """Exit condition: narration works with no ln.en in original mode --
+        the CLI's own "not translated yet" skip check would otherwise
+        block this entirely, unlike the Workspace tab's dub button."""
+        did = isolated_db.create_drama(title_en="Novel", content_mode="novel_narration",
+                                        status="aligned", source_language="ja",
+                                        narration_language="original")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="一", en="", speaker="Hero")])
+        called = []
+        monkeypatch.setattr(dub_module, "build_narration_track",
+                            lambda lines, *a, **k: called.append(True) or ("narration_track.wav", []))
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_dub(_dub_args(id=did))
+
+        assert called == [True]
+        assert "skipped" not in out.getvalue()
 
 
 class TestCmdRunArgparseParity:

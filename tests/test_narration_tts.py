@@ -630,7 +630,7 @@ class TestParallelNarration:
     def test_gpt_sovits_is_forced_single_threaded(self, pool, monkeypatch, fake_pydub, tmp_path):
         events = []
 
-        def fake(text, ref_audio_path, ref_text, out_path, ref_language="zh", base_url=None):
+        def fake(text, ref_audio_path, ref_text, out_path, ref_language="zh", text_lang="en", base_url=None):
             events.append(pool.in_pool)
             open(out_path, "w").close()
         monkeypatch.setattr(dub, "synthesize_line_gpt_sovits", fake)
