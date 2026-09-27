@@ -89,6 +89,29 @@ def render_reader_tab():
                     st.video(p, subtitles=caption_tracks(rlines) or None)
                 else:
                     st.audio(p)
+                    _caption_tracks = caption_tracks(rlines)
+                    if _caption_tracks:
+                        # Step 45: an audio-only source (no video file was ever
+                        # kept for this drama, e.g. a URL download made with
+                        # "Audio only" checked) has no way to overlay timed
+                        # captions the way the video player above does --
+                        # that's a real Streamlit limitation, not a bug, but
+                        # leaving it unexplained reads as "the subtitles are
+                        # just missing." Show the same text as a plain,
+                        # playback-unsynced readout instead of nothing at all.
+                        st.caption("This source has no video file, so captions can't be "
+                                   "overlaid on the player the way they are for a video -- "
+                                   "here's the same text, not synced to playback:")
+                        _cap_label = st.radio(
+                            "Captions", list(_caption_tracks.keys()), horizontal=True,
+                            key=f"reader_audio_captions_lang_{rdrama['id']}")
+                        _cap_field = {"Source": "zh", "English": "en", "Bilingual": "bilingual"}[_cap_label]
+                        with st.container(height=200):
+                            for ln in rlines:
+                                _txt = f"{ln.en}  \n{ln.zh}" if _cap_field == "bilingual" \
+                                    else getattr(ln, _cap_field)
+                                if _txt.strip():
+                                    st.caption(f"`{fmt_ts(ln.start)[3:8]}` {_txt}")
             if os.path.exists(dub_path):
                 st.caption("AI dub")
                 st.audio(dub_path)
