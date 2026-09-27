@@ -3,8 +3,11 @@ tests/test_db.py -- tests for db.py, using the isolated_db fixture so
 nothing here ever touches your real library.
 """
 
+import shutil
+import subprocess
 import sys
 import os
+import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Line
@@ -1270,3 +1273,74 @@ class TestGpuLock:
 
     def test_status_is_free_when_nothing_has_ever_held_it(self, isolated_db):
         assert isolated_db.gpu_lock_status() == (None, None)
+
+
+class TestImportTimeSafety:
+    """Step 51: importing db.py alone must never touch a real library path
+    -- init has to be lazy (first real get_conn() call), not at import
+    time, so `pytest` collecting/importing db can't create or touch the
+    real library/library.db before isolated_db redirects it."""
+
+    @staticmethod
+    def _copy_db_and_deps(temp_dir):
+        # db.py imports core.py (for LINE_FIELDS); both are self-contained
+        # (stdlib-only), so copying just the two is enough to import db.py
+        # with a real, separate interpreter, in a directory with nothing
+        # else in it -- the only way to observe a genuinely fresh module
+        # import rather than the already-imported module every other test
+        # in this process shares.
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        shutil.copy(os.path.join(project_root, "db.py"), os.path.join(temp_dir, "db.py"))
+        shutil.copy(os.path.join(project_root, "core.py"), os.path.join(temp_dir, "core.py"))
+
+    def test_bare_import_does_not_touch_any_library_dir(self):
+        temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
+        try:
+            self._copy_db_and_deps(temp_dir)
+            result = subprocess.run(
+                [sys.executable, "-c", "import db"],
+                cwd=temp_dir, capture_output=True, text=True, timeout=30,
+            )
+            assert result.returncode == 0, result.stderr
+            assert not os.path.exists(os.path.join(temp_dir, "library")), (
+                "importing db.py alone created a library/ directory as a side effect"
+            )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_first_real_call_still_initializes_the_schema(self):
+        # The other half of the guarantee: init must still happen, just
+        # lazily -- a real call right after import has to work normally.
+        temp_dir = tempfile.mkdtemp(prefix="baihe_import_check_")
+        try:
+            self._copy_db_and_deps(temp_dir)
+            script = (
+                "import db\n"
+                "did = db.create_drama(title_en='x')\n"
+                "assert db.get_drama(did)['title_en'] == 'x'\n"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                cwd=temp_dir, capture_output=True, text=True, timeout=30,
+            )
+            assert result.returncode == 0, result.stderr
+            assert os.path.exists(os.path.join(temp_dir, "library", "library.db"))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_isolated_db_fixture_still_initializes_a_working_schema(self, isolated_db):
+        # No regression to the isolation isolated_db already provides.
+        did = isolated_db.create_drama(title_en="Fixture Still Works")
+        assert isolated_db.get_drama(did)["title_en"] == "Fixture Still Works"
+        assert os.path.exists(isolated_db.DB_PATH)
+
+    def test_configure_library_dir_reinitializes_at_the_new_path(self, isolated_db, tmp_path_str):
+        # isolated_db already redirected + initialized once; redirecting a
+        # second time (configure_library_dir alone, no explicit init_db())
+        # must still produce a working schema at the new path rather than
+        # silently reusing the old path's "already ready" state.
+        isolated_db.create_drama(title_en="Old Path")
+        isolated_db.configure_library_dir(tmp_path_str)
+        did = isolated_db.create_drama(title_en="New Path")
+        assert isolated_db.get_drama(did)["title_en"] == "New Path"
+        assert os.path.exists(os.path.join(tmp_path_str, "library.db"))
