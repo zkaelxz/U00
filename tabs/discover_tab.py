@@ -343,6 +343,9 @@ def render_discover_tab():
             else:
                 st.caption(verdict["reason"])
                 embed_height = st.slider("Panel height", 400, 1200, 700, 50, key="embed_h")
+                # Deliberately not dark-mode themed (Step 68 audit): this is a
+                # live third-party site in its own browsing context -- the app
+                # can't restyle it, and the site's own theme is what it shows.
                 st.iframe(embed_url, height=embed_height)
 
     with st.expander("Import a title from a URL", expanded=True):

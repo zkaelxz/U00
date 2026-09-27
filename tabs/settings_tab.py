@@ -213,8 +213,8 @@ def render_settings_sidebar():
         st.divider()
         st.session_state["app_dark_mode"] = st.toggle(
             "🌙 Dark mode", value=st.session_state.get("app_dark_mode", False),
-            help="Applies to the whole app. The Reader has its own separate theme "
-                 "(light/sepia/dark) under Reading experience.")
+            help="Applies to the whole app, including the Reader's text -- unless you've "
+                 "picked a specific Reader theme under Reading experience.")
         st.caption("Entered once, reused as defaults everywhere in this session. "
                   "Never written to the database. To avoid retyping them after a "
                   "restart, either put them in a `.env` file yourself (gitignored -- "
@@ -234,9 +234,15 @@ def render_settings_sidebar():
                 "Line spacing", 1.5, 4.0, st.session_state.get("reader_line_height", 2.4), 0.1)
             st.session_state["reader_max_width"] = st.slider(
                 "Content width (px)", 600, 1600, st.session_state.get("reader_max_width", 1200), 50)
+            _reader_theme = st.session_state.get("reader_theme", "match app")
+            if _reader_theme not in ui_theme.READER_THEME_OPTIONS:
+                _reader_theme = "match app"
             st.session_state["reader_theme"] = st.selectbox(
-                "Theme", ["light", "sepia", "dark"],
-                index=["light", "sepia", "dark"].index(st.session_state.get("reader_theme", "light")))
+                "Theme", ui_theme.READER_THEME_OPTIONS,
+                index=ui_theme.READER_THEME_OPTIONS.index(_reader_theme),
+                format_func=lambda t: "Match app (follows 🌙 Dark mode)" if t == "match app" else t,
+                help="The Reader's text panel. \"Match app\" follows the Dark mode switch above; "
+                     "pick light/sepia/dark to keep one regardless.")
             st.session_state["reader_font"] = st.selectbox(
                 "Font", ["system", "serif", "sans-serif", "monospace"],
                 index=["system", "serif", "sans-serif", "monospace"].index(
