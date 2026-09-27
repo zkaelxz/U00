@@ -35,8 +35,7 @@ baihe-subtitler/
 │   ├── workspace_tab.py          the main pipeline: align → translate → dub → export
 │   ├── reader_tab.py             reading, wiki, story tools, line tools
 │   ├── scanlate_tab.py           manhua/webtoon typesetting
-│   ├── navigator_tab.py          foreign-site navigation help
-│   ├── discover_tab.py           title discovery, bulk import
+│   ├── discover_tab.py           title discovery, bulk import, site navigation help
 │   ├── settings_tab.py           sidebar: API keys, appearance, defaults
 │   └── diagnostics_tab.py        "check my setup"
 │

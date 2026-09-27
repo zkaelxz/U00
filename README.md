@@ -40,15 +40,16 @@ URL you have the right to download from, only.
   bibliographic metadata -- title, author, studio, cast, a short
   synopsis -- for review before saving. Only ever pulls cataloging
   info, never the actual chapters/episodes.
-- **Site Navigator**: for sites in a language you don't read -- paste
-  a URL and a goal, get the page's visible menu/labels translated plus
-  step-by-step navigation guidance. Describes the site's own public
-  interface only; doesn't log in, purchase, or fetch anything for you.
+- **Site navigation helper** (in Discover): for sites in a language you
+  don't read -- paste a URL and a goal, get the page's visible menu/
+  labels translated plus step-by-step navigation guidance. Describes
+  the site's own public interface only; doesn't log in, purchase, or
+  fetch anything for you.
 - **Known-site registry**: a curated list of well-known official
   platforms for baihe, Korean GL, and Japanese yuri content (audio
-  drama, novel, comic) -- browsable in the Navigator tab and selectable
-  as a starting point for metadata lookup, instead of typing URLs from
-  memory.
+  drama, novel, comic) -- browsable in Discover's site navigation
+  helper section and selectable as a starting point for metadata
+  lookup, instead of typing URLs from memory.
 - **Discover / known titles library**: a searchable catalog of known
   titles (title, author, tags, a short synopsis) -- separate from your
   working drama catalog. Search in any language, import from a listing
@@ -1091,10 +1092,11 @@ aggregator/scanlation sites included. Currently covers:
   source of independent yuri audio drama), Comic Yuri Hime (the
   flagship official yuri manga magazine), Fantia (audio drama)
 
-Browsable in the Navigator tab (filterable by language/content type)
-and selectable as a starting point in metadata lookup. This is just a
-directory — you still need your own account/access on whichever
-platform you use, same as everywhere else in this app.
+Browsable in Discover's site navigation helper section (filterable by
+language/content type) and selectable as a starting point in metadata
+lookup. This is just a directory — you still need your own account/
+access on whichever platform you use, same as everywhere else in this
+app.
 
 ### Manhua & webtoon handling
 
@@ -1219,9 +1221,10 @@ and others) send headers that forbid being placed in an iframe, as
 clickjacking protection. For those, the panel renders blank — the site
 refusing, not a bug. Known blockers are flagged before you try.
 
-In practice the Navigator tab is the better tool for this: it translates
-a page's menu labels and gives you step-by-step navigation guidance,
-which you follow in a normal browser tab.
+In practice Discover's site navigation helper section is the better
+tool for this: it translates a page's menu labels and gives you
+step-by-step navigation guidance, which you follow in a normal browser
+tab.
 
 ## Reliability & performance
 
@@ -1479,7 +1482,7 @@ around long-term as your reference set.
 
 `app.py` is a thin orchestrator; each tab's actual UI logic lives in
 `tabs/*.py` (`library_tab.py`, `workspace_tab.py`, `reader_tab.py`,
-`scanlate_tab.py`, `navigator_tab.py`, `discover_tab.py`,
+`scanlate_tab.py`, `discover_tab.py`,
 `settings_tab.py`, `diagnostics_tab.py`), with shared imports
 centralized in `common.py`. If you're extending this yourself, that's
 where to look. `docs/technical-notes.md` has a detailed log of bugs
