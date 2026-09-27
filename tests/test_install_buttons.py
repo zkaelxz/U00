@@ -658,8 +658,13 @@ class TestNotInstalledExplainsAKnownLimitationUpFront:
 
     def test_no_known_limitation_mentioned_on_a_different_python_version(self, isolated_db, monkeypatch):
         at = self._run(monkeypatch, python_version=(3, 11, 0, "final", 0))
-        captions = " ".join(c.value for c in at.caption)
-        assert "diffq-fixed" not in captions
+        # Scoped to the audio-separator row's own caption specifically --
+        # Step 62's "Bulk install a whole tier" section separately mentions
+        # "diffq-fixed" page-wide as an illustrative example regardless of
+        # Python version, which isn't what this test is checking for.
+        row_captions = [c.value for c in at.caption if "audio-separator" in c.value]
+        assert row_captions
+        assert "diffq-fixed" not in row_captions[0]
 
     def test_a_failed_install_adds_the_known_reason_after_the_real_traceback(
             self, isolated_db, monkeypatch):
