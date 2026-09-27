@@ -1,4 +1,4 @@
-cd C:\Users\Airbear\Documents\baihe-subtitler
+cd /d %~dp0
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
