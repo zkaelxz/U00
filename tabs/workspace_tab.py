@@ -1662,6 +1662,58 @@ def render_workspace_tab():
                     else:
                         st.warning(status_m["message"])
 
+        with st.expander("🔍 Analyze a media file first (optional)"):
+            st.caption(
+                "Drop a media file to see its real duration, resolution, audio/subtitle "
+                "tracks, and a suggested pipeline -- before filling in anything below. "
+                "Nothing here is applied until you use a suggestion, and you can skip this "
+                "entirely and fill in the form yourself."
+            )
+            analyze_upload = st.file_uploader(
+                "Audio or video file", type=["mp3", "wav", "m4a", "flac", "ogg", "mp4", "mkv",
+                                              "mov", "webm"],
+                key="analyze_media_upload")
+            if st.button("🔍 Analyze", disabled=analyze_upload is None):
+                import tempfile
+                import media_inspect
+                _suffix = os.path.splitext(analyze_upload.name)[1]
+                with tempfile.NamedTemporaryFile(suffix=_suffix, delete=False) as tmp:
+                    tmp.write(analyze_upload.getvalue())
+                    tmp_path = tmp.name
+                try:
+                    with st.spinner("Analyzing..."):
+                        st.session_state["analyze_result"] = media_inspect.probe_media(
+                            tmp_path, filename=analyze_upload.name)
+                except media_inspect.ProbeError as exc:
+                    st.session_state["analyze_result"] = None
+                    st.warning(f"Couldn't analyze this file: {exc}")
+                finally:
+                    os.unlink(tmp_path)
+
+            _analysis = st.session_state.get("analyze_result")
+            if _analysis:
+                a1, a2, a3, a4 = st.columns(4)
+                _mins, _secs = divmod(int(_analysis.duration_seconds), 60)
+                a1.metric("Duration", f"{_mins}:{_secs:02d}")
+                a2.metric("Resolution",
+                          f"{_analysis.width}x{_analysis.height}" if _analysis.has_video else "audio only")
+                a3.metric("FPS", f"{_analysis.fps:.2f}" if _analysis.fps else "--")
+                a4.metric("Audio tracks", str(len(_analysis.audio_tracks)))
+                if _analysis.subtitle_tracks:
+                    _langs = ", ".join(t.language or "unknown" for t in _analysis.subtitle_tracks)
+                    st.caption(f"📝 Existing subtitle track(s) found: {_langs}")
+                else:
+                    st.caption("📝 No existing subtitle tracks found.")
+                st.caption(f"Likely content type: **{_format_media_type(_analysis.content_type_guess)}** "
+                           f"-- {_analysis.content_type_reason}")
+                st.markdown("**Suggested pipeline:** " + " → ".join(_analysis.suggested_pipeline))
+                if st.button("Use this content type suggestion"):
+                    st.session_state["autofill_metadata"] = {
+                        **st.session_state.get("autofill_metadata", {}),
+                        "media_type": _analysis.content_type_guess,
+                    }
+                    st.rerun()
+
         prefill = st.session_state.get("autofill_metadata", {})
         c1, c2 = st.columns(2)
         title_en = c1.text_input("Title (English)", value=prefill.get("title_en", ""))
@@ -1671,8 +1723,12 @@ def render_workspace_tab():
         director = c1.text_input("Director", value=prefill.get("director", ""))
         voice_actors = c2.text_input("Voice actors (comma-separated)", value=prefill.get("voice_actors", ""))
         summary = st.text_area("Summary", value=prefill.get("summary", ""), height=100)
-        media_type = st.selectbox("Content type", MEDIA_TYPE_OPTIONS,
-                                   format_func=_format_media_type)
+        _prefill_media_type = prefill.get("media_type")
+        media_type = st.selectbox(
+            "Content type", MEDIA_TYPE_OPTIONS,
+            index=MEDIA_TYPE_OPTIONS.index(_prefill_media_type)
+                  if _prefill_media_type in MEDIA_TYPE_OPTIONS else 0,
+            format_func=_format_media_type)
 
         # Step 22b: series assignment at creation time, not only via the
         # ✏️ Edit metadata expander after the drama already exists -- same
@@ -1714,6 +1770,7 @@ def render_workspace_tab():
                 sid = next(s["id"] for s in _existing_series if s["name"] == _series_choice)
                 db.update_drama(new_id, series_id=sid)
             st.session_state.pop("autofill_metadata", None)
+            st.session_state.pop("analyze_result", None)
             st.session_state.active_drama_id = new_id
             st.session_state.lines = None
             st.rerun()
