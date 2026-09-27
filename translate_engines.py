@@ -680,7 +680,8 @@ def _parse_id_keyed_json(text: str, expected_ids: list) -> dict:
     return {}
 
 
-def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1) -> dict:
+def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1,
+                            engine_name: str = None) -> dict:
     """The actual id-keyed request/parse/retry-missing loop shared by
     _request_translations_with_retry below (every engine's own
     translate_batch) and Step 7's reflect_translate_batch (three passes,
@@ -689,20 +690,39 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     whichever ids came back missing, not the whole batch. Returns
     {str(id): value} for whichever ids actually came back with a usable
     value; a still-missing id after max_retries just isn't a key here,
-    same contract _parse_id_keyed_json already documents."""
+    same contract _parse_id_keyed_json already documents.
+
+    engine_name (Step 31): opts into the best-effort soft-refusal text
+    heuristic (see _detect_soft_refusal_text) -- deliberately not passed
+    by reflect_translate_batch's own three calls, since Step 31 is scoped
+    to the plain translate_batch path each engine's own translate_batch
+    already raises ContentModerationBlocked from directly for a real
+    structural signal; left None there keeps Reflect mode's behavior
+    exactly as it was."""
     remaining_ids = list(ids)
     result_map = {}
     for _attempt in range(max_retries + 1):
         if not remaining_ids:
             break
         text = call_model_fn(build_batch_text(remaining_ids))
-        result_map.update(_parse_id_keyed_json(text, remaining_ids))
+        parsed = _parse_id_keyed_json(text, remaining_ids)
+        if engine_name and text.strip() and not parsed:
+            # A real structural refusal signal (stop_reason/refusal) is
+            # already checked -- and raises directly -- inside each
+            # engine's own translate_batch, before the text ever reaches
+            # here. Reaching here with non-empty text that parsed to
+            # nothing means no such signal was available, so this is the
+            # lower-confidence, best-effort fallback (Step 31 item 2).
+            soft_reason = _detect_soft_refusal_text(text)
+            if soft_reason:
+                raise ContentModerationBlocked(engine_name, soft_reason)
+        result_map.update(parsed)
         remaining_ids = [i for i in ids if str(i) not in result_map]
     return result_map
 
 
 def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
-                                     line_ids=None):
+                                     line_ids=None, engine_name: str = None):
     """
     The shared id-keyed request/parse/retry-missing logic behind every
     LLM translation engine's own translate_batch (Claude/DeepSeek/
@@ -740,7 +760,8 @@ def _request_translations_with_retry(zh_lines: list, speaker_names, call_model_f
         batch_names = ([speaker_names[pos[i]] for i in batch_ids] if speaker_names else None)
         return _build_numbered_lines(batch_ids, batch_lines, batch_names)
 
-    result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries)
+    result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
+                                         engine_name=engine_name)
     return [result_map.get(str(i), "") for i in ids]
 
 
@@ -842,6 +863,55 @@ def call_llm_json(engine, prompt: str, max_tokens: int = 2000, fallback: str = "
 
 
 # ---------------------------------------------------------------------------
+# Step 31: content-moderation refusal detection
+# ---------------------------------------------------------------------------
+
+class ContentModerationBlocked(Exception):
+    """Raised by an engine's own translate_batch when the provider's own
+    safety/content-moderation system blocked the request -- distinct from
+    any other failure (a network error, a malformed response) so the
+    caller can flag the affected line(s) accurately instead of showing a
+    raw/cryptic error or silently leaving them blank. engine: the
+    provider's short name (e.g. "gemini"). reason: whatever real reason
+    string the provider itself gave (a blockReason/finishReason/refusal
+    field) -- never a guess."""
+
+    def __init__(self, engine: str, reason: str):
+        self.engine = engine
+        self.reason = reason
+        super().__init__(f"{engine} blocked this request: {reason}")
+
+
+# Best-effort, lower-confidence fallback for the "soft refusal" case
+# (Step 31 item 2): only reached when a batch's raw response text is
+# non-empty but zero ids parsed out of it, AND no real structural signal
+# (stop_reason/refusal -- checked inside each engine's own translate_batch,
+# which raises ContentModerationBlocked directly when one exists) was
+# available. A short, deliberately narrow list of clear refusal-shaped
+# openers -- this can both false-positive (a legitimate translation that
+# happens to start this way) and false-negative (a refusal phrased some
+# other way), so it's a secondary signal, not the primary detection path.
+_SOFT_REFUSAL_OPENERS = (
+    "i can't", "i cannot", "i won't", "i will not",
+    "i'm not able to", "i am not able to", "i'm unable to", "i am unable to",
+    "sorry, i can't", "sorry, i cannot",
+    "i'm sorry, but i can't", "i'm sorry, but i cannot",
+    "i apologize, but i can't", "i apologize, but i cannot",
+)
+
+
+def _detect_soft_refusal_text(text: str):
+    """None, or the matched opener's own surrounding text (truncated) as
+    the best-effort "reason" -- see _SOFT_REFUSAL_OPENERS above."""
+    stripped = text.strip()
+    lowered = stripped.lower()
+    for opener in _SOFT_REFUSAL_OPENERS:
+        if lowered.startswith(opener):
+            return stripped[:200]
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Claude (Anthropic)
 # ---------------------------------------------------------------------------
 
@@ -871,10 +941,16 @@ class ClaudeEngine:
         def call_model(numbered):
             resp = self.client.messages.create(**self.build_request_params(context, numbered))
             _add_usage(self.last_usage, claude_usage(getattr(resp, "usage", None)))
+            # Step 31: Claude's Messages API sets stop_reason to "refusal"
+            # when it declines a request on content-policy grounds -- a
+            # real, documented signal, not a guess. Checked before ever
+            # falling through to the soft-refusal text heuristic.
+            if getattr(resp, "stop_reason", None) == "refusal":
+                raise ContentModerationBlocked("claude", "refusal")
             return "".join(b.text for b in resp.content if b.type == "text").strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"))
+                                                line_ids=context.get("line_ids"), engine_name="claude")
 
 
 # ---------------------------------------------------------------------------
@@ -916,10 +992,20 @@ class DeepSeekEngine:
                     "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
                     "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
                     "cache_read_tokens": cached or 0})
-            return resp.choices[0].message.content.strip()
+            message = resp.choices[0].message
+            # Step 31: the OpenAI-compatible refusal shape -- content is
+            # None/empty and a separate `refusal` field explains why,
+            # rather than the requested translation. A real, documented
+            # signal, not a guess; guards the bare .content.strip() this
+            # replaced, which crashed with a raw AttributeError on this
+            # exact shape (None has no .strip()).
+            refusal = getattr(message, "refusal", None)
+            if not message.content and refusal:
+                raise ContentModerationBlocked("deepseek", refusal)
+            return (message.content or "").strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"))
+                                                line_ids=context.get("line_ids"), engine_name="deepseek")
 
 
 # ---------------------------------------------------------------------------
@@ -1035,10 +1121,25 @@ class GeminiEngine:
             _add_usage(self.last_usage, usage)
             if self.free_tier:
                 self._update_rate_status(resp.headers, usage)
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            # Step 31: a real safety block returns either no candidates at
+            # all (blocked before generation even started -- the reason is
+            # in promptFeedback.blockReason) or a candidate whose
+            # finishReason is SAFETY/PROHIBITED_CONTENT with no content --
+            # both shapes previously raised a bare KeyError/IndexError from
+            # the raw indexing below. Real, documented finishReason values,
+            # not a guess.
+            candidates = data.get("candidates")
+            if not candidates:
+                reason = (data.get("promptFeedback") or {}).get(
+                    "blockReason", "blocked with no reason given")
+                raise ContentModerationBlocked("gemini", reason)
+            finish_reason = candidates[0].get("finishReason")
+            if finish_reason in ("SAFETY", "PROHIBITED_CONTENT"):
+                raise ContentModerationBlocked("gemini", finish_reason)
+            return candidates[0]["content"]["parts"][0]["text"].strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"))
+                                                line_ids=context.get("line_ids"), engine_name="gemini")
 
 
 # ---------------------------------------------------------------------------
@@ -1401,6 +1502,8 @@ SYSTEM_FLAG_REASONS = {
                        "source and the translation"),
     "bulk_source_changed": ("Source text changed while a bulk translation was pending -- its "
                             "result wasn't applied; translate this line again"),
+    "content_blocked": ("Blocked by the translation engine's own content-moderation system -- "
+                        "see the note for which engine and its stated reason"),
 }
 
 
@@ -1637,7 +1740,7 @@ class OllamaEngine:
             return resp.json()["message"]["content"].strip()
 
         return _request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"))
+                                                line_ids=context.get("line_ids"), engine_name="ollama")
 
 
 # {base_url: (checked_at, reachable)} -- Ollama is exempted from the
@@ -2337,42 +2440,73 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             upcoming = lines[last_pos + 1:last_pos + 1 + context_window_ahead]
             context["upcoming_lines"] = [ln.zh for ln in upcoming
                                          if ln.zh.strip() and ln.idx not in batch_idxs]
-        context["speaker_labels"] = [character_names.get(ln.speaker) for ln in batch]
-        context["line_ids"] = [getattr(ln, "id", None) for ln in batch]
-        context["batch_source_lines"] = [ln.zh for ln in batch]
-        try:
+        def _translate_chunk(chunk):
+            """Runs one translate attempt for chunk (the whole batch, or
+            one bisected half of it -- Step 31 item 3). Returns
+            (translations, critiques) -- critiques is None outside Reflect
+            mode. A ContentModerationBlocked (or any other exception)
+            propagates to the caller, which decides what to do about it."""
+            chunk_context = dict(context)
+            chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
+            chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
+            chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
             if reflect:
-                translations, critiques = call_with_backoff(
-                    lambda: reflect_translate_batch(engine, [ln.zh for ln in batch], context,
-                                                    usage_cb=record_usage)
-                )
-                if notes_cb:
-                    notes = [{"line_idx": ln.idx, "term": "", "note_type": "reflection", "note": c}
-                             for ln, c in zip(batch, critiques) if c]
-                    if notes:
-                        notes_cb(notes)
-            else:
-                translations = call_with_backoff(
-                    lambda: engine.translate_batch([ln.zh for ln in batch], context)
-                )
-                if hasattr(engine, "last_usage"):
-                    u = engine.last_usage
-                    record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
-                                 u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
-            if len(translations) != len(batch):
-                errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
+                return call_with_backoff(
+                    lambda: reflect_translate_batch(engine, [ln.zh for ln in chunk], chunk_context,
+                                                    usage_cb=record_usage))
+            translations = call_with_backoff(
+                lambda: engine.translate_batch([ln.zh for ln in chunk], chunk_context))
+            if hasattr(engine, "last_usage"):
+                u = engine.last_usage
+                record_usage(u.get("input_tokens", 0), u.get("output_tokens", 0),
+                             u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
+            return translations, None
+
+        def _process_chunk(chunk, allow_bisect):
+            """Translates chunk, applying results directly onto the Line
+            objects, or flagging/recording an error for whichever lines
+            couldn't be translated. allow_bisect: whether a
+            ContentModerationBlocked caught here should trigger one
+            bisection retry (Step 31 item 3's bounded, one-level split --
+            only True for the original, un-split batch, never for an
+            already-bisected half)."""
+            try:
+                translations, critiques = _translate_chunk(chunk)
+            except ContentModerationBlocked as blocked:
+                if allow_bisect and len(chunk) > 1:
+                    mid = len(chunk) // 2
+                    _process_chunk(chunk[:mid], allow_bisect=False)
+                    _process_chunk(chunk[mid:], allow_bisect=False)
+                else:
+                    for ln in chunk:
+                        ln.flag = "content_blocked"
+                        ln.flag_note = f"{blocked.engine}: {blocked.reason}"
+                    errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
+                                   "error": f"blocked by {blocked.engine}'s content filter: "
+                                            f"{blocked.reason}"})
+                return
+            except Exception as e:
+                redacted = redact_secrets(str(e))
+                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
+                               "error": redacted})
+                import applog
+                applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
+                return
+            if notes_cb and critiques is not None:
+                notes = [{"line_idx": ln.idx, "term": "", "note_type": "reflection", "note": c}
+                         for ln, c in zip(chunk, critiques) if c]
+                if notes:
+                    notes_cb(notes)
+            if len(translations) != len(chunk):
+                errors.append({"batch_index": bi, "lines": [ln.idx for ln in chunk],
                                "error": f"engine returned {len(translations)} translation(s) for "
-                                        f"{len(batch)} line(s) -- left untranslated rather than "
+                                        f"{len(chunk)} line(s) -- left untranslated rather than "
                                         f"risk assigning a translation to the wrong line"})
             else:
-                for ln, tr in zip(batch, translations):
+                for ln, tr in zip(chunk, translations):
                     ln.en = tr
-        except Exception as e:
-            redacted = redact_secrets(str(e))
-            errors.append({"batch_index": bi, "lines": [ln.idx for ln in batch],
-                           "error": redacted})
-            import applog
-            applog.get_logger().error(f"translate batch {bi} failed: {redacted}")
+
+        _process_chunk(batch, allow_bisect=True)
         if save_cb:
             save_cb(lines)
         if progress_cb:
