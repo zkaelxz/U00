@@ -923,6 +923,48 @@ class TestManagePresetsUI:
         assert not [b for b in at.button if b.key == f"delete_preset_{pid}"][0].disabled
 
 
+class TestVoiceBankDeleteConfirm:
+    """Step 77: the voice bank entry delete button had the identical
+    no-confirmation gap Step 71 fixed everywhere else (Step 71 correctly
+    scoped itself to the spots it named, and this one was added by Step 26
+    after Step 71's own roadmap review pass was already written)."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.library_tab as lt
+            lt.render_library_tab()
+
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def _make_clip(self, tmp_path_str, name="ref.wav"):
+        p = os.path.join(tmp_path_str, name)
+        with open(p, "wb") as f:
+            f.write(b"fake wav bytes")
+        return p
+
+    def test_delete_button_disabled_until_confirmed(self, isolated_db, tmp_path_str):
+        eid = isolated_db.save_voice_bank_entry("Delete me", self._make_clip(tmp_path_str))
+        at = self._run()
+
+        assert [b for b in at.button if b.key == f"delete_vb_{eid}"][0].disabled
+        at.checkbox(key=f"confirm_delete_vb_{eid}").set_value(True).run(timeout=30)
+        assert not [b for b in at.button if b.key == f"delete_vb_{eid}"][0].disabled
+
+    def test_delete_removes_only_that_entry_once_confirmed(self, isolated_db, tmp_path_str):
+        eid1 = isolated_db.save_voice_bank_entry("Keep me", self._make_clip(tmp_path_str, "a.wav"))
+        eid2 = isolated_db.save_voice_bank_entry("Delete me", self._make_clip(tmp_path_str, "b.wav"))
+        at = self._run()
+
+        at.checkbox(key=f"confirm_delete_vb_{eid2}").set_value(True).run(timeout=30)
+        [b for b in at.button if b.key == f"delete_vb_{eid2}"][0].click().run()
+
+        assert [e["id"] for e in isolated_db.list_voice_bank_entries()] == [eid1]
+
+
 class TestListDramasBySeries:
     """Step 22: the series-view query -- every drama for a given
     series_id, regardless of media_type."""
