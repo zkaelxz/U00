@@ -160,13 +160,25 @@ sudo apt install ffmpeg
 ```bash
 python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt -c constraints.txt
+pip install -r requirements-core.txt -c constraints.txt
 ```
 
-`requirements.txt` is grouped by feature — skip `pyannote.audio` if
-you're not diarizing, skip `f5-tts` if you're not cloning voices, etc.
-See `requirements-optional.txt` for the full list of opt-in features
-(OCR backends, alternate TTS/ASR engines) with install notes for each.
+That's the minimum to launch the app and translate text — the same
+starting point `start.bat` installs on Windows. Add only what you'll
+actually use on top of it:
+
+```bash
+pip install -r requirements-media.txt -c constraints.txt      # audio/video: align, dub, burn subtitles
+pip install -r requirements-optional.txt -c constraints.txt   # everything else, one feature at a time
+```
+
+`requirements-optional.txt` is grouped by feature and commented per
+package — skip `pyannote.audio` if you're not diarizing, skip `f5-tts`
+if you're not cloning voices, etc.; install just the lines you need
+instead of the whole file. The same picking is available with no
+typing at all from the Diagnostics tab's own Install buttons, once the
+app is running. If you'd rather install everything in one shot instead
+of picking, `requirements.txt` is those three files combined.
 
 `-c constraints.txt` caps a handful of packages at major versions known
 not to have broken this app (that's exactly how pyannote 4 broke

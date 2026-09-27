@@ -173,7 +173,7 @@ class CryptoUnavailable(SourceError):
     def __init__(self):
         super().__init__(
             "mangaz.com needs the optional 'cryptography' package for its session-scoped "
-            "RSA+AES page decryption (see requirements.txt) -- install it to use this source.",
+            "RSA+AES page decryption (see requirements-optional.txt) -- install it to use this source.",
             FailureReason.NOT_INSTALLED)
 
 

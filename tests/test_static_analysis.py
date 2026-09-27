@@ -12,6 +12,7 @@ data-flow check catches this class of bug before a user does.
 """
 import ast
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -555,6 +556,101 @@ class TestConstraintsFile:
     def test_readme_install_command_uses_constraints_txt(self):
         readme = open(os.path.join(PROJECT_ROOT, "README.md"), encoding="utf-8").read()
         assert "-c constraints.txt" in readme
+
+
+def _requirements_package_names(filename):
+    """Bare package names (lowercased, version specifiers/markers/comments
+    stripped) from a requirements file, skipping `-r other-file.txt`
+    pointer lines."""
+    path = os.path.join(PROJECT_ROOT, filename)
+    names = set()
+    for line in open(path, encoding="utf-8"):
+        line = line.split("#", 1)[0].strip()
+        if not line or line.startswith("-r"):
+            continue
+        name = re.split(r"[<>=!~\[\s]", line, 1)[0].strip()
+        if name:
+            names.add(name.lower())
+    return names
+
+
+class TestRequirementsFilesConsolidation:
+    """Regression coverage for Step 75: `requirements.txt` (the old flat,
+    43-package file used by manual installs) and the tiered
+    requirements-core/media/optional split (what `start.bat` and the
+    Diagnostics tab actually install from) had drifted apart with real
+    content missing from each -- the flat file was missing
+    `audio-separator`/`funasr`, the tiered split was missing
+    `cryptography` (needed for the mangaz.com adapter's page
+    decryption). `requirements.txt` is now a thin `-r` pointer over the
+    three tiered files instead of its own package list, so it can't
+    silently drift out of sync with them again."""
+
+    def _combined_tier_packages(self):
+        return (_requirements_package_names("requirements-core.txt")
+                | _requirements_package_names("requirements-media.txt")
+                | _requirements_package_names("requirements-optional.txt"))
+
+    def test_cryptography_is_in_the_tiered_split(self):
+        assert "cryptography" in self._combined_tier_packages()
+
+    def test_audio_separator_and_funasr_are_in_the_tiered_split(self):
+        combined = self._combined_tier_packages()
+        assert "audio-separator" in combined
+        assert "funasr" in combined
+
+    def test_requirements_txt_is_a_thin_pointer_not_a_fifth_package_list(self):
+        """requirements.txt must only ever point at the three tiered
+        files, never list a package directly -- a direct package line
+        here is exactly how the original drift happened, and nothing
+        stops it happening again except this check."""
+        path = os.path.join(PROJECT_ROOT, "requirements.txt")
+        lines = [l.split("#", 1)[0].strip() for l in open(path, encoding="utf-8")]
+        lines = [l for l in lines if l]
+        assert lines, "requirements.txt is empty"
+        assert all(l.startswith("-r ") for l in lines), (
+            f"requirements.txt has a direct package line, not just -r pointers: {lines}")
+        pointed_at = {l.split()[1] for l in lines}
+        assert pointed_at == {
+            "requirements-core.txt", "requirements-media.txt", "requirements-optional.txt"}
+
+    def test_no_script_or_doc_installs_the_old_flat_file_directly(self):
+        """Nothing outside requirements.txt's own -r pointers (which this
+        test doesn't scan) should invoke `pip install -r requirements.txt`
+        directly -- README and start.bat/Diagnostics should all go
+        through the tiered files (or requirements.txt's own combined
+        pointer) so a reader/script can't reintroduce a fifth,
+        independently-drifting install path."""
+        pattern = re.compile(r"pip install[^\n]*-r\s+requirements\.txt")
+        offenders = []
+        for root, dirs, files in os.walk(PROJECT_ROOT):
+            dirs[:] = [d for d in dirs if d not in (
+                ".git", "venv", "library", "__pycache__", "node_modules")]
+            for fname in files:
+                if not fname.endswith((".md", ".bat", ".ps1", ".sh")):
+                    continue
+                path = os.path.join(root, fname)
+                text = open(path, encoding="utf-8", errors="ignore").read()
+                if pattern.search(text):
+                    offenders.append(os.path.relpath(path, PROJECT_ROOT))
+        assert offenders == [], (
+            f"still installs the flat requirements.txt directly, bypassing the "
+            f"tiered split: {offenders}")
+
+
+class TestRequirementsPackageNameParserItself:
+    def test_strips_version_specifiers_and_comments(self, tmp_path):
+        p = tmp_path / "req.txt"
+        p.write_text("streamlit>=1.49   # a comment\npandas>=2.0\n-r other.txt\n")
+        names = set()
+        for line in open(p, encoding="utf-8"):
+            line = line.split("#", 1)[0].strip()
+            if not line or line.startswith("-r"):
+                continue
+            name = re.split(r"[<>=!~\[\s]", line, 1)[0].strip()
+            if name:
+                names.add(name.lower())
+        assert names == {"streamlit", "pandas"}
 
 
 def _find_duplicate_bare_expander_labels(path):
