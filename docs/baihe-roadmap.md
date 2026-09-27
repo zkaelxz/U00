@@ -339,6 +339,8 @@ Rules for every milestone:
 | 67 | Re-run the full suite on a real Windows machine and confirm exactly which failure groups from the original report are now resolved versus still open; specifically confirm `test_app_help.py` and the HF cache tests behave correctly without manual env-var workarounds. |
 | 68 | With Dark mode on, use App Assistant (input + chat bubbles readable) and check whether Translate History's blank "Translation" column is a CSS gap or an empty saved value; click through every tab once more after the systematic widget audit. |
 | 69 | With a real background translation job running, deliberately trigger a transient db error in that job and confirm the app's main thread doesn't start seeing "database is locked" errors on unrelated saves afterward. |
+| 70 | Attempt the bulk-import flow against a real `EXPLICITLY_RESTRICTED` site (e.g. jjwxc.net) and confirm it's refused with a clear message, not silently fetched. |
+| 71 | Attempt to delete a saved translation version, a preset, a glossary term (single and bulk), a series character, and a saved bug bundle, and confirm each now requires a confirm step before it's actually deleted. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3495,6 +3497,45 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - A test confirms a connection leaked from a simulated background thread (e.g. a real `threading.Thread` that opens a connection and raises before closing it) is genuinely closed by a subsequent main-thread `get_conn()` call — not just removed from tracking.
 - A test confirms a leaked-connection close failure (if one can still occur after the fix) is logged, not silently discarded.
 - Manual check: with a real background translation job running, deliberately trigger a transient db error in that job (e.g. a temporary file-lock conflict) and confirm the app's main thread doesn't start seeing `database is locked` errors on unrelated saves afterward.
+
+---
+
+### Step 70 — HIGH: `page_fetch.py`'s fetch path bypasses this app's own ToS-enforcement system entirely, and its UI defaults point at an explicitly-prohibited site
+
+**Found by the same background code-review pass across the app's sources/Scanlate/UI subsystem (2026-09-27), independently re-verified against the real code before being trusted.** Confirmed directly: `sources/generic_import.py` and `sources/front_door.py` both call `ladder.check_terms(source, default, url=url)` before fetching anything, which consults `sources/site_terms.py`'s `SITE_TERMS` table and raises `TermsProhibited` for a site recorded `EXPLICITLY_RESTRICTED` — but `page_fetch.py`'s `fetch_static()`/`fetch_rendered()`/`smart_fetch()` (grepped directly: zero hits for `check_terms`/`site_terms`/`TermsProhibited` anywhere in the file) have no such call at all, and none of its three real UI callers add one themselves:
+
+- `bulk_import.fetch_and_extract_listing()` (`bulk_import.py:78`, `page_fetch.smart_fetch(url, ...)`) → Discover's "📥 Bulk import from a tag/ranking listing page."
+- `title_library.import_title_from_url()` (`title_library.py:198`) → Discover's "Import a title from a URL."
+- `metadata_lookup.py:59` → Workspace's "🔍 Auto-fill from a public listing page" expander.
+
+**Not a theoretical gap — the feature's own UI default targets a site this app's own vetting already recorded as explicitly banned.** `tabs/discover_tab.py:271-272`'s bulk-import "Source label" field defaults to `value="jjwxc_baihe_tag"`, and its URL-pattern field's own placeholder text is `https://www.jjwxc.net/tag.php?tag=百合&page={page}` — confirmed directly in `sources/site_terms.py:53-61`: jjwxc.net is recorded `AutomationPermission.EXPLICITLY_RESTRICTED`, citing "§4.3 bans any manner of crawling or scraping (爬取/抓取) of its database materials; §4.9 invokes civil and criminal liability for serious violations." Clicking "🔍 Extract entries" against that default fetches every generated page with no refusal, no warning — exactly what `site_terms.py`'s own docstring says the whole mechanism exists to stop.
+
+**Compounding, medium severity**: the same `page_fetch.py` path also has no pacing/rate-limiting at all — no delay, no per-host concurrency limit, no shared state with `sources/http.py`'s existing `PacingPolicy` (3-8s randomized gap, 1 concurrent request per source, already built specifically to read as non-automated traffic). `bulk_import.bulk_extract()` loops over every generated URL back-to-back with no sleep, and the bulk-import pagination range field has no enforced upper bound — combined with the ToS gap above, a generated URL range can hammer a prohibited site at whatever rate the LLM extraction step allows.
+
+1. **Add the same `ladder.check_terms()` call (or equivalent) to `page_fetch.py`'s fetch functions, or to each of its three UI-facing callers** — whichever is the more correct architectural fit (a single check inside `page_fetch.py` itself is probably right, since every caller needs it and a caller-by-caller fix risks a fourth caller someday skipping it the same way these three did).
+2. **Route `page_fetch.py`'s requests through the same pacing mechanism `sources/http.py` already provides**, rather than building a second, separate one — reuse `PacingPolicy`/the paced request wrapper, not a new implementation.
+3. **Cap the bulk-import pagination range** (`discover_tab.py`'s `pattern_end` field) at a reasonable upper bound, the same "don't let one field generate an unbounded fetch storm" discipline the rest of the app already applies elsewhere.
+4. **Change the bulk-import UI's default source label away from a real ToS-prohibited site** — a default that actively walks a first-time user toward the one thing this app's own vetting flagged as prohibited is a design bug on its own, independent of the missing enforcement check.
+
+**Exit:**
+- A test confirms `page_fetch`-backed fetching (via any of the three real callers) refuses a known-`EXPLICITLY_RESTRICTED` site the same way `sources/generic_import.py`'s path already does, rather than fetching it.
+- A test confirms the bulk-import pagination field rejects or clamps an unbounded page range.
+- Manual check: attempt the bulk-import flow against a real `EXPLICITLY_RESTRICTED` site and confirm it's refused with a clear message, not silently fetched.
+
+---
+
+### Step 71 — Four permanent-delete actions skip this app's own established confirmation pattern, one of them real data loss with no recovery path
+
+**Found by the same background code-review pass (2026-09-27), independently re-verified.** This app has an explicit, consistent pattern for destructive actions elsewhere — a checkbox (or typed confirmation) before a hard delete, used for drama delete, full library reset, raw-novel-context removal, audio/video removal, and bulk drama delete (all confirmed directly, `tabs/workspace_tab.py`/`tabs/diagnostics_tab.py`/`tabs/library_tab.py`). But several other permanent, single-click, no-confirmation `DELETE` actions skip this pattern entirely:
+
+1. **`tabs/workspace_tab.py:5298-5300` — deleting a saved translation version, the most consequential of the four.** A single 🗑️ button click calls `db.delete_translation_version()` (confirmed: `db.py:1931-1935`, a plain unconditional `DELETE FROM translation_versions WHERE id = ?`, no soft-delete) — permanently removing a saved translation snapshot with no undo, sitting directly next to the version-compare/restore feature whose entire purpose is being able to go back to an earlier version. Add the same checkbox-confirm pattern used for the other destructive actions on this same tab.
+2. **`tabs/library_tab.py:728-729` — deleting a Workspace preset**, `tabs/workspace_tab.py:2985-2987`/`:3046-3053` — single and bulk glossary-term delete (the bulk case is inconsistent with the analogous bulk *drama* delete on the same tab, which does confirm) — `tabs/workspace_tab.py:3099-3101` — removing a series character. Lower stakes (smaller, more easily re-entered data) but the same pattern gap. Add a confirm step to each, consistent with the rest of the app.
+3. **`tabs/diagnostics_tab.py:332-334` — deleting a saved bug-repro bundle.** Lowest stakes (debug data only, Step 58's own feature) — add a confirm step for consistency, not because the data loss itself is severe.
+4. Keep this scoped to adding the existing, already-established confirmation pattern to these four spots — don't invent a new confirmation mechanism.
+
+**Exit:**
+- Manual check: attempt to delete a saved translation version and confirm a single click no longer immediately deletes it — a confirm step is required first, same as drama delete.
+- Manual check: attempt each of the other three deletes (preset, glossary term — single and bulk, series character, bug bundle) and confirm each now requires the same confirm step.
 
 ---
 
