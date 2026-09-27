@@ -234,7 +234,7 @@ work".
 | Language | Guessed from the script used. |
 | Auth | None by default. A verification page is handed to you, and after completing it in your own browser you can paste the page source to continue. For a page that needs your account, **🔐 Sign in to this site** opens a signed-in browser profile -- see "Signed-in browser sessions (Step 23k)" below. |
 | Extraction | **Comic:** every `<img>`/`<source>` in reading order, including `data-src`/`data-original`/`srcset`. The filter then removes images that are: too short to be pages; off the dominant width/aspect cluster; repeated on other chapters of the same site; or from a third-party domain. **Novel:** trafilatura if installed, otherwise the largest text block after nav, header, footer and comment areas are stripped. That fallback scores a container by its *direct* children first, then re-scans counting text nested anywhere beneath it (with link text discounted, so a chapter index can't out-score the chapter) and takes the deeper result only when it finds substantially more prose -- without that second pass, the common "one wrapper element per paragraph" markup yields a single paragraph as the whole chapter. |
-| Known limits | The first chapter from a site can't use the cross-chapter repeat check yet, so a page-sized logo that shares the pages' width can get through. Pages drawn on a canvas or assembled by scripts need the browser tier. trafilatura's CJK extraction hasn't been benchmarked. |
+| Known limits | The first chapter from a site can't use the cross-chapter repeat check yet, so a page-sized logo that shares the pages' width can get through. Pages drawn on a canvas or assembled by scripts need the browser tier. trafilatura's CJK extraction hasn't been benchmarked. Confirmed live (2026-09-27, `m.zgzl.net`): a site that splits one chapter across several numbered sub-pages (`.../sb93g.html` page 1 of 5, `.../sb93g_2.html` page 2, ...) offers a "next page" link on every sub-page but no "next chapter" link except on the last one -- and `validate_novel`'s link-shape check correctly refuses to treat "next page" as "next chapter" (their URLs don't resemble sibling chapters), so a book like this can be read sub-page by sub-page but not auto-walked chapter to chapter from a page that isn't the chapter's last one. |
 | **Pages your browser already translated** | A browser translator (Google Translate, Edge's) **replaces** a page's text rather than annotating it — confirmed against a live translation, after which the original Japanese was gone from the page. Reading such a page would hand this app the translation as though it were the source, so it would "translate" English it believes is Chinese, or save an English chapter as the original — silently, because the import succeeds and the text looks fine. This is now detected and reported, with what to do about it (turn the browser's page translation off for that site and fetch again). It matters most when you paste page source from your own browser. It is a warning, never a failure: the page loaded fine, so it never stops or escalates the access ladder. Detected from the fingerprints a real translation leaves — `translated-ltr`/`translated-rtl` on `<html>`, the `goog-gt-tt`/`goog-gt-vt` elements, and text rewritten into nested `vertical-align:inherit` `<font>` wrappers. A merely *embedded, idle* translate widget is deliberately not matched, or every page offering translation would be flagged. |
 | Tests | `tests/test_sources_workflows.py` |
 
@@ -368,14 +368,22 @@ they've been tried against the real site.
   confirm its chapter list loads and a chapter imports. Turn the toggle
   off again and confirm the same work is refused with the message that
   names the toggle.
-- [ ] **Generic paste-a-URL:** paste a real chapter URL from a site with
-  no adapter, and confirm it either imports the pages or fails with a
-  clear message.
+- [x] **Generic paste-a-URL:** confirmed (2026-09-27) against a real
+  chapter page on `m.zgzl.net` (site brand "文海小说"), a site with no
+  registered adapter -- `sources.preflight.preflight()` reached it over
+  plain HTTP, correctly classified it as `novel`, and trafilatura pulled
+  its chapter text at `HIGH` confidence. No robots.txt (404) and no
+  ToS/copyright notice found on the page. **UI import into a drama itself
+  not separately driven** -- this ran the preflight/extraction path
+  directly, the same way the 2026-09-26 adapter pass drove adapters
+  directly rather than clicking through Streamlit.
 - [ ] **Browser tier:** install Playwright (`pip install playwright` then
   `playwright install chromium`), and confirm **Test Browser** on a
   JavaScript-only page records a real result.
-- [ ] **Novel text:** confirm trafilatura's extraction quality on a real
-  Chinese novel chapter page.
+- [x] **Novel text:** confirmed (2026-09-27) on the same `m.zgzl.net`
+  page -- trafilatura extracted real chapter prose at `HIGH` confidence,
+  independently of the adapter-specific novel sites (52shuku, xbanxia)
+  already verified above.
 - [x] **xbanxia domain question:** confirmed (2026-09-26) -- `xbanxia.cc`
   redirects to `www.xbanxia.cc`, which is a real, live, working novel
   site (`半夏小說`) with real search results, a real 567-chapter book page,
