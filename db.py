@@ -19,7 +19,13 @@ DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
 DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
 BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
 
-os.makedirs(DRAMAS_DIR, exist_ok=True)
+# Whether the library dir/schema have been initialized for the *current*
+# LIBRARY_DIR. Left False here so importing this module alone never touches
+# disk -- initialization happens lazily, on first real call to get_conn()
+# (see _ensure_ready() below), not at import time. This is what keeps
+# `import db` safe to do before the test suite's `isolated_db` fixture has
+# had a chance to redirect the path via configure_library_dir().
+_db_ready = False
 
 
 def configure_library_dir(path: str):
@@ -27,7 +33,7 @@ def configure_library_dir(path: str):
     test suite to point at a temp directory instead of the real
     library, so tests never touch your actual data. Not something
     you'd normally call yourself."""
-    global LIBRARY_DIR, DRAMAS_DIR, DB_PATH, BENCHMARK_DIR
+    global LIBRARY_DIR, DRAMAS_DIR, DB_PATH, BENCHMARK_DIR, _db_ready
     LIBRARY_DIR = path
     DRAMAS_DIR = os.path.join(LIBRARY_DIR, "dramas")
     DB_PATH = os.path.join(LIBRARY_DIR, "library.db")
@@ -37,6 +43,10 @@ def configure_library_dir(path: str):
     # into the actual production library folder instead of the temp one.
     BENCHMARK_DIR = os.path.join(LIBRARY_DIR, "benchmark_cases")
     os.makedirs(DRAMAS_DIR, exist_ok=True)
+    # The new path hasn't been initialized yet -- clear readiness so the
+    # next get_conn() (or an explicit init_db() call) sets it up there
+    # rather than assuming the old path's readiness still applies.
+    _db_ready = False
 
 
 # Connections opened but not yet closed. Under normal flow a function
@@ -76,7 +86,21 @@ def _close_leaked_connections():
             pass
 
 
+def _ensure_ready():
+    """Creates the library dir and schema for the current LIBRARY_DIR, the
+    first time any real database operation runs -- not at import time.
+    Sets _db_ready before doing the work, since init_db() itself calls
+    get_conn(), which would otherwise recurse back into this function."""
+    global _db_ready
+    if _db_ready:
+        return
+    _db_ready = True
+    os.makedirs(DRAMAS_DIR, exist_ok=True)
+    init_db()
+
+
 def get_conn():
+    _ensure_ready()
     _close_leaked_connections()
     conn = sqlite3.connect(DB_PATH, factory=_TrackedConnection)
     conn.row_factory = sqlite3.Row
@@ -2667,9 +2691,6 @@ def search_lines_globally(query: str, limit: int = 100):
     """, (like, like, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
-
-
-init_db()
 
 
 # ---------------------------------------------------------------------------
