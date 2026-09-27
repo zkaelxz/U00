@@ -770,7 +770,14 @@ def render_library_tab():
                             db.rename_voice_bank_entry(_vb["id"], _vb_new_name.strip())
                             st.rerun()
                     with _vbc3:
-                        if st.button("🗑️", key=f"delete_vb_{_vb['id']}", help=f"Delete \"{_vb['name']}\""):
+                        # Step 77: same confirm-before-delete pattern used elsewhere in this app
+                        # (see the preset delete just above -- Step 71 missed this one since it
+                        # was added by Step 26, after Step 71's own roadmap review was written).
+                        _confirm_del_vb = st.checkbox(
+                            "Confirm", key=f"confirm_delete_vb_{_vb['id']}", label_visibility="collapsed",
+                            help=f"Confirm delete \"{_vb['name']}\"")
+                        if st.button("🗑️", key=f"delete_vb_{_vb['id']}", help=f"Delete \"{_vb['name']}\"",
+                                    disabled=not _confirm_del_vb):
                             db.delete_voice_bank_entry(_vb["id"])
                             st.rerun()
 
