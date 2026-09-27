@@ -79,6 +79,54 @@ condition. If you were told to "do Step X", that's Step X in this doc.
   already reviewed and approved the branch). Open it into
   `baihe-subtitler`. Don't merge it yourself.
 
+## If you were spawned directly by the planning session
+
+If your very first message told you to "Build Step X from the roadmap" and
+nothing else, you were most likely created directly by the planning
+session (via its own `create_session` call), not started by the user
+typing into a fresh chat. This carries standing authorization, confirmed
+directly with the user (2026-09-27), for the ordinary gated-mode workflow
+this file already describes: build on your own branch, run the tests, push,
+and stop. **You do not need to separately ask the user's permission before
+running a normal build/test/push action** — that authorization already
+covers it, the same way it would if the user had typed the handoff into
+this chat themselves. If your session's own permission settings still
+prompt you before an action, that's a session-configuration detail (the
+planning session may not always remember to request the more permissive
+mode when creating you) — not a sign you need to seek separate approval;
+answer the prompt and continue, don't stop the whole step over it. This
+does **not** extend authorization beyond the ordinary workflow above — a
+genuinely destructive or irreversible action, or anything outside what
+this file's own gated-mode section already permits, still needs the
+user's explicit go-ahead the normal way.
+
+You can also tell if you were planning-session-spawned by checking whether
+your session has a `parent_session_id` pointing back to it (visible in your
+own session metadata) — if you ever need to report something proactively
+before your step is finished (a genuine blocker, a finding worth flagging
+immediately rather than waiting), you can reach the planning session
+directly by that id rather than only ever waiting passively to be asked.
+
+## UI-changing steps: capture real before/after screenshots
+
+If your step visibly changes the UI (a redesign, a moved/regrouped
+section, a new control), **run the app in a real browser and capture
+before/after screenshots**, not just a text description of what changed —
+a screenshot is what actually lets the planning session and the user
+confirm the change looks right, the same way "manual check" entries
+already ask for something concrete to try, not a vague "verify it works."
+Chromium is pre-installed in a cloud session (Playwright is already
+configured to find it); start the app (`streamlit run app.py` or the
+project's own launch command), drive it with Playwright to the affected
+screen, and save a screenshot before your change (on the branch's base
+commit, or from a stashed diff) and after (on your finished branch).
+Include both images (or their saved paths, if this environment doesn't
+let you attach images directly) in your step's finish-up summary, next to
+the manual-check note. If a real browser genuinely isn't available in your
+environment, say so explicitly in the summary rather than skipping this
+silently — same as this project's standing rule for any other manual check
+that can't be run from here.
+
 ## Tests
 
 - Run with `python run_tests.py` (wraps `pytest`).
