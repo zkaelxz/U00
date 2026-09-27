@@ -445,13 +445,25 @@ def build_initial_prompt(terms, max_terms: int = 40) -> str:
     until you read the translation.
 
     `terms` accepts glossary rows or plain strings, so a glossary built
-    from the novel can feed straight back into transcription.
+    from the novel can feed straight back into transcription. A glossary
+    row's `aliases` (Step 30: pipe-separated alt spellings/transliterations
+    of term_original) are primed too, not just the canonical original --
+    whichever spelling Whisper actually latches onto still helps.
     """
     names = []
     for t in (terms or []):
-        term = t.get("term_original") if isinstance(t, dict) else t
-        if term and str(term).strip():
-            names.append(str(term).strip())
+        if isinstance(t, dict):
+            term = t.get("term_original")
+            if term and str(term).strip():
+                names.append(str(term).strip())
+            for alias in re.split(r"[|,，、]", t.get("aliases") or ""):
+                alias = alias.strip()
+                if alias:
+                    names.append(alias)
+        else:
+            term = t
+            if term and str(term).strip():
+                names.append(str(term).strip())
     if not names:
         return ""
     return "、".join(names[:max_terms]) + "。"

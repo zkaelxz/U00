@@ -245,6 +245,15 @@ def init_db():
         category TEXT,            -- person_name, clan_sect, honorific, etc.
         policy TEXT,              -- keep_pinyin, hybrid, translate_meaning, etc.
         enforce_exact INTEGER DEFAULT 0,  -- 1 = hard find-replace, no drift allowed
+        aliases TEXT,              -- pipe-separated alt spellings/transliterations of
+                                   -- term_original itself (Step 30) -- same convention
+                                   -- as series_characters.aliases, but for the source
+                                   -- term, not a character
+        banned_translations TEXT,  -- pipe-separated known-bad renderings (Step 30) --
+                                   -- Auto QC flags a line using one of these for review;
+                                   -- it never rewrites. Independent of the older
+                                   -- enforce_exact/notes hard-substitution mechanism
+                                   -- (see translation_guide.apply_hard_term_substitutions)
         FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
         UNIQUE(series_id, term_original)
     );
@@ -656,6 +665,10 @@ def init_db():
         conn.execute("ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
     if "enforce_exact" not in gloss_cols:
         conn.execute("ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
+    if "aliases" not in gloss_cols:
+        conn.execute("ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
+    if "banned_translations" not in gloss_cols:
+        conn.execute("ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
     sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
     if "gender" not in sc_cols:
         # Feeds translation as a fixed pronoun hint for this character
@@ -1495,19 +1508,24 @@ def update_series_instructions(series_id: int, instructions: str):
 
 
 def upsert_glossary_term(series_id: int, term_original: str, term_translation: str, notes: str = "",
-                          category: str = None, policy: str = None, enforce_exact: bool = False):
+                          category: str = None, policy: str = None, enforce_exact: bool = False,
+                          aliases: str = None, banned_translations: str = None):
     conn = get_conn()
     conn.execute("""
         INSERT INTO glossary_terms (series_id, term_original, term_translation, notes,
-                                     category, policy, enforce_exact)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+                                     category, policy, enforce_exact, aliases, banned_translations)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(series_id, term_original) DO UPDATE SET
             term_translation = excluded.term_translation,
             notes = excluded.notes,
             category = COALESCE(excluded.category, glossary_terms.category),
             policy = COALESCE(excluded.policy, glossary_terms.policy),
-            enforce_exact = excluded.enforce_exact
-    """, (series_id, term_original, term_translation, notes, category, policy, int(enforce_exact)))
+            enforce_exact = excluded.enforce_exact,
+            aliases = COALESCE(excluded.aliases, glossary_terms.aliases),
+            banned_translations = COALESCE(excluded.banned_translations,
+                                            glossary_terms.banned_translations)
+    """, (series_id, term_original, term_translation, notes, category, policy, int(enforce_exact),
+          aliases, banned_translations))
     conn.commit()
     conn.close()
 
@@ -1979,7 +1997,8 @@ def delete_glossary_term(term_id: int):
 
 def update_glossary_term(term_id: int, term_original: str, term_translation: str,
                           notes: str = "", category: str = None, policy: str = None,
-                          enforce_exact: bool = False):
+                          enforce_exact: bool = False, aliases: str = None,
+                          banned_translations: str = None):
     """Updates an existing glossary term by its own id -- unlike
     upsert_glossary_term (keyed on term_original, for the extract-and-add
     flow), this lets a term's original text itself be corrected without
@@ -1988,9 +2007,10 @@ def update_glossary_term(term_id: int, term_original: str, term_translation: str
     conn.execute("""
         UPDATE glossary_terms
         SET term_original = ?, term_translation = ?, notes = ?, category = ?,
-            policy = ?, enforce_exact = ?
+            policy = ?, enforce_exact = ?, aliases = ?, banned_translations = ?
         WHERE id = ?
-    """, (term_original, term_translation, notes, category, policy, int(enforce_exact), term_id))
+    """, (term_original, term_translation, notes, category, policy, int(enforce_exact),
+          aliases, banned_translations, term_id))
     conn.commit()
     conn.close()
 

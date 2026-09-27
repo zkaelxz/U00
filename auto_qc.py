@@ -313,12 +313,24 @@ def build_name_list(glossary_terms=None, series_characters=None) -> list:
     """[(source_forms, target_forms)] of the names Auto QC checks: glossary
     terms in a name category, and series characters that have a
     source-language (CJK) alias recorded. Single-character source forms are
-    left out -- one character matches inside too many unrelated words."""
+    left out -- one character matches inside too many unrelated words.
+
+    Step 30: a glossary term's recorded aliases (alt spellings/
+    transliterations of term_original) are folded in the same way
+    series_characters.aliases already is below -- classified by whether
+    each alias contains a CJK character: a CJK alias is another source
+    form (e.g. an alternate way the same name is written in the original),
+    a non-CJK one is another target form (e.g. an alternate romanization
+    that might show up in the translation instead of the canonical
+    term_translation)."""
     names = []
     for t in glossary_terms or []:
         orig, trans = (t.get("term_original") or "").strip(), (t.get("term_translation") or "").strip()
         if t.get("category") in NAME_CATEGORIES and len(orig) > 1 and trans:
-            names.append(((orig,), (trans,)))
+            aliases = [a.strip() for a in re.split(r"[|,，、]", t.get("aliases") or "") if a.strip()]
+            src_forms = tuple([orig] + [a for a in aliases if _CJK_CHAR_RE.search(a) and len(a) > 1])
+            tgt_forms = tuple([trans] + [a for a in aliases if not _CJK_CHAR_RE.search(a)])
+            names.append((src_forms, tgt_forms))
     for c in series_characters or []:
         aliases = [a.strip() for a in re.split(r"[|,，、]", c.get("aliases") or "") if a.strip()]
         src_forms = tuple(a for a in aliases if _CJK_CHAR_RE.search(a) and len(a) > 1)
@@ -327,6 +339,43 @@ def build_name_list(glossary_terms=None, series_characters=None) -> list:
         if src_forms and tgt_forms:
             names.append((src_forms, tgt_forms))
     return names
+
+
+def build_banned_terms(glossary_terms=None) -> list:
+    """[(source_forms, banned_forms)] for glossary terms with a recorded
+    banned_translations list (Step 30) -- checked across every category,
+    not just NAME_CATEGORIES, since a prohibited rendering isn't limited to
+    names the way the "missing" name check is. source_forms includes both
+    term_original and any recorded aliases, so a line using an alt spelling
+    of the term still gets its banned-translation list checked.
+
+    This is a new, independent, flag-only mechanism: Auto QC uses it to
+    flag a line for review, never to rewrite it. It does not read
+    `notes` and has nothing to do with the older enforce_exact hard
+    find-replace in translation_guide.apply_hard_term_substitutions,
+    which is untouched by this and stays enforce_exact-only."""
+    out = []
+    for t in glossary_terms or []:
+        banned = [b.strip() for b in re.split(r"[|,，、]", t.get("banned_translations") or "")
+                  if b.strip()]
+        if not banned:
+            continue
+        orig = (t.get("term_original") or "").strip()
+        aliases = [a.strip() for a in re.split(r"[|,，、]", t.get("aliases") or "") if a.strip()]
+        src_forms = tuple(f for f in [orig] + aliases if f)
+        if src_forms:
+            out.append((src_forms, tuple(banned)))
+    return out
+
+
+def _banned_hit(banned_forms, tgt_lower: str):
+    """The first banned variant found in the (already-lowercased) target
+    text, or None."""
+    for form in banned_forms:
+        f = form.lower().strip()
+        if f and re.search(r"(?<![a-z])" + re.escape(f) + r"(?![a-z])", tgt_lower):
+            return form
+    return None
 
 
 def _name_carried(target_forms, tgt_lower: str, tgt_words: set) -> bool:
@@ -342,11 +391,17 @@ def _name_carried(target_forms, tgt_lower: str, tgt_words: set) -> bool:
 
 # ------------------------------------------------------------------ check
 
-def check_line(src: str, tgt: str, names=()) -> list:
+def check_line(src: str, tgt: str, names=(), banned_terms=()) -> list:
     """Every factual-detail mismatch between one source line and its
-    translation: [{"direction": "missing"|"extra", "kind": ..., "text": ...}].
-    Empty when there's nothing to compare (either side blank) or when
-    everything checks out."""
+    translation: [{"direction": "missing"|"extra"|"banned", "kind": ...,
+    "text": ...}]. Empty when there's nothing to compare (either side
+    blank) or when everything checks out.
+
+    `banned_terms` (Step 30, from build_banned_terms()) is checked
+    separately from `names`: a term whose source form appears in `src` but
+    whose translation in `tgt` matches one of its recorded
+    banned_translations is flagged with direction "banned" -- never
+    rewritten, only reported, same as every other Auto QC issue."""
     if not (src or "").strip() or not (tgt or "").strip():
         return []
     issues = []
@@ -396,6 +451,15 @@ def check_line(src: str, tgt: str, names=()) -> list:
             masked = masked.replace(hit, "\0" * len(hit))
             if not _name_carried(tgt_forms, tgt_lower, twords):
                 issues.append({"direction": "missing", "kind": "name", "text": hit})
+
+    if banned_terms:
+        src_norm2 = _normalize(src).lower()
+        tgt_lower2 = _normalize(tgt).lower()
+        for src_forms, banned_forms in banned_terms:
+            if any(f.lower() in src_norm2 for f in src_forms):
+                hit = _banned_hit(banned_forms, tgt_lower2)
+                if hit:
+                    issues.append({"direction": "banned", "kind": "banned_translation", "text": hit})
     return issues
 
 
@@ -411,26 +475,29 @@ def issue_note(issues) -> str:
     missing = [f"{i['text']} ({_KIND_LABELS.get(i['kind'], i['kind'])})"
                for i in issues if i["direction"] == "missing"]
     extra = [i["text"] for i in issues if i["direction"] == "extra"]
+    banned = [i["text"] for i in issues if i["direction"] == "banned"]
     if missing:
         parts.append("In the source but not the translation: " + ", ".join(missing) + ".")
     if extra:
         parts.append("In the translation but not the source: " + ", ".join(extra) + ".")
+    if banned:
+        parts.append("Uses a translation flagged as prohibited: " + ", ".join(banned) + ".")
     parts.append("Check the translation says the same thing.")
     return " ".join(parts)
 
 
-def find_issues(lines, names=()) -> list:
+def find_issues(lines, names=(), banned_terms=()) -> list:
     """[(line, issues)] for every line with a mismatch -- read-only, for
     showing what Auto QC would flag without writing anything."""
     out = []
     for ln in lines:
-        issues = check_line(ln.zh, ln.en, names)
+        issues = check_line(ln.zh, ln.en, names, banned_terms)
         if issues:
             out.append((ln, issues))
     return out
 
 
-def run_auto_qc(lines, names=()) -> dict:
+def run_auto_qc(lines, names=(), banned_terms=()) -> dict:
     """Checks every line in place and updates its flag:
       - a line with a mismatch and no flag gets AUTO_QC_FLAG + a note;
       - a line already flagged by Auto QC gets its note refreshed, or the
@@ -446,7 +513,7 @@ def run_auto_qc(lines, names=()) -> dict:
                 cleared += 1
             continue
         checked += 1
-        issues = check_line(ln.zh, ln.en, names)
+        issues = check_line(ln.zh, ln.en, names, banned_terms)
         if issues:
             if ln.flag in (None, "", AUTO_QC_FLAG):
                 ln.flag, ln.flag_note = AUTO_QC_FLAG, issue_note(issues)

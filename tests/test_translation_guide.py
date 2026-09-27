@@ -279,6 +279,22 @@ class TestHardTermSubstitution:
         terms = [{"term_translation": "Canonical", "notes": "", "enforce_exact": True}]
         assert tg.apply_hard_term_substitutions("some text", terms) == "some text"
 
+    def test_step30_aliases_and_banned_translations_fields_are_ignored(self):
+        """Step 30 added glossary_terms.aliases and .banned_translations,
+        a separate, flag-only mechanism (see auto_qc.build_banned_terms) --
+        this older notes-piggybacked, enforce_exact-only hard-substitution
+        mechanism must behave identically whether or not a term also
+        carries those new fields, and must never read banned_translations
+        as if it were another source of variants to auto-correct."""
+        terms = [{"term_translation": "Shen Qingyi", "notes": "Shen Qing Yi|Chen Qingyi",
+                  "enforce_exact": True, "aliases": "沈清儀",
+                  "banned_translations": "Totally Different Name"}]
+        result = tg.apply_hard_term_substitutions(
+            "Shen Qing Yi met Chen Qingyi, not Totally Different Name.", terms)
+        # Same substitutions as the plain-notes case, and banned_translations'
+        # entry is left completely alone -- it isn't a `notes` variant.
+        assert result == "Shen Qingyi met Shen Qingyi, not Totally Different Name."
+
 
 class TestLlmFunctionsGracefulFallback:
     def test_extract_terms_returns_empty_for_pure_mt_engine(self):

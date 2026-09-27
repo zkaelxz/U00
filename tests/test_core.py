@@ -282,6 +282,18 @@ class TestInitialPromptBuilding:
         from core import build_initial_prompt
         assert build_initial_prompt(["", "  ", "实名"]) == "实名。"
 
+    def test_primes_recorded_aliases_alongside_the_canonical_original(self):
+        """Step 30: a glossary row's aliases (alt spellings/transliterations
+        of term_original) are included in Whisper's priming context too,
+        not just the canonical original."""
+        from core import build_initial_prompt
+        p = build_initial_prompt([{"term_original": "沈清疑", "aliases": "沈清儀|Shen Qing Yi"}])
+        assert "沈清疑" in p and "沈清儀" in p and "Shen Qing Yi" in p
+
+    def test_a_glossary_row_with_no_aliases_field_still_works(self):
+        from core import build_initial_prompt
+        assert build_initial_prompt([{"term_original": "岳家"}]) == "岳家。"
+
 
 class TestBlankSubtitleExportDetection:
     """A timed-but-textless line exports cleanly with no error -- it just

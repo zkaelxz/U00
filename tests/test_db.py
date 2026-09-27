@@ -222,6 +222,40 @@ class TestSeriesAndGlossary:
         assert len(terms) == 1
         assert terms[0]["term_translation"] == "Shí"
 
+    def test_glossary_term_aliases_and_banned_translations_round_trip(self, isolated_db):
+        """Step 30: aliases and banned_translations are new pipe-separated
+        columns on glossary_terms, stored and read back like any other
+        field -- not touching the older enforce_exact/notes mechanism."""
+        sid = isolated_db.get_or_create_series("Series A")
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi",
+                                          aliases="Shen Qing Yi|Shen Ching-yi",
+                                          banned_translations="Chen Qingyi|Shen Qingyu")
+        term = isolated_db.list_glossary_terms(sid)[0]
+        assert term["aliases"] == "Shen Qing Yi|Shen Ching-yi"
+        assert term["banned_translations"] == "Chen Qingyi|Shen Qingyu"
+
+    def test_glossary_term_upsert_without_aliases_keeps_existing_value(self, isolated_db):
+        """Same COALESCE behavior as category/policy: a re-upsert (e.g. from
+        the extract-and-add flow, which knows nothing about aliases) must
+        not silently wipe out a previously-recorded alias/banned list."""
+        sid = isolated_db.get_or_create_series("Series A")
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi",
+                                          aliases="Shen Qing Yi", banned_translations="Chen Qingyi")
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi")
+        term = isolated_db.list_glossary_terms(sid)[0]
+        assert term["aliases"] == "Shen Qing Yi"
+        assert term["banned_translations"] == "Chen Qingyi"
+
+    def test_update_glossary_term_sets_aliases_and_banned_translations(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Series A")
+        isolated_db.upsert_glossary_term(sid, "沈清疑", "Shen Qingyi")
+        term_id = isolated_db.list_glossary_terms(sid)[0]["id"]
+        isolated_db.update_glossary_term(term_id, "沈清疑", "Shen Qingyi", aliases="Shen Qing Yi",
+                                          banned_translations="Chen Qingyi")
+        term = isolated_db.list_glossary_terms(sid)[0]
+        assert term["aliases"] == "Shen Qing Yi"
+        assert term["banned_translations"] == "Chen Qingyi"
+
     def test_two_dramas_share_a_series_glossary(self, isolated_db):
         sid = isolated_db.get_or_create_series("Shared Series")
         did1 = isolated_db.create_drama(title_en="Book 1", series_id=sid)

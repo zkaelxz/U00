@@ -25,7 +25,13 @@ def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
     lang = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}.get(source_language, "Chinese")
     gloss = ""
     if glossary_terms:
-        relevant = [t for t in glossary_terms if t.get("term_original", "") in zh]
+        def _term_forms(t):
+            # Step 30: an alt spelling/transliteration of the source term
+            # (term_original) is recorded in `aliases`, pipe-separated --
+            # a line using only an alias should still surface this term.
+            aliases = [a.strip() for a in re.split(r"[|,，、]", t.get("aliases") or "") if a.strip()]
+            return [t.get("term_original", "")] + aliases
+        relevant = [t for t in glossary_terms if any(f and f in zh for f in _term_forms(t))]
         if relevant:
             gloss = "\n\nGlossary terms in play: " + ", ".join(
                 f"{t['term_original']} → {t['term_translation']}" for t in relevant)
