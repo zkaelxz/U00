@@ -3616,6 +3616,8 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 - A test confirms the requirements floor is parsed and asserts it's at or above the real minimum Streamlit version found in step 1.
 - Manual check (per step 3 above): the chosen minimum version runs both Workspace and Read & Watch with no tab-crash error; the version just below it does still fail, confirming the floor is tight.
 
+**Built, reviewed, and merged (2026-09-27, PR #168).** Independently reviewed: real diff read in full, the real floor (1.56) verified against actual Streamlit release signatures. **Real merge conflict found and resolved**: this branch predated Step 75 (requirements.txt consolidation, merged since) — kept Step 75's already-correct thin-pointer `requirements.txt` and fixed the one test that assumed the old flat-file shape (`test_both_requirements_files_declare_the_same_floor` → replaced with a check that it stays a thin pointer, consistent with Step 75's own tests). Full suite run on the resolved merge: 3251 passed, 49 skipped, 0 failed. CI green (including a new "bootstrap" check) before squash-merge.
+
 ---
 
 ### Step 74 — Per-episode running summary, for real cross-episode narrative continuity (distinct from glossary/TM's terminology-only continuity)
