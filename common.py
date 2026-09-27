@@ -28,6 +28,7 @@ import storage
 import universe_wiki
 import adaptive_style
 import line_tools
+import debug_view
 import emotion
 import ui_theme
 import translation_guide as tguide

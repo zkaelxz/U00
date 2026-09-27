@@ -4501,7 +4501,7 @@ def render_workspace_tab():
                     # same per-line inspection job as this popover's Improve/
                     # Re-transcribe already do, previously split across two
                     # tabs for no functional reason.
-                    ltc1, ltc2, ltc3, ltc4 = st.columns(4)
+                    ltc1, ltc2, ltc3, ltc4, ltc5 = st.columns(5)
                     if ltc1.button("Why this?", key=f"rvwhy_{ln.idx}") and api_key:
                         eng_lt = translate_engines.get_engine(
                             engine_choice, api_key, engine_model,
@@ -4533,6 +4533,50 @@ def render_workspace_tab():
                             st.audio(_got)
                         else:
                             st.warning("Couldn't generate audio -- check edge-tts is installed.")
+                    if ltc5.button("🔍 What happened?", key=f"rvwhathappened_{ln.idx}",
+                                   help="Read-only: real recorded speaker/glossary/QC/version "
+                                        "history for this exact line."):
+                        st.session_state[f"rv_whathappened_{ln.idx}"] = debug_view.explain_line(
+                            picked_id, ln, all_lines)
+                    _wh = st.session_state.get(f"rv_whathappened_{ln.idx}")
+                    if _wh:
+                        st.markdown(f"**Speaker:** {_wh['speaker'] or '—'}"
+                                   + (" *(manually set)*" if _wh["speaker_manual"] else ""))
+                        st.markdown(f"**Engine / model:** {_wh['engine'] or '—'}"
+                                   + (f" / {_wh['model']}" if _wh["model"] else "")
+                                   + f"  \n_{_wh['engine_source']}_")
+                        if _wh["flag"]:
+                            st.warning(f"**Flag:** {_wh['flag_reason']}"
+                                      + (f" -- {_wh['flag_note']}" if _wh["flag_note"] else ""))
+                        if _wh["glossary_matches"]:
+                            st.caption("**Glossary terms matching this line:** " + ", ".join(
+                                f"{t['term_original']} → {t['term_translation']}"
+                                for t in _wh["glossary_matches"]))
+                        st.caption(_wh["glossary_matches_note"])
+                        if _wh["translation_notes"]:
+                            st.caption("**Translation notes:** " + "; ".join(
+                                f"{n['term']}: {n['note']}" for n in _wh["translation_notes"]))
+                        if _wh["consistency_issues"]:
+                            st.caption("**Consistency-check findings mentioning this line's text:** "
+                                      + "; ".join(c["note"] for c in _wh["consistency_issues"]))
+                        if _wh["current_neighbors_before"] or _wh["current_neighbors_after"]:
+                            with st.expander("Current neighboring lines"):
+                                for _idx, _z, _e in _wh["current_neighbors_before"]:
+                                    st.caption(f"#{_idx + 1} {_z} → {_e}")
+                                st.markdown(f"**#{_wh['line_idx'] + 1} {_wh['zh']} → {_wh['en']}**")
+                                for _idx, _z, _e in _wh["current_neighbors_after"]:
+                                    st.caption(f"#{_idx + 1} {_z} → {_e}")
+                        st.caption(_wh["context_window_note"])
+                        if st.button("🐞 Save as bug-reproduction bundle", key=f"rvsavebug_{ln.idx}",
+                                    help="Freezes this line's current context/glossary/settings and "
+                                         "output as a re-runnable case (Diagnostics -> Saved bug "
+                                         "bundles) -- for reproducing this exact result later."):
+                            _bug_glossary = (db.list_glossary_terms(drama["series_id"])
+                                            if drama.get("series_id") else None)
+                            _bug_id = debug_view.save_bug_bundle(
+                                picked_id, ln, all_lines, engine_choice, engine_model,
+                                glossary_terms=_bug_glossary, locale=locale)
+                            st.toast(f"Saved bug bundle #{_bug_id}.", icon="🐞")
                     if st.session_state.get(f"rv_why_{ln.idx}"):
                         st.info(st.session_state[f"rv_why_{ln.idx}"])
                     for _alt in st.session_state.get(f"rv_alts_{ln.idx}", []):

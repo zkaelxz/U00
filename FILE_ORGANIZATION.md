@@ -203,6 +203,7 @@ baihe-subtitler/
 | `story_context.py` | character lookup, recaps, relationship maps |
 | `qa.py` | ask questions about a drama |
 | `line_tools.py` | explain / alternatives / improve / pronounce |
+| `debug_view.py` | "what happened here?" per-line/per-job debugging view, bug record-and-replay |
 | `adaptive_style.py` | learns your preferences from your edits |
 | `vocab_export.py` | Anki decks |
 

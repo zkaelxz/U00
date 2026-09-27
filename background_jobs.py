@@ -660,3 +660,13 @@ def clear_all_jobs():
 def list_running_jobs():
     with _lock:
         return {jid: dict(j) for jid, j in _jobs.items() if j["status"] == "running"}
+
+
+def list_all_jobs():
+    """Every job this process still has a record of -- running or
+    finished, since a finished job's entry isn't cleared automatically
+    (see clear_all_jobs/_jobs.pop). Backs Step 58's job-level "why was
+    this slow" view: it can only explain a job still resident in this
+    process's own memory, never one from a prior run of the app."""
+    with _lock:
+        return {jid: dict(j) for jid, j in _jobs.items()}
