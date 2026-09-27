@@ -12,6 +12,7 @@ import tempfile
 import threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import db
 from core import Line
 
 
@@ -1629,3 +1630,87 @@ class TestLeakedConnectionCleanup:
             assert holder["ident"] not in isolated_db._open_connections
         finally:
             conn2.close()
+
+
+class TestStep26eProfilesMigration:
+    """_migrate_step26e_profiles: an existing (pre-profiles) install's
+    progress/reading_history/personal_notes data must survive db.init_db()
+    unchanged in content, just now attributed to a newly-created default
+    profile -- and progress's primary key actually changes (SQLite can't
+    ALTER a PRIMARY KEY in place), so this builds a real old-schema
+    database by hand rather than trusting the new CREATE TABLE IF NOT
+    EXISTS block alone (which only a fresh install ever goes through)."""
+
+    def _make_old_schema_db(self, temp_dir):
+        db_path = os.path.join(temp_dir, "library.db")
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE dramas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title_en TEXT, title_zh TEXT, personal_notes TEXT
+            );
+            CREATE TABLE progress (
+                drama_id INTEGER PRIMARY KEY,
+                last_line_idx INTEGER DEFAULT 0,
+                audio_position_seconds REAL DEFAULT 0,
+                last_page INTEGER DEFAULT 1,
+                percent_complete REAL DEFAULT 0,
+                last_accessed_at TEXT
+            );
+            CREATE TABLE reading_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                drama_id INTEGER NOT NULL,
+                line_id INTEGER, line_idx INTEGER,
+                percent_complete REAL, accessed_at TEXT
+            );
+        """)
+        conn.execute("INSERT INTO dramas (id, title_en, personal_notes) VALUES "
+                     "(1, 'Old Drama', 'a private note from before profiles existed')")
+        conn.execute("INSERT INTO progress (drama_id, last_line_idx, last_page, "
+                     "percent_complete, last_accessed_at) VALUES (1, 7, 3, 42.0, "
+                     "'2025-01-01T00:00:00')")
+        conn.execute("INSERT INTO reading_history (drama_id, line_idx, percent_complete, "
+                     "accessed_at) VALUES (1, 7, 42.0, '2025-01-01T00:00:00')")
+        conn.commit()
+        conn.close()
+
+    def _with_redirected_library(self, temp_dir, fn):
+        previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+        try:
+            db.configure_library_dir(temp_dir)
+            fn()
+        finally:
+            db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+
+    def test_upgrading_a_pre_profiles_install_preserves_its_data(self, tmp_path_str):
+        self._make_old_schema_db(tmp_path_str)
+
+        def upgrade_and_check():
+            db.init_db()  # this is the real upgrade path a restart runs
+            profiles = db.list_profiles()
+            assert len(profiles) == 1
+            default_id = profiles[0]["id"]
+
+            prog = db.get_progress(1, profile_id=default_id)
+            assert prog["last_line_idx"] == 7
+            assert prog["last_page"] == 3
+            assert prog["percent_complete"] == 42.0
+
+            hist = db.list_reading_history(1, profile_id=default_id)
+            assert len(hist) == 1
+            assert hist[0]["percent_complete"] == 42.0
+
+            assert (db.get_personal_notes(1, profile_id=default_id)
+                    == "a private note from before profiles existed")
+
+        self._with_redirected_library(tmp_path_str, upgrade_and_check)
+
+    def test_running_init_db_twice_does_not_duplicate_the_default_profile(self, tmp_path_str):
+        self._make_old_schema_db(tmp_path_str)
+
+        def upgrade_twice():
+            db.init_db()
+            db.init_db()  # e.g. the app restarting again later
+            assert len(db.list_profiles()) == 1
+
+        self._with_redirected_library(tmp_path_str, upgrade_twice)

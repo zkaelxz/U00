@@ -274,7 +274,7 @@ def render_library_tab():
         if _notice:
             st.info(_notice, icon="▶️")
 
-        continuing = db.list_continue_reading(8)
+        continuing = db.list_continue_reading(8, profile_id=get_active_profile_id())
         if continuing:
             st.markdown("**▶️ Continue reading**")
             cols = st.columns(min(4, len(continuing)))
@@ -609,14 +609,15 @@ def render_library_tab():
                 st.rerun()
 
     with st.expander("📜 Reading history", expanded=False):
-        hist = db.list_reading_history(limit=25)
+        _hist_profile_id = get_active_profile_id()
+        hist = db.list_reading_history(limit=25, profile_id=_hist_profile_id)
         if hist:
             for h in hist[:15]:
                 when = h["accessed_at"][:16].replace("T", " ") if h["accessed_at"] else "?"
                 pct = f"{h['percent_complete']:.0f}%" if h.get("percent_complete") is not None else ""
                 st.caption(f"{when} — **{h['title_en'] or h['title_zh']}** {pct}")
             if st.button("Clear reading history"):
-                db.clear_reading_history()
+                db.clear_reading_history(profile_id=_hist_profile_id)
                 st.rerun()
         else:
             st.caption("No reading history yet.")

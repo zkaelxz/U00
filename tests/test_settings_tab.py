@@ -27,6 +27,20 @@ def clean_session_state():
     st.session_state.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_library(isolated_db):
+    """Every render_settings_sidebar() call now touches the database --
+    Step 26e's profile picker calls db.list_profiles() unconditionally,
+    which this file's own sidebar tests never exercised before it existed
+    (this file didn't import db at all). Autouse so every test here is
+    isolated from the real library automatically, without each one
+    having to remember to request isolated_db by hand -- a real, if
+    minor, incident this file's own tests caused before this fixture
+    existed: a stray "Me" profile row written into the actual project
+    library/library.db from an unisolated AppTest run."""
+    yield
+
+
 def _write_env(path, content: str):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
