@@ -35,15 +35,16 @@ section rather than shown by default.
 
 def render_job_status(job: dict | None, *, running_label: str = "Working...",
                        done_message: str | None = None, reason: str | None = None,
-                       on_retry=None, retry_label: str = "Retry", key_prefix: str = "status"):
+                       on_retry=None, retry_label: str = "Retry", key_prefix: str = "status",
+                       label: str = "Advanced details"):
     """Renders one job's current state: nothing if there's no job yet or
     it's already been cleared, a progress bar (with ETA where available)
     while running or queued, a success message once done (only if
     `done_message` is given -- many callers show their own follow-up UI
     instead), or the failure card on error.
 
-    reason/on_retry/retry_label/key_prefix are passed straight through to
-    render_failure_card() for the error case; see there.
+    reason/on_retry/retry_label/key_prefix/label are passed straight
+    through to render_failure_card() for the error case; see there.
     """
     import streamlit as st
     if not job:
@@ -56,13 +57,14 @@ def render_job_status(job: dict | None, *, running_label: str = "Working...",
         st.progress(job.get("progress") or 0.0, text=message)
     elif status == "error":
         render_failure_card(job, reason=reason, on_retry=on_retry,
-                            retry_label=retry_label, key_prefix=key_prefix)
+                            retry_label=retry_label, key_prefix=key_prefix, label=label)
     elif status == "done" and done_message:
         st.success(done_message)
 
 
 def render_failure_card(job: dict, *, reason: str | None = None, on_retry=None,
-                        retry_label: str = "Retry", key_prefix: str = "status"):
+                        retry_label: str = "Retry", key_prefix: str = "status",
+                        label: str = "Advanced details"):
     """The friendly-failure-card state on its own, for a caller that
     already knows it has an error job and wants just the card (e.g. a
     step whose done/running rendering differs from render_job_status's
@@ -75,13 +77,19 @@ def render_failure_card(job: dict, *, reason: str | None = None, on_retry=None,
         clicked. Omit when retrying this particular failure isn't safe
         (e.g. it could resubmit a partially-applied write) -- no button
         is shown in that case.
+    label: the traceback expander's own label. Defaults to "Advanced
+        details" for a caller with only one job-status block on the page;
+        a caller with several (e.g. Workspace's Review tab, one call site
+        per job type) should pass a distinct label per call site instead --
+        several expanders sharing one literal label is exactly what
+        tests/test_static_analysis.py's duplicate-label check flags.
     """
     import streamlit as st
     st.error(reason or _default_reason(job))
     if on_retry is not None:
         if st.button(retry_label, key=f"{key_prefix}_retry"):
             on_retry()
-    with st.expander("Advanced details", expanded=False):
+    with st.expander(label, expanded=False):
         st.code(job.get("traceback") or job.get("error") or "No further details available.",
                 language="text")
 
