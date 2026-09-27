@@ -4,6 +4,8 @@
 >
 > **Steps 64, 66, 32 all merged (2026-09-27, PRs #162/#163/#164)** — Diagnostics button restyling, real throwaway-venv dependency-upgrade testing, and Workspace's look-ahead/batch-size sliders. All independently reviewed (real diffs, trial-merges, full suites — 3194/3194/3177 passed respectively, 0 failed), CI green before each squash-merge. Next in that queue: Step 71, then Step 31. Two items worth a manual look, not blocking: Step 64's icon may not fully address "user specifically dislikes the icon" (kept the emoji, just restyled); Step 68 (dark-mode/UX batch, Opus-flagged) is next in the other session's queue, followed by Step 73 (queued after it, same files).
 >
+> **Step 77 added (2026-09-27)** — self-flagged by the Step 71 implementing session (correctly left out of that step's own scope), independently confirmed: `library_tab.py`'s voice-bank entry delete has the identical no-confirmation gap Step 71 just fixed at five other spots, missed only because Step 26 added it after Step 71's roadmap review was written. Not yet dispatched.
+>
 > **Step 76 added (2026-09-27)** — flagged by the Step 75 implementing session, independently confirmed via `pip index versions qwen-asr`: the real published releases top out at 0.0.6, so `requirements-optional.txt`'s `qwen-asr>=0.1` line can never install (feeds `asr_backend.py`'s Qwen3-ASR backend and `forced_align.py`'s Qwen3-ForcedAligner). Not yet dispatched.
 >
 > **Step 75 added (2026-09-27)** — from a user question about a screenshot of the four requirements files open side by side: confirmed real drift, not just duplication — `requirements.txt` (flat, what `requirements-install.bat`/README's manual install use) is missing `audio-separator`/`funasr` (present in the tiered split `start.bat` actually uses); the tiered split is missing `cryptography` (needed for the mangaz.com adapter). Proposes consolidating on the tiered core/media/optional split as the one source of truth, retiring or thinning the flat file. Distinct from Step 33 (that file's hardcoded path, a narrower bug). Not yet dispatched.
@@ -360,6 +362,7 @@ Rules for every milestone:
 | 74 | Translate two episodes of the same series in order, with a plot point from episode 1 relevant to disambiguating something in episode 2, and confirm episode 2's translation resolves it correctly using the stored summary. |
 | 75 | On a fresh clone, run whichever install path(s) remain and confirm no `ModuleNotFoundError` for a feature the tier claims to cover, including the mangaz.com adapter; confirm no remaining direct `pip install -r requirements.txt` reference outside what was intentionally kept. |
 | 76 | `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and the Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional. |
+| 77 | Attempt to delete a voice bank entry and confirm a single click no longer immediately deletes it. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3666,6 +3669,19 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 **Exit:**
 - A test confirms `requirements-optional.txt`'s `qwen-asr` line specifies a version that a real `pip index versions` (or an equivalent resolvable check) confirms actually exists on PyPI — regression coverage against this exact class of bug recurring, similar in spirit to Step 75's own drift-prevention tests.
 - Manual check: `pip install qwen-asr` (whatever version constraint this step lands on) actually succeeds in a clean environment, and `asr_backend.py`'s Qwen3-ASR backend either works against it for real or is clearly marked as not currently functional, whichever step 2/3 above concluded.
+
+---
+
+### Step 77 — Fix: voice bank entry delete (Library) has the identical no-confirmation gap Step 71 just fixed everywhere else
+
+**Self-flagged by the Step 71 implementing session, independently confirmed here.** Step 71 added the app's established checkbox-before-delete pattern to five spots, but explicitly scoped itself to "these four/five spots" named in the roadmap — it correctly left this one alone as out of scope rather than silently expanding its own diff. Confirmed directly: `tabs/library_tab.py`'s voice-bank entry delete button (`delete_vb_{id}`, next to its Rename control) calls `db.delete_voice_bank_entry(entry_id)` on a single click, with no checkbox or any other confirm step — same class of bug, same no-undo consequence, just missed because it was added by Step 26 (voice bank) after Step 71's own roadmap review pass was already written.
+
+1. Add the same checkbox-before-delete pattern Step 71 just used everywhere else (`disabled=not <confirm_checkbox>`) to this one button. No new confirmation mechanism — reuse the exact pattern.
+2. Keep this scoped to the one button — no broader voice-bank rework.
+
+**Exit:**
+- A test confirms the voice-bank delete button is disabled until its confirm checkbox is checked, and still deletes for real once confirmed — same shape as Step 71's own new tests.
+- Manual check: attempt to delete a voice bank entry and confirm a single click no longer immediately deletes it.
 
 ---
 
