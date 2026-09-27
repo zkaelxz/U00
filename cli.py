@@ -496,6 +496,36 @@ def cmd_dub(args):
     _run_batch(dramas, step, "dub")
 
 
+def cmd_inspect_line(args):
+    """Step 58's "what happened here?" view, headless -- same real data
+    the Workspace Review & edit tab's 🔍 What happened? button shows."""
+    import debug_view
+    drama = db.get_drama(args.id)
+    if not drama:
+        print(f"No drama #{args.id}")
+        return
+    lines = db.load_line_objects(args.id)
+    line = next((ln for ln in lines if ln.idx == args.line - 1), None)
+    if not line:
+        print(f"No line #{args.line} in drama #{args.id} ({len(lines)} line(s) total)")
+        return
+    info = debug_view.explain_line(args.id, line, lines)
+    print(f"Line #{args.line} -- {info['zh']}")
+    print(f"  Translation: {info['en']}")
+    print(f"  Speaker: {info['speaker'] or '—'}" + (" (manual)" if info["speaker_manual"] else ""))
+    print(f"  Engine/model: {info['engine'] or '—'} / {info['model'] or '—'} ({info['engine_source']})")
+    if info["flag"]:
+        print(f"  Flag: {info['flag_reason']}" + (f" -- {info['flag_note']}" if info["flag_note"] else ""))
+    if info["glossary_matches"]:
+        print("  Glossary matches: " + ", ".join(
+            f"{t['term_original']} -> {t['term_translation']}" for t in info["glossary_matches"]))
+    print(f"  ({info['glossary_matches_note']})")
+    if info["translation_notes"]:
+        print("  Translation notes: " + "; ".join(
+            f"{n['term']}: {n['note']}" for n in info["translation_notes"]))
+    print(f"  ({info['context_window_note']})")
+
+
 def cmd_run(args):
     """Align then translate a single drama in one shot."""
     cmd_align(args)
@@ -518,6 +548,11 @@ def main():
     p_list = sub.add_parser("list")
     p_list.add_argument("--status", default=None)
     p_list.set_defaults(func=cmd_list)
+
+    p_inspect = sub.add_parser("inspect-line", help="Step 58: \"what happened here?\" for one line")
+    p_inspect.add_argument("--id", type=int, required=True)
+    p_inspect.add_argument("--line", type=int, required=True, help="1-based line number")
+    p_inspect.set_defaults(func=cmd_inspect_line)
 
     p_align = sub.add_parser("align")
     p_align.add_argument("--id", type=int, default=None)
