@@ -23,6 +23,26 @@ def _wait(job_id, timeout=2.0):
         time.sleep(0.01)
 
 
+def _wait_for(predicate, timeout=2.0):
+    """Polls until `predicate()` is truthy, or the timeout elapses; returns
+    what it ended up as.
+
+    `_wait` above only waits for a job to stop *running*, and a job's
+    completion side effects do not all land at that moment. A finishing
+    job sets its status inside `background_jobs`' lock and then notifies
+    *outside* it, with a log call in between, so `is_running()` goes
+    False while the notification is still pending. Asserting on the
+    notification right after `_wait` therefore races the worker thread:
+    it usually wins, and occasionally doesn't -- which showed up as a
+    single unreproducible failure in an otherwise green full-suite run.
+    Wait for the side effect itself instead of a proxy for it.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline and not predicate():
+        time.sleep(0.01)
+    return predicate()
+
+
 class TestBasicLifecycle:
     def test_job_starts_and_reports_running(self):
         bg.start_job("t1", lambda: time.sleep(0.05))
@@ -907,7 +927,9 @@ class TestNotifyOnCompletion:
 
         bg.start_job("t_notify_off", lambda: None, description="A job")  # off by default
         _wait("t_notify_off")
-        assert calls == []
+        # Give a late notification a fair chance to appear, or this would
+        # pass without ever proving one didn't come.
+        assert not _wait_for(lambda: calls, timeout=0.5)
         bg.clear_job("t_notify_off")
 
     def test_successful_job_notifies_when_enabled(self, monkeypatch):
@@ -916,6 +938,7 @@ class TestNotifyOnCompletion:
         bg.set_notify_on_completion(True)
         bg.start_job("t_notify_ok", lambda: None, description="A translation job")
         _wait("t_notify_ok")
+        assert _wait_for(lambda: calls), "the notification never arrived"
         assert calls == [("A translation job", "done")]
         bg.clear_job("t_notify_ok")
 
@@ -926,6 +949,7 @@ class TestNotifyOnCompletion:
         bg.start_job("t_notify_err", lambda: (_ for _ in ()).throw(ValueError("boom")),
                      description="A doomed job")
         _wait("t_notify_err")
+        assert _wait_for(lambda: calls), "the notification never arrived"
         assert calls == [("A doomed job", "error")]
         bg.clear_job("t_notify_err")
 
