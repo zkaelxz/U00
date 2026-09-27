@@ -3578,6 +3578,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - Manual check: attempt to delete a saved translation version and confirm a single click no longer immediately deletes it — a confirm step is required first, same as drama delete.
 - Manual check: attempt each of the other three deletes (preset, glossary term — single and bulk, series character, bug bundle) and confirm each now requires the same confirm step.
 
+**Built, reviewed, and merged (2026-09-27, PR #166).** Independently reviewed: real diff read in full across all six spots (translation version, glossary term single/bulk, series character, bug bundle, preset), each using the identical `disabled=not <checkbox>` pattern established elsewhere. Fast-forward merge against current tip, full suite run on the merged tree — 3212 passed, 49 skipped, 0 failed. Self-flagged gap (Step 26's voice-bank delete has the same missing confirmation) independently confirmed and written up separately as Step 77 rather than silently expanding this step's own scope. CI got stuck twice on GitHub's side during review (transient runner allocation issue, confirmed via run-history timing — not a workflow or test problem), cancelled and re-run each time; third attempt completed normally and came back green before squash-merge.
+
 ---
 
 ### Step 72 — GitHub integration: deliver the maintenance assistant's proposed fixes as real PRs
