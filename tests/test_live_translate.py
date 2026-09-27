@@ -283,6 +283,25 @@ class TestResolveStreamUrl:
         assert result == "https://cdn.example.com/live.m3u8"
         assert attempts[-1] == ("best", lt._YOUTUBE_CLIENT_FALLBACKS[1])
 
+    def test_page_needs_reloaded_triggers_the_full_retry_loop(self, monkeypatch):
+        """Regression test for a real reported failure: yt-dlp's
+        DownloadError "The page needs to be reloaded" doesn't contain the
+        literal substring "no video formats found", so it used to skip the
+        retry loop entirely and fail on the very first attempt instead of
+        trying the player-client fallbacks."""
+        def always_fail(_last_attempt):
+            raise RuntimeError("The page needs to be reloaded")
+
+        attempts = self._install_fake_yt_dlp_with_attempt_log(monkeypatch, always_fail)
+
+        with pytest.raises(lt.LiveCaptureError, match="proof-of-origin token"):
+            lt.resolve_stream_url("https://example.com/live")
+
+        assert attempts == (
+            [("bestaudio/best", None), ("best", None)]
+            + [("best", c) for c in lt._YOUTUBE_CLIENT_FALLBACKS]
+        )
+
     def test_a_non_format_error_fails_fast_without_trying_every_client(self, monkeypatch):
         """A private/deleted video fails identically on every attempt --
         looping through every player client would just waste time."""
