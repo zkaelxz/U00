@@ -32,7 +32,7 @@ because one test fetch succeeded.
 """
 
 import re
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
 from ..base import SourceAdapter
 from ..http import PacingPolicy
