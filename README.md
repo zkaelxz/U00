@@ -132,8 +132,10 @@ aren't, then opens the app in its own window (Edge's app mode, falling
 back to Chrome or your default browser). Running it again just reopens
 the window if the app's already running. `uninstall.bat` removes the
 shortcut and virtual environment, and asks separately (defaulting to
-**no**) before it will touch your library. See "Portable mode" below if
-you want to run the whole app from a USB stick or move it between
+**no** each time) before it will touch your library or check your
+user-level PATH for ffmpeg/Tesseract entries you may have added by hand
+during setup. See "Portable mode" below if you want to run the whole
+app from a USB stick or move it between
 machines.
 
 Everything below this also works the same way on macOS/Linux, or if you
