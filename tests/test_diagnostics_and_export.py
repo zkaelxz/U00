@@ -320,6 +320,82 @@ class TestDescribeJob:
         assert _describe_job("some_custom_thing") == "some_custom_thing"
 
 
+class TestRunningJobsPanelAutoRefresh:
+    """Step 26c: the Running jobs panel auto-refreshes (st.fragment with
+    run_every) so a job started from a second concurrent session/tab
+    shows up here without a manual click. AppTest always reruns the
+    whole script rather than reproducing a fragment-scoped timed rerun
+    (see tests/test_gui_polish.py's own note on this), so the fragment
+    scoping itself is checked statically and the actual rendered content
+    is checked by driving a real AppTest render."""
+
+    def _decorators(self, func_name):
+        import ast
+        with open(os.path.join(PROJECT_ROOT, "tabs/diagnostics_tab.py"), encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        [fn] = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == func_name]
+        return [ast.unparse(d) for d in fn.decorator_list]
+
+    def test_panel_is_an_auto_refreshing_fragment(self):
+        decorators = self._decorators("_render_running_jobs_panel")
+        assert any("st.fragment" in d and "run_every" in d for d in decorators), decorators
+
+    def _panel_app(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            from tabs.diagnostics_tab import _render_running_jobs_panel
+            _render_running_jobs_panel()
+        at = AppTest.from_function(_render)
+        at.run(timeout=30)
+        return at
+
+    def test_shows_nothing_running_caption_when_idle(self):
+        import background_jobs
+        background_jobs._jobs.clear()
+        at = self._panel_app()
+        assert not at.exception
+        assert any("Nothing running" in c.value for c in at.caption)
+
+    def test_shows_a_real_running_job_with_progress_and_cancel(self, isolated_db):
+        import background_jobs
+        did = isolated_db.create_drama(title_en="Concurrent Session Test")
+        job_id = f"translate_{did}"
+        background_jobs._jobs[job_id] = {
+            "status": "running", "progress": 0.42, "message": "Line 5/12",
+            "error": None, "cancel_requested": False, "result": None,
+        }
+        try:
+            at = self._panel_app()
+            assert not at.exception
+            progress_els = at.get("progress")
+            assert len(progress_els) == 1
+            assert progress_els[0].value == 42  # st.progress stores 0-100, not the 0.0-1.0 given
+            assert "Concurrent Session Test" in progress_els[0].proto.text
+            assert "Line 5/12" in progress_els[0].proto.text
+            assert len(at.button) == 1  # Cancel only -- the manual Refresh button was removed
+            assert "Cancel" in at.button[0].label
+        finally:
+            background_jobs._jobs.pop(job_id, None)
+
+    def test_cancel_button_requests_cancellation(self, isolated_db, monkeypatch):
+        import background_jobs
+        did = isolated_db.create_drama(title_en="Cancel Me")
+        job_id = f"translate_{did}"
+        background_jobs._jobs[job_id] = {
+            "status": "running", "progress": 0.1, "message": "",
+            "error": None, "cancel_requested": False, "result": None,
+        }
+        requested = []
+        monkeypatch.setattr(background_jobs, "request_cancel", lambda jid: requested.append(jid))
+        try:
+            at = self._panel_app()
+            at.button[0].click().run()
+            assert requested == [job_id]
+        finally:
+            background_jobs._jobs.pop(job_id, None)
+
+
 # ---------------------------------------------------------------------------
 # Step 9b.2: HF model-cache panel, model/engine version panel, pyannote
 # gated-access check, "copy diagnostics for support" redaction.
