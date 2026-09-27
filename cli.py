@@ -387,6 +387,9 @@ def cmd_translate(args):
             locale=args.locale, glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
             ollama_num_ctx_override=args.ollama_num_ctx,
+            context_window=getattr(args, "context_window", 6),
+            context_window_ahead=getattr(args, "context_window_ahead", 3),
+            batch_size=getattr(args, "batch_size", 20),
             reflect=getattr(args, "reflect", False),
             notes_cb=lambda notes, did=d["id"]: db.save_translation_notes(
                 did, notes, id_by_idx=_id_by_idx),
@@ -619,6 +622,21 @@ def main():
                            default=float(os.environ.get("BAIHE_MONTHLY_CAP_USD") or 0) or None,
                            help="Refuse to start / stop once this calendar month's logged spend "
                                 "reaches this many USD. Defaults to BAIHE_MONTHLY_CAP_USD.")
+    # Step 32: matches the Workspace tab's own three sliders -- this command
+    # used to have no way to set any of them, always using
+    # translate_lines_with_engine's own defaults (context_window=6,
+    # context_window_ahead=3, batch_size=20).
+    p_translate.add_argument("--context-window", type=int, default=6,
+                           help="Lines of already-translated context shown from before each "
+                                "batch (default 6). 0 turns this off.")
+    p_translate.add_argument("--context-window-ahead", type=int, default=3,
+                           help="Lines of source text shown from after each batch, to resolve "
+                                "a reference that's only disambiguated later (default 3). 0 "
+                                "turns this off.")
+    p_translate.add_argument("--batch-size", type=int, default=20,
+                           help="Lines translated per request (default 20). More lines per "
+                                "request is cheaper/faster overall but a bigger single point "
+                                "of failure.")
     p_translate.set_defaults(func=cmd_translate)
 
     p_dub = sub.add_parser("dub")
