@@ -6,12 +6,15 @@
 >
 > **Also fixed this round: `baihe-subtitler`'s root `CLAUDE.md` was broken** — two earlier pushes (`ab42d35`, `d37823a`) had written the file as a base64 string instead of decoded content (a tool-parameter misuse: `create_or_update_file`'s `content` field auto-encodes, so passing an already-base64'd string double-encoded it). Every AI session reading `CLAUDE.md` since got a gibberish blob instead of real instructions. Fixed (commit `ac5c16b`), verified byte-for-byte against the staging copy (`docs/ai-setup/CLAUDE.md`) after the fix landed.
 >
-> **Two new user-reported bugs this round, both added as steps out of numeric order:**
-> - **Step 45 (URGENT, sent)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read before sending (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`, checks for any line having a `speaker` set *before* checking translation/export status — so unsaved diarization data would explain the stuck indicator) but explicitly flagged as needing reproduction against the real drama's data before trusting that diagnosis. Sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU`.
-> - **Step 46 (not yet sent)** — dark mode is visually inconsistent: a screenshot of the Reader tab shows the sidebar/page background switching to dark while the video player card, stat boxes, the line-reading table, and the bottom bars all stay light/white. **A second, more serious confirmed instance**: Standalone Translate's "Source text (read-only)" box shows black text on a dark background — genuinely unreadable, likely every disabled/readonly text widget in the app has the same gap. Different root cause than the already-fixed Step 25t (that was a tab-bar selector silently matching nothing) — likely a broader selector-scope gap in `inject_dark_css`. Queued, ready to send.
-> - **Step 47 (not yet sent)** — Diagnostics' "Model & engine versions" panel (a different panel from Step 18c's own "Dependencies" section, which already has install buttons) has no install action for "not installed" rows and no explanation of what each model does. Queued, ready to send.
-> - **Step 48 (not yet sent)** — Live capture failed on a real YouTube URL with `DownloadError: The page needs to be reloaded`. Root cause found by direct code read: `live_translate.py`'s player-client retry loop only retries when the error message contains the literal substring "no video formats found" — this different, also-real yt-dlp/YouTube error message skips the retry loop and the helpful "try `pip install -U yt-dlp`" message entirely, failing immediately with the generic message instead. Queued, ready to send.
-> - **Step 49 (not yet sent)** — a genuine, confirmed-intermittent race in `test_background_jobs.py`'s notification test (found while re-verifying Step 34, now merged): the test's `_wait()` returns as soon as `is_running()` goes false, but `background_jobs.py` sets status *before* firing the notification (lines 206/212), so a busy full-suite run can occasionally assert too early. Test-side fix only, not a `background_jobs.py` behavior change. Queued, ready to send.
+> **Step 49 also merged this round** (PR #135) — a genuine, confirmed-intermittent race in `test_background_jobs.py`'s notification test (found while re-verifying Step 34): the test's `_wait()` returned as soon as `is_running()` went false, but `background_jobs.py` sets status *before* firing the notification, so a busy full-suite run could occasionally assert too early. Test-only fix (three tests, not just the one that visibly failed), verified by forcing the race deterministically rather than just re-running. Independently reviewed and tested by the planning session before merge, same as every other PR this round.
+>
+> **Five user-reported bugs this round, all added as steps out of numeric order — Step 45 sent, Steps 46–48 queued:**
+> - **Step 45 (URGENT, sent)** — a real drama (#5) shows the stage stepper stuck on "Diarize" despite having translated lines across 92 pages and reportedly being fully exported, and exported subtitles don't show in the player. A likely root cause was found by direct code read before sending (`_compute_workspace_stage_index()`, `tabs/workspace_tab.py:1535`) but flagged as needing reproduction against the real drama's data before trusting that diagnosis. **Real file-overlap risk with Step 24 (in flight)**, both touching `tabs/workspace_tab.py` — watch for a merge conflict when both come back. Sent to the main implementing session, `session_014zMSq3KbwPNoU1J2KseLrU`.
+> - **Step 46 (not yet sent)** — dark mode is visually inconsistent (Reader tab containers stay light/white), plus a second, more serious confirmed instance: Standalone Translate's "Source text (read-only)" box shows black text on a dark background, genuinely unreadable. Queued, ready to send.
+> - **Step 47 (not yet sent)** — Diagnostics' "Model & engine versions" panel has no install action for "not installed" rows and no explanation of what each model does. Queued, ready to send.
+> - **Step 48 (not yet sent)** — Live capture failed with `DownloadError: The page needs to be reloaded`. Root cause found by direct code read: `live_translate.py`'s retry loop only retries on the literal substring "no video formats found," so this different, also-real yt-dlp error skips the retry loop entirely. Queued, ready to send.
+>
+> **Independent verification pass completed on the three pasted review reports ("Independent repository review," "UX and product review," "Additional perspective review") — 9 of 11 checked claims confirmed real against current code, 2 false/outdated, via a dedicated research agent that read the actual files rather than trusting the reports.** Confirmed real, now added as Steps 50–55 (all immediate fixes, not later-phase): **Step 50** (reference novel sent whole/unbounded to every translation batch), **Step 51** (URGENT — `db.py` initializes the real library DB at import time, before test isolation redirects it; undermines this project's own test-safety guarantee on every `pytest` run), **Step 52** (backup restore has no ZIP size/member-count limits), **Step 53** (`start.bat`'s dependency check only verifies `streamlit` imports), **Step 54** (every translation hardcoded to "baihe (GL/yuri)" genre framing regardless of actual content), **Step 55** (`check_consistency_llm` silently swallows batch failures with no visibility). The P0 hard-delete finding was already covered by the existing Step 43 (soft-delete) — added as corroborating evidence there rather than a new step. The GPU-model-cache finding (NLLB never released by `release_gpu_models()`) folded into Step 41's existing VRAM item as a new sub-item rather than a new step. **False/outdated, no action taken**: `venv312/` is not currently staged in the repo; `.env.example`'s dotenv claim is actually true (the app has its own hand-rolled `.env` parser reading exactly the env var names it claims). None of Steps 50–55 are sent yet.
 >
 > **Still in progress, no report yet**: **Step 24** (translation memory/benchmark/library status) → sent to the main implementing session at the user's explicit direction.
 >
@@ -319,6 +322,12 @@ Rules for every milestone:
 | 47 | In Diagnostics' "Model & engine versions" panel, install a real not-installed model via its new install action and confirm the row updates; click the "?" on a few rows and confirm each explains that specific model in plain words. |
 | 48 | Start Live capture on a real YouTube stream that previously hit "The page needs to be reloaded" (or a mocked equivalent) and confirm it now retries across player clients instead of failing immediately with the generic message. |
 | 49 | Run `test_background_jobs.py::TestNotifyOnCompletion::test_failed_job_notifies_with_error_status` at least 10 times in a row (or under a stress-loop) and confirm it passes every time, not just once. |
+| 50 | Translate a batch from partway through a long novel-narration project and confirm the retrieved reference passages plausibly relate to that batch's content, not the novel's opening chapter every time. |
+| 51 | On a fresh checkout with no `library/` directory yet, run `python -c "import db"` alone and confirm no `library/` directory or `library.db` file gets created as a side effect. |
+| 52 | Attempt to restore a real, valid backup and confirm it still works normally with the new size/member limits in place. |
+| 53 | On a venv with `streamlit` importable but a different required package deliberately removed, run `start.bat` and confirm it does NOT skip the install step. |
+| 54 | Translate a non-romantic drama/VTuber stream and confirm the output doesn't show an unwarranted romantic-interpretation bias compared to before this fix. |
+| 55 | Trigger a real consistency-check failure (temporarily break one batch's input) and confirm the UI shows that some batches failed, rather than reporting a clean "no issues found." |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -2918,12 +2927,14 @@ Prompted by the same architecture proposal. Partially present already: dub clip 
 5. **A real per-stage performance profiler, confirmed genuinely missing for production jobs** (only a single-number ETA exists today; per-stage timing+cost currently only exists inside the separate, unwired benchmark tooling). Record real per-stage duration (download/extract/ASR/diarization/translation/subtitle-gen) and cost for every real job, not just benchmark runs, and surface it as a simple breakdown view.
 6. **A real priority-aware job queue, confirmed to currently be only a FIFO serialization guard** (`background_jobs.py`'s `_gpu_queue` has no priority field; the UI shows a binary "waiting" message with no queue position). Add an actual queue position display and, if useful, a basic priority/reorder control — small, additive change to the existing structure, not a rewrite.
 7. **VRAM fit-before-load check, confirmed genuinely missing** (real unload-after-use already exists via `core.release_gpu_models()`, but nothing checks whether a model will actually fit in available VRAM before attempting to load it — the existing GPU-job lock explicitly documents itself as "NOT a model manager"). Add a real fit check ahead of a load attempt, falling back to a smaller/CPU option with a clear message rather than a raw CUDA OOM error.
+8. **`core.release_gpu_models()` doesn't clear every model cache it should, confirmed by direct verification (2026-09-27).** It only clears `_whisper_model_cache`, `asr_backend._asr_model_cache`, and `forced_align._aligner_model_cache` — it never touches `translate_engines.py`'s own separate `_nllb_pipeline_cache` (~line 1068). A local NLLB translation model, once loaded, is never released by the same cleanup path ASR/diarization already use, so its VRAM stays held indefinitely on a 12GB card. Add `_nllb_pipeline_cache` to `release_gpu_models()`'s own clearing logic — small, targeted fix, not a rework of the caching pattern itself.
 
 **Exit:**
 - A test confirms the shared cache helper returns a cached result for an identical input+model+settings triple, and a fresh result once any of the three changes.
 - A test confirms a simulated mid-job interruption resumes from the last completed segment, not segment zero.
 - A test confirms per-line reproducibility metadata (model/prompt/glossary version) is retrievable for a produced line.
 - A test confirms the VRAM fit-check refuses an oversized load with a clear message rather than letting a raw CUDA OOM surface.
+- A test confirms `release_gpu_models()` actually clears `_nllb_pipeline_cache` (item 8), not just the three caches it already handled.
 - Manual check: start transcribing a long file, kill the process partway through, restart, and confirm it resumes rather than reprocessing already-done segments.
 - Manual check: open the new per-job performance breakdown after a real job and confirm the per-stage timings/costs shown are plausible against what was actually observed.
 
@@ -2947,6 +2958,8 @@ Real goal: let the app diagnose and, later, help fix itself using backends that 
 ### Step 43 — Universal soft-delete + confirm-and-review for every consequential change
 
 **Corrects a real mistake in this planning session's own first review pass.** When first reviewing the source architecture proposal, this session pushed back on "universal soft-delete-with-retention-period as a platform primitive," arguing the existing per-action confirm pattern (Step 25z) was proportionate enough for a personal app. **That disagreement was wrong** — re-reading the full source conversation at the user's explicit request (rather than the keyword-filtered subset first extracted) surfaced the user's own real message, missed in the first pass: *"Yes i would want changes to ask for confirmation and review. Rollback is always possible. There is no hard deletion for anything, only soft, which after x amount of days will be deleted completely."* This is the user's own already-stated, explicit design decision, not a proposal to weigh — this step exists to build it, not to relitigate whether it should exist.
+
+**Independently re-verified against the real current code (2026-09-27), via a dedicated verification pass — not just accepted from the source architecture review.** `db.py`'s `delete_drama()` (~line 872) runs a hard `DELETE FROM dramas WHERE id = ?`, commits, then unconditionally `shutil.rmtree()`s the drama's whole project directory — no soft-delete, no confirmation/undo path in the function itself. Every child table cascades via real `FOREIGN KEY ... ON DELETE CASCADE` declarations with `PRAGMA foreign_keys = ON` set on every connection. Confirms this step's own premise is a real, current gap, not a stale finding.
 
 1. Extend Step 25z's existing per-action confirmations (delete drama, remove audio/video, remove raw novel, clear history) from "confirm, then hard-delete" to "confirm, then soft-delete" — same confirmation UX already built, different backend behavior.
 2. Generalize this to every consequential deletion/overwrite across the app, not just the four Step 25z actions — including data any future Step 42 maintenance-assistant action might remove or overwrite.
@@ -3094,6 +3107,91 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
 **Exit:**
 - The specific test above passes reliably across at least 10 consecutive local runs (or an equivalent stress-loop), not just once.
 - A test confirms the fixed `_wait()`/assertion genuinely waits for the notification rather than for job-status alone (e.g. by artificially delaying `_notify_job_finished` in a test double and confirming the test still passes rather than racing past it).
+
+---
+
+### Step 50 — Fix: reference novel is sent whole, unbounded, to every translation batch
+
+**From the "Independent repository review" the user pasted, independently re-verified against real current code before adding this step (2026-09-27) — not accepted at face value.** Confirmed directly: `translate_engines.py`'s `build_stable_prompt()` (~line 475) takes `context.get("novel_reference")` and appends the entire string, unbounded, as `novel_block` — no chunking, no relevance retrieval, no size budget. (`core.py`'s `chunk_novel_text()` exists but is for narration/TTS audio-chunk splitting, an unrelated feature — never applied to this translation-reference path.) A long novel can consume a large fraction of every batch's context, crowd out instructions/dialogue, inflate cost, or exceed a provider's context limit outright — and it does this even when only a page or two of the novel is actually relevant to the current batch's lines.
+
+**Different bug from the existing Reflect-mode finding above (search this doc for "Reflect mode never sends the reference novel")** — that bug is the opposite problem (Reflect mode sends *none* of the reference); this one is the normal translation path sending *all* of it, unbounded, every time.
+
+1. Add bounded, relevance-based retrieval of the reference novel per batch — e.g. a simple embedding or keyword-overlap search against the current batch's source lines, returning only the most relevant passages/chapter context, with an explicit token/size budget rather than the whole file.
+2. Keep the existing glossary and nearby-line context untouched — this step only changes how the *novel reference* specifically is selected, not the rest of the prompt structure.
+3. Record which reference passages were actually used for a given batch (ties into Step 41 item 4's per-line reproducibility metadata, if that's landed by the time this is built — check first) so "why did this line translate this way" stays answerable.
+
+**Exit:**
+- A test confirms a batch's prompt includes only a bounded subset of a long reference novel, not the whole text.
+- A test confirms the retrieved passages are actually relevant to the batch's source lines (e.g. contain a shared character name/term), not an arbitrary slice.
+- Manual check: translate a batch from partway through a long novel-narration project and confirm the retrieved reference passages plausibly relate to that batch's content, not the novel's opening chapter every time.
+
+---
+
+### Step 51 — URGENT: test isolation is unsafe — `db.py` initializes the real library database at import time, before `isolated_db` redirects it
+
+**From the "Additional perspective review" the user pasted, independently re-verified against real current code (2026-09-27) — confirmed as a genuine, current safety hazard, not a stale finding.** `tests/conftest.py` imports `db` at module load (line 18). `db.py` runs `os.makedirs(DRAMAS_DIR, exist_ok=True)` at import time AND an unconditional `init_db()` call at module level (~line 2569) — both executed against the REAL `LIBRARY_DIR`/`DB_PATH` before any test's `isolated_db` fixture has a chance to call `db.configure_library_dir()` and redirect it. Since every test file imports `db` directly or via `conftest.py`, simply running `pytest` can touch/initialize the checkout's real `library/library.db` before test isolation ever kicks in — directly contradicting this repo's own standing rule that tests never touch a real library folder.
+
+**Urgent because it undermines the safety of this project's own test suite**, which every implementing session in this repo runs before every push — the risk isn't hypothetical, it's live on every `pytest` invocation in every checkout.
+
+1. Move `db.py`'s import-time side effects (the `os.makedirs` and the unconditional `init_db()` call) out of module-load time — either lazy-init on first real use, or gate them behind an explicit `db.configure_library_dir()`/first-real-call check, so importing the module alone never touches disk.
+2. Confirm this doesn't break the app's own normal (non-test) startup path, which presumably relies on `db.py` being ready to use immediately after import — check every real call site, not just tests.
+3. Keep the fix scoped to removing the import-time side effect; don't restructure `db.py`'s init/schema logic beyond what's needed.
+
+**Exit:**
+- A test confirms `import db` alone, with no `configure_library_dir()` call, does NOT create or touch any file under the real (non-test) library path.
+- A test confirms the existing `isolated_db` fixture still works correctly after this change — no regression to the isolation it already provides once it runs.
+- Manual check: on a fresh checkout with no `library/` directory yet, run `python -c "import db"` alone (not the full app, not pytest) and confirm no `library/` directory or `library.db` file gets created as a side effect.
+
+---
+
+### Step 52 — Fix: backup restore extracts a ZIP archive with no size/member-count limits
+
+**From the "Additional perspective review," independently re-verified (2026-09-27).** `tabs/library_tab.py`'s `restore_library_backup()` (~line 35) checks that `"library.db"` is present in the archive and that `zf.testzip()` passes, then calls `zf.extractall(staging_dir)` with no cap on total expanded size, per-file size, or member count. A crafted or simply oversized backup archive (a zip bomb, or an honestly-huge but malformed one) can consume unbounded disk space during restore, with no guard.
+
+1. Add explicit limits before extraction: a maximum total expanded size, a maximum per-file size, and a maximum member count — reject the restore with a clear message if any is exceeded, rather than extracting first and failing/filling disk partway through.
+2. Since this is a personal, single-user app where the user creates their own backups, this doesn't need to defend against a malicious third party specifically — but it should still defend against a corrupted or accidentally-huge backup file failing safely instead of filling the disk.
+
+**Exit:**
+- A test confirms a ZIP crafted to expand far beyond a reasonable size limit is rejected before extraction, with a clear message, not partway through with a full disk.
+- Manual check: attempt to restore a real, valid backup and confirm it still works normally with the new limits in place (the limits shouldn't be so tight they reject legitimate backups).
+
+---
+
+### Step 53 — Fix: `start.bat`'s dependency check only verifies `streamlit` imports, not the full dependency set
+
+**From the "Additional perspective review," independently re-verified (2026-09-27).** The gate deciding whether to run `pip install -r requirements-core.txt` is solely `python -c "import streamlit"` succeeding. A stale or partially-installed venv where `streamlit` happens to still import, but another required package is missing or `requirements-core.txt` has since added a new package, causes the launcher to skip installation entirely and fail later with a less clear error — the same general class of gap Step 18/18c's own CUDA-mismatch work already found once for `torch` specifically (a package "importing" isn't the same claim as "everything needed is actually present and correct").
+
+1. Check more than just `streamlit` — either verify each required package imports, or use a more reliable freshness signal (e.g. compare `requirements-core.txt`'s hash/mtime against a marker file from the last successful install) before deciding to skip the install step.
+2. Keep this scoped to the install-skip decision specifically — don't rework `start.bat`'s broader structure.
+
+**Exit:**
+- Manual check: on a venv with `streamlit` importable but a different required package deliberately removed, run `start.bat` and confirm it does NOT skip the install step — the missing package gets installed rather than the launcher proceeding straight to a later, less clear failure.
+
+---
+
+### Step 54 — Fix: every translation is hardcoded to "baihe (GL/yuri)" genre framing regardless of the project's actual content
+
+**From the "Independent repository review," independently re-verified (2026-09-27).** `translate_engines.py:370`: `f"You are translating {source_language_name} baihe (GL/yuri) {medium} into natural, idiomatic English subtitles."` — this exact genre framing is hardcoded into every translation prompt, for every drama, with no branching on the project's actual genre/content-type metadata. This app's core use case is baihe/yuri content, so this default made sense originally, but as the app has grown to cover VTuber streams, general dramas, novels, and other content types (per this roadmap's own many non-baihe-specific steps), a hardcoded romantic-genre framing risks biasing translation of unrelated content toward romantic interpretation it shouldn't have.
+
+1. Make the genre/content framing conditional on the project's actual metadata (content type, genre tags if any exist) rather than a single hardcoded string — falling back to the current baihe framing only when the project genuinely is baihe/yuri content, or leaving it genre-neutral by default otherwise.
+2. Keep existing baihe-content translation quality unaffected — this is about not mis-applying the framing elsewhere, not weakening it for its actual intended use case.
+
+**Exit:**
+- A test confirms a baihe-tagged (or default/unset) project's prompt still includes the baihe framing, and confirms a project with different genre metadata does not get that framing applied.
+- Manual check: translate a non-romantic drama/VTuber stream and confirm the output doesn't show an unwarranted romantic-interpretation bias that a baihe-framed prompt would tend to introduce, compared to before this fix.
+
+---
+
+### Step 55 — Fix: `check_consistency_llm` silently swallows batch failures with no visibility to the caller
+
+**From the "Independent repository review," independently re-verified (2026-09-27).** `translate_engines.py` (~line 1267): `try: ... except Exception: continue  # a check failing shouldn't block anything -- just skip that batch`. The intent (don't let one bad QC batch block the whole check) is reasonable, but the failure is completely silent — no count of skipped/failed batches is returned or surfaced anywhere, so a QC run that silently failed on every batch would look identical in the UI to one that genuinely found nothing.
+
+1. Track and return a count (or list) of skipped/failed batches alongside the normal results, and surface it in whatever UI calls this (Review tab's consistency-check button) — e.g. "Checked 8 batches, 6 succeeded, 2 failed to check (see log)" instead of a bare "no issues found" that can't be distinguished from a partially-broken run.
+2. Keep the underlying behavior (one bad batch doesn't block the others) unchanged — this is about visibility, not changing what happens on a failure.
+
+**Exit:**
+- A test confirms a mocked batch failure is counted and surfaced in the function's return value, not silently dropped.
+- Manual check: trigger a real consistency-check failure (e.g. temporarily break one batch's input) and confirm the UI shows that some batches failed, rather than reporting a clean "no issues found."
 
 ---
 
@@ -3272,6 +3370,12 @@ This is a **test-side timing bug, not a defect in `background_jobs.py` itself** 
   | 47 — Fix: Model & engine versions panel has no install action or explanation | — | Not started | — |
   | 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize | — | Not started | — |
   | 49 — Fix: `test_background_jobs.py`'s notification test has a genuine race window | `fix-flaky-notify-on-completion-tests` | ✅ Merged (PR #135) | ⏳ Pending |
+  | 50 — Fix: reference novel sent whole, unbounded, to every translation batch | — | Not started | — |
+  | 51 — URGENT: test isolation unsafe, `db.py` initializes real DB at import time | — | Not started | — |
+  | 52 — Fix: backup restore has no ZIP size/member-count limits | — | Not started | — |
+  | 53 — Fix: `start.bat` dependency check only verifies `streamlit` imports | — | Not started | — |
+  | 54 — Fix: hardcoded "baihe (GL/yuri)" genre framing on every translation | — | Not started | — |
+  | 55 — Fix: `check_consistency_llm` silently swallows batch failures | — | Not started | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
