@@ -523,7 +523,7 @@ def clone_map_uses_local_model(character_clone_map: dict) -> bool:
                for v in (character_clone_map or {}).values())
 
 
-def extract_reference_clips(audio_path: str, lines, speaker_segments, drama_dir: str,
+def extract_reference_clips(audio_path: str, speaker_segments, drama_dir: str,
                              min_duration: float = 3.0, max_duration: float = 12.0):
     """For each detected speaker, finds one reasonably clean, isolated
     segment of their voice (not overlapping another speaker) to use as
