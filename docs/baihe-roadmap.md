@@ -3377,6 +3377,8 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 - Manual check: on a real machine without Deno installed, click the new Deno install action and confirm `deno --version` works afterward (after a terminal restart if the app's own message said one was needed).
 - Manual check: on a real environment, click "Install everything in `requirements-optional.txt`" with `audio-separator` deliberately left in (reproducing Step 61's own failure) and confirm the bulk action reports that one package's failure clearly while still installing everything else in the file.
 
+**Built, reviewed, and merged (2026-09-27, PR #160).** Independent review: diff read in full, confirmed `_run_pip_stream`'s refactor stays backward-compatible with existing callers. Real conflict against Step 61 (both touched `tests/test_install_buttons.py`, a pure interleaving resolved by concatenating both complete class sets) plus a real cross-branch test-scoping collision only visible once combined (Step 61's own test checked captions page-wide for "diffq-fixed," but Step 62's bulk-install caption mentions that string as an example regardless of Python version — narrowed to the audio-separator row's own caption). Combined suite clean (3147 passed, 49 skipped, 0 failed), CI green.
+
 ---
 
 ### Step 63 — Three small findings from Steps 50/53/56, bundled: dead code in `build_llm_instructions()`, `start.ps1` sharing Step 53's stale-import gate, and a stale duplicate root `conftest.py`
