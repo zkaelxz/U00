@@ -119,7 +119,8 @@ def render_reader_tab():
                 st.caption("AI narration")
                 st.audio(narration_path)
 
-    prog = db.get_progress(rdrama["id"])
+    profile_id = get_active_profile_id()
+    prog = db.get_progress(rdrama["id"], profile_id=profile_id)
     est = (story_context.estimate_listening_time(rlines) if rdrama.get("media_type") in
            ("audio_drama", "video_drama", "asmr")
            else story_context.estimate_reading_time(rlines))
@@ -140,7 +141,7 @@ def render_reader_tab():
 
     if page_lines:
         _last_idx = page_lines[-1].idx
-        db.save_progress(rdrama["id"], last_line_idx=_last_idx, last_page=int(page),
+        db.save_progress(rdrama["id"], profile_id=profile_id, last_line_idx=_last_idx, last_page=int(page),
                          percent_complete=story_context.compute_percent_complete(_last_idx, len(rlines)))
 
     cache_key = f"reader_defs_{rdrama['id']}_{page}"
@@ -368,13 +369,18 @@ def render_reader_tab():
 
     st.divider()
     with st.expander("🗒️ My notes"):
+        # Step 26e: notes are private per profile now, not one field shared
+        # by everyone with access to this drama -- the widget key includes
+        # profile_id too, or switching profiles wouldn't refresh this box
+        # (Streamlit only applies `value=` on a widget key's very first
+        # render, same bug common.py's synced_api_key_input documents for
+        # API keys).
         notes_val = st.text_area("Private notes on this drama",
-                                  value=rdrama.get("personal_notes") or "", height=100,
-                                  key=f"pnotes_{rdrama['id']}")
+                                  value=db.get_personal_notes(rdrama["id"], profile_id=profile_id),
+                                  height=100, key=f"pnotes_{rdrama['id']}_{profile_id}")
         if st.button("Save notes"):
-            db.update_drama(rdrama["id"], personal_notes=notes_val)
+            db.save_personal_notes(rdrama["id"], notes_val, profile_id=profile_id)
             st.success("Saved.")
-
 
     st.divider()
     with st.expander("📇 Vocabulary export"):

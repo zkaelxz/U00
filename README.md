@@ -132,8 +132,10 @@ aren't, then opens the app in its own window (Edge's app mode, falling
 back to Chrome or your default browser). Running it again just reopens
 the window if the app's already running. `uninstall.bat` removes the
 shortcut and virtual environment, and asks separately (defaulting to
-**no**) before it will touch your library. See "Portable mode" below if
-you want to run the whole app from a USB stick or move it between
+**no** each time) before it will touch your library or check your
+user-level PATH for ffmpeg/Tesseract entries you may have added by hand
+during setup. See "Portable mode" below if you want to run the whole
+app from a USB stick or move it between
 machines.
 
 Everything below this also works the same way on macOS/Linux, or if you
@@ -697,9 +699,15 @@ sentence as that line's text. For back-to-back dialogue or internal
 monologue with short pauses, this routinely swallows several real
 lines into one oversized block (one real case: a single "line" spanning
 6.4 minutes). Workspace -> Recognition accuracy has a **speech-splitting
-sensitivity** slider (default 2000ms) -- lower it to 500-1000ms if this
-is happening. There's no universally correct value: too low starts
-splitting mid-sentence on normal pauses instead.
+sensitivity** slider (default 300ms, range 300-3000ms) that already
+starts a new line at almost any real pause, so this specific problem is
+largely solved out of the box. If a title still shows it -- pauses
+shorter than 300ms, or genuinely continuous speech with no pause at all
+-- see the VAD-sensitivity and word-level re-split fixes below instead
+of lowering this slider further (300ms is already its floor). Raise it
+(1000ms+) only for the opposite problem: a drama with long natural
+pauses where lines are splitting mid-thought because it's too
+sensitive.
 
 **Quiet dialogue missing, or noise/music producing phantom lines**:
 Workspace -> Recognition accuracy also has a **speech detection
@@ -796,6 +804,13 @@ Since there's no source audio to align to, line timings are set to the
 actual duration of each generated TTS clip once you run narration
 generation — download the `.srt` *after* generating the track, not
 before, so timings match.
+
+**EPUB import/export**: in novel-narration mode's content source, you
+can import chapters directly from an `.epub` you own instead of pasting
+text or using OCR (needs `ebooklib`/`beautifulsoup4`). Export subtitles
+offers the reverse for a finished novel-narration drama: download the
+translation as a proper `.epub` for any e-reader, alongside the
+audiobook export below.
 
 ## Dubbing & voice cloning
 
@@ -908,16 +923,6 @@ Install what you need: `pip install jieba pypinyin` for Chinese,
 `pip install sudachipy sudachidict_core pykakasi` for Japanese,
 `pip install kiwipiepy` for Korean.
 
-- **Bulk import from listing pages**: extract many entries at once
-  from a tag/category or ranking page (e.g. JJWXC's Baihe tag listing,
-  Fanjiao's ranking page) -- title, author, tags, and whether an audio
-  drama adaptation exists, never the actual content. Supports paginated
-  listings (one URL per page). Always shows a review/edit table before
-  committing anything to your library.
-- **EPUB import/export**: import chapters directly from an .epub you
-  own (novel-narration mode), or export finished translations as a
-  proper .epub for any e-reader.
-
 **Follow-along playback**: with click-to-seek enabled, the line
 currently being spoken is highlighted and scrolled into view as the
 audio plays, with a toggle to stop auto-scrolling. This only works with
@@ -986,6 +991,17 @@ Per-line operations in the Reader, for polishing rather than batch work:
 - **🔊 Pronounce** — hear a name or phrase in the *source* language
 - **Improve this line** — targeted rewrite; applying it also feeds the
   adaptive style profile
+- **Re-transcribe this line** — re-runs Whisper on just that line's own
+  audio window, for a single mistranscribed line without redoing the
+  whole file
+
+**Ask about this drama**: a chat box, grounded only in the lines
+you've loaded so far, for open-ended questions about the story — needs
+an API key entered on this tab, same as the tools above.
+
+**Vocabulary export**: see the Features section above (Anki-importable
+CSV or a proper `.apkg` deck) — available from this tab for whatever
+words you've looked up or queued while reading.
 
 ### Library experience
 
@@ -1002,6 +1018,18 @@ The app is meant to feel like a proper library, not a folder of files.
 - Custom user-defined tags, filterable in the Library
 - Private personal notes per drama, editable from Workspace or Reader
 - Reading/listening time estimates (word count for text, real duration for timed audio)
+
+**Dashboard**: totals across the whole library — translated-line count, API call count, estimated spend, prompt-cache-hit rate, status/media-type breakdowns, and a per-drama cost table.
+
+**Series**: dramas that share a glossary or character list (2+ per series) get a consolidated view with a one-click jump into Workspace.
+
+**Search & bulk actions**: a global search box across every drama's original and translated lines (not just titles), plus a filterable table with a checkbox column for bulk status changes, bulk delete (behind a confirm checkbox), and bulk translate — which skips any drama missing an API key, lines, or already running, and reports the skip count.
+
+**Export all as .zip**: bundles subtitle files (and dub tracks, where generated) for every translated/dubbed/exported drama in one download.
+
+**Backup & restore**: a database-only snapshot, or a full zip of the database plus media (streamed to disk rather than held in memory, so it scales to a large library). Restoring validates the zip before touching anything and needs a confirm checkbox. Signed-in browser sessions from the Sources tab aren't included — you'll need to sign back in after a restore.
+
+**Presets**: saved Workspace configurations (engine, style, locale, pronoun default) can be renamed or deleted from the Library tab.
 
 **Translation versions**
 - Every translation run is saved as a named version tagged with its engine and model
@@ -1088,6 +1116,16 @@ drama record in your working Library, pre-filled with whatever
 metadata was captured, ready for the normal align/translate/dub
 pipeline.
 
+**Bulk import from a tag/ranking listing page**: paste one or more
+listing-page URLs (e.g. JJWXC's Baihe tag listing, Fanjiao's ranking
+page) to extract many entries at once -- title, author, tags, and
+whether an audio drama adaptation exists, never the actual content.
+Supports paginated listings (one URL per page). If a site needs JS
+rendering to show its listing and Playwright isn't installed, a
+"paste the page text yourself" fallback appears instead of failing
+outright. Always shows a review/edit table before committing anything
+to your library.
+
 ### Known-site registry
 
 `known_sites.py` holds a small curated list of well-known, official/
@@ -1145,25 +1183,46 @@ Hybrid workflow: auto-detect speech bubbles → auto-clean the original
 text → auto-translate and place text → review/adjust each bubble
 before final render.
 
-1. Upload page image(s) for a drama (any drama, doesn't need audio).
-2. Click **Detect bubbles + auto-clean + auto-translate**. This uses:
-   - `detect_bubbles_cv()` — a free, local OpenCV heuristic (looks for
-     large light-colored regions with a clear border). Works well on
-     clean scans with typical white bubbles; misses irregular or
-     borderless bubbles.
-   - OCR per bubble (manga-ocr for Japanese, Tesseract otherwise).
+1. Upload page image(s) or a PDF for a drama (any drama, doesn't need
+   audio) — a checkbox can slice tall webtoon strips into pages first.
+2. Pick a **bubble detection** backend and an **OCR** backend, or leave
+   both on Auto. Click **Detect bubbles + auto-clean + auto-translate**
+   (or expand **Batch** to run the same pipeline over a whole chapter,
+   carrying translation context forward). This uses:
+   - **Detection** — `detect_bubbles_cv()`, a free, local OpenCV
+     heuristic (looks for large light-colored regions with a clear
+     border; works well on clean scans with typical white bubbles,
+     misses irregular or borderless ones), or `detect_bubbles_ml()`, a
+     trained detector (`ogkalu/comic-text-and-bubble-detector` on
+     Hugging Face; needs `transformers`+`huggingface_hub`, downloads
+     the model on first use) for meaningfully better accuracy.
+   - **OCR** — five backends: manga_ocr and two PaddleOCR variants
+     (best for Japanese), Tesseract, or Auto (picks by language).
    - Translation via whichever engine you've selected.
-3. Review the bubble table: adjust x/y/w/h, font size, translated
-   text, or check "skip" for false positives. Add missed bubbles
-   manually with the expander below the table.
+3. Review the bubble table: adjust x/y/w/h, font size, region type
+   (bubble/SFX/sign/etc.), source/translated text, or check "skip" for
+   false positives or bubbles you don't want auto-translated (SFX is
+   excluded by default). Add missed bubbles manually — drawing a box
+   OCRs it on demand.
 4. Click **Render typeset page** to inpaint (erase original text) and
-   draw the translated text into each bubble, then download the result.
+   draw the translated text into each bubble, then download the
+   result — or use **Bulk render** to render a whole chapter to a
+   ZIP/PDF at once.
+
+**Also available:**
+- **Custom fonts** — upload `.ttf`/`.otf` files per style category for
+  rendering.
+- **Manual erase/heal brush** — paint over art the auto-clean missed
+  (needs `pip install streamlit-drawable-canvas`; degrades to a
+  warning if that package or your Streamlit version doesn't support it).
+- **Bulk find & replace** — across every saved bubble in a drama, with
+  a preview before applying.
+- **Export detected font styles** — as JSON, for reuse.
 
 **Known limitations:**
-- Detection is a heuristic, not a trained model — it works best on
-  clean scans with solid white bubbles and clear borders. Irregular
-  bubble shapes, sound effects, or borderless text will need manual
-  boxes.
+- The default CV detector works best on clean scans with solid white
+  bubbles and clear borders. Irregular bubble shapes, sound effects, or
+  borderless text will need manual boxes or the ML detector.
 - Inpainting uses OpenCV's built-in algorithm (no ML model) — works
   well on plain backgrounds, less well on bubbles with patterns/gradients.
 - Text rendering is horizontal only — no vertical CJK layout (that's
@@ -1172,10 +1231,6 @@ before final render.
   reading it (a round or thick-bordered bubble can otherwise make OCR
   return nothing at all) — always double check the OCR'd source text
   in the review table before translating.
-- For meaningfully better detection accuracy, `scanlate.py` has a
-  `detect_bubbles_ml()` hook where a real trained detector (e.g.
-  `ogkalu/comic-text-and-bubble-detector` on Hugging Face) can be
-  wired in.
 
 ## Metadata & site tools
 
@@ -1474,11 +1529,36 @@ confirming a fresh install is working before you start real work.
 A dedicated 🩺 tab that reports, in one place:
 - Python version and whether ffmpeg is on PATH
 - Which optional dependencies are actually installed, grouped by what
-  they power (core / translation engines / optional features)
+  they power (core / translation engines / optional features), with an
+  inline install button for anything missing
 - Whether every expected project file is present -- the usual cause of
   a cryptic `ModuleNotFoundError` after a partial download
 - Which API keys are currently configured
 - Whether the library directory is writable
+
+None of the above appears until you click "🔍 Run diagnostics" -- the
+tab is empty on load.
+
+The same tab also holds:
+- **Running jobs** -- a live view of every background job across the
+  whole app (translate, transcribe, dub, diarize, Live capture, etc.)
+  with progress bars and a per-job cancel button.
+- **Downloaded model cache** -- lists Hugging Face cache entries
+  (Whisper, pyannote, TTS models) with size and a delete button per
+  revision.
+- **Model & engine versions** -- installed versions per engine/model,
+  plus a one-click GPU PyTorch install if it detects an NVIDIA GPU with
+  only CPU PyTorch installed.
+- **pyannote gated model access** -- an on-demand check (only makes a
+  network call when you click it) that your Hugging Face token can
+  actually access the diarization model, separate from just having a
+  token set.
+- **App Assistant** -- a chat box (needs its own API key) that answers
+  "where is X" questions about the app itself, with a button to copy a
+  bundled Q&A + diagnostics report for a developer.
+- **Copy diagnostics for support** -- a redacted, one-click copyable
+  report (strips API keys, paths, and username).
+- **Log** -- the last 50 lines of the app's own log file.
 
 Run this first whenever something isn't working. The same tab holds
 the "Reset everything" danger-zone button described in
