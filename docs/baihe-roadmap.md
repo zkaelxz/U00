@@ -12,6 +12,8 @@
 >
 > **Three architecture-conversation re-checks this round, at the user's request, all verified against real current step text rather than assumed** — full detail lives in each affected step's own section (Steps 37, 38, 41, 42, 43, 44, plus new Steps 57–60); the short version: most of the source material was already captured, spread across existing steps rather than named as one epic. Real gaps found and fixed: **Step 57** (formalizes a 🟢/🟡/🔴 action-permission-tier classification), **Step 58** (a "what happened here?" per-segment and per-job debugging view, plus bug record-and-replay), **Step 59** (a Media/Project Inspector), **Step 60** (multi-agent/cross-provider review for the maintenance assistant, added after the user explicitly asked for it once initially left out as "too speculative"), plus widened items on Steps 37, 38, 41, 42, 43, 44.
 >
+> **Step 72 added (2026-09-27)** — a pasted architecture diagram's "Integrations" box named Jellyfin/Discord/ntfy/GitHub/Sonarr/Radarr; checked each against the real roadmap before writing anything: Jellyfin is already Step 39, Discord/ntfy already Step 44, Sonarr/Radarr was already researched and explicitly rejected once (`sublarr`, a different product shape — see its own §6 note). GitHub specifically was the one real, uncovered gap: a way to deliver Step 42/60's future maintenance-assistant proposed fixes as real GitHub PRs instead of only an in-app diff. Hard-gated on Step 42 existing first, same as Step 60 already is — not sendable yet.
+>
 > None of Steps 57–60 sent yet.
 > **Still in progress, no report yet**: **Step 24** (translation memory/benchmark/library status) → sent to the main implementing session at the user's explicit direction.
 >
@@ -341,6 +343,7 @@ Rules for every milestone:
 | 69 | With a real background translation job running, deliberately trigger a transient db error in that job and confirm the app's main thread doesn't start seeing "database is locked" errors on unrelated saves afterward. |
 | 70 | Decided (2026-09-27): no action — user reviewed and jointly green-lit this design. Not pending. |
 | 71 | Attempt to delete a saved translation version, a preset, a glossary term (single and bulk), a series character, and a saved bug bundle, and confirm each now requires a confirm step before it's actually deleted. |
+| 72 | Once Step 42 exists and produces a real proposed fix, confirm clicking "Deliver as GitHub PR" opens an actual, reviewable PR on the configured repo with the exact diff shown in-app; also confirm the integration makes no GitHub calls at all while disabled or with no token set. |
 
 ### Step 1 — R5: Translation fixes *(highest user impact)*
 - Ask for id-keyed JSON output (`{"<id>": "<translation>"}`), check that the returned ids match the batch, and retry the missing ones. Remove positional `zip()` mapping.
@@ -3544,6 +3547,22 @@ This is a genuinely useful support/debugging feature independent of the AI-maint
 **Exit:**
 - Manual check: attempt to delete a saved translation version and confirm a single click no longer immediately deletes it — a confirm step is required first, same as drama delete.
 - Manual check: attempt each of the other three deletes (preset, glossary term — single and bulk, series character, bug bundle) and confirm each now requires the same confirm step.
+
+---
+
+### Step 72 — GitHub integration: deliver the maintenance assistant's proposed fixes as real PRs
+
+**Prompted by a pasted architecture diagram (2026-09-27) whose "Integrations" layer named Jellyfin, Discord, ntfy, GitHub, and Sonarr/Radarr.** Checked each against the real roadmap before writing anything: Jellyfin is already Step 39, Discord/ntfy already Step 44, and Sonarr/Radarr was already researched and explicitly rejected once (`sublarr` — a GPL library-wide *arr-ecosystem subtitle manager, a genuinely different product shape from Baihe's per-drama workspace; see its own §6 note). **GitHub specifically was the one real gap** — not covered anywhere in this roadmap. The diagram gives no detail beyond the label, so the scope below is reasoned from the one concrete, already-established use case this roadmap actually has for it: Step 42/60's future AI maintenance assistant proposes fixes as isolated-branch diffs (Step 57's 🟡 tier — "always happens on an isolated branch/worktree first, shown as a diff, never applied directly"); the natural next step is letting the user review that as a real GitHub PR on their own schedule instead of only inside the app. This mirrors exactly how this planning session's own review-gate process already works (fetch → diff → PR → merge) — offered here as an in-app capability once Step 42 exists.
+
+1. Add a "GitHub" entry under Settings → Integrations, matching the pattern Step 39's Jellyfin entry and Step 44's Discord/ntfy entries already establish: a repo URL/path and a personal access token, a "Test Connection" action, default OFF. Reuse the existing credential-storage pattern already used for every other API key in Settings — no new secrets-handling mechanism.
+2. Wire it as an alternate delivery/output path for Step 42/60's proposed fixes: instead of (or in addition to) showing a diff inside the app, open a real branch and PR against the user's own configured repo. **Never push directly to a default/main branch** — always a PR, matching Step 57's 🟡 tier exactly; this is additive delivery, not a way to bypass that tier's own review step.
+3. **Hard dependency, not a standalone feature**: this cannot be built before Step 42 (the assistant that actually produces the proposals this step delivers) exists and has been used/trusted — same build-order gating Step 60 already states for itself. Don't dispatch this step before Step 42 lands.
+4. **Explicitly out of scope for v1**: reading or triaging the user's other GitHub issues/PRs, or any GitHub automation unrelated to the maintenance assistant's own proposed fixes. This is a narrow, single-purpose delivery channel, not a general-purpose GitHub client.
+
+**Exit:**
+- A test confirms a mocked proposed-fix diff results in a real branch + PR created against the configured repo, never a direct push to the default branch.
+- A test confirms the integration stays inert (no GitHub calls) until explicitly enabled and a token is set, same as Jellyfin/Discord's own default-OFF behavior.
+- Manual check: once Step 42 exists and produces a real proposed fix, confirm clicking "Deliver as GitHub PR" opens an actual, reviewable PR on the configured repo with the exact diff shown in-app.
 
 ---
 
