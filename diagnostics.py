@@ -74,7 +74,7 @@ OPTIONAL_DEPENDENCIES = {
     "f5_tts": ("f5_tts", "local voice cloning", "feature"),
     # Keys are the real pip names -- Diagnostics' Install button runs
     # `pip install <key>`. These three can't share one environment (see
-    # requirements.txt), which the descriptions say before anyone clicks.
+    # requirements-optional.txt), which the descriptions say before anyone clicks.
     "omnivoice": ("omnivoice", "local voice cloning + voice design (OmniVoice; can't share an "
                                "install with Chatterbox/TADA)", "feature"),
     "chatterbox-tts": ("chatterbox", "emotion-aware local voice (Chatterbox; adds a PerTh "
