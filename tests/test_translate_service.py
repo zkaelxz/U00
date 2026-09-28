@@ -1,12 +1,16 @@
 """
-Tests for services/translate_service.py -- Migration Slice 11's read-only
+Tests for services/translate_service.py: Migration Slice 11's read-only
 "list engines" / "list history" half of the standalone translate tool
-(tabs/translate_tab.py). Actually translating and clearing history are
-deferred to a later slice and aren't covered here.
+(tabs/translate_tab.py), and Migration Slice 13's translate() action.
+Clearing history is still deferred to a later slice and isn't covered here.
 """
+
+import pytest
 
 import translate_engines
 from services import translate_service
+from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+                                      UnsupportedOperationError)
 
 
 def _write_env(tmp_path, contents):
@@ -84,3 +88,44 @@ def test_list_history_respects_limit(isolated_db):
         db.save_translate_history("zh", "en", "test_offline", f"src-{i}", f"out-{i}")
     history = translate_service.list_history(limit=2)
     assert len(history) == 2
+
+
+class TestTranslate:
+    def test_test_offline_produces_deterministic_output_and_saves_history(self, isolated_db):
+        result = translate_service.translate("你好", "test_offline", "zh", "en")
+        assert result == {"translated_text": "[TEST] 你好"}
+        history = translate_service.list_history()
+        assert len(history) == 1
+        assert history[0]["engine"] == "test_offline"
+        assert history[0]["translated_text"] == "[TEST] 你好"
+
+    def test_unknown_engine_is_invalid_input(self, isolated_db):
+        with pytest.raises(InvalidInputError):
+            translate_service.translate("hi", "not_a_real_engine", "zh", "en")
+
+    def test_unsupported_direction_is_refused(self, isolated_db):
+        # libretranslate en->zh is explicitly refused by
+        # standalone_direction_support -- see translate_engines.py.
+        with pytest.raises(UnsupportedOperationError):
+            translate_service.translate("hello", "libretranslate", "en", "zh")
+
+    def test_missing_key_raises_dependency_unavailable(self, isolated_db, tmp_path, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("BAIHE_CLAUDE_KEY", raising=False)
+        with pytest.raises(DependencyUnavailableError):
+            translate_service.translate(
+                "hi", "claude", "zh", "en", env_path=str(tmp_path / "no-such-.env"))
+
+    def test_resolve_api_key_nllb_is_none_not_missing(self):
+        # nllb has no ENV_NAMES entry at all -- resolve_key returns None for
+        # it, and translate() must not treat that as a "missing key" the
+        # way it would for claude/deepseek/etc. (checked in translate()'s
+        # own `api_key is None and engine_name != "nllb"` guard).
+        assert translate_service._resolve_api_key("nllb") is None
+
+    def test_resolve_api_key_test_offline_is_literal_offline(self):
+        assert translate_service._resolve_api_key("test_offline") == "offline"
+
+    def test_resolve_api_key_ollama_defaults_to_local(self, tmp_path):
+        env_path = _write_env(tmp_path, "")
+        assert translate_service._resolve_api_key("ollama", env_path) == "local"
