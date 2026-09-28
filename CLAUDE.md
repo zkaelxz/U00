@@ -236,14 +236,49 @@ screenshot specifically if it wants one.
   push to trigger CI once for the PR/merge-required checks, not once
   per intermediate edit.
 - **Avoid duplicate runs**: batch related commits into one push rather
-  than pushing each small edit separately, and cancel a superseded run
-  (an earlier commit's CI still going after a newer push replaces it)
-  when it's safe to — i.e. when nothing depends on that specific run's
-  own result finishing.
+  than pushing each small edit separately. Both workflows also cancel
+  their own superseded runs automatically (`concurrency:` with
+  `cancel-in-progress: true`, on `${{ github.workflow }}-${{
+  github.ref }}`) — checked safe for this repo specifically because
+  neither `tests.yml` nor `windows-bootstrap.yml` does anything
+  irreversible mid-run (no deployment, no publish step); re-check that's
+  still true before adding a workflow that does, and don't rely on
+  auto-cancellation for a run whose own completion something else
+  depends on (a release, a required deployment gate) — those need it
+  turned off for that job, not just assumed safe.
 - **Never weaken a check to save minutes.** Skipping, shortening, or
   narrowing a required check or real test coverage to cut CI cost is
   not an acceptable trade — minutes are cheaper than a regression a
   weakened check would have caught.
+- **Set each job's `timeout-minutes` from its own real observed
+  duration, not a guess.** `test`/`frontend` (`tests.yml`) and
+  `bootstrap` (`windows-bootstrap.yml`) already carry one, sized from
+  actual GitHub Actions run history (roughly 2-3x the slowest observed
+  run, not a round number picked on instinct) — re-derive it the same
+  way (`actions_list`/`actions_get`'s workflow-run and workflow-job
+  methods, not the workflow file's own step count) if runtime shifts
+  meaningfully, rather than leaving a stale number or widening it
+  without checking first.
+- **Job grouping (merging jobs to cut per-job startup overhead) is not
+  worth reviewing at this repo's current job count** (2 in `tests.yml`,
+  1 in `windows-bootstrap.yml`) — each already does one coherent thing,
+  and merging any of them would cost the failure-isolation and
+  parallelism a split gives, for a few seconds of saved startup at most.
+  Revisit only if CI actually grows several more small jobs, and
+  benchmark the real before/after duration then — don't merge jobs on
+  a hunch that it should be faster.
+- **Caching a dependency install is only worth it if the measured
+  install time clearly exceeds the cache's own restore+save overhead.**
+  Checked directly for this repo (2026-09-28): `tests.yml`'s Python
+  installs (`pip install -r requirements-core.txt ...`) measured ~20-26
+  seconds across several real runs — short enough that a cache's own
+  round-trip overhead likely meets or exceeds what it would save, so
+  none was added. `frontend`'s `npm ci` already caches via
+  `actions/setup-node`'s built-in `cache: npm` and stays that way. If a
+  requirements file grows enough to push the Python install past
+  roughly a minute, re-measure before adding `actions/cache`/
+  `setup-python`'s own `cache: pip` — don't add one on the assumption
+  that caching is free.
 - **Before changing triggers, matrices, concurrency limits, or caching**
   in a workflow file, inspect which jobs are actually consuming the
   minutes (the billing usage page's own per-workflow/per-job breakdown,

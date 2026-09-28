@@ -29,9 +29,26 @@ on:
       - constraints.txt
       - check_setup.py
 
+# Cancel a still-running CI run for the same branch/PR once a newer push
+# supersedes it -- checked safe: this repo has no deployment/release
+# workflow whose in-flight run a cancellation could interrupt, just this
+# and tests.yml's own validation workflow, so there's nothing here a
+# mid-run cancel loses. windows-latest runners bill at a 2x multiplier
+# (see CLAUDE.md's GitHub Actions minutes section), so a superseded run
+# here is worth cancelling promptly.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Real observed duration (GitHub Actions run history, 2026-09-28, 6
+  # runs): consistently ~1m08s-1m20s. 10 minutes gives real headroom for
+  # slower Windows-runner provisioning/startup without leaving a hung
+  # `start.bat --ci` (which, unfixed, would otherwise wait on a server
+  # that never answers) to run indefinitely on the more expensive runner.
   bootstrap:
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
