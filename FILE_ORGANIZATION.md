@@ -235,8 +235,11 @@ baihe-subtitler/
 │   │                             stored consistency issues, emotion summary, edit tendencies,
 │   │                             TM suggestions; enforces drama ownership itself; no writes/LLM
 │   ├── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
-│                                 (field-scoped save_lines only): patch with compare-and-set, dismiss
-│                                 flag, find-replace apply, TM accept, note add/delete; ownership-checked
+│   │                             (field-scoped save_lines only): patch with compare-and-set, dismiss
+│   │                             flag, find-replace apply, TM accept, note add/delete; ownership-checked
+│   ├── artifact_service.py       Migration Slice 28 -- job-output file convention
+│   │                             (<drama>/exports/<kind>/<file>), output_path, get_artifact
+│   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   └── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │                                 (safe stored name, extension whitelist, size cap, temp+atomic rename)
 │
@@ -288,8 +291,9 @@ baihe-subtitler/
 │       │                         /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
 │       │                         read-only)
 │       ├── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
-│                                 `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
-│                                 notes (POST, DELETE .../{note_id}) (Migration Slice 43)
+│       │                         `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
+│       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
+│       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       └── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
 │                                 only) (Migration Slice 31)
 │

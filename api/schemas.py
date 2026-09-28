@@ -1054,6 +1054,12 @@ class LinesNoteDeleteResult(BaseModel):
     note_id: int
 
 
+class ArtifactInfo(BaseModel):
+    name: str
+    size: int
+    kind: str
+
+
 class MediaUploadResult(BaseModel):
     name: str
     size: int

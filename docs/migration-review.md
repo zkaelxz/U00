@@ -825,6 +825,14 @@ series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
 line/note text, 500 for terms. Out of scope: merge/split/delete lines,
 restore original text, LLM tools, bulk modes.
 
+**Migration Slice 28 (artifact download).** `services/artifact_service.py` defines where a job
+writes a downloadable output: `<drama folder>/exports/<kind>/<filename>` (`output_path` validates
+the bare filename). `GET /api/artifacts/dramas/{id}/{kind}` streams the newest regular file there
+with a sanitized `Content-Disposition`; `.../info` returns name/size/kind only (never a path).
+Kinds are whitelisted (subtitle, epub, audio, video, archive); clients never send a path;
+symlinks and anything resolving outside the kind folder are ignored; errors are fixed text
+(404 when missing, 422 for an unknown kind). No job writes artifacts yet -- wiring is later.
+
 **Slice 31 — Media upload (2026-09-28).**
 `services/media_upload_service.py` + `api/routers/media_routes.py`:
 `POST /api/media/dramas/{id}/upload` (multipart, `file` field; needs
