@@ -185,13 +185,14 @@ baihe-subtitler/
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
-│   ├── export_service.py         Migration Slices 12+14+15+18 -- get_export_readiness (read-only
+│   ├── export_service.py         Migration Slices 12+14+15+18+27 -- get_export_readiness (read-only
 │   │                             counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
 │   │                             write), flag_overlapping_lines/flag_dense_lines/
 │   │                             run_auto_qc_flagging (Slice 15: field-scoped db.save_lines
 │   │                             writes, flag/flag_note only), generate_epub (Slice 18:
-│   │                             novel-narration dramas only, needs optional `ebooklib`); ASS
-│   │                             export and audiobook/burned-in-video export stay out of scope
+│   │                             novel-narration dramas only, needs optional `ebooklib`),
+│   │                             generate_ass_text/get_ass_style_options (Slice 27: ASS text,
+│   │                             per-request style); audiobook/burned-in-video export stay out of scope
 │   ├── diarization_service.py    Migration Slice 16 -- get_diarization_config (read-only:
 │   │                             hf_token_configured bool, expected_speakers, audio_available)
 │   │                             plus start_diarization_run (a real GPU-touching background job);
@@ -202,14 +203,19 @@ baihe-subtitler/
 │   │                             novel text stay out of scope, folded into a future
 │   │                             transcribe-and-align action slice instead
 │   ├── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
-│                                 (Whisper tuning knobs, newly persisted per drama) plus
-│                                 start_transcribe_run: a background job that does the WHOLE
-│                                 pipeline (ASR, alignment, DB write, optional diarization chain-
-│                                 start), unlike Streamlit's render-loop apply step. Slice 21 adds
-│                                 hardsub_ocr transcript_mode (burned-in video captions, via
-│                                 hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
-│                                 step, same as Whisper's own text). chunk_and_tag and qwen3
-│                                 backends still stay out of scope
+│   │                             (Whisper tuning knobs, newly persisted per drama) plus
+│   │                             start_transcribe_run: a background job that does the WHOLE
+│   │                             pipeline (ASR, alignment, DB write, optional diarization chain-
+│   │                             start), unlike Streamlit's render-loop apply step. Slice 21 adds
+│   │                             hardsub_ocr transcript_mode (burned-in video captions, via
+│   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
+│   │                             step, same as Whisper's own text). chunk_and_tag and qwen3
+│   │                             backends still stay out of scope
+│   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
+│   │                             engines, per-speaker voices, pacing of the last run; no paths)
+│   ├── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
+│   │                             update_drama_metadata (whitelisted partial update); delete,
+│   │                             cover upload and metadata auto-fill stay out of scope
 │   └── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │                                 get_translate_config + estimate_translate_cost (advisory cost
 │                                 estimate / cap gating); start-translate job is a later slice
@@ -237,11 +243,15 @@ baihe-subtitler/
 │       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
+│       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
+│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
+│       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
+│       │                         (Migration Slice 35)
 │       └── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
 │                                 (Migration Slice 39, read-only)
 │

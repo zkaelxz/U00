@@ -1,0 +1,98 @@
+"""
+Tests for the Dub-stage API endpoints (Migration Slice 25): contract shape,
+404s, the shared error body, and that no filesystem path leaks. Uses
+TestClient over an `isolated_db` library; no network, no models.
+"""
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
+
+from api.api_config import ApiSettings
+from api.server import create_app
+from core import Line
+from services import settings_service
+
+
+@pytest.fixture
+def client(isolated_db, monkeypatch):
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+
+
+def _seed(db, **fields):
+    fields.setdefault("title_en", "D")
+    did = db.create_drama(**fields)
+    db.save_lines(did, [
+        Line(idx=0, start=0, end=1, zh="你好", en="hi", speaker="S1"),
+        Line(idx=1, start=1, end=2, zh="再见", en="bye", speaker="S2"),
+    ])
+    return did
+
+
+def _assert_error(resp):
+    body = resp.json()
+    assert set(body) == {"error"}, body
+    assert {"code", "message"} <= set(body["error"])
+
+
+class TestConfig:
+    def test_contract_shape(self, client, isolated_db):
+        did = _seed(isolated_db)
+        resp = client.get(f"/api/dub/dramas/{did}/config")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body) == {
+            "drama_id", "content_mode", "is_narration", "narration_language",
+            "narration_language_options", "source_language", "tts_engines", "defaults",
+            "speakers", "gpu_required", "speakable_line_count", "track_available",
+            "gpt_sovits_configured"}
+        assert body["drama_id"] == did
+        assert body["speakable_line_count"] == 2
+        assert set(body["defaults"]) == {"max_speedup", "max_slowdown", "speedup_range",
+                                         "slowdown_range"}
+        assert {s["speaker_label"] for s in body["speakers"]} == {"S1", "S2"}
+        for s in body["speakers"]:
+            assert set(s) == {"speaker_label", "character_name", "edge_voice",
+                              "offline_voice", "engine", "has_clone_ref"}
+        for e in body["tts_engines"]:
+            assert set(e) == {"key", "label", "requires_internet"}
+
+    def test_narration_defaults_null(self, client, isolated_db):
+        did = _seed(isolated_db, content_mode="novel_narration")
+        body = client.get(f"/api/dub/dramas/{did}/config").json()
+        assert body["is_narration"] is True
+        assert body["defaults"] is None
+
+    def test_unknown_drama_404(self, client):
+        resp = client.get("/api/dub/dramas/999/config")
+        assert resp.status_code == 404
+        _assert_error(resp)
+
+    def test_invalid_id_rejected(self, client):
+        assert client.get("/api/dub/dramas/0/config").status_code == 422
+
+    def test_no_path_leak(self, client, isolated_db):
+        did = _seed(isolated_db)
+        resp = client.get(f"/api/dub/dramas/{did}/config")
+        assert str(isolated_db.LIBRARY_DIR) not in resp.text
+
+
+class TestPacing:
+    def test_empty_unavailable(self, client, isolated_db):
+        did = _seed(isolated_db)
+        resp = client.get(f"/api/dub/dramas/{did}/pacing")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body) == {"available", "counts", "lines"}
+        assert body["available"] is False
+        assert body["lines"] == []
+        assert str(isolated_db.LIBRARY_DIR) not in resp.text
+
+    def test_unknown_drama_404(self, client):
+        resp = client.get("/api/dub/dramas/999/pacing")
+        assert resp.status_code == 404
+        _assert_error(resp)

@@ -24,10 +24,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import ApiSettings, load_settings
 from api.error_handlers import install_error_handlers
-from api.routers import (diagnostics_routes, diarization_routes, export_routes, jobs_routes,
-                         library_routes, reader_routes, settings_routes, source_routes,
-                         system_routes, transcribe_routes, translate_routes,
-                         translate_run_routes)
+from api.routers import (
+    diagnostics_routes,
+    diarization_routes,
+    drama_routes,
+    dub_routes,
+    export_routes,
+    jobs_routes,
+    library_routes,
+    reader_routes,
+    settings_routes,
+    source_routes,
+    system_routes,
+    transcribe_routes,
+    translate_routes,
+    translate_run_routes,
+)
 from api.schemas import API_VERSION
 
 
@@ -66,6 +78,8 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(diarization_routes.router)
     app.include_router(source_routes.router)
     app.include_router(transcribe_routes.router)
+    app.include_router(dub_routes.router)
+    app.include_router(drama_routes.router)
     app.include_router(translate_run_routes.router)
     return app
 

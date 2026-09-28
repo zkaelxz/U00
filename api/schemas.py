@@ -14,7 +14,7 @@ field is a compatible change; renaming or removing one is not -- bump
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 API_VERSION = "0.1"
 
@@ -364,6 +364,163 @@ class TranscribeRunRequest(BaseModel):
 class TranscribeRunResult(BaseModel):
     job_id: str
 
+
+class DubTtsEngine(BaseModel):
+    """One selectable TTS engine for the Dub stage (Migration Slice 25)."""
+    key: str
+    label: str
+    requires_internet: bool
+
+
+class DubSpeaker(BaseModel):
+    """One speaker's resolved voices and engine, as the Generate button
+    would resolve them. D2: no reference-audio path, only a boolean."""
+    speaker_label: str
+    character_name: Optional[str] = None
+    edge_voice: Optional[str] = None
+    offline_voice: Optional[str] = None
+    engine: str
+    has_clone_ref: bool
+
+
+class DubDefaults(BaseModel):
+    """Pacing-limit defaults and slider ranges; null for narration."""
+    max_speedup: float
+    max_slowdown: float
+    speedup_range: List[float]
+    slowdown_range: List[float]
+
+
+class DubConfig(BaseModel):
+    """Read-only Dub-stage summary for one drama (Migration Slice 25).
+    D2: no filesystem path, no GPT-SoVITS URL or secret -- only the
+    `gpt_sovits_configured` boolean."""
+    drama_id: int
+    content_mode: Optional[str] = None
+    is_narration: bool
+    narration_language: str
+    narration_language_options: List[str]
+    source_language: str
+    tts_engines: List[DubTtsEngine]
+    defaults: Optional[DubDefaults] = None
+    speakers: List[DubSpeaker]
+    gpu_required: bool
+    speakable_line_count: int
+    track_available: bool
+    gpt_sovits_configured: bool
+
+
+class DubPacingLine(BaseModel):
+    """One line's fit against its original timing window. status is
+    "fit", "stretched" or "overflow"."""
+    idx: int
+    status: str
+    factor: float
+    clip_ms: Optional[int] = None
+    window_ms: Optional[int] = None
+
+
+class DubPacing(BaseModel):
+    """Per-line pacing from the last dub run; `available` is False when
+    there is nothing to show (never dubbed, or narration). D2: no paths."""
+    available: bool
+    counts: Dict[str, int]
+    lines: List[DubPacingLine]
+
+class AssStyleOverrides(BaseModel):
+    """Per-request ASS style overrides (Migration Slice 27). Only fields the
+    client sets replace the preset's values; unknown keys are a 422."""
+    model_config = ConfigDict(extra="forbid")
+    font: Optional[str] = None
+    size: Optional[int] = None
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    primary: Optional[str] = None
+    outline: Optional[str] = None
+    outline_width: Optional[int] = None
+    shadow: Optional[int] = None
+    alignment: Optional[str] = None
+    sfx_alignment: Optional[str] = None
+    notes_alignment: Optional[str] = None
+
+
+class AssExportRequest(BaseModel):
+    field: str = "en"
+    style: Optional[AssStyleOverrides] = None
+    preset: str = "Clean"
+    speaker_colors: Optional[Dict[str, str]] = None
+    per_speaker_colors: bool = True
+    include_notes: bool = False
+    notes_as_separate_line: bool = False
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0)
+
+
+class AssStyleOptions(BaseModel):
+    presets: Dict[str, Dict[str, Any]]
+    default_preset: str
+    fonts: List[str]
+    custom_font_allowed: bool
+    alignments: Dict[str, int]
+    size_range: List[int]
+    outline_width_range: List[int]
+    shadow_range: List[int]
+
+
+
+class DramaCreateRequest(BaseModel):
+    """Create a drama (Migration Slice 35). `source_language` is required
+    (zh/ja/ko); `series_id` and `new_series_name` are mutually exclusive."""
+    model_config = ConfigDict(extra="forbid")
+    source_language: str
+    title_en: str = ""
+    title_zh: str = ""
+    author: str = ""
+    studio: str = ""
+    director: str = ""
+    voice_actors: str = ""
+    summary: str = ""
+    media_type: str = "audio_drama"
+    series_id: Optional[int] = None
+    new_series_name: Optional[str] = None
+    preset_id: Optional[int] = None
+
+
+class DramaMetadataUpdate(BaseModel):
+    """Partial metadata update: only fields present in the body are applied.
+    Unknown keys (status, content_mode, *_filename, ...) are rejected. For
+    `chapter_count`/`episode_number`, 0 clears the value."""
+    model_config = ConfigDict(extra="forbid")
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    author: Optional[str] = None
+    studio: Optional[str] = None
+    director: Optional[str] = None
+    voice_actors: Optional[str] = None
+    summary: Optional[str] = None
+    genre: Optional[str] = None
+    custom_tags: Optional[str] = None
+    source_url: Optional[str] = None
+    episode_summary: Optional[str] = None
+    project_instructions: Optional[str] = None
+    chapter_count: Optional[int] = None
+    episode_number: Optional[int] = None
+    media_type: Optional[str] = None
+    publication_status: Optional[str] = None
+    series_id: Optional[int] = None
+
+
+class DramaPresetDefaults(BaseModel):
+    """A preset's session-only values, returned for the client to hold
+    (only the preset's translation engine is persisted on the drama)."""
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: bool
+    include_genre_notes: bool
+
+
+class DramaCreateResult(DramaDetail):
+    preset_defaults: Optional[DramaPresetDefaults] = None
 
 class TranslateRunStylePreset(BaseModel):
     key: str
