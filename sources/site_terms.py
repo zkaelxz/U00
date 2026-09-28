@@ -50,15 +50,43 @@ SITE_TERMS = [
         },
     },
     {
+        # Corrected 2026-09-28 (prompted by a wuxiaworld/webnovel investigation
+        # that happened to re-touch this file): the previous entry's citation
+        # doesn't hold up on a direct re-read of the exact same URL. Re-fetched
+        # my.jjwxc.net/register/registerRule.php in full and searched both the
+        # extracted text AND the raw HTML/script source (in case, like
+        # wuxiaworld below, the real clause text turned out to be embedded
+        # somewhere a naive extraction would miss -- it wasn't) for
+        # 爬/抓取/采集/镜像/机器人/crawl/scrape/spider: zero matches anywhere.
+        # The real, current §4.3 is an anti-hacking clause (illegally
+        # tampering with/deleting content, attacking jjwxc's servers/systems,
+        # spreading viruses) -- not a scraping ban. §4.9 is a general
+        # enforcement/liability clause (cooperating with authorities, the
+        # right to delete/block/terminate), not scraping-specific either. The
+        # closest related clause found is a reverse-engineering ban scoped to
+        # jjwxc's own software/functions (in the IP-rights section), a
+        # different target than scraping content. Whether the document
+        # changed since the original finding or that finding just cited the
+        # wrong thing isn't known -- either way, EXPLICITLY_RESTRICTED isn't
+        # supportable from this page as it reads today.
         "domains": ("jjwxc.net",),
         "platform": "JJWXC (晋江文学城)",
-        "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
+        "automation_permission": AutomationPermission.UNKNOWN.value,
         "ai_ml_use": AiMlUse.UNKNOWN.value,
         "terms": {
-            "read": "my.jjwxc.net/register/registerRule.php, read directly.",
-            "clause": "§4.3 bans any manner of crawling or scraping (爬取/抓取) of its database "
-                      "materials; §4.9 invokes civil and criminal liability for serious "
-                      "violations. Never attempted, whatever access the app has.",
+            "read": "my.jjwxc.net/register/registerRule.php, re-read in full directly "
+                    "(2026-09-28) -- the same URL originally cited.",
+            "clause": "No crawling/scraping/automated-access clause found anywhere in this "
+                      "document on a full-text re-check (raw HTML included, not just visible "
+                      "text). §4.3 is actually an anti-hacking clause (tampering with/deleting "
+                      "content, attacking jjwxc's servers/systems, spreading viruses); §4.9 is a "
+                      "general enforcement/liability clause. A reverse-engineering ban exists "
+                      "elsewhere (IP-rights section) but is scoped to jjwxc's own software, not "
+                      "content scraping.",
+            "unverified": "This is 'the previously-cited basis doesn't hold up', not 'confirmed "
+                          "permitted' -- no separate, broader user agreement was found linked "
+                          "from the homepage this pass, but that search wasn't exhaustive, and a "
+                          "genuine restriction could still exist on a page not yet found.",
         },
     },
     {
