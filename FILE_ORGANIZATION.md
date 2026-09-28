@@ -226,9 +226,13 @@ baihe-subtitler/
 │   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
 │   │                             CRUD, confirm-gated delete), project/series instructions, and
 │   │                             read-only option catalogues; LLM term extraction stays out
-│   └── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
-│                                 filtered list, search, find-replace preview, coverage, pacing,
-│                                 provenance, original text (by permanent line id; no writes)
+│   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
+│   │                             filtered list, search, find-replace preview, coverage, pacing,
+│   │                             provenance, original text (by permanent line id; no writes)
+│   └── review_records_service.py Migration Slice 48 -- READ-ONLY Review records: line history,
+│                                 translation versions (list/compare), notes (list/Markdown),
+│                                 stored consistency issues, emotion summary, edit tendencies,
+│                                 TM suggestions; enforces drama ownership itself; no writes/LLM
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -270,9 +274,13 @@ baihe-subtitler/
 │       ├── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
 │       │                         ?confirm=true), .../instructions[/project|/series], /catalogues
 │       │                         (Migration Slice 46)
-│       └── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
-│                                 preview (writes nothing), .../coverage, .../pacing-flags,
-│                                 .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
+│       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
+│       │                         preview (writes nothing), .../coverage, .../pacing-flags,
+│       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
+│       └── review_records_routes.py /api/review/dramas/{id}/history[/{hid}], /versions,
+│                                 /versions/compare, /notes, /notes/markdown, /consistency,
+│                                 /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
+│                                 read-only)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
