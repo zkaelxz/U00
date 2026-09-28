@@ -366,8 +366,9 @@ class TestSettingsEndpoint:
 class TestTranslateEndpoints:
     """Migration Slice 11: read-only Translate-standalone endpoints --
     engine metadata and history. Migration Slice 13 adds the translate
-    action itself (POST /api/translate). No history-clear endpoint; see
-    api/routers/translate_routes.py's own docstring for why."""
+    action itself (POST /api/translate). Clearing history
+    (DELETE /api/translate/history) is its own endpoint -- see
+    TestTranslateHistoryClearEndpoint below."""
 
     def test_engines_contract_shape(self, client, isolated_db):
         body = client.get("/api/translate/engines").json()
@@ -392,9 +393,6 @@ class TestTranslateEndpoints:
         body = client.get("/api/translate/history").json()
         assert len(body["items"]) == 1
         assert body["items"][0]["source_text"] == "你好"
-
-    def test_no_history_write_endpoint_is_exposed(self, client, isolated_db):
-        assert client.delete("/api/translate/history").status_code == 405
 
     def test_translate_with_test_offline_engine(self, client, isolated_db):
         resp = client.post("/api/translate", json={
@@ -626,3 +624,26 @@ class TestDiarizationEndpoints:
         assert job_body["status"] == "running"
         assert client.get(f"/api/export/dramas/{did}/flag-dense-lines").status_code == 405
         assert client.get(f"/api/export/dramas/{did}/flag-auto-qc").status_code == 405
+
+
+class TestTranslateHistoryClearEndpoint:
+    """Migration Slice 17: clearing translate history requires an
+    explicit confirm=true -- mirrors tabs/translate_tab.py's own
+    checkbox-then-button gate; see services/translate_service.py's own
+    docstring for the reasoning."""
+
+    def test_clear_without_confirm_is_422(self, client, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        resp = client.delete("/api/translate/history")
+        assert resp.status_code == 422
+        history = client.get("/api/translate/history").json()["items"]
+        assert len(history) == 1
+
+    def test_clear_with_confirm_actually_clears(self, client, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        resp = client.delete("/api/translate/history?confirm=true")
+        assert resp.status_code == 200
+        assert resp.json() == {"cleared": True}
+        history = client.get("/api/translate/history").json()["items"]
+        assert history == []
+

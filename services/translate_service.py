@@ -7,8 +7,8 @@ adds translate() itself, resolving a server-side key per engine (D2 --
 docs/migration-review.md section 6) rather than accepting one from the
 caller.
 
-Deliberately NOT included (deferred to a later, separate slice):
-  - clearing history (db.clear_translate_history) -- a write action.
+Migration Slice 17 adds clear_history(), the one piece deliberately
+deferred from Slices 11/13.
 """
 from typing import Optional
 
@@ -129,3 +129,21 @@ def translate(text: str, engine_name: str, source_language: str, target_language
 
     db.save_translate_history(source_language, target_language, engine_name, text, translated_text)
     return {"translated_text": translated_text}
+
+
+def clear_history(confirm: bool = False) -> dict:
+    """Deletes every row in the (global, not drama-scoped) translate_history
+    table via db.clear_translate_history(). tabs/translate_tab.py's own
+    History section only lets the user reach this by first checking an
+    explicit "Confirm" checkbox before its "Clear history" button becomes
+    clickable at all -- a deliberate two-step gate against an accidental
+    permanent delete. This function requires the same explicit opt-in in
+    API terms: confirm must be passed as True, or the call is refused
+    with InvalidInputError rather than silently no-op'ing or silently
+    proceeding."""
+    if confirm is not True:
+        raise InvalidInputError(
+            "Clearing translate history requires confirm=true. "
+            "This permanently deletes all saved translation history.")
+    db.clear_translate_history()
+    return {"cleared": True}

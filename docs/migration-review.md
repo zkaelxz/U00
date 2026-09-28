@@ -535,9 +535,8 @@ agents ran concurrently, each owning only its own files -- Slice 16
 created two brand-new files, Slice 17 extended two files Slice 16 never
 touched -- so this pair was file-disjoint by construction, not just by
 scoping care. The lead added both routers/schemas/server registrations
-and fixed one real defect found during integration (see below). Merged
-as two separate PRs per guardrail #4 -- this entry (Slice 16's own)
-covers this PR; Slice 17's own entry follows it once that PR lands.
+and fixed one real defect found during integration (Slice 16's own
+entry has the detail). Merged as two separate PRs per guardrail #4.
 
 **Slice 16** (§3.2, Phase 6's second Workspace stage, Diarize):
 `services/diarization_service.py` -- `get_diarization_config(drama_id)`
@@ -558,8 +557,17 @@ in a state that supports this action (matches
 diarization during alignment" checkbox and the turns-to-lines merge stay
 out of scope -- a future Transcript/Align-stage slice's concern.
 
-**Next candidate for this slice:** the next Workspace stage after
-Diarize per §3.2's build order (Transcript).
+**Slice 17** (Translate-standalone's one remaining deferred piece):
+`services/translate_service.py` gains `clear_history(confirm: bool =
+False)`, raising `InvalidInputError` unless `confirm=True` -- an
+explicit-opt-in gate translating `tabs/translate_tab.py`'s own
+checkbox-then-button UI pattern into API terms, rather than a bare
+delete. New `DELETE /api/translate/history?confirm=true`.
+
+**Next candidates:** the next Workspace stage after Diarize per §3.2's
+build order (Transcript), or ASS/EPUB/audiobook/video export (Export's
+own remaining scope, named above), whichever a future scoping pass
+picks.
 
 ---
 
