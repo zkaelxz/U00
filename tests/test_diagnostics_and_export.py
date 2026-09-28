@@ -839,6 +839,52 @@ class TestPyannoteGatedAccessCheck:
         assert diagnostics.check_pyannote_gated_access() == []
 
 
+class TestCheckEngineReachable:
+    """Step 97: pre-flight a translation engine's credentials/
+    reachability with a real, minimal (zh -> en) call, before a batch
+    job commits to it. TestOfflineEngine needs no network/key, so it
+    exercises the real success path end to end; the failure paths are
+    mocked, same as every other network-reaching diagnostics check."""
+
+    def test_a_working_engine_reports_ok(self):
+        result = diagnostics.check_engine_reachable("test_offline")
+        assert result == {"engine": "test_offline", "ok": True, "error": None}
+
+    def test_unknown_engine_name_reports_failure_not_a_crash(self):
+        result = diagnostics.check_engine_reachable("not-a-real-engine")
+        assert result["ok"] is False
+        assert result["engine"] == "not-a-real-engine"
+        assert result["error"]
+
+    def test_a_translate_call_that_raises_is_reported_as_failure(self, monkeypatch):
+        import translate_engines
+
+        def boom(*a, **k):
+            raise RuntimeError("invalid key: sk-fake1234567890")
+        monkeypatch.setattr(translate_engines, "standalone_translate", boom)
+        result = diagnostics.check_engine_reachable("claude", api_key="sk-fake1234567890")
+        assert result["ok"] is False
+        assert "sk-fake1234567890" not in result["error"]     # redacted, like every other engine error
+
+    def test_an_empty_translation_is_reported_as_failure_not_silently_ok(self, monkeypatch):
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "standalone_translate", lambda *a, **k: "")
+        result = diagnostics.check_engine_reachable("claude", api_key="sk-x")
+        assert result["ok"] is False
+        assert "empty" in result["error"].lower()
+
+    def test_doctor_report_checks_a_batch_of_engines(self, monkeypatch):
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "standalone_translate",
+                            lambda text, engine, *a, **k: f"[{engine.name}] ok")
+        results = diagnostics.doctor_report([
+            {"engine": "test_offline"},
+            {"engine": "claude", "api_key": "sk-x"},
+        ])
+        assert [r["engine"] for r in results] == ["test_offline", "claude"]
+        assert all(r["ok"] for r in results)
+
+
 class TestDependencyVersionCheck:
     """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
     above, this reaches the network -- every test here mocks

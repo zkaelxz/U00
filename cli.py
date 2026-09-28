@@ -42,6 +42,7 @@ import time
 import traceback
 
 import db
+import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
@@ -559,6 +560,20 @@ def cmd_run(args):
     cmd_translate(args)
 
 
+def cmd_doctor(args):
+    """Step 97: pre-flight one engine's credentials/reachability before
+    committing a batch job to it -- catches a dead API key or an
+    unreachable local Ollama server up front, with a real (but minimal,
+    single-line) call, instead of discovering it mid-job."""
+    result = diagnostics.check_engine_reachable(
+        args.engine, args.api_key, args.model, getattr(args, "ollama_url", None))
+    if result["ok"]:
+        print(f"OK: {result['engine']} is reachable and responding.")
+    else:
+        print(f"FAILED: {result['engine']} -- {result['error']}")
+        sys.exit(1)
+
+
 def main():
     p = argparse.ArgumentParser(description="Headless batch driver for the drama library")
     sub = p.add_subparsers(dest="command", required=True)
@@ -716,6 +731,15 @@ def main():
     p_export_video.add_argument("--style", default="hardsub", choices=["hardsub", "softsub"])
     p_export_video.add_argument("--subs", default="english", choices=["english", "bilingual", "chinese"])
     p_export_video.set_defaults(func=cmd_export_video)
+
+    p_doctor = sub.add_parser("doctor", help="Step 97: pre-flight one engine's credentials/"
+                              "reachability with a real, minimal translate call")
+    p_doctor.add_argument("--engine", required=True, choices=list(translate_engines.ENGINES))
+    p_doctor.add_argument("--api-key", default=None)
+    p_doctor.add_argument("--model", default=None)
+    p_doctor.add_argument("--ollama-url", default=None,
+                          help="Base URL for a non-default Ollama server (e.g. remote/Docker).")
+    p_doctor.set_defaults(func=cmd_doctor)
 
     args = p.parse_args()
     args.func(args)

@@ -503,6 +503,52 @@ def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Step 97: pre-flight a translation engine's credentials/reachability
+# before a batch job starts, rather than discovering a dead API key or
+# an unreachable local server only after committing lines to a job.
+# ---------------------------------------------------------------------------
+
+def check_engine_reachable(engine_name: str, api_key: str = None, model: str = None,
+                           base_url: str = None) -> dict:
+    """{"engine", "ok", "error"} -- does a real, minimal translate call
+    (zh -> en, this app's own best-supported direction per
+    standalone_direction_support's docstring) and reports whether it
+    succeeded. This DOES reach the network/a local server and DOES spend
+    real quota on a paid engine -- one short line, not a batch -- so call
+    it only from an explicit "Test" action or right before starting a
+    job, never on every page load. Any error message is passed through
+    translate_engines.redact_secrets first, matching every other place
+    in this app that shows an engine error."""
+    import translate_engines
+    try:
+        engine = translate_engines.get_engine(engine_name, api_key, model, base_url=base_url)
+    except Exception as e:
+        return {"engine": engine_name, "ok": False,
+                "error": translate_engines.redact_secrets(str(e))}
+    try:
+        result = translate_engines.standalone_translate("你好", engine, "zh", "en")
+        if not (result or "").strip():
+            return {"engine": engine_name, "ok": False,
+                    "error": "Reached the engine, but it returned an empty translation."}
+        return {"engine": engine_name, "ok": True, "error": None}
+    except Exception as e:
+        return {"engine": engine_name, "ok": False,
+                "error": translate_engines.redact_secrets(str(e))}
+
+
+def doctor_report(engines: list) -> list:
+    """Runs check_engine_reachable for a list of
+    {"engine", "api_key"?, "model"?, "base_url"?} dicts -- the CLI
+    `doctor` command's own batch form, and reusable by any future UI
+    button that wants to check several configured engines at once."""
+    results = []
+    for spec in engines:
+        results.append(check_engine_reachable(
+            spec["engine"], spec.get("api_key"), spec.get("model"), spec.get("base_url")))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Step 9b.2: "Copy diagnostics for support" -- the existing key/token
 # redaction (translate_engines.redact_secrets) plus stripping local file
 # paths and the OS username, since a raw library path or a home directory
