@@ -3196,6 +3196,16 @@ Real goal: let the app diagnose and, later, help fix itself using backends that 
 
 Prompted by the same architecture proposal. **Confirmed genuinely absent by direct code audit** (2026-09-27), not just "not built yet as far as I recalled" — zero hits anywhere in the repo for "discord," "ntfy," or "webhook." The only real notification today is a local desktop toast (`background_jobs.py`, `plyer`), which only works while sitting at the machine.
 
+**User's own note, to review when this step is next in line (2026-09-28) — candidate event categories beyond job start/finish/failure, not yet decided or scoped into the items below:**
+- A long-running task that needs attention or appears stuck.
+- A new chapter found by a scheduled check (`chapter_check.py`'s existing tracked-series polling).
+- An import, download, or export completing or failing.
+- A background backup completing or reporting an error.
+- A model or dependency check finding a problem.
+- A migration or maintenance task reaching a review-needed state.
+
+Keep messages brief, and never send a transcript excerpt, an API key, a private filesystem path, or other sensitive data in a notification's body — the same redaction discipline `diagnostics.redact_for_support`/`translate_engines.redact_secrets` already apply elsewhere in this app should cover outbound notification text too, not a separate ad hoc check.
+
 1. A simple internal event bus for job/maintenance events (translation completed/failed, quality regression detected, budget threshold reached, maintenance change applied/rolled back) — the notification content, not the delivery mechanism.
 2. Discord webhook as the first delivery channel — simplest to set up (a single webhook URL, no server-side component), matching what this app already does for outbound HTTP.
 3. ntfy as a second, optional channel — self-hostable, simple HTTP-based, and its action-button support (an ntfy notification can carry a button that fires an HTTP request) is a real, distinct capability worth having for at-a-glance mobile control (e.g., "Retry" on a failed job) — but action buttons that trigger anything consequential need the same confirm-and-review discipline as Step 43, not a bare unauthenticated callback.
