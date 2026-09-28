@@ -1775,6 +1775,21 @@ def render_workspace_tab():
             index=MEDIA_TYPE_OPTIONS.index(_prefill_media_type)
                   if _prefill_media_type in MEDIA_TYPE_OPTIONS else 0,
             format_func=_format_media_type)
+        # Step 87: this used to be missing entirely, so db.create_drama
+        # was called with no source_language and silently fell through to
+        # the schema's DEFAULT 'zh' with zero UI indication -- the
+        # language selector only existed later, in the edit-existing-
+        # drama branch below, by which point the drama already existed
+        # with its language silently pre-set. No default selection here,
+        # unlike that later selectbox, so a Japanese or Korean drama
+        # can't be created as Chinese by mistake.
+        _prefill_source_language = prefill.get("source_language")
+        source_language = st.selectbox(
+            "Source language *(required)*", ["zh", "ja", "ko"],
+            index=["zh", "ja", "ko"].index(_prefill_source_language)
+                  if _prefill_source_language in ("zh", "ja", "ko") else None,
+            format_func=lambda l: {"zh": "🇨🇳 Chinese", "ja": "🇯🇵 Japanese", "ko": "🇰🇷 Korean"}[l],
+            placeholder="Select a language")
 
         # Step 22b: series assignment at creation time, not only via the
         # ✏️ Edit metadata expander after the drama already exists -- same
@@ -1800,11 +1815,13 @@ def render_workspace_tab():
                  "(📚 Library → 🎛️ Presets to manage them) -- still freely editable afterward.")
         _picked_preset = _preset_options[_preset_choice]
 
-        if st.button("Create drama"):
+        if source_language is None:
+            st.info("Still needed: a source language.")
+        if st.button("Create drama", disabled=source_language is None):
             new_id = db.create_drama(
                 title_en=title_en, title_zh=title_zh, author=author, studio=studio,
                 director=director, voice_actors=voice_actors, summary=summary,
-                media_type=media_type,
+                media_type=media_type, source_language=source_language,
                 **({"translation_engine": _picked_preset["translation_engine"]}
                    if _picked_preset and _picked_preset.get("translation_engine") else {}))
             if _picked_preset:
