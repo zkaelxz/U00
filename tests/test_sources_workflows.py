@@ -119,6 +119,24 @@ class TestMultiSearch:
         assert "src_c" in out.errors and "src_a" not in out.errors
         assert out.per_source_counts == {"src_a": 2, "src_b": 1, "src_c": 0}
 
+    def test_a_source_with_many_hits_is_capped_at_the_per_source_limit(self, isolated_db):
+        # Step 85: no result-per-source limit meant a source with a huge
+        # catalog could return hundreds of hits for a broad query, with
+        # no way to trim them.
+        A = _named("A", "src_a")
+        a = A(make_client("src_a", ScriptedTransport()),
+             results=[(str(i), f"Result {i}") for i in range(50)])
+        out = registry.multi_search("result", adapters=[a], limit_per_source=5)
+        assert out.per_source_counts["src_a"] == 5
+        assert len(out.results) == 5
+
+    def test_default_limit_does_not_truncate_an_ordinary_result_count(self, isolated_db):
+        A = _named("A", "src_a")
+        a = A(make_client("src_a", ScriptedTransport()),
+             results=[(str(i), f"Result {i}") for i in range(3)])
+        out = registry.multi_search("result", adapters=[a])
+        assert out.per_source_counts["src_a"] == 3
+
     def test_normalize_title(self):
         assert registry.normalize_title("Ｄｅｍｏ　Comic!") == registry.normalize_title("demo comic")
 
