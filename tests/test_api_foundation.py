@@ -348,7 +348,8 @@ class TestSettingsEndpoint:
 
     def test_overview_contract_shape(self, client, isolated_db):
         body = client.get("/api/settings").json()
-        assert set(body) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion"}
+        assert set(body) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion",
+                             "use_gpu", "gemini_free_tier"}
         assert isinstance(body["engine_keys"], dict)
         assert "claude" in body["engine_keys"]
         assert "monthly_cap_usd" not in body["engine_keys"]
@@ -361,8 +362,9 @@ class TestSettingsEndpoint:
         assert "sk-should-not-leak" not in resp.text
         assert resp.json()["engine_keys"]["claude"] is True
 
-    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
-        assert client.post("/api/settings").status_code == 405
+    def test_only_non_secret_bool_writes_are_exposed(self, client, isolated_db):
+        # Slice 23: POST takes booleans only; a key-shaped field is refused.
+        assert client.post("/api/settings", json={"claude": "sk-x"}).status_code == 422
         assert client.delete("/api/settings").status_code == 405
 
 

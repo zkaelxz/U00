@@ -325,6 +325,8 @@ class TestStartTranscribeRun:
         assert captured["whisper_fast_mode"] is True
         assert captured["use_groq"] is False
         assert captured["initial_prompt"] == "names"
+        assert captured["use_gpu"] is False
+        assert list(captured)[-1] == "use_gpu"
 
 
 class TestRunTranscribeAndApplyJob:

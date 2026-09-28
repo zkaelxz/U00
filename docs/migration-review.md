@@ -777,6 +777,17 @@ suggestions are `line_id`/`line_idx`/`zh`/`en`/`suggestion`/`similarity`/
 Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
 job starters, bulk modes.
 
+**Slice 23 (non-secret Settings writes + persisted `use_gpu`):** `POST /api/settings`
+takes optional booleans (`gpu_limit_enabled`, `notify_on_completion`, `use_gpu`,
+`gemini_free_tier`; `extra="forbid"`, applied via `exclude_unset`) and returns the updated
+overview, which now also reports `use_gpu`/`gemini_free_tier` (both default False, stored in
+`db.app_settings`). `settings_service.set_settings` validates the whole batch against a typed
+allow-list before writing anything; unknown key or non-bool -> `InvalidInputError` (422, the
+value is never echoed). Keys, URLs and paths are never accepted (D2; key writes remain a
+separate gated slice). `start_transcribe_run` now reads `settings_service.get_use_gpu()` and
+passes it as a new trailing job parameter `use_gpu=False`, replacing the hardcoded
+`use_gpu=False` in `transcribe_for_timing`; diarization keeps its own path.
+
 **Slice 49 -- process-job completion hook (API-started diarization applies its own result).** A process job's `result` lived only in the starting process's memory and only Streamlit's render loop persisted it, so an API-started diarization (Slice 16 endpoint, or the chain-start inside the Slice 20/21 transcribe job) ended "done" with its speaker turns never saved. `background_jobs.start_process_job` now takes optional `on_done(job_id, result)`, called in the watcher thread after a successful result and before the job is marked "done"; a raising hook ends the job "error" (redacted message, logged), it is not called on error/cancel, and queued GPU starts carry it through the queue. `diarization_service.apply_diarization_result` ports the DB half of Streamlit's `_apply_diarization_job_result`/`_apply_speaker_turns` (save turns, `merge_speakers`, character upserts, field-scoped `save_lines(fields=("speaker","speaker_manual"))`); both `start_diarization_run` and the transcribe chain-start pass it. One deliberate difference: Streamlit skips the merge when manual lines would change and asks the user; with no user to ask, the API merges with `overwrite_manual=False` (manual corrections still never undone). Double-apply with the tab is harmless (same turns file rewritten, merge idempotent). Hard cancel is unchanged.
 
 **Hardening H3 (Slices 25/39/47/48 read services).** GETs no longer create
