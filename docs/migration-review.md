@@ -979,6 +979,17 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
+**Slice 38 -- Novel attach + chapter OCR (2026-09-28).** `services/novel_attach_service.py` +
+`api/routers/novel_routes.py`: `POST /api/novel/dramas/{id}/attach-text` (JSON, 2M-char cap),
+`POST .../attach-epub` (multipart; stdlib zip/HTML only, entry-count and uncompressed-size caps, rejects
+traversal/absolute names/symlinks, no entity resolution, only plain text stored, the .epub is not kept),
+`POST .../ocr-chapter` (multipart PNG/JPG images staged under generated names, background job
+`ocrchapter_{id}`, backend per source language, `mode` append|replace) and `GET .../status` (booleans and
+counts only). Text goes to `novel_narration_source.txt`, which Slice 33 reads. 404 unknown drama, 409 job
+running or duplicate OCR, 422 bad input, 503 OCR backend not installed. Deliberate differences: the tab's
+EPUB chapter-range picker and image extraction are not offered; no stored-image OCR (none exist); the
+Settings tesseract path is not applied. Tests use a fake OCR; no real OCR was run.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

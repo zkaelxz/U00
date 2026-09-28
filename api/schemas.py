@@ -1141,3 +1141,25 @@ class TranslateRunStarted(BaseModel):
     engine: str
     model: Optional[str] = None
     target_line_count: int
+
+
+class NovelAttachTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(max_length=2_000_000)
+    mode: str = Field(default="replace", max_length=10)
+
+
+class NovelAttachResult(BaseModel):
+    char_count: int
+
+
+class NovelOcrResult(BaseModel):
+    job_id: str
+
+
+class NovelStatus(BaseModel):
+    drama_id: int
+    has_novel_text: bool
+    char_count: int
+    chapters: int
+    ocr_running: bool
