@@ -230,9 +230,6 @@ baihe-subtitler/
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
-│   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
-│   │                             notes, flag, fix-flagged): background jobs that write themselves,
-│   │                             field-scoped by line id; reuse workspace_job_service runners
 │   ├── review_records_service.py Migration Slice 48 -- READ-ONLY Review records: line history,
 │   │                             translation versions (list/compare), notes (list/Markdown),
 │   │                             stored consistency issues, emotion summary, edit tendencies,
@@ -245,8 +242,14 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
-│   └── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
-│                                 novel chunk_and_tag as a job-does-everything background job
+│   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
+│   │                             novel chunk_and_tag as a job-does-everything background job
+│   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
+│   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
+│   └── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
+│                                 notes, flag, fix-flagged): background jobs that write themselves,
+│                                 field-scoped by line id; reuse workspace_job_service runners
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -291,8 +294,6 @@ baihe-subtitler/
 │       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
 │       │                         preview (writes nothing), .../coverage, .../pacing-flags,
 │       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
-│       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
-│       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── review_records_routes.py /api/review/dramas/{id}/history[/{hid}], /versions,
 │       │                         /versions/compare, /notes, /notes/markdown, /consistency,
 │       │                         /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
@@ -303,7 +304,12 @@ baihe-subtitler/
 │       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       ├── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
 │       │                         only) (Migration Slice 31)
-│       └── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
+│       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
+│       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
+│       │                         (Migration Slice 37)
+│       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
+│       └── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
+│                                 fix-flagged (POST, start job; Migration Slice 44)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
