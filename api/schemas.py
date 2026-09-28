@@ -1377,3 +1377,83 @@ class MediaExportStarted(BaseModel):
     """Audiobook / burned-in video export job started (Migration Slices 29-30).
     Poll GET /api/jobs/{job_id}; download via GET /api/artifacts/dramas/{id}/{kind}."""
     job_id: str
+
+
+# ---------------------------------------------------------------------------
+# Migration Slice 45: restructure lines + version-history restore
+# ---------------------------------------------------------------------------
+
+class _RestructureBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_line_ids: List[int] = Field(
+        max_length=100_000,
+        description="The drama's line ids, in order, as last loaded; 409 if they differ now.")
+
+
+class RestructureAddLine(_RestructureBase):
+    after_line_id: Optional[int] = Field(None, ge=1, description="None = insert at the start.")
+    start: float = Field(ge=0)
+    end: float = Field(ge=0)
+    zh: str = Field(default="", max_length=2000)
+    en: str = Field(default="", max_length=2000)
+    speaker: Optional[str] = Field(None, max_length=100)
+
+
+class RestructureDeleteLine(_RestructureBase):
+    confirm: StrictBool = False
+
+
+class RestructureMerge(_RestructureBase):
+    line_ids: List[int] = Field(min_length=2, max_length=50)
+
+
+class RestructureSplit(_RestructureBase):
+    at_char: int = Field(ge=1)
+    expected_zh: str = Field(max_length=2000)
+    at_time: Optional[float] = Field(None, ge=0)
+    en_at_char: Optional[int] = Field(None, ge=1)
+
+
+class RestructureResult(BaseModel):
+    line_ids: List[int]
+    lines: List[ReviewLinesLine]
+
+
+class ResegmentChange(BaseModel):
+    line_id: Optional[int] = None
+    idx: int
+    zh: str
+    pieces: List[str]
+
+
+class ResegmentPreview(BaseModel):
+    drama_id: int
+    source_line_ids: List[int]
+    line_count_before: int
+    line_count_after: int
+    changed: List[ResegmentChange]
+    translated: int
+    flagged: int
+    notes: int
+    needs_confirm: bool
+
+
+class ResegmentStart(_RestructureBase):
+    confirm: StrictBool = False
+    use_llm: StrictBool = False
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+
+
+class ResegmentStarted(BaseModel):
+    job_id: str
+    drama_id: int
+
+
+class RestoreVersionRequest(_RestructureBase):
+    pass
+
+
+class RestoreVersionResult(BaseModel):
+    history_id: int
+    line_ids: List[int]

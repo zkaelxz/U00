@@ -250,6 +250,9 @@ baihe-subtitler/
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
+│   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
+│   │                             preview + apply job, version-history restore (snapshot first,
+│   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
 │   └── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │                                 export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │
@@ -311,8 +314,10 @@ baihe-subtitler/
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
-│       └── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
-│                                 fix-flagged (POST, start job; Migration Slice 44)
+│       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
+│       │                         fix-flagged (POST, start job; Migration Slice 44)
+│       └── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
+│                                 lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
