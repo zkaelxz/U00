@@ -267,6 +267,15 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     transcript_mode = drama.get("transcript_mode") or "have_transcript"
 
+    # Resolved independently of transcript_mode: a hardsub_ocr drama
+    # commonly also has real audio on disk (the video-upload flow extracts
+    # one alongside saving the video, tabs/workspace_tab.py:3160-3169), and
+    # diarization always needs actual audio regardless of where the
+    # transcript text itself came from -- Streamlit's own apply block
+    # diarizes off this same drama-level audio unconditionally, for every
+    # transcript_mode including hardsub_ocr (workspace_tab.py:3334, 3489).
+    diarize_audio_path = _drama_audio_path(drama_id, drama)
+
     audio_path = None
     video_path = None
     if transcript_mode == "hardsub_ocr":
@@ -301,7 +310,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
         initial_prompt or "", video_path,
         drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
-        drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd,
+        drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -314,7 +323,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    separation_backend, realign_long_segments, whisper_fast_mode,
                                    use_groq, groq_api_key, hf_token, expected_speakers,
                                    initial_prompt="", video_path=None, hardsub_ocr_backend=None,
-                                   hardsub_interval=1.0, tesseract_cmd=None):
+                                   hardsub_interval=1.0, tesseract_cmd=None,
+                                   diarize_audio_path=None):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -333,8 +343,17 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     persistence anywhere (unlike the tuning knobs Slice 20 does persist),
     so there's no server-side source of truth for an API caller yet --
     out of scope for this slice, left for whenever GPU control becomes a
-    real settings_service concern."""
-    original_audio_path = audio_path
+    real settings_service concern.
+
+    diarize_audio_path is resolved once in start_transcribe_run, from the
+    drama's own stored audio_filename, independent of transcript_mode --
+    for a hardsub_ocr drama there is no transcribe-time audio_path at all
+    (see module docstring), but a real one commonly still exists on disk
+    (the video-upload flow extracts it alongside the video), and
+    diarization always needs actual audio regardless of where the
+    transcript text came from. If it's not available, diarization is
+    skipped (diarize_started stays False), same as the existing
+    no-hf_token case."""
     gpu_fallback_msg = []
     word_align_error = None
 
@@ -447,11 +466,11 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     db.update_drama(drama_id, status="aligned")
 
     diarize_started = False
-    if hf_token:
+    if hf_token and diarize_audio_path:
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(original_audio_path, hf_token, expected_speakers or None),
+            args=(diarize_audio_path, hf_token, expected_speakers or None),
             gpu_touching=True, description=f"Diarization (drama #{drama_id})")
 
     background_jobs.set_result(job_id, {
