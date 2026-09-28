@@ -185,6 +185,9 @@ baihe-subtitler/
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
+│   ├── artifact_service.py       Migration Slice 28 -- job-output file convention
+│   │                             (<drama>/exports/<kind>/<file>), output_path, get_artifact
+│   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── export_service.py         Migration Slices 12+14+15+18+27 -- get_export_readiness (read-only
 │   │                             counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
 │   │                             write), flag_overlapping_lines/flag_dense_lines/
@@ -262,6 +265,7 @@ baihe-subtitler/
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
 │       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
+│       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
