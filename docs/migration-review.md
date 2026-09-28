@@ -404,8 +404,9 @@ Status as of 2026-09-28 (user answers in brackets).
   explicit confirmation, initially only from the Baihe PC.]** Enforced by
   putting admin endpoints on a separate listener that Tailscale Serve
   never publishes. The identity headers identify users, not devices.
-  Open sub-choice: whether Streamlit is published to the owner during the
-  transition. See [`remote-access-design.md`](remote-access-design.md) §6.
+  During the transition, **Streamlit is never published through
+  Tailscale**; it stays PC-only until it's removed. Remote access is
+  React-only. See [`remote-access-design.md`](remote-access-design.md) §6.
 - **D6. Remote access (M8-H). [Decided 2026-09-28: Tailscale + Tailscale
   Serve (option A).]** Private to the household's tailnet, no open ports,
   no domain, HTTPS and identity from Tailscale. Baihe adds
