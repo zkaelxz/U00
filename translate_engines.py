@@ -1910,6 +1910,88 @@ ENGINES = {
 TRANSLATION_ONLY_ENGINES = {"deepl", "google", "nllb", "libretranslate"}
 
 
+# ---------------------------------------------------------------------------
+# Step 97b: translate fallback chain
+# ---------------------------------------------------------------------------
+
+_FALLBACK_NAME_HINTS = ("timeout", "connectionerror", "apiconnection", "authentication",
+                        "permissiondenied", "unauthorized")
+
+
+def is_fallback_error(e: Exception) -> bool:
+    """True only for a real transient/credential failure worth trying the
+    next engine for: auth failure (401/403), rate limit, timeout, or
+    connection error. Never a content-moderation refusal (Step 31 handles
+    that itself) and never a bare/unknown exception, which could be a real
+    bug rather than a real provider problem."""
+    if isinstance(e, ContentModerationBlocked):
+        return False
+    status = getattr(e, "status_code", None)
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        status = status or getattr(resp, "status_code", None)
+    if status in (401, 403) or _is_rate_limit_error(e):
+        return True
+    return any(hint in cls.__name__.lower()
+               for cls in type(e).__mro__ for hint in _FALLBACK_NAME_HINTS)
+
+
+class FallbackEngine:
+    """Wraps an ordered chain of engines of the SAME class (all
+    instruction-following, or all in TRANSLATION_ONLY_ENGINES -- the caller
+    enforces that, so glossary/style adherence is never silently dropped).
+    translate_batch tries the active engine; on an is_fallback_error it
+    switches -- for the rest of the run -- to the next one, recording the
+    switch in `events`. Everything else (name/model/free_tier/last_usage/
+    supports_reference...) reads through to the active engine so cost and
+    usage logging stay correct per engine. Each engine has its own cost
+    cap and its own spend (a failed attempt reports no usage, so it adds
+    nothing; a finished batch always counts against the engine that ran it).
+    """
+
+    def __init__(self, engines: list, choices: list, caps: list = None):
+        self.engines = list(engines)
+        self.choices = list(choices)
+        self.caps = list(caps) if caps else [None] * len(engines)
+        self.spent = [0.0] * len(engines)
+        self.active = 0
+        self.events = []
+
+    def __getattr__(self, name):
+        if name.startswith("__") or name in ("engines", "active"):
+            raise AttributeError(name)
+        return getattr(self.engines[self.active], name)
+
+    @property
+    def active_choice(self) -> str:
+        return self.choices[self.active]
+
+    def cap_exhausted(self) -> bool:
+        cap = self.caps[self.active]
+        return cap is not None and self.spent[self.active] >= cap
+
+    def translate_batch(self, zh_lines, context):
+        while True:
+            engine = self.engines[self.active]
+            try:
+                result = engine.translate_batch(zh_lines, context)
+            except Exception as e:
+                if not is_fallback_error(e) or self.active + 1 >= len(self.engines):
+                    raise
+                self.events.append({"from": self.choices[self.active],
+                                    "to": self.choices[self.active + 1],
+                                    "reason": type(e).__name__,
+                                    "detail": redact_secrets(str(e))[:200]})
+                self.active += 1
+                continue
+            u = getattr(engine, "last_usage", None)
+            if u:
+                self.spent[self.active] += estimate_cost_for_engine(
+                    engine, u.get("input_tokens", 0), u.get("output_tokens", 0),
+                    u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
+            return result
+
+
 class UnsupportedDirectionError(Exception):
     """Raised by standalone_translate (Step 26b) when the requested engine
     can't handle the requested translation direction -- see
@@ -2586,6 +2668,10 @@ def translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int
             save_cb(lines)
         if progress_cb:
             progress_cb((bi + 1) / n_batches)
+        if isinstance(engine, FallbackEngine) and engine.cap_exhausted() and bi + 1 < n_batches:
+            if cap_cb:
+                cap_cb(engine.spent[engine.active])
+            break
         if cost_cap_usd is not None and spent >= cost_cap_usd and bi + 1 < n_batches:
             if cap_cb:
                 cap_cb(spent)
