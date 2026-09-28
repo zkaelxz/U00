@@ -175,8 +175,10 @@ baihe-subtitler/
 │   │                             unchanged; those tabs import them back and call them as before)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
-│   └── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
-│                                 versions, running jobs, log tail); no admin action, no network call
+│   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
+│   │                             versions, running jobs, log tail); no admin action, no network call
+│   └── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
+│                                 db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -190,7 +192,8 @@ baihe-subtitler/
 │       ├── system_routes.py      /api/health, /api/meta
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
-│       └── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
+│       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
+│       └── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
