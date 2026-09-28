@@ -704,6 +704,22 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 48 — Review read-only records (2026-09-28).**
+`services/review_records_service.py` + `api/routers/review_records_routes.py`
+(`/api/review/dramas/{id}/...`): history list/snapshot, versions list/compare,
+notes list/Markdown, stored consistency issues, emotion summary, edit
+tendencies, TM suggestions. The service checks drama ownership itself,
+because `db.get_line_history_snapshot` and `db.get_translation_version` take
+only an id; another drama's record gives the same 404 as a missing one.
+Snapshot lines omit `flag`/`flag_note`/`sfx` because
+`save_line_history_snapshot` never stored them, and `dub_filename` is a bare
+filename. Notes carry both `line_id` and the current `line_idx`; TM
+suggestions are `line_id`/`line_idx`/`zh`/`en`/`suggestion`/`similarity`/
+`exact`/`entry_id` (empty when the drama has no series; optional repeated
+`line_id` filter); notes Markdown is served inline as `text/markdown`.
+Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
+job starters, bulk modes.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

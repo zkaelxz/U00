@@ -12,7 +12,7 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -363,3 +363,135 @@ class TranscribeRunRequest(BaseModel):
 
 class TranscribeRunResult(BaseModel):
     job_id: str
+
+
+# ---------------------------------------------------------------------------
+# Review read-only records (Migration Slice 48) -- see
+# services/review_records_service.py. Every model is prefixed
+# ReviewRecords to stay clear of the sibling ReviewLines* models.
+# ---------------------------------------------------------------------------
+
+class ReviewRecordsHistoryItem(BaseModel):
+    id: int
+    drama_id: int
+    label: str
+    created_at: str
+
+
+class ReviewRecordsSnapshotLine(BaseModel):
+    id: Optional[int] = None
+    idx: Optional[int] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    zh: str
+    en: str
+    speaker: Optional[str] = None
+    speaker_manual: bool
+    dub_filename: Optional[str] = Field(default=None, description="Bare filename, never a path.")
+
+
+class ReviewRecordsSnapshot(BaseModel):
+    id: int
+    drama_id: int
+    label: str
+    created_at: str
+    lines: List[ReviewRecordsSnapshotLine]
+
+
+class ReviewRecordsVersionItem(BaseModel):
+    id: int
+    drama_id: int
+    label: str
+    engine: str
+    model: str
+    is_active: bool
+    created_at: str
+
+
+class ReviewRecordsVersionRef(BaseModel):
+    id: int
+    label: str
+
+
+class ReviewRecordsDiff(BaseModel):
+    idx: int
+    zh: str
+    left_en: str
+    right_en: str
+
+
+class ReviewRecordsCompare(BaseModel):
+    drama_id: int
+    left: ReviewRecordsVersionRef
+    right: ReviewRecordsVersionRef
+    left_line_count: int
+    diff_count: int
+    diffs: List[ReviewRecordsDiff]
+
+
+class ReviewRecordsNote(BaseModel):
+    id: int
+    drama_id: int
+    line_id: Optional[int] = None
+    line_idx: Optional[int] = None
+    term: Optional[str] = None
+    note_type: Optional[str] = None
+    note: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class ReviewRecordsConsistencyIssue(BaseModel):
+    id: int
+    term: str
+    variants: List[str]
+    note: str
+    created_at: Optional[str] = None
+
+
+class ReviewRecordsEmotionTag(BaseModel):
+    line_idx: int
+    emotion: str
+    intensity: Optional[float] = None
+    note: str
+
+
+class ReviewRecordsEmotionSummary(BaseModel):
+    drama_id: int
+    total: int
+    by_emotion: Dict[str, int]
+    high_risk: int
+    lines: List[ReviewRecordsEmotionTag]
+
+
+class ReviewRecordsTendencyStats(BaseModel):
+    total: int
+    shortened: int
+    expanded: int
+    rephrased: int
+    avg_word_delta: float
+
+
+class ReviewRecordsStyleProfile(BaseModel):
+    summary: str
+    confidence: Optional[Any] = None
+    preferences: List[str]
+    sample_count: int
+    updated_at: Optional[str] = None
+
+
+class ReviewRecordsTendencies(BaseModel):
+    drama_id: int
+    scope: str
+    tendencies: ReviewRecordsTendencyStats
+    profile: Optional[ReviewRecordsStyleProfile] = None
+
+
+class ReviewRecordsTmSuggestion(BaseModel):
+    line_id: Optional[int] = None
+    line_idx: int
+    zh: str
+    en: str
+    suggestion: str
+    similarity: float
+    exact: bool
+    entry_id: int
