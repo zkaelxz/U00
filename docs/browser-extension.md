@@ -95,6 +95,27 @@ Unlike the image modes, this always uses the engine configured in
 Settings → Browser extension; the extension itself has no engine picker
 or key of its own to keep in sync.
 
+## Two things it checks for before capturing
+
+- **A page that's still descrambling/reassembling isn't captured mid-way.**
+  Before reading an element's pixels, the extension takes a cheap sample,
+  waits, and takes another; it only proceeds once two samples in a row
+  match (bounded to 1.5s, then it proceeds anyway rather than hang
+  forever). This matters for a page like mangaz's own reader, whose JS
+  reassembles a tile-scrambled page onto a canvas after it loads —
+  capturing the instant you click, rather than once that's settled, could
+  grab a half-drawn frame. An already-static image settles in well under
+  a fifth of a second, so this adds no noticeable delay to the ordinary
+  case.
+- **A verification/CAPTCHA interstitial is recognized and refused, not
+  mistranslated.** If the page you click on looks like a Cloudflare/bot
+  challenge (by title, visible text, or a known CAPTCHA widget actually
+  on screen — not just present somewhere in the DOM), the extension says
+  so plainly instead of silently sending whatever image-sized element
+  happens to be on that page off for OCR. It never tries to solve or pass
+  the challenge, the same posture `sources/http.py`'s `ChallengeDetected`
+  already takes server-side — recognize and hand off, never fight it.
+
 ## What it can't do
 
 - **A cross-origin image the site draws without CORS can't be read.**
@@ -231,11 +252,14 @@ running endpoint, and drives a page holding both a normal `<img>` and a
 (the headless *shell* can't load extensions) and skips cleanly without
 one. It touches no real site and needs no API key. Run it after changing
 anything in `extension/` or `page_server.py` — the Python suite cannot
-execute any of that JavaScript. All 19 of its checks pass as of Step 96
-(12 image, 6 text, 1 shared). What it establishes:
+execute any of that JavaScript. All 20 of its checks pass as of this
+merge (12 image, 6 text from Step 96, 1 shared, 1 content-stability +
+challenge-page detection). What it establishes:
 
 - A **`blob:`-backed page image translated end to end** and landed in the
-  library — the case the adapters structurally cannot reach.
+  library — the case the adapters structurally cannot reach. It still
+  does after adding the pre-capture content-stability wait, so that wait
+  doesn't hang or corrupt the capture on the case that matters most.
 - A box at `x=40, w=220` in image pixels drew at `x=20, w=110` over an
   image displayed at half scale, and stayed exact after a window resize.
 - Click-to-see-original and the overlay toggle both behaved.
@@ -255,6 +279,9 @@ execute any of that JavaScript. All 19 of its checks pass as of Step 96
 - **(Step 96) An explicit text selection overrode the heuristic block** —
   selecting one paragraph sent only that paragraph, not the whole
   captured article.
+- A page with its title set to `"Just a moment..."` (a real Cloudflare
+  interstitial title) was recognized and refused with `CHALLENGE_DETECTED`
+  instead of being sent for OCR/translation.
 
 That run also found two real problems, since fixed: the same image
 appearing more than once on a page was encoded and uploaded once per

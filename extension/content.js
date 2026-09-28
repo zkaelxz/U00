@@ -25,6 +25,59 @@
   const MIN_WIDTH = 200;
   const MIN_HEIGHT = 400;
 
+  // -- recognizing a verification/CAPTCHA interstitial -----------------
+  //
+  // The same categories sources/detect.py already names server-side
+  // (CLOUDFLARE_CHALLENGE / BOT_CHALLENGE), reused here so the two
+  // detectors describe the same things. Like the Python side, this only
+  // *recognizes* a challenge and reports it -- it never tries to solve or
+  // pass one. Without this, clicking the extension on an interstitial
+  // would silently hand a CAPTCHA graphic to OCR/translation as if it
+  // were real page content.
+  const CHALLENGE_TITLE_RE =
+    /just a moment|attention required|checking your browser|verify you are human|are you a robot/i;
+  const CHALLENGE_TEXT_MARKERS = [
+    "verify you are human", "are you a robot", "人机验证", "安全验证", "滑动验证",
+    "보안문자", "로봇이 아닙니다",
+  ];
+  const CHALLENGE_SELECTORS = [
+    'iframe[src*="captcha" i]', '[class*="g-recaptcha"]', '[class*="h-captcha"]',
+    '[class*="hcaptcha"]', '[class*="cf-turnstile"]', '[class*="geetest"]',
+    '[id*="captcha" i]',
+  ];
+
+  function isPresentedOnTop(el) {
+    // Not just "is a matching element somewhere in the DOM" -- a hidden
+    // template for a challenge that never triggered would false-positive
+    // on that alone. Sample a few points of the element's own box and
+    // confirm something in that box is actually what's drawn there.
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    const points = [
+      [rect.left + rect.width / 2, rect.top + rect.height / 2],
+      [rect.left + 2, rect.top + 2],
+      [rect.right - 2, rect.bottom - 2],
+    ];
+    return points.some(([x, y]) => {
+      if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return false;
+      const top = document.elementFromPoint(x, y);
+      return top === el || el.contains(top);
+    });
+  }
+
+  function looksLikeChallengePage() {
+    if (CHALLENGE_TITLE_RE.test(document.title)) return true;
+    const bodyText = ((document.body && document.body.innerText) || "")
+      .slice(0, 2000).toLowerCase();
+    if (CHALLENGE_TEXT_MARKERS.some((m) => bodyText.includes(m))) return true;
+    for (const sel of CHALLENGE_SELECTORS) {
+      for (const el of document.querySelectorAll(sel)) {
+        if (isVisible(el) && isPresentedOnTop(el)) return true;
+      }
+    }
+    return false;
+  }
+
   const state = {
     overlaysVisible: true,
     // hash -> regions, so paging back to a page already translated is
@@ -77,6 +130,44 @@
     return { width: el.naturalWidth || el.width, height: el.naturalHeight || el.height };
   }
 
+  // A cheap, small-canvas sample of an element's current pixels, used
+  // only to tell "still changing" from "settled" -- never the real
+  // extraction. Returns null (rather than throwing) on a cross-origin
+  // canvas taint, so a tainted element just skips the wait below and
+  // reaches extractBytes's own toBlob(), which is what actually reports
+  // that failure to the caller.
+  function sampleSignature(el, size = 6) {
+    try {
+      const c = document.createElement("canvas");
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(el, 0, 0, size, size);
+      return ctx.getImageData(0, 0, size, size).data.join(",");
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Waits for the element's pixels to stop changing before capture, not
+  // a fixed sleep: a page whose own JS is still descrambling/reassembling
+  // a page onto a canvas (mangaz's own reader does exactly this) can have
+  // the right dimensions well before it has the right pixels. Bounded, and
+  // never blocks forever -- if it never settles, capture proceeds anyway
+  // with whatever is there, same as if this check didn't exist.
+  async function waitForStableSignature(el, stabilityMs = 150, timeoutMs = 1500) {
+    let last = sampleSignature(el);
+    if (last === null) return;
+    const start = performance.now();
+    while (performance.now() - start < timeoutMs) {
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => setTimeout(r, stabilityMs));
+      const next = sampleSignature(el);
+      if (next === last) return;
+      last = next;
+    }
+  }
+
   // Draws the element at its own full resolution and reads the pixels
   // back. This is the step that reaches content an adapter can't: a
   // `blob:` image, or a page the site's own reader has already
@@ -85,6 +176,7 @@
   async function extractBytes(el) {
     const { width, height } = elementSize(el);
     if (!width || !height) throw new Error("that image hasn't finished loading");
+    await waitForStableSignature(el);
     let source = el;
     if (el.tagName !== "CANVAS") {
       const canvas = document.createElement("canvas");
@@ -474,6 +566,13 @@
   // -- the main action -------------------------------------------------
 
   async function translateVisible({ dramaId, store, all }) {
+    if (looksLikeChallengePage()) {
+      return {
+        ok: false, code: "CHALLENGE_DETECTED",
+        error: "This looks like a verification/CAPTCHA page, not the reader -- solve it, " +
+               "then try again.",
+      };
+    }
     const elements = candidateElements();
     if (!elements.length) {
       return { ok: false, error: "No page-sized images found here. If the page is still " +
@@ -603,5 +702,6 @@
 
   // Exposed for the popup's injected checks and for tests.
   window.__baihe = { translateVisible, setOverlaysVisible, candidateElements, state, toast,
-                     translatePageText, collectPageText, mainContentBlock };
+                     translatePageText, collectPageText, mainContentBlock,
+                     looksLikeChallengePage, sampleSignature, waitForStableSignature };
 })();
