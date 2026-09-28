@@ -1052,3 +1052,9 @@ class LinesNote(BaseModel):
 class LinesNoteDeleteResult(BaseModel):
     deleted: bool
     note_id: int
+
+
+class JobCancelResult(BaseModel):
+    job_id: str
+    cancel_requested: bool
+    status: str
