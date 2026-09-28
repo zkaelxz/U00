@@ -94,21 +94,23 @@
 > user-confirmation action") is genuinely underspecified — flagged as a
 > decision-needed item above rather than guessed at, not implemented.
 >
-> **React+FastAPI migration, Slice 2 — implementation done, integration
-> pending as of this note.** An implementer moved the 11 job-runner
-> functions out of `tabs/workspace_tab.py`/`tabs/library_tab.py` into
-> `services/workspace_job_service.py` (worktree/branch
-> `step-migration-slice2-job-services`), zero logic change confirmed. Real
-> blocker found in its own verification: 23 existing tests in
-> `tests/test_workspace_tab.py`/`tests/test_library_features.py`
-> monkeypatch a dependency by the *old* module's dotted path (e.g.
-> `tabs.workspace_tab.transcribe_for_timing`), which the move makes
-> inert — a structural, expected consequence of moving the real
-> implementation, not a bug in the move. Retargeting those 23 patches to
-> `services.workspace_job_service.*` and updating `FILE_ORGANIZATION.md`
-> (both outside the implementer's assigned scope) is this session's next
-> integration step before merge — check the branch's actual current state
-> before assuming this is done or restarting it.
+> **React+FastAPI migration, Slice 2 — merged (2026-09-28), PR #197.**
+> Moved 11 job-runner functions out of
+> `tabs/workspace_tab.py`/`tabs/library_tab.py` into
+> `services/workspace_job_service.py`. Zero logic change confirmed by an
+> AST-level diff of each function's body against the pre-move source: 10
+> of 11 byte-identical, the 11th only gained two necessary local imports.
+> Retargeted 25 stale monkeypatches across 5 test files (23 the mover's
+> own verification found, 2 more found only via a full-suite run + a
+> repo-wide grep sweep across every moved name — `test_local_model_defaults.py`
+> and `test_speaker_rerun.py`, outside the mover's originally-checked
+> scope; confirm the same repo-wide sweep next time a function moves
+> between modules, not just the files a first pass happens to check).
+> `FILE_ORGANIZATION.md` updated in the same PR. Full suite: 3228 passed,
+> 0 failed. **Next migration slice per `docs/migration-review.md`'s own
+> plan: Slice 4 (Reader read-only endpoint) — genuinely independent of
+> everything else, no file overlap with Slice 3's job-API work, good
+> next candidate whenever picked up.**
 >
 > **Not yet dispatched:** Steps 95/97/98/99 (see above, no branch yet).
 > Step 89 (provisionally numbered, never pushed — confirm scope
@@ -4191,6 +4193,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 98 — Proxy support in `sources/http.py` (confirmed zero proxy support anywhere via repo-wide grep; low priority, no adapter currently failing for lack of it) | — | Not started — tracked, not dispatched | — |
   | 99 — Tiered translation cost/quality escalation: cheap/local model by default, auto-escalate a specific line to a stronger paid model on a glossary conflict/ambiguous term/QC flag (renumbered from a "Step 96" collision with the browser-extension work above) | — | Not started — tracked, not dispatched | — |
   | — React + FastAPI migration foundation (`api/`, `services/library_service.py`, `frontend/` Library view; not a numbered step, an ongoing parallel workstream — see `docs/migration-review.md` for the full remaining-work plan) | `migration/react-fastapi-foundation` | ✅ Merged (PR #191) | — |
+  | — Migration Slice 2: job-runner extraction to `services/workspace_job_service.py` | `step-migration-slice2-job-services` | ✅ Merged (PR #197) | — |
   | — Windows installer/uninstaller: research follow-up notes (tiering/code-signing decisions, GPU-detection test matrix; docs only, no roadmap step id, exploratory by design) | `research/windows-installer-followup` | ✅ Merged (PR #193) | — |
   | — Fix: wuxiaworld's `site_terms.py` record was missing its own AI/ML clause | `fix-wuxiaworld-ai-ml-clause` | ✅ Merged (PR #190) | — |
   | — Fix: jjwxc's `site_terms.py` record cited a clause not in the live ToS (see JJWXC decision-needed note below) | `fix-jjwxc-tos-citation` | ✅ Merged (`cfdc8e4`) | — |
