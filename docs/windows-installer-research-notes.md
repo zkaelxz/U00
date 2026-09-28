@@ -14,21 +14,36 @@ the merged doc's own "design only" framing.
 Read `docs/windows-installer-design.md` first; this document assumes its
 §1-§7 and refers back to them by number rather than restating them.
 
-**User decisions (2026-09-28), resolving two of this document's open
-questions directly:**
+**User decisions (2026-09-28), closing out this document's open
+questions:**
 
-- **Heavier components must be tiered/opt-in, prompted, and kept separate
-  from Core** — not silently pulled into a default install. This resolves
-  the merged doc's own §3 open call between "(a) Recommended = core +
-  media only" and "(b) Recommended = core + media + a curated optional
-  subset": the user's direction picks (a) in spirit — anything beyond
-  Core/Media (GPU-enabled torch, diarization, OCR backends, voice-cloning
-  models, etc.) should require an explicit prompt/opt-in rather than
-  arriving by default at any tier. See the updated §3-adjacent note below.
-- **No code signing needed** — this is a small, private distribution (the
-  user states ~3 users), not a public release building SmartScreen
-  reputation over time. Ship unsigned and accept the "Windows protected
-  your PC" click-through. This resolves §8 below; see its update.
+1. **Keep Inno Setup + bundled Python for now.** The conda/Miniforge
+   alternative (§3) stays closed unless a small prototype installer
+   can't reliably install Baihe's actual dependencies with the
+   embeddable-Python + pip approach — at which point it's the fallback to
+   revisit, not a parallel track to build now.
+2. **Add disk-space checks and a CPU fallback to the design** — both
+   address real user-facing failure modes (§4, §5) without requiring any
+   architecture change, so they're folded into the design as concrete
+   requirements rather than left as "a decision to make later."
+3. **Run a clean-Windows prototype** to verify the Python/pip bootstrap
+   (§2) and one real optional AI backend end-to-end, before committing
+   further design effort — this is the biggest unverified technical
+   assumption in the whole approach, and evidence beats more research on
+   it. See "Next steps" at the end of this document — this research
+   session has no Windows environment to run it in itself.
+4. **Defer code-signing spend until a public release is actually being
+   prepared** — not "never," as this document's first pass over-stated it
+   (§8's earlier framing). It matters for distribution, but doesn't need
+   to block the installer design now, while distribution is small/private.
+5. **Keep the update manifest and the four-way component split** (§9,
+   §5 item 5 of the merged doc) — Inno Setup's lack of built-in delta
+   updates is something the updater design has to account for by keeping
+   these, not a reason to reconsider the framework choice.
+
+Heavier-components tiering (opt-in, prompted, separate from Core — the
+earlier 2026-09-28 decision, still standing) is unchanged by this pass and
+is folded into item 2 above and the summary below.
 
 ---
 
@@ -159,20 +174,21 @@ in the wild, not a solved problem:
   that might not exist — i.e., **fail toward a wheel that's more likely to
   work, never toward one that's newer but a guess.**
 
-**Recommendation for the eventual implementation step:** don't ship a
-single naive `nvidia-smi`-output-parsing check for the Recommended tier's
-GPU/CPU torch choice — budget for at least a two-tier fallback (a
-reachable check, then a conservative default), and make the failure mode
-"falls back to the CPU wheel with a visible note in Diagnostics" rather
-than "silently installs a CUDA wheel that doesn't match the actual driver
-and `torch.cuda.is_available()` quietly returns `False` at runtime with no
-clear error anywhere." This is a small, real design decision the merged
-doc left open by not addressing detection mechanics at all — flagging it
-here rather than resolving it, since it needs to be sized against how much
-engineering effort Baihe actually wants to spend on GPU detection versus
-just asking the user (a "do you have an NVIDIA GPU?" installer checkbox
-defaulting to an auto-detect best-guess is also a legitimate, much
-cheaper answer).
+**Decided (2026-09-28): a CPU fallback is a firm design requirement,
+regardless of how much detection effort is eventually built.** Whatever
+the detection mechanism (a single `nvidia-smi` check, a fuller fallback
+chain, or a manual "I have an NVIDIA GPU" checkbox — that depth question
+is still open, see below), the failure mode when detection is uncertain
+or fails must be "falls back to the CPU wheel with a visible note in
+Diagnostics," never "silently installs a CUDA wheel that doesn't match
+the actual driver and `torch.cuda.is_available()` quietly returns `False`
+at runtime with no clear error anywhere." This is now a concrete
+requirement for the implementation step, not just a flagged risk.
+
+Still open, and worth resolving with the clean-Windows prototype (see
+"Next steps" below) rather than in the abstract: how much detection depth
+beyond the CPU-fallback floor is worth building — a single `nvidia-smi`
+check, the fuller tiered chain above, or just asking the user directly.
 
 Sources: [unslothai/unsloth#5812](https://github.com/unslothai/unsloth/issues/5812), [unslothai/unsloth#11166](https://github.com/unslothai/unsloth/pull/11166).
 
@@ -200,11 +216,15 @@ download) failing partway through with an out-of-space error the user
 has to diagnose themselves, rather than being told up front "Recommended
 needs ~10GB free, you have 4GB."
 
-**Recommendation:** add an explicit disk-space preflight check (with a
-size estimate per tier/component, derived from the same `requirements-*.txt`
-+ known model-weight sizes the manifest in §5 item 5 of the merged doc
-already needs to track) to the implementation step's scope — this is a
-small addition once that manifest exists, not new infrastructure.
+**Decided (2026-09-28): an explicit disk-space preflight check is now a
+concrete design requirement**, not just a flagged recommendation — with a
+size estimate per tier/component, derived from the same
+`requirements-*.txt` + known model-weight sizes the manifest in §5 item 5
+of the merged doc already needs to track. This is a small addition once
+that manifest exists, not new infrastructure, and pairs directly with the
+tiering decision above: the per-component size estimate is exactly what
+lets a prompted opt-in checkbox show its real cost before the user
+commits to it.
 
 ---
 
@@ -269,14 +289,15 @@ chosen:
   Microsoft Entra/Azure account rather than requiring business
   registration.
 
-**Resolved by the user (2026-09-28): ship unsigned.** Given this is a
-small, private distribution (~3 users, not a public release that needs to
-build SmartScreen reputation over time), the cost/reputation-building
-tradeoff above doesn't apply — the installer ships unsigned, and the small
-user base clicks through "More info" → "Run anyway" once. No code-signing
-certificate or Trusted Signing subscription needed. This closes the
-question this section originally left open; kept the research above for
-the record in case distribution scale ever changes.
+**Decided (2026-09-28): defer, don't decide "never."** Ship unsigned for
+now — this is a small, private distribution (~3 users), not a public
+release that needs to build SmartScreen reputation over time, so the
+cost/reputation-building tradeoff above doesn't apply today. But this
+isn't a permanent architectural decision the way the tiering/manifest
+choices above are: revisit it specifically if and when a public release is
+being prepared, at which point the research above (OV vs. Trusted Signing)
+is what to act on. Nothing about the installer design needs to block on
+this now.
 
 Sources: [Code signing options for Windows app developers (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options), [SmartScreen reputation for Windows app developers (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation), [How to use individual code signing certificates to get rid of SmartScreen warnings](https://engy.us/blog/2021/05/25/how-to-use-individual-code-signing-certificates-to-get-rid-of-smartscreen-warnings/).
 
@@ -310,59 +331,77 @@ Source: [Inno Setup Help — Technical Notes](https://jrsoftware.org/ishelp/topi
 ## Summary of refinements to carry into the implementation step
 
 None of these overturn Option A (Inno Setup + bundled Python) or the
-three-tier/four-category structure in §3-§4 of the merged doc. They're
-additions/sharpenings to fold into §5's "what needs to change" list:
+three-tier/four-category structure in §3-§4 of the merged doc. Every item
+below is now a **decided design requirement**, not just a flagged risk —
+the 2026-09-28 decisions closed out what was previously open:
 
-1. **§5 item 4** — the post-install `pip` step needs an explicit
-   `get-pip.py`-bootstrap (or vendored pip wheel) + `pythonXX._pth` edit
-   sub-step before any `pip install` will work at all, plus `-s` on every
-   invocation to keep the bundled interpreter isolated from a
-   contributor/tester machine's own system Python (§2).
-2. **New item** — GPU/CUDA detection for the Recommended tier needs its
-   own small design decision: a naive `nvidia-smi`-parsing check is a
-   documented-fragile approach in comparable installers; budget for a
-   fallback chain or accept a manual user checkbox instead (§4).
-3. **New item** — an explicit disk-space preflight check with a
-   per-tier/component size estimate, using the same manifest §5 item 5
-   already calls for (§5 of this doc).
-4. **Resolved by the user (2026-09-28) — ship unsigned, no code signing.**
-   Small private distribution (~3 users) doesn't need SmartScreen
-   reputation-building; skip the cost entirely (§8 of this doc).
-5. **Resolved by the user (2026-09-28) — heavier components stay
-   tiered/opt-in, prompted, separate from Core, never bundled in by
-   default at any tier.** This decides the merged doc's own §3 open call
-   in favor of option (a) ("Recommended = core + media only," or leaner):
-   GPU-enabled torch, diarization, OCR backends, voice-cloning models, and
-   anything else beyond Core/Media requires an explicit prompt/opt-in
-   rather than arriving automatically. Combined with item 3 below (a
-   disk-space estimate shown before the user opts in), this gives the
-   installer's tier/component picker a concrete job: show the size cost of
-   each optional piece and require a checkbox before it's added to the
-   install plan.
-6. **Reinforcement, not new** — §5 item 5's manifest and §4's four-way
-   category split are load-bearing, not optional polish: without both,
-   Inno Setup's lack of any built-in delta-update mechanism (§9 of this
-   doc) means a naive script would redownload/reinstall everything,
-   models included, on every update.
+1. **§5 item 4 of the merged doc** — the post-install `pip` step needs an
+   explicit `get-pip.py`-bootstrap (or vendored pip wheel) + `pythonXX._pth`
+   edit sub-step before any `pip install` will work at all, plus `-s` on
+   every invocation to keep the bundled interpreter isolated from a
+   contributor/tester machine's own system Python (§2). To be verified by
+   the clean-Windows prototype below, not just designed on paper.
+2. **A CPU fallback is a firm requirement** whenever GPU detection is
+   uncertain or fails — visible in Diagnostics, never a silent broken CUDA
+   install (§4). Detection *depth* beyond that floor is still open — see
+   below.
+3. **An explicit disk-space preflight check is a firm requirement**, with
+   a per-tier/component size estimate derived from the same manifest §5
+   item 5 of the merged doc already needs (§5 of this doc).
+4. **Heavier components stay tiered/opt-in, prompted, separate from
+   Core, never bundled in by default at any tier.** Decides the merged
+   doc's own §3 open call in favor of a lean default: GPU-enabled torch,
+   diarization, OCR backends, voice-cloning models, and anything else
+   beyond Core/Media requires an explicit prompt/opt-in. Item 3's
+   per-component size estimate is what makes that opt-in prompt concrete
+   (show the real cost, require a checkbox).
+5. **Code signing is deferred, not decided against** — ship unsigned now
+   (small private distribution), revisit specifically when a public
+   release is being prepared (§8).
+6. **Keep the update manifest and the four-way component split** — Inno
+   Setup's lack of any built-in delta-update mechanism (§9) is something
+   the updater design must account for by keeping both, not a reason to
+   reconsider Option A.
+
+## Next steps: clean-Windows prototype
+
+The user's top recommendation is to validate the biggest unverified
+assumption with evidence rather than more research: **a small prototype
+installer, run on a clean Windows machine/VM, that does no more than**:
+
+1. Extracts app files + the embeddable Python package.
+2. Runs the §2 pip-bootstrap sequence (`get-pip.py`/vendored wheel,
+   `._pth` edit).
+3. Installs `requirements-core.txt`, then one real optional AI backend
+   end-to-end (e.g. `faster-whisper` or `pyannote.audio` from
+   `requirements-media.txt`/`requirements-optional.txt` — pick whichever
+   is cheapest to verify a real model download + inference call against,
+   not just an import) — to prove the bootstrap doesn't just `import`
+   cleanly but actually runs a real workload.
+4. Confirms `torch`'s CPU vs. CUDA wheel selection behaves as expected on
+   both a GPU-equipped and (if available) a non-GPU clean machine, per the
+   CPU-fallback requirement above.
+
+**This research session has no Windows environment to run this in** — it
+executed entirely from a Linux cloud container, so this step needs either
+the user's own Windows machine, a Windows VM, or a future session with
+Windows access. This is the natural first task for the eventual
+implementation step to start with, before building out the full
+installer script, tier picker, or manifest.
 
 ## Open questions for the user / planning session
 
-Two of the three questions this document originally raised were resolved
-directly by the user on 2026-09-28 (code signing → ship unsigned, given
-~3 users; tiering → heavier components must be prompted/opt-in, separate
-from Core — see the note at the top of this document and items 4-5 above).
-One remains open:
+Genuinely still open after the 2026-09-28 decisions:
 
-- **Conda/Miniforge vs. embeddable-Python + pip (§3):** this document's
-  read favors keeping the merged recommendation (embeddable Python + pip)
-  specifically because it reuses the existing tiered requirements files
-  without modification — but it's a real alternative real prior art
-  (oobabooga) chose for a very similar problem shape, and the call
-  depends partly on how much the team wants `ffmpeg`-on-PATH folded into
-  the installer itself vs. left as today's separate system check. Not
-  force-closed here.
-- **GPU detection depth (§4):** how much engineering effort is worth
-  spending on robust auto-detection (a real fallback chain) vs. a cheap
-  manual "I have an NVIDIA GPU" checkbox — a genuine cost/robustness
-  tradeoff, not a right-answer question. Unaffected by the two decisions
-  above.
+- **Conda/Miniforge vs. embeddable-Python + pip (§3):** closed for now
+  per decision 1 above — embeddable-Python + pip stays the approach
+  unless the clean-Windows prototype shows it can't reliably install
+  Baihe's actual dependencies. If the prototype fails on this specifically
+  (not just needs debugging, but hits a real embeddable-Python limitation
+  pip can't work around), that's the trigger to revisit conda, not before.
+- **GPU detection depth beyond the CPU-fallback floor (§4):** how much
+  engineering effort is worth spending on robust auto-detection (a real
+  fallback chain, per `unslothai/unsloth`'s tiered approach) vs. a cheap
+  manual "I have an NVIDIA GPU" checkbox. Worth answering with evidence
+  from the prototype above (does a naive check actually misfire on the
+  test machine's real driver?) rather than resolving in the abstract.
