@@ -289,6 +289,19 @@ def render_settings_sidebar():
                 index=["en-US", "en-GB", "en-AU"].index(st.session_state.get("settings_default_locale", "en-US")))
             st.session_state["settings_default_style_note"] = st.text_input(
                 "Default style notes", value=st.session_state.get("settings_default_style_note", ""))
+            _summary_engine_options = ["ollama", "claude", "deepseek", "gemini"]
+            st.session_state["settings_episode_summary_engine"] = st.selectbox(
+                "Episode-summary engine", _summary_engine_options,
+                index=_summary_engine_options.index(
+                    st.session_state.get("settings_episode_summary_engine", "ollama"))
+                    if st.session_state.get("settings_episode_summary_engine", "ollama")
+                    in _summary_engine_options else 0,
+                help="Step 74: after each episode finishes translating, one extra LLM call "
+                     "writes a short running summary (key events, unresolved threads, character "
+                     "state) fed forward as continuity context into the immediately following "
+                     "episode of the same series. Defaults to local Ollama since it's a fixed, "
+                     "once-per-episode cost regardless of episode length -- pick a cloud engine "
+                     "here if you'd rather pay for a better summary.")
 
         with st.expander("API keys & endpoints", expanded=False):
             st.caption("\"Save to .env\" writes that one value into this project's local "

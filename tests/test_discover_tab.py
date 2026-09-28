@@ -23,6 +23,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import bulk_import
 import db
 import page_fetch
 import title_library
@@ -394,3 +395,89 @@ class TestBulkImportUrlPatternGenerator:
             "https://www.jjwxc.net/tag.php?tag=baihe&page=2\n"
             "https://www.jjwxc.net/tag.php?tag=baihe&page=3"
         )
+
+
+class TestKeyGatingIsEngineAware:
+    """Step 84: `_dc_needs_key` used to hardcode `!= "ollama"`, so
+    test_offline (a FREE_ENGINES member that needs no key -- see
+    translate_engines.FREE_ENGINES) was wrongly treated as needing one.
+    Separately, the "Fetch & add to library" and the two bulk-extract
+    buttons guarded on bare `dc_api_key` truthiness instead of
+    `_dc_needs_key`, so clicking any of them with a free engine and no
+    key typed did nothing at all -- same bug class Step 25u already
+    fixed for the Navigator button in this same file."""
+
+    def test_fetch_and_add_button_enabled_for_test_offline_with_no_key(self, monkeypatch, isolated_db):
+        monkeypatch.setattr(title_library, "import_title_from_url",
+                             lambda url, engine, **kw: (None, {"ok": False, "message": "no entries found"}))
+        at = _render_discover()
+        at.run(timeout=30)
+        [engine_picker] = [s for s in at.selectbox if s.key == "discover_engine"]
+        engine_picker.set_value("test_offline")
+        [url_box] = [t for t in at.text_input if t.key == "import_url"]
+        url_box.set_value("https://baihehub.com/audio-dramas/some-title")
+        at.run(timeout=30)
+        [button] = [b for b in at.button if b.label == "Fetch & add to library"]
+        assert not button.disabled
+        button.click().run(timeout=30)
+        assert not at.exception
+        assert any("no entries found" in w.value for w in at.warning)
+
+    def test_fetch_and_add_button_disabled_for_real_engine_with_no_key(self, isolated_db):
+        at = _render_discover()
+        at.run(timeout=30)
+        [engine_picker] = [s for s in at.selectbox if s.key == "discover_engine"]
+        engine_picker.set_value("claude")
+        [url_box] = [t for t in at.text_input if t.key == "import_url"]
+        url_box.set_value("https://baihehub.com/audio-dramas/some-title")
+        at.run(timeout=30)
+        [button] = [b for b in at.button if b.label == "Fetch & add to library"]
+        assert button.disabled
+        assert any("Still needed: an API key" in i.value for i in at.info)
+
+    def test_fetch_and_add_button_still_works_for_test_offline_with_key_present(self, monkeypatch, isolated_db):
+        got = {}
+
+        def fake_import(url, engine, **kw):
+            got["called"] = True
+            return None, {"ok": False, "message": "no entries found"}
+        monkeypatch.setattr(title_library, "import_title_from_url", fake_import)
+        at = _render_discover()
+        at.run(timeout=30)
+        [engine_picker] = [s for s in at.selectbox if s.key == "discover_engine"]
+        engine_picker.set_value("test_offline")
+        [key_box] = [t for t in at.text_input if t.key == "discover_api_key"]
+        key_box.set_value("unused-key")
+        [url_box] = [t for t in at.text_input if t.key == "import_url"]
+        url_box.set_value("https://baihehub.com/audio-dramas/some-title")
+        at.run(timeout=30)
+        [button] = [b for b in at.button if b.label == "Fetch & add to library"]
+        assert not button.disabled
+        button.click().run(timeout=30)
+        assert not at.exception
+        assert got.get("called") is True
+
+    def test_bulk_extract_button_enabled_for_test_offline_with_no_key(self, monkeypatch, isolated_db):
+        monkeypatch.setattr(bulk_import, "bulk_extract", lambda urls, engine, **kw: ([], []))
+        at = _render_discover()
+        at.run(timeout=30)
+        [engine_picker] = [s for s in at.selectbox if s.key == "discover_engine"]
+        engine_picker.set_value("test_offline")
+        [urls_box] = [t for t in at.text_area if t.key == "bulk_urls"]
+        urls_box.set_value("https://www.jjwxc.net/tag.php?tag=baihe")
+        at.run(timeout=30)
+        [button] = [b for b in at.button if b.label == "🔍 Extract entries (review before saving)"]
+        assert not button.disabled
+        button.click().run(timeout=30)
+        assert not at.exception
+
+    def test_bulk_extract_button_disabled_for_real_engine_with_no_key(self, isolated_db):
+        at = _render_discover()
+        at.run(timeout=30)
+        [engine_picker] = [s for s in at.selectbox if s.key == "discover_engine"]
+        engine_picker.set_value("claude")
+        [urls_box] = [t for t in at.text_area if t.key == "bulk_urls"]
+        urls_box.set_value("https://www.jjwxc.net/tag.php?tag=baihe")
+        at.run(timeout=30)
+        [button] = [b for b in at.button if b.label == "🔍 Extract entries (review before saving)"]
+        assert button.disabled

@@ -306,7 +306,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
-                       context_window_ahead=3, batch_size=20):
+                       context_window_ahead=3, batch_size=20, summary_engine=None,
+                       summary_engine_choice=None):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -323,6 +324,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     cost_cap_usd: stop cleanly (every finished line kept) once this run's
     estimated spend reaches it -- the tighter of the per-job and monthly
     caps, resolved before the job starts. None = no cap.
+
+    summary_engine/summary_engine_choice (Step 74): the engine used for
+    the once-per-episode running-summary call once this drama finishes
+    translating, built by the caller (in the main thread, where Settings
+    is readable) -- None if no summary engine is available/configured,
+    which skips summary generation entirely rather than failing this job.
     """
     cap_reached = {}
     # {speaker_label: "Name (pronouns)"}, named characters only -- a line
@@ -362,7 +369,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     # status only once nothing is left untranslated.
     if not bulk_translate.finish_translation_run(
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
-            cancelled=background_jobs.is_cancel_requested(job_id)):
+            cancelled=background_jobs.is_cancel_requested(job_id),
+            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent")})
         return
@@ -381,6 +389,29 @@ def _bulk_engine_factory(engine_choice, model):
         return translate_engines.get_engine(engine_choice, key, model or None)
     except Exception:
         return None
+
+
+def _episode_summary_engine():
+    """Step 74: the engine for the once-per-episode running-summary call,
+    built here (the main thread, where Settings/session_state is
+    readable) so run_translate_job itself never has to touch Streamlit.
+    Defaults to local Ollama -- a fixed once-per-episode cost, unlike the
+    per-batch translation engine, so it doesn't need to be the same
+    (possibly paid) engine picked for translation -- but Settings lets
+    the user pick a cloud engine instead (settings_episode_summary_engine).
+
+    Returns (engine, engine_choice), or (None, None) if no usable engine
+    exists (Ollama unreachable, or a cloud pick with no key configured) --
+    a missing summary engine skips the summary quietly rather than
+    blocking or failing the translation run."""
+    choice = st.session_state.get("settings_episode_summary_engine", "ollama")
+    if choice == "ollama":
+        try:
+            return translate_engines.get_engine(
+                "ollama", None, base_url=st.session_state.get("settings_ollama_url") or None), choice
+        except Exception:
+            return None, None
+    return _bulk_engine_factory(choice, None), choice
 
 
 def _start_bulk_translation(drama_id, drama, engine, engine_choice, novel_reference, glossary_terms,
@@ -1084,13 +1115,13 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
     })
 
 
-def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, source_language):
+def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
     """
     Runs generate_translation_notes_llm in a background thread -- same
     reasoning as run_consistency_job above.
     """
     found_notes = tguide.generate_translation_notes_llm(
-        lines, engine, source_language=source_language,
+        lines, engine,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
@@ -1744,6 +1775,21 @@ def render_workspace_tab():
             index=MEDIA_TYPE_OPTIONS.index(_prefill_media_type)
                   if _prefill_media_type in MEDIA_TYPE_OPTIONS else 0,
             format_func=_format_media_type)
+        # Step 87: this used to be missing entirely, so db.create_drama
+        # was called with no source_language and silently fell through to
+        # the schema's DEFAULT 'zh' with zero UI indication -- the
+        # language selector only existed later, in the edit-existing-
+        # drama branch below, by which point the drama already existed
+        # with its language silently pre-set. No default selection here,
+        # unlike that later selectbox, so a Japanese or Korean drama
+        # can't be created as Chinese by mistake.
+        _prefill_source_language = prefill.get("source_language")
+        source_language = st.selectbox(
+            "Source language *(required)*", ["zh", "ja", "ko"],
+            index=["zh", "ja", "ko"].index(_prefill_source_language)
+                  if _prefill_source_language in ("zh", "ja", "ko") else None,
+            format_func=lambda l: {"zh": "🇨🇳 Chinese", "ja": "🇯🇵 Japanese", "ko": "🇰🇷 Korean"}[l],
+            placeholder="Select a language")
 
         # Step 22b: series assignment at creation time, not only via the
         # ✏️ Edit metadata expander after the drama already exists -- same
@@ -1769,11 +1815,13 @@ def render_workspace_tab():
                  "(📚 Library → 🎛️ Presets to manage them) -- still freely editable afterward.")
         _picked_preset = _preset_options[_preset_choice]
 
-        if st.button("Create drama"):
+        if source_language is None:
+            st.info("Still needed: a source language.")
+        if st.button("Create drama", disabled=source_language is None):
             new_id = db.create_drama(
                 title_en=title_en, title_zh=title_zh, author=author, studio=studio,
                 director=director, voice_actors=voice_actors, summary=summary,
-                media_type=media_type,
+                media_type=media_type, source_language=source_language,
                 **({"translation_engine": _picked_preset["translation_engine"]}
                    if _picked_preset and _picked_preset.get("translation_engine") else {}))
             if _picked_preset:
@@ -1841,6 +1889,27 @@ def render_workspace_tab():
                                          min_value=0, step=1)
         custom_tags = st.text_input("Custom tags (comma-separated)", value=drama.get("custom_tags") or "",
                                      placeholder="favorite, slow burn, rec to friends")
+        # Step 74: explicit episode ordering within the series -- 0 means
+        # "not set" here, same convention as chapter_count above, so an
+        # existing drama nobody's numbered yet doesn't get force-assigned
+        # episode_number=0 and silently join the series' numbered ordering.
+        episode_number = c1.number_input(
+            "Episode number in series", value=int(drama.get("episode_number") or 0),
+            min_value=0, step=1,
+            help="Leave at 0 for \"not set.\" Only affects ordering/continuity within a "
+                 "series (📖 Series glossary) -- once any drama in a series has this set, "
+                 "the series' episode list sorts by it, and translating an episode feeds "
+                 "the immediately preceding one's stored summary (below) forward as "
+                 "continuity context. Unset dramas keep the old newest-first order.")
+        episode_summary = st.text_area(
+            "Running summary (fed forward to the next episode)",
+            value=drama.get("episode_summary") or "", height=100,
+            help="Auto-generated once this episode finishes translating (Step 74) -- key "
+                 "events, unresolved threads, character state -- and sent as fixed context "
+                 "into the immediately following episode's translation prompt. Editable, "
+                 "like a glossary/translation-memory suggestion: fix it here if the "
+                 "auto-summary got something wrong, since a bad one would otherwise poison "
+                 "every later episode's context with no way to correct it.")
         # Step 26e: private per profile now, not one field shared by
         # everyone with access to this drama -- the widget key includes
         # profile_id, or switching profiles wouldn't refresh this box
@@ -1907,7 +1976,9 @@ def render_workspace_tab():
                              publication_status=pub_status,
                              chapter_count=int(chapter_count) if chapter_count else None,
                              custom_tags=custom_tags,
-                             source_url=source_url)
+                             source_url=source_url,
+                             episode_number=int(episode_number) if episode_number else None,
+                             episode_summary=episode_summary)
             db.save_personal_notes(picked_id, personal_notes, profile_id=_meta_profile_id)
             st.toast("Saved.", icon="✅")
             st.rerun()
@@ -3975,6 +4046,8 @@ def render_workspace_tab():
                     _cost_cap, _ = translate_engines.resolve_cost_cap(
                         _job_cap, _monthly_cap, db.get_month_spend() if _monthly_cap else 0.0)
 
+                _summary_engine, _summary_engine_choice = _episode_summary_engine()
+
                 started = background_jobs.start_job(
                     _translate_job_id, run_translate_job,
                     _translate_job_id, picked_id, _lines_copy, engine, drama, style_note,
@@ -3985,6 +4058,8 @@ def render_workspace_tab():
                     cost_cap_usd=_cost_cap,
                     context_window_ahead=context_window_ahead,
                     batch_size=batch_size,
+                    summary_engine=_summary_engine,
+                    summary_engine_choice=_summary_engine_choice,
                     gpu_touching=engine_choice == "ollama",
                     description=(f"Ollama Reflect-mode translation ({_drama_label(drama)})"
                                 if reflect_mode and engine_choice == "ollama" else
@@ -4057,7 +4132,7 @@ def render_workspace_tab():
                     audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
                     if audio_path and os.path.exists(audio_path):
                         clips, skipped = dub_module.extract_reference_clips(
-                            audio_path, st.session_state.lines, speaker_segments, ddir)
+                            audio_path, speaker_segments, ddir)
                         _ref_text_match_failed = set()
                         for label, info in clips.items():
                             matching_zh = next((ln.zh for ln in st.session_state.lines
@@ -5547,7 +5622,6 @@ def render_workspace_tab():
                             started = background_jobs.start_job(
                                 _notes_job_id, run_translation_notes_job,
                                 _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
-                                source_language,
                                 gpu_touching=engine_choice == "ollama",
                                 description=f"Ollama translation notes ({_drama_label(drama)})")
                             if started:

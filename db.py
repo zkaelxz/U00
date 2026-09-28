@@ -185,6 +185,14 @@ def init_db():
             media_type TEXT DEFAULT 'audio_drama',    -- 'audio_drama', 'video_drama', 'novel',
                                                        -- 'manhwa', 'manga', 'manhua', 'asmr', 'other'
             series_id INTEGER,        -- shares a glossary across multiple dramas of the same series
+            episode_number INTEGER,   -- Step 74: explicit ordering within series_id, for "previous
+                                       -- episode" lookups. NULL/unset by default -- an existing
+                                       -- series with no numbers set keeps its old created_at order.
+            episode_summary TEXT,     -- Step 74: a short auto-generated running summary of this
+                                       -- episode (key events, unresolved threads, character state),
+                                       -- fed forward as fixed context into the immediately following
+                                       -- episode's translation prompt. Editable, never auto-applied
+                                       -- beyond that -- same "suggestion" pattern as glossary/TM.
             audio_filename TEXT,
             novel_reference_filename TEXT,
             translation_engine TEXT DEFAULT 'claude',
@@ -759,6 +767,10 @@ def init_db():
             conn.execute("ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
         if "series_id" not in drama_cols:
             conn.execute("ALTER TABLE dramas ADD COLUMN series_id INTEGER")
+        if "episode_number" not in drama_cols:
+            conn.execute("ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
+        if "episode_summary" not in drama_cols:
+            conn.execute("ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
         if "updated_at" not in drama_cols:
             conn.execute("ALTER TABLE dramas ADD COLUMN updated_at TEXT")
         for col, coltype in [("last_translate_errors", "TEXT"),
@@ -1113,8 +1125,20 @@ def delete_drama(drama_id: int):
 # drama_meta from get_drama()/list_dramas(), and nothing else has to thread
 # the series lookup through. A subquery rather than a JOIN keeps every
 # existing unqualified column name in list_dramas' filters unambiguous.
+#
+# Step 74: same trick for previous_episode_summary -- the immediately
+# preceding episode's stored running summary (the sibling row in the same
+# series whose episode_number is the largest one strictly less than this
+# row's own). Only resolves when BOTH this row and a sibling have
+# episode_number set -- a drama with no ordering has no reliable
+# "previous" to feed forward, so it gets NULL/"" here rather than guessing.
 _DRAMA_SELECT = ("SELECT dramas.*, (SELECT series.instructions FROM series "
-                 "WHERE series.id = dramas.series_id) AS series_instructions FROM dramas")
+                 "WHERE series.id = dramas.series_id) AS series_instructions, "
+                 "(SELECT d2.episode_summary FROM dramas d2 "
+                 "WHERE d2.series_id = dramas.series_id AND d2.episode_number IS NOT NULL "
+                 "AND dramas.episode_number IS NOT NULL AND d2.episode_number < dramas.episode_number "
+                 "ORDER BY d2.episode_number DESC LIMIT 1) AS previous_episode_summary "
+                 "FROM dramas")
 
 
 def get_drama(drama_id: int):
@@ -1162,14 +1186,26 @@ def list_dramas_by_series(series_id: int):
     one glossary/character list under the hood (series_characters and
     glossary_terms are keyed by series_id, not drama_id/media_type); this
     is the query that surfaces that sharing as one grouped list instead
-    of unrelated Library rows. Same order as list_dramas() (newest first).
-    Uses _DRAMA_SELECT like every other drama-list function, so a row from
-    here carries series_instructions too if it's ever used to build a
-    drama_meta, same guarantee list_dramas()/get_drama() already give."""
+    of unrelated Library rows. Uses _DRAMA_SELECT like every other
+    drama-list function, so a row from here carries series_instructions
+    too if it's ever used to build a drama_meta, same guarantee
+    list_dramas()/get_drama() already give.
+
+    Order: newest first (created_at DESC), same as list_dramas() -- UNLESS
+    Step 74's episode_number is actually in use somewhere in this series,
+    in which case it's the real ordering signal and takes over (ascending,
+    reading order), with any not-yet-numbered sibling sorted after the
+    numbered ones rather than crashing or getting silently interleaved.
+    An existing series with no episode numbers set at all keeps its old
+    created_at order exactly -- this never reorders a series that hasn't
+    opted in."""
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(
             f"{_DRAMA_SELECT} WHERE series_id = ? ORDER BY created_at DESC", (series_id,)).fetchall()
-    return [dict(r) for r in rows]
+    dramas = [dict(r) for r in rows]
+    if any(d.get("episode_number") is not None for d in dramas):
+        dramas.sort(key=lambda d: (d.get("episode_number") is None, d.get("episode_number")))
+    return dramas
 
 
 def distinct_values(column: str) -> List[str]:

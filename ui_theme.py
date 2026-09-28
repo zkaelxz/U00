@@ -25,15 +25,6 @@ MUTED = "#6B6B76"
 BORDER = "#E4E4EA"
 SURFACE = "#FFFFFF"
 
-STATUS_COLORS = {
-    "not started": ("#8A8A94", "#F2F2F4"),
-    "aligned":     ("#2F6FBF", "#E8F1FB"),
-    "translated":  ("#7C5CBF", "#EFEAFA"),
-    "dubbed":      ("#2E8A6B", "#E6F5EF"),
-    "exported":    ("#1F1F23", "#EDEDF0"),
-}
-
-
 # Step 12: a type scale for the tabs that aren't being rebuilt by the
 # redesign steps (Library, Scanlate, Live). 16px body and a ~1.25 ratio
 # between steps: caption -> body/sub-label -> tab heading. Scoped to
@@ -291,10 +282,6 @@ def inject_dark_css():
 
       .bh-section {{ border-bottom-color: {d['border']} !important; }}
       .bh-section-title {{ color: {d['ink']} !important; }}
-      .bh-empty {{
-          background: {d['surface']} !important; border-color: {d['border']} !important;
-          color: {d['muted']} !important; }}
-      .bh-empty-title {{ color: {d['ink']} !important; }}
       .bh-stage-item {{
           background: {d['surface']} !important; border-color: {d['border']} !important;
           color: {d['muted']} !important; }}
@@ -422,21 +409,12 @@ def inject_css():
       .stCaption, [data-testid="stCaptionContainer"] {{ color: {MUTED}; }}
 
       /* --- custom primitives ------------------------------------------ */
-      .bh-pill {{
-          display: inline-block; padding: 2px 10px; border-radius: 999px;
-          font-size: .74rem; font-weight: 600; letter-spacing: .02em;
-      }}
       .bh-section {{
           display: flex; align-items: baseline; gap: 10px;
           margin: 26px 0 6px 0; padding-bottom: 6px; border-bottom: 1px solid {BORDER};
       }}
       .bh-section-title {{ font-size: 1.05rem; font-weight: 620; color: {INK}; }}
       .bh-section-hint {{ font-size: .82rem; color: {MUTED}; }}
-      .bh-empty {{
-          text-align: center; padding: 40px 20px; color: {MUTED};
-          border: 1px dashed {BORDER}; border-radius: 12px; background: {SURFACE};
-      }}
-      .bh-empty-title {{ font-weight: 600; color: {INK}; margin-bottom: 4px; }}
       .bh-stage {{
           display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 18px 0;
       }}
@@ -488,47 +466,3 @@ def section(title: str, hint: str = ""):
     st.markdown(
         f'<div class="bh-section"><span class="bh-section-title">{title}</span>{hint_html}</div>',
         unsafe_allow_html=True)
-
-
-def status_pill(status: str) -> str:
-    """Returns HTML for a status pill. Colour-coded so a library table
-    can be skimmed rather than read."""
-    fg, bg = STATUS_COLORS.get(status, STATUS_COLORS["not started"])
-    return f'<span class="bh-pill" style="color:{fg};background:{bg};">{status}</span>'
-
-
-def stage_indicator(stages, current_index: int):
-    """Horizontal progress through a multi-step workflow -- shows what's
-    done, where you are, and what's ahead, without rendering every step's
-    controls at once."""
-    import streamlit as st
-    items = []
-    for i, name in enumerate(stages):
-        cls = ("bh-stage-item bh-stage-done" if i < current_index else
-               "bh-stage-item bh-stage-current" if i == current_index else
-               "bh-stage-item")
-        items.append(f'<span class="{cls}">{name}</span>')
-    st.markdown(f'<div class="bh-stage">{"".join(items)}</div>', unsafe_allow_html=True)
-
-
-def empty_state(title: str, hint: str = ""):
-    """A deliberate empty state instead of a bare st.info(). An empty
-    screen should say what to do next, not just that it's empty."""
-    import streamlit as st
-    hint_html = f"<div>{hint}</div>" if hint else ""
-    st.markdown(
-        f'<div class="bh-empty"><div class="bh-empty-title">{title}</div>{hint_html}</div>',
-        unsafe_allow_html=True)
-
-
-def stage_for_drama(drama: dict, has_lines: bool) -> int:
-    """Maps a drama's state onto the workflow stages, so the UI can open
-    on the step you're actually up to rather than always starting at 1."""
-    status = (drama or {}).get("status", "not started")
-    if status in ("exported", "dubbed"):
-        return 4
-    if status == "translated":
-        return 3
-    if status == "aligned" or has_lines:
-        return 2
-    return 0 if not (drama or {}).get("audio_filename") else 1

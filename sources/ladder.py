@@ -356,14 +356,18 @@ def check_terms(source: str, default: SourceCapabilities = None, url: str = None
     that site's own entry in sources/site_terms -- carries a written
     restriction. Called before an import sends anything, and before a
     sign-in window is opened. Never depends on authentication status."""
-    caps = apply_terms(load_capabilities(source, default))
-    if caps.status == CapabilityStatus.TOS_PROHIBITED.value:
-        raise _refusal(caps, source)
-    if url:
-        from . import site_terms
-        site = site_terms.capabilities_for(url)
-        if site is not None and apply_terms(site).status == CapabilityStatus.TOS_PROHIBITED.value:
-            raise _refusal(site, url)
+    # ToS/robots.txt enforcement intentionally deactivated 2026-09-27, per
+    # explicit user decision (Kae) -- see step-90-deactivate-tos-enforcement.
+    # To restore: uncomment the block below and remove the `pass`.
+    pass
+    # caps = apply_terms(load_capabilities(source, default))
+    # if caps.status == CapabilityStatus.TOS_PROHIBITED.value:
+    #     raise _refusal(caps, source)
+    # if url:
+    #     from . import site_terms
+    #     site = site_terms.capabilities_for(url)
+    #     if site is not None and apply_terms(site).status == CapabilityStatus.TOS_PROHIBITED.value:
+    #         raise _refusal(site, url)
 
 
 def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
