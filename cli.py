@@ -41,6 +41,7 @@ import sys
 import time
 import traceback
 
+import audio_preprocess
 import db
 import diagnostics
 from core import (
@@ -479,6 +480,13 @@ def cmd_dub(args):
             max_slowdown=getattr(args, "max_slowdown", None) or dub_module.DUB_MAX_SLOWDOWN)
         narration_kwargs = (dict(narrate_original=narrate_original, source_language=source_lang)
                             if is_narration else {})
+        keep_bg = bool(getattr(args, "keep_background", False)) and not is_narration
+        bg_source = None
+        if keep_bg:
+            bg_source = (os.path.join(ddir, d["audio_filename"]) if d.get("audio_filename") else None)
+            if not bg_source or not os.path.exists(bg_source):
+                print(f"#{d['id']} skipped: --keep-background needs the drama's source audio.")
+                return
         print(f"#{d['id']} generating {'narration' if is_narration else 'dub'} track...")
 
         # Step 25w: same clone_map_uses_local_model check the Workspace tab's
@@ -505,6 +513,14 @@ def cmd_dub(args):
                 progress_cb=_progress,
                 **stretch, **narration_kwargs,
             )
+        if bg_source:
+            # Step 95: same background mix the Dub API job does; a failed
+            # separation keeps the plain dub track.
+            try:
+                dub_module.mix_original_background(
+                    out_path, bg_source, ddir, backend=d.get("separation_backend") or "auto")
+            except audio_preprocess.VocalSeparationError as exc:
+                print(f"\n#{d['id']} background music not mixed: {exc}")
         # Narration rewrites every line's timing to match its audio -- same
         # fields the Workspace tab saves after narration.
         db.save_lines(d["id"], lines,
@@ -686,6 +702,10 @@ def main():
                        help="Dub (not narration): the most a short line may be slowed toward its "
                             f"original timing (default {dub_module.DUB_MAX_SLOWDOWN}; 1 turns "
                             "slowing off)")
+    p_dub.add_argument("--keep-background", action="store_true",
+                       help="Dub (not narration): mix the original's background music/ambience "
+                            "(the source audio minus its vocals, via the drama's separation "
+                            "backend) back under the dub track")
     p_dub.add_argument("--tts-engine", default="edge_tts", choices=["edge_tts", "offline"],
                        help="Fallback TTS engine used where a character has no cloned voice "
                             "reference set (same choice as Workspace's own 8. AI dub / "

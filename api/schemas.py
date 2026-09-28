@@ -410,6 +410,7 @@ class DubConfig(BaseModel):
     speakable_line_count: int
     track_available: bool
     gpt_sovits_configured: bool
+    can_keep_background: bool = False
 
 
 class DubPacingLine(BaseModel):
@@ -1112,6 +1113,7 @@ class DubRunRequest(BaseModel):
     max_speedup: Optional[float] = Field(default=None, ge=1.0, le=2.0)
     max_slowdown: Optional[float] = Field(default=None, ge=0.5, le=1.0)
     narration_language: Optional[str] = Field(default=None, max_length=20)
+    keep_background: bool = False
 
 
 class DubRunStarted(BaseModel):
