@@ -31,6 +31,9 @@ Deliberately NOT here:
 
 No Streamlit or FastAPI import.
 """
+import os
+
+import db
 import dub
 from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir, get_drama,
                 get_voice_bank_entry, list_characters_with_series_names,
@@ -43,9 +46,19 @@ MAX_PRONOUNS_LEN = 40
 MAX_VOICE_LEN = 200
 MAX_VOICE_DESIGN_LEN = 1000
 MAX_REF_TEXT_LEN = 5000
+MAX_ID = 2**31 - 1  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
+MAX_SPEAKER_LABEL_LEN = 100  # only enforced where the label becomes a filename
+
+
+def _check_id(name: str, value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidInputError(f"{name} must be a whole number.")
+    if value < 1 or value > MAX_ID:
+        raise InvalidInputError(f"{name} is out of range.")
 
 
 def _require_drama(drama_id: int) -> dict:
+    _check_id("drama_id", drama_id)
     drama = get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
@@ -102,7 +115,7 @@ def _get_one(drama_id: int, speaker_label: str) -> dict:
     for c in list_characters(drama_id):
         if c["speaker_label"] == speaker_label:
             return c
-    raise NotFoundError(f"No speaker {speaker_label!r} in drama {drama_id}.")
+    raise NotFoundError("No such speaker in this drama.")
 
 
 def _check_len(name: str, value: str, cap: int):
@@ -126,7 +139,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
     list_characters entry."""
     drama = _require_drama(drama_id)
     if speaker_label not in _known_speakers(drama_id):
-        raise NotFoundError(f"No speaker {speaker_label!r} in drama {drama_id}.")
+        raise NotFoundError("No such speaker in this drama.")
 
     fields = {}
     if character_name is not None:
@@ -147,11 +160,11 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
     if clone_engine is not None:
         if clone_engine != "":
             if clone_engine not in dub.CLONE_ENGINES:
-                raise InvalidInputError(f"Unknown clone_engine {clone_engine!r}.")
+                raise InvalidInputError("Unknown clone_engine.")
             lang = _source_language(drama)
             if not dub.clone_engine_supports_language(clone_engine, lang):
                 raise InvalidInputError(
-                    f"clone_engine {clone_engine!r} doesn't support source language {lang!r}.")
+                    f"That clone_engine doesn't support the drama's source language ({lang}).")
         fields["clone_engine"] = clone_engine
 
     if fields:
@@ -162,6 +175,7 @@ def update_character(drama_id: int, speaker_label: str, *, character_name: str =
 def list_series_characters(series_id: int) -> list:
     """A series' characters (id, name, aliases, notes, pronouns). No
     fingerprint data. Empty list for an unknown series."""
+    _check_id("series_id", series_id)
     return [{
         "id": r["id"],
         "character_name": r["character_name"],
@@ -210,11 +224,33 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
     bank's clip into this drama's own folder and sets the speaker's
     ref audio / ref_text / clone_engine / voice_design (only this
     drama's row). Raises NotFoundError for an unknown drama, speaker, or
-    bank entry. Returns the speaker's list_characters entry."""
-    _require_drama(drama_id)
+    bank entry, or a bank entry whose clip file is missing.
+    InvalidInputError for a speaker label that can't be a filename part
+    (db builds `voicebank_{id}_{label}{ext}` from it): a slash, backslash,
+    "..", control character, or more than MAX_SPEAKER_LABEL_LEN chars.
+
+    Stricter than the Streamlit tab, by design: the tab applies a bank
+    entry with no language check, but here the entry's clone_engine must
+    support the drama's source language, exactly as update_character
+    requires (Step 26c). Returns the speaker's list_characters entry."""
+    drama = _require_drama(drama_id)
+    _check_id("voice_bank_id", voice_bank_id)
+    if (not isinstance(speaker_label, str) or len(speaker_label) > MAX_SPEAKER_LABEL_LEN
+            or ".." in speaker_label or "/" in speaker_label or chr(92) in speaker_label
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in speaker_label)):
+        raise InvalidInputError("speaker_label can't be used for a voice bank apply.")
     if speaker_label not in _known_speakers(drama_id):
-        raise NotFoundError(f"No speaker {speaker_label!r} in drama {drama_id}.")
-    if get_voice_bank_entry(voice_bank_id) is None:
+        raise NotFoundError("No such speaker in this drama.")
+    entry = get_voice_bank_entry(voice_bank_id)
+    if entry is None:
         raise NotFoundError(f"No voice bank entry with id {voice_bank_id}.")
+    clip = entry.get("clip_filename") or ""
+    # db.VOICE_BANK_DIR is re-read each call (it's reassigned when the library moves).
+    if not clip or not os.path.isfile(os.path.join(db.VOICE_BANK_DIR, clip)):
+        raise NotFoundError("That voice bank entry's audio clip is missing.")
+    engine = entry.get("clone_engine") or ""
+    if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):
+        raise InvalidInputError(
+            "That voice bank entry's clone_engine doesn't support the drama's source language.")
     _db_apply_voice_bank_entry(voice_bank_id, drama_dir(drama_id), drama_id, speaker_label)
     return _get_one(drama_id, speaker_label)

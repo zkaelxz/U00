@@ -156,3 +156,69 @@ class TestVoiceBank:
             cs.apply_voice_bank_entry(did, "ZZ", eid)
         with pytest.raises(NotFoundError):
             cs.apply_voice_bank_entry(did, "A", 999)
+
+
+# --- Hardening H1 -----------------------------------------------------------
+
+BIG = 10**30
+HOSTILE = "evil\n" + "x" * 5000 + "\u202e\u2603"
+
+
+def test_h1_no_echo_in_service_errors(isolated_db):
+    did = _drama(isolated_db)
+    calls = [lambda: cs.update_character(did, HOSTILE, pronouns="x"),
+             lambda: cs.update_character(did, "A", clone_engine=HOSTILE),
+             lambda: cs.apply_voice_bank_entry(did, HOSTILE, 1)]
+    for call in calls:
+        with pytest.raises((InvalidInputError, NotFoundError)) as e:
+            call()
+        assert "evil" not in str(e.value) and "xxxx" not in str(e.value)
+
+
+def test_h1_unsupported_engine_message_has_no_engine_name(isolated_db):
+    did = _drama(isolated_db, source_language="zh")
+    with pytest.raises(InvalidInputError) as e:
+        cs.update_character(did, "A", clone_engine="chatterbox")
+    assert "chatterbox" not in str(e.value)
+
+
+def test_h1_oversized_ids(isolated_db):
+    did = _drama(isolated_db)
+    for call in (lambda: cs.list_characters(BIG), lambda: cs.get_clone_engine_options(BIG),
+                 lambda: cs.update_character(BIG, "A", pronouns="x"),
+                 lambda: cs.list_series_characters(BIG),
+                 lambda: cs.apply_voice_bank_entry(did, "A", BIG),
+                 lambda: cs.apply_voice_bank_entry(BIG, "A", 1)):
+        with pytest.raises(InvalidInputError):
+            call()
+
+
+class TestVoiceBankHardening:
+    def _entry(self, db, tmp_path, engine="f5tts"):
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"RIFF")
+        return db.save_voice_bank_entry("V", str(clip), clone_engine=engine)
+
+    @pytest.mark.parametrize("label", ["../x", "a/b", "a\\b", "a..b", "a\x00b", "a\nb",
+                                       "L" * 101])
+    def test_unsafe_labels_rejected(self, isolated_db, tmp_path, label):
+        eid = self._entry(isolated_db, tmp_path)
+        did = _drama(isolated_db, speakers=(label,))  # even if it's a real speaker
+        with pytest.raises(InvalidInputError) as e:
+            cs.apply_voice_bank_entry(did, label, eid)
+        assert "L" * 20 not in str(e.value)
+
+    def test_missing_clip_is_clean_not_found(self, isolated_db, tmp_path):
+        eid = self._entry(isolated_db, tmp_path)
+        entry = isolated_db.get_voice_bank_entry(eid)
+        os.remove(os.path.join(isolated_db.VOICE_BANK_DIR, entry["clip_filename"]))
+        did = _drama(isolated_db)
+        with pytest.raises(NotFoundError):
+            cs.apply_voice_bank_entry(did, "A", eid)
+
+    def test_entry_engine_language_rule(self, isolated_db, tmp_path):
+        eid = self._entry(isolated_db, tmp_path, engine="chatterbox")
+        did = _drama(isolated_db, source_language="zh")
+        with pytest.raises(InvalidInputError):
+            cs.apply_voice_bank_entry(did, "A", eid)
+        assert _by_label(cs.list_characters(did), "A")["has_ref_audio"] is False
