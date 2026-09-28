@@ -521,3 +521,59 @@ class DramaPresetDefaults(BaseModel):
 
 class DramaCreateResult(DramaDetail):
     preset_defaults: Optional[DramaPresetDefaults] = None
+
+class TranslateRunStylePreset(BaseModel):
+    key: str
+    label: str
+
+
+class TranslateRunWorkflowTier(BaseModel):
+    key: str
+    label: str
+    translation_engine: str
+    engine_model: Optional[str] = None
+    reflect: bool
+    auto_qc: bool
+
+
+class TranslateRunDefaults(BaseModel):
+    context_window: int
+    context_window_ahead: int
+    batch_size: int
+
+
+class TranslateRunConfig(BaseModel):
+    """Read-only Translate-stage summary (Migration Slice 39). Booleans and
+    numbers only -- never a key or the novel text (D2)."""
+    drama_id: int
+    translation_engine: str
+    engines: List[TranslateEngine]
+    style_presets: List[TranslateRunStylePreset]
+    default_style_preset: str
+    locales: List[str]
+    workflow_tiers: List[TranslateRunWorkflowTier]
+    defaults: TranslateRunDefaults
+    project_instructions: Optional[str] = None
+    series_instructions: Optional[str] = None
+    has_novel_reference: bool
+    line_count: int
+    untranslated_count: int
+    last_translate_errors: Optional[Any] = None
+    previous_episode_summary_present: bool
+    monthly_cap_usd: float
+    month_spend: float
+    cap_applies_by_engine: Dict[str, bool]
+    bulk_supported_engines: List[str]
+
+
+class TranslateRunEstimate(BaseModel):
+    """Advisory pre-run cost estimate (Migration Slice 39)."""
+    engine: str
+    model: Optional[str] = None
+    estimated_usd: Optional[float] = None
+    target_line_count: int
+    free: bool
+    cap_applies: bool
+    effective_cap_usd: Optional[float] = None
+    monthly_refusal: bool
+    estimate_above_cap: bool

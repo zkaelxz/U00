@@ -38,6 +38,7 @@ from api.routers import (
     system_routes,
     transcribe_routes,
     translate_routes,
+    translate_run_routes,
 )
 from api.schemas import API_VERSION
 
@@ -79,6 +80,7 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(transcribe_routes.router)
     app.include_router(dub_routes.router)
     app.include_router(drama_routes.router)
+    app.include_router(translate_run_routes.router)
     return app
 
 

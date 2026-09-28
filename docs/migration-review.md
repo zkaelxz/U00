@@ -755,6 +755,19 @@ for the client to hold. Out of scope: delete (destructive; gated on a
 confirmation-semantics decision), cover upload (needs python-multipart),
 series rename/unassign, presets CRUD, metadata auto-fill, personal notes.
 
+**Slice 39 — Translate stage config and cost estimate (2026-09-28).**
+Read-only half of the per-drama Translate stage: `GET
+/api/translate-run/dramas/{id}/config` (engines, style presets, locales,
+workflow tiers, context/batch defaults that differ for novel_narration,
+line/untranslated counts, monthly cap and spend, per-engine cap
+applicability, bulk-capable engines) and `GET .../estimate` (pre-run cost
+estimate and cap gating for a chosen engine/model/reflect/bulk). Every
+knob is a request-time parameter with the widget's own default as
+fallback -- no new drama columns. The estimate is advisory, not a
+guarantee. Booleans/numbers only, never a key or the novel text. Out of
+scope: the start-translate job (Slice 40), bulk/Reflect runs (Slice 41),
+glossary review, style-preset CRUD and characters.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

@@ -213,9 +213,12 @@ baihe-subtitler/
 │   │                             backends still stay out of scope
 │   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │   │                             engines, per-speaker voices, pacing of the last run; no paths)
-│   └── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
-│                                 update_drama_metadata (whitelisted partial update); delete,
-│                                 cover upload and metadata auto-fill stay out of scope
+│   ├── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
+│   │                             update_drama_metadata (whitelisted partial update); delete,
+│   │                             cover upload and metadata auto-fill stay out of scope
+│   └── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
+│                                 get_translate_config + estimate_translate_cost (advisory cost
+│                                 estimate / cap gating); start-translate job is a later slice
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -247,8 +250,10 @@ baihe-subtitler/
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
 │       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
-│       └── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
-│                                 (Migration Slice 35)
+│       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
+│       │                         (Migration Slice 35)
+│       └── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
+│                                 (Migration Slice 39, read-only)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
