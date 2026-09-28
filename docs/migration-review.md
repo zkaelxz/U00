@@ -461,10 +461,24 @@ issue counts the Streamlit Export tab already computes read-only. New
 subtitle file, and inlining translation notes are all writes/file-output
 and stay Streamlit-only for now.
 
-**Next candidates:** the actual translate action (`POST`, needs
-`settings_service.resolve_key` server-side) and Export's write half
-(flagging, file generation) are each their own, higher-risk slice --
-neither is a mechanical follow-on to its read-only half, so neither was
+**Slice 13 — Translate-standalone's write half (2026-09-28).**
+`services/translate_service.py` gains `translate()`: resolves the engine's
+key server-side (`_resolve_api_key`, per-engine -- `test_offline` gets the
+literal `"offline"`, `nllb` gets `None`, `ollama`/`libretranslate` fall
+back to the literal `"local"` when unconfigured, everything else goes
+through `settings_service.resolve_key`), builds the engine via
+`translate_engines.get_engine`, calls `translate_engines.standalone_translate`,
+and saves the result to history the same way `tabs/translate_tab.py`'s own
+"Translate" button does. New `POST /api/translate` (`TranslateRequest` ->
+`TranslateResponse`, never accepts or returns a key value -- D2). Raises
+`InvalidInputError` (422) for an unknown engine, `UnsupportedOperationError`
+(400) for a refused engine/direction pair, `DependencyUnavailableError`
+(503) for a missing key; any other engine failure (a real network error)
+falls through to the API's own generic 500, never leaking its raw text.
+Clearing history is still out of scope -- a separate write action.
+
+**Next candidate:** Export's write half (flagging, file generation) --
+not a mechanical follow-on to its read-only half (Slice 12), so not
 batched in here.
 
 ---

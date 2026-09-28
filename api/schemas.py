@@ -211,6 +211,22 @@ class TranslateHistoryResponse(BaseModel):
     items: List[TranslateHistoryEntry]
 
 
+class TranslateRequest(BaseModel):
+    """Never carries an API key (D2) -- the server resolves one per engine
+    itself; see services/translate_service.py's own resolve logic."""
+    text: str
+    engine: str
+    source_language: str
+    target_language: str
+    model: Optional[str] = None
+    free_tier: bool = False
+    base_url: Optional[str] = None
+
+
+class TranslateResponse(BaseModel):
+    translated_text: str
+
+
 class ExportReadiness(BaseModel):
     """Read-only export-readiness summary for one drama (Migration Slice
     12) -- counts only, never flags a line or generates a file."""
