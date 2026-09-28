@@ -12,6 +12,8 @@ const els = {
   translate: document.getElementById("translate"),
   translateAll: document.getElementById("translateAll"),
   toggle: document.getElementById("toggle"),
+  textDirection: document.getElementById("textDirection"),
+  translateText: document.getElementById("translateText"),
   options: document.getElementById("options"),
 };
 
@@ -62,6 +64,12 @@ async function load() {
   const remembered = (settings.dramaBySite || {})[site];
   if (remembered) els.drama.value = String(remembered);
   els.overlay.checked = settings.overlay !== false;
+
+  const direction = settings.textDirection || { source: "zh", target: "en" };
+  const directionValue = `${direction.source}:${direction.target}`;
+  if ([...els.textDirection.options].some((o) => o.value === directionValue)) {
+    els.textDirection.value = directionValue;
+  }
 
   say(data.engine_configured
     ? "Connected. Ready to translate."
@@ -117,8 +125,35 @@ async function run(all) {
   }
 }
 
+async function runText() {
+  const tab = await activeTab();
+  if (!tab || !tab.id) return say("No active tab.", true);
+  const [sourceLanguage, targetLanguage] = els.textDirection.value.split(":");
+  await chrome.storage.local.set({ textDirection: { source: sourceLanguage, target: targetLanguage } });
+  say("Reading the page's text…");
+  try {
+    await ensureContentScript(tab.id);
+    const result = await chrome.tabs.sendMessage(tab.id, {
+      type: "translatePageText", sourceLanguage, targetLanguage, store: true });
+    if (!result || !result.ok) {
+      return say((result && result.error) || "That didn't work.", true);
+    }
+    const notes = result.data.notes || [];
+    const parts = [result.data.fromSelection
+      ? "Translated the selected text" : "Translated the page's main text block"];
+    if (result.data.truncated) parts.push("truncated to fit");
+    say(parts.join(", ") + (notes.length ? ` — ${notes[0][1]}` : ""),
+        notes.some((n) => n[0] === "error"));
+  } catch (e) {
+    // The usual cause is a page the browser won't let an extension into
+    // (the Chrome Web Store, a PDF viewer, chrome:// pages).
+    say(`Couldn't run on this page (${e.message}).`, true);
+  }
+}
+
 els.translate.addEventListener("click", () => run(false));
 els.translateAll.addEventListener("click", () => run(true));
+els.translateText.addEventListener("click", runText);
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !tab.id) return;

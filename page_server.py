@@ -98,7 +98,14 @@ TOKEN_FILENAME = "extension_token.txt"
 MAX_BODY_BYTES = 64 * 1024 * 1024      # whole request, base64 included
 MAX_IMAGE_BYTES = 12 * 1024 * 1024     # one decoded image
 MAX_IMAGES_PER_REQUEST = 12            # a spread or one visible strip
+MAX_TEXT_CHARS = 20000                 # a generous chapter's worth of prose
 REQUEST_TIMEOUT_SECONDS = 120.0
+
+# standalone_translate (Step 26b) only ever translates one side of a pair
+# with English -- see its own docstring -- so /text is bound to the same
+# assumption rather than accepting an arbitrary language pair it can't
+# actually serve.
+ALLOWED_TEXT_LANGUAGES = {"zh", "ja", "ko", "en"}
 
 # Only formats the pipeline can actually read (PIL/cv2), mapped to the
 # extension `sources.pipeline.add_page_images` expects.
@@ -282,6 +289,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     """
     import db
     import scanlate
+    import translate_engines
 
     ext = ALLOWED_IMAGE_TYPES.get((content_type or "").lower().split(";")[0].strip())
     if ext is None:
@@ -345,8 +353,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     # The OCR text is still real and still useful, so it
                     # is returned rather than thrown away -- the same
                     # choice the Scanlate tab makes on this failure.
-                    notes.append(["warning", f"translation failed ({e}); the source text "
-                                             "below was still read"])
+                    notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+                                             "the source text below was still read"])
             elif bubbles and engine is None:
                 notes.append(["warning", "no translation engine is configured in Settings, so "
                                          "only the original text was read"])
@@ -368,6 +376,70 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         "drama_id": int(drama_id) if drama_id else None,
         "page_id": (page or {}).get("id"),
         "stored": page is not None,
+    }
+
+
+def translate_text_block(text: str, source_language: str, target_language: str,
+                         store: bool = True) -> dict:
+    """A raw block of page text (Step 96's text-capture mode), run through
+    the same `translate_engines.standalone_translate` pipeline as the
+    Standalone translate tab (`tabs/translate_tab.py`) -- reused exactly,
+    not reimplemented, per this module's own "one pipeline" rule. This
+    function is the text equivalent of `translate_image`: it does not
+    detect or OCR anything, since the extension already sends real text
+    rather than pixels, so it goes straight to translation.
+
+    Uses the same globally-configured engine as the image routes (pushed
+    in from Settings -> Browser extension); the extension itself picks no
+    engine and holds no key of its own.
+    """
+    import db
+    import translate_engines
+
+    config = get_translation_config()
+    notes = []
+    engine = _build_engine(config)
+    if engine is None:
+        notes.append(["warning", "no translation engine is configured in Settings, so "
+                                 "only the original text was captured"])
+        return {"source_text": text, "translated_text": "", "engine": None,
+                "source_language": source_language, "target_language": target_language,
+                "notes": notes, "saved_to_history": False}
+
+    ok, message = translate_engines.standalone_direction_support(
+        engine.name, source_language, target_language)
+    if not ok:
+        raise EndpointError(422, message)
+    if message:
+        notes.append(["warning", message])
+
+    translated_text = ""
+    try:
+        translated_text = translate_engines.standalone_translate(
+            text, engine, source_language, target_language)
+    except translate_engines.UnsupportedDirectionError as e:
+        raise EndpointError(422, str(e)) from None
+    except Exception as e:
+        # The captured text is still real and still useful, so it is
+        # returned rather than thrown away -- the same choice
+        # translate_image makes on this failure.
+        notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+                                 "the captured text below was still read"])
+
+    saved = False
+    if store and translated_text:
+        db.save_translate_history(source_language, target_language,
+                                  config.get("engine") or "unknown", text, translated_text)
+        saved = True
+
+    return {
+        "source_text": text,
+        "translated_text": translated_text,
+        "engine": config.get("engine"),
+        "source_language": source_language,
+        "target_language": target_language,
+        "notes": notes,
+        "saved_to_history": saved,
     }
 
 
@@ -524,9 +596,12 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages"):
+            if route not in ("/page", "/pages", "/text"):
                 raise EndpointError(404, "unknown endpoint")
             payload = self._parse_json(self._read_body())
+            if route == "/text":
+                self._send_json(200, self._run_text(payload))
+                return
             images = payload.get("images")
             if not isinstance(images, list) or not images:
                 raise EndpointError(400, "at least one image is required")
@@ -558,6 +633,25 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise EndpointError(400, "the request body must be a JSON object")
         return payload
+
+    def _run_text(self, payload) -> dict:
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise EndpointError(400, "text is required")
+        if len(text) > MAX_TEXT_CHARS:
+            raise EndpointError(413, f"text is longer than {MAX_TEXT_CHARS} characters")
+        source_language = str(payload.get("source_language") or "zh")
+        target_language = str(payload.get("target_language") or "en")
+        if (source_language not in ALLOWED_TEXT_LANGUAGES
+                or target_language not in ALLOWED_TEXT_LANGUAGES):
+            raise EndpointError(400, "source/target language must be one of zh, ja, ko, en")
+        if source_language == target_language:
+            raise EndpointError(400, "source and target language must differ")
+        if "en" not in (source_language, target_language):
+            raise EndpointError(400, "one of source/target language must be English -- the same "
+                                     "limit the Standalone translate tab has")
+        store = bool(payload.get("store", True))
+        return translate_text_block(text, source_language, target_language, store=store)
 
     def _run(self, payload, images) -> dict:
         import base64
