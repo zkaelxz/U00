@@ -21,11 +21,14 @@ client can poll for via the existing GET /api/jobs/{id} -- no separate
 "apply" call, and no risk of "job succeeded but nothing was saved" if a
 client never follows up.
 
+Migration Slice 21 extends this with hardsub_ocr transcript_mode --
+reading captions burned into video, via hardsub_ocr.extract_hardsub_
+subtitles (the OCR cues already carry real per-cue timing, so unlike
+Whisper's own text there's no separate alignment step -- same reasoning
+as run_hardsub_ocr_job's own docstring).
+
 Deliberately out of scope for this slice (each a real, separately
 buildable follow-up, not an oversight):
-  - hardsub_ocr transcript_mode -- reading captions burned into video.
-    Raises UnsupportedOperationError for now; the OCR pipeline itself
-    (run_hardsub_ocr_job) is untouched and still works from Streamlit.
   - The `chunk_and_tag` novel_narration path -- fully synchronous today
     (no background job at all), a real LLM call over the whole chunked
     text with no natural job boundary; needs its own scope/benchmark
@@ -85,6 +88,24 @@ def _drama_audio_path(drama_id: int, drama: dict) -> Optional[str]:
     return path if os.path.exists(path) else None
 
 
+def _drama_video_path(drama_id: int, drama: dict) -> Optional[str]:
+    """Mirrors tab_source's own video-source check (source_service.
+    get_source_config's has_video_source) -- source_video_filename set,
+    no existence check on disk (matching source_service, which also only
+    checks presence of the filename for video, unlike audio)."""
+    video_filename = drama.get("source_video_filename")
+    if not video_filename:
+        return None
+    return os.path.join(db.drama_dir(drama_id), video_filename)
+
+
+def _default_hardsub_backend(source_language: str) -> str:
+    """Mirrors tab_transcript's own selectbox default (workspace_tab.py
+    ~1855-1858): PaddleOCR for Chinese (confirmed more accurate on
+    stylized/small captions), Tesseract otherwise."""
+    return "paddle" if source_language == "zh" else "tesseract"
+
+
 def get_transcribe_config(drama_id: int) -> dict:
     """Read-only Transcript-stage summary for one drama: which action the
     "Transcribe & Align" button would run (from Slice 19's transcript_mode),
@@ -115,6 +136,10 @@ def get_transcribe_config(drama_id: int) -> dict:
         "realign_long_segments": bool(drama.get("realign_long_segments")),
         "whisper_fast_mode": bool(drama.get("whisper_fast_mode")),
         "use_groq": bool(drama.get("use_groq")),
+        "has_video_source": source["has_video_source"],
+        "hardsub_ocr_backend": drama.get("hardsub_ocr_backend")
+                               or _default_hardsub_backend(source["source_language"]),
+        "hardsub_interval_sec": drama.get("hardsub_interval_sec") or 1.0,
     }
 
 
@@ -161,6 +186,14 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
         if fields["separation_backend"] not in _SEPARATION_BACKENDS:
             raise InvalidInputError(f"Unknown separation_backend {fields['separation_backend']!r}.")
         updates["separation_backend"] = fields["separation_backend"]
+    if "hardsub_ocr_backend" in fields and fields["hardsub_ocr_backend"] is not None:
+        if fields["hardsub_ocr_backend"] not in ("tesseract", "paddle"):
+            raise InvalidInputError(f"Unknown hardsub_ocr_backend {fields['hardsub_ocr_backend']!r}.")
+        updates["hardsub_ocr_backend"] = fields["hardsub_ocr_backend"]
+    if "hardsub_interval_sec" in fields and fields["hardsub_interval_sec"] is not None:
+        if not 0.5 <= fields["hardsub_interval_sec"] <= 3.0:
+            raise InvalidInputError("hardsub_interval_sec must be between 0.5 and 3.0.")
+        updates["hardsub_interval_sec"] = fields["hardsub_interval_sec"]
     for bf in _BOOL_FIELDS:
         if bf in fields and fields[bf] is not None:
             updates[bf] = 1 if fields[bf] else 0
@@ -179,7 +212,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           chinese_script: Optional[str] = None,
                           transcript_text: Optional[str] = None, run_diarize: bool = False,
                           expected_speakers: Optional[int] = None,
-                          initial_prompt: str = "") -> dict:
+                          initial_prompt: str = "", tesseract_cmd: Optional[str] = None) -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -199,14 +232,23 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     deliberately never persisted, matching today's one-click behavior of
     accepting it fresh each run.
 
+    hardsub_ocr's own settings (backend, sample interval) come from this
+    drama's persisted values (Slice 21) -- update them first via
+    update_transcribe_config if a run needs different ones.
+    tesseract_cmd is an optional, client-supplied path to the tesseract
+    binary; Streamlit's own equivalent (settings_hf_token's sibling,
+    settings_tesseract_cmd) is a global Settings value with no
+    settings_service-backed home yet, so it isn't resolved automatically
+    here -- out of scope for this slice.
+
     Raises NotFoundError for an unknown drama id; UnsupportedOperationError
-    if there's no audio available, or transcript_mode is "hardsub_ocr"
-    (out of scope for this slice -- see module docstring) or
-    "have_transcript" with no transcript_text supplied, or the drama has
-    no audio pipeline (novel_narration); InvalidInputError for an unknown
-    language/script; DependencyUnavailableError if use_groq is on with no
-    Groq key configured; ConflictError if a transcription is already
-    running for this drama."""
+    if there's no audio available (non-hardsub_ocr modes) or no video
+    source (hardsub_ocr), or transcript_mode is "have_transcript" with no
+    transcript_text supplied, or the drama has no audio pipeline
+    (novel_narration); InvalidInputError for an unknown language/script;
+    DependencyUnavailableError if use_groq is on with no Groq key
+    configured; ConflictError if a transcription is already running for
+    this drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
@@ -223,18 +265,30 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     if chinese_script not in _CHINESE_SCRIPTS:
         raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
 
-    audio_path = _drama_audio_path(drama_id, drama)
-    if audio_path is None:
-        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
-
     transcript_mode = drama.get("transcript_mode") or "have_transcript"
+
+    # Resolved independently of transcript_mode: a hardsub_ocr drama
+    # commonly also has real audio on disk (the video-upload flow extracts
+    # one alongside saving the video, tabs/workspace_tab.py:3160-3169), and
+    # diarization always needs actual audio regardless of where the
+    # transcript text itself came from -- Streamlit's own apply block
+    # diarizes off this same drama-level audio unconditionally, for every
+    # transcript_mode including hardsub_ocr (workspace_tab.py:3334, 3489).
+    diarize_audio_path = _drama_audio_path(drama_id, drama)
+
+    audio_path = None
+    video_path = None
     if transcript_mode == "hardsub_ocr":
-        raise UnsupportedOperationError(
-            "hardsub_ocr transcription isn't available via this API yet -- use the Streamlit "
-            "Transcript tab, or switch this drama's transcript_mode first.")
-    if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
-        raise UnsupportedOperationError(
-            "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
+        video_path = _drama_video_path(drama_id, drama)
+        if video_path is None:
+            raise UnsupportedOperationError(f"No video source available for drama {drama_id}.")
+    else:
+        audio_path = _drama_audio_path(drama_id, drama)
+        if audio_path is None:
+            raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+        if transcript_mode == "have_transcript" and not (transcript_text or "").strip():
+            raise UnsupportedOperationError(
+                "transcript_mode is 'have_transcript' but no transcript_text was supplied.")
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
@@ -254,7 +308,9 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
         bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
-        initial_prompt or "",
+        initial_prompt or "", video_path,
+        drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
+        drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -266,7 +322,9 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    min_silence_ms, vad_threshold, separate_vocals_first,
                                    separation_backend, realign_long_segments, whisper_fast_mode,
                                    use_groq, groq_api_key, hf_token, expected_speakers,
-                                   initial_prompt=""):
+                                   initial_prompt="", video_path=None, hardsub_ocr_backend=None,
+                                   hardsub_interval=1.0, tesseract_cmd=None,
+                                   diarize_audio_path=None):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -285,77 +343,106 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     persistence anywhere (unlike the tuning knobs Slice 20 does persist),
     so there's no server-side source of truth for an API caller yet --
     out of scope for this slice, left for whenever GPU control becomes a
-    real settings_service concern."""
-    original_audio_path = audio_path
-    if separate_vocals_first:
-        import audio_preprocess
-        background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
-        vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
-        try:
-            audio_path = audio_preprocess.separate_vocals(
-                audio_path, vocals_path, backend=separation_backend,
-                progress_cb=lambda frac: background_jobs.update_progress(
-                    job_id, frac, f"Removing background music... {frac * 100:.0f}%"),
-                cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id))
-        except audio_preprocess.VocalSeparationCancelled:
-            background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
-            return
-        except audio_preprocess.VocalSeparationError as exc:
-            background_jobs.set_result(job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
-            return
+    real settings_service concern.
 
-    if background_jobs.is_cancel_requested(job_id):
-        background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
-        return
-
+    diarize_audio_path is resolved once in start_transcribe_run, from the
+    drama's own stored audio_filename, independent of transcript_mode --
+    for a hardsub_ocr drama there is no transcribe-time audio_path at all
+    (see module docstring), but a real one commonly still exists on disk
+    (the video-upload flow extracts it alongside the video), and
+    diarization always needs actual audio regardless of where the
+    transcript text came from. If it's not available, diarization is
+    skipped (diarize_started stays False), same as the existing
+    no-hf_token case."""
     gpu_fallback_msg = []
-    if use_groq:
-        background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
-        try:
-            segments = core_module.transcribe_with_groq(
-                audio_path, source_language, groq_api_key,
-                progress_cb=lambda frac: background_jobs.update_progress(
-                    job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
-        except core_module.GroqTranscriptionError as exc:
-            background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
-            return
-    else:
-        try:
-            segments = transcribe_for_timing(
-                audio_path, whisper_size, language=source_language, use_gpu=False,
-                local_model_path=None, hf_token=None, initial_prompt=initial_prompt,
-                beam_size=beam_size,
-                min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
-                progress_cb=lambda frac: background_jobs.update_progress(
-                    job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
-                fast_mode=whisper_fast_mode)
-        except core_module.ModelDownloadError as exc:
-            background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
-            return
-
-    if not segments:
-        background_jobs.set_result(job_id, {"failed_reason": "empty"})
-        return
-
     word_align_error = None
-    if realign_long_segments and not background_jobs.is_cancel_requested(job_id):
-        import word_align
-        background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
-        try:
-            segments = word_align.realign_oversized_segments(
-                segments, audio_path, source_language, chinese_script=chinese_script)
-        except word_align.WordAlignError as exc:
-            word_align_error = str(exc)
 
-    if transcript_mode == "whisper":
+    if transcript_mode == "hardsub_ocr":
+        import hardsub_ocr
+        segments = hardsub_ocr.extract_hardsub_subtitles(
+            video_path, language=source_language, sample_interval=hardsub_interval,
+            ocr_backend=hardsub_ocr_backend, chinese_script=chinese_script,
+            tesseract_cmd=tesseract_cmd,
+            progress_cb=lambda frac: background_jobs.update_progress(
+                job_id, frac, f"Reading captions from video... {frac * 100:.0f}%"))
+        if not segments:
+            background_jobs.set_result(job_id, {"failed_reason": "empty"})
+            return
+        # OCR already produces real per-cue timing straight from the video --
+        # no separate alignment step needed, same reasoning as the Whisper-
+        # text-override branch below, just sourced from captions.
         lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
                  for i, seg in enumerate(segments) if seg["text"].strip()]
-        raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
+        raw_backend, raw_model, raw_mode = "hardsub_ocr", hardsub_ocr_backend, "hardsub_ocr"
     else:
-        user_lines = split_user_transcript(transcript_text)
-        lines = align_transcript_to_timing(user_lines, segments)
-        raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
+        if separate_vocals_first:
+            import audio_preprocess
+            background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
+            vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
+            try:
+                audio_path = audio_preprocess.separate_vocals(
+                    audio_path, vocals_path, backend=separation_backend,
+                    progress_cb=lambda frac: background_jobs.update_progress(
+                        job_id, frac, f"Removing background music... {frac * 100:.0f}%"),
+                    cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id))
+            except audio_preprocess.VocalSeparationCancelled:
+                background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+                return
+            except audio_preprocess.VocalSeparationError as exc:
+                background_jobs.set_result(
+                    job_id, {"failed_reason": "vocal_separation", "detail": str(exc)})
+                return
+
+        if background_jobs.is_cancel_requested(job_id):
+            background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+            return
+
+        if use_groq:
+            background_jobs.update_progress(job_id, 0.0, "Transcribing via Groq's cloud API...")
+            try:
+                segments = core_module.transcribe_with_groq(
+                    audio_path, source_language, groq_api_key,
+                    progress_cb=lambda frac: background_jobs.update_progress(
+                        job_id, frac, f"Transcribing via Groq's cloud API... {frac * 100:.0f}%"))
+            except core_module.GroqTranscriptionError as exc:
+                background_jobs.set_result(job_id, {"failed_reason": "groq", "detail": str(exc)})
+                return
+        else:
+            try:
+                segments = transcribe_for_timing(
+                    audio_path, whisper_size, language=source_language, use_gpu=False,
+                    local_model_path=None, hf_token=None, initial_prompt=initial_prompt,
+                    beam_size=beam_size,
+                    min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
+                    on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
+                    progress_cb=lambda frac: background_jobs.update_progress(
+                        job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
+                    fast_mode=whisper_fast_mode)
+            except core_module.ModelDownloadError as exc:
+                background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
+                return
+
+        if not segments:
+            background_jobs.set_result(job_id, {"failed_reason": "empty"})
+            return
+
+        if realign_long_segments and not background_jobs.is_cancel_requested(job_id):
+            import word_align
+            background_jobs.update_progress(job_id, 1.0, "Splitting long merged lines...")
+            try:
+                segments = word_align.realign_oversized_segments(
+                    segments, audio_path, source_language, chinese_script=chinese_script)
+            except word_align.WordAlignError as exc:
+                word_align_error = str(exc)
+
+        if transcript_mode == "whisper":
+            lines = [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"])
+                     for i, seg in enumerate(segments) if seg["text"].strip()]
+            raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
+        else:
+            user_lines = split_user_transcript(transcript_text)
+            lines = align_transcript_to_timing(user_lines, segments)
+            raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
 
     core_module.release_gpu_models()
 
@@ -379,11 +466,11 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     db.update_drama(drama_id, status="aligned")
 
     diarize_started = False
-    if hf_token:
+    if hf_token and diarize_audio_path:
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(original_audio_path, hf_token, expected_speakers or None),
+            args=(diarize_audio_path, hf_token, expected_speakers or None),
             gpu_touching=True, description=f"Diarization (drama #{drama_id})")
 
     background_jobs.set_result(job_id, {
