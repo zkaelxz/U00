@@ -3,7 +3,7 @@ services/drama_service.py -- Create a drama and edit its metadata, shared
 by the FastAPI drama routes and (eventually) the Streamlit Workspace tab
 (`tabs/workspace_tab.py`'s New-drama form and Edit-metadata expander).
 
-Migration Slice 35. Both functions return the same drama detail dict
+Migration Slice 35 (create/update) and 36 (delete). Create/update return the same drama detail dict
 `library_service.get_library_drama` does, so a client sees one shape.
 
 Whitelist rationale: `db.create_drama(**fields)` and `db.update_drama(id,
@@ -16,7 +16,6 @@ source_service), any *_filename, `translation_engine`, and
 `personal_notes` (per-profile; the API has no profile header yet).
 
 Deliberately NOT here, by design:
-  - Delete -- destructive (removes the on-disk folder); gated separately.
   - Cover-art upload -- multipart needs python-multipart.
   - Metadata auto-fill -- a paid network call to an AI service.
   - Series rename/unassign, presets CRUD, media analysis -- other slices.
@@ -30,9 +29,14 @@ Streamlit (`apply_preset_to_session`), so create_drama returns them as
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
 
+import os
+import time
+
+import background_jobs
 import db
 from services import library_service
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
+                                     ServiceError)
 
 _SOURCE_LANGUAGES = ("zh", "ja", "ko")
 # Copied from tabs/workspace_tab.py's MEDIA_TYPE_OPTIONS (a tab constant, so
@@ -196,3 +200,66 @@ def update_drama_metadata(drama_id, **partial) -> dict:
     if fields:
         db.update_drama(drama_id, **fields)
     return library_service.get_library_drama(drama_id)
+
+
+# A job_records row still saying running/queued but untouched this long is
+# treated as left behind by a crashed process (records have no resume, see
+# db.save_job_record), so it must not block a delete forever. Generous
+# enough that a real long job (which rewrites its record on state changes)
+# is unlikely to be older than this.
+_STALE_JOB_RECORD_SECONDS = 6 * 60 * 60
+_DELETE_CONFIRM_TEXT = "DELETE"
+_LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of its files "
+                           "could not be removed (a file may be in use). Close anything "
+                           "using them and remove the leftover folder manually.")
+
+
+def _job_running_for_drama(drama_id) -> bool:
+    """In-process jobs, plus fresh running/queued job_records rows written
+    by another process (the API server and Streamlit are separate
+    processes; the in-memory tracker only sees its own)."""
+    if background_jobs.any_job_running_for_drama(drama_id):
+        return True
+    job_ids = {f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES}
+    cutoff = time.time() - _STALE_JOB_RECORD_SECONDS
+    for rec in db.list_job_records():
+        if (rec.get("job_id") in job_ids and rec.get("status") in ("running", "queued")
+                and (rec.get("updated_at") or 0) >= cutoff):
+            return True
+    return False
+
+
+def _hard_delete_drama(drama_id):
+    """The single place a drama is actually removed, so roadmap Step 43's
+    soft-delete can replace just this function. Hard delete today:
+    db.delete_drama drops the DB row FIRST (FK cascade), THEN rmtree's the
+    folder (including non-regenerable voice_refs/). If the rmtree fails
+    part-way (e.g. a Windows in-use file) the row is already gone and an
+    orphan folder stays on disk -- db.py is not changed here."""
+    try:
+        db.delete_drama(drama_id)
+    except OSError as e:
+        # Row already removed; no paths in the message.
+        raise ServiceError(_LEFTOVER_FILES_MESSAGE) from e
+    if db.get_drama(drama_id) is not None:
+        raise ServiceError("The drama could not be deleted.")
+    if os.path.isdir(os.path.join(db.DRAMAS_DIR, str(drama_id))):
+        raise ServiceError(_LEFTOVER_FILES_MESSAGE)
+
+
+def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
+    """Permanently deletes a drama and its folder. Order: unknown id ->
+    NotFoundError (always, even without confirmation); then
+    InvalidInputError unless `confirm is True` and `confirm_text` is
+    exactly "DELETE" (the tab's checkbox + typed word); then ConflictError
+    if a job is running for the drama. Returns {"deleted": True,
+    "drama_id": id}."""
+    library_service.get_library_drama(drama_id)  # id check + existence
+    if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
+        raise InvalidInputError("Deleting a drama needs confirm=true and confirm_text set to "
+                                "the word DELETE, in capitals.")
+    if _job_running_for_drama(drama_id):
+        raise ConflictError("A background job is still running for this drama -- wait for it "
+                            "to finish or cancel it before deleting.")
+    _hard_delete_drama(drama_id)
+    return {"deleted": True, "drama_id": drama_id}
