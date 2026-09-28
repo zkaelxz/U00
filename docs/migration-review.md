@@ -432,16 +432,29 @@ assumed:
    combined PR (same rule as batched-but-sequential steps in the root
    `CLAUDE.md`).
 
-**Next candidate pair, once Slice 10 is merged:** Translate-standalone
-(§3.7 -- `services/translate_service.py` + `api/routers/translate_routes.py`
-+ `tests/test_translate_service.py`, built on Slice 10's
-`settings_service.resolve_key`) and Phase 6's first Workspace stage, Export
-(§3.2's proposed build order puts it first -- `services/export_service.py`
-+ `api/routers/export_routes.py`, reading `tabs/workspace_tab.py`'s Export
-section 5655-6059 but not editing it in this slice). Both are read-only-or-
-simple, both only add to `api/server.py`/`api/schemas.py`, and neither
-depends on the other -- a real candidate for the guardrails above, not yet
-executed.
+**Slices 11 and 12 — built in parallel (2026-09-28), the first real use of
+the guardrails above.** Two `implementer` agents ran concurrently in the
+same checkout, each owning only its own two new files (never `api/schemas.py`,
+`api/server.py`, or the other agent's files); the lead added both routers,
+both schema blocks, and both `api/server.py` registrations itself afterward,
+once, after both agents reported done -- exactly the sequencing guardrail
+#2 above describes. No file conflicts, no coordination needed mid-flight.
+PR'd and merged separately per guardrail #4 -- see Slice 11's own entry
+(its PR) for that half; this entry covers Slice 12.
+
+**Slice 12** (§3.2, Phase 6's first Workspace stage, Export):
+`services/export_service.py` -- `get_export_readiness(drama_id)` reusing
+`reader_service`'s own drama/lines-loading pattern, reporting line/
+translation counts plus the same overlap (`subtitle_formats.clamp_overlaps`)/
+Auto QC (`auto_qc.find_issues`)/dense-line (`subtitle_formats.dense_lines`)
+issue counts the Streamlit Export tab already computes read-only. New
+`GET /api/export/dramas/{id}/readiness`. Flagging a line, generating a
+subtitle file, and inlining translation notes are all writes/file-output
+and stay Streamlit-only for now.
+
+**Next candidate for this slice:** Export's write half (flagging, file
+generation) -- not a mechanical follow-on to the read-only half, so not
+batched in here.
 
 ---
 
