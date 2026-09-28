@@ -11,9 +11,22 @@ on:
   pull_request:
     branches: [baihe-subtitler]
 
+# Cancel a still-running CI run for the same branch/PR once a newer push
+# supersedes it -- checked safe: this repo has no deployment/release
+# workflow whose in-flight run a cancellation could interrupt, just these
+# two validation workflows, so there's nothing here a mid-run cancel loses.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Real observed duration (GitHub Actions run history, 2026-09-28, 3 runs):
+  # install ~20-26s, `python run_tests.py` ~5m17s-5m34s, job total
+  # ~5m45s-6m13s. 15 minutes gives real headroom for a slow day without
+  # letting a genuinely hung job run indefinitely.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -30,8 +43,14 @@ jobs:
   # The React frontend: typecheck + production build, unit tests, lint, and
   # the end-to-end check (a real browser -> built React -> real FastAPI on a
   # seeded throwaway library, see frontend/e2e/).
+  #
+  # Real observed duration: job total ~65s-108s across 3 runs, dominated by
+  # the Python install (~20-23s) and the Playwright e2e step (~29-67s,
+  # variable -- chromium install/launch time). 10 minutes gives real
+  # headroom without leaving a hung browser/e2e step to run indefinitely.
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
