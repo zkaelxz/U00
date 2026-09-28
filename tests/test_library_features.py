@@ -989,6 +989,88 @@ class TestListDramasBySeries:
         sid = isolated_db.get_or_create_series("Empty Series")
         assert isolated_db.list_dramas_by_series(sid) == []
 
+    def test_falls_back_to_created_at_when_no_episode_numbers_set(self, isolated_db):
+        """Step 74: an existing series that's never used episode_number
+        keeps its old newest-first order -- this must never silently
+        reorder it just because the column now exists."""
+        sid = isolated_db.get_or_create_series("Unnumbered Series")
+        d1 = isolated_db.create_drama(title_en="First created", series_id=sid)
+        d2 = isolated_db.create_drama(title_en="Second created", series_id=sid)
+        result = isolated_db.list_dramas_by_series(sid)
+        assert [d["id"] for d in result] == [d2, d1]  # created_at DESC, unchanged
+
+    def test_orders_by_episode_number_once_any_drama_in_series_has_one(self, isolated_db):
+        """Step 74: once episode_number is in use anywhere in the series,
+        it becomes the real ordering signal -- ascending (reading order),
+        not the created_at newest-first default."""
+        sid = isolated_db.get_or_create_series("Numbered Series")
+        d3 = isolated_db.create_drama(title_en="Ep 3", series_id=sid, episode_number=3)
+        d1 = isolated_db.create_drama(title_en="Ep 1", series_id=sid, episode_number=1)
+        d2 = isolated_db.create_drama(title_en="Ep 2", series_id=sid, episode_number=2)
+        result = isolated_db.list_dramas_by_series(sid)
+        assert [d["id"] for d in result] == [d1, d2, d3]
+
+    def test_unnumbered_sibling_sorts_after_numbered_ones_without_crashing(self, isolated_db):
+        """Step 74's own exit condition: a partially-numbered series
+        doesn't crash or get its unnumbered member silently interleaved
+        into the numbered ordering."""
+        sid = isolated_db.get_or_create_series("Partially Numbered")
+        d1 = isolated_db.create_drama(title_en="Ep 1", series_id=sid, episode_number=1)
+        d_unset = isolated_db.create_drama(title_en="Not numbered yet", series_id=sid)
+        d2 = isolated_db.create_drama(title_en="Ep 2", series_id=sid, episode_number=2)
+        result = isolated_db.list_dramas_by_series(sid)
+        assert [d["id"] for d in result] == [d1, d2, d_unset]
+
+
+class TestPreviousEpisodeSummary:
+    """Step 74: _DRAMA_SELECT's previous_episode_summary -- the
+    immediately preceding episode's stored running summary, resolved via
+    dramas.episode_number, surfaced on every get_drama()/list_dramas()
+    row so drama_meta always carries it forward with no extra lookup."""
+
+    def test_reaches_the_next_episode_by_episode_number(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Continuity Series")
+        isolated_db.create_drama(title_en="Ep 1", series_id=sid, episode_number=1,
+                                 episode_summary="Xiaoling found the letter.")
+        d2 = isolated_db.create_drama(title_en="Ep 2", series_id=sid, episode_number=2)
+        assert isolated_db.get_drama(d2)["previous_episode_summary"] == "Xiaoling found the letter."
+
+    def test_only_the_immediately_preceding_episode_reaches_forward(self, isolated_db):
+        """Not every earlier episode's summary -- only the one directly
+        before this one, by episode_number."""
+        sid = isolated_db.get_or_create_series("Continuity Series")
+        isolated_db.create_drama(title_en="Ep 1", series_id=sid, episode_number=1,
+                                 episode_summary="Episode 1 events.")
+        isolated_db.create_drama(title_en="Ep 2", series_id=sid, episode_number=2,
+                                 episode_summary="Episode 2 events.")
+        d3 = isolated_db.create_drama(title_en="Ep 3", series_id=sid, episode_number=3)
+        assert isolated_db.get_drama(d3)["previous_episode_summary"] == "Episode 2 events."
+
+    def test_empty_with_no_episode_number_set(self, isolated_db):
+        sid = isolated_db.get_or_create_series("No Ordering Series")
+        isolated_db.create_drama(title_en="Ep A", series_id=sid,
+                                 episode_summary="Should not reach forward.")
+        d2 = isolated_db.create_drama(title_en="Ep B", series_id=sid)
+        assert not isolated_db.get_drama(d2)["previous_episode_summary"]
+
+    def test_empty_for_the_first_episode(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Continuity Series")
+        d1 = isolated_db.create_drama(title_en="Ep 1", series_id=sid, episode_number=1)
+        assert not isolated_db.get_drama(d1)["previous_episode_summary"]
+
+    def test_editing_the_stored_summary_changes_what_is_fed_forward(self, isolated_db):
+        """Same 'suggestion, editable, not silently auto-applied' pattern
+        as glossary/translation memory -- fixing a bad auto-summary must
+        actually change what the next episode's translation prompt sees."""
+        sid = isolated_db.get_or_create_series("Editable Series")
+        d1 = isolated_db.create_drama(title_en="Ep 1", series_id=sid, episode_number=1,
+                                      episode_summary="Wrong auto-summary.")
+        d2 = isolated_db.create_drama(title_en="Ep 2", series_id=sid, episode_number=2)
+        assert isolated_db.get_drama(d2)["previous_episode_summary"] == "Wrong auto-summary."
+
+        isolated_db.update_drama(d1, episode_summary="Corrected summary.")
+        assert isolated_db.get_drama(d2)["previous_episode_summary"] == "Corrected summary."
+
 
 class TestLibrarySeriesView:
     """Step 22 item 1: a series-level view in Library grouping every

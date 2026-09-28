@@ -1468,7 +1468,8 @@ def untranslated_line_count(drama_id: int) -> int:
 
 
 def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, style_preset: str,
-                           glossary_terms, errors, cancelled: bool = False) -> bool:
+                           glossary_terms, errors, cancelled: bool = False,
+                           summary_engine=None, summary_engine_choice: str = None) -> bool:
     """What happens after translate_engines.translate_lines_with_engine
     returns, shared by Workspace's run_translate_job and `cli.py translate`
     so the two can't drift (the CLI used to skip most of it): applies
@@ -1482,6 +1483,14 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     translate`'s default `--status aligned` retry and in Library's
     untranslated selection. A cancelled run saves no version: it isn't a
     finished translation to compare against.
+
+    summary_engine (Step 74), if given, generates this episode's running
+    summary ONCE, here -- only once the drama actually reaches "translated"
+    and only for a non-cancelled run -- and stores it on the drama row for
+    the next episode of the same series to read forward. None (the
+    default) skips this entirely, e.g. when no engine could be built for
+    it; a missing/unreachable summary engine must never fail the
+    translation run itself.
 
     Returns False, recording nothing, if every line this run translated
     has since been replaced (e.g. a new transcription finished meanwhile)
@@ -1532,4 +1541,17 @@ def finish_translation_run(drama_id: int, lines, engine, engine_choice: str, sty
     if untranslated_line_count(drama_id) == 0:
         fields["status"] = "translated"
     db.update_drama(drama_id, **fields)
+
+    if fields.get("status") == "translated" and not cancelled and summary_engine is not None:
+        _fresh_for_summary = db.load_line_objects(drama_id)
+        summary = translate_engines.generate_episode_summary(
+            _fresh_for_summary, summary_engine,
+            usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
+                drama_id, summary_engine_choice or getattr(summary_engine, "name", ""),
+                getattr(summary_engine, "model", ""), "episode_summary", inp, out,
+                translate_engines.estimate_cost_for_engine(
+                    summary_engine, inp, out, cache_read, cache_write),
+                cache_read_tokens=cache_read))
+        if summary:
+            db.update_drama(drama_id, episode_summary=summary)
     return True
