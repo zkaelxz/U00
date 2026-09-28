@@ -1273,3 +1273,40 @@ class LibraryRename(BaseModel):
     """Rename a preset or voice-bank entry; nothing else changes."""
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=100)
+
+
+class MediaAnalysis(BaseModel):
+    """Numbers/booleans only (Migration Slice 37); never a path."""
+    drama_id: int
+    duration_seconds: float
+    has_video: bool
+    has_audio: bool
+    audio_track_count: int
+    sample_rate: Optional[int] = None
+
+
+class AutofillRequest(BaseModel):
+    """Exactly one of url / page_text. No keys: resolved server-side."""
+    model_config = ConfigDict(extra="forbid")
+    url: Optional[str] = Field(None, max_length=2000)
+    page_text: Optional[str] = Field(None, max_length=200000)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class AutofillSuggestion(BaseModel):
+    drama_id: int
+    suggestion: dict[str, str]
+    found: bool
+
+
+class AutofillApply(BaseModel):
+    """Whitelisted suggestion fields only; unknown keys are a 422."""
+    model_config = ConfigDict(extra="forbid")
+    title_en: Optional[str] = Field(None, max_length=300)
+    title_zh: Optional[str] = Field(None, max_length=300)
+    author: Optional[str] = Field(None, max_length=300)
+    studio: Optional[str] = Field(None, max_length=300)
+    director: Optional[str] = Field(None, max_length=300)
+    voice_actors: Optional[str] = Field(None, max_length=300)
+    summary: Optional[str] = Field(None, max_length=5000)
+    source_url: Optional[str] = Field(None, max_length=2000)
