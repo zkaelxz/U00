@@ -2,7 +2,7 @@
 Tests for services/translate_service.py: Migration Slice 11's read-only
 "list engines" / "list history" half of the standalone translate tool
 (tabs/translate_tab.py), and Migration Slice 13's translate() action.
-Clearing history is still deferred to a later slice and isn't covered here.
+Migration Slice 17's clear_history() is covered by TestClearHistory below.
 """
 
 import pytest
@@ -129,3 +129,32 @@ class TestTranslate:
     def test_resolve_api_key_ollama_defaults_to_local(self, tmp_path):
         env_path = _write_env(tmp_path, "")
         assert translate_service._resolve_api_key("ollama", env_path) == "local"
+
+
+class TestClearHistory:
+    def test_without_confirm_raises_and_leaves_history_untouched(self, isolated_db):
+        import db
+        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        with pytest.raises(InvalidInputError):
+            translate_service.clear_history()
+        assert len(db.list_translate_history()) == 1
+
+    def test_confirm_false_raises_and_leaves_history_untouched(self, isolated_db):
+        import db
+        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        with pytest.raises(InvalidInputError):
+            translate_service.clear_history(confirm=False)
+        assert len(db.list_translate_history()) == 1
+
+    def test_confirm_true_clears_history(self, isolated_db):
+        import db
+        db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        result = translate_service.clear_history(confirm=True)
+        assert result == {"cleared": True}
+        assert db.list_translate_history() == []
+
+    def test_confirm_true_on_empty_history_is_not_an_error(self, isolated_db):
+        import db
+        assert db.list_translate_history() == []
+        result = translate_service.clear_history(confirm=True)
+        assert result == {"cleared": True}
