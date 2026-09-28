@@ -1143,6 +1143,18 @@ class TranslateRunStarted(BaseModel):
     target_line_count: int
 
 
+class MediaStatus(BaseModel):
+    drama_id: int
+    has_audio: bool
+    has_source_video: bool
+    upload_max_mb: int
+
+
+class UploadAndTranscribeResult(BaseModel):
+    upload: MediaUploadResult
+    job_id: str
+
+
 class LibraryUsage(BaseModel):
     input_tokens: int
     output_tokens: int
