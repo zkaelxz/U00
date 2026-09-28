@@ -33,9 +33,9 @@ from typing import Optional
 from . import detect, store
 from .models import (AccessTier, AiMlUse, AttemptRecord, AutomationPermission,
                      CapabilityStatus, CHALLENGE_REASONS, ChallengeDetected, ContentAccess,
-                     ENVIRONMENT_BLOCK_REASONS, FailureReason, PROTECTION_REASONS, Requirement,
-                     SourceCapabilities, SourceError, TechnicalProtection, TechnicalStatus,
-                     TermsProhibited, TierResult, explain_protection)
+                     ENVIRONMENT_BLOCK_REASONS, FailureReason, LADDER_ORDER, PROTECTION_REASONS,
+                     Requirement, SourceCapabilities, SourceError, TechnicalProtection,
+                     TechnicalStatus, TermsProhibited, TierResult, explain_protection)
 
 TIER_LABELS = {
     AccessTier.STATIC_HTTP: "Static HTTP",
@@ -372,11 +372,12 @@ def check_terms(source: str, default: SourceCapabilities = None, url: str = None
 
 def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
               default: SourceCapabilities = None) -> SourceCapabilities:
-    """Runs exactly one tier against `url` and updates only that tier's
-    field on the source's record. Other tiers -- including UNTESTED ones
-    -- are left exactly as they were. Raises TermsProhibited, before
-    anything is sent, for a source whose terms restrict automated access --
-    the same check every other network-touching action path already makes."""
+    """Runs exactly one tier against `url` and updates that tier's field,
+    plus the aggregate `technical_status`/`access_method` those tiers
+    roll up into. Other tiers -- including UNTESTED ones -- are left
+    exactly as they were. Raises TermsProhibited, before anything is
+    sent, for a source whose terms restrict automated access -- the same
+    check every other network-touching action path already makes."""
     check_terms(source, default, url=url)
     caps = load_capabilities(source, default)
     outcome = tier_fn(url)
@@ -385,8 +386,40 @@ def test_tier(source: str, tier: AccessTier, url: str, tier_fn,
         reason=None if outcome.ok else (outcome.reasons[0].value if outcome.reasons else
                                         FailureReason.UNKNOWN.value),
         detail=outcome.detail[:300], at=time.time())
-    if outcome.ok and caps.access_method is None:
-        caps.access_method = tier.value
+    # Step 86: a manual "Test Now" click used to leave technical_status
+    # exactly as it was, even on success -- reproducing "STATIC_HTTP OK
+    # but the aggregate status still UNRESOLVED/higher-tier". Recompute
+    # it from this one tier's outcome the same way a full ladder run
+    # would if it had stopped here, via the same _resolve_status logic.
+    # Only on success: a single failing tier says nothing about whatever
+    # status an earlier, fuller ladder run already correctly established
+    # (a different tier may have already succeeded), so a failure here
+    # must not overwrite/downgrade it.
+    if outcome.ok:
+        result = LadderResult(url=url, tier=tier.value, partial=outcome.partial,
+                              reasons=list(outcome.reasons),
+                              attempts=[AttemptRecord(tier=tier.value, ok=True,
+                                                      reason=None, detail=outcome.detail[:300])])
+        _resolve_status(result)
+        caps.technical_status = result.technical_status
+        caps.status = result.capability_status
+    # A tier the source's own built-in default merely *presets* (a
+    # declared expectation, never itself tested=True) must not permanently
+    # block a real confirmed result from updating access_method -- several
+    # adapters preset a non-None default here (bilibili_manga.py,
+    # mangaz.py, manhuaku.py), which the old `is None` check could never
+    # overwrite. Update it when there's no confirmed access_method yet,
+    # when the one on record was never actually tested, or when this
+    # tier is strictly preferred (earlier in the ladder) over it.
+    if outcome.ok:
+        current_tested = (caps.access_method is not None
+                          and caps.tiers.get(caps.access_method, TierResult()).tested)
+        prefers_new = (caps.access_method is None or not current_tested
+                      or (caps.access_method in [t.value for t in LADDER_ORDER]
+                          and LADDER_ORDER.index(tier) <
+                          LADDER_ORDER.index(AccessTier(caps.access_method))))
+        if prefers_new:
+            caps.access_method = tier.value
     save_capabilities(source, caps)
     store.log_attempt(source, url, {"tier": tier.value, "test_now": True, "ok": outcome.ok,
                                     "reasons": [r.value for r in outcome.reasons],
