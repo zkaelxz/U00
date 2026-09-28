@@ -230,6 +230,9 @@ baihe-subtitler/
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
+│   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
+│   │                             notes, flag, fix-flagged): background jobs that write themselves,
+│   │                             field-scoped by line id; reuse workspace_job_service runners
 │   ├── review_records_service.py Migration Slice 48 -- READ-ONLY Review records: line history,
 │   │                             translation versions (list/compare), notes (list/Markdown),
 │   │                             stored consistency issues, emotion summary, edit tendencies,
@@ -288,6 +291,8 @@ baihe-subtitler/
 │       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
 │       │                         preview (writes nothing), .../coverage, .../pacing-flags,
 │       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
+│       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
+│       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── review_records_routes.py /api/review/dramas/{id}/history[/{hid}], /versions,
 │       │                         /versions/compare, /notes, /notes/markdown, /consistency,
 │       │                         /emotions, /tendencies, /tm-suggestions (Migration Slice 48,

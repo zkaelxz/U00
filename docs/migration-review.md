@@ -979,6 +979,29 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
+**Slice 44 -- Review checks + AI jobs (2026-09-28).** `POST
+/api/review-jobs/dramas/{id}/{consistency|emotion|notes|flag|fix-flagged}`
+each start a background job (ids `consistency_`/`emotion_`/`notes_`/`flag_`/
+`fixflag_{id}`, the tab's own, so either side sees a running one) that does
+everything, DB write included, by reusing the tab's runners
+(`run_consistency_job`, `run_emotion_job`, `run_translation_notes_job`,
+`run_flag_job`, `run_fix_flagged_lines_job`). Writes are field-scoped by
+permanent line id: `("flag","flag_note")` for flag, the consistency-issues /
+emotions / notes tables, and `("zh","en","flag","flag_note")` for fix-flagged
+(as the tab does); `db.save_lines` skips a field the user changed meanwhile.
+Body: optional `engine`/`model`/`gemini_free_tier` (default: the drama's
+engine); emotion adds `use_audio_cues` (default: drama has audio); fix-flagged
+adds `job_cost_cap_usd` (same cap/monthly-refusal machinery as translate) and
+uses the drama's stored Whisper size, source language and the persisted GPU
+toggle. Keys are resolved server-side only. Errors: unknown drama 404;
+duplicate start 409; no key 503 with fixed text; bad engine/body 422; no
+lines, nothing translated (flag), nothing flagged (fix-flagged), a
+translation-only engine (all but fix-flagged) or a cap refusal 400. Job
+errors are redacted by the job runner. Out of scope: the Claude/Gemini bulk
+(batch) variants, Auto QC, pacing auto-shorten. Notes need an engine with
+`supports_reference`; otherwise the job finishes with 0 notes (as the tab).
+Real LLM/Whisper runs were not verified (tests stub the helpers).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
