@@ -4,9 +4,12 @@ Durable status for the next session. Repo docs and code are the source of truth;
 Last updated 2026-09-28. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
 
 ## Verified status
-- Merged slices: 19, 20, 21, 23, 25, 27, 35, 36, 39, 42, 43, 46, 47, 48, 49 (+ earlier 1-18).
+- Merged slices: 19-23, 25-33, 35-40, 42-44, 46-49 (+ earlier 1-18), plus E0 (Library remainder) and Step 97b (translate fallback chain, API level).
 - Hardening merged: H1 (drama, characters), H2 (glossary, ASS), H3 (read-only services).
-- Full suite on the batch-1 merge state: 3805 passed, 86 skipped (`python run_tests.py`). Later PRs (#231-#237) ran focused tests only (each 228-326 passed); run the full suite before the next big merge.
+- Full suite: batch 1 = 3805 passed, 86 skipped. Batch 2 (base through PR #244) = 4028 passed, 86 skipped, 1 setup error
+  (`test_run_already_running_is_409`, `sqlite3 database is locked` while a real `transcribe_1` thread lingered; did not reproduce in 3 isolated
+  and 2 wider re-runs, so treated as a load flake -- if it recurs, make that test wait for/mock the job thread). Slices merged after #244 (29-30, 32, 37, 38, 44, E0, 97b)
+  ran focused tests only (each 177-346 passed); run the full suite before the next big merge.
 - CI is red on every PR since #212 because GitHub Actions minutes are exhausted (fails within seconds). Standing rule from the user: merge once the local suite passes.
 
 ## Slice pattern (keep using it)
@@ -31,12 +34,13 @@ Job-apply: job does everything. Tuning knobs: persisted (columns added in init_d
 Uploads/exports: multipart + drama-folder outputs. `use_gpu`: persisted, default off. Process-job results: `on_done` hook (Slice 49).
 
 ## Queue (not yet built)
-22 cross-process cancel; 24 API-key writes (gated on loopback policy D5); 26 dub run (needs 49, done); 28 artifact download; 29 audiobook;
-30 burned-in video; 31 media upload; 32 upload-then-transcribe; 33 chunk_and_tag; 34 qwen3 (gated on real-model check);
-37 metadata auto-fill; 38 source attach + chapter OCR; 40 translate run; 41 translate bulk/reflect (Opus confirmation: Steps 9/9d);
-44 review checks + AI jobs; 45 restructure + version restore (Opus confirmation: Step 6c); E0 Library remainder.
-Held-roadmap fold-ins: Step 97b after 40 (never concurrent); Step 95 after 26; Step 43 (soft-delete) stays held (plug into `_hard_delete_drama`);
-Steps 100-105, 40b, 42, 60, 72 stay held.
+24 API-key writes (gated on loopback policy D5); 34 qwen3 backends (gated on a real-model check);
+41 translate bulk/batch + Reflect (needs Opus confirmation: Steps 9/9d); 45 restructure + version restore (needs Opus confirmation: Step 6c);
+Step 95 BGM-preserving dub (held roadmap step; adjacent to Slice 26, now unblocked).
+Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);
+transcribe/narration docs and docstrings that still say chunk_and_tag or audiobook/auto-fill are out of scope are stale (cosmetic cleanup step).
+Held-roadmap fold-ins: Step 43 (soft-delete) stays held (plug into `_hard_delete_drama`); Steps 100-105, 40b, 42, 60, 72 stay held.
+After the service queue: frontend (React) slices and Streamlit retirement -- not yet planned in this repo; ask the migration-architect.
 
 ## Owed to the user (cannot verify here)
 Real TTS, ffmpeg, Whisper on GPU, paid LLM keys, and a gated-access HF token for pyannote diarization.
@@ -44,6 +48,10 @@ Also for the planning session: candidate notes on Fanjiao/GLify/YuriAudio2Notion
 `chapter_check.py`, partial-import retry state).
 
 ## Known flags
+- Step 97b: the fallback switch is immediate on the first qualifying error (no backoff on the primary); CLI/Streamlit do not expose a chain.
+- Slices 29-30 and 38: real ffmpeg/libass and real OCR/EPUBs never run; Settings `tesseract_cmd` is not passed to chapter OCR.
+- `scripts/migration/resolve_slice.py`: keep-both is unsafe for `api/schemas.py` when a branch edits a class in place (Step 97b); rebuild as base + appended block, or hand-merge ours-first.
+- Stale stub line `**Next candidates:** the` near line 876 of docs/migration-review.md.
 - `gemini_free_tier` (Slice 23) is stored but unused; likely consumer `translate_engines.engine_picker_label`.
 - `drama_service` now imports `background_jobs` (Slice 36); import weight unchecked.
 - Slice 36: if the drama folder cannot be fully removed, the DB row is already deleted (500 without paths).
