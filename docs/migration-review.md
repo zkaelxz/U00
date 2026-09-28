@@ -909,6 +909,26 @@ hazard, unchanged: `db.delete_drama` removes the DB row first, then the folder
 (including non-regenerable `voice_refs/`); a failed rmtree leaves an orphan
 folder, surfaced as a clear 500 `application_error` (no paths).
 
+**Slice 40 -- Translate run, normal (2026-09-28).** `POST
+/api/translate-run/dramas/{id}/run` starts a normal (single-pass, non-bulk,
+non-reflect) translation as job `translate_{id}` (the same id the tab uses, so
+either side sees a running job). The job does everything, DB write included:
+it reuses `run_translate_job` (field-scoped `save_lines(fields=("en",))` by
+permanent line id, notes by id, then `finish_translation_run`); only
+empty-`en` lines are translated unless `force_retranslate` (so hand edits
+survive, as in the tab, with the same "before force re-translate" snapshot),
+and optional `line_ids` narrows the run to those lines (rest = context only),
+via a new optional `target_ids` pass-through on `run_translate_job`. Lines,
+glossary, style guidelines (learned profile, emotions, gender hints), character
+names and locale are built server-side from the DB exactly as the tab and
+`cli.py translate` do. Errors: unknown drama 404; duplicate start 409; no
+key 503 with fixed text (keys resolved server-side, never accepted or echoed);
+bad engine/locale/preset/line_ids 422; nothing to translate or monthly cap
+refusal 422. Deliberate differences: the summary engine is always local Ollama
+(no per-session Settings pick); Ollama's num_ctx override is not applied.
+Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
+runs were not verified (tests use the offline engine and fakes only).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

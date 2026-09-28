@@ -1052,3 +1052,28 @@ class LinesNote(BaseModel):
 class LinesNoteDeleteResult(BaseModel):
     deleted: bool
     note_id: int
+
+
+class TranslateRunStart(BaseModel):
+    """Start a normal translation (Migration Slice 40). No keys/URLs."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    style_note: str = Field("", max_length=4000)
+    locale: str = Field("en-US", max_length=10)
+    force_retranslate: bool = False
+    context_window: Optional[int] = Field(None, ge=0, le=100)
+    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
+    batch_size: Optional[int] = Field(None, ge=1, le=200)
+    line_ids: Optional[List[int]] = Field(None, max_length=100000)
+    gemini_free_tier: bool = False
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+
+
+class TranslateRunStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    engine: str
+    model: Optional[str] = None
+    target_line_count: int
