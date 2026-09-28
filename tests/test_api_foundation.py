@@ -4,9 +4,9 @@ Library endpoints' contract, the shared error shape, and the CORS /
 configuration rules. Uses FastAPI's TestClient against an
 `isolated_db` library -- no server process, no network.
 
-FastAPI is an optional dependency (requirements-optional.txt), so this
-whole file skips cleanly on a core-only install, same as any other
-optional-package test here.
+FastAPI is a core dependency (requirements-core.txt); `httpx` (TestClient's
+transport) is dev-only. The importorskips below keep a partial install
+from erroring instead of skipping.
 """
 
 import pytest

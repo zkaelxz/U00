@@ -11,3 +11,7 @@ pandas>=2.0
 requests>=2.31
 beautifulsoup4>=4.12
 anthropic>=0.34
+fastapi>=0.115           # the HTTP API (api/) the React frontend talks to -- core, not optional,
+                         # since the React + FastAPI migration is the app's direction
+                         # (docs/migration-review.md, decision D3). Start with: python -m api
+uvicorn>=0.30            # the server that runs it
