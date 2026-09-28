@@ -33,10 +33,10 @@
         ▼
  Baihe PC: tailscaled ── Tailscale Serve (HTTPS, automatic ts.net certificate)
         │   https://baihe.<tailnet>.ts.net/        ──▶ FastAPI 127.0.0.1:8600 (+ built React app)
-        │   https://baihe.<tailnet>.ts.net:8443/   ──▶ Streamlit 127.0.0.1:8501 (while it still exists)
         ▼
    services ──▶ library/
 
+ PC only (never published): Streamlit :8501 until it's removed
  Loopback only: page_server :8756 (browser extension bridge, unchanged)
 ```
 
@@ -45,7 +45,6 @@ against the installed Tailscale version when it's built):
 
 ```
 tailscale serve --bg --https=443  http://127.0.0.1:8600
-tailscale serve --bg --https=8443 http://127.0.0.1:8501
 ```
 
 Serve terminates HTTPS with a certificate Tailscale issues and renews for
@@ -57,8 +56,8 @@ dynamic DNS to run.
 local service on 443. There are no cross-origin requests and no CORS in
 production, and the session never spans two hosts. This isn't built yet:
 the foundation serves React from `vite preview` in development only. It's
-on the checklist (§8). Streamlit stays a separate service on 8443,
-owner-only (§5), until it's retired.
+on the checklist (§8). Streamlit is never published through Serve
+(§6), and it's removed at the end of the migration.
 
 ## 3. Identity: who is making the request
 
@@ -183,8 +182,7 @@ trusted ([Serve identity headers](https://tailscale.com/docs/features/tailscale-
      "groups":    { "group:household": ["alice@example.com", "bob@example.com"] },
      "tagOwners": { "tag:baihe": ["autogroup:admin"] },
      "grants": [
-       { "src": ["group:household"],   "dst": ["tag:baihe"], "ip": ["tcp:443"]  },
-       { "src": ["owner@example.com"], "dst": ["tag:baihe"], "ip": ["tcp:8443"] }
+       { "src": ["group:household"], "dst": ["tag:baihe"], "ip": ["tcp:443"] }
      ]
    }
    ```
@@ -194,12 +192,10 @@ trusted ([Serve identity headers](https://tailscale.com/docs/features/tailscale-
 2. **Application (Baihe permissions, §4):** what each of those people can
    do once connected.
 
-**Streamlit is the gap until it's retired.** It has no permissions of
-its own, so anyone who can reach port 8443 can do everything in it. Use
-the Tailscale access rules to allow port 8443 **only for you (the
-owner)**. Other household members get only the React app on 443, where
-Baihe's permissions apply. As screens move to React, they become
-available to everyone according to their permissions.
+**Streamlit is not part of remote access at all** (§6, decision (a)).
+Remote access, for everyone including the owner, is the React app on
+443, where Baihe's permissions apply. As screens move to React, they
+become available remotely according to each person's permissions.
 
 ## 6. Admin actions (D5)
 
@@ -224,17 +220,18 @@ from this device". The mechanism instead:
   ([Serve app capabilities](https://tailscale.com/docs/features/tailscale-serve)).
   That has to be designed and tested explicitly; it isn't assumed here.
 
-**Streamlit conflicts with "PC only" during the transition.**
-Diagnostics (install, reset) and Library (restore) live in Streamlit.
-Serving Streamlit to the owner over Tailscale (§5) would make those
-reachable from the owner's phone. Choose one:
-- **(a)** Don't publish Streamlit through Serve. The owner uses it only
-  at home. Remote access is React-only for everyone, including the owner.
-  This fully honours "PC only".
-- **(b)** Publish it owner-only and accept the admin actions as a
-  temporary exception for the owner's devices until they move to React.
+**Streamlit during the transition. Decided 2026-09-28: (a), never
+published through Tailscale.** Streamlit is being removed completely (the
+migration's end state), so it gets no remote access, access rules or
+exceptions in the meantime. It stays usable only at the Baihe PC.
+Remote access, for everyone including the owner, is the React app only,
+and grows as screens are migrated. This fully honours "admin only from
+the PC", since Diagnostics (install, reset) and Library (restore) stay in
+Streamlit until they move. Considered and rejected: (b) owner-only
+publishing with an admin exception, and (c) household publishing with
+admin sections hidden for Tailscale requests.
 
-**Existing exposure to fix regardless of (a)/(b):** `start.bat` binds
+**Existing exposure to fix:** `start.bat` binds
 Streamlit to all interfaces (Step 10e), so *any device on the home
 Wi-Fi*, guests included, can already open Streamlit and its danger zone.
 With Tailscale providing remote and household access, Streamlit could
@@ -299,8 +296,8 @@ go back to `127.0.0.1` only. That's a separate step touching `start.bat`
 5. Tailscale installed on the PC, Serve configured (§2), Funnel **off**.
    Admin endpoints on their own unpublished listener (§6).
 6. Tailscale access policy replaced (the default allows everything): port 443
-   for the household group, 8443 (Streamlit) owner-only or not published
-   (§6 choice), nothing else; 8756, 8600 and 8601 never reachable.
+   for the household group, nothing else. Streamlit (8501), 8756, 8600
+   and 8601 are never reachable over Tailscale.
 7. The PC's sleep settings are adjusted so it stays reachable.
 8. A check from a phone on mobile data: the React app works for a
    granted user; an ungranted tailnet user sees "ask for access";
@@ -309,10 +306,9 @@ go back to `127.0.0.1` only. That's a separate step touching `start.bat`
 
 ## 9. Effect on the migration order
 
-Because the owner can still use Streamlit remotely, the auth work no
-longer blocks remote use of the *whole* app for you. For **other
-household members**, remote use is the React screens, so migrate what
-they'll use first:
+Remote use, for everyone including the owner, is the React screens
+only (§6, decision (a)), so migrate what people will use away from home
+first:
 
 1. Identity + permissions (§3–§4).
 2. Job monitoring/cancel (needs the job-records table).
