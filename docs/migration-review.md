@@ -704,6 +704,22 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 47 — Review read-only line views (2026-09-28).**
+`services/review_lines_service.py` + `api/routers/review_lines_routes.py`
+(`/api/review/dramas/{id}/...`): paged/filtered line list, transcript search,
+find-and-replace preview, coverage check, pacing check, per-line provenance
+and original-transcript text. Everything reads the database by permanent line
+id, not the browser's unsaved session list, so coverage/pacing results can
+differ from what the Streamlit tab shows until edits are saved. The
+find-replace preview is a POST only because of its body and writes nothing;
+with `use_regex` the pattern runs server-side with no execution timeout (a
+ReDoS risk), so only find/replace length (500) is capped -- the API stays
+local/trusted-network only. `re.error` (bad pattern or bad group reference in
+the replacement) maps to 422, not 500. Caps: page_size 200, search limit 200,
+search/find/replace text 500 characters. Out of scope: all writes, player/
+media, translation-memory suggestions, LLM tools, bulk modes, and
+history/versions/notes reads (Slice 48).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

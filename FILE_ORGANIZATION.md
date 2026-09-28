@@ -201,6 +201,9 @@ baihe-subtitler/
 │   │                             video/transcript-source presence); audio upload and transcript/
 │   │                             novel text stay out of scope, folded into a future
 │   │                             transcribe-and-align action slice instead
+│   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
+│   │                             filtered list, search, find-replace preview, coverage, pacing,
+│   │                             provenance, original text (by permanent line id; no writes)
 │   └── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
 │                                 (Whisper tuning knobs, newly persisted per drama) plus
 │                                 start_transcribe_run: a background job that does the WHOLE
@@ -236,6 +239,9 @@ baihe-subtitler/
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
+│       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
+│       │                         preview (writes nothing), .../coverage, .../pacing-flags,
+│       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       └── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │                                 (Migration Slice 20)
