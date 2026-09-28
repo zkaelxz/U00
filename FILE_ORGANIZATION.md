@@ -185,12 +185,16 @@ baihe-subtitler/
 │   ├── translate_service.py      Migration Slices 11+13 -- list_engines/list_history (read-only)
 │   │                             plus translate() itself (Slice 13), server-side key resolution
 │   │                             per engine (D2); no history-clear
-│   └── export_service.py         Migration Slices 12+14+15 -- get_export_readiness (read-only
-│                                 counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
-│                                 write), flag_overlapping_lines/flag_dense_lines/
-│                                 run_auto_qc_flagging (Slice 15: field-scoped db.save_lines
-│                                 writes, flag/flag_note only); ASS/EPUB/audiobook/video export
-│                                 stay out of scope
+│   ├── export_service.py         Migration Slices 12+14+15 -- get_export_readiness (read-only
+│   │                             counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
+│   │                             write), flag_overlapping_lines/flag_dense_lines/
+│   │                             run_auto_qc_flagging (Slice 15: field-scoped db.save_lines
+│   │                             writes, flag/flag_note only); ASS/EPUB/audiobook/video export
+│   │                             stay out of scope
+│   └── diarization_service.py    Migration Slice 16 -- get_diarization_config (read-only:
+│                                 hf_token_configured bool, expected_speakers, audio_available)
+│                                 plus start_diarization_run (a real GPU-touching background job);
+│                                 status polling reuses the existing jobs API, not duplicated here
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -209,9 +213,12 @@ baihe-subtitler/
 │       ├── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13); no history-clear
-│       └── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12)
-│                                 + .../subtitle (Migration Slice 14, SRT/VTT)
-│                                 + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
+│       ├── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12)
+│       │                         + .../subtitle (Migration Slice 14, SRT/VTT)
+│       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
+│       │                         (Migration Slice 15)
+│       └── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
+│                                 (Migration Slice 16)
 │                                 (Migration Slice 15)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.

@@ -523,11 +523,43 @@ New `POST /api/export/dramas/{id}/flag-overlaps`, `.../flag-dense-lines`,
 `.../flag-auto-qc`. Each is a no-op-safe action -- a 0 count is a normal
 result, not an error.
 
-**Next candidate:** ASS export (needs the interactive per-drama style
-state `_subtitle_style_fragment` builds in Streamlit -- no API contract
-for it yet) or EPUB/audiobook/burned-in-video export, whichever a future
-scoping pass picks; Export's own read/write actions are now otherwise
-complete.
+Export's own read/write actions are now complete: ASS export (needs the
+interactive per-drama style state `_subtitle_style_fragment` builds in
+Streamlit -- no API contract for it yet) and EPUB/audiobook/burned-in-
+video export remain deliberately out of scope, each its own future
+slice.
+
+**Slices 16 and 17 — built in parallel (2026-09-28), the second real use
+of the §5.2 guardrails** (the first was Slices 11+12). Two `implementer`
+agents ran concurrently, each owning only its own files -- Slice 16
+created two brand-new files, Slice 17 extended two files Slice 16 never
+touched -- so this pair was file-disjoint by construction, not just by
+scoping care. The lead added both routers/schemas/server registrations
+and fixed one real defect found during integration (see below). Merged
+as two separate PRs per guardrail #4 -- this entry (Slice 16's own)
+covers this PR; Slice 17's own entry follows it once that PR lands.
+
+**Slice 16** (§3.2, Phase 6's second Workspace stage, Diarize):
+`services/diarization_service.py` -- `get_diarization_config(drama_id)`
+(read-only: `hf_token_configured` as a boolean only, never the token
+itself -- D2; `expected_speakers` from `diarize.load_last_speaker_count`;
+`audio_available`) and `start_diarization_run(drama_id, expected_speakers)`,
+which starts the same real, GPU-touching background job
+`_render_speaker_rerun` does (`background_jobs.start_process_job` with
+`diarize.diarize_subprocess_worker`). New `GET /api/diarization/dramas/
+{id}/config`, `POST /api/diarization/dramas/{id}/run`. Deliberately does
+not duplicate job-status polling -- the existing `GET /api/jobs/{job_id}`
+(Slice 8) already covers any job id, including this one. **Integration
+fix**: the agent's own first draft raised `NotFoundError` for "drama
+exists but has no audio yet" -- corrected to `UnsupportedOperationError`
+(400) during integration, since the drama itself isn't missing, just not
+in a state that supports this action (matches
+`services/service_errors.py`'s own documented distinction). The "run
+diarization during alignment" checkbox and the turns-to-lines merge stay
+out of scope -- a future Transcript/Align-stage slice's concern.
+
+**Next candidate for this slice:** the next Workspace stage after
+Diarize per §3.2's build order (Transcript).
 
 ---
 
