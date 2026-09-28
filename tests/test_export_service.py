@@ -469,3 +469,36 @@ class TestGenerateAssText:
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.generate_ass_text(99999)
+
+
+class TestAssInjection:
+    EVIL = "Arial\n[Events]\nDialogue: 0,0:00:00.00,0:00:01.00,Default,,0,0,0,,PWNED"
+
+    def test_font_rejected_in_service(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        with pytest.raises(InvalidInputError) as e:
+            export_service.generate_ass_text(did, style={"font": self.EVIL})
+        assert "PWNED" not in str(e.value)
+
+    def test_formatter_sanitises_font_title_and_speaker(self):
+        lines = [Line(idx=0, start=0.0, end=2.0, zh="", en="Hi", speaker=self.EVIL)]
+        style = dict(sf.ASS_PRESETS["Clean"], font=self.EVIL)
+        text = sf.lines_to_ass(lines, style, "en", title=self.EVIL,
+                               speaker_colors={self.EVIL: "#123456"})
+        clean = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")
+        assert len(text.split("\n")) == len(clean.split("\n")) + 1  # extra speaker style only
+        assert "\r" not in text
+        assert [l for l in text.split("\n") if l.startswith("[Events]")] == ["[Events]"]
+        assert not any(l.startswith("Dialogue: 0,0:00:00.00,0:00:01.00,Default") for l in text.split("\n"))
+
+
+class TestSpeakerColorsCap:
+    def test_too_many_or_long(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        with pytest.raises(InvalidInputError):
+            export_service.generate_ass_text(
+                did, speaker_colors={f"S{i}": "#123456" for i in range(201)})
+        with pytest.raises(InvalidInputError):
+            export_service.generate_ass_text(did, speaker_colors={"x" * 101: "#123456"})
+        export_service.generate_ass_text(
+            did, speaker_colors={f"S{i}": "#123456" for i in range(200)})

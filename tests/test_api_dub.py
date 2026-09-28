@@ -96,3 +96,19 @@ class TestPacing:
         resp = client.get("/api/dub/dramas/999/pacing")
         assert resp.status_code == 404
         _assert_error(resp)
+
+
+def test_h3_pacing_accepts_float_ms(client, isolated_db):
+    import json
+    import os
+    import dub
+    did = _seed(isolated_db)
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="hi", dub_filename="a.wav")])
+    d = os.path.join(isolated_db.drama_dir(did), "dub_clips")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, dub.PACING_FILENAME), "w", encoding="utf-8") as f:
+        json.dump({"0": {"status": "fit", "factor": 1.0, "clip_ms": 950.5, "window_ms": 1000.25,
+                         "dub_filename": "a.wav"}}, f)
+    resp = client.get(f"/api/dub/dramas/{did}/pacing")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["lines"][0]["clip_ms"] == 950.5

@@ -214,7 +214,8 @@ baihe-subtitler/
 │   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │   │                             engines, per-speaker voices, pacing of the last run; no paths)
 │   ├── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
-│   │                             update_drama_metadata (whitelisted partial update); delete,
+│   │                             update_drama_metadata (whitelisted partial update); Slice 36
+│   │                             delete_drama (typed-confirm, refused while a job runs);
 │   │                             cover upload and metadata auto-fill stay out of scope
 │   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
@@ -226,16 +227,16 @@ baihe-subtitler/
 │   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
 │   │                             CRUD, confirm-gated delete), project/series instructions, and
 │   │                             read-only option catalogues; LLM term extraction stays out
-│   ├── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
-│   │                             (field-scoped save_lines only): patch with compare-and-set, dismiss
-│   │                             flag, find-replace apply, TM accept, note add/delete; ownership-checked
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
-│   └── review_records_service.py Migration Slice 48 -- READ-ONLY Review records: line history,
-│                                 translation versions (list/compare), notes (list/Markdown),
-│                                 stored consistency issues, emotion summary, edit tendencies,
-│                                 TM suggestions; enforces drama ownership itself; no writes/LLM
+│   ├── review_records_service.py Migration Slice 48 -- READ-ONLY Review records: line history,
+│   │                             translation versions (list/compare), notes (list/Markdown),
+│   │                             stored consistency issues, emotion summary, edit tendencies,
+│   │                             TM suggestions; enforces drama ownership itself; no writes/LLM
+│   └── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
+│                                 (field-scoped save_lines only): patch with compare-and-set, dismiss
+│                                 flag, find-replace apply, TM accept, note add/delete; ownership-checked
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -251,7 +252,7 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
-│       ├── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
+│       ├── settings_routes.py    /api/settings (Slices 10, 23: GET overview, POST non-secret bool toggles)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
@@ -268,7 +269,7 @@ baihe-subtitler/
 │       │                         (Migration Slice 20)
 │       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
-│       │                         (Migration Slice 35)
+│       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
 │       │                         (Migration Slice 39, read-only)
 │       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
@@ -277,16 +278,16 @@ baihe-subtitler/
 │       ├── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
 │       │                         ?confirm=true), .../instructions[/project|/series], /catalogues
 │       │                         (Migration Slice 46)
-│       ├── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
-│       │                         `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
-│       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
 │       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
 │       │                         preview (writes nothing), .../coverage, .../pacing-flags,
 │       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
-│       └── review_records_routes.py /api/review/dramas/{id}/history[/{hid}], /versions,
-│                                 /versions/compare, /notes, /notes/markdown, /consistency,
-│                                 /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
-│                                 read-only)
+│       ├── review_records_routes.py /api/review/dramas/{id}/history[/{hid}], /versions,
+│       │                         /versions/compare, /notes, /notes/markdown, /consistency,
+│       │                         /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
+│       │                         read-only)
+│       └── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
+│                                 `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
+│                                 notes (POST, DELETE .../{note_id}) (Migration Slice 43)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

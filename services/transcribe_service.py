@@ -57,7 +57,7 @@ import core as core_module
 import db
 import raw_transcript
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
-from services import settings_service, source_service
+from services import diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 
@@ -311,6 +311,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         initial_prompt or "", video_path,
         drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
         drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
+        settings_service.get_use_gpu(),
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -324,7 +325,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    use_groq, groq_api_key, hf_token, expected_speakers,
                                    initial_prompt="", video_path=None, hardsub_ocr_backend=None,
                                    hardsub_interval=1.0, tesseract_cmd=None,
-                                   diarize_audio_path=None):
+                                   diarize_audio_path=None, use_gpu=False):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -338,12 +339,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     apply step for Streamlit's own render loop -- see this module's
     docstring for why this slice can't reuse that split.
 
-    use_gpu is hardcoded False here, deliberately: Streamlit's own
-    "use_gpu" toggle is a bare st.session_state value with no DB/settings
-    persistence anywhere (unlike the tuning knobs Slice 20 does persist),
-    so there's no server-side source of truth for an API caller yet --
-    out of scope for this slice, left for whenever GPU control becomes a
-    real settings_service concern.
+    use_gpu is the persisted server-side toggle (db.app_settings, read via
+    settings_service.get_use_gpu() in start_transcribe_run, default off).
 
     diarize_audio_path is resolved once in start_transcribe_run, from the
     drama's own stored audio_filename, independent of transcript_mode --
@@ -410,7 +407,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         else:
             try:
                 segments = transcribe_for_timing(
-                    audio_path, whisper_size, language=source_language, use_gpu=False,
+                    audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                     local_model_path=None, hf_token=None, initial_prompt=initial_prompt,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
@@ -471,7 +468,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
             args=(diarize_audio_path, hf_token, expected_speakers or None),
-            gpu_touching=True, description=f"Diarization (drama #{drama_id})")
+            gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+            on_done=diarization_service.make_apply_on_done(drama_id, expected_speakers))
 
     background_jobs.set_result(job_id, {
         "line_count": len(lines),

@@ -377,7 +377,7 @@ class TestExpectedSpeakersCapturedAtJobStart:
         did, ddir = _drama_with_audio(isolated_db)
         job_id = f"diarize_{did}"
 
-        def fake_start(jid, target, args=(), gpu_touching=False, description=None):
+        def fake_start(jid, target, args=(), gpu_touching=False, description=None, on_done=None):
             background_jobs._jobs[jid] = {
                 "status": "running", "progress": 0.0, "message": "",
                 "error": None, "started_at": 0.0, "finished_at": None,

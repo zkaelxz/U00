@@ -178,3 +178,87 @@ def test_no_filesystem_path_in_responses(client, isolated_db):
     for r in (r1, r2, r3, r4):
         assert lib not in r.text
     assert "filename" not in r1.text and "filename" not in r2.text
+
+
+# --- Hardening H1 -----------------------------------------------------------
+
+def test_h1_oversized_ints_are_422_never_500(client):
+    big = 10**30
+    for body in ({"source_language": "zh", "series_id": big},
+                 {"source_language": "zh", "preset_id": big}):
+        assert client.post("/api/dramas", json=body).status_code == 422
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    for f in ("chapter_count", "episode_number", "series_id"):
+        assert client.post(f"/api/dramas/{did}/metadata", json={f: big}).status_code == 422
+    assert client.post(f"/api/dramas/{big}/metadata", json={"title_en": "x"}).status_code == 422
+
+
+def test_h1_caps_and_url_scheme(client):
+    assert client.post("/api/dramas", json={"source_language": "zh",
+                                            "title_en": "a" * 301}).status_code == 422
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    r = client.post(f"/api/dramas/{did}/metadata", json={"source_url": "javascript:alert(1)"})
+    assert r.status_code == 422 and "javascript" not in r.text
+    r = client.post(f"/api/dramas/{did}/metadata", json={"summary": "a" * 5001})
+    assert r.status_code == 422
+    r = client.post(f"/api/dramas/{did}/metadata", json={"source_url": "https://e.example"})
+    assert r.status_code == 200
+
+# ---- Slice 36: DELETE /api/dramas/{id} -----------------------------------
+import os
+
+import background_jobs
+
+
+def _doomed():
+    did = db.create_drama(title_en="Doomed", source_language="zh")
+    refs = os.path.join(db.drama_dir(did), "voice_refs")
+    os.makedirs(refs)
+    with open(os.path.join(refs, "x"), "wb") as f:
+        f.write(b"clip")
+    return did, db.drama_dir(did)
+
+
+def test_delete_unknown_404_without_confirm(client):
+    resp = client.delete("/api/dramas/999")
+    assert resp.status_code == 404
+    assert _error(resp)["code"] == "not_found"
+
+
+@pytest.mark.parametrize("qs", ["", "?confirm=true", "?confirm_text=DELETE",
+                                "?confirm=true&confirm_text=delete",
+                                "?confirm=true&confirm_text=DELETE%20",
+                                "?confirm=true&confirm_text=",
+                                "?confirm=false&confirm_text=DELETE"])
+def test_delete_bad_confirmation_422(client, qs):
+    did, folder = _doomed()
+    resp = client.delete(f"/api/dramas/{did}{qs}")
+    assert resp.status_code == 422
+    _error(resp)
+    assert db.get_drama(did) is not None
+    assert os.path.isfile(os.path.join(folder, "voice_refs", "x"))
+
+
+def test_delete_ok(client):
+    did, folder = _doomed()
+    resp = client.delete(f"/api/dramas/{did}?confirm=true&confirm_text=DELETE")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"deleted": True, "drama_id": did}
+    assert db.get_drama(did) is None and not os.path.exists(folder)
+
+
+def test_delete_running_job_409(client, monkeypatch):
+    did, folder = _doomed()
+    monkeypatch.setattr(background_jobs, "any_job_running_for_drama", lambda _id: True)
+    resp = client.delete(f"/api/dramas/{did}?confirm=true&confirm_text=DELETE")
+    assert resp.status_code == 409
+    assert _error(resp)["code"] == "conflict"
+    assert db.get_drama(did) is not None and os.path.isdir(folder)
+
+
+def test_delete_fresh_job_record_409(client):
+    did, folder = _doomed()
+    db.save_job_record(f"dub_{did}", "queued")
+    resp = client.delete(f"/api/dramas/{did}?confirm=true&confirm_text=DELETE")
+    assert resp.status_code == 409
+    assert db.get_drama(did) is not None and os.path.isdir(folder)

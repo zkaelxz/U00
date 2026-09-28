@@ -89,8 +89,8 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(characters_routes.router)
     app.include_router(glossary_routes.router)
     app.include_router(review_lines_routes.router)
-    app.include_router(lines_routes.router)
     app.include_router(review_records_routes.router)
+    app.include_router(lines_routes.router)
     return app
 
 

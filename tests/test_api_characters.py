@@ -234,3 +234,31 @@ def test_no_filesystem_path_in_responses(client, isolated_db, tmp_path):
                  "/api/characters/voice-bank", "/api/characters/dramas/999"):
         assert lib not in client.get(path).text
     assert lib not in _post(client, did, "ZZ", pronouns="x").text
+
+
+# --- Hardening H1 -----------------------------------------------------------
+
+def test_h1_hostile_text_never_echoed(client, isolated_db):
+    did = _drama(isolated_db)
+    hostile = "evil\n" + "x" * 5000 + "\u202e\u2603"
+    for payload in ({"speaker_label": hostile, "pronouns": "x"},
+                    {"speaker_label": "A", "clone_engine": hostile},
+                    {"speaker_label": "A", "clone_engine": "chatterbox"}):
+        r = client.post(f"/api/characters/dramas/{did}/character", json=payload)
+        assert r.status_code in (404, 422)
+        assert "evil" not in r.text and "xxxx" not in r.text and "chatterbox" not in r.text
+    r = client.post(f"/api/characters/dramas/{did}/voice-bank/apply",
+                    json={"speaker_label": hostile, "voice_bank_id": 1})
+    assert r.status_code in (404, 422) and "evil" not in r.text
+
+
+def test_h1_oversized_ids_never_500(client, isolated_db):
+    big = 10**30
+    did = _drama(isolated_db)
+    assert client.get(f"/api/characters/dramas/{big}").status_code == 422
+    assert client.get(f"/api/characters/dramas/{big}/clone-engines").status_code == 422
+    assert client.get(f"/api/characters/series/{big}/characters").status_code == 422
+    assert client.post(f"/api/characters/dramas/{big}/character",
+                       json={"speaker_label": "A", "pronouns": "x"}).status_code == 422
+    assert client.post(f"/api/characters/dramas/{did}/voice-bank/apply",
+                       json={"speaker_label": "A", "voice_bank_id": big}).status_code == 422

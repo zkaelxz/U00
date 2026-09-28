@@ -142,3 +142,12 @@ def test_validation(isolated_db):
         svc.estimate_translate_cost(did, "gemini", model=bad, gemini_free_tier=True)
     with pytest.raises(InvalidInputError):
         svc.estimate_translate_cost(did, "claude", job_cost_cap_usd=-1)
+
+
+def test_h3_config_does_not_create_folder(isolated_db):
+    import os
+    did = _drama(novel_reference_filename="novel.txt")
+    folder = os.path.join(db.DRAMAS_DIR, str(did))
+    assert not os.path.exists(folder)
+    assert svc.get_translate_config(did)["has_novel_reference"] is False
+    assert not os.path.exists(folder)

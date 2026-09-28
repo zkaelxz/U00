@@ -13,9 +13,10 @@ Static paths (`/versions/compare`, `/notes/markdown`) are declared before
 any `/{id}` path in the same prefix.
 """
 
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Path, Query, Response
+from pydantic import Field
 
 from api.schemas import (ErrorResponse, ReviewRecordsCompare, ReviewRecordsConsistencyIssue,
                          ReviewRecordsEmotionSummary, ReviewRecordsHistoryItem,
@@ -101,5 +102,5 @@ def get_tendencies(drama_id: int = Path(ge=1)):
             summary="Translation-memory suggestions (nothing is applied)",
             responses=_NF_422)
 def get_tm_suggestions(drama_id: int = Path(ge=1),
-                       line_id: Optional[List[int]] = Query(None)):
+                       line_id: Optional[List[Annotated[int, Field(ge=1)]]] = Query(None, max_length=200)):
     return review_records_service.list_tm_suggestions(drama_id, line_ids=line_id)
