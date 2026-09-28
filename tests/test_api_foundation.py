@@ -280,3 +280,24 @@ class TestReaderEndpoint:
         monkeypatch.setattr(dictionary, "build_word_definitions", boom)
         resp = client.get(f"/api/reader/dramas/{did}/page")
         assert resp.status_code == 200
+
+
+class TestDiagnosticsEndpoint:
+    """Migration Slice 5: a read-only Diagnostics overview over HTTP --
+    no admin action, contract-shaped the same way diagnostics_service's
+    own unit tests check the underlying dict."""
+
+    def test_overview_contract_shape(self, client, isolated_db):
+        body = client.get("/api/diagnostics").json()
+        assert set(body) == {
+            "dependencies", "file_completeness", "library_writable", "gpu",
+            "model_engine_versions", "running_jobs", "recent_log_lines",
+        }
+        assert isinstance(body["dependencies"], dict)
+        assert "streamlit" in body["dependencies"]
+        assert isinstance(body["file_completeness"]["all_present"], bool)
+
+    def test_no_admin_action_is_exposed(self, client, isolated_db):
+        # Only a GET is offered; no install/upgrade/delete verb exists here.
+        assert client.post("/api/diagnostics").status_code == 405
+        assert client.delete("/api/diagnostics").status_code == 405
