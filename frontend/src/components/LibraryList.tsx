@@ -10,9 +10,11 @@ const QUICK_FILTERS = ['', 'Favorite', 'On Hold', 'Plan to Translate']
 interface Props {
   selectedId: number | null
   onSelect: (id: number) => void
+  // Bump to refetch after a create/delete elsewhere on the page.
+  reloadKey?: number
 }
 
-export function LibraryList({ selectedId, onSelect }: Props) {
+export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [quickFilter, setQuickFilter] = useState('')
@@ -39,7 +41,7 @@ export function LibraryList({ selectedId, onSelect }: Props) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [search, status, quickFilter])
+  }, [search, status, quickFilter, reloadKey])
 
   return (
     <section className="panel" aria-labelledby="library-heading">
