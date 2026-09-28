@@ -246,6 +246,21 @@ document.getElementById("viaBlob").src =
                      await chrome.scripting.executeScript(
                        {target: {tabId: tab.id}, files: ['content.js']});
                    }""", [site_url])
+
+            # A real page made to look like a verification interstitial:
+            # translateVisible must recognize and report it, not silently
+            # send whatever image-sized elements happen to be on it for
+            # OCR/translation.
+            original_title = page.title()
+            page.evaluate("() => { document.title = 'Just a moment...'; }")
+            challenge_result = options.evaluate(drive, [site_url, {
+                "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
+            check("a verification/CAPTCHA-looking page is recognized and refused, not translated",
+                  bool(challenge_result) and challenge_result.get("code") == "CHALLENGE_DETECTED"
+                  and challenge_result.get("ok") is False,
+                  json.dumps(challenge_result)[:200])
+            page.evaluate("(t) => { document.title = t; }", original_title)
+
             result = options.evaluate(drive, [site_url, {
                 "type": "translateVisible", "dramaId": drama_id, "store": True, "all": True}])
             check("translating everything visible succeeds",
