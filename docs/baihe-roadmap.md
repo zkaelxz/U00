@@ -107,14 +107,29 @@
 > scope; confirm the same repo-wide sweep next time a function moves
 > between modules, not just the files a first pass happens to check).
 > `FILE_ORGANIZATION.md` updated in the same PR. Full suite: 3228 passed,
-> 0 failed. **Next migration slice per `docs/migration-review.md`'s own
-> plan: Slice 4 (Reader read-only endpoint) — genuinely independent of
-> everything else, no file overlap with Slice 3's job-API work, good
-> next candidate whenever picked up.**
+> 0 failed.
+>
+> **Step 89 merged (2026-09-28):** `step-89-music-media-type`, PR #198 —
+> full suite 3230 passed.
+>
+> **Slice 4 (Reader read-only endpoint) — real scoping decision needed
+> before implementation, not guessed at.** `reader.build_reader_html()`
+> is the natural function to expose, but the existing Streamlit call
+> path around it (`tabs/reader_tab.py`) does two things an HTTP GET
+> endpoint must not silently inherit: a **paid LLM API call**
+> (`dictionary.build_word_definitions` via `translate_engines.get_engine`)
+> and a **DB write as a side effect of loading a page**
+> (`db.save_vocab_lookup` for every word looked up). Needs a decision on
+> scope before a session builds this: (a) endpoint serves only
+> *already-cached* definitions (no live lookup, no write) and the
+> UI/user triggers a separate POST for fresh lookups; (b) endpoint
+> accepts an explicit opt-in query param for a live lookup, billed to a
+> server-side key, with the write kept as an explicit separate call; or
+> (c) some other split the user actually wants. Not resolved here —
+> flagging per this project's own don't-guess-at-decisions rule rather
+> than picking one unilaterally.
 >
 > **Not yet dispatched:** Steps 95/97/98/99 (see above, no branch yet).
-> Step 89 (provisionally numbered, never pushed — confirm scope
-> before dispatch).
 >
 > **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42,
 > which doesn't exist yet). Step 60 (multi-agent orchestration — also
@@ -4181,7 +4196,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | `step-86-test-tier-staleness-fix` | ✅ Merged (PR #196) — the two concrete fixes only; see decision-needed note below for the third, underspecified "standalone user-confirmation action" item | ⏳ Pending |
   | 87 — Add a language selector to new-drama creation (was silently defaulting to `zh`) | `step-87-new-drama-language-selector` | ✅ Merged (PR #179) | ⏳ Pending |
   | 88 — (id skipped in the secondary-review session's own provisional numbering — not used) | — | — | — |
-  | 89 — Add `music` to `MEDIA_TYPE_OPTIONS` | — | Not started — provisionally assigned, no branch pushed yet | — |
+  | 89 — Add `music` to `MEDIA_TYPE_OPTIONS` | `step-89-music-media-type` | ✅ Merged (PR #198) | — |
   | 90 — Deactivate ToS/robots.txt enforcement app-wide (`sources/ladder.py::check_terms()`, kept reversible) | `step-90-deactivate-tos-enforcement` | ✅ Merged (PR #173) | ⏳ Pending |
   | 91 — Session-shaped pacing: a longer break every N requests | `step-91-session-shaped-pacing` | ✅ Merged (PR #185) | ⏳ Pending |
   | 92 — Fix two real baozimh adapter bugs (mirror-hardcoding) + record the real baozimh ToS finding | `step-92-baozimh-bugfixes` | ✅ Merged (PRs #180, #184) | ⏳ Pending |
