@@ -13,6 +13,7 @@ import os
 from typing import Optional
 
 import background_jobs
+from services.service_errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
 # first entry is also the canonical name tabs/settings_tab.py's
@@ -89,10 +90,62 @@ def key_status(env_path: str = None) -> dict:
     return {key: bool(resolve_key(key, env_path)) for key in _ENGINE_KEY_NAMES}
 
 
+def _get_bool_setting(key: str) -> bool:
+    import db
+    try:
+        return bool(db.get_app_setting(key, False))
+    except Exception:
+        return False
+
+
+def get_use_gpu() -> bool:
+    """Persisted server-side GPU toggle for GPU-capable API jobs (Slice
+    23). Default False; a DB hiccup fails closed (CPU)."""
+    return _get_bool_setting("use_gpu")
+
+
+def get_gemini_free_tier() -> bool:
+    """Persisted 'Gemini is on the free tier' flag (Slice 23). Default False."""
+    return _get_bool_setting("gemini_free_tier")
+
+
 def get_settings_overview(env_path: str = None) -> dict:
     """Non-secret settings snapshot for the FastAPI settings endpoint."""
     return {
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": background_jobs.get_gpu_limit_enabled(),
         "notify_on_completion": background_jobs.get_notify_on_completion(),
+        "use_gpu": get_use_gpu(),
+        "gemini_free_tier": get_gemini_free_tier(),
     }
+
+
+def _set_app_bool(key: str, enabled: bool):
+    import db
+    db.set_app_setting(key, bool(enabled))
+
+
+# Typed allow-list of writable, non-secret settings (Slice 23). Keys, URLs
+# and paths are deliberately NOT here (D2) -- key writes are a separate
+# gated slice.
+_WRITABLE_SETTINGS = {
+    "gpu_limit_enabled": background_jobs.set_gpu_limit_enabled,
+    "notify_on_completion": background_jobs.set_notify_on_completion,
+    "use_gpu": lambda v: _set_app_bool("use_gpu", v),
+    "gemini_free_tier": lambda v: _set_app_bool("gemini_free_tier", v),
+}
+
+
+def set_settings(updates: dict, env_path: str = None) -> dict:
+    """Applies a batch of non-secret boolean toggles, then returns the
+    refreshed overview. Validates everything before writing anything, so a
+    bad batch changes nothing. Error messages never echo the offending
+    value (it could be a pasted secret)."""
+    for key, value in updates.items():
+        if key not in _WRITABLE_SETTINGS:
+            raise InvalidInputError("Unknown or non-writable setting.")
+        if not isinstance(value, bool):
+            raise InvalidInputError(f"Setting '{key}' must be true or false.")
+    for key, value in updates.items():
+        _WRITABLE_SETTINGS[key](value)
+    return get_settings_overview(env_path)
