@@ -14,6 +14,7 @@ No Streamlit or FastAPI import: plain dicts out. Nothing secret or
 location-revealing is returned (D2): no filesystem path, no GPT-SoVITS URL,
 only booleans such as `gpt_sovits_configured`.
 """
+import functools
 import importlib.util
 import os
 import shutil
@@ -108,6 +109,9 @@ def get_dub_config(drama_id: int) -> dict:
         "speakable_line_count": sum(1 for ln in lines if (getattr(ln, text_field) or "").strip()),
         "track_available": os.path.exists(os.path.join(ddir, track_name)),
         "gpt_sovits_configured": bool(gpt_sovits_url),
+        "can_keep_background": (not is_narration and _source_audio_path(drama) is not None
+                                and _missing_separation_dependency(
+                                    drama.get("separation_backend") or "auto") is None),
     }
 
 
@@ -153,6 +157,25 @@ def _missing_engine_dependency(tts_engine: str):
     return None
 
 
+def _missing_separation_dependency(backend: str):
+    """Fixed-text reason background separation can't run here, or None.
+    Never names a path."""
+    if importlib.util.find_spec("soundfile") is None or importlib.util.find_spec("numpy") is None:
+        return "Keeping background music needs the soundfile and numpy packages."
+    modules = {"audio_separator": ("audio_separator",), "demucs": ("demucs",)}.get(
+        backend, ("audio_separator", "demucs"))
+    if not any(importlib.util.find_spec(m) is not None for m in modules):
+        return "Keeping background music needs vocal separation: install audio-separator or demucs."
+    return None
+
+
+def _source_audio_path(drama: dict):
+    """Path of the drama's stored audio if the file exists, else None."""
+    name = drama.get("audio_filename")
+    path = os.path.join(_drama_path(drama["id"]), name) if name else None
+    return path if path and os.path.exists(path) else None
+
+
 def apply_dub_result(drama_id: int, result: dict) -> None:
     """on_done hook body (Migration Slice 26): persists a finished dub run
     the way the Dub tab's "done" branch does -- field-scoped
@@ -179,7 +202,8 @@ def apply_dub_result(drama_id: int, result: dict) -> None:
 
 
 def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
-                  max_slowdown=None, narration_language=None) -> dict:
+                  max_slowdown=None, narration_language=None,
+                  keep_background: bool = False) -> dict:
     """Starts the Dub tab's "Generate dub/narration track" as a background
     process job (`dub_<drama_id>`), with the same voice/clone/emotion/pacing
     inputs as the tab and `cli dub` (per-speaker voices, filled from the
@@ -188,7 +212,11 @@ def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
     loop. Raises NotFoundError (unknown drama), InvalidInputError (bad
     engine/pacing/narration language, or nothing speakable),
     DependencyUnavailableError (ffmpeg/engine package missing),
-    ConflictError (already running). Returns {"job_id": ...}."""
+    ConflictError (already running). keep_background (Step 95, video dub
+    only): after the track is built, the original's separated background
+    music/ambience is mixed back under it; needs the drama's stored audio
+    and a separation backend (503 with fixed text otherwise). Returns
+    {"job_id": ...}."""
     drama = _get_drama(drama_id)
     if tts_engine not in {e["key"] for e in TTS_ENGINES}:
         raise InvalidInputError("Unknown TTS engine.")
@@ -216,6 +244,18 @@ def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
     if missing:
         raise DependencyUnavailableError(missing)
 
+    background_source = None
+    separation_backend = drama.get("separation_backend") or "auto"
+    if keep_background:
+        if is_narration:
+            raise InvalidInputError("Keeping background music only applies to video dubs.")
+        background_source = _source_audio_path(drama)
+        if background_source is None:
+            raise InvalidInputError("This drama has no source audio to take background music from.")
+        missing_bg = _missing_separation_dependency(separation_backend)
+        if missing_bg:
+            raise DependencyUnavailableError(missing_bg)
+
     job_id = f"dub_{drama_id}"
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
@@ -240,10 +280,14 @@ def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
         ref_language=source_lang)
 
     started = background_jobs.start_process_job(
-        job_id, dub.build_track_subprocess_worker,
+        job_id,
+        # Keyword-bound so background_jobs' trailing result_queue lands on the
+        # worker's result_queue parameter (declared before these options).
+        functools.partial(dub.build_track_subprocess_worker, narrate_original=narrate_original,
+                          source_language=source_lang, background_source=background_source,
+                          separation_backend=separation_backend),
         args=(lines, ddir, voice_map, pool[0], clone_map, tts_engine, is_narration,
-              db.load_emotions(drama_id), max_speedup, max_slowdown, offline_voice_map,
-              narrate_original, source_lang),
+              db.load_emotions(drama_id), max_speedup, max_slowdown, offline_voice_map),
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Dub generation (drama #{drama_id})",
         on_done=lambda _jid, result: apply_dub_result(drama_id, result))
