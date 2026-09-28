@@ -979,6 +979,24 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
+**Step 97b -- Translate fallback chain (2026-09-28).** `POST
+/api/translate-run/dramas/{id}/run` gains optional `fallback_chain: [{engine,
+model?}, ...]` (max 3; no keys/URLs -- keys resolved server-side per engine).
+The chain is wrapped in `translate_engines.FallbackEngine`: on an auth failure
+(401/403), rate limit, timeout or connection error (`is_fallback_error`; never
+a content-moderation refusal, never a generic exception) the run switches to
+the next engine for the rest of the run and records it; the job result gains
+`fallbacks: [{from, to, reason, detail(redacted)}]` and the start response
+`fallback_engines`. The chain must stay in one class (all instruction-following
+or all `TRANSLATION_ONLY_ENGINES`) with no repeats, else 422 -- so glossary/style
+adherence is never silently dropped. Costs: every finished batch is logged
+against the engine that ran it; each engine has its own cap and spend
+(`cap_exhausted` stops the run cleanly), not shared with the one it fell back
+from. Deliberate: the switch is immediate on the first qualifying error (no
+backoff wait on the primary first); the CLI/Streamlit button do not expose a
+chain yet (API/service level only, per the held step's scope). Out of scope:
+bulk/Reflect chains.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

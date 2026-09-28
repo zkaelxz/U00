@@ -1133,6 +1133,7 @@ class TranslateRunStart(BaseModel):
     line_ids: Optional[List[int]] = Field(None, max_length=100000)
     gemini_free_tier: bool = False
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+    fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
 
 
 class TranslateRunStarted(BaseModel):
@@ -1141,3 +1142,14 @@ class TranslateRunStarted(BaseModel):
     engine: str
     model: Optional[str] = None
     target_line_count: int
+    fallback_engines: List[str] = []
+
+
+class TranslateFallbackEngine(BaseModel):
+    """One entry of TranslateRunStart.fallback_chain (Step 97b)."""
+    model_config = ConfigDict(extra="forbid")
+    engine: str = Field(max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+
+
+TranslateRunStart.model_rebuild()

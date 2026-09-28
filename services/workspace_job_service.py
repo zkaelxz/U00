@@ -39,6 +39,13 @@ def _id_by_idx(lines):
     return {ln.idx: ln.id for ln in lines}
 
 
+def _fallback_result(engine) -> dict:
+    """{"fallbacks": [...]} when a Step 97b FallbackEngine switched engines,
+    else {} -- so the caller can show which engine actually did the work."""
+    events = getattr(engine, "events", None)
+    return {"fallbacks": list(events)} if isinstance(events, list) and events else {}
+
+
 def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        novel_reference, force_retranslate, locale, glossary_terms,
                        style_guidelines, engine_choice, style_preset, context_window=6,
@@ -99,7 +106,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         save_cb=lambda ls: db.save_lines(drama_id, ls, fields=("en",)),
         cancel_check_cb=lambda: background_jobs.is_cancel_requested(job_id),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            drama_id, engine_choice, getattr(engine, "model", engine_choice), "translate",
+            drama_id, (engine.active_choice if isinstance(engine, translate_engines.FallbackEngine)
+                          else engine_choice),
+            getattr(engine, "model", engine_choice), "translate",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
     )
@@ -112,10 +121,12 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             cancelled=background_jobs.is_cancel_requested(job_id),
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
-                                            "cap_reached": cap_reached.get("spent")})
+                                            "cap_reached": cap_reached.get("spent"),
+                                            **_fallback_result(engine)})
         return
 
-    background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent")})
+    background_jobs.set_result(job_id, {"errors": errors, "cap_reached": cap_reached.get("spent"),
+                                        **_fallback_result(engine)})
 
 
 def run_transcribe_job(job_id, audio_path, whisper_size, language, use_gpu,

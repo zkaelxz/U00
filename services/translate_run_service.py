@@ -8,7 +8,9 @@ estimate / cap gating).
 Migration Slice 40 adds start_translate_run(): a normal (non-bulk,
 non-reflect) translation as a background job that does everything itself.
 
-Out of scope here: bulk/Reflect runs (Slice 41), the fallback chain, glossary review, style presets CRUD and characters CRUD.
+Step 97b adds an optional fallback chain to the start (see start_translate_run).
+
+Out of scope here: bulk/Reflect runs (Slice 41), glossary review, style presets CRUD and characters CRUD.
 
 Every knob (engine, model, context window, batch size, reflect, bulk, caps)
 is a request-time parameter with the widget's own default as fallback -- no
@@ -204,7 +206,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         context_window: int = None, context_window_ahead: int = None,
                         batch_size: int = None, line_ids: list = None,
                         gemini_free_tier: bool = False,
-                        job_cost_cap_usd: float = None) -> dict:
+                        job_cost_cap_usd: float = None,
+                        fallback_chain: list = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -213,6 +216,14 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     line_ids (optional) restricts the run to those lines; the rest are only
     context. Only empty-`en` lines are translated unless force_retranslate,
     so hand-edited translations survive (as in the tab).
+
+    fallback_chain (Step 97b): optional ordered [{"engine", "model"}, ...] tried
+    in turn -- for the rest of the run -- when the active engine fails with an
+    auth error, rate limit, timeout or connection error (never a moderation
+    refusal or a generic exception). The whole chain must be one class:
+    all instruction-following or all TRANSLATION_ONLY_ENGINES, no duplicates.
+    Each engine has its own cost cap and spend; the job result's
+    "fallbacks" lists any switch that happened.
 
     NotFoundError (drama), InvalidInputError, UnsupportedOperationError
     (nothing to translate / monthly cap reached), DependencyUnavailableError
@@ -254,28 +265,52 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     if not eligible:
         raise UnsupportedOperationError("There are no lines to translate.")
 
-    api_key = translate_service._resolve_api_key(engine_name)
-    if api_key is None and engine_name != "nllb":
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
-
-    cost_cap = None
-    if _cap_applies(engine_name, gemini_free_tier):
-        monthly_cap = _monthly_cap()
-        cost_cap, refusal = translate_engines.resolve_cost_cap(
-            job_cost_cap_usd, monthly_cap, db.get_month_spend() if monthly_cap else 0.0)
-        if refusal:
-            raise UnsupportedOperationError(refusal)
-
+    chain = [{"engine": engine_name, "model": model}] + [
+        {"engine": f["engine"], "model": f.get("model")} for f in (fallback_chain or [])]
+    if len({c["engine"] for c in chain}) != len(chain):
+        raise InvalidInputError("A fallback chain can't repeat an engine.")
+    if len(chain) > 1:
+        if any(c["engine"] not in translate_engines.ENGINES for c in chain):
+            raise InvalidInputError("Unknown translate engine.")
+        if len({c["engine"] in translate_engines.TRANSLATION_ONLY_ENGINES
+                for c in chain}) > 1:
+            raise InvalidInputError(
+                "A fallback chain can't mix instruction-following engines with "
+                "translation-only ones.")
+    monthly_cap = _monthly_cap()
+    month_spend = db.get_month_spend() if monthly_cap else 0.0
+    built, caps = [], []
     job_id = f"translate_{drama_id}"
+    for c in chain:
+        name = c["engine"]
+        api_key = translate_service._resolve_api_key(name)
+        if api_key is None and name != "nllb":
+            raise DependencyUnavailableError(
+                f"No {name} key is configured. Set one in Settings first.")
+        free_tier = name == "gemini" and gemini_free_tier
+        if free_tier and c["model"] in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS:
+            raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
+        cap = None
+        if _cap_applies(name, gemini_free_tier):
+            cap, refusal = translate_engines.resolve_cost_cap(
+                job_cost_cap_usd, monthly_cap, month_spend)
+            if refusal:
+                raise UnsupportedOperationError(refusal)
+        caps.append(cap)
+        built.append((name, api_key, c["model"], free_tier))
+
     if background_jobs.is_running(job_id):
         raise ConflictError("A translation is already running for this drama.")
 
-    engine = translate_engines.get_engine(
-        engine_name, api_key, model,
-        free_tier=engine_name == "gemini" and gemini_free_tier,
+    engines = [translate_engines.get_engine(
+        name, key, mdl, free_tier=free_tier,
         base_url=(settings_service.resolve_key("ollama_url") or None)
-        if engine_name == "ollama" else None)
+        if name == "ollama" else None) for name, key, mdl, free_tier in built]
+    if len(engines) > 1:
+        engine = translate_engines.FallbackEngine(engines, [c["engine"] for c in chain], caps)
+        cost_cap = None  # each engine's own cap is enforced by the FallbackEngine
+    else:
+        engine, cost_cap = engines[0], caps[0]
 
     series_id = drama.get("series_id")
     glossary_terms = db.list_glossary_terms(series_id) if series_id else None
@@ -303,9 +338,10 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         None, reflect=False, cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
-        target_ids=target_ids, gpu_touching=engine_name == "ollama",
+        target_ids=target_ids, gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"Translation (drama #{drama_id})")
     if not started:
         raise ConflictError("A translation is already running for this drama.")
     return {"job_id": job_id, "drama_id": drama_id, "engine": engine_name,
-            "model": getattr(engine, "model", model), "target_line_count": len(eligible)}
+            "model": getattr(engines[0], "model", model), "target_line_count": len(eligible),
+            "fallback_engines": [c["engine"] for c in chain[1:]]}
