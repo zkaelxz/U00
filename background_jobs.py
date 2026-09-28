@@ -333,6 +333,7 @@ def _promote_next_queued_gpu_job():
                 proc, result_queue = _register_process_job(
                     job_id, entry["target"], entry["args"],
                     _jobs[job_id]["gpu_touching"], entry["description"])
+                on_done = entry.get("on_done")
                 break
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
@@ -342,7 +343,8 @@ def _promote_next_queued_gpu_job():
             break
     if entry.get("kind") == "process":
         proc.start()
-        threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, True),
+        threading.Thread(target=_process_watcher,
+                         args=(job_id, proc, result_queue, True), kwargs={"on_done": on_done},
                          daemon=True, name=f"job-watcher:{job_id}").start()
     else:
         _spawn(job_id, target, args, kwargs, gpu_touching=True)
@@ -393,7 +395,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 
 
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
-                      description: str = None) -> bool:
+                      description: str = None, on_done=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -414,6 +416,16 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
 
     Same job_id/queued/gpu_touching semantics as start_job(); returns
     False if job_id is already running or queued.
+
+    Migration Slice 49: on_done, if given, is called as
+    on_done(job_id, result) in the watcher thread after the subprocess
+    returns a successful result and BEFORE the job is marked "done" (so
+    nobody polling sees "done" while the hook is still applying it).
+    A process job's result otherwise lives only in this process's memory
+    and only Streamlit's render loop persists it -- an API-started job
+    passes on_done so it can apply its own result. If on_done raises, the
+    job ends "error" with a redacted message. Not called on error/cancel.
+    Carried through the GPU queue like target/args.
     """
     with _lock:
         existing = _jobs.get(job_id)
@@ -430,12 +442,13 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             }
             _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
-                                "kwargs": {}, "description": description, "kind": "process"})
+                                "kwargs": {}, "description": description, "kind": "process",
+                                "on_done": on_done})
             return True
         proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description)
     proc.start()
     threading.Thread(target=_process_watcher, args=(job_id, proc, result_queue, gpu_touching),
-                     daemon=True, name=f"job-watcher:{job_id}").start()
+                     kwargs={"on_done": on_done}, daemon=True, name=f"job-watcher:{job_id}").start()
     return True
 
 
@@ -459,7 +472,8 @@ def _register_process_job(job_id, target, args, gpu_touching, description):
     return proc, result_queue
 
 
-def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3):
+def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interval=0.3,
+                     on_done=None):
     """Runs in this (the main) process, not the child -- a
     multiprocessing.Process can't write back into this process's _jobs
     dict itself (separate memory space), so this polls proc.is_alive()
@@ -524,10 +538,27 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 outcome = result_queue.get(timeout=1)
             except queue.Empty:
                 outcome = None
+        hook_error = None
+        if outcome and outcome[0] == "ok" and on_done is not None:
+            with _lock:
+                if job_id not in _jobs:
+                    return
+            # Outside the lock: the hook does real DB/file work.
+            try:
+                on_done(job_id, outcome[1])
+            except Exception as exc:
+                from translate_engines import redact_secrets
+                hook_error = redact_secrets(f"{type(exc).__name__}: {exc}")
+                logger.error(f"job {job_id} on_done hook failed: {hook_error}",
+                             exc_info=True)
         with _lock:
             if job_id not in _jobs:
                 return
-            if outcome and outcome[0] == "ok":
+            if hook_error is not None:
+                _jobs[job_id]["status"] = "error"
+                _jobs[job_id]["error"] = f"Completion hook failed: {hook_error}"
+                _jobs[job_id]["finished_at"] = time.time()
+            elif outcome and outcome[0] == "ok":
                 _jobs[job_id]["status"] = "done"
                 _jobs[job_id]["progress"] = 1.0
                 _jobs[job_id]["result"] = outcome[1]

@@ -118,7 +118,8 @@ class TestStartDiarizationRun:
         did, ddir = _drama_with_audio(isolated_db)
         calls = []
 
-        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None):
+        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
+                                   on_done=None):
             calls.append({"job_id": job_id, "target": target, "args": args,
                           "gpu_touching": gpu_touching, "description": description})
             return True
@@ -140,7 +141,8 @@ class TestStartDiarizationRun:
         did, ddir = _drama_with_audio(isolated_db)
         calls = []
 
-        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None):
+        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
+                                   on_done=None):
             calls.append(args)
             return True
         monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
@@ -158,3 +160,62 @@ class TestStartDiarizationRun:
                             lambda *a, **k: False)
         with pytest.raises(ConflictError):
             diarization_service.start_diarization_run(did)
+
+
+class TestApplyDiarizationResult:
+    """Migration Slice 49: the on_done hook's DB work."""
+
+    def _lines(self, db, did):
+        from core import Line
+        a = Line(idx=0, start=0.0, end=2.0, zh="a", en="", speaker="X")
+        b = Line(idx=1, start=3.0, end=5.0, zh="b", en="", speaker="Manual")
+        b.speaker_manual = True
+        db.save_lines(did, [a, b])
+
+    def test_saves_turns_and_merges_speakers_keeping_manual(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        turns = [{"start": 0.0, "end": 2.5, "speaker": "SPEAKER_00"},
+                 {"start": 2.5, "end": 6.0, "speaker": "SPEAKER_01"}]
+        saves = []
+        real = isolated_db.save_lines
+        monkeypatch.setattr(isolated_db, "save_lines",
+                            lambda *a, **k: (saves.append(k), real(*a, **k))[1])
+
+        diarization_service.apply_diarization_result(
+            did, {"segments": turns, "model": "m", "embeddings": {}}, expected_speakers=2)
+
+        assert saves == [{"fields": ("speaker", "speaker_manual")}]
+        rows = isolated_db.load_line_objects(did)
+        assert rows[0].speaker == "SPEAKER_00"
+        assert rows[1].speaker == "Manual" and rows[1].speaker_manual
+        saved = diarize.load_turns(ddir)
+        assert saved is not None
+        assert diarize.load_last_speaker_count(ddir) == 2
+
+    def test_no_segments_is_a_noop(self, isolated_db):
+        did, ddir = _drama_with_audio(isolated_db)
+        diarization_service.apply_diarization_result(did, {})
+        assert not os.path.exists(os.path.join(ddir, diarize.TURNS_FILE))
+
+    def test_idempotent_second_apply(self, isolated_db):
+        did, _ = _drama_with_audio(isolated_db)
+        self._lines(isolated_db, did)
+        res = {"segments": [{"start": 0.0, "end": 6.0, "speaker": "S0"}], "model": "m"}
+        diarization_service.apply_diarization_result(did, res)
+        first = [(l.speaker, l.speaker_manual) for l in isolated_db.load_line_objects(did)]
+        diarization_service.apply_diarization_result(did, res)
+        assert first == [(l.speaker, l.speaker_manual) for l in isolated_db.load_line_objects(did)]
+
+    def test_start_run_wires_on_done(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda *a, **k: captured.update(k) or True)
+        applied = []
+        monkeypatch.setattr(diarization_service, "apply_diarization_result",
+                            lambda *a: applied.append(a))
+        diarization_service.start_diarization_run(did, expected_speakers=4)
+        captured["on_done"]("j", {"segments": []})
+        assert applied == [(did, {"segments": []}, 4)]

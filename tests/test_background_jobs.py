@@ -921,6 +921,89 @@ class TestProcessBasedJobs:
         bg.clear_job(job_id)
 
 
+class TestProcessJobOnDone:
+    """Migration Slice 49: start_process_job(on_done=...) completion hook."""
+
+    def test_hook_runs_with_result_before_done(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        seen = []
+
+        def hook(jid, result):
+            seen.append((jid, result, bg.get_status(jid)["status"]))
+
+        job_id = "test_ondone_ok"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"v": 1})), args=(), on_done=hook)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done"
+        assert seen == [(job_id, {"v": 1}, "running")]
+        bg.clear_job(job_id)
+
+    def test_hook_raising_marks_error_with_redacted_message(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def hook(jid, result):
+            raise RuntimeError("boom key=sk-abcdefghijklmnopqrstuvwxyz123456")
+
+        job_id = "test_ondone_raises"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {})), args=(), on_done=hook)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "error"
+        assert "boom" in status["error"]
+        assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in status["error"]
+        bg.clear_job(job_id)
+
+    def test_hook_not_called_on_subprocess_error(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        seen = []
+        job_id = "test_ondone_err"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("error", "RuntimeError", "x")), args=(),
+                             on_done=lambda j, r: seen.append(j))
+        assert _wait_for_status(job_id, "running")["status"] == "error"
+        assert seen == []
+        bg.clear_job(job_id)
+
+    def test_hook_not_called_on_cancel(self, monkeypatch):
+        _install_fake_process(monkeypatch, alive_forever=True)
+        seen = []
+        job_id = "test_ondone_cancel"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: None, args=(), on_done=lambda j, r: seen.append(j))
+        deadline = time.time() + 2
+        while time.time() < deadline and not bg.is_running(job_id):
+            time.sleep(0.01)
+        bg.request_cancel(job_id)
+        assert _wait_for_status(job_id, "running")["status"] == "cancelled"
+        assert seen == []
+        bg.clear_job(job_id)
+
+    def test_queued_start_preserves_the_hook(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        release = threading.Event()
+        started = threading.Event()
+        bg.start_job("test_ondone_gpu_thread",
+                     lambda: (started.set(), release.wait(timeout=2.0)), gpu_touching=True)
+        started.wait(timeout=2.0)
+        seen = []
+        job_id = "test_ondone_queued"
+        bg.clear_job(job_id)
+        bg.start_process_job(job_id, lambda q: q.put(("ok", {"r": 2})), args=(),
+                             gpu_touching=True, on_done=lambda j, r: seen.append((j, r)))
+        assert bg.get_status(job_id)["status"] == "queued"
+        release.set()
+        deadline = time.time() + 3.0
+        status = bg.get_status(job_id)
+        while time.time() < deadline and status and status["status"] in ("queued", "running"):
+            time.sleep(0.01)
+            status = bg.get_status(job_id)
+        assert status["status"] == "done"
+        assert seen == [(job_id, {"r": 2})]
+        bg.clear_job("test_ondone_gpu_thread")
+        bg.clear_job(job_id)
+
+
 def _large_result_worker(size_bytes, result_queue):
     """Real, top-level (picklable) worker for TestProcessWatcherLargeResult
     -- must be a plain module-level function, not a closure, to cross a
