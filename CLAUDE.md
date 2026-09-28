@@ -26,6 +26,8 @@ merged.
   merged PR worth an independent second review pass.
 - **Planning session:** reviewing/merging PRs as they land, keeping the
   roadmap in sync.
+- **Streamlit-to-React/FastAPI migration:** status, recipe, decisions and queue are in
+  `docs/migration-handoff.md` (merge helpers in `scripts/migration/`). Read it first.
 - See the roadmap's own NEXT pointer for exactly which steps are
   currently sent/in-progress/ready — don't duplicate that list here, it
   goes stale faster than the roadmap does.
