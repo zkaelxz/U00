@@ -226,6 +226,9 @@ baihe-subtitler/
 │   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
 │   │                             CRUD, confirm-gated delete), project/series instructions, and
 │   │                             read-only option catalogues; LLM term extraction stays out
+│   ├── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
+│   │                             (field-scoped save_lines only): patch with compare-and-set, dismiss
+│   │                             flag, find-replace apply, TM accept, note add/delete; ownership-checked
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
@@ -274,6 +277,9 @@ baihe-subtitler/
 │       ├── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
 │       │                         ?confirm=true), .../instructions[/project|/series], /catalogues
 │       │                         (Migration Slice 46)
+│       ├── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
+│       │                         `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
+│       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
 │       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
 │       │                         preview (writes nothing), .../coverage, .../pacing-flags,
 │       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)

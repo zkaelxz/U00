@@ -769,6 +769,29 @@ suggestions are `line_id`/`line_idx`/`zh`/`en`/`suggestion`/`similarity`/
 Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
 job starters, bulk modes.
 
+**Slice 43 — Review per-line edit writes (2026-09-28).**
+`services/lines_service.py` + `api/routers/lines_routes.py` (`/api/lines/...`,
+schemas `Lines*`): partial line edit (`POST .../lines/{line_id}`), dismiss
+flag, find-and-replace apply, TM-suggestion accept, note add/delete
+(`DELETE .../notes/{note_id}`, no confirm, as in the tab). Every write is
+addressed by permanent `Line.id` and goes through `db.save_lines` with an
+explicit `fields=` tuple -- never `fields=None`, whose full sync from a stale
+list resurrects/deletes rows (a test spies on every call to enforce this).
+Concurrency is compare-and-set on client-supplied old values (`expected`
+maps field -> value seen; mismatch = 409, nothing written; no new column);
+the compare and write are two steps, not one atomic statement. "Editing `en`
+clears the flag" and "changing the speaker sets `speaker_manual`" are now
+explicit writes (`flag`/`flag_note`, `speaker_manual` added to `fields`);
+edit samples and translation memory are recorded as Save edits does.
+Find-and-replace apply re-checks each line's current `en` against the
+previewed `old_text` and reports `stale` (a line that no longer exists also
+counts as stale, unlike the tab, which skips it silently).
+`db.delete_translation_note` and the TM entry lookups take only an id, so the
+service checks drama/series ownership itself (another drama's note or another
+series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
+line/note text, 500 for terms. Out of scope: merge/split/delete lines,
+restore original text, LLM tools, bulk modes.
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions

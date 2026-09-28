@@ -973,3 +973,64 @@ class ReviewRecordsTmSuggestion(BaseModel):
     similarity: float
     exact: bool
     entry_id: int
+
+
+# --- Migration Slice 43: per-line edit writes (services/lines_service.py) ---
+
+class LinesPatchRequest(BaseModel):
+    """Partial line edit: only fields the client sets are applied. `expected`
+    maps field -> the old value the client saw (409 if the line differs)."""
+    model_config = ConfigDict(extra="forbid")
+    start: Optional[float] = None
+    end: Optional[float] = None
+    zh: Optional[str] = Field(default=None, max_length=2000)
+    en: Optional[str] = Field(default=None, max_length=2000)
+    speaker: Optional[str] = Field(default=None, max_length=100)
+    sfx: Optional[bool] = None
+    expected: Optional[Dict[str, Any]] = None
+
+
+class LinesMatchIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: int
+    old_text: str = Field(max_length=2000)
+    new_text: str = Field(max_length=2000)
+
+
+class LinesFindReplaceApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    matches: List[LinesMatchIn] = Field(max_length=1000)
+
+
+class LinesFindReplaceApplyResult(BaseModel):
+    applied: int
+    stale: int
+    applied_ids: List[int]
+    stale_ids: List[int]
+
+
+class LinesAcceptTmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entry_id: int = Field(ge=1)
+
+
+class LinesNoteCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: int = Field(ge=1)
+    term: str = Field(max_length=500)
+    note_type: str = Field(max_length=40)
+    note: str = Field(max_length=2000)
+
+
+class LinesNote(BaseModel):
+    id: int
+    line_id: int
+    line_idx: Optional[int] = None
+    term: str
+    note_type: str
+    note: str
+
+
+class LinesNoteDeleteResult(BaseModel):
+    deleted: bool
+    note_id: int
