@@ -1357,3 +1357,9 @@ class ReviewJobStarted(BaseModel):
     engine: str
     model: Optional[str] = None
     line_count: int
+
+
+class MediaExportStarted(BaseModel):
+    """Audiobook / burned-in video export job started (Migration Slices 29-30).
+    Poll GET /api/jobs/{job_id}; download via GET /api/artifacts/dramas/{id}/{kind}."""
+    job_id: str

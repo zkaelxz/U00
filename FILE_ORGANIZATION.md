@@ -247,9 +247,11 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
-│   └── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
-│                                 notes, flag, fix-flagged): background jobs that write themselves,
-│                                 field-scoped by line id; reuse workspace_job_service runners
+│   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
+│   │                             notes, flag, fix-flagged): background jobs that write themselves,
+│   │                             field-scoped by line id; reuse workspace_job_service runners
+│   └── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
+│                                 export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -274,6 +276,7 @@ baihe-subtitler/
 │       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
+│       │                         + POST .../audiobook, .../burned-video (Migration Slices 29+30)
 │       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
