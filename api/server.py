@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.api_config import ApiSettings, load_settings
 from api.error_handlers import install_error_handlers
 from api.routers import (
+    artifact_routes,
     characters_routes,
     diagnostics_routes,
     diarization_routes,
@@ -35,6 +36,8 @@ from api.routers import (
     jobs_routes,
     library_routes,
     lines_routes,
+    media_routes,
+    narration_routes,
     reader_routes,
     review_lines_routes,
     review_records_routes,
@@ -91,6 +94,9 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(review_lines_routes.router)
     app.include_router(review_records_routes.router)
     app.include_router(lines_routes.router)
+    app.include_router(artifact_routes.router)
+    app.include_router(media_routes.router)
+    app.include_router(narration_routes.router)
     return app
 
 
