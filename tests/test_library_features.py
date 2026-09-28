@@ -72,7 +72,7 @@ class TestRelationshipMap:
     def test_pure_mt_engine_returns_empty_map(self):
         class PureMT:
             supports_reference = False
-        assert sc.build_relationship_map([], {}, PureMT()) == {"characters": [], "relationships": []}
+        assert sc.build_relationship_map([], PureMT()) == {"characters": [], "relationships": []}
 
 
 class TestProgressTracking:

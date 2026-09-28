@@ -6,15 +6,10 @@ per stage -- so it can be reused in Workspace's header (Step 14) and in
 Library's per-project list (Step 13 item 4, deferred to a follow-up once
 Step 25d lands; not wired in by this step).
 
-`ui_theme.py` already has a horizontal stepper (`stage_indicator`) and a
-drama-status-to-stage mapping (`stage_for_drama`) added for exactly this
-purpose (noted in the roadmap as something for this step to reuse, not
-rebuild). This module builds on top of those rather than duplicating the
-CSS classes and colour logic: it reuses `ui_theme`'s existing
+It reuses `ui_theme`'s existing
 `bh-stage`/`bh-stage-item`/`bh-stage-done`/`bh-stage-current` classes
-(already injected by `ui_theme.inject_css()`), and adds the explicit
-checkmark / dot / circle marker the roadmap asks for, which the plain
-colour-coded pill didn't show on its own.
+(already injected by `ui_theme.inject_css()`) rather than duplicating the
+CSS, and adds an explicit checkmark / dot / circle marker per stage.
 """
 
 STAGE_ICONS = {"done": "✓", "current": "●", "not_started": "○"}

@@ -115,6 +115,8 @@ class TestConcurrencyDefault:
         monkeypatch.setattr(store, "all_settings", lambda: {
             "pace_min_delay": 0.0, "pace_max_delay": 0.0, "max_concurrent": 5,
             "max_retries": 0, "backoff_base": 2.0,
+            "session_break_min_requests": 0, "session_break_max_requests": 0,
+            "session_break_min_delay": 0.0, "session_break_max_delay": 0.0,
         })
         a = fifty2shuku.FiftyTwoShukuSource()
         assert a.client.policy.max_concurrent == 1

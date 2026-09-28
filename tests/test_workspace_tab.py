@@ -843,7 +843,7 @@ def test_translation_notes_job_persists_and_logs_usage(isolated_db):
             usage = type("Usage", (), {"input_tokens": 25, "output_tokens": 10})()
             return type("Resp", (), {"content": [block], "usage": usage})()
 
-    run_translation_notes_job(job_id, did, lines, FakeNotesEngine(), "claude", "zh")
+    run_translation_notes_job(job_id, did, lines, FakeNotesEngine(), "claude")
 
     result = background_jobs.get_status(job_id)["result"]
     assert result == {"note_count": 1}
@@ -2156,7 +2156,7 @@ class TestCharacterNamingGaps:
         import diarize
         diarize.save_turns(ddir, [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_01"}])
 
-        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+        def fake_extract(audio_path, speaker_segments, drama_dir):
             return {}, {"SPEAKER_01": {"closest_duration": 1.5, "reason": "too_short"}}
         monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
 
@@ -2174,7 +2174,7 @@ class TestCharacterNamingGaps:
         import diarize
         diarize.save_turns(ddir, [{"start": 100.0, "end": 106.0, "speaker": "SPEAKER_00"}])
 
-        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+        def fake_extract(audio_path, speaker_segments, drama_dir):
             # A clip WAS found, but its time window (100-106s) doesn't
             # match any of this drama's real lines (all under 5s) -- the
             # exact "clip found, speaker-tag match failed" case.
@@ -2195,7 +2195,7 @@ class TestCharacterNamingGaps:
         import diarize
         diarize.save_turns(ddir, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}])
 
-        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+        def fake_extract(audio_path, speaker_segments, drama_dir):
             return {"SPEAKER_00": {"path": os.path.join(drama_dir, "SPEAKER_00.wav"),
                                    "start": 0.0, "end": 1.0}}, {}
         monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)

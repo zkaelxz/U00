@@ -95,6 +95,7 @@ def make_client(source="test", transport=None, clock=None, rng=None, **policy_kw
     from sources.http import PacingPolicy, SourceClient, reset_pacing_state
     reset_pacing_state()
     clock = clock or FakeClock()
-    policy = PacingPolicy(**{"min_delay": 0.0, "max_delay": 0.0, **policy_kw})
+    policy = PacingPolicy(**{"min_delay": 0.0, "max_delay": 0.0,
+                             "session_break_min_requests": 0, **policy_kw})
     return SourceClient(source, policy=policy, transport=transport, sleep=clock.sleep,
                         clock=clock.clock, rng=rng or FixedRng(0.0))

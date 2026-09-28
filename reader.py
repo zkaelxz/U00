@@ -65,7 +65,7 @@ FONT_STACKS = {
 }
 
 
-def build_reader_html(lines, source_language: str, definitions: dict, height: int = 700,
+def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
                        max_width: int = 1200, font: str = "system") -> str:

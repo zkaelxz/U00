@@ -1115,13 +1115,13 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
     })
 
 
-def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice, source_language):
+def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
     """
     Runs generate_translation_notes_llm in a background thread -- same
     reasoning as run_consistency_job above.
     """
     found_notes = tguide.generate_translation_notes_llm(
-        lines, engine, source_language=source_language,
+        lines, engine,
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
@@ -4132,7 +4132,7 @@ def render_workspace_tab():
                     audio_path = os.path.join(ddir, drama["audio_filename"]) if drama["audio_filename"] else None
                     if audio_path and os.path.exists(audio_path):
                         clips, skipped = dub_module.extract_reference_clips(
-                            audio_path, st.session_state.lines, speaker_segments, ddir)
+                            audio_path, speaker_segments, ddir)
                         _ref_text_match_failed = set()
                         for label, info in clips.items():
                             matching_zh = next((ln.zh for ln in st.session_state.lines
@@ -5622,7 +5622,6 @@ def render_workspace_tab():
                             started = background_jobs.start_job(
                                 _notes_job_id, run_translation_notes_job,
                                 _notes_job_id, picked_id, _lines_copy, engine_n, engine_choice,
-                                source_language,
                                 gpu_touching=engine_choice == "ollama",
                                 description=f"Ollama translation notes ({_drama_label(drama)})")
                             if started:

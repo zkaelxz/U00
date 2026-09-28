@@ -258,6 +258,7 @@ class BaozimhSource(SourceAdapter):
 
     def get_chapters(self, series_id: str):
         manga_id = self._manga_id(series_id)
+        _, base = self._series_page(series_id)
         resp = self.client.get(f"{API_BASE}/api/manga/get?mid={manga_id}&mode=all",
                                action=f"Loading chapter list for {series_id}")
         import json
@@ -270,7 +271,7 @@ class BaozimhSource(SourceAdapter):
             attrs = ch.get("attributes") or {}
             chapters.append(ChapterInfo(
                 self.name, series_id, str(ch.get("id")), attrs.get("title") or str(ch.get("id")),
-                f"https://baozimh.org/manga/{series_id}/{attrs.get('slug', '')}"))
+                urljoin(base, f"/manga/{series_id}/{attrs.get('slug', '')}")))
         return chapters
 
     def get_pages(self, chapter):
@@ -324,7 +325,8 @@ class BaozimhSource(SourceAdapter):
                           "posture from the similarly-branded baozimh.com (confirmed blocked "
                           "twice, never built). (Re-verified by direct fetch while building this "
                           "adapter.)",
-            "tos": "Not reviewed.",
+            "tos": "No terms-of-service/terms-of-use page exists on the site (confirmed "
+                   "directly, not guessed) -- absence noted, not a clearance.",
             "tos_prohibited": False,
         }
         return caps

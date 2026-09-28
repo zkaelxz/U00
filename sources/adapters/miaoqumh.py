@@ -118,11 +118,6 @@ def decode_page_data(html: str, cid: int) -> list:
     return urls
 
 
-def _thumbnail_from_background(style: str) -> str:
-    m = re.search(r"background:\s*url\(([^)]*)\)", style or "")
-    return m.group(1) if m else ""
-
-
 @register
 class MiaoqumhSource(SourceAdapter):
     name = "miaoqumh"
