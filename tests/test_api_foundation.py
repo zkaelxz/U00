@@ -512,3 +512,53 @@ class TestExportSubtitleEndpoint:
     def test_no_write_endpoint_is_exposed(self, client, isolated_db):
         did = self._drama_with_lines(isolated_db)
         assert client.post(f"/api/export/dramas/{did}/subtitle").status_code == 405
+
+
+class TestExportFlaggingEndpoints:
+    """Migration Slice 15: the three flagging actions. Each writes only
+    flag/flag_note fields (a field-scoped db.save_lines write); see
+    services/export_service.py's own docstring for why that matters."""
+
+    def test_flag_overlaps(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        resp = client.post(f"/api/export/dramas/{did}/flag-overlaps")
+        assert resp.status_code == 200
+        assert resp.json() == {"flagged_count": 1}
+
+    def test_flag_overlaps_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/export/dramas/999999/flag-overlaps")
+        assert resp.status_code == 404
+
+    def test_flag_dense_lines(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="", en="word " * 60)])
+        resp = client.post(f"/api/export/dramas/{did}/flag-dense-lines")
+        assert resp.status_code == 200
+        assert resp.json() == {"flagged_count": 1}
+
+    def test_flag_dense_lines_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/export/dramas/999999/flag-dense-lines")
+        assert resp.status_code == 404
+
+    def test_flag_auto_qc(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="他有三个孩子。", en="He has kids.")])
+        resp = client.post(f"/api/export/dramas/{did}/flag-auto-qc")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["flagged"] == 1
+        assert body["checked"] == 1
+
+    def test_flag_auto_qc_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/export/dramas/999999/flag-auto-qc")
+        assert resp.status_code == 404
+
+    def test_no_get_endpoint_is_exposed_for_flag_actions(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert client.get(f"/api/export/dramas/{did}/flag-overlaps").status_code == 405
+        assert client.get(f"/api/export/dramas/{did}/flag-dense-lines").status_code == 405
+        assert client.get(f"/api/export/dramas/{did}/flag-auto-qc").status_code == 405
