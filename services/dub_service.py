@@ -30,6 +30,12 @@ TTS_ENGINES = [
 ]
 
 
+def _drama_path(drama_id: int) -> str:
+    """The drama's folder path WITHOUT creating it (db.drama_dir makes the
+    directory, which a read-only GET must never do)."""
+    return os.path.join(db.DRAMAS_DIR, str(drama_id))
+
+
 def _get_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
     if drama is None:
@@ -51,7 +57,7 @@ def get_dub_config(drama_id: int) -> dict:
     narrate_original = is_narration and narration_language == "original"
     source_language = drama.get("source_language") or "zh"
 
-    ddir = db.drama_dir(drama_id)
+    ddir = _drama_path(drama_id)
     lines = db.load_line_objects(drama_id)
     chars = db.list_characters(drama_id)
     by_label = {c["speaker_label"]: c for c in chars}
@@ -111,13 +117,22 @@ def get_dub_pacing(drama_id: int) -> dict:
     counts = {dub.PACING_FIT: 0, dub.PACING_STRETCHED: 0, dub.PACING_OVERFLOW: 0}
     out_lines = []
     if drama.get("content_mode") != "novel_narration":
-        pacing = dub.load_pacing(db.drama_dir(drama_id))
+        try:
+            pacing = dub.load_pacing(_drama_path(drama_id))
+        except Exception:  # corrupt/odd pacing file: treat as unavailable
+            pacing = {}
         for ln in db.load_line_objects(drama_id):
-            rec = dub.pacing_for_line(ln, pacing)
-            if not rec:
-                continue
-            if rec["status"] in counts:
-                counts[rec["status"]] += 1
-            out_lines.append({"idx": ln.idx, "status": rec["status"], "factor": rec.get("factor") or 1.0,
-                              "clip_ms": rec.get("clip_ms"), "window_ms": rec.get("window_ms")})
+            try:
+                rec = dub.pacing_for_line(ln, pacing)
+                if not rec:
+                    continue
+                status = rec["status"]
+                factor = rec.get("factor") or 1.0
+                clip_ms, window_ms = rec.get("clip_ms"), rec.get("window_ms")
+            except (AttributeError, KeyError, TypeError):
+                continue  # malformed record (not a dict / no status): skip it
+            if status in counts:
+                counts[status] += 1
+            out_lines.append({"idx": ln.idx, "status": status, "factor": factor,
+                              "clip_ms": clip_ms, "window_ms": window_ms})
     return {"available": bool(out_lines), "counts": counts, "lines": out_lines}

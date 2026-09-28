@@ -726,6 +726,11 @@ Streamlit tab's unsaved session copy, so unsaved edits will differ.
 Explicit colour/range validation replaces the tab's silent white/alignment
 fallbacks. Out of scope: burned-in video, audiobook, package zip,
 mark-as-exported, Anki (Reader tab).
+*Hardening H2:* `_ass_field`/the `Title:` header now replace control characters (newlines
+would inject extra `Style:`/`Dialogue:`/`[Events]` lines) and `style.font` with control
+characters is a 422; `speaker_colors` is capped (200 entries, 100-char labels; kept rather
+than intersected with the drama's speakers); ASS `wrap_chars_*` is `le=200` like SRT/VTT.
+Explicit JSON `null` for a style field stays a 422 (omit the key instead).
 
 **Slice 46 -- Glossary, instructions and catalogues.** `services/glossary_service.py`
 plus `/api/glossary/*`: series glossary term list/upsert/delete, project and series
@@ -736,6 +741,9 @@ id with no series check); a series-less drama reads as empty and refuses term wr
 series instructions (400). Delete needs `confirm=true`, mirroring the tab's Step 71 confirm
 checkbox. Text, list and instruction lengths are capped. Out of scope: LLM term extraction (a
 paid call, later slice), presets CRUD, characters.
+*Hardening H2:* a POST without `id` for an existing `term_original` now starts from that term's
+stored values (like update-by-id) so omitted notes/aliases/banned/enforce_exact survive;
+explicit `""`/`[]` still clears, and a brand-new term still gets fresh defaults.
 
 **Slice 47 — Review read-only line views (2026-09-28).**
 `services/review_lines_service.py` + `api/routers/review_lines_routes.py`
@@ -770,6 +778,18 @@ Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
 job starters, bulk modes.
 
 **Slice 49 -- process-job completion hook (API-started diarization applies its own result).** A process job's `result` lived only in the starting process's memory and only Streamlit's render loop persisted it, so an API-started diarization (Slice 16 endpoint, or the chain-start inside the Slice 20/21 transcribe job) ended "done" with its speaker turns never saved. `background_jobs.start_process_job` now takes optional `on_done(job_id, result)`, called in the watcher thread after a successful result and before the job is marked "done"; a raising hook ends the job "error" (redacted message, logged), it is not called on error/cancel, and queued GPU starts carry it through the queue. `diarization_service.apply_diarization_result` ports the DB half of Streamlit's `_apply_diarization_job_result`/`_apply_speaker_turns` (save turns, `merge_speakers`, character upserts, field-scoped `save_lines(fields=("speaker","speaker_manual"))`); both `start_diarization_run` and the transcribe chain-start pass it. One deliberate difference: Streamlit skips the merge when manual lines would change and asks the user; with no user to ask, the API merges with `overwrite_manual=False` (manual corrections still never undone). Double-apply with the tab is harmless (same turns file rewritten, merge idempotent). Hard cancel is unchanged.
+
+**Hardening H3 (Slices 25/39/47/48 read services).** GETs no longer create
+the drama folder (`db.drama_dir` makes it; these services build the path
+without creating it). Review lines return `dub_filename` as a bare filename,
+like records. Malformed data degrades instead of 500: non-dict pacing records
+are skipped, pacing `clip_ms`/`window_ms` accept floats, a corrupt raw
+transcript reads as "none", NULL `line_idx` notes render as line 1, version
+lines without `idx` are skipped, and legacy NULL `label`/`created_at` validate.
+`tm-suggestions` takes at most 200 `line_id`s (each >= 1) and scans at most the
+first 2000 lines. Regex find/replace preview rejects nested-quantifier
+patterns such as `(a+)+` and matches only the first 2000 characters of each
+line: a mitigation, not a guarantee (Python's `re` has no timeout).
 
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
@@ -828,6 +848,32 @@ as not passed. Voice-bank apply copies the clip into the drama's folder
 server-side but never returns a path or filename (only `has_ref_audio`).
 Out of scope: reference-audio upload/auto-extract (multipart), series-
 character writes, Dub generation.
+
+*Hardening H1 (Slices 35/42).* Review fixes: error messages never echo client
+text (speaker label, clone engine, unknown field names); ids and counts are
+capped at 2**31-1 in services and schemas (422, not a sqlite OverflowError);
+drama text fields have length caps, titles are stripped and `source_url` must
+be empty or http(s) (blank titles stay allowed, as in the tab); voice-bank apply
+rejects labels that can't be a filename part, returns NotFound for a missing
+clip, and enforces the Step 26c language rule on the entry's engine (stricter
+than the tab, by design); a new series is created only after the drama row
+exists, so a failed create leaves no stray series.
+
+**Slice 36 -- Drama delete.** `DELETE /api/dramas/{id}?confirm=true&confirm_text=DELETE`
+-> `{"deleted": true, "drama_id": n}`. User-approved rule: needs `confirm=true`
+AND an exact-match typed `confirm_text` (Streamlit's checkbox + type-DELETE
+pair, translated to API terms like Slice 17's `clear_history`), and is refused
+409 while a job runs for the drama. Check order: unknown id 404 first (always),
+then 422 for a missing/wrong confirmation (message never echoes the text), then
+409. The running-job check covers in-process jobs
+(`background_jobs.any_job_running_for_drama`) AND cross-process
+`db.job_records` rows for this drama's job ids that are running/queued and
+updated within 6 hours -- older rows are a crashed process's leftovers and must
+not block forever. Deletion goes through one private function
+(`_hard_delete_drama`) so roadmap Step 43's soft-delete can replace it. Known
+hazard, unchanged: `db.delete_drama` removes the DB row first, then the folder
+(including non-regenerable `voice_refs/`); a failed rmtree leaves an orphan
+folder, surfaced as a clear 500 `application_error` (no paths).
 
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
