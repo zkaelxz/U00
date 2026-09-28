@@ -536,8 +536,26 @@ created two brand-new files, Slice 17 extended two files Slice 16 never
 touched -- so this pair was file-disjoint by construction, not just by
 scoping care. The lead added both routers/schemas/server registrations
 and fixed one real defect found during integration (Slice 16's own
-entry has the detail). Merged as two separate PRs per guardrail #4; this
-entry covers Slice 17.
+entry has the detail). Merged as two separate PRs per guardrail #4.
+
+**Slice 16** (§3.2, Phase 6's second Workspace stage, Diarize):
+`services/diarization_service.py` -- `get_diarization_config(drama_id)`
+(read-only: `hf_token_configured` as a boolean only, never the token
+itself -- D2; `expected_speakers` from `diarize.load_last_speaker_count`;
+`audio_available`) and `start_diarization_run(drama_id, expected_speakers)`,
+which starts the same real, GPU-touching background job
+`_render_speaker_rerun` does (`background_jobs.start_process_job` with
+`diarize.diarize_subprocess_worker`). New `GET /api/diarization/dramas/
+{id}/config`, `POST /api/diarization/dramas/{id}/run`. Deliberately does
+not duplicate job-status polling -- the existing `GET /api/jobs/{job_id}`
+(Slice 8) already covers any job id, including this one. **Integration
+fix**: the agent's own first draft raised `NotFoundError` for "drama
+exists but has no audio yet" -- corrected to `UnsupportedOperationError`
+(400) during integration, since the drama itself isn't missing, just not
+in a state that supports this action (matches
+`services/service_errors.py`'s own documented distinction). The "run
+diarization during alignment" checkbox and the turns-to-lines merge stay
+out of scope -- a future Transcript/Align-stage slice's concern.
 
 **Slice 17** (Translate-standalone's one remaining deferred piece):
 `services/translate_service.py` gains `clear_history(confirm: bool =
@@ -546,9 +564,10 @@ explicit-opt-in gate translating `tabs/translate_tab.py`'s own
 checkbox-then-button UI pattern into API terms, rather than a bare
 delete. New `DELETE /api/translate/history?confirm=true`.
 
-**Next candidate for this slice:** ASS/EPUB/audiobook/video export
-(Export's own remaining scope, named above), a future scoping pass's
-call.
+**Next candidates:** the next Workspace stage after Diarize per §3.2's
+build order (Transcript), or ASS/EPUB/audiobook/video export (Export's
+own remaining scope, named above), whichever a future scoping pass
+picks.
 
 ---
 

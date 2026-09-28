@@ -558,6 +558,70 @@ class TestExportFlaggingEndpoints:
     def test_no_get_endpoint_is_exposed_for_flag_actions(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         assert client.get(f"/api/export/dramas/{did}/flag-overlaps").status_code == 405
+
+
+class TestDiarizationEndpoints:
+    """Migration Slice 16: Diarize-stage config + starting a real
+    speaker-detection job. hf_token_configured is a boolean only, never
+    the token value (D2); job status is polled via the existing
+    GET /api/jobs/{job_id} (Migration Slice 8), not duplicated here."""
+
+    def test_config_contract_shape(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        body = client.get(f"/api/diarization/dramas/{did}/config").json()
+        assert body == {
+            "drama_id": did, "hf_token_configured": False,
+            "expected_speakers": None, "audio_available": False,
+        }
+
+    def test_config_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/diarization/dramas/999999/config")
+        assert resp.status_code == 404
+
+    def test_config_never_leaks_a_token_value(self, client, isolated_db, monkeypatch):
+        monkeypatch.setenv("BAIHE_HF_TOKEN", "sk-should-not-leak")
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.get(f"/api/diarization/dramas/{did}/config")
+        assert "sk-should-not-leak" not in resp.text
+        assert resp.json()["hf_token_configured"] is True
+
+    def test_run_with_no_audio_is_400(self, client, isolated_db, monkeypatch):
+        monkeypatch.setenv("BAIHE_HF_TOKEN", "sk-test")
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/diarization/dramas/{did}/run")
+        assert resp.status_code == 400
+
+    def test_run_with_no_token_is_503(self, client, isolated_db, monkeypatch):
+        monkeypatch.delenv("BAIHE_HF_TOKEN", raising=False)
+        monkeypatch.delenv("HF_TOKEN", raising=False)
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/diarization/dramas/{did}/run")
+        assert resp.status_code == 503
+
+    def test_run_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/diarization/dramas/999999/run")
+        assert resp.status_code == 404
+
+    def test_run_starts_a_real_job_visible_in_jobs_api(self, client, isolated_db, monkeypatch):
+        monkeypatch.setenv("BAIHE_HF_TOKEN", "sk-test")
+        did = isolated_db.create_drama(title_en="D", audio_filename="audio.wav")
+        ddir = isolated_db.drama_dir(did)
+        import os
+        os.makedirs(ddir, exist_ok=True)
+        open(os.path.join(ddir, "audio.wav"), "wb").close()
+
+        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None):
+            isolated_db.save_job_record(job_id, status="running", description=description)
+            return True
+
+        import background_jobs
+        monkeypatch.setattr(background_jobs, "start_process_job", fake_start_process_job)
+
+        resp = client.post(f"/api/diarization/dramas/{did}/run")
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+        job_body = client.get(f"/api/jobs/{job_id}").json()
+        assert job_body["status"] == "running"
         assert client.get(f"/api/export/dramas/{did}/flag-dense-lines").status_code == 405
         assert client.get(f"/api/export/dramas/{did}/flag-auto-qc").status_code == 405
 

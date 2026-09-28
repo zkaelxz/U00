@@ -258,3 +258,17 @@ class AutoQcFlagResult(BaseModel):
     cleared: int
     already_flagged: int
     checked: int
+
+
+class DiarizationConfig(BaseModel):
+    """Read-only Diarize-stage summary for one drama (Migration Slice
+    16) -- hf_token_configured is a boolean only, never the token value
+    itself (D2)."""
+    drama_id: int
+    hf_token_configured: bool
+    expected_speakers: Optional[int] = None
+    audio_available: bool
+
+
+class DiarizationRunResult(BaseModel):
+    job_id: str
