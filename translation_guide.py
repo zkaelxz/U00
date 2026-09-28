@@ -446,8 +446,7 @@ def build_translation_notes_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     )
 
 
-def generate_translation_notes_llm(lines, engine, source_language: str = "zh",
-                                    batch_size: int = 40, usage_cb=None):
+def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb=None):
     """
     Reviews translated lines for things that lost something in translation
     and are worth a translation note: idioms, puns, meaningful names,
