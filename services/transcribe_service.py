@@ -57,7 +57,7 @@ import core as core_module
 import db
 import raw_transcript
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
-from services import settings_service, source_service
+from services import diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 
@@ -471,7 +471,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
             args=(diarize_audio_path, hf_token, expected_speakers or None),
-            gpu_touching=True, description=f"Diarization (drama #{drama_id})")
+            gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+            on_done=diarization_service.make_apply_on_done(drama_id, expected_speakers))
 
     background_jobs.set_result(job_id, {
         "line_count": len(lines),
