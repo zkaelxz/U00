@@ -530,6 +530,52 @@ class TestCapabilitiesAndTestNow:
         assert caps.tiers["STATIC_HTTP"].reason == "ACCESS_DENIED"
         assert caps.tiers["RENDERED_BROWSER"].ok        # earlier result untouched
 
+    def test_test_now_recomputes_technical_status_on_success(self, isolated_db):
+        # Step 86: a successful "Test Now" used to leave technical_status
+        # exactly as it was -- "STATIC_HTTP OK but aggregate status still
+        # UNRESOLVED".
+        caps = ladder.test_tier("src86a", AccessTier.STATIC_HTTP, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"))
+        assert caps.technical_status == TechnicalStatus.SUPPORTED.value
+        assert caps.status == CapabilityStatus.VERIFIED.value
+
+    def test_test_now_does_not_downgrade_status_on_a_failing_tier(self, isolated_db):
+        # A single failing tier must never overwrite/downgrade whatever
+        # a fuller, earlier ladder run already established.
+        caps = ladder.test_tier("src86b", AccessTier.STATIC_HTTP, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"))
+        assert caps.technical_status == TechnicalStatus.SUPPORTED.value
+        caps = ladder.test_tier("src86b", AccessTier.AUTHENTICATED_BROWSER, "https://x.invalid/",
+                                _tier(False, [FailureReason.AUTHENTICATION_REQUIRED]),
+                                default=caps)
+        assert caps.technical_status == TechnicalStatus.SUPPORTED.value
+
+    def test_test_now_overwrites_an_untested_preset_access_method(self, isolated_db):
+        # Step 86: several adapters preset a non-None access_method as
+        # part of their built-in default (a declared expectation, never
+        # itself tested) -- a real confirmed result must still be able
+        # to overwrite that guess, not be permanently blocked by it.
+        default = SourceCapabilities(platform="x", access_method=AccessTier.RENDERED_BROWSER.value)
+        caps = ladder.test_tier("src86c", AccessTier.STATIC_HTTP, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"), default=default)
+        assert caps.access_method == AccessTier.STATIC_HTTP.value
+
+    def test_test_now_prefers_a_stronger_confirmed_tier_over_a_weaker_confirmed_one(self, isolated_db):
+        caps = ladder.test_tier("src86d", AccessTier.RENDERED_BROWSER, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"))
+        assert caps.access_method == AccessTier.RENDERED_BROWSER.value
+        caps = ladder.test_tier("src86d", AccessTier.STATIC_HTTP, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"), default=caps)
+        assert caps.access_method == AccessTier.STATIC_HTTP.value
+
+    def test_test_now_keeps_a_stronger_confirmed_tier_over_a_later_weaker_one(self, isolated_db):
+        caps = ladder.test_tier("src86e", AccessTier.STATIC_HTTP, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"))
+        assert caps.access_method == AccessTier.STATIC_HTTP.value
+        caps = ladder.test_tier("src86e", AccessTier.RENDERED_BROWSER, "https://x.invalid/",
+                                _tier(True, html_text="<p>ok</p>"), default=caps)
+        assert caps.access_method == AccessTier.STATIC_HTTP.value        # unchanged
+
     def test_technical_and_terms_stay_separate(self, isolated_db):
         from sources.models import SourceCapabilities
         caps = SourceCapabilities(platform="x", technical={"browser_accessible": True},
