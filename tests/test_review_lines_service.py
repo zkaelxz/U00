@@ -207,3 +207,49 @@ def test_zero_writes_and_no_path_leak(isolated_db, monkeypatch):
                svc.get_original_text(did, lid)]
     blob = json.dumps(results, ensure_ascii=False, default=str)
     assert isolated_db.LIBRARY_DIR not in blob
+
+
+# --- Hardening H3 ---------------------------------------------------------
+
+def test_h3_original_text_does_not_create_folder(isolated_db):
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="b")])
+    lid = core.lines_from_rows(isolated_db.load_lines(did))[0].id
+    folder = os.path.join(isolated_db.DRAMAS_DIR, str(did))
+    assert not os.path.exists(folder)
+    out = svc.get_original_text(did, lid)
+    assert out["has_raw_transcript"] is False
+    assert not os.path.exists(folder)
+
+
+def test_h3_original_text_corrupt_raw_transcript(isolated_db):
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="b")])
+    lid = core.lines_from_rows(isolated_db.load_lines(did))[0].id
+    os.makedirs(isolated_db.drama_dir(did), exist_ok=True)
+    with open(os.path.join(isolated_db.drama_dir(did), "raw_transcript.json"), "w") as f:
+        f.write("{not json")
+    out = svc.get_original_text(did, lid)
+    assert out["has_raw_transcript"] is False and out["original_text"] is None
+
+
+def test_h3_dub_filename_is_basename(isolated_db):
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="b",
+                                   dub_filename="dub_clips/line_x.wav")])
+    assert svc.list_review_lines(did)["lines"][0]["dub_filename"] == "line_x.wav"
+
+
+def test_h3_redos_pattern_rejected_ordinary_ok(isolated_db):
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en="aaaaaaaaaaaaaaaaaaaaaaaaaaaa!")])
+    for bad in ("(a+)+$", "(a*)*b", "(x|a+){2,}"):
+        with pytest.raises(InvalidInputError):
+            svc.preview_find_replace(did, bad, "z", use_regex=True)
+    # the same text is fine as a literal (not regex), and ordinary regexes work
+    assert svc.preview_find_replace(did, "(a+)+$", "z", use_regex=False) == []
+    assert len(svc.preview_find_replace(did, r"a+", "z", use_regex=True)) == 1
+    assert len(svc.preview_find_replace(did, r"(?:ab)+|a{3}", "z", use_regex=True)) == 1
+
+
+def test_h3_regex_matches_only_first_chars(isolated_db):
+    text = "x" * svc.MAX_REGEX_MATCH_CHARS + "needle"
+    did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a", en=text)])
+    assert svc.preview_find_replace(did, "needle", "z", use_regex=True) == []
+    assert len(svc.preview_find_replace(did, "needle", "z", use_regex=False)) == 1

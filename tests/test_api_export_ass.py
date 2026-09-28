@@ -87,6 +87,11 @@ def test_style_override_applied_and_unset_falls_back_to_preset(client, drama):
     {"style": {"alignment": "middle"}},
     {"field": "fr"},
     {"wrap_chars_en": -1},
+    {"wrap_chars_en": 201},
+    {"wrap_chars_source": 201},
+    {"style": {"font": "Arial\n[Events]"}},
+    {"speaker_colors": {f"S{i}": "#123456" for i in range(201)}},
+    {"speaker_colors": {"x" * 101: "#123456"}},
 ])
 def test_invalid_requests_422(client, drama, body):
     r = client.post(_url(drama), json=body)

@@ -299,9 +299,14 @@ def _style_line(name: str, style: dict, primary: str) -> str:
         str(ALIGNMENTS.get(style.get("alignment"), 2)), "10", "10", "12", "1"]))
 
 
+def _ass_clean(value) -> str:
+    # control characters (incl. \r/\n) would start new ASS lines
+    return re.sub(r"[\x00-\x1f\x7f\x85\u2028\u2029]", " ", str(value or ""))
+
+
 def _ass_field(value: str) -> str:
-    # commas separate Style/Dialogue fields
-    return str(value or "").replace(",", " ").strip() or "Default"
+    # commas separate Style/Dialogue fields; control chars would inject lines
+    return _ass_clean(value).replace(",", " ").strip() or "Default"
 
 
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = None,
@@ -326,7 +331,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict = Non
     style_for = {sp: f"Speaker {i + 1}" for i, sp in enumerate(sorted(speaker_colors))}
     header = [
         "[Script Info]",
-        f"Title: {title}" if title else "Title: Baihe Subtitler export",
+        f"Title: {_ass_clean(title).strip()}" if title else "Title: Baihe Subtitler export",
         "ScriptType: v4.00+",
         f"PlayResX: {PLAY_RES[0]}",
         f"PlayResY: {PLAY_RES[1]}",
