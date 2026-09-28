@@ -929,11 +929,18 @@ def _render_settings():
                        key="src_set_diag",
                        help="Always show the Review Extraction screen and the source diagnostics "
                             "for pasted-URL imports. Off: they only appear when confidence is low.")
+    proxy_url = st.text_input("HTTP(S) proxy URL (optional)", value=s["http_proxy_url"],
+                              key="src_set_proxy",
+                              placeholder="http://127.0.0.1:8080",
+                              help="Every source adapter's requests are routed through this proxy "
+                                   "when set. Leave blank for a direct connection (the default). "
+                                   "HTTP(S) proxies only -- a socks:// URL needs the optional "
+                                   "PySocks package this app doesn't currently install.")
     if st.button("💾 Save source settings", key="src_set_save"):
         for k, v in {"pace_min_delay": lo, "pace_max_delay": max(lo, hi), "max_concurrent": conc,
                      "max_retries": retries, "cache_mode": mode, "check_interval_hours": interval,
                      "auto_queue_new_chapters": auto, "demo_source_enabled": demo,
-                     "extraction_diagnostics": diag,
+                     "extraction_diagnostics": diag, "http_proxy_url": proxy_url.strip(),
                      "session_break_min_requests": break_lo,
                      "session_break_max_requests": max(break_lo, break_hi),
                      "session_break_min_delay": break_delay_lo,
