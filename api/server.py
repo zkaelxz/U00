@@ -31,6 +31,7 @@ from api.routers import (
     drama_routes,
     dub_routes,
     export_routes,
+    glossary_routes,
     jobs_routes,
     library_routes,
     reader_routes,
@@ -83,6 +84,7 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(drama_routes.router)
     app.include_router(translate_run_routes.router)
     app.include_router(characters_routes.router)
+    app.include_router(glossary_routes.router)
     return app
 
 

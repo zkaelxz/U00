@@ -219,10 +219,13 @@ baihe-subtitler/
 │   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
 │   │                             estimate / cap gating); start-translate job is a later slice
-│   └── characters_service.py     Migration Slice 42 -- per-drama speakers' character/voice config:
-│                                 list/update (None = leave alone, "" = clear), series-character
-│                                 list, clone-engine picklist (Step 26c language rule), voice bank
-│                                 list/apply; no paths returned; ref-audio upload stays out of scope
+│   ├── characters_service.py     Migration Slice 42 -- per-drama speakers' character/voice config:
+│   │                             list/update (None = leave alone, "" = clear), series-character
+│   │                             list, clone-engine picklist (Step 26c language rule), voice bank
+│   │                             list/apply; no paths returned; ref-audio upload stays out of scope
+│   └── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
+│                                 CRUD, confirm-gated delete), project/series instructions, and
+│                                 read-only option catalogues; LLM term extraction stays out
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -258,9 +261,12 @@ baihe-subtitler/
 │       │                         (Migration Slice 35)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
 │       │                         (Migration Slice 39, read-only)
-│       └── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
-│                                 POST .../voice-bank/apply, /series/{id}/characters, /voice-bank
-│                                 (Migration Slice 42)
+│       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
+│       │                         POST .../voice-bank/apply, /series/{id}/characters, /voice-bank
+│       │                         (Migration Slice 42)
+│       └── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
+│                                 ?confirm=true), .../instructions[/project|/series], /catalogues
+│                                 (Migration Slice 46)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

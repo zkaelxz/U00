@@ -727,6 +727,16 @@ Explicit colour/range validation replaces the tab's silent white/alignment
 fallbacks. Out of scope: burned-in video, audiobook, package zip,
 mark-as-exported, Anki (Reader tab).
 
+**Slice 46 -- Glossary, instructions and catalogues.** `services/glossary_service.py`
+plus `/api/glossary/*`: series glossary term list/upsert/delete, project and series
+instructions, and the read-only option catalogues (style presets, term categories/policies,
+workflow tiers). Terms are series-owned, so every write/delete verifies the term belongs to
+the drama's own series first (`db.update_glossary_term`/`db.delete_glossary_term` take a bare
+id with no series check); a series-less drama reads as empty and refuses term writes and
+series instructions (400). Delete needs `confirm=true`, mirroring the tab's Step 71 confirm
+checkbox. Text, list and instruction lengths are capped. Out of scope: LLM term extraction (a
+paid call, later slice), presets CRUD, characters.
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
