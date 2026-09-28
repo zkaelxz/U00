@@ -1,14 +1,14 @@
 # Baihe roadmap MASTER -- bug tracker, fixed bugs, to-do, deferred/review-later steps
 
-Last updated 2026-09-28. This is the **master index**; it does not replace the full roadmap (`docs/baihe-roadmap.md`, on the planning
+Last updated 2026-09-29. This is the **master index**; it does not replace the full roadmap (`docs/baihe-roadmap.md`, on the planning
 branch `claude/baihe-subtitle-planning-95qyvq`, ~5,000 lines, source of truth for Steps 1-105 and the §4 status table). Anything new that
 appeared after that document's last edit lives here, with **proposed** step ids 106+ (the planning session confirms or renumbers them and
 folds them into roadmap §2/§4). Migration detail: `docs/migration-handoff.md`, `docs/migration-review.md`, `docs/migration-frontend-plan.md`.
 Default model for every step below is Sonnet unless a row says otherwise (roadmap §4 model table decides; Opus rows need the user's confirmation first).
 
 ## 1. Status snapshot
-- Backend migration (services + FastAPI): every ungated slice is merged (PRs #220-#252). Full suite on the merged batch-1 state: 3805 passed; batch 2: 4028 passed + 1 load flake (B-01).
-- Frontend (React): foundations merged (#254); slices A, B, C, I building; D-H queued (`docs/migration-frontend-plan.md`).
+- Backend migration (services + FastAPI): every ungated slice is merged (PRs #220-#252), plus Step 95 (BGM-preserving dub, #261) and Step 97b (fallback chain, #251). Full suite on the merged batch-1 state: 3805 passed; batch 2: 4028 passed + 1 error; final base: 4111 passed + the same 1 error (fixed by #259, see B-01/F-11; re-verification run pending).
+- Frontend (React): foundations (#254), Library (#258), Diagnostics (#257), Settings (#256), standalone Translate (#260) merged and wired into the router (#263); slice D (Workspace shell + Source stage) building; E (Translate stage), F2 (Review), G (Export), H (Dub) queued behind D's stage registry (`docs/migration-frontend-plan.md`).
 - CI on GitHub is red on every PR since #212 only because Actions minutes are exhausted; merges are gated on the local suite.
 
 ## 2. Bug tracker -- OPEN
@@ -16,7 +16,7 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 
 | ID | Sev | Where | Problem | Proposed fix | Step |
 |---|---|---|---|---|---|
-| B-01 | L | tests/test_api_foundation.py `test_run_already_running_is_409` | Once errored `sqlite3 database is locked` in setup while a real `transcribe_1` thread lingered under heavy CPU; did not reproduce in 5 re-runs | Make the test mock/await the job thread | 121 |
+| B-01 | ~~L~~ | tests/test_api_foundation.py | ~~Recurring `database is locked` in `test_run_already_running_is_409` setup~~ **FIXED (#259)**: it was not a load flake but an order-dependent race (the previous test started a real job thread and returned without waiting) | Test now waits for the job to finish | done (F-11) |
 | B-02 | M | flag job (Slice 44 / tab) | The `flag` job can overwrite a manual flag change the user made while it runs (existing tab behaviour) | Scope write to lines whose flag is unchanged since start | 122 |
 | B-03 | M | chapter OCR (Slice 38) | Settings `tesseract_cmd` is not passed to OCR; a Windows install off PATH fails | Pass the setting through like Slice 21's hardsub path | 122 |
 | B-04 | M | job cancel (Slice 22) | Cancelling a job whose owner process died sets a flag nobody reads; record stays "running" (existing no-resume limit) | Stale-job sweep using `db.list_job_records` staleness cutoff | 123 |
@@ -38,6 +38,8 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | B-20 | L | code quality | The guideline-building block is duplicated across the workspace tab, CLI and `translate_run_service` | Shared builder (own step; touches CLI + tab) | 129 |
 | B-21 | L | docs drift | Stale statements: `drama_service` and Slice 35 docs say auto-fill is out of scope; `export_service` docstrings say audiobook/video are out of scope; transcribe docstrings and `FILE_ORGANIZATION.md` say `chunk_and_tag` is out of scope; Slice 40 docs say 422 where code returns 400; stub line `**Next candidates:** the` near line 876 of `docs/migration-review.md`; `TranscribeConfig` booleans overlap `MediaStatus` | One doc-only sweep | 130 |
 | B-22 | proc | merge tooling | `keepboth.py` is unsafe on `api/schemas.py` when a branch edits a class in place (it split a class body once); `resolve_slice.py` used to duplicate an already-listed router | Documented in handoff; script guard added; prefer base + appended block for schemas | done (#250) |
+| B-23 | L | Step 95 | `dub_background.wav` cache compares mtime only; it does not refresh if the separation backend changes (delete the file to force a redo); the -6 dB background gain is a fixed guess; real Demucs/mixing never run | Cache key on backend + gain; user listening check | 126 |
+| B-24 | L | frontend e2e | Diagnostics cancel-then-refresh and the Library 409 refusal have no automated test (no seeded running job); specs share one seeded DB, so Playwright runs with 1 worker | Seed a `job_records` row and a running-job drama | 131 |
 
 ## 3. Bugs FIXED (this migration effort; earlier fixes are roadmap Steps 1b, 4i, 4j, 5b, 6d, 6f, 9h, 9i, 25-25z, 28-35, 71, 77)
 | ID | Fixed in | What was wrong |
@@ -52,6 +54,8 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | F-08 | Slice 28 (#239), caught in build | A symlinked kind folder under `exports/` was being served by the artifact download |
 | F-09 | Slice 38/29-30 | `ocrchapter_`, `audiobook_`, `burned_video_` jobs added to the per-drama guard from the start |
 | F-10 | Frontend F (#254) | `ErrorBanner` never prints a server message containing a path, key/token pattern, or over 200 characters |
+| F-11 | #259 | `test_run_starts_a_real_job_visible_in_jobs_api` returned while its real job thread was still writing; the thread's last DB write raced the next test's `init_db` and failed its fixture setup ("database is locked"), in two consecutive full-suite runs. Test now waits for the job |
+| F-12 | #262 | **Streamlit dub tab was broken since Step 26c (#161):** the tab passed `narrate_original`/`source_language` positionally to `dub.build_track_subprocess_worker`, but `background_jobs` appends the result queue LAST while the worker declares `result_queue` before those parameters, so the queue landed in the wrong slot and the job ended without a result. The tests' fake worker copied the wrong signature, hiding it. Fixed with keyword binding (`functools.partial`), fake worker corrected, regression tests added (found by the Step 95 builder) |
 
 ## 4. To-do queue (in order)
 **Waiting on the user (cannot proceed):**
@@ -61,8 +65,8 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 - Real-run checks only the user can do: real TTS, ffmpeg/libass, Whisper on GPU, paid LLM keys, real OCR and EPUBs, a gated-access HF token for pyannote diarization, mobile/real-device checks for Streamlit retirement.
 
 **Ready / in flight:**
-1. Step 95 BGM-preserving dub (builder running).
-2. Frontend slices A (Library), B (Diagnostics), C (Settings), I (standalone Translate) (building); then D (Workspace shell + Source stage), then E (Translate stage), F2 (Review), G (Export), H (Dub) in parallel (`docs/migration-frontend-plan.md`).
+1. Step 95 BGM-preserving dub: **done (#261)**; needs the user's real-audio listening check.
+2. Frontend: A, B, C, I are done and wired; D (Workspace shell + Source stage) is building; then E (Translate stage), F2 (Review), G (Export), H (Dub) in parallel, each replacing one line of D's stage registry (`docs/migration-frontend-plan.md`).
 3. Backend gaps the UI will hit: media playback endpoint with Range support; expose the workspace stage index; serve `frontend/dist` from FastAPI plus a launcher story; SSE/job push (needed for Live); E0 destructive library actions (bulk, backup/restore, storage clean) once a server-side typed-confirm + running-job refusal exists; the fix/cleanup steps 121-132 below.
 4. Streamlit retirement, per `docs/migration-frontend-plan.md` (order: Diagnostics, Library, Settings, Translate, Workspace stage by stage).
 
