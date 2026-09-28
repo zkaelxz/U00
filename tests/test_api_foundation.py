@@ -9,6 +9,8 @@ transport) is dev-only. The importorskips below keep a partial install
 from erroring instead of skipping.
 """
 
+import os
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -16,6 +18,7 @@ pytest.importorskip("httpx")  # TestClient's transport
 
 from fastapi.testclient import TestClient
 
+import background_jobs
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
 from core import Line
@@ -745,4 +748,89 @@ class TestSourceConfigEndpoints:
         assert resp.status_code == 200
         drama = isolated_db.get_drama(did)
         assert drama["media_type"] == "streamer_vod"
+
+
+class TestTranscribeConfigEndpoints:
+    """Migration Slice 20: Transcript-stage config + the job-does-
+    everything start action -- see services/transcribe_service.py's own
+    docstring for the scope decision and what's deliberately out."""
+
+    def test_get_config_contract_shape(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        body = client.get(f"/api/transcribe/dramas/{did}/config").json()
+        assert body == {
+            "drama_id": did, "transcript_mode": "have_transcript", "has_audio_pipeline": True,
+            "audio_available": False, "alignment_method": "whisper_diff",
+            "asr_backend_choice": "whisper", "whisper_size": "large-v3",
+            "whisper_model_cached": body["whisper_model_cached"],
+            "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
+            "separate_vocals_first": False, "separation_backend": "auto",
+            "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
+        }
+
+    def test_get_config_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/transcribe/dramas/999999/config")
+        assert resp.status_code == 404
+
+    def test_post_config_updates_a_tuning_knob(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/transcribe/dramas/{did}/config", json={"min_silence_ms": 1000})
+        assert resp.status_code == 200
+        assert resp.json()["min_silence_ms"] == 1000
+
+    def test_post_config_out_of_range_is_422(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/transcribe/dramas/{did}/config", json={"beam_size": 20})
+        assert resp.status_code == 422
+
+    def test_post_config_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/transcribe/dramas/999999/config", json={"beam_size": 8})
+        assert resp.status_code == 404
+
+    def test_run_without_audio_is_400(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
+        assert resp.status_code == 400
+
+    def test_run_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/transcribe/dramas/999999/run", json={})
+        assert resp.status_code == 404
+
+    def test_run_starts_a_real_job_visible_in_jobs_api(self, client, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="D", transcript_mode="whisper")
+        ddir = isolated_db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        open(os.path.join(ddir, "audio.wav"), "wb").close()
+        isolated_db.update_drama(did, audio_filename="audio.wav")
+        # Mocked so the real background thread never touches a real model
+        # or the network -- this test only checks the job is registered
+        # and pollable through the existing jobs API.
+        import services.transcribe_service as transcribe_service_module
+        monkeypatch.setattr(transcribe_service_module, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
+
+        resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
+        assert resp.status_code == 200
+        job_id = resp.json()["job_id"]
+        assert job_id == f"transcribe_{did}"
+
+        job_resp = client.get(f"/api/jobs/{job_id}")
+        assert job_resp.status_code == 200
+        background_jobs.clear_job(job_id)
+
+    def test_run_already_running_is_409(self, client, isolated_db, monkeypatch):
+        # start_job spawning a real thread makes "still running" a race to
+        # assert on directly (the real transcribe_for_timing would run and
+        # the job could finish before the second request lands) -- mocked
+        # here the same way TestStartTranscribeRun mocks it at the service
+        # layer, just via the API this time.
+        did = isolated_db.create_drama(title_en="D", transcript_mode="whisper")
+        ddir = isolated_db.drama_dir(did)
+        os.makedirs(ddir, exist_ok=True)
+        open(os.path.join(ddir, "audio.wav"), "wb").close()
+        isolated_db.update_drama(did, audio_filename="audio.wav")
+        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)
+
+        resp = client.post(f"/api/transcribe/dramas/{did}/run", json={})
+        assert resp.status_code == 409
 

@@ -56,3 +56,12 @@ class DependencyUnavailableError(ServiceError):
     HTTP 503 `dependency_unavailable`."""
 
     code = "dependency_unavailable"
+
+
+class ConflictError(ServiceError):
+    """The request is well-formed and the record exists, but the record's
+    current state won't allow it right now -- e.g. a job is already
+    running for this drama, so a second start would collide with it.
+    HTTP 409 `conflict`."""
+
+    code = "conflict"
