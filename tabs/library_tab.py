@@ -6,6 +6,7 @@ import time
 from common import *
 from sources import store as src_store
 import subtitle_formats
+from services import library_service
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -399,13 +400,9 @@ def render_library_tab():
         all_tags = db.distinct_custom_tags()
         tag_f = st.multiselect("Custom tags", all_tags) if all_tags else []
 
-        dramas = db.list_dramas(search=search, studio=studio_f, author=author_f,
-                                 voice_actor=va_f, status=status_f, source_language=lang_f, media_type=media_f)
-        if org_f:
-            dramas = [d for d in dramas if db.has_custom_tag(d, org_f)]
-        if tag_f:
-            dramas = [d for d in dramas
-                      if all(t in [x.strip() for x in (d.get("custom_tags") or "").split(",")] for t in tag_f)]
+        dramas = library_service.list_library_dramas(
+            search=search, studio=studio_f, author=author_f, voice_actor=va_f, status=status_f,
+            source_language=lang_f, media_type=media_f, quick_filter=org_f, custom_tags=tag_f)
         st.caption(f"{len(dramas)} drama(s)")
 
         if dramas:
