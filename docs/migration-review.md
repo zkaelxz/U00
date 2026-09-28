@@ -979,6 +979,8 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
+**Slice 29 -- Audiobook export job.** `POST /api/export/dramas/{id}/audiobook` (no body) starts thread job `audiobook_<id>` (`services/media_export_service.start_audiobook_export`) and returns `{job_id}`. The job encodes the drama's `narration_track.wav` to an AAC `.m4b` with chapter markers via `dub.export_narration_m4b` (fixed ffmpeg argument list, no shell, no client paths), builds it in a temp folder, and moves it to `artifact_service.output_path(id, "audio", "audiobook_<id>.m4b")`, so a failed run never leaves a partial file; download with `GET /api/artifacts/dramas/{id}/audio`. Errors: unknown drama 404; no lines or no narration audio yet 422 (fixed text); ffmpeg missing 503; duplicate start 409. Job failures carry fixed text with no paths. `audiobook_` and `burned_video_` are now in `background_jobs.DRAMA_JOB_PREFIXES`. Only `.m4b` exists in the app today (no mp3). Real ffmpeg was not verified (tests patch `subprocess.run`).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

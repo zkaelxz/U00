@@ -9,15 +9,15 @@ writes only the flag/flag_note fields (see services/export_service.py's
 own docstring for the field-scoped-write discipline). Migration Slice 18
 adds EPUB export (novel-narration dramas only) as a binary download.
 Migration Slice 27 adds ASS subtitle text (POST, per-request style, plain-text
-download) and the style-options listing. Still out of scope: audiobook,
-burned-in video export.
+download) and the style-options listing. Migration Slice 29 adds the audiobook export
+job (POST, returns {job_id}, output downloads via /api/artifacts).
 """
 
 from fastapi import APIRouter, Path, Query, Response
 
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, ErrorResponse,
-                         ExportReadiness, FlagActionResult)
-from services import export_service
+                         ExportReadiness, FlagActionResult, MediaExportStarted)
+from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -104,3 +104,11 @@ def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
             summary="Presets, fonts, alignments and ranges for ASS style controls")
 def get_ass_style_options():
     return export_service.get_ass_style_options()
+
+
+@router.post("/dramas/{drama_id}/audiobook", response_model=MediaExportStarted,
+             summary="Start the audiobook (.m4b) export job (poll GET /api/jobs/{job_id})",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_audiobook(drama_id: int = Path(ge=1)):
+    return media_export_service.start_audiobook_export(drama_id)

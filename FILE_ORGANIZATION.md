@@ -242,6 +242,8 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
+│   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
+│   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │   └── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │                                 novel chunk_and_tag as a job-does-everything background job
 │

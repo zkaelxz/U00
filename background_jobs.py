@@ -694,6 +694,7 @@ def cancel_line_jobs(drama_id):
 DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "transcribe_", "consistency_", "emotion_", "notes_", "resegment_",
     "dub_", "autotune_", "sensevoice_", "diarize_", "narration_",
+    "audiobook_", "burned_video_",
 )
 
 
