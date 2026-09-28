@@ -30,6 +30,8 @@ import translation_guide
 import translation_memory
 from services.service_errors import NotFoundError
 
+MAX_TM_LINES_SCANNED = 2000  # cap on lines fed to the TM scan (roughly lines x entries)
+
 
 def _require_drama(drama_id: int) -> dict:
     drama = db.get_drama(drama_id)
@@ -106,10 +108,11 @@ def compare_versions(drama_id: int, left_id: int, right_id: int) -> dict:
     _require_drama(drama_id)
     left = _owned_version(drama_id, left_id)
     right = _owned_version(drama_id, right_id)
-    rmap = {r["idx"]: r.get("en") or "" for r in right["lines"]}
+    rmap = {r["idx"]: r.get("en") or "" for r in right["lines"] if r.get("idx") is not None}
     diffs = [{"idx": r["idx"], "zh": r.get("zh") or "", "left_en": r.get("en") or "",
               "right_en": rmap.get(r["idx"], "")}
-             for r in left["lines"] if rmap.get(r["idx"], "") != (r.get("en") or "")]
+             for r in left["lines"]
+             if r.get("idx") is not None and rmap.get(r["idx"], "") != (r.get("en") or "")]
     return {"drama_id": drama_id,
             "left": {"id": left["id"], "label": left["label"]},
             "right": {"id": right["id"], "label": right["label"]},
@@ -136,6 +139,10 @@ def get_notes_markdown(drama_id: int) -> str:
     """The text of the tab's "Download notes as Markdown" button."""
     drama = _require_drama(drama_id)
     notes = db.list_translation_notes(drama_id)
+    # db's COALESCE can yield a NULL line_idx, which the formatter's sort
+    # can't compare; pass copies with None -> 0 (rows themselves untouched).
+    notes = [dict(n, line_idx=n["line_idx"] if n.get("line_idx") is not None else 0)
+             for n in notes]
     return translation_guide.format_notes_as_markdown(
         notes, drama.get("title_en") or drama.get("title_zh") or "")
 
@@ -196,7 +203,9 @@ def get_edit_tendencies(drama_id: int) -> dict:
 
 def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     """Suggestions only (nothing is applied or bumped). Empty when the drama
-    has no series. line_ids limits the lines considered (permanent ids)."""
+    has no series. line_ids limits the lines considered (permanent ids).
+    At most MAX_TM_LINES_SCANNED lines (the first ones, in line order) are
+    scanned, since the TM match costs roughly lines x entries."""
     drama = _require_drama(drama_id)
     series_id = drama.get("series_id")
     if not series_id:
@@ -206,6 +215,7 @@ def list_tm_suggestions(drama_id: int, line_ids: Optional[list] = None) -> list:
     if line_ids is not None:
         wanted = set(line_ids)
         lines = [ln for ln in lines if ln.id in wanted]
+    lines = lines[:MAX_TM_LINES_SCANNED]
     by_idx = translation_memory.suggest_for_lines(lines, entries)
     out = []
     for ln in lines:

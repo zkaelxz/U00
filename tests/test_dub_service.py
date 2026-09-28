@@ -153,3 +153,24 @@ class TestPacing:
                                                "window_ms": 1, "dub_filename": "a.wav"}})
         res = dub_service.get_dub_pacing(did)
         assert res["available"] is False and res["lines"] == []
+
+
+# --- Hardening H3 ---------------------------------------------------------
+
+def test_h3_reads_do_not_create_drama_folder(isolated_db):
+    did = _drama(isolated_db, lines=[_line(0, speaker="S1")])
+    folder = os.path.join(isolated_db.DRAMAS_DIR, str(did))
+    assert not os.path.exists(folder)
+    dub_service.get_dub_config(did)
+    dub_service.get_dub_pacing(did)
+    assert not os.path.exists(folder)
+
+
+def test_h3_pacing_skips_malformed_records(isolated_db):
+    did = _drama(isolated_db, lines=[_line(0, dub_filename="a.wav"), _line(1, dub_filename="b.wav")])
+    _write_pacing(isolated_db, did, {
+        "0": "not-a-dict",
+        "1": {"status": "fit", "factor": 1.0, "clip_ms": 10.5, "window_ms": 20.5, "dub_filename": "b.wav"}})
+    out = dub_service.get_dub_pacing(did)
+    assert [ln["idx"] for ln in out["lines"]] == [1]
+    assert out["lines"][0]["clip_ms"] == 10.5

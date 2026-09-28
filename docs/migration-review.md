@@ -777,6 +777,18 @@ suggestions are `line_id`/`line_idx`/`zh`/`en`/`suggestion`/`similarity`/
 Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
 job starters, bulk modes.
 
+**Hardening H3 (Slices 25/39/47/48 read services).** GETs no longer create
+the drama folder (`db.drama_dir` makes it; these services build the path
+without creating it). Review lines return `dub_filename` as a bare filename,
+like records. Malformed data degrades instead of 500: non-dict pacing records
+are skipped, pacing `clip_ms`/`window_ms` accept floats, a corrupt raw
+transcript reads as "none", NULL `line_idx` notes render as line 1, version
+lines without `idx` are skipped, and legacy NULL `label`/`created_at` validate.
+`tm-suggestions` takes at most 200 `line_id`s (each >= 1) and scans at most the
+first 2000 lines. Regex find/replace preview rejects nested-quantifier
+patterns such as `(a+)+` and matches only the first 2000 characters of each
+line: a mitigation, not a guarantee (Python's `re` has no timeout).
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions

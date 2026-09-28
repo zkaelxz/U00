@@ -202,3 +202,22 @@ def test_zero_writes_and_no_path_leak(client, isolated_db, monkeypatch):
     assert "/secret" not in blob
     assert "a.wav" in blob
     json.loads(client.get(f"/api/review/dramas/{did}/emotions").text)
+
+
+def test_h3_tm_line_id_bounds(client, isolated_db):
+    did, *_ = _seed(isolated_db)
+    assert client.get(f"/api/review/dramas/{did}/tm-suggestions?line_id=0").status_code == 422
+    many = "&".join(f"line_id={i}" for i in range(1, 202))
+    assert client.get(f"/api/review/dramas/{did}/tm-suggestions?{many}").status_code == 422
+    assert client.get(f"/api/review/dramas/{did}/tm-suggestions?line_id=1&line_id=2").status_code == 200
+
+
+def test_h3_null_label_and_created_at_do_not_500(client, isolated_db, monkeypatch):
+    did, *_ = _seed(isolated_db)
+    monkeypatch.setattr(isolated_db, "list_line_history", lambda d: [
+        {"id": 1, "drama_id": did, "label": None, "created_at": None}])
+    monkeypatch.setattr(isolated_db, "list_translation_versions", lambda d: [
+        {"id": 1, "drama_id": did, "label": None, "engine": None, "model": None,
+         "is_active": 0, "created_at": None}])
+    assert client.get(f"/api/review/dramas/{did}/history").status_code == 200
+    assert client.get(f"/api/review/dramas/{did}/versions").status_code == 200

@@ -68,7 +68,7 @@ def get_translate_config(drama_id: int) -> dict:
     is_novel = drama.get("content_mode") == "novel_narration"
     filename = drama.get("novel_reference_filename")
     has_novel = bool(filename) and os.path.isfile(
-        os.path.join(db.drama_dir(drama_id), filename))
+        os.path.join(db.DRAMAS_DIR, str(drama_id), filename))
     lines = db.load_lines(drama_id)
     monthly_cap = _monthly_cap()
     return {

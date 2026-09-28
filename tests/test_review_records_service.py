@@ -186,3 +186,36 @@ def test_no_db_writes_and_no_path_leak(isolated_db, monkeypatch):
     blob = json.dumps(out, default=str)
     assert "/secret" not in blob
     assert svc.get_line_history_snapshot(did, hid)["lines"][0]["dub_filename"] == "a.wav"
+
+
+# --- Hardening H3 ---------------------------------------------------------
+
+def test_h3_notes_markdown_tolerates_null_line_idx(isolated_db, monkeypatch):
+    did = _drama(isolated_db)
+    monkeypatch.setattr(isolated_db, "list_translation_notes", lambda d: [
+        {"id": 1, "line_idx": None, "term": "A", "note_type": "cultural", "note": "n1"},
+        {"id": 2, "line_idx": 3, "term": "B", "note_type": "cultural", "note": "n2"}])
+    md = svc.get_notes_markdown(did)
+    assert "n1" in md and "n2" in md
+
+
+def test_h3_compare_skips_lines_without_idx(isolated_db, monkeypatch):
+    did = _drama(isolated_db)
+    versions = {1: {"id": 1, "drama_id": did, "label": None,
+                    "lines": [{"idx": 0, "en": "a"}, {"en": "no idx"}]},
+                2: {"id": 2, "drama_id": did, "label": "r", "lines": [{"idx": 0, "en": "b"}, {"en": "x"}]}}
+    monkeypatch.setattr(isolated_db, "get_translation_version", lambda vid: versions.get(vid))
+    out = svc.compare_versions(did, 1, 2)
+    assert [d["idx"] for d in out["diffs"]] == [0]
+
+
+def test_h3_tm_scan_is_capped(isolated_db, monkeypatch):
+    sid = isolated_db.get_or_create_series("S")
+    did = _drama(isolated_db, series_id=sid)
+    _lines(isolated_db, did, ens=("a", "b", "c"))
+    seen = []
+    monkeypatch.setattr(svc, "MAX_TM_LINES_SCANNED", 2)
+    monkeypatch.setattr(svc.translation_memory, "suggest_for_lines",
+                        lambda lines, entries: seen.append(len(lines)) or {})
+    svc.list_tm_suggestions(did)
+    assert seen == [2]

@@ -15,6 +15,7 @@ Nothing here writes to the database or disk. No Streamlit/FastAPI import:
 plain dicts in and out. Identity is always `Line.id`; `idx` is returned for
 display only and never accepted as an identifier.
 """
+import os
 import re
 
 import core as core_module
@@ -28,6 +29,10 @@ from services.service_errors import InvalidInputError, NotFoundError
 MAX_PAGE_SIZE = 200
 MAX_TEXT_CHARS = 500
 MAX_SEARCH_LIMIT = 200
+MAX_REGEX_MATCH_CHARS = 2000   # ReDoS mitigation: only this much of each line is matched
+# a group that contains an unbounded quantifier and is itself repeated
+# unboundedly, e.g. (a+)+  (x*)*  (a|b+){2,}  -- the classic catastrophic shape
+_NESTED_QUANTIFIER = re.compile(r"\([^()]*[+*][^()]*\)\s*(?:[+*]|\{\d+,\d*\})")
 _ONLY_VALUES = ("all", "flagged", "untranslated")
 
 
@@ -44,7 +49,9 @@ def _line_dict(ln) -> dict:
         "id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end,
         "zh": ln.zh, "en": ln.en, "speaker": ln.speaker,
         "speaker_manual": bool(ln.speaker_manual), "sfx": bool(ln.sfx),
-        "flag": ln.flag, "flag_note": ln.flag_note, "dub_filename": ln.dub_filename,
+        "flag": ln.flag, "flag_note": ln.flag_note,
+        # bare filename only, never the relative folder layout (D2)
+        "dub_filename": os.path.basename(ln.dub_filename) if ln.dub_filename else None,
     }
 
 
@@ -116,6 +123,10 @@ def search_lines(drama_id: int, term: str, limit: int = 50) -> list:
     return [_line_dict(ln) for ln in hits[:limit]]
 
 
+def _has_nested_quantifier(pattern: str) -> bool:
+    return bool(_NESTED_QUANTIFIER.search(pattern))
+
+
 def preview_find_replace(drama_id: int, find: str, replace: str,
                          case_sensitive: bool = False, use_regex: bool = False) -> list:
     """Previews a find-and-replace over the translated (`en`) text. Applies
@@ -123,16 +134,23 @@ def preview_find_replace(drama_id: int, find: str, replace: str,
     change.
 
     ReDoS note: with use_regex a caller supplies a pattern that runs on the
-    server, and a pathological pattern can burn CPU. We only cap the pattern
-    and replacement length (MAX_TEXT_CHARS); there is no execution timeout,
-    so the API layer should stay authenticated/local-only."""
+    server. Python's `re` has no timeout, so this is a MITIGATION, not a
+    guarantee: patterns are capped at MAX_TEXT_CHARS, patterns with a
+    repeated group that itself contains an unbounded quantifier (`(a+)+`)
+    are rejected, and only the first MAX_REGEX_MATCH_CHARS characters of
+    each line are matched. The API layer should still stay authenticated/
+    local-only."""
     if not find:
         raise InvalidInputError("Enter text to find.")
     replace = replace or ""
     _check_len("Find text", find)
     _check_len("Replacement", replace)
+    if use_regex and _has_nested_quantifier(find):
+        raise InvalidInputError("This pattern has nested repetition and could be too slow; "
+                                "simplify it.")
     _, lines = _load_drama_and_lines(drama_id)
-    items = [{"id": ln.id, "idx": ln.idx, "en": ln.en} for ln in lines]
+    cap = MAX_REGEX_MATCH_CHARS if use_regex else None
+    items = [{"id": ln.id, "idx": ln.idx, "en": (ln.en or "")[:cap]} for ln in lines]
     try:
         matches = scanlate.bulk_find_replace_preview(
             items, find, replace, text_field="en",
@@ -191,8 +209,12 @@ def get_original_text(drama_id: int, line_id: int) -> dict:
     No file path is returned."""
     _, lines = _load_drama_and_lines(drama_id)
     ln = _find_line(lines, line_id)
-    raw = raw_transcript.load_latest(db.drama_dir(drama_id))
-    original = raw_transcript.original_text_for_line(raw, ln) if raw else None
+    try:
+        raw = raw_transcript.load_latest(os.path.join(db.DRAMAS_DIR, str(drama_id)))
+        original = raw_transcript.original_text_for_line(raw, ln) if raw else None
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        # corrupt/short raw transcript: report it as unavailable, never 500
+        raw, original = None, None
     return {
         "line_id": ln.id, "idx": ln.idx, "current_zh": ln.zh,
         "has_raw_transcript": raw is not None,
