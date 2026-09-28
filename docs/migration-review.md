@@ -400,11 +400,12 @@ Status as of 2026-09-28 (user answers in brackets).
   surface. Migrating a service-first feature later costs only its UI.
   Migrating one written inside a widget handler costs an extraction plus
   the risk of dropping its guards (§4).
-- **D5. Admin actions over HTTP: [proposal pending confirmation.]**
-  `admin.system` permission, a confirmation step, and only from devices
-  the admin marks as trusted (default: the Baihe PC). Until built, these
-  stay in Streamlit, which is owner-only over Tailscale. See
-  [`remote-access-design.md`](remote-access-design.md) §6.
+- **D5. Admin actions over HTTP: [Decided 2026-09-28: admin permission,
+  explicit confirmation, initially only from the Baihe PC.]** Enforced by
+  putting admin endpoints on a separate listener that Tailscale Serve
+  never publishes. The identity headers identify users, not devices.
+  Open sub-choice: whether Streamlit is published to the owner during the
+  transition. See [`remote-access-design.md`](remote-access-design.md) §6.
 - **D6. Remote access (M8-H). [Decided 2026-09-28: Tailscale + Tailscale
   Serve (option A).]** Private to the household's tailnet, no open ports,
   no domain, HTTPS and identity from Tailscale. Baihe adds
