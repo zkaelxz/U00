@@ -11,7 +11,7 @@ generate_subtitle_text() only returns text for the caller to serve.
 
 import pytest
 
-from core import Line
+from core import Line, lines_from_rows
 from services import export_service
 from services.service_errors import InvalidInputError, NotFoundError
 
@@ -165,3 +165,89 @@ class TestGenerateSubtitleText:
         export_service.generate_subtitle_text(did, "srt", "en", include_notes=True)
         after = isolated_db.load_lines(did)
         assert before == after
+
+
+class TestFlagOverlappingLines:
+    def test_flags_an_overlapping_pair(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        result = export_service.flag_overlapping_lines(did)
+        assert result == {"flagged_count": 1}
+        lines = {ln.idx: ln for ln in lines_from_rows(isolated_db.load_lines(did))}
+        assert lines[0].flag == "timing_overlap"
+        assert lines[1].flag is None or lines[1].flag == ""
+
+    def test_no_overlap_is_a_zero_count_not_an_error(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        assert export_service.flag_overlapping_lines(did) == {"flagged_count": 0}
+
+    def test_already_flagged_line_is_left_alone(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=3.0, zh="你好", en="Hello",
+                 flag="reading_speed", flag_note="pre-existing"),
+            Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye"),
+        ])
+        result = export_service.flag_overlapping_lines(did)
+        assert result == {"flagged_count": 0}
+
+    def test_unknown_drama_raises_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            export_service.flag_overlapping_lines(999999)
+
+
+class TestFlagDenseLines:
+    def test_flags_a_dense_line(self, isolated_db):
+        did = _drama(isolated_db)
+        dense_text = "word " * 60  # far more than fits in 1 second on screen
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="", en=dense_text)])
+        result = export_service.flag_dense_lines(did)
+        assert result["flagged_count"] == 1
+
+    def test_no_dense_lines_is_a_zero_count(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=5.0, zh="", en="Hi")])
+        assert export_service.flag_dense_lines(did) == {"flagged_count": 0}
+
+    def test_unknown_drama_raises_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            export_service.flag_dense_lines(999999)
+
+
+class TestRunAutoQcFlagging:
+    def test_flags_a_missing_number(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="他有三个孩子。", en="He has kids."),
+        ])
+        result = export_service.run_auto_qc_flagging(did)
+        assert result["flagged"] == 1
+        assert result["checked"] == 1
+
+    def test_clean_line_is_not_flagged(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello"),
+        ])
+        result = export_service.run_auto_qc_flagging(did)
+        assert result == {"flagged": 0, "cleared": 0, "already_flagged": 0, "checked": 1}
+
+    def test_series_glossary_names_are_used_when_drama_has_a_series(self, isolated_db):
+        series_id = isolated_db.get_or_create_series("S")
+        isolated_db.upsert_glossary_term(
+            series_id, term_original="林晚晚", term_translation="Lin Wanwan",
+            category="person_name")
+        did = _drama(isolated_db, series_id=series_id)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="林晚晚来了。", en="She's here."),
+        ])
+        result = export_service.run_auto_qc_flagging(did)
+        assert result["flagged"] == 1
+
+    def test_unknown_drama_raises_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            export_service.run_auto_qc_flagging(999999)

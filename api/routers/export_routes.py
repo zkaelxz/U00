@@ -3,15 +3,16 @@ api/routers/export_routes.py -- Export-stage endpoints for one drama
 (Phase 6's first Workspace stage).
 
 Migration Slice 12 added the read-only readiness summary. Migration
-Slice 14 adds subtitle text generation (SRT/VTT) as a plain-text download
--- see services/export_service.py's own docstring for what's still out
-of scope (ASS, EPUB, audiobook, burned-in video, and any flagging
-action).
+Slice 14 added subtitle text generation (SRT/VTT) as a plain-text
+download. Migration Slice 15 adds the three flagging actions -- each
+writes only the flag/flag_note fields (see services/export_service.py's
+own docstring for the field-scoped-write discipline). Still out of
+scope: ASS, EPUB, audiobook, burned-in video export.
 """
 
 from fastapi import APIRouter, Path, Query, Response
 
-from api.schemas import ErrorResponse, ExportReadiness
+from api.schemas import AutoQcFlagResult, ErrorResponse, ExportReadiness, FlagActionResult
 from services import export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -43,3 +44,24 @@ def get_subtitle_text(
     return Response(
         content=text, media_type=_MEDIA_TYPES[fmt],
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/dramas/{drama_id}/flag-overlaps", response_model=FlagActionResult,
+            summary="Flag every currently-overlapping, not-yet-flagged line for review",
+            responses={404: {"model": ErrorResponse}})
+def post_flag_overlaps(drama_id: int = Path(ge=1)):
+    return export_service.flag_overlapping_lines(drama_id)
+
+
+@router.post("/dramas/{drama_id}/flag-dense-lines", response_model=FlagActionResult,
+            summary="Flag every line too dense to read in its on-screen time",
+            responses={404: {"model": ErrorResponse}})
+def post_flag_dense_lines(drama_id: int = Path(ge=1)):
+    return export_service.flag_dense_lines(drama_id)
+
+
+@router.post("/dramas/{drama_id}/flag-auto-qc", response_model=AutoQcFlagResult,
+            summary="Run Auto QC's factual-detail check and update flags in place",
+            responses={404: {"model": ErrorResponse}})
+def post_flag_auto_qc(drama_id: int = Path(ge=1)):
+    return export_service.run_auto_qc_flagging(drama_id)
