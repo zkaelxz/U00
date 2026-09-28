@@ -979,6 +979,22 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
+**Slice 37 -- Metadata auto-fill and media analysis.** `POST
+/api/metadata/dramas/{id}/analyze-media` (ffprobe of the stored video/audio:
+`duration_seconds`, `has_video`, `has_audio`, `audio_track_count`,
+`sample_rate`; no paths), `POST .../autofill` (`{url | page_text, engine?}`;
+returns a `suggestion` of title/author/studio/director/voice_actors/summary
+(+ `source_url` when a URL was used) and writes nothing) and `POST
+.../autofill/apply` (whitelisted fields only, via
+`drama_service.update_drama_metadata`). URLs must be http(s) and every
+resolved address (and redirect hop, followed manually, max 3) must be global,
+else 422; no key, unreachable page, LLM failure or missing ffprobe is a 503
+with fixed text (exceptions are never echoed); unknown drama 404. Keys come
+from server settings, never the request. Residual risk: DNS rebinding between
+the check and the fetch; the LLM call's timeout is the engine's own. No
+JS-rendered fetch (Streamlit's fallback) -- paste text instead. Not verified
+against a real LLM or site (tests mock everything).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

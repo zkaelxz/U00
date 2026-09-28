@@ -242,6 +242,8 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
+│   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
+│   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
 │   └── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │                                 novel chunk_and_tag as a job-does-everything background job
 │
@@ -298,6 +300,8 @@ baihe-subtitler/
 │       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       ├── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
 │       │                         only) (Migration Slice 31)
+│       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
+│       │                         (Migration Slice 37)
 │       └── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
