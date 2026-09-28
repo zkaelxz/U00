@@ -4,10 +4,11 @@ api/routers/export_routes.py -- Export-stage endpoints for one drama
 
 Migration Slice 12 added the read-only readiness summary. Migration
 Slice 14 added subtitle text generation (SRT/VTT) as a plain-text
-download. Migration Slice 15 adds the three flagging actions -- each
+download. Migration Slice 15 added the three flagging actions -- each
 writes only the flag/flag_note fields (see services/export_service.py's
-own docstring for the field-scoped-write discipline). Still out of
-scope: ASS, EPUB, audiobook, burned-in video export.
+own docstring for the field-scoped-write discipline). Migration Slice 18
+adds EPUB export (novel-narration dramas only) as a binary download.
+Still out of scope: ASS export, audiobook, burned-in video export.
 """
 
 from fastapi import APIRouter, Path, Query, Response
@@ -65,3 +66,15 @@ def post_flag_dense_lines(drama_id: int = Path(ge=1)):
             responses={404: {"model": ErrorResponse}})
 def post_flag_auto_qc(drama_id: int = Path(ge=1)):
     return export_service.run_auto_qc_flagging(drama_id)
+
+
+@router.get("/dramas/{drama_id}/epub",
+            summary="Generate an EPUB for one novel-narration drama (binary download)",
+            responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                      422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|zh)$")):
+    data = export_service.generate_epub(drama_id, field=field)
+    filename = f"drama_{drama_id}_{field}.epub"
+    return Response(
+        content=data, media_type="application/epub+zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
