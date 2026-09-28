@@ -4224,7 +4224,12 @@ class TestDubGenerationRealMidRunStop:
 
         def fake_worker(lines, drama_dir, voice_map, default_voice, clone_map, tts_engine,
                         is_narration, emotion_map, max_speedup, max_slowdown, offline_voice_map,
-                        narrate_original, source_language, result_queue):
+                        result_queue, narrate_original=False, source_language="zh"):
+            # Mirrors the REAL dub.build_track_subprocess_worker signature:
+            # result_queue comes right after offline_voice_map (background_jobs
+            # appends the queue LAST, so the tab binds narrate_original /
+            # source_language by keyword). This fake used to mirror the buggy
+            # positional call instead, which hid the bug from the suite.
             lines[0].dub_filename = "dub_clips/line_0000.wav"
             result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": []}))
         monkeypatch.setattr(dub_module, "build_track_subprocess_worker", fake_worker)

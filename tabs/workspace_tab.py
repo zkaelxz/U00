@@ -1,6 +1,7 @@
 """
 tabs/workspace.py -- Workspace tab UI, extracted from the former monolithic app.py.
 """
+import functools
 import dataclasses
 import math
 
@@ -5587,12 +5588,18 @@ def render_workspace_tab():
                 # Chatterbox, TADA) touch the GPU -- edge_tts is an online
                 # service and "offline" fallback TTS is CPU-only, so
                 # this only takes a GPU slot when it's actually needed.
+                # narrate_original/source_language are bound by keyword: the
+                # worker declares result_queue right after offline_voice_map
+                # and background_jobs appends the queue LAST, so passing
+                # them positionally put the queue in narrate_original's slot.
                 background_jobs.start_process_job(
-                    _dub_job_id, dub_module.build_track_subprocess_worker,
+                    _dub_job_id,
+                    functools.partial(dub_module.build_track_subprocess_worker,
+                                      narrate_original=_narrate_original,
+                                      source_language=_source_lang),
                     args=(_copy_lines(st.session_state.lines), ddir, voice_map, _default_voice_pool[0],
                           clone_map, tts_engine, content_mode == "novel_narration",
-                          db.load_emotions(picked_id), max_speedup, max_slowdown, offline_voice_map,
-                          _narrate_original, _source_lang),
+                          db.load_emotions(picked_id), max_speedup, max_slowdown, offline_voice_map),
                     gpu_touching=dub_module.clone_map_uses_local_model(clone_map),
                     description=f"Dub generation ({_drama_label(drama)})")
                 st.info("Generating in the background -- come back here for progress or to "

@@ -1197,3 +1197,33 @@ def test_offline_voice_is_saved_separately_from_the_edge_voice(isolated_db):
     isolated_db.upsert_character(did, "A", offline_voice="en_GB-alba-medium")
     (c,) = isolated_db.list_characters(did)
     assert (c["tts_voice"], c["offline_voice"]) == ("en-US-AvaNeural", "en_GB-alba-medium")
+
+
+class TestDubWorkerArgumentBinding:
+    """background_jobs appends result_queue as the LAST positional argument
+    (`args=(*args, result_queue)`), but build_track_subprocess_worker
+    declares result_queue right after offline_voice_map, before its
+    keyword-default parameters. The Streamlit tab used to pass
+    narrate_original/source_language positionally, which put the real queue
+    in the wrong slot and broke dub generation from the tab (Step 26c
+    onward). Callers must bind those two by keyword (functools.partial)."""
+
+    def test_queue_lands_in_result_queue_when_extras_are_bound_by_keyword(self):
+        import functools
+        import inspect
+        queue = object()
+        bound = functools.partial(dub.build_track_subprocess_worker,
+                                  narrate_original=True, source_language="ja")
+        positional = ([], "/d", {}, "v", {}, "edge_tts", False, {}, 1.4, 0.85, None)
+        call = inspect.signature(bound).bind(*positional, queue)
+        call.apply_defaults()  # partial-bound keywords show up as defaults
+        assert call.arguments["result_queue"] is queue
+        assert call.arguments["narrate_original"] is True
+        assert call.arguments["source_language"] == "ja"
+
+    def test_workspace_tab_binds_them_by_keyword(self):
+        import re
+        src = open(os.path.join(os.path.dirname(__file__), "..", "tabs", "workspace_tab.py"),
+                   encoding="utf-8").read()
+        assert re.search(r"functools\.partial\(dub_module\.build_track_subprocess_worker,\s*"
+                         r"narrate_original=_narrate_original,\s*source_language=_source_lang\)", src)
