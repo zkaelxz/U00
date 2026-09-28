@@ -94,3 +94,60 @@ class ReaderPageResponse(BaseModel):
     page: int
     page_count: int
     total_lines: int
+
+
+class DependencyStatus(BaseModel):
+    installed: bool
+    powers: str
+    tier: str
+
+
+class FileCompleteness(BaseModel):
+    missing_top_level: List[str]
+    missing_tabs: List[str]
+    all_present: bool
+
+
+class GpuStatus(BaseModel):
+    available: bool
+    name: Optional[str] = None
+    vram_used_gb: Optional[float] = None
+    vram_total_gb: Optional[float] = None
+    torch_cuda_version: Optional[str] = None
+    message: Optional[str] = None
+
+
+class ModelEngineVersion(BaseModel):
+    name: str
+    version: Optional[str] = None
+    url: Optional[str] = None
+    installed: bool
+    package: Optional[str] = None
+    help: Optional[str] = None
+
+
+class RunningJob(BaseModel):
+    job_id: str
+    status: Optional[str] = None
+    progress: Optional[float] = None
+    message: str = ""
+    error: Optional[str] = None
+    description: Optional[str] = None
+    gpu_touching: bool = False
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+
+
+class DiagnosticsOverview(BaseModel):
+    """A read-only snapshot of Diagnostics' routine view (Migration
+    Slice 5) -- no admin action (install/upgrade/delete) is exposed
+    here; those stay Streamlit-only. Log lines and job messages/errors
+    are redacted the same way the Streamlit tab's own "copy for
+    support" export already is."""
+    dependencies: dict[str, DependencyStatus]
+    file_completeness: FileCompleteness
+    library_writable: bool
+    gpu: GpuStatus
+    model_engine_versions: List[ModelEngineVersion]
+    running_jobs: List[RunningJob]
+    recent_log_lines: List[str]
