@@ -704,6 +704,23 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 42 — Characters and voice config (2026-09-28).**
+`services/characters_service.py` + `/api/characters/*`: list a drama's
+speakers with character/voice settings, a validated partial update
+(POST, speaker label in the JSON body since labels can hold spaces,
+unicode or slashes), series-character listing, the clone-engine picklist
+and the voice bank (list + apply). Everything is scoped per
+(drama_id, speaker_label), so one drama's write never touches another's
+same-named speaker. The Step 26c rule (never a clone engine that can't
+speak the drama's source language) is enforced server-side (422), not
+just by the picker. Update semantics are None = leave alone, "" = clear,
+because `db.upsert_character` uses COALESCE; the router forwards only
+fields the client set (`exclude_unset`), and an explicit JSON null counts
+as not passed. Voice-bank apply copies the clip into the drama's folder
+server-side but never returns a path or filename (only `has_ref_audio`).
+Out of scope: reference-audio upload/auto-extract (multipart), series-
+character writes, Dub generation.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

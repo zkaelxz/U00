@@ -201,6 +201,10 @@ baihe-subtitler/
 │   │                             video/transcript-source presence); audio upload and transcript/
 │   │                             novel text stay out of scope, folded into a future
 │   │                             transcribe-and-align action slice instead
+│   ├── characters_service.py     Migration Slice 42 -- per-drama speakers' character/voice config:
+│   │                             list/update (None = leave alone, "" = clear), series-character
+│   │                             list, clone-engine picklist (Step 26c language rule), voice bank
+│   │                             list/apply; no paths returned; ref-audio upload stays out of scope
 │   └── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
 │                                 (Whisper tuning knobs, newly persisted per drama) plus
 │                                 start_transcribe_run: a background job that does the WHOLE
@@ -237,6 +241,9 @@ baihe-subtitler/
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
+│       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
+│       │                         POST .../voice-bank/apply, /series/{id}/characters, /voice-bank
+│       │                         (Migration Slice 42)
 │       └── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │                                 (Migration Slice 20)
 │
