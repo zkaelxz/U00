@@ -365,8 +365,9 @@ class TestSettingsEndpoint:
 
 class TestTranslateEndpoints:
     """Migration Slice 11: read-only Translate-standalone endpoints --
-    engine metadata and history. No translate action, no history-clear
-    endpoint; see api/routers/translate_routes.py's own docstring for why."""
+    engine metadata and history. Migration Slice 13 adds the translate
+    action itself (POST /api/translate). No history-clear endpoint; see
+    api/routers/translate_routes.py's own docstring for why."""
 
     def test_engines_contract_shape(self, client, isolated_db):
         body = client.get("/api/translate/engines").json()
@@ -392,9 +393,53 @@ class TestTranslateEndpoints:
         assert len(body["items"]) == 1
         assert body["items"][0]["source_text"] == "你好"
 
-    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
-        assert client.post("/api/translate/engines").status_code == 405
+    def test_no_history_write_endpoint_is_exposed(self, client, isolated_db):
         assert client.delete("/api/translate/history").status_code == 405
+
+    def test_translate_with_test_offline_engine(self, client, isolated_db):
+        resp = client.post("/api/translate", json={
+            "text": "你好", "engine": "test_offline",
+            "source_language": "zh", "target_language": "en",
+        })
+        assert resp.status_code == 200
+        assert resp.json() == {"translated_text": "[TEST] 你好"}
+        history = client.get("/api/translate/history").json()["items"]
+        assert len(history) == 1
+
+    def test_translate_never_accepts_or_leaks_a_key_field(self, client, isolated_db):
+        resp = client.post("/api/translate", json={
+            "text": "你好", "engine": "test_offline",
+            "source_language": "zh", "target_language": "en",
+            "api_key": "sk-should-be-ignored",
+        })
+        assert resp.status_code == 200
+        assert "sk-should-be-ignored" not in resp.text
+
+    def test_translate_unknown_engine_is_422(self, client, isolated_db):
+        resp = client.post("/api/translate", json={
+            "text": "hi", "engine": "not_a_real_engine",
+            "source_language": "zh", "target_language": "en",
+        })
+        assert resp.status_code == 422
+        assert _error(resp)["code"] == "validation_error"
+
+    def test_translate_missing_key_is_503(self, client, isolated_db, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("BAIHE_CLAUDE_KEY", raising=False)
+        resp = client.post("/api/translate", json={
+            "text": "hi", "engine": "claude",
+            "source_language": "zh", "target_language": "en",
+        })
+        assert resp.status_code == 503
+        assert _error(resp)["code"] == "dependency_unavailable"
+
+    def test_translate_unsupported_direction_is_400(self, client, isolated_db):
+        resp = client.post("/api/translate", json={
+            "text": "hello", "engine": "libretranslate",
+            "source_language": "en", "target_language": "zh",
+        })
+        assert resp.status_code == 400
+        assert _error(resp)["code"] == "unsupported_operation"
 
 
 class TestExportReadinessEndpoint:
