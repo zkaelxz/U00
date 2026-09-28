@@ -50,6 +50,7 @@ baihe-subtitler/
 │   ├── handoff-browser-extension.md   handoff notes for the browser extension work
 │   ├── known-working-sources.md  quick "can I point the app at this site" status board
 │   ├── migration-react-fastapi.md   the React + FastAPI migration: architecture, how to run, what's next
+│   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants, sequence
 │   ├── migration-screenshots/    before/after screenshots referenced by that doc
 │   └── technical-notes.md        engineering changelog: real bugs found + how they were fixed
 │
