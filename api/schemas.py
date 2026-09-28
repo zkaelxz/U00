@@ -1052,3 +1052,15 @@ class LinesNote(BaseModel):
 class LinesNoteDeleteResult(BaseModel):
     deleted: bool
     note_id: int
+
+
+class DubRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tts_engine: str = Field(default="edge_tts", max_length=40)
+    max_speedup: Optional[float] = Field(default=None, ge=1.0, le=2.0)
+    max_slowdown: Optional[float] = Field(default=None, ge=0.5, le=1.0)
+    narration_language: Optional[str] = Field(default=None, max_length=20)
+
+
+class DubRunStarted(BaseModel):
+    job_id: str
