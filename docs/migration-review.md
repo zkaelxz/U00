@@ -849,6 +849,21 @@ with fixed text and the partial file is deleted) and is atomically renamed.
 of the same extension. Video audio extraction runs synchronously in the
 request (ffmpeg). Out of scope: yt-dlp URL download, ref-audio/cover uploads.
 
+**Slice 33 -- Novel narration chunk & tag.** `GET /api/narration/dramas/{id}/config`
+(booleans/enums only: novel text attached, per-engine `key_configured`, existing line
+count, job running) and `POST /api/narration/dramas/{id}/run` (`{engine?, model?}`,
+default engine `claude`; claude/deepseek/gemini/ollama) -> `{"job_id": "narration_<id>"}`.
+The job does everything (Slice 20 pattern): chunks the drama's attached
+`novel_narration_source.txt`, tags speakers with `tag_speakers_llm` (id-keyed; a
+wrong-length result falls back to all Narrator), upserts characters, takes a "before chunk
+& tag speakers" history snapshot, then replaces the drama's lines (the same full replace
+Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: unknown drama
+404, no novel text or non-LLM engine 422, no key 503 (Streamlit's silent all-Narrator
+fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
+`background_jobs`. Not verified against a real LLM (fake engine only).
+
+**Next candidates:** the
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
