@@ -477,9 +477,32 @@ and saves the result to history the same way `tabs/translate_tab.py`'s own
 falls through to the API's own generic 500, never leaking its raw text.
 Clearing history is still out of scope -- a separate write action.
 
-**Next candidate:** Export's write half (flagging, file generation) --
-not a mechanical follow-on to its read-only half (Slice 12), so not
-batched in here.
+**Slice 14 — Export's subtitle-text generation (2026-09-28).** On closer
+read, the Export stage's "write half" splits into two genuinely different
+risk classes: flagging (a real `db.save_lines` write) and subtitle-file
+generation (a pure function -- lines in, text out, no state mutated at
+all). This slice does the second, safer half only. `services/
+export_service.py` gains `generate_subtitle_text(drama_id, fmt, field,
+include_notes=False, wrap_chars_en=None, wrap_chars_source=None)`: trims
+overlapping cues the same way the Streamlit tab does
+(`subtitle_formats.clamp_overlaps`) before generating SRT
+(`core.lines_to_srt`/`lines_to_bilingual_srt`) or VTT
+(`subtitle_formats.lines_to_vtt`) text, optionally wrapping long lines
+(`subtitle_formats.wrap_lines`) and inlining saved translation notes
+(`db.list_translation_notes` + `translation_guide.group_notes_by_line`).
+New `GET /api/export/dramas/{id}/subtitle` returns the text as a
+plain-text download (`Content-Disposition: attachment`, `fmt`/`field`
+validated both at the route (a regex `Query`) and the service layer, for
+a caller that skips the route). Still explicitly out of scope: ASS export
+(needs the interactive per-drama style state
+`_subtitle_style_fragment` builds in Streamlit -- no API contract for
+that yet), EPUB/audiobook/burned-in-video export (each its own
+subprocess/library dependency), and the readiness page's flagging
+actions (a write, deferred to its own slice).
+
+**Next candidate:** Export's actual write action (flagging overlapping/
+QC/dense lines via `db.save_lines`) -- a real database write, so its own
+slice rather than folded into Slice 14's pure-function scope.
 
 ---
 

@@ -465,3 +465,50 @@ class TestExportReadinessEndpoint:
     def test_no_write_endpoint_is_exposed(self, client, isolated_db):
         did = isolated_db.create_drama(title_en="D")
         assert client.post(f"/api/export/dramas/{did}/readiness").status_code == 405
+
+
+class TestExportSubtitleEndpoint:
+    """Migration Slice 14: SRT/VTT subtitle text generation as a
+    plain-text download. Never flags a line, never writes to disk; ASS/
+    EPUB/audiobook/video export stay out of scope -- see
+    api/routers/export_routes.py's own docstring for why."""
+
+    def _drama_with_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        return did
+
+    def test_srt_download_shape(self, client, isolated_db):
+        did = self._drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=srt&field=en")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/x-subrip")
+        assert "attachment" in resp.headers["content-disposition"]
+        assert "Hello" in resp.text
+
+    def test_vtt_download_shape(self, client, isolated_db):
+        did = self._drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=vtt&field=en")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/vtt")
+        assert resp.text.startswith("WEBVTT")
+
+    def test_default_format_and_field(self, client, isolated_db):
+        did = self._drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/subtitle")
+        assert resp.status_code == 200
+        assert "Hello" in resp.text
+
+    def test_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/export/dramas/999999/subtitle")
+        assert resp.status_code == 404
+        assert _error(resp)["code"] == "not_found"
+
+    def test_unknown_format_is_422(self, client, isolated_db):
+        did = self._drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/subtitle?fmt=ass")
+        assert resp.status_code == 422
+
+    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
+        did = self._drama_with_lines(isolated_db)
+        assert client.post(f"/api/export/dramas/{did}/subtitle").status_code == 405
