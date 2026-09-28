@@ -250,11 +250,11 @@ baihe-subtitler/
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
-│   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
-│   │                             preview + apply job, version-history restore (snapshot first,
-│   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
-│   └── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
-│                                 export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
+│   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
+│   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
+│   └── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
+│                                 preview + apply job, version-history restore (snapshot first,
+│                                 expected_line_ids 409, running-job refusal, refs follow line ids)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
