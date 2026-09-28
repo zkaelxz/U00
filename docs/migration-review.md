@@ -704,6 +704,55 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 25 — Dub config and pacing reads (2026-09-28).**
+New `services/dub_service.py` and `/api/dub/dramas/{id}/config` and
+`.../pacing` (read-only). Config reports the TTS engine options, each
+speaker's resolved edge/offline voice and engine (the same resolution the
+Generate button uses), whether generating needs the GPU, how many lines are
+speakable, and whether a finished track exists; pacing reports each line's
+fit/stretched/overflow status from the last run. D2 discipline: no
+filesystem path, GPT-SoVITS URL or secret is returned -- only booleans such
+as `gpt_sovits_configured` and `has_clone_ref`. Out of scope: the Generate
+job (Slice 26), voice/character CRUD, per-line preview, and track download.
+Speakers and lines are read from the database, not the browser's unsaved
+session lines. No new db column.
+
+**Slice 27 — Export ASS subtitle text (2026-09-28).** `export_service.
+generate_ass_text` / `get_ass_style_options`, exposed as `POST /api/export/
+dramas/{id}/ass` (text download) and `GET /api/export/ass-style-options`.
+Style is per-request (preset plus optional overrides, only client-set
+fields override) with no new column. Lines come from the DB, not the
+Streamlit tab's unsaved session copy, so unsaved edits will differ.
+Explicit colour/range validation replaces the tab's silent white/alignment
+fallbacks. Out of scope: burned-in video, audiobook, package zip,
+mark-as-exported, Anki (Reader tab).
+
+**Slice 46 -- Glossary, instructions and catalogues.** `services/glossary_service.py`
+plus `/api/glossary/*`: series glossary term list/upsert/delete, project and series
+instructions, and the read-only option catalogues (style presets, term categories/policies,
+workflow tiers). Terms are series-owned, so every write/delete verifies the term belongs to
+the drama's own series first (`db.update_glossary_term`/`db.delete_glossary_term` take a bare
+id with no series check); a series-less drama reads as empty and refuses term writes and
+series instructions (400). Delete needs `confirm=true`, mirroring the tab's Step 71 confirm
+checkbox. Text, list and instruction lengths are capped. Out of scope: LLM term extraction (a
+paid call, later slice), presets CRUD, characters.
+
+**Slice 47 — Review read-only line views (2026-09-28).**
+`services/review_lines_service.py` + `api/routers/review_lines_routes.py`
+(`/api/review/dramas/{id}/...`): paged/filtered line list, transcript search,
+find-and-replace preview, coverage check, pacing check, per-line provenance
+and original-transcript text. Everything reads the database by permanent line
+id, not the browser's unsaved session list, so coverage/pacing results can
+differ from what the Streamlit tab shows until edits are saved. The
+find-replace preview is a POST only because of its body and writes nothing;
+with `use_regex` the pattern runs server-side with no execution timeout (a
+ReDoS risk), so only find/replace length (500) is capped -- the API stays
+local/trusted-network only. `re.error` (bad pattern or bad group reference in
+the replacement) maps to 422, not 500. Caps: page_size 200, search limit 200,
+search/find/replace text 500 characters. Out of scope: all writes, player/
+media, translation-memory suggestions, LLM tools, bulk modes, and
+history/versions/notes reads (Slice 48).
+
 **Slice 48 — Review read-only records (2026-09-28).**
 `services/review_records_service.py` + `api/routers/review_records_routes.py`
 (`/api/review/dramas/{id}/...`): history list/snapshot, versions list/compare,
@@ -719,6 +768,64 @@ suggestions are `line_id`/`line_idx`/`zh`/`en`/`suggestion`/`similarity`/
 `line_id` filter); notes Markdown is served inline as `text/markdown`.
 Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
 job starters, bulk modes.
+
+**Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
+dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
+slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
+taken 2026-09-28 that shape that queue: process-based jobs (speaker detection, dub, Ollama
+re-segment) get an `on_done` completion hook in `background_jobs.py` so an API-started job applies
+its own result; destructive actions follow today's UI confirmation bar (drama delete needs
+`confirm=true` plus a typed `confirm_text="DELETE"` and is refused while a job runs; other
+destructive actions rely on the pre-write snapshot or `confirm=true` where the tab has a checkbox);
+uploads use streamed multipart (new `python-multipart` dependency) with long exports as jobs
+writing a fixed file in the drama folder served by a download endpoint; `use_gpu` is persisted in
+`db.app_settings` (default off) and honoured by every GPU-capable API job.
+
+**Slice 35 -- Drama create and update.** `POST /api/dramas` (201) and
+`POST /api/dramas/{id}/metadata` (partial update; only fields present in the
+body are applied). POST for writes, per the convention set by Slice 19 (no
+PATCH). Updatable fields are a whitelist, enforced twice: the request schema
+forbids unknown keys (422), and `services/drama_service.py` re-checks, because
+`db.create_drama`/`db.update_drama` interpolate kwarg keys straight into SQL --
+`status`, `content_mode`, `source_language`, `*_filename`, `translation_engine`
+and `personal_notes` (per-profile) are never client-writable here.
+`source_language` is required on create (Step 87 enforced explicitly). Preset
+semantics: only the preset's `translation_engine` is persisted on the drama;
+`style_preset`, `locale`, `default_female_pronouns` and `include_genre_notes`
+are session-only in Streamlit, so create returns them as `preset_defaults`
+for the client to hold. Out of scope: delete (destructive; gated on a
+confirmation-semantics decision), cover upload (needs python-multipart),
+series rename/unassign, presets CRUD, metadata auto-fill, personal notes.
+
+**Slice 39 — Translate stage config and cost estimate (2026-09-28).**
+Read-only half of the per-drama Translate stage: `GET
+/api/translate-run/dramas/{id}/config` (engines, style presets, locales,
+workflow tiers, context/batch defaults that differ for novel_narration,
+line/untranslated counts, monthly cap and spend, per-engine cap
+applicability, bulk-capable engines) and `GET .../estimate` (pre-run cost
+estimate and cap gating for a chosen engine/model/reflect/bulk). Every
+knob is a request-time parameter with the widget's own default as
+fallback -- no new drama columns. The estimate is advisory, not a
+guarantee. Booleans/numbers only, never a key or the novel text. Out of
+scope: the start-translate job (Slice 40), bulk/Reflect runs (Slice 41),
+glossary review, style-preset CRUD and characters.
+
+**Slice 42 — Characters and voice config (2026-09-28).**
+`services/characters_service.py` + `/api/characters/*`: list a drama's
+speakers with character/voice settings, a validated partial update
+(POST, speaker label in the JSON body since labels can hold spaces,
+unicode or slashes), series-character listing, the clone-engine picklist
+and the voice bank (list + apply). Everything is scoped per
+(drama_id, speaker_label), so one drama's write never touches another's
+same-named speaker. The Step 26c rule (never a clone engine that can't
+speak the drama's source language) is enforced server-side (422), not
+just by the picker. Update semantics are None = leave alone, "" = clear,
+because `db.upsert_character` uses COALESCE; the router forwards only
+fields the client set (`exclude_unset`), and an explicit JSON null counts
+as not passed. Voice-bank apply copies the clip into the drama's folder
+server-side but never returns a path or filename (only `has_ref_audio`).
+Out of scope: reference-audio upload/auto-extract (multipart), series-
+character writes, Dub generation.
 
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the

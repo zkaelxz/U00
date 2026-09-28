@@ -1,0 +1,187 @@
+"""
+Tests for the /api/glossary endpoints (Migration Slice 46): series
+glossary terms, project/series instructions and the option catalogues.
+FastAPI TestClient against an isolated library -- no network.
+"""
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
+
+from api.api_config import ApiSettings
+from api.server import create_app
+
+
+@pytest.fixture
+def client(isolated_db):
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+
+
+def _error(resp):
+    body = resp.json()
+    assert set(body) == {"error"}, body
+    assert {"code", "message"} <= set(body["error"])
+    return body["error"]
+
+
+def _drama(db, name="S", series=True):
+    sid = db.get_or_create_series(name) if series else None
+    return db.create_drama(title_en=f"D-{name}", series_id=sid)
+
+
+FULL = {"term_original": "沈清疑", "term_translation": "Shen Qingyi", "notes": "hero",
+        "category": "person_name", "policy": "keep_pinyin", "enforce_exact": True,
+        "aliases": ["清疑", "Qing Yi"], "banned_translations": ["Shen Clear Doubt"]}
+
+
+def _url(did, tail):
+    return f"/api/glossary/dramas/{did}/{tail}"
+
+
+class TestTerms:
+    def test_upsert_list_round_trip(self, client, isolated_db):
+        did = _drama(isolated_db)
+        assert client.get(_url(did, "terms")).json() == []
+        r = client.post(_url(did, "terms"), json=FULL)
+        assert r.status_code == 200
+        saved = r.json()
+        for k, v in FULL.items():
+            assert saved[k] == v
+        assert client.get(_url(did, "terms")).json() == [saved]
+
+    def test_update_by_id_keeps_omitted_fields(self, client, isolated_db):
+        did = _drama(isolated_db)
+        saved = client.post(_url(did, "terms"), json=FULL).json()
+        r = client.post(_url(did, "terms"),
+                        json={"id": saved["id"], "term_translation": "Shen Q."})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == saved["id"]
+        assert body["term_translation"] == "Shen Q."
+        assert body["aliases"] == FULL["aliases"]
+        assert body["banned_translations"] == FULL["banned_translations"]
+        assert body["enforce_exact"] is True
+        assert len(client.get(_url(did, "terms")).json()) == 1
+
+    def test_delete_needs_confirm(self, client, isolated_db):
+        did = _drama(isolated_db)
+        tid = client.post(_url(did, "terms"), json=FULL).json()["id"]
+        r = client.delete(_url(did, f"terms/{tid}"))
+        assert r.status_code == 422
+        assert _error(r)["code"] == "validation_error"
+        assert len(client.get(_url(did, "terms")).json()) == 1
+        r = client.delete(_url(did, f"terms/{tid}") + "?confirm=true")
+        assert r.status_code == 200
+        assert r.json() == {"deleted": True}
+        assert client.get(_url(did, "terms")).json() == []
+
+    def test_no_series(self, client, isolated_db):
+        did = _drama(isolated_db, series=False)
+        assert client.get(_url(did, "terms")).json() == []
+        r = client.post(_url(did, "terms"), json=FULL)
+        assert r.status_code == 400
+        assert _error(r)["code"] == "unsupported_operation"
+
+    def test_cross_series_isolation(self, client, isolated_db):
+        a = _drama(isolated_db, "A")
+        b = _drama(isolated_db, "B")
+        tid = client.post(_url(a, "terms"), json=FULL).json()["id"]
+        assert client.get(_url(b, "terms")).json() == []
+        r = client.post(_url(b, "terms"), json={"id": tid, "term_translation": "x"})
+        assert r.status_code == 404
+        r = client.delete(_url(b, f"terms/{tid}") + "?confirm=true")
+        assert r.status_code == 404
+        assert client.get(_url(a, "terms")).json()[0]["term_translation"] == "Shen Qingyi"
+
+    def test_conflict_on_rename(self, client, isolated_db):
+        did = _drama(isolated_db)
+        client.post(_url(did, "terms"), json=FULL)
+        other = client.post(_url(did, "terms"),
+                            json={"term_original": "X", "term_translation": "x"}).json()
+        r = client.post(_url(did, "terms"),
+                        json={"id": other["id"], "term_original": FULL["term_original"]})
+        assert r.status_code == 409
+        assert _error(r)["code"] == "conflict"
+
+    def test_validation_errors(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "terms"), json={"term_original": "a"})
+        assert r.status_code == 422
+        _error(r)
+        r = client.post(_url(did, "terms"), json={**FULL, "unexpected": 1})
+        assert r.status_code == 422
+        assert _error(r)["code"] == "validation_error"
+        r = client.post(_url(did, "terms"), json={**FULL, "category": "bogus"})
+        assert r.status_code == 422
+        r = client.post(_url(did, "terms"), json={**FULL, "aliases": ["a|b"]})
+        assert r.status_code == 422
+        r = client.get("/api/glossary/dramas/0/terms")
+        assert r.status_code == 422
+
+    def test_error_message_does_not_echo_user_text(self, client, isolated_db):
+        did = _drama(isolated_db)
+        secret = "SECRETVALUE-xyz"
+        r = client.post(_url(did, "terms"), json={**FULL, "category": secret})
+        assert r.status_code == 422
+        assert secret not in r.text
+        r = client.post(_url(did, "terms"), json={**FULL, "aliases": [secret + "|"]})
+        assert r.status_code == 422
+        assert secret not in r.text
+
+    def test_unknown_drama(self, client):
+        assert client.get(_url(999, "terms")).status_code == 404
+        assert client.post(_url(999, "terms"), json=FULL).status_code == 404
+        assert client.delete(_url(999, "terms/1") + "?confirm=true").status_code == 404
+        assert client.get(_url(999, "instructions")).status_code == 404
+        r = client.post(_url(999, "instructions/project"), json={"text": "x"})
+        assert r.status_code == 404
+        assert _error(r)["code"] == "not_found"
+
+
+class TestInstructions:
+    def test_project_and_series_independent(self, client, isolated_db):
+        did = _drama(isolated_db)
+        assert client.get(_url(did, "instructions")).json() == {
+            "project_instructions": "", "series_instructions": ""}
+        r = client.post(_url(did, "instructions/project"), json={"text": "proj"})
+        assert r.json() == {"project_instructions": "proj", "series_instructions": ""}
+        r = client.post(_url(did, "instructions/series"), json={"text": "ser"})
+        assert r.json() == {"project_instructions": "proj", "series_instructions": "ser"}
+        assert client.get(_url(did, "instructions")).json() == {
+            "project_instructions": "proj", "series_instructions": "ser"}
+
+    def test_series_instructions_without_series(self, client, isolated_db):
+        did = _drama(isolated_db, series=False)
+        r = client.post(_url(did, "instructions/series"), json={"text": "ser"})
+        assert r.status_code == 400
+        assert _error(r)["code"] == "unsupported_operation"
+        r = client.post(_url(did, "instructions/project"), json={"text": "ok"})
+        assert r.status_code == 200
+        assert r.json()["project_instructions"] == "ok"
+
+    def test_too_long_and_bad_body(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "instructions/project"), json={"text": "x" * 6000})
+        assert r.status_code == 422
+        assert "xxxxx" not in r.text
+        r = client.post(_url(did, "instructions/project"), json={})
+        assert r.status_code == 422
+        _error(r)
+
+
+class TestCatalogues:
+    def test_shape(self, client):
+        r = client.get("/api/glossary/catalogues")
+        assert r.status_code == 200
+        body = r.json()
+        assert set(body) == {"style_presets", "term_categories", "term_policies",
+                             "workflow_tiers"}
+        assert {"key", "label"} <= set(body["style_presets"][0])
+        assert any(c["key"] == "person_name" for c in body["term_categories"])
+        assert {"key", "label", "example"} <= set(body["term_policies"][0])
+        tier = body["workflow_tiers"][0]
+        assert set(tier) == {"key", "label", "translation_engine", "engine_model",
+                             "reflect", "auto_qc"}

@@ -1,0 +1,170 @@
+"""
+services/drama_service.py -- Create a drama and edit its metadata, shared
+by the FastAPI drama routes and (eventually) the Streamlit Workspace tab
+(`tabs/workspace_tab.py`'s New-drama form and Edit-metadata expander).
+
+Migration Slice 35. Both functions return the same drama detail dict
+`library_service.get_library_drama` does, so a client sees one shape.
+
+Whitelist rationale: `db.create_drama(**fields)` and `db.update_drama(id,
+**fields)` interpolate their kwarg KEYS straight into SQL with no
+whitelist, so this module never passes a client-supplied key through --
+only the explicit sets below reach the db layer, and anything else raises
+InvalidInputError naming the field (never echoing its value). Not
+accepted on update: `status`, `content_mode`, `source_language` (owned by
+source_service), any *_filename, `translation_engine`, and
+`personal_notes` (per-profile; the API has no profile header yet).
+
+Deliberately NOT here, by design:
+  - Delete -- destructive (removes the on-disk folder); gated separately.
+  - Cover-art upload -- multipart needs python-multipart.
+  - Metadata auto-fill -- a paid network call to an AI service.
+  - Series rename/unassign, presets CRUD, media analysis -- other slices.
+
+Preset handling: only the preset's `translation_engine` has a per-drama
+DB home, so only it is persisted. `style_preset`, `locale`,
+`default_female_pronouns` and `include_genre_notes` are session-only in
+Streamlit (`apply_preset_to_session`), so create_drama returns them as
+`preset_defaults` for the client to hold.
+
+No Streamlit or FastAPI import: plain dicts in, plain dicts out.
+"""
+
+import db
+from services import library_service
+from services.service_errors import InvalidInputError, NotFoundError
+
+_SOURCE_LANGUAGES = ("zh", "ja", "ko")
+# Copied from tabs/workspace_tab.py's MEDIA_TYPE_OPTIONS (a tab constant, so
+# a service can't import it without pulling in Streamlit) -- drift risk: keep
+# in sync by hand.
+MEDIA_TYPE_OPTIONS = ("audio_drama", "video_drama", "anime", "novel", "manhwa", "manga",
+                      "manhua", "asmr", "streamer_vod", "music", "other")
+PUBLICATION_STATUSES = ("unknown", "ongoing", "completed", "hiatus")
+
+_TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_actors",
+                "summary", "genre", "custom_tags", "source_url", "episode_summary",
+                "project_instructions")
+_INT_FIELDS = ("chapter_count", "episode_number")
+_UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS
+                       + ("media_type", "publication_status", "series_id"))
+
+
+def _check_text(name, value):
+    if not isinstance(value, str):
+        raise InvalidInputError(f"{name} must be text.")
+
+
+def _check_media_type(value):
+    if value not in MEDIA_TYPE_OPTIONS:
+        raise InvalidInputError("Unknown media_type.",
+                                details={"allowed": list(MEDIA_TYPE_OPTIONS)})
+
+
+def _series_exists(series_id) -> bool:
+    return any(s["id"] == series_id for s in db.list_series())
+
+
+def _find_preset(preset_id):
+    return next((p for p in db.list_presets() if p["id"] == preset_id), None)
+
+
+def create_drama(*, source_language, title_en="", title_zh="", author="", studio="",
+                 director="", voice_actors="", summary="", media_type="audio_drama",
+                 series_id=None, new_series_name=None, preset_id=None) -> dict:
+    """Creates a drama (and optionally assigns a series and applies a
+    preset) in one call. `source_language` is required (zh/ja/ko).
+    `series_id` (must exist) and `new_series_name` are mutually exclusive;
+    a whitespace-only `new_series_name` is rejected. Returns the drama
+    detail plus `preset_defaults` (dict or None). All validation happens
+    before anything is written, so a rejected call creates nothing."""
+    if source_language not in _SOURCE_LANGUAGES:
+        raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
+                                details={"allowed": list(_SOURCE_LANGUAGES)})
+    texts = {"title_en": title_en, "title_zh": title_zh, "author": author, "studio": studio,
+             "director": director, "voice_actors": voice_actors, "summary": summary}
+    for name, value in texts.items():
+        _check_text(name, value)
+    _check_media_type(media_type)
+
+    if series_id is not None and new_series_name is not None:
+        raise InvalidInputError("Pass series_id or new_series_name, not both.")
+    if series_id is not None:
+        if isinstance(series_id, bool) or not isinstance(series_id, int):
+            raise InvalidInputError("series_id must be a whole number.")
+        if not _series_exists(series_id):
+            raise NotFoundError(f"No series with id {series_id}.")
+    if new_series_name is not None:
+        _check_text("new_series_name", new_series_name)
+        new_series_name = new_series_name.strip()
+        if not new_series_name:
+            raise InvalidInputError("new_series_name must not be blank.")
+
+    preset = None
+    if preset_id is not None:
+        if isinstance(preset_id, bool) or not isinstance(preset_id, int):
+            raise InvalidInputError("preset_id must be a whole number.")
+        preset = _find_preset(preset_id)
+        if preset is None:
+            raise NotFoundError(f"No preset with id {preset_id}.")
+
+    if new_series_name is not None:
+        series_id = db.get_or_create_series(new_series_name)
+
+    fields = dict(texts, media_type=media_type, source_language=source_language)
+    if series_id is not None:
+        fields["series_id"] = series_id
+    if preset and preset.get("translation_engine"):
+        fields["translation_engine"] = preset["translation_engine"]
+    new_id = db.create_drama(**fields)
+
+    detail = library_service.get_library_drama(new_id)
+    detail["preset_defaults"] = None if preset is None else {
+        "style_preset": preset.get("style_preset"),
+        "locale": preset.get("locale"),
+        "default_female_pronouns": bool(preset.get("default_female_pronouns")),
+        "include_genre_notes": bool(preset.get("include_genre_notes", True)),
+    }
+    return detail
+
+
+def update_drama_metadata(drama_id, **partial) -> dict:
+    """Field-scoped partial update of the whitelisted metadata columns.
+    Only fields passed (value not None) are validated and written; text
+    fields may be cleared with "", and `chapter_count`/`episode_number`
+    take a non-negative int where 0 clears it to NULL (the tab's "0 = not
+    set" convention; None can't mean both "not passed" and "clear"). Raises
+    NotFoundError for an unknown drama or series, InvalidInputError for a
+    non-whitelisted field or bad value. Returns the drama detail."""
+    library_service.get_library_drama(drama_id)  # id check + existence
+    for key in partial:
+        if key not in _UPDATABLE:
+            raise InvalidInputError(f"Field {key!r} cannot be updated here."
+                                    if key.isidentifier() else "Unknown field.")
+
+    fields = {}
+    for key, value in partial.items():
+        if value is None:
+            continue
+        if key in _TEXT_FIELDS:
+            _check_text(key, value)
+        elif key in _INT_FIELDS:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise InvalidInputError(f"{key} must be a non-negative whole number.")
+            value = value or None  # 0 = "not set", stored NULL, as the tab does
+        elif key == "media_type":
+            _check_media_type(value)
+        elif key == "publication_status":
+            if value not in PUBLICATION_STATUSES:
+                raise InvalidInputError("Unknown publication_status.",
+                                        details={"allowed": list(PUBLICATION_STATUSES)})
+        elif key == "series_id":
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise InvalidInputError("series_id must be a whole number.")
+            if not _series_exists(value):
+                raise NotFoundError(f"No series with id {value}.")
+        fields[key] = value
+
+    if fields:
+        db.update_drama(drama_id, **fields)
+    return library_service.get_library_drama(drama_id)
