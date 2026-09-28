@@ -37,6 +37,7 @@ from api.routers import (
     library_routes,
     lines_routes,
     media_routes,
+    metadata_routes,
     narration_routes,
     reader_routes,
     review_lines_routes,
@@ -97,6 +98,7 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(artifact_routes.router)
     app.include_router(media_routes.router)
     app.include_router(narration_routes.router)
+    app.include_router(metadata_routes.router)
     return app
 
 

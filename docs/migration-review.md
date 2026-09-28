@@ -873,6 +873,22 @@ Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: un
 fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
 `background_jobs`. Not verified against a real LLM (fake engine only).
 
+**Slice 37 -- Metadata auto-fill and media analysis.** `POST
+/api/metadata/dramas/{id}/analyze-media` (ffprobe of the stored video/audio:
+`duration_seconds`, `has_video`, `has_audio`, `audio_track_count`,
+`sample_rate`; no paths), `POST .../autofill` (`{url | page_text, engine?}`;
+returns a `suggestion` of title/author/studio/director/voice_actors/summary
+(+ `source_url` when a URL was used) and writes nothing) and `POST
+.../autofill/apply` (whitelisted fields only, via
+`drama_service.update_drama_metadata`). URLs must be http(s) and every
+resolved address (and redirect hop, followed manually, max 3) must be global,
+else 422; no key, unreachable page, LLM failure or missing ffprobe is a 503
+with fixed text (exceptions are never echoed); unknown drama 404. Keys come
+from server settings, never the request. Residual risk: DNS rebinding between
+the check and the fetch; the LLM call's timeout is the engine's own. No
+JS-rendered fetch (Streamlit's fallback) -- paste text instead. Not verified
+against a real LLM or site (tests mock everything).
+
 **Next candidates:** the
 
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
