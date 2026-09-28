@@ -1,7 +1,8 @@
-# Translate the page you're reading (Step 34 / 34b)
+# Translate the page you're reading (Step 34 / 34b / 96)
 
-A browser extension that sends the comic page you're looking at into
-Baihe, and draws the translation over it in place.
+A browser extension that sends what you're looking at into Baihe --
+either a comic page, drawing the translation over it in place, or (Step
+96) a block of page text, translated in a panel on the page.
 
 This does **not** replace the source adapters in `sources/`. Those do
 bulk import, chapter tracking, new-chapter checks and an offline library.
@@ -30,6 +31,12 @@ headless driving, no pacing games, no session to forge, nothing to
 circumvent. It's strictly less invasive than what the adapters do.
 
 It also covers sites with no adapter at all, which is most of them.
+
+The same reasoning applies just as well to text-heavy pages -- a web
+novel chapter, or any site you're already logged into and reading
+normally. Your browser has already rendered the text; Step 96 adds a mode
+that reads it the same way the image mode reads pixels, rather than only
+covering comics.
 
 ## Setting it up
 
@@ -62,6 +69,53 @@ Click the extension on a page you're reading:
 Paging back to something already translated is instant: results are
 cached by image content hash, so nothing is ever translated twice.
 
+### Translating a page's text (Step 96)
+
+A separate section of the popup, for prose rather than comic pages:
+
+- Pick a direction (**zh/ja/ko → English**, or **English → zh/ja/ko**) —
+  the same directions the **Standalone translate** tab in Baihe itself
+  supports, since this reuses that exact pipeline.
+- **Translate this page's text** — if you've selected text on the page,
+  that selection is what gets sent. With nothing selected, the extension
+  captures the page's own largest contiguous block of paragraph text
+  (skipping `<nav>`/`<header>`/`<footer>`/`<aside>` and anything too
+  short to be real prose), a simple heuristic rather than a full
+  readability implementation.
+- The translation appears in a small panel drawn onto the page itself —
+  not the popup, which is too narrow for a page-length passage and closes
+  the moment it loses focus, exactly when you want to keep reading. The
+  panel has a **Show original** toggle and a close button, and it's
+  reused on the next translate rather than stacking a second one.
+- Every translation is also saved into Baihe's own **Standalone
+  translate** tab's history (Step 26b), the same table that tab writes
+  to -- there is no separate history for the extension.
+
+Unlike the image modes, this always uses the engine configured in
+Settings → Browser extension; the extension itself has no engine picker
+or key of its own to keep in sync.
+
+## Two things it checks for before capturing
+
+- **A page that's still descrambling/reassembling isn't captured mid-way.**
+  Before reading an element's pixels, the extension takes a cheap sample,
+  waits, and takes another; it only proceeds once two samples in a row
+  match (bounded to 1.5s, then it proceeds anyway rather than hang
+  forever). This matters for a page like mangaz's own reader, whose JS
+  reassembles a tile-scrambled page onto a canvas after it loads —
+  capturing the instant you click, rather than once that's settled, could
+  grab a half-drawn frame. An already-static image settles in well under
+  a fifth of a second, so this adds no noticeable delay to the ordinary
+  case.
+- **A verification/CAPTCHA interstitial is recognized and refused, not
+  mistranslated.** If the page you click on looks like a Cloudflare/bot
+  challenge (by title, visible text, or a known CAPTCHA widget actually
+  on screen — not just present somewhere in the DOM), the extension says
+  so plainly instead of silently sending whatever image-sized element
+  happens to be on that page off for OCR. It never tries to solve or pass
+  the challenge, the same posture `sources/http.py`'s `ChallengeDetected`
+  already takes server-side — recognize and hand off, never fight it.
+
 ## What it can't do
 
 - **A cross-origin image the site draws without CORS can't be read.**
@@ -90,6 +144,15 @@ cached by image content hash, so nothing is ever translated twice.
   text; on the same real page Tesseract returned unreadable fragments
   where `manga_ocr` returned correct dialogue. Auto already picks
   `manga_ocr` for Japanese — just don't override it.
+- **(Step 96) The "largest paragraph block" heuristic can pick the wrong
+  block on an unusual layout** — a page with no real `<p>` tags (some
+  sites lay out prose in bare `<div>`s), or one where a comment section
+  happens to out-weigh the actual chapter. Select the passage yourself
+  when that happens; an explicit selection always wins.
+- **(Step 96) `/text` only translates one side of a pair with English**,
+  the same limit the Standalone translate tab already has — a
+  non-English-to-non-English page (say, a Japanese site's Chinese fan
+  translation) isn't a supported direction.
 
 ## How it's put together
 
@@ -97,20 +160,21 @@ cached by image content hash, so nothing is ever translated twice.
 extension/                     the browser side
   manifest.json                MV3; loopback host permission only
   background.js                the service worker: holds the token, makes the calls
-  content.js                   injected on a click: collects images, draws overlays
+  content.js                   injected on a click: collects images/text, draws overlays/panel
   popup.html / popup.js        pick a drama, send, toggle
   options.html / options.js    paste the token
 page_server.py                 the endpoint, on a thread beside Streamlit
 tabs/settings_tab.py           the opt-in switch, the token, the settings bridge
 ```
 
-The endpoint's three routes:
+The endpoint's four routes:
 
 | Route | What it does |
 |---|---|
 | `GET /health` | Confirms the app is up, and lists the dramas to send to. |
 | `POST /page` | One image. |
 | `POST /pages` | Several — a spread, or everything visible. |
+| `POST /text` | A block of raw page text (Step 96). |
 
 Everything funnels into the existing, tested pipeline
 (`scanlate.detect_and_ocr_page` → `scanlate.translate_page_bubbles`) and
@@ -119,6 +183,14 @@ manual upload uses. There is deliberately no second translation path, and
 which images count as real pages is decided by
 `sources/generic_import.py`'s existing filter rather than a second
 implementation in JavaScript that would drift from it.
+
+`/text` follows the same "one pipeline" rule from the other side: it
+funnels into `translate_engines.standalone_translate`, the exact function
+`tabs/translate_tab.py`'s Standalone translate tab already calls, rather
+than a second translation path for text captured by the extension. It
+does no detection or OCR -- the extension already sends real text, not
+pixels -- so it's a much thinner route than `/page`/`/pages`: validate
+the input, translate it, save it to history, return it.
 
 Stdlib `http.server`, so no new dependency and nothing to register in
 `diagnostics.py`'s `OPTIONAL_DEPENDENCIES`.
@@ -143,9 +215,17 @@ tab can make requests to localhost**. So:
   ever hit a CORS error here, move the request into the worker — **never**
   add a permissive header to the server.
 - The token lives only in the service worker. The content script, which
-  shares a page's world, never sees it.
+  shares a page's world, never sees it. That's still true of the text
+  path: `content.js` never imports or reads the token, and gathering the
+  page's text and sending it happen in two different worlds, the same
+  split as the image path.
 - Body size, per-image size and image count are capped, only real image
   content types are accepted, and every connection has a timeout.
+- `/text` carries the same posture, sized to what it actually accepts:
+  captured text is capped at `MAX_TEXT_CHARS` (20,000 characters, a
+  generous chapter), the source/target language pair is validated against
+  a fixed set rather than passed through freely, and it shares `/page`'s
+  body-size cap, peer check, token check, and lack of a CORS preflight.
 - API keys are never written to disk by any of this. The UI hands the
   current engine and key to the server thread in memory on each render,
   the same way `settings_tab` already pushes into
@@ -172,17 +252,36 @@ running endpoint, and drives a page holding both a normal `<img>` and a
 (the headless *shell* can't load extensions) and skips cleanly without
 one. It touches no real site and needs no API key. Run it after changing
 anything in `extension/` or `page_server.py` — the Python suite cannot
-execute any of that JavaScript. All 12 of its checks pass as of this
-step. What it establishes:
+execute any of that JavaScript. All 20 of its checks pass as of this
+merge (12 image, 6 text from Step 96, 1 shared, 1 content-stability +
+challenge-page detection). What it establishes:
 
 - A **`blob:`-backed page image translated end to end** and landed in the
-  library — the case the adapters structurally cannot reach.
+  library — the case the adapters structurally cannot reach. It still
+  does after adding the pre-capture content-stability wait, so that wait
+  doesn't hang or corrupt the capture on the case that matters most.
 - A box at `x=40, w=220` in image pixels drew at `x=20, w=110` over an
   image displayed at half scale, and stayed exact after a window resize.
 - Click-to-see-original and the overlay toggle both behaved.
 - The same image appearing twice on a page was sent once, and a second
   translate of an already-translated page came from the cache without
   calling the engine again.
+- **(Step 96) With nothing selected, the page's own largest contiguous
+  block of paragraph text was captured, and a `<nav>`'s links on the same
+  page were not**, even when made deliberately longer than the real
+  content -- the tag-based skip, not just the length floor, is what kept
+  it out.
+- **(Step 96) That captured text ran through the real, unmocked
+  `translate_engines.standalone_translate`** (via `TestOfflineEngine`,
+  which needs no network or key) rather than a faked pipeline, and the
+  result was drawn into a panel on the page and saved into Standalone
+  translate's own history table.
+- **(Step 96) An explicit text selection overrode the heuristic block** —
+  selecting one paragraph sent only that paragraph, not the whole
+  captured article.
+- A page with its title set to `"Just a moment..."` (a real Cloudflare
+  interstitial title) was recognized and refused with `CHALLENGE_DETECTED`
+  instead of being sent for OCR/translation.
 
 That run also found two real problems, since fixed: the same image
 appearing more than once on a page was encoded and uploaded once per

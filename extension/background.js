@@ -20,12 +20,14 @@
 const DEFAULT_PORT = 8756;
 
 async function settings() {
-  const stored = await chrome.storage.local.get(["token", "port", "dramaBySite", "overlay"]);
+  const stored = await chrome.storage.local.get(
+    ["token", "port", "dramaBySite", "overlay", "textDirection"]);
   return {
     token: stored.token || "",
     port: stored.port || DEFAULT_PORT,
     dramaBySite: stored.dramaBySite || {},
     overlay: stored.overlay !== false,
+    textDirection: stored.textDirection || { source: "zh", target: "en" },
   };
 }
 
@@ -76,6 +78,23 @@ async function health() {
   return call("/health");
 }
 
+// Text mode (Step 96) sends the app raw text instead of an image -- see
+// content.js's collectPageText. Same token, same server, no new auth.
+async function sendText({ text, sourceLanguage, targetLanguage, store }) {
+  if (!text) {
+    return { ok: false, error: "No text was captured on this page." };
+  }
+  return call("/text", {
+    method: "POST",
+    body: {
+      text,
+      source_language: sourceLanguage || "zh",
+      target_language: targetLanguage || "en",
+      store: store !== false,
+    },
+  });
+}
+
 async function sendImages({ images, dramaId, sourceUrl, store, filterPages }) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
@@ -102,6 +121,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "send":
           respond(await sendImages(message));
+          break;
+        case "sendText":
+          respond(await sendText(message));
           break;
         case "getSettings":
           respond({ ok: true, data: await settings() });

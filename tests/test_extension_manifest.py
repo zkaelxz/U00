@@ -125,8 +125,31 @@ class TestItAgreesWithTheServer:
 
     def test_it_calls_only_the_endpoints_the_server_serves(self):
         background = _code("background.js")
-        for route in ("/health", "/page", "/pages"):
+        for route in ("/health", "/page", "/pages", "/text"):
             assert route in background
         # Nothing else: a call to a route the server doesn't serve would
         # be a silent 404 the person sees only as "that didn't work".
         assert "/upload" not in background and "/translate" not in background
+
+
+class TestTextCaptureStaysWithinTheSameModel:
+    """Step 96's text-capture mode is a second input surface on the same
+    extension, not a second extension -- it has to follow the same rules
+    as the existing image mode: no fetch from the content script (which
+    shares a page's world), and no per-site code anywhere."""
+
+    def test_the_content_script_never_fetches_directly(self):
+        """All network calls go through the service worker -- see
+        background.js's own docstring on why. content.js only ever asks
+        it via chrome.runtime.sendMessage."""
+        assert "fetch(" not in _code("content.js")
+
+    def test_no_hardcoded_site_domains_anywhere_in_the_extension(self):
+        """This is a general-purpose extension with no per-site code -- it
+        reads whatever page is open the same way for every one of them."""
+        known_sites = ("mangaz.com", "manhuaku", "bilibili", "jjwxc",
+                      "wuxiaworld", "webnovel", "ranobes")
+        for name in ("background.js", "content.js", "popup.js", "options.js"):
+            source = _code(name).lower()
+            for site in known_sites:
+                assert site not in source, f"{name} references {site}"
