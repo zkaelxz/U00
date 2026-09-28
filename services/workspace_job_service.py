@@ -44,7 +44,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        style_guidelines, engine_choice, style_preset, context_window=6,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
-                       summary_engine_choice=None):
+                       summary_engine_choice=None, target_ids=None):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -67,6 +67,9 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     translating, built by the caller (in the main thread, where Settings
     is readable) -- None if no summary engine is available/configured,
     which skips summary generation entirely rather than failing this job.
+
+    target_ids: optional set of permanent line ids (Migration Slice 40's API
+    start) -- only those lines are translated; None = every eligible line.
     """
     cap_reached = {}
     # {speaker_label: "Name (pronouns)"}, named characters only -- a line
@@ -84,7 +87,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         context_window=context_window, context_window_ahead=context_window_ahead,
         batch_size=batch_size, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
-        reflect=reflect,
+        reflect=reflect, target_ids=target_ids,
         cost_cap_usd=cost_cap_usd,
         cap_cb=lambda spent: cap_reached.update(spent=spent),
         notes_cb=lambda notes: db.save_translation_notes(
