@@ -704,6 +704,19 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 25 — Dub config and pacing reads (2026-09-28).**
+New `services/dub_service.py` and `/api/dub/dramas/{id}/config` and
+`.../pacing` (read-only). Config reports the TTS engine options, each
+speaker's resolved edge/offline voice and engine (the same resolution the
+Generate button uses), whether generating needs the GPU, how many lines are
+speakable, and whether a finished track exists; pacing reports each line's
+fit/stretched/overflow status from the last run. D2 discipline: no
+filesystem path, GPT-SoVITS URL or secret is returned -- only booleans such
+as `gpt_sovits_configured` and `has_clone_ref`. Out of scope: the Generate
+job (Slice 26), voice/character CRUD, per-line preview, and track download.
+Speakers and lines are read from the database, not the browser's unsaved
+session lines. No new db column.
+
 **Slice 27 — Export ASS subtitle text (2026-09-28).** `export_service.
 generate_ass_text` / `get_ass_style_options`, exposed as `POST /api/export/
 dramas/{id}/ass` (text download) and `GET /api/export/ass-style-options`.
@@ -714,11 +727,17 @@ Explicit colour/range validation replaces the tab's silent white/alignment
 fallbacks. Out of scope: burned-in video, audiobook, package zip,
 mark-as-exported, Anki (Reader tab).
 
-**Next candidates:** the `chunk_and_tag` novel-narration path (needs its
-own scoping -- fully synchronous today, no natural job boundary), the
-experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
-ASS export/audiobook/burned-in-video export (Export's remaining scope) or
-Dub (§3.2's build order).
+**Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
+dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
+slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
+taken 2026-09-28 that shape that queue: process-based jobs (speaker detection, dub, Ollama
+re-segment) get an `on_done` completion hook in `background_jobs.py` so an API-started job applies
+its own result; destructive actions follow today's UI confirmation bar (drama delete needs
+`confirm=true` plus a typed `confirm_text="DELETE"` and is refused while a job runs; other
+destructive actions rely on the pre-write snapshot or `confirm=true` where the tab has a checkbox);
+uploads use streamed multipart (new `python-multipart` dependency) with long exports as jobs
+writing a fixed file in the drama folder served by a download endpoint; `use_gpu` is persisted in
+`db.app_settings` (default off) and honoured by every GPU-capable API job.
 
 ---
 
