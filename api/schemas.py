@@ -209,3 +209,17 @@ class TranslateHistoryEntry(BaseModel):
 
 class TranslateHistoryResponse(BaseModel):
     items: List[TranslateHistoryEntry]
+
+
+class ExportReadiness(BaseModel):
+    """Read-only export-readiness summary for one drama (Migration Slice
+    12) -- counts only, never flags a line or generates a file."""
+    drama_id: int
+    total_lines: int
+    zh_filled: int
+    en_filled: int
+    fully_translated: bool
+    test_mode_output: bool
+    overlap_count: int
+    auto_qc_issue_count: int
+    dense_line_count: int

@@ -395,3 +395,28 @@ class TestTranslateEndpoints:
     def test_no_write_endpoint_is_exposed(self, client, isolated_db):
         assert client.post("/api/translate/engines").status_code == 405
         assert client.delete("/api/translate/history").status_code == 405
+
+
+class TestExportReadinessEndpoint:
+    """Migration Slice 12: a drama's read-only export-readiness summary.
+    Never flags a line, never generates a file; see
+    api/routers/export_routes.py's own docstring for why."""
+
+    def test_readiness_contract_shape(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        body = client.get(f"/api/export/dramas/{did}/readiness").json()
+        assert body == {
+            "drama_id": did, "total_lines": 1, "zh_filled": 1, "en_filled": 1,
+            "fully_translated": True, "test_mode_output": False,
+            "overlap_count": 0, "auto_qc_issue_count": 0, "dense_line_count": 0,
+        }
+
+    def test_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/export/dramas/999999/readiness")
+        assert resp.status_code == 404
+        assert _error(resp)["code"] == "not_found"
+
+    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert client.post(f"/api/export/dramas/{did}/readiness").status_code == 405
