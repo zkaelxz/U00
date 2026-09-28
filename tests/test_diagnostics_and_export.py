@@ -80,6 +80,17 @@ class TestDiagnostics:
         assert deps["demucs"][0] == "demucs"
         assert deps["audio-separator"][2] == deps["funasr"][2] == deps["demucs"][2] == "feature"
 
+    def test_media_only_deps_are_not_tagged_required(self):
+        """Step 83: faster_whisper, cv2, and PIL are only in
+        requirements-media.txt, not requirements-core.txt, so the Core
+        panel (which shows "required" as "needed for the app to run at
+        all") must not list them -- they belong in "feature", same tier
+        as edge_tts (also media-only)."""
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        assert deps["faster_whisper"][2] == "feature"
+        assert deps["cv2"][2] == "feature"
+        assert deps["PIL"][2] == "feature"
+
     def test_file_completeness_detects_all_present_in_real_project(self):
         result = diagnostics.check_file_completeness(PROJECT_ROOT)
         assert result["all_present"] is True, \
