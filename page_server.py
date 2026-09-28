@@ -289,6 +289,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     """
     import db
     import scanlate
+    import translate_engines
 
     ext = ALLOWED_IMAGE_TYPES.get((content_type or "").lower().split(";")[0].strip())
     if ext is None:
