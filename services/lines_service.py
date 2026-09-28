@@ -1,0 +1,256 @@
+"""
+services/lines_service.py -- the Review stage's per-line WRITES (migration
+slice 43), keyed by permanent `Line.id`. Mirrors the write blocks of
+`with tab_review:` in `tabs/workspace_tab.py` (Save edits, Dismiss flag,
+find-and-replace Apply, translation-memory Accept, translation-note
+add/delete), but never through a browser-session line list.
+
+The rule this replaces: `db.save_lines(..., fields=None)` is a FULL SYNC --
+called from a stale list it resurrects lines another writer merged away and
+deletes ones just added. Every write here is field-scoped
+(`fields=(...)` is always a tuple), so it only UPDATEs the named columns on
+rows that still exist; it can never insert or delete a line.
+
+Concurrency: a caller may send `expected` -- the old values it saw -- and a
+mismatch with the current database value raises ConflictError (nothing is
+written). The compare and the write are two steps, not one atomic SQL
+statement; the window is tiny and the write itself is field-scoped, so the
+worst case is the same as two users saving the same field a moment apart.
+
+Explicitly out of scope: merge/split/delete lines, restore original text,
+LLM tools, bulk modes. No Streamlit/FastAPI import: plain dicts in and out.
+Error messages never echo user text, and no path or key is returned.
+"""
+import math
+
+import core as core_module
+import db
+import translation_guide
+from services.review_lines_service import _line_dict
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+
+MAX_LINE_TEXT_CHARS = 2000
+MAX_SPEAKER_CHARS = 100
+MAX_TERM_CHARS = 500
+MAX_NOTE_CHARS = 2000
+MAX_MATCHES = 1000
+_EXPECTABLE = ("start", "end", "zh", "en", "speaker", "sfx")
+
+
+def _load(drama_id: int, line_id: int):
+    """(drama, all_lines, the line with this id). NotFoundError for an
+    unknown drama, or a line id that isn't this drama's (merged away,
+    never existed, or another drama's -- all the same 404)."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    lines = db.load_line_objects(drama_id)
+    for ln in lines:
+        if ln.id == line_id:
+            return drama, lines, ln
+    raise NotFoundError(f"No line with id {line_id} in this drama.")
+
+
+def _reload_dict(drama_id: int, line_id: int) -> dict:
+    for ln in db.load_line_objects(drama_id):
+        if ln.id == line_id:
+            return _line_dict(ln)
+    raise NotFoundError(f"No line with id {line_id} in this drama.")
+
+
+def _number(name: str, value) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise InvalidInputError(f"{name} must be a number.")
+    if value < 0:
+        raise InvalidInputError(f"{name} must not be negative.")
+    return float(value)
+
+
+def _text(name: str, value, cap: int) -> str:
+    if not isinstance(value, str):
+        raise InvalidInputError(f"{name} must be text.")
+    if len(value) > cap:
+        raise InvalidInputError(f"{name} is too long (max {cap} characters).")
+    return value
+
+
+def _same(field: str, current, wanted) -> bool:
+    if field in ("start", "end"):
+        return (isinstance(wanted, (int, float)) and not isinstance(wanted, bool)
+                and abs(float(current) - float(wanted)) < 1e-6)
+    if field == "sfx":
+        return bool(current) == bool(wanted)
+    if field == "speaker":
+        return (current or "") == (wanted or "")
+    return (current or "") == (wanted or "")
+
+
+def patch_line(drama_id: int, line_id: int, *, start=None, end=None, zh=None, en=None,
+               speaker=None, sfx=None, expected=None) -> dict:
+    """Applies only the fields passed (None = leave alone; speaker "" clears
+    it) and writes exactly those columns. Editing `en` on a flagged line
+    clears its flag/flag_note (the tab's "editing addresses it" rule);
+    changing the speaker sets `speaker_manual`. `expected` maps field -> the
+    old value the client saw; any mismatch is a 409 with nothing written.
+    A changed `en` also records an edit sample and translation memory, as
+    Save edits does. Returns the line as stored afterwards."""
+    passed = {k: v for k, v in (("start", start), ("end", end), ("zh", zh), ("en", en),
+                                ("speaker", speaker), ("sfx", sfx)) if v is not None}
+    if not passed:
+        raise InvalidInputError("Pass at least one field to change.")
+    if "start" in passed:
+        passed["start"] = _number("start", passed["start"])
+    if "end" in passed:
+        passed["end"] = _number("end", passed["end"])
+    if "zh" in passed:
+        _text("zh", passed["zh"], MAX_LINE_TEXT_CHARS)
+    if "en" in passed:
+        _text("en", passed["en"], MAX_LINE_TEXT_CHARS)
+    if "speaker" in passed:
+        passed["speaker"] = _text("speaker", passed["speaker"], MAX_SPEAKER_CHARS).strip()
+    if "sfx" in passed and not isinstance(passed["sfx"], bool):
+        raise InvalidInputError("sfx must be true or false.")
+    if expected is not None:
+        if not isinstance(expected, dict):
+            raise InvalidInputError("expected must be an object.")
+        for k in expected:
+            if k not in _EXPECTABLE:
+                raise InvalidInputError("expected may only name start, end, zh, en, speaker or sfx.")
+
+    drama, _, ln = _load(drama_id, line_id)
+
+    if expected:
+        stale = [k for k, v in expected.items() if not _same(k, getattr(ln, k), v)]
+        if stale:
+            raise ConflictError("This line changed since you loaded it.",
+                                details={"fields": sorted(stale)})
+
+    new_start = passed.get("start", ln.start)
+    new_end = passed.get("end", ln.end)
+    if ("start" in passed or "end" in passed) and new_end <= new_start:
+        raise InvalidInputError("end must be after start.")
+
+    before_en = ln.en or ""
+    fields = []
+    for k in ("start", "end", "zh", "en", "sfx"):
+        if k in passed:
+            setattr(ln, k, passed[k])
+            fields.append(k)
+    if "speaker" in passed:
+        new_speaker = passed["speaker"] or None
+        fields.append("speaker")
+        if new_speaker != ln.speaker:
+            ln.speaker = new_speaker
+            ln.speaker_manual = True
+            fields.append("speaker_manual")
+    en_changed = "en" in passed and passed["en"].strip() != before_en.strip()
+    if en_changed and ln.flag:
+        ln.flag, ln.flag_note = None, ""
+        fields += ["flag", "flag_note"]
+
+    db.save_lines(drama_id, [ln], fields=tuple(fields))
+
+    if en_changed:
+        if before_en and ln.en:
+            db.record_edit_sample(drama_id, ln.zh, before_en, ln.en)
+        if drama.get("series_id") and ln.en.strip():
+            db.record_translation_memory(drama["series_id"], ln.zh, ln.en)
+    return _reload_dict(drama_id, line_id)
+
+
+def dismiss_flag(drama_id: int, line_id: int) -> dict:
+    """Clears a line's flag and flag note (only those two columns).
+    Idempotent: an unflagged line is returned unchanged."""
+    _, _, ln = _load(drama_id, line_id)
+    ln.flag, ln.flag_note = None, ""
+    db.save_lines(drama_id, [ln], fields=("flag", "flag_note"))
+    return _reload_dict(drama_id, line_id)
+
+
+def apply_find_replace(drama_id: int, matches) -> dict:
+    """Applies a previewed find-and-replace. Each match is
+    {id, old_text, new_text}; a line whose current translation no longer
+    equals old_text (edited since Preview) -- or that no longer exists --
+    is skipped as stale instead of being overwritten. Writes only `en`,
+    then corrects translation memory. Returns
+    {applied, stale, applied_ids, stale_ids}."""
+    if not isinstance(matches, (list, tuple)):
+        raise InvalidInputError("matches must be a list.")
+    if len(matches) > MAX_MATCHES:
+        raise InvalidInputError(f"Too many matches (max {MAX_MATCHES}).")
+    wanted = {}
+    for m in matches:
+        if not isinstance(m, dict) or not isinstance(m.get("id"), int) or isinstance(m.get("id"), bool):
+            raise InvalidInputError("Each match needs an integer id.")
+        _text("old_text", m.get("old_text"), MAX_LINE_TEXT_CHARS)
+        _text("new_text", m.get("new_text"), MAX_LINE_TEXT_CHARS)
+        if m["id"] in wanted:
+            raise InvalidInputError("Each line id may appear only once.")
+        wanted[m["id"]] = (m["old_text"], m["new_text"])
+
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
+    changed, applied_ids, stale_ids, pairs = [], [], [], []
+    for lid, (old_text, new_text) in wanted.items():
+        ln = by_id.get(lid)
+        if ln is None or ln.en != old_text:
+            stale_ids.append(lid)
+            continue
+        ln.en = new_text
+        changed.append(ln)
+        applied_ids.append(lid)
+        pairs.append((old_text, new_text))
+    if changed:
+        db.save_lines(drama_id, changed, fields=("en",))
+        if drama.get("series_id"):
+            for old_text, new_text in pairs:
+                db.update_translation_memory_after_replace(drama["series_id"], old_text, new_text)
+    return {"applied": len(applied_ids), "stale": len(stale_ids),
+            "applied_ids": applied_ids, "stale_ids": stale_ids}
+
+
+def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int) -> dict:
+    """Sets the line's translation to a translation-memory entry's text
+    (writes only `en`) and counts the use. The entry must belong to this
+    drama's series -- another series' entry is the same 404 as a missing one."""
+    drama, _, ln = _load(drama_id, line_id)
+    series_id = drama.get("series_id")
+    entry = next((e for e in (db.list_translation_memory(series_id) if series_id else [])
+                  if e["id"] == entry_id), None)
+    if entry is None:
+        raise NotFoundError(f"No translation-memory entry with id {entry_id} for this drama.")
+    ln.en = entry["translation"]
+    db.save_lines(drama_id, [ln], fields=("en",))
+    db.bump_translation_memory_use(entry["id"])
+    return _reload_dict(drama_id, line_id)
+
+
+def add_note(drama_id: int, line_id: int, term: str, note_type: str, note: str) -> dict:
+    """Adds (or, for the same line+term, updates) a translation note on a
+    line of this drama."""
+    term = _text("term", term, MAX_TERM_CHARS).strip()
+    note = _text("note", note, MAX_NOTE_CHARS).strip()
+    if not term or not note:
+        raise InvalidInputError("term and note must not be empty.")
+    if note_type not in translation_guide.NOTE_TYPES:
+        raise InvalidInputError(f"note_type must be one of {sorted(translation_guide.NOTE_TYPES)}.")
+    _, _, ln = _load(drama_id, line_id)
+    db.save_translation_notes(drama_id, [{"line_id": ln.id, "line_idx": ln.idx, "term": term,
+                                          "note_type": note_type, "note": note}])
+    for n in db.list_translation_notes(drama_id):
+        if n["line_id"] == ln.id and n["term"] == term:
+            return {k: n[k] for k in ("id", "line_id", "line_idx", "term", "note_type", "note")}
+    raise NotFoundError("The note could not be found after saving.")
+
+
+def delete_note(drama_id: int, note_id: int) -> dict:
+    """Deletes one translation note. `db.delete_translation_note` takes only
+    an id, so ownership is checked here: another drama's note is a 404."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if not any(n["id"] == note_id for n in db.list_translation_notes(drama_id)):
+        raise NotFoundError(f"No note with id {note_id} in this drama.")
+    db.delete_translation_note(note_id)
+    return {"deleted": True, "note_id": note_id}
