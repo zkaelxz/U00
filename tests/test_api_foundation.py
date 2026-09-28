@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from api.api_config import ApiSettings, load_settings
 from api.server import create_app
+from core import Line
 
 
 @pytest.fixture
@@ -203,3 +204,79 @@ class TestConfigAndCors:
         assert ok.headers.get("access-control-allow-origin") == "http://localhost:5173"
         evil = dev.get("/api/health", headers={"Origin": "https://evil.example"})
         assert "access-control-allow-origin" not in evil.headers
+
+
+class TestReaderEndpoint:
+    """Migration Slice 4: served definitions must come only from cache,
+    never a live/paid lookup -- mocks reader.build_reader_html the same
+    way tests/test_reader_service.py does, so this stays independent of
+    jieba/sudachipy/kiwipiepy (optional, not installed in a core-only env)."""
+
+    def _stub_render(self, monkeypatch):
+        import reader
+        def fake(lines, source_language, definitions, **kw):
+            return f"<!DOCTYPE html><body>{len(lines)} lines</body>"
+        monkeypatch.setattr(reader, "build_reader_html", fake)
+
+    def test_page_contract_shape(self, client, isolated_db, monkeypatch):
+        self._stub_render(monkeypatch)
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1),
+                                          zh="x", en="y") for i in range(5)])
+        body = client.get(f"/api/reader/dramas/{did}/page").json()
+        assert body["page"] == 1
+        assert body["page_count"] == 1
+        assert body["total_lines"] == 5
+        assert "<!DOCTYPE html>" in body["html"]
+
+    def test_pagination_query_params(self, client, isolated_db, monkeypatch):
+        self._stub_render(monkeypatch)
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1),
+                                          zh="x", en="y") for i in range(25)])
+        body = client.get(f"/api/reader/dramas/{did}/page",
+                          params={"page": 2, "chapter_size": 10}).json()
+        assert body["page"] == 2
+        assert body["page_count"] == 3
+        assert "10 lines" in body["html"]
+
+    def test_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/reader/dramas/999999/page")
+        assert resp.status_code == 404
+        assert _error(resp)["code"] == "not_found"
+
+    def test_drama_with_no_lines_is_404(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="Empty")
+        resp = client.get(f"/api/reader/dramas/{did}/page")
+        assert resp.status_code == 404
+
+    def test_page_past_the_end_is_422(self, client, isolated_db, monkeypatch):
+        self._stub_render(monkeypatch)
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="x", en="y")])
+        resp = client.get(f"/api/reader/dramas/{did}/page", params={"page": 99})
+        assert resp.status_code == 422
+        assert _error(resp)["code"] == "validation_error"
+
+    def test_bad_drama_id_is_422(self, client, isolated_db):
+        resp = client.get("/api/reader/dramas/0/page")
+        assert resp.status_code == 422
+
+    def test_chapter_size_out_of_range_is_422(self, client, isolated_db, monkeypatch):
+        self._stub_render(monkeypatch)
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="x", en="y")])
+        resp = client.get(f"/api/reader/dramas/{did}/page", params={"chapter_size": 999})
+        assert resp.status_code == 422
+
+    def test_never_makes_a_live_dictionary_lookup_over_http(self, client, isolated_db, monkeypatch):
+        self._stub_render(monkeypatch)
+        did = isolated_db.create_drama(title_en="D")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="x", en="y")])
+
+        def boom(*a, **k):
+            raise AssertionError("the reader endpoint made a live dictionary lookup call")
+        import dictionary
+        monkeypatch.setattr(dictionary, "build_word_definitions", boom)
+        resp = client.get(f"/api/reader/dramas/{did}/page")
+        assert resp.status_code == 200
