@@ -766,6 +766,8 @@ class TestTranscribeConfigEndpoints:
             "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5,
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
+            "has_video_source": False, "hardsub_ocr_backend": "paddle",
+            "hardsub_interval_sec": 1.0,
         }
 
     def test_get_config_unknown_drama_is_404(self, client, isolated_db):
