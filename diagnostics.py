@@ -122,7 +122,11 @@ OPTIONAL_DEPENDENCIES = {
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
                                      "decryption (Sources tab)", "feature"),
+    "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
+                "required"),
+    "uvicorn": ("uvicorn", "serves the HTTP API (python -m api)", "required"),
     "pytest": ("pytest", "running the test suite", "dev"),
+    "httpx": ("httpx", "running the HTTP API's tests (FastAPI TestClient)", "dev"),
 }
 
 

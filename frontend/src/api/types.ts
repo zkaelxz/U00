@@ -1,0 +1,75 @@
+// Mirrors api/schemas.py -- the API contract. Hand-written for now; once
+// more than a handful of endpoints exist, generate this file from
+// /api/openapi.json instead of keeping two copies in sync by hand.
+
+export interface ErrorInfo {
+  code:
+    | 'validation_error'
+    | 'not_found'
+    | 'unsupported_operation'
+    | 'dependency_unavailable'
+    | 'application_error'
+    | 'internal_error'
+    | string
+  message: string
+  details?: unknown
+}
+
+export interface HealthResponse {
+  status: string
+}
+
+export interface MetaResponse {
+  app: string
+  api_version: string
+  environment: string
+}
+
+export interface DramaSummary {
+  id: number
+  title_zh: string | null
+  title_en: string | null
+  author: string | null
+  studio: string | null
+  director: string | null
+  voice_actors: string | null
+  status: string | null
+  source_language: string | null
+  media_type: string | null
+  content_mode: string | null
+  series_id: number | null
+  translation_engine: string | null
+  custom_tags: string[]
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface DramaDetail extends DramaSummary {
+  summary: string | null
+  genre: string | null
+  publication_status: string | null
+  chapter_count: number | null
+  narration_language: string | null
+  author_romanized: string | null
+  studio_romanized: string | null
+  director_romanized: string | null
+  voice_actors_romanized: string | null
+  series_instructions: string | null
+  has_audio: boolean
+  has_novel_reference: boolean
+  has_cover_art: boolean
+}
+
+export interface DramaListResponse {
+  items: DramaSummary[]
+  count: number
+}
+
+export interface DramaFilters {
+  search?: string
+  status?: string
+  source_language?: string
+  media_type?: string
+  quick_filter?: string
+  tag?: string[]
+}

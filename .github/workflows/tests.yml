@@ -22,7 +22,49 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest -c constraints.txt
+        run: pip install -r requirements-core.txt pytest httpx -c constraints.txt
 
       - name: Run tests
         run: python run_tests.py
+
+  # The React frontend: typecheck + production build, unit tests, lint, and
+  # the end-to-end check (a real browser -> built React -> real FastAPI on a
+  # seeded throwaway library, see frontend/e2e/).
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies (for the e2e API server)
+        working-directory: .
+        run: pip install -r requirements-core.txt -c constraints.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build (typecheck + bundle)
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      - name: End-to-end
+        run: |
+          npx playwright install --with-deps chromium
+          npm run e2e
