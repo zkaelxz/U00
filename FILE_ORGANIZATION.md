@@ -246,7 +246,10 @@ baihe-subtitler/
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
-│   └── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
+│   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
+│   └── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
+│                                 notes, flag, fix-flagged): background jobs that write themselves,
+│                                 field-scoped by line id; reuse workspace_job_service runners
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -304,7 +307,9 @@ baihe-subtitler/
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
-│       └── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
+│       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
+│       └── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
+│                                 fix-flagged (POST, start job; Migration Slice 44)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
