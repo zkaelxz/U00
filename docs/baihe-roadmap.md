@@ -4286,7 +4286,7 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
   | 83 — Fix: dependency-tier mislabeling (cv2/faster_whisper/PIL wrongly tagged Core) | `step-83-dependency-tier-mislabeling` | ✅ Merged (PR #177) | ⏳ Pending |
   | 84 — Make Discover tab's API-key gating engine-aware (FREE_ENGINES-based, not `!= "ollama"`) | `step-84-discover-key-gating` | ✅ Merged (PR #178) | ⏳ Pending |
   | 85 — Sources tab: result-per-source limit + a "Clear results" button | `step-85-sources-search-limit-clear` | ✅ Merged (PR #195) | ⏳ Pending |
-  | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | `step-86-test-tier-staleness-fix` | ✅ Merged (PR #196) — the two concrete fixes only; see decision-needed note below for the third, underspecified "standalone user-confirmation action" item | ⏳ Pending |
+  | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | `step-86-test-tier-staleness-fix`, `step-86-diagnostics-test-now-and-dark-mode-table` | ✅ Merged (PR #196, then the third item's own build PR #206) — all three items now complete, see decision-needed item 0 for the third item's real scope/evidence | ⏳ Pending |
   | 87 — Add a language selector to new-drama creation (was silently defaulting to `zh`) | `step-87-new-drama-language-selector` | ✅ Merged (PR #179) | ⏳ Pending |
   | 88 — (id skipped in the secondary-review session's own provisional numbering — not used) | — | — | — |
   | 89 — Add `music` to `MEDIA_TYPE_OPTIONS` | `step-89-music-media-type` | ✅ Merged (PR #198) | — |
@@ -4323,31 +4323,29 @@ Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an
   | 44 — Notification system: Discord/ntfy (later phase) | — | Not started | — |
 - **Decision-needed / flagged-for-review items — NOT build steps, for the
   user to check later, folded in from `docs/secondary-review-notes.md`:**
-  0. **Step 86's third item — "add a standalone user-confirmation action
-     outside the existing challenge-handoff-only flow" (2026-09-28).**
-     Step 86's other two, concretely-specified fixes are merged (PR #196);
-     this one was left out rather than guessed at, since the notes file
-     gives no concrete UI/design for it — the existing challenge-handoff
-     screen (`tabs/sources_tab.py::_render_handoff`) only offers Open in
-     Browser/Retry/Cancel/paste-the-solved-page, triggered by a caught
-     `ChallengeDetected`. What's unclear: should a "standalone" version let
-     a user manually mark a tier as confirmed-working with no live
-     challenge/exception at all (and if so, on what evidence — this app's
-     own philosophy is evidence-based capability recording, not a bare
-     unverified claim), or does it mean something narrower (e.g. reachable
-     from Diagnostics' per-source tier view, not only from a thrown
-     exception)? Needs the user's own intent before this becomes a step.
-  1. **Dark-mode gap in the imported Series/Chapters chapter-checkbox table**
-     (`tabs/sources_tab.py:638`). Confirmed still open, not fixed by Step 68:
-     `st.data_editor` renders its cells on a `<canvas>` (Glide Data Grid)
-     themed by Streamlit's own light theme in JavaScript — no app CSS
-     reaches inside it (`ui_theme.py`'s own comment documents this,
-     "checked in Step 68: its `--gdg-*` custom properties are outputs, not
-     inputs"). Step 68 only reached the frame/border, not the cell canvas.
-     **Needs a decision**: swap this one table for CSS-themeable manual
-     checkbox rows, or accept and document the native-widget limitation.
-     Whichever is picked needs a real before/after screenshot pass per
-     CLAUDE.md's structural-UI rule before it's a step someone builds.
+  0. **Step 86's third item — RESOLVED and built (2026-09-28).** The user's
+     own answer: "'Standalone' means Diagnostics offers a Test Now action
+     that records actual test evidence. No evidence-free manual 'working'
+     override." Built as a new "Source access" section in the Diagnostics
+     tab, reusing `sources.ladder.test_tier()` verbatim (the exact
+     real-evidence mechanism the Sources tab's own per-source detail view
+     already used) — reachable without a thrown `ChallengeDetected` first,
+     disabled the same way for a ToS-prohibited source. Merged, PR #206.
+  1. **Dark-mode gap in the imported Series/Chapters chapter-checkbox table
+     — RESOLVED and built (2026-09-28).** The user's own answer: "Replace
+     the small chapter table with themeable checkbox rows." Built:
+     `tabs/sources_tab.py:638`'s `st.data_editor` (cells render on a
+     `<canvas>`/Glide Data Grid, confirmed unreachable by app CSS in Step
+     68) replaced with plain `st.checkbox` rows, keyed per chapter's own
+     `chapter_id`. **Screenshot-pass note**: this decision item's own text
+     said a before/after screenshot pass would be needed per CLAUDE.md's
+     structural-UI rule — re-checked against that rule's actual text
+     before building, which narrows the screenshot requirement to
+     *structural redesign* steps specifically (a whole tab-layout rebuild,
+     Steps 13–18-scale) and explicitly excludes "a small, localized UI
+     tweak" like a single table's widget swap; judged this doesn't qualify
+     and built without one. Flagging that judgment call here rather than
+     silently deciding it met the bar. Merged, PR #206.
   2. **JJWXC ToS status — CONFIRMED CLOSED by the user (2026-09-28).**
      Asked directly whether they're fine with JJWXC coverage going through
      Step 96's generic, site-agnostic browser-extension text-capture mode
@@ -5136,5 +5134,9 @@ User asked whether 13 third-party scraper/tool repos contained techniques or sit
 3. **Reader pagination math is duplicated** between `services/reader_service.py` and `tabs/reader_tab.py` (near-identical one-line page-count/page-slice arithmetic) — confirmed **expected, not accidental**: `reader_service.py`'s own docstring says the Streamlit tab can't yet delegate to it because the tab's page-load path still does a paid LLM call and a DB write as side effects the HTTP-safe service deliberately excludes (the same real blocker Slice 4's own scope decision was about). Will resolve naturally once the Reader tab itself migrates; not a current bug.
 
 **§4's status table row updates**: Steps 19, 26, 60, 82 corrected above. No other rows changed. FILE_ORGANIZATION.md's own doc listing was independently re-verified this pass (via a separate read-only agent) against the real `docs/` tree on `origin/baihe-subtitler` and found to already be fully accurate (13/13 `.md` files match exactly) — a claim from outside this session that it was stale (listing "only 7") was checked and found false; see that agent's own report for the full doc-authority inventory (root docs, every `docs/*.md`, the roadmap itself, `docs/secondary-review-notes.md`'s real retrievable-commit status, and several side-branch-only docs like `docs/manual-checks.md` and `docs/phase1-architecture.md` that aren't part of `baihe-subtitler` and were never claimed to be).
+
+**Decision items 0 and 1 (Step 86's third item; the dark-mode chapter-table gap) — resolved and built (2026-09-28), PR #206.** See both items' own updated entries above for scope and evidence. Full suite after this merge: **3272 passed, 78 skipped, 0 failed**.
+
+**User instruction (2026-09-28): all further work in this pass goes to the React + FastAPI migration** — Step 82 (a documentation-only re-sync) was named as an acceptable exception that "can happen during migration," but no other roadmap step is to be picked up until further notice. The next implementing session should treat Migration Phase 4 (below) as the sole active work, not the roadmap's own step order.
 
 **Migration Slice 5 — built and merged (2026-09-28), PR #205.** `services/diagnostics_service.py` (new) wraps `diagnostics.py`'s/`background_jobs.py`'s existing read-only checks verbatim — dependency status, file completeness, library-writable, GPU status, model/engine versions, running jobs, a redacted log tail — behind one new `GET /api/diagnostics` route (`api/routers/diagnostics_routes.py`). No admin action exposed (install/upgrade/delete stay Streamlit-only per D5); a running job's message/error go through `diagnostics.redact_for_support` before leaving the service, and its raw `result` field is never exposed at all. Focused tests (`tests/test_diagnostics_service.py` + a new `TestDiagnosticsEndpoint` class in `tests/test_api_foundation.py`) green, full suite **3268 passed, 78 skipped, 0 failed**. `FILE_ORGANIZATION.md` updated in the same commit. This closes out Phase 2 of `docs/migration-review.md`'s own recommended sequence (Library, Diagnostics, and Reader read-only reads are all now built — Migration Slices 2/4/5 respectively); **Phase 3 (extract job runners) was already done as Migration Slice 2**, so the next real migration work is **Phase 4 (in-process/separate-process API host + jobs API)** — unblocked now that D1–D6 are all resolved, but substantially larger (a new SQLite job-record table, settings moved to the DB, an ALTER-race guard, a separate uvicorn process) than any slice built so far; needs its own scoping pass before a session starts it, not a same-day follow-on.
