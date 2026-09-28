@@ -119,7 +119,10 @@ baihe-subtitler/
 ├── services/                   ← UI-INDEPENDENT application services (React/FastAPI migration).
 │   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
 │   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
-│   └── library_service.py        Library list/filter + one drama's details
+│   ├── library_service.py        Library list/filter + one drama's details
+│   └── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
+│                                 Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
+│                                 unchanged; those tabs import them back and call them as before)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)

@@ -109,6 +109,13 @@ def no_asr(monkeypatch):
     monkeypatch.setattr(wt, "transcribe_for_timing", boom, raising=False)
     import cli
     monkeypatch.setattr(cli, "transcribe_for_timing", boom)
+    # Migration Slice 2: run_transcribe_job/run_fix_flagged_lines_job now
+    # live in services/workspace_job_service.py and resolve this name from
+    # their own module globals -- patching it there too is what actually
+    # covers that path now; the wt patch above is kept (raising=False) for
+    # whatever, if anything, still calls it via tabs.workspace_tab directly.
+    from services import workspace_job_service
+    monkeypatch.setattr(workspace_job_service, "transcribe_for_timing", boom)
 
 
 @pytest.fixture
