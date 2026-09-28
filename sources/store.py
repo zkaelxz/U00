@@ -33,6 +33,15 @@ DEFAULT_SETTINGS = {
     "max_concurrent": 1,            # requests in flight per source
     "max_retries": 3,               # for 429/5xx/timeouts only -- never for a challenge
     "backoff_base": 2.0,            # seconds; doubles each retry
+    # A longer pause every N requests to one source (N picked at random in
+    # this range each time), on top of the ordinary per-request gap above --
+    # a person would set the app down and come back rather than keep an
+    # evenly spaced request rate going for a whole session. Either bound at
+    # 0 disables it.
+    "session_break_min_requests": 8,
+    "session_break_max_requests": 20,
+    "session_break_min_delay": 30.0,
+    "session_break_max_delay": 90.0,
     "unavailable_backoff": 300.0,   # seconds a 🔴 source is left alone after failing
     "cache_mode": "temporary",
     "check_interval_hours": 24,
