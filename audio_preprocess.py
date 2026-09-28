@@ -99,6 +99,40 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     raise VocalSeparationError("\n".join(errors))
 
 
+def extract_background(audio_path: str, out_path: str, backend: str = "auto",
+                       progress_cb=None, cancel_check_cb=None) -> str:
+    """Writes everything EXCEPT the vocals of audio_path (background music,
+    ambience, effects) to out_path and returns it. Reuses separate_vocals()
+    for the actual separation (same backends, chunking, progress/cancel and
+    error types), then subtracts that vocals stem from the original mix --
+    the residual is the background. The vocals stem is resampled/padded to
+    the original's rate and length first, and never kept on disk."""
+    import numpy as np
+    import soundfile as sf
+
+    work_dir = tempfile.mkdtemp(prefix="baihe_bgsep_", dir=os.path.dirname(out_path) or None)
+    try:
+        vocals_path = os.path.join(work_dir, "vocals.wav")
+        separate_vocals(audio_path, vocals_path, backend=backend,
+                        progress_cb=progress_cb, cancel_check_cb=cancel_check_cb)
+        mix, sr = sf.read(audio_path, dtype="float32", always_2d=True)
+        vocals, vocals_sr = sf.read(vocals_path, dtype="float32", always_2d=True)
+        if vocals.shape[1] != mix.shape[1]:
+            mix, vocals = mix.mean(axis=1, keepdims=True), vocals.mean(axis=1, keepdims=True)
+        if vocals_sr != sr:
+            n_out = max(1, int(round(len(vocals) * sr / vocals_sr)))
+            src_x = np.linspace(0.0, 1.0, len(vocals))
+            dst_x = np.linspace(0.0, 1.0, n_out)
+            vocals = np.stack([np.interp(dst_x, src_x, vocals[:, c])
+                               for c in range(vocals.shape[1])], axis=1).astype(np.float32)
+        if len(vocals) < len(mix):
+            vocals = np.pad(vocals, ((0, len(mix) - len(vocals)), (0, 0)))
+        sf.write(out_path, np.clip(mix - vocals[:len(mix)], -1.0, 1.0), sr)
+        return out_path
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+
 def separate_vocals_audio_separator(audio_path: str, out_path: str,
                                      model: str = MEL_ROFORMER_VOCAL_MODEL,
                                      progress_cb=None, cancel_check_cb=None) -> str:

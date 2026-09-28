@@ -1186,10 +1186,39 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     return out_path
 
 
+BACKGROUND_FILENAME = "dub_background.wav"
+BACKGROUND_GAIN_DB = -6.0
+
+
+def mix_original_background(track_path: str, source_audio_path: str, drama_dir: str,
+                            backend: str = "auto", gain_db: float = BACKGROUND_GAIN_DB,
+                            progress_cb=None, cancel_check_cb=None) -> str:
+    """Step 95: lays the original recording's background (music/ambience/
+    effects, i.e. the source minus its vocals) back under a finished dub
+    track, rewriting track_path in place. The separated background is cached
+    in drama_dir and reused while it is newer than the source audio, since
+    separation is the slow part. Raises audio_preprocess.VocalSeparationError
+    (backend missing/failed) or VocalSeparationCancelled."""
+    import audio_preprocess
+    from pydub import AudioSegment
+
+    bg_path = os.path.join(drama_dir, BACKGROUND_FILENAME)
+    if not (os.path.exists(bg_path)
+            and os.path.getmtime(bg_path) >= os.path.getmtime(source_audio_path)):
+        audio_preprocess.extract_background(
+            source_audio_path, bg_path, backend=backend,
+            progress_cb=progress_cb, cancel_check_cb=cancel_check_cb)
+    track = AudioSegment.from_file(track_path)
+    background = AudioSegment.from_file(bg_path) + gain_db
+    track.overlay(background).export(track_path, format="wav")
+    return track_path
+
+
 def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default_voice,
                                   character_clone_map, tts_engine, is_narration, emotion_map,
                                   max_speedup, max_slowdown, offline_voice_map, result_queue,
-                                  narrate_original=False, source_language="zh"):
+                                  narrate_original=False, source_language="zh",
+                                  background_source=None, separation_backend="auto"):
     """Step 4e: entry point for running build_dub_track()/build_narration_track()
     in its own OS process via background_jobs.start_process_job(), so
     Cancel can actually stop it. Confirmed safe to hard-stop: each clip
@@ -1209,7 +1238,11 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
     each speaker's Piper voice, separate from character_voice_map's
     edge-tts names. narrate_original/source_language (Step 26c): narration
     only (build_dub_track's video-dub path ignores both -- dubbing a video
-    in its own original language doesn't make sense)."""
+    in its own original language doesn't make sense). background_source
+    (Step 95): path of the original audio; when given on a video dub, its
+    background is mixed back under the finished track. A failed/missing
+    separation never loses the dub -- the plain track is kept and the result
+    carries background_mixed False plus a fixed background_error text."""
     try:
         kwargs = dict(default_voice=default_voice, character_clone_map=character_clone_map,
                       tts_engine=tts_engine, emotion_map=emotion_map,
@@ -1221,6 +1254,17 @@ def build_track_subprocess_worker(lines, drama_dir, character_voice_map, default
         else:
             out_path, errors = build_dub_track(lines, drama_dir, character_voice_map, **kwargs,
                                                max_speedup=max_speedup, max_slowdown=max_slowdown)
-        result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors}))
+        result = {"lines": lines, "out_path": out_path, "errors": errors}
+        if background_source and not is_narration:
+            import audio_preprocess
+            try:
+                mix_original_background(out_path, background_source, drama_dir,
+                                        backend=separation_backend)
+                result["background_mixed"] = True
+            except audio_preprocess.VocalSeparationError:
+                result["background_mixed"] = False
+                result["background_error"] = ("Background music could not be separated; "
+                                              "the dub track was kept without it.")
+        result_queue.put(("ok", result))
     except Exception as exc:
         result_queue.put(("error", type(exc).__name__, str(exc)))

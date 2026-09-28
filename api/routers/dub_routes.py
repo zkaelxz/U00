@@ -36,4 +36,5 @@ def get_dub_pacing(drama_id: int = Path(ge=1)):
 def start_dub_run(body: DubRunRequest, drama_id: int = Path(ge=1)):
     return dub_service.start_dub_run(
         drama_id, tts_engine=body.tts_engine, max_speedup=body.max_speedup,
-        max_slowdown=body.max_slowdown, narration_language=body.narration_language)
+        max_slowdown=body.max_slowdown, narration_language=body.narration_language,
+        keep_background=body.keep_background)

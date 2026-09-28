@@ -49,7 +49,7 @@ class TestConfig:
             "drama_id", "content_mode", "is_narration", "narration_language",
             "narration_language_options", "source_language", "tts_engines", "defaults",
             "speakers", "gpu_required", "speakable_line_count", "track_available",
-            "gpt_sovits_configured"}
+            "gpt_sovits_configured", "can_keep_background"}
         assert body["drama_id"] == did
         assert body["speakable_line_count"] == 2
         assert set(body["defaults"]) == {"max_speedup", "max_slowdown", "speedup_range",
