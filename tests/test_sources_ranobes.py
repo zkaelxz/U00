@@ -206,7 +206,9 @@ class TestSiteTermsForUnbuiltCandidates:
         from sources import site_terms
         caps = site_terms.capabilities_for("https://www.wuxiaworld.com/novel/x")
         assert caps is not None
-        assert "karma" in caps.terms["paywall"].lower()
+        assert caps.automation_permission == "EXPLICITLY_RESTRICTED"
+        assert caps.terms["tos_prohibited"] is True
+        assert "scraper" in caps.terms["clause"].lower()
 
     def test_webnovel_findings_are_recorded(self):
         from sources import site_terms

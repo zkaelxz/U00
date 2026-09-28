@@ -73,46 +73,53 @@ SITE_TERMS = [
         },
     },
     {
-        # roadmap Step 91 investigation. No adapter: real chapter text isn't
-        # in the server-rendered HTML at all -- confirmed directly, not
-        # assumed -- and a real karma-based paywall covers a meaningful part
-        # of the catalog regardless.
+        # roadmap Step 91 investigation. No adapter -- not because the
+        # technique couldn't be found (it was, in full: see below), but
+        # because the site's own real, directly-read Terms of Service
+        # explicitly prohibit exactly this. Automation_permission is
+        # EXPLICITLY_RESTRICTED, not UNKNOWN -- a real found-and-corrected
+        # mistake from this same investigation: an earlier pass guessed the
+        # wrong ToS URL (`/about/terms-of-service`, which 404s), read that
+        # 404 page's near-empty content, and recorded UNKNOWN rather than
+        # finding the real page. The real path is `/terms-of-service`
+        # (found from the site's own footer link), fetched and read in full
+        # directly (2026-09-28).
         "domains": ("wuxiaworld.com",),
         "platform": "Wuxiaworld",
-        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
         "ai_ml_use": AiMlUse.UNKNOWN.value,
         "terms": {
-            "read": "www.wuxiaworld.com/about/terms-of-service, fetched directly (2026-09-28).",
-            "unverified": "The page is a client-rendered React app; the served HTML's <div "
-                          "id=\"root\"> does carry real server-rendered markup for this route "
-                          "(confirmed directly, unlike the bare '/' homepage, whose root div is "
-                          "empty), but the actual terms-of-service clause text could not be "
-                          "reliably isolated from the surrounding app chrome without a real "
-                          "browser render, which this environment could not run (the `playwright` "
-                          "package install needed to drive the pre-installed Chromium binary was "
-                          "blocked by this session's own tool-permission policy) -- recorded "
-                          "honestly as unverified rather than guessed.",
-            "extraction_method": "Series/chapter *metadata* pages (title, chapter count, "
-                                 "pricing info) are genuinely server-rendered and readable over "
-                                 "plain HTTP -- confirmed directly against a real novel "
-                                 "(dragon-prince-yuan) and its chapter 1. But the chapter body "
-                                 "itself is not: the same server-rendered payload embeds each "
-                                 "chapter's real pricing/karma metadata but an explicitly empty "
-                                 "`\"paragraphs\":[]` for the text, meaning the actual prose is "
-                                 "fetched by the page's own client-side JavaScript after load, "
-                                 "not present in the response this app would receive. "
-                                 "RENDERED_BROWSER tier (this project's existing "
-                                 "`page_fetch.fetch_rendered`) might retrieve it, but that could "
-                                 "not be verified from this environment for the same Playwright- "
-                                 "install reason above -- recorded as UNRESOLVED, not assumed "
-                                 "working.",
-            "paywall": "A real karma (premium-currency) system gates a meaningful part of the "
-                      "catalog, confirmed directly in a real chapter's own embedded pricing "
-                      "data: `\"karmaInfo\":{\"isActive\":true,...}`, per-chapter "
-                      "`\"karmaPrice\"` values, and a real timed free-unlock mechanic "
-                      "(\"2 Free Chapters Every 23 Hrs\", a `waitTime` of 82800 seconds). Some "
-                      "early chapters observed as currently free (`isKarmaRequired: false`), "
-                      "but this is not a blanket free-text site.",
+            "read": "www.wuxiaworld.com/terms-of-service, fetched and read in full directly "
+                    "(2026-09-28) -- the real path, found via the site's own footer link, not "
+                    "the guessed `/about/terms-of-service` path (which 404s).",
+            "clause": "\"Automated Access/Extraction: Use any robot, bot, scraper, crawler, or "
+                      "other automated means to access or extract content from the Platform "
+                      "except as expressly permitted.\" And separately: \"Automated Data "
+                      "Collection: Do not use any robot, spider, scraper, crawler, or any "
+                      "automated means to access or extract data from Wuxiaworld without our "
+                      "prior written permission. The only exception is public search engine "
+                      "indexing... Any other automated reading or downloading of our content "
+                      "(for instance, to create an archive) is prohibited.\"",
+            "extraction_method": "Recorded for completeness, even though the ToS clause above "
+                                 "is what actually rules this site out: chapter text is fully "
+                                 "retrievable over plain HTTP without any browser/JS execution. "
+                                 "Series and chapter *pages* both embed a "
+                                 "`window.__REACT_QUERY_STATE__` JSON cache server-side; its "
+                                 "`['chapter', novel_slug, chapter_slug, None]` query holds the "
+                                 "real chapter HTML at `item.content.value` and a reliable "
+                                 "`item.pricingInfo.isFree` flag -- confirmed true for an early "
+                                 "chapter and false for a late one on the same real novel "
+                                 "(dragon-prince-yuan). A real karma (premium-currency) paywall "
+                                 "also covers most of the catalog (per-chapter `karmaInfo`, a "
+                                 "timed free-unlock mechanic), but even a free, unlocked "
+                                 "chapter's text is still off-limits under the clause above -- "
+                                 "the paywall status doesn't change the ToS answer. No "
+                                 "server-side endpoint for the *full* chapter list was found "
+                                 "(a novel page's own `chapterInfo.chapterGroups[].chapterList` "
+                                 "is server-rendered empty; the real list is fetched by "
+                                 "client-side JS this session didn't reverse-engineer), which "
+                                 "would have been a second, independent reason to leave "
+                                 "`get_chapters()` unbuilt even absent the ToS finding.",
         },
     },
     {
