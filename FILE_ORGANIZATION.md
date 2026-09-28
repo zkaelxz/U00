@@ -53,18 +53,59 @@ baihe-subtitler/
 ├── assets/
 │   └── app_icon.ico              used by make_shortcut.bat / packaging
 │
-├── docs/
-│   ├── adding-source.md          how to write a new sources/adapters/*.py adapter
-│   ├── browser-extension.md      the Translate-the-page-you're-reading feature
-│   ├── content-sources.md        every source the Sources tab can reach, and its status
-│   ├── handoff-browser-extension.md   handoff notes for the browser extension work
-│   ├── known-working-sources.md  quick "can I point the app at this site" status board
-│   ├── migration-react-fastapi.md   the React + FastAPI migration: architecture, how to run, what's next
-│   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants, sequence
-│   ├── remote-access-design.md   M8-H: Tailscale Serve access + Baihe permissions (design only)
-│   ├── migration-screenshots/    before/after screenshots referenced by that doc
-│   ├── technical-notes.md        engineering changelog: real bugs found + how they were fixed
-│   └── ux-click-through-audit.md Step 19's live click-through UX audit of every workflow
+├── docs/                       (see role tags below: what each doc is for and who keeps it current)
+│   ├── adding-source.md          how to write a new sources/adapters/*.py adapter, incl. the
+│   │                             pre-coding site checklist [reference — read before adding a
+│   │                             source; tells the author to update content-sources.md]
+│   ├── browser-extension.md      the Translate-the-page-you're-reading feature (Step 34/34b/96):
+│   │                             what it does, what was verified against a real site [source of
+│   │                             truth for this built, merged feature]
+│   ├── content-sources.md        every source the Sources tab can reach, what was actually
+│   │                             checked and how [maintained status tracking — updated per
+│   │                             adapter, per adding-source.md's own instruction]
+│   ├── handoff-browser-extension.md   the browser extension's original pre-build reasoning
+│   │                             [superseded handoff — its own banner says the feature is now
+│   │                             built as Step 34/34b and points to browser-extension.md;
+│   │                             kept only as historical record, not a live plan]
+│   ├── known-working-sources.md  quick "can I point the app at this site" status board, a
+│   │                             short companion to content-sources.md's full technical detail
+│   │                             [maintained status tracking — update a row's status on
+│   │                             re-verification rather than trusting an old date]
+│   ├── migration-react-fastapi.md   the React + FastAPI migration foundation: architecture, how
+│   │                             to run it, what's built so far [source of truth for the
+│   │                             migration's foundation; lives on the unmerged
+│   │                             `migration/react-fastapi-foundation` branch, not merged into
+│   │                             `baihe-subtitler` — see its own status banner]
+│   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants,
+│   │                             sequence, decisions needed [planning/reference, companion to
+│   │                             migration-react-fastapi.md; nothing in it is implemented beyond
+│   │                             that foundation]
+│   ├── remote-access-design.md   M8-H: Tailscale Serve access + Baihe permissions [design
+│   │                             proposal, nothing built yet; written for the planning session
+│   │                             to fold the decision into the roadmap]
+│   ├── migration-screenshots/    before/after screenshots referenced by migration-review.md
+│   ├── technical-notes.md        engineering changelog: real bugs found during development, how
+│   │                             they were diagnosed and fixed [audit record, append-only;
+│   │                             deliberately kept separate from README.md so that stays
+│   │                             focused on using the app]
+│   ├── windows-installer-design.md   Step 80 Windows installer/uninstaller architecture
+│   │                             [design proposal, nothing built yet; written for an
+│   │                             implementing session or the user to read before Step 80's
+│   │                             build work starts]
+│   ├── windows-installer-research-notes.md   follow-up research stress-testing that design's
+│   │                             recommendation against prior art [research/reference,
+│   │                             discussion only — no roadmap step id, doesn't change the
+│   │                             merged design's recommendation]
+│   └── ux-click-through-audit.md Step 19's live click-through UX audit of every workflow,
+│                                 against the roadmap's own 12-workflow/8-question spec [audit
+│                                 record]
+│
+│   Note: the numbered build-order roadmap (`docs/baihe-roadmap.md`) and its own status table
+│   don't live in this repo — they're tracked on the separate planning branch
+│   `claude/baihe-subtitle-planning-95qyvq` until the roadmap's own final step copies the file
+│   in (see root `CLAUDE.md`). There's also no `docs/README.md` index on this branch — this
+│   `docs/` listing is the closest thing to one; if a `docs/README.md` appears on some other
+│   branch, cross-link it with this file rather than letting the two drift apart.
 │
 ├── tabs/                      ← UI ONLY. One file per tab, 10 tabs total.
 │   ├── __init__.py               (empty, marks the package)
