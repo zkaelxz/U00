@@ -51,6 +51,7 @@ baihe-subtitler/
 │   ├── known-working-sources.md  quick "can I point the app at this site" status board
 │   ├── migration-react-fastapi.md   the React + FastAPI migration: architecture, how to run, what's next
 │   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants, sequence
+│   ├── remote-access-design.md   M8-H: built-in logins, permissions, HTTPS, exposure rules (design only)
 │   ├── migration-screenshots/    before/after screenshots referenced by that doc
 │   └── technical-notes.md        engineering changelog: real bugs found + how they were fixed
 │
