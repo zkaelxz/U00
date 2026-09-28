@@ -109,7 +109,8 @@ def add_entries(base, branch):
         out[k:k] = new
 
     process("│   ├── ", "│   └── ", "│   │" + " " * 29, "│" + " " * 33, f"{svc}_service.py", ("├── ", "services/"))
-    process("│       ├── ", "│       └── ", "│       │" + " " * 25, "│" + " " * 33, f"{router}.py", ("│   └── ", "routers/"))
+    if not any(ln.split()[-0:] and f"── {router}.py" in ln for ln in b_lines):  # router already listed: nothing to add
+        process("│       ├── ", "│       └── ", "│       │" + " " * 25, "│" + " " * 33, f"{router}.py", ("│   └── ", "routers/"))
     return "\n".join(out)
 
 
