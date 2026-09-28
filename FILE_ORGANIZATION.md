@@ -120,9 +120,11 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
 │   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
-│   └── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
-│                                 Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
-│                                 unchanged; those tabs import them back and call them as before)
+│   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
+│   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
+│   │                             unchanged; those tabs import them back and call them as before)
+│   └── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
+│                                 from cache only, never a live/paid lookup or a DB write
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -134,7 +136,8 @@ baihe-subtitler/
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta
-│       └── library_routes.py     /api/library/dramas[/{id}]
+│       ├── library_routes.py     /api/library/dramas[/{id}]
+│       └── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
