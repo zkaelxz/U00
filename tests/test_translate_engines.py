@@ -356,6 +356,31 @@ class TestBuildLlmInstructions:
         result = te.build_llm_instructions("", {})
         assert isinstance(result, str)
 
+    def test_previous_episode_summary_reaches_the_prompt(self):
+        """Step 74: the immediately preceding episode's stored running
+        summary (db._DRAMA_SELECT's previous_episode_summary) reaches the
+        stable translation prompt as fixed continuity context."""
+        instructions = te.build_llm_instructions(
+            "", {"previous_episode_summary": "Xiaoling found the letter in episode 1."})
+        assert "Xiaoling found the letter in episode 1." in instructions
+
+    def test_no_previous_episode_summary_omits_the_section(self):
+        instructions = te.build_llm_instructions("", {})
+        assert "Continuity from the previous episode" not in instructions
+
+
+class TestBuildPreviousEpisodeSummaryBlock:
+    def test_empty_when_unset(self):
+        assert te.build_previous_episode_summary_block({}) == ""
+
+    def test_empty_when_blank(self):
+        assert te.build_previous_episode_summary_block({"previous_episode_summary": "   "}) == ""
+
+    def test_includes_the_summary_text(self):
+        block = te.build_previous_episode_summary_block(
+            {"previous_episode_summary": "Wei confessed her secret."})
+        assert "Wei confessed her secret." in block
+
 
 class TestEstimateCost:
     def test_known_model_computes_nonzero_cost(self):
@@ -2137,6 +2162,118 @@ class TestCheckConsistencyLlm:
         assert issues == []
         assert failed_batches == 1
         assert total_batches == 1
+
+
+class TestGenerateEpisodeSummary:
+    """Step 74: one LLM call per finished episode producing a short
+    running summary, fed forward into the next episode's translation
+    prompt as fixed continuity context."""
+
+    def test_pure_mt_engine_returns_empty_string_not_crash(self):
+        class PureMT:
+            supports_reference = False
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="b")]
+        assert te.generate_episode_summary(lines, PureMT()) == ""
+
+    def test_no_translated_lines_returns_empty(self):
+        class MockLlm:
+            supports_reference = True
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="")]  # untranslated
+        assert te.generate_episode_summary(lines, MockLlm()) == ""
+
+    def test_generates_one_summary_from_a_valid_response(self):
+        class FakeEngine:
+            supports_reference = True
+            model = "fake-model"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+                self.call_count = 0
+
+            def create(self, model, max_tokens, messages):
+                self.call_count += 1
+                text = '{"summary": "Xiaoling found the letter and confronted Wei."}'
+                return type("Resp", (), {"content": [_FakeBlock(text)]})()
+
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="Hello."),
+                 Line(idx=1, start=1, end=2, zh="b", en="Goodbye.")]
+        engine = FakeEngine()
+        summary = te.generate_episode_summary(lines, engine)
+        assert summary == "Xiaoling found the letter and confronted Wei."
+
+    def test_called_once_per_episode_not_once_per_batch(self):
+        """The whole point of Step 74's design: this is a fixed,
+        once-per-episode cost, unlike the per-batch translation calls --
+        a many-line episode still results in exactly one LLM call."""
+        class FakeEngine:
+            supports_reference = True
+            model = "fake-model"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+                self.call_count = 0
+
+            def create(self, model, max_tokens, messages):
+                self.call_count += 1
+                return type("Resp", (), {"content": [_FakeBlock('{"summary": "ok"}')]})()
+
+        lines = [Line(idx=i, start=i, end=i + 1, zh=f"line {i}", en=f"Line {i}.")
+                 for i in range(50)]
+        engine = FakeEngine()
+        te.generate_episode_summary(lines, engine)
+        assert engine.call_count == 1
+
+    def test_non_dict_response_returns_empty_string(self):
+        class FakeEngine:
+            supports_reference = True
+            model = "fake-model"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, model, max_tokens, messages):
+                return type("Resp", (), {"content": [_FakeBlock('["not", "an", "object"]')]})()
+
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="Hi.")]
+        assert te.generate_episode_summary(lines, FakeEngine()) == ""
+
+    def test_engine_failure_declines_quietly(self):
+        class FailingEngine:
+            supports_reference = True
+            model = "fake-model"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, model, max_tokens, messages):
+                raise RuntimeError("simulated API failure")
+
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="Hi.")]
+        assert te.generate_episode_summary(lines, FailingEngine()) == ""
+
+    def test_usage_cb_invoked_on_success(self):
+        class FakeEngine:
+            supports_reference = True
+            model = "fake-model"
+
+            def __init__(self):
+                self.client = self
+                self.messages = self
+
+            def create(self, model, max_tokens, messages):
+                resp = type("Resp", (), {"content": [_FakeBlock('{"summary": "ok"}')],
+                                          "usage": type("U", (), {"input_tokens": 100,
+                                                                   "output_tokens": 20})()})()
+                return resp
+
+        calls = []
+        lines = [Line(idx=0, start=0, end=1, zh="a", en="Hi.")]
+        te.generate_episode_summary(lines, FakeEngine(), usage_cb=lambda i, o, **k: calls.append((i, o)))
+        assert calls == [(100, 20)]
 
 
 class _FakeBlock:
