@@ -8,7 +8,7 @@ import importlib
 
 BUILTIN = ["manhuagui", "bilibili", "52shuku", "xbanxia", "bilibili_manga",
           "toonkor", "guazimanhua", "miaoqumh", "baozimh", "kuaikan", "manhuaku",
-          "zerosumonline", "mangaz"]
+          "zerosumonline", "mangaz", "missevan"]
 
 
 def load_all():
