@@ -1332,3 +1332,28 @@ class NovelStatus(BaseModel):
     char_count: int
     chapters: int
     ocr_running: bool
+
+
+class ReviewJobStart(BaseModel):
+    """Start a Review-stage AI job (Migration Slice 44). No keys/URLs."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    gemini_free_tier: bool = False
+
+
+class EmotionJobStart(ReviewJobStart):
+    use_audio_cues: Optional[bool] = None
+
+
+class FixFlaggedJobStart(ReviewJobStart):
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+
+
+class ReviewJobStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    kind: str
+    engine: str
+    model: Optional[str] = None
+    line_count: int
