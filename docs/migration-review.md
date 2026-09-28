@@ -726,6 +726,11 @@ Streamlit tab's unsaved session copy, so unsaved edits will differ.
 Explicit colour/range validation replaces the tab's silent white/alignment
 fallbacks. Out of scope: burned-in video, audiobook, package zip,
 mark-as-exported, Anki (Reader tab).
+*Hardening H2:* `_ass_field`/the `Title:` header now replace control characters (newlines
+would inject extra `Style:`/`Dialogue:`/`[Events]` lines) and `style.font` with control
+characters is a 422; `speaker_colors` is capped (200 entries, 100-char labels; kept rather
+than intersected with the drama's speakers); ASS `wrap_chars_*` is `le=200` like SRT/VTT.
+Explicit JSON `null` for a style field stays a 422 (omit the key instead).
 
 **Slice 46 -- Glossary, instructions and catalogues.** `services/glossary_service.py`
 plus `/api/glossary/*`: series glossary term list/upsert/delete, project and series
@@ -736,6 +741,9 @@ id with no series check); a series-less drama reads as empty and refuses term wr
 series instructions (400). Delete needs `confirm=true`, mirroring the tab's Step 71 confirm
 checkbox. Text, list and instruction lengths are capped. Out of scope: LLM term extraction (a
 paid call, later slice), presets CRUD, characters.
+*Hardening H2:* a POST without `id` for an existing `term_original` now starts from that term's
+stored values (like update-by-id) so omitted notes/aliases/banned/enforce_exact survive;
+explicit `""`/`[]` still clears, and a brand-new term still gets fresh defaults.
 
 **Slice 47 — Review read-only line views (2026-09-28).**
 `services/review_lines_service.py` + `api/routers/review_lines_routes.py`
