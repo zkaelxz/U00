@@ -721,3 +721,123 @@ class GlossaryCatalogues(BaseModel):
     term_categories: List[GlossaryCatalogueOption]
     term_policies: List[GlossaryTermPolicyOption]
     workflow_tiers: List[GlossaryWorkflowTier]
+
+
+# --- Review read-only line views (Migration Slice 47) -----------------------
+# Names are prefixed `ReviewLines` on purpose. Identity is always the permanent
+# line `id`; `idx` is display-only.
+
+class ReviewLinesLine(BaseModel):
+    id: int
+    idx: int
+    start: float
+    end: float
+    zh: str
+    en: str
+    speaker: Optional[str] = None
+    speaker_manual: bool
+    sfx: bool
+    flag: Optional[str] = None
+    flag_note: Optional[str] = None
+    dub_filename: Optional[str] = None
+
+
+class ReviewLinesPage(BaseModel):
+    lines: List[ReviewLinesLine]
+    page: int
+    page_size: int
+    total: int = Field(description="Lines in the filtered view (before paging).")
+    flagged_count: int = Field(description="Flagged lines in the whole drama.")
+    untranslated_count: int = Field(description="Untranslated lines in the whole drama.")
+
+
+class ReviewLinesFindReplaceRequest(BaseModel):
+    """Body of a PREVIEW only -- nothing is written."""
+    model_config = {"extra": "forbid"}
+    find: str = Field(max_length=500)
+    replace: str = Field(default="", max_length=500)
+    case_sensitive: bool = False
+    use_regex: bool = False
+
+
+class ReviewLinesMatch(BaseModel):
+    id: int
+    idx: int
+    old_text: str
+    new_text: str
+
+
+class ReviewLinesCoverageEntry(BaseModel):
+    """One coverage finding. Which fields are set depends on the list it is
+    in (long_lines / large_gaps / blank_zh / blank_en)."""
+    idx: Optional[int] = None
+    id: Optional[int] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    duration: Optional[float] = None
+    zh: Optional[str] = None
+    char_count: Optional[int] = None
+    note: Optional[str] = None
+    after_idx: Optional[int] = None
+    before_idx: Optional[int] = None
+    after_id: Optional[int] = None
+    before_id: Optional[int] = None
+    gap_start: Optional[float] = None
+    gap_end: Optional[float] = None
+    gap_seconds: Optional[float] = None
+
+
+class ReviewLinesCoverage(BaseModel):
+    long_lines: List[ReviewLinesCoverageEntry]
+    large_gaps: List[ReviewLinesCoverageEntry]
+    blank_zh: List[ReviewLinesCoverageEntry]
+    blank_en: List[ReviewLinesCoverageEntry]
+
+
+class ReviewLinesPacingFlag(BaseModel):
+    id: Optional[int] = None
+    idx: int
+    issue: str
+    detail: Optional[str] = None
+
+
+class ReviewLinesPacing(BaseModel):
+    flags: List[ReviewLinesPacingFlag]
+    count: int
+
+
+class ReviewLinesProvenance(BaseModel):
+    """`debug_view.explain_line`, read-only. The list-valued sections have
+    variable row shapes, so they are passed through as `Any`."""
+    line_id: int
+    line_idx: int
+    zh: str
+    en: str
+    speaker: Optional[str] = None
+    speaker_manual: bool
+    flag: Optional[str] = None
+    flag_reason: Optional[str] = None
+    flag_note: Optional[str] = None
+    translation_notes: List[Any] = []
+    emotion: Optional[Any] = None
+    edit_samples: List[Any] = []
+    consistency_issues: List[Any] = []
+    glossary_matches: List[Any] = []
+    glossary_matches_note: Optional[str] = None
+    context_window_used: Optional[Any] = None
+    context_window_note: Optional[str] = None
+    current_neighbors_before: List[Any] = []
+    current_neighbors_after: List[Any] = []
+    engine: Optional[str] = None
+    model: Optional[str] = None
+    engine_source: Optional[str] = None
+    prompt_version_note: Optional[str] = None
+
+
+class ReviewLinesOriginalText(BaseModel):
+    line_id: int
+    idx: int
+    current_zh: str
+    has_raw_transcript: bool
+    original_text: Optional[str] = None
+    differs: bool

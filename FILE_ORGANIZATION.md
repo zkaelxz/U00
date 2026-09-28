@@ -223,9 +223,12 @@ baihe-subtitler/
 │   │                             list/update (None = leave alone, "" = clear), series-character
 │   │                             list, clone-engine picklist (Step 26c language rule), voice bank
 │   │                             list/apply; no paths returned; ref-audio upload stays out of scope
-│   └── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
-│                                 CRUD, confirm-gated delete), project/series instructions, and
-│                                 read-only option catalogues; LLM term extraction stays out
+│   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
+│   │                             CRUD, confirm-gated delete), project/series instructions, and
+│   │                             read-only option catalogues; LLM term extraction stays out
+│   └── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
+│                                 filtered list, search, find-replace preview, coverage, pacing,
+│                                 provenance, original text (by permanent line id; no writes)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -264,9 +267,12 @@ baihe-subtitler/
 │       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
 │       │                         POST .../voice-bank/apply, /series/{id}/characters, /voice-bank
 │       │                         (Migration Slice 42)
-│       └── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
-│                                 ?confirm=true), .../instructions[/project|/series], /catalogues
-│                                 (Migration Slice 46)
+│       ├── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
+│       │                         ?confirm=true), .../instructions[/project|/series], /catalogues
+│       │                         (Migration Slice 46)
+│       └── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
+│                                 preview (writes nothing), .../coverage, .../pacing-flags,
+│                                 .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
