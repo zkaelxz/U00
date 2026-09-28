@@ -28,6 +28,17 @@ def _drama_with_audio(isolated_db, **fields):
     return did, ddir
 
 
+def _drama_with_video(isolated_db, **fields):
+    fields.setdefault("title_en", "D")
+    fields.setdefault("source_video_filename", "source.mp4")
+    fields.setdefault("transcript_mode", "hardsub_ocr")
+    did = isolated_db.create_drama(**fields)
+    ddir = isolated_db.drama_dir(did)
+    os.makedirs(ddir, exist_ok=True)
+    open(os.path.join(ddir, fields["source_video_filename"]), "wb").close()
+    return did, ddir
+
+
 def _clear(job_id):
     background_jobs.clear_job(job_id)
 
@@ -63,6 +74,9 @@ class TestGetTranscribeConfig:
             "realign_long_segments": False,
             "whisper_fast_mode": False,
             "use_groq": False,
+            "has_video_source": False,
+            "hardsub_ocr_backend": "paddle",
+            "hardsub_interval_sec": 1.0,
         }
 
     def test_reflects_persisted_values(self, isolated_db):
@@ -150,6 +164,29 @@ class TestStartTranscribeRun:
         did, _ = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
         with pytest.raises(UnsupportedOperationError):
             transcribe_service.start_transcribe_run(did)
+
+    def test_hardsub_ocr_without_video_raises(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", transcript_mode="hardsub_ocr")
+        with pytest.raises(UnsupportedOperationError):
+            transcribe_service.start_transcribe_run(did)
+
+    def test_hardsub_ocr_with_video_starts_the_job(self, isolated_db, monkeypatch):
+        did, ddir = _drama_with_video(isolated_db)
+        captured = {}
+
+        def fake_start_job(job_id, target, *a, **k):
+            import inspect
+            names = list(inspect.signature(target).parameters)
+            captured.update(dict(zip(names, a)))
+            return True
+        monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+
+        result = transcribe_service.start_transcribe_run(did)
+
+        assert result == {"job_id": f"transcribe_{did}"}
+        assert captured["video_path"] == os.path.join(ddir, "source.mp4")
+        assert captured["audio_path"] is None
+        assert captured["transcript_mode"] == "hardsub_ocr"
 
     def test_starts_the_background_job(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
@@ -481,4 +518,75 @@ class TestRunTranscribeAndApplyJob:
             "medium", 5, 300, 0.5, True, "auto", False, False, False, None, "hf-token", None)
 
         assert seen[0][0] == original
+        _clear(job_id)
+
+
+class TestRunTranscribeAndApplyJobHardsubOcr:
+    """hardsub_ocr.py hard-imports cv2 at module level, an optional
+    dependency -- importorskip it here so a core-only install still gets
+    a clean run of the rest of this file (per CLAUDE.md's own rule)."""
+
+    def test_success_saves_lines_from_ocr_cues(self, isolated_db, monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        cues = [{"start": 0.0, "end": 1.0, "text": "hello"},
+                {"start": 1.0, "end": 2.0, "text": "world"}]
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: cues)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+            hardsub_interval=1.0)
+
+        status = background_jobs.get_status(job_id)
+        assert status["result"]["line_count"] == 2
+        assert status["result"]["diarize_started"] is False
+        saved = isolated_db.load_lines(did)
+        assert [r["zh"] for r in saved] == ["hello", "world"]
+        assert isolated_db.get_drama(did)["status"] == "aligned"
+        _clear(job_id)
+
+    def test_empty_cues_records_failed_reason(self, isolated_db, monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", lambda *a, **k: [])
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="tesseract",
+            hardsub_interval=1.0)
+
+        assert background_jobs.get_status(job_id)["result"] == {"failed_reason": "empty"}
+        _clear(job_id)
+
+    def test_passes_backend_interval_and_tesseract_cmd_through(self, isolated_db, monkeypatch):
+        hardsub_ocr = pytest.importorskip("hardsub_ocr")
+        did, ddir = _drama_with_video(isolated_db)
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        captured = {}
+
+        def fake_extract(video_path, **kwargs):
+            captured["video_path"] = video_path
+            captured.update(kwargs)
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(hardsub_ocr, "extract_hardsub_subtitles", fake_extract)
+
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, None, "hardsub_ocr", None, "ja", "simplified",
+            "medium", 5, 300, 0.5, False, "auto", False, False, False, None, None, None,
+            video_path=os.path.join(ddir, "source.mp4"), hardsub_ocr_backend="paddle",
+            hardsub_interval=2.5, tesseract_cmd="/usr/bin/tesseract")
+
+        assert captured["video_path"] == os.path.join(ddir, "source.mp4")
+        assert captured["language"] == "ja"
+        assert captured["ocr_backend"] == "paddle"
+        assert captured["sample_interval"] == 2.5
+        assert captured["tesseract_cmd"] == "/usr/bin/tesseract"
         _clear(job_id)

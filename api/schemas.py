@@ -322,6 +322,9 @@ class TranscribeConfig(BaseModel):
     realign_long_segments: bool
     whisper_fast_mode: bool
     use_groq: bool
+    has_video_source: bool
+    hardsub_ocr_backend: str
+    hardsub_interval_sec: float
 
 
 class TranscribeConfigUpdate(BaseModel):
@@ -338,18 +341,24 @@ class TranscribeConfigUpdate(BaseModel):
     realign_long_segments: Optional[bool] = None
     whisper_fast_mode: Optional[bool] = None
     use_groq: Optional[bool] = None
+    hardsub_ocr_backend: Optional[str] = None
+    hardsub_interval_sec: Optional[float] = None
 
 
 class TranscribeRunRequest(BaseModel):
     """transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- per Slice 19, it's never
-    persisted server-side."""
+    persisted server-side. tesseract_cmd is an optional, client-supplied
+    path to the tesseract binary (hardsub_ocr with the "tesseract"
+    backend only) -- Streamlit's own equivalent Settings value has no
+    settings_service-backed home yet (Migration Slice 21)."""
     source_language: Optional[str] = None
     chinese_script: Optional[str] = None
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
     initial_prompt: str = ""
+    tesseract_cmd: Optional[str] = None
 
 
 class TranscribeRunResult(BaseModel):

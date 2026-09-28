@@ -689,10 +689,26 @@ chained on the vocals-only file instead of the original audio, no
 `has_audio_pipeline` check (novel_narration dramas are now rejected), and
 `use_groq` with no key failing late instead of at start.
 
-**Next candidates:** the `hardsub_ocr` half of the Transcript action, the
-`chunk_and_tag` novel-narration path (both need their own scoping), or
-continue with ASS export/audiobook/burned-in-video export (Export's
-remaining scope) or Dub (§3.2's build order).
+**Slice 21 — Transcript-stage action, hardsub_ocr (2026-09-28).**
+Extends `transcribe_service.py`'s job-does-everything action to
+`transcript_mode == "hardsub_ocr"` (reading captions burned into video),
+via `hardsub_ocr.extract_hardsub_subtitles` -- the OCR cues already carry
+real per-cue timing straight from the video, so unlike Whisper's own text
+there's no separate alignment step, matching `run_hardsub_ocr_job`'s own
+reasoning. `start_transcribe_run` now branches on `transcript_mode`:
+hardsub_ocr requires a video source (not audio) and skips the ASR-only
+steps (vocal separation, Groq, word-realign) entirely. New per-drama
+`hardsub_ocr_backend` / `hardsub_interval_sec` columns (same "previously
+session-state only" gap Slice 20 closed for the Whisper knobs);
+`tesseract_cmd` stays a per-request, client-supplied value rather than a
+persisted setting, since Streamlit's own equivalent is a global Settings
+value with no `settings_service`-backed home yet.
+
+**Next candidates:** the `chunk_and_tag` novel-narration path (needs its
+own scoping -- fully synchronous today, no natural job boundary), the
+experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
+ASS export/audiobook/burned-in-video export (Export's remaining scope) or
+Dub (§3.2's build order).
 
 ---
 

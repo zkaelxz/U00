@@ -43,4 +43,4 @@ def post_start_transcribe(payload: TranscribeRunRequest, drama_id: int = Path(ge
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,
         expected_speakers=payload.expected_speakers,
-        initial_prompt=payload.initial_prompt)
+        initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd)

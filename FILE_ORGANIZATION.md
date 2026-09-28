@@ -205,8 +205,11 @@ baihe-subtitler/
 │                                 (Whisper tuning knobs, newly persisted per drama) plus
 │                                 start_transcribe_run: a background job that does the WHOLE
 │                                 pipeline (ASR, alignment, DB write, optional diarization chain-
-│                                 start), unlike Streamlit's render-loop apply step; hardsub_ocr,
-│                                 chunk_and_tag, qwen3 backends and audio upload stay out of scope
+│                                 start), unlike Streamlit's render-loop apply step. Slice 21 adds
+│                                 hardsub_ocr transcript_mode (burned-in video captions, via
+│                                 hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
+│                                 step, same as Whisper's own text). chunk_and_tag and qwen3
+│                                 backends still stay out of scope
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)

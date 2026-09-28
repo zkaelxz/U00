@@ -862,6 +862,10 @@ def init_db():
                               ("realign_long_segments", "INTEGER DEFAULT 0"),
                               ("whisper_fast_mode", "INTEGER DEFAULT 0"),
                               ("use_groq", "INTEGER DEFAULT 0"),
+                              # Migration Slice 21: hardsub_ocr's own two tuning knobs --
+                              # same "previously session-state only" gap as Slice 20's.
+                              ("hardsub_ocr_backend", "TEXT"),
+                              ("hardsub_interval_sec", "REAL DEFAULT 1.0"),
                               # Step 12e: freeform, multi-line instructions that DO reach
                               # the translation prompt (translate_engines.build_llm_instructions)
                               # -- unlike personal_notes above, which is private and never
