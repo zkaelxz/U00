@@ -77,12 +77,25 @@
 > counting the wuxiaworld fix before it merged; corrected to the real
 > count at time of writing.)
 >
-> **Not yet dispatched:** Step 79 (start.bat's Python-stub detection bug +
-> version pinning — small, concrete; the secondary-review session found
-> `start.ps1:42` has the identical bug and not in Step 79's original
-> scope — amend Step 79 to cover both scripts when picked up). Steps
-> 95/97/98/99 (see above, no branch yet). Steps 85/86/89 (provisionally
-> numbered, never pushed — confirm scope before dispatch).
+> **Step 79 merged (2026-09-28, later the same day as this note's own
+> pass):** `step-79-python-stub-detection`, PR #194 — covered both
+> `start.bat` and `start.ps1` (the secondary-review session's amendment),
+> full suite 3217 passed. Manual check (real Windows machine) still owed.
+>
+> **React+FastAPI migration, Slice 2 in progress:** job-runner-extraction
+> (moving `run_translate_job`/`run_transcribe_job`/etc. out of
+> `tabs/workspace_tab.py` and `restore_library_backup`/
+> `run_bulk_series_translate_job` out of `tabs/library_tab.py`, into
+> `services/`, a pure move with zero logic change per
+> `docs/migration-review.md`'s own slice plan) — dispatched to an
+> implementer working in its own worktree/branch
+> (`step-migration-slice2-job-services`), not yet reviewed/merged as of
+> this note. Check its actual state (branch existence, diff, test
+> results) before assuming it's done or restarting it — don't duplicate.
+>
+> **Not yet dispatched:** Steps 95/97/98/99 (see above, no branch yet).
+> Steps 85/86/89 (provisionally numbered, never pushed — confirm scope
+> before dispatch).
 >
 > **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42,
 > which doesn't exist yet). Step 60 (multi-agent orchestration — also
@@ -4139,7 +4152,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 76 — Fix qwen-asr's unresolvable `>=0.1` version floor | — | ✅ Merged (PR #171) | ⏳ Pending |
   | 77 — Confirm-before-delete on the voice bank entry delete button | — | ✅ Merged (PR #172) | ⏳ Pending |
   | 78 — Household profiles (Jellyfin-style) + GPU-awareness | — | ✅ Merged (PR #167) | ⏳ Pending (three items) |
-  | 79 — Fix `start.bat`'s Python-stub check; add version pinning | — | Not started — not yet dispatched | — |
+  | 79 — Fix `start.bat`'s Python-stub check; add version pinning (amended to also cover `start.ps1`'s identical bug) | `step-79-python-stub-detection` | ✅ Merged (PR #194) | ⏳ Pending (real Windows machine) |
   | 80 — Design-only: Windows installer/uninstaller & distribution architecture | `step-80-windows-installer-design` | ✅ Merged (PR #175, `3bd361c`, design-only) | — (design-only) |
   | 81 — Full dead-code/redundancy sweep of `baihe-subtitler` | 3 sub-branches: `step-81-file-organization`/`step-81-unused-params`/`step-81-dead-code-removal` | ✅ Merged (PRs #181–#183) | ⏳ Pending |
   | 82 — Push the updated `docs/ai-setup/CLAUDE.md` staging copy into `baihe-subtitler`'s live root | — | Not started — not yet dispatched | — |
