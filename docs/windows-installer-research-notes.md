@@ -14,6 +14,22 @@ the merged doc's own "design only" framing.
 Read `docs/windows-installer-design.md` first; this document assumes its
 §1-§7 and refers back to them by number rather than restating them.
 
+**User decisions (2026-09-28), resolving two of this document's open
+questions directly:**
+
+- **Heavier components must be tiered/opt-in, prompted, and kept separate
+  from Core** — not silently pulled into a default install. This resolves
+  the merged doc's own §3 open call between "(a) Recommended = core +
+  media only" and "(b) Recommended = core + media + a curated optional
+  subset": the user's direction picks (a) in spirit — anything beyond
+  Core/Media (GPU-enabled torch, diarization, OCR backends, voice-cloning
+  models, etc.) should require an explicit prompt/opt-in rather than
+  arriving by default at any tier. See the updated §3-adjacent note below.
+- **No code signing needed** — this is a small, private distribution (the
+  user states ~3 users), not a public release building SmartScreen
+  reputation over time. Ship unsigned and accept the "Windows protected
+  your PC" click-through. This resolves §8 below; see its update.
+
 ---
 
 ## 1. Real prior art surveyed
@@ -253,13 +269,14 @@ chosen:
   Microsoft Entra/Azure account rather than requiring business
   registration.
 
-**Recommendation:** this is a real open decision, not a technical
-blocker — add it to the merged doc's §5 "what needs to change later"
-list as its own item, to be decided (unsigned-and-accept-the-warning vs.
-Trusted Signing's ~$10/month) before the actual installer ships, since it
-materially affects what a first-time user sees on first launch. Left open
-here deliberately, since it's a recurring-cost/maintainer-preference
-question, not something this research can resolve on its own.
+**Resolved by the user (2026-09-28): ship unsigned.** Given this is a
+small, private distribution (~3 users, not a public release that needs to
+build SmartScreen reputation over time), the cost/reputation-building
+tradeoff above doesn't apply — the installer ships unsigned, and the small
+user base clicks through "More info" → "Run anyway" once. No code-signing
+certificate or Trusted Signing subscription needed. This closes the
+question this section originally left open; kept the research above for
+the record in case distribution scale ever changes.
 
 Sources: [Code signing options for Windows app developers (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options), [SmartScreen reputation for Windows app developers (Microsoft Learn)](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation), [How to use individual code signing certificates to get rid of SmartScreen warnings](https://engy.us/blog/2021/05/25/how-to-use-individual-code-signing-certificates-to-get-rid-of-smartscreen-warnings/).
 
@@ -308,17 +325,33 @@ additions/sharpenings to fold into §5's "what needs to change" list:
 3. **New item** — an explicit disk-space preflight check with a
    per-tier/component size estimate, using the same manifest §5 item 5
    already calls for (§5 of this doc).
-4. **New item** — a code-signing decision (unsigned-and-accept-SmartScreen
-   vs. ~$10/month Trusted Signing) before first public release; not a
-   blocker, but currently absent from the merged doc entirely (§8 of this
-   doc).
-5. **Reinforcement, not new** — §5 item 5's manifest and §4's four-way
+4. **Resolved by the user (2026-09-28) — ship unsigned, no code signing.**
+   Small private distribution (~3 users) doesn't need SmartScreen
+   reputation-building; skip the cost entirely (§8 of this doc).
+5. **Resolved by the user (2026-09-28) — heavier components stay
+   tiered/opt-in, prompted, separate from Core, never bundled in by
+   default at any tier.** This decides the merged doc's own §3 open call
+   in favor of option (a) ("Recommended = core + media only," or leaner):
+   GPU-enabled torch, diarization, OCR backends, voice-cloning models, and
+   anything else beyond Core/Media requires an explicit prompt/opt-in
+   rather than arriving automatically. Combined with item 3 below (a
+   disk-space estimate shown before the user opts in), this gives the
+   installer's tier/component picker a concrete job: show the size cost of
+   each optional piece and require a checkbox before it's added to the
+   install plan.
+6. **Reinforcement, not new** — §5 item 5's manifest and §4's four-way
    category split are load-bearing, not optional polish: without both,
    Inno Setup's lack of any built-in delta-update mechanism (§9 of this
    doc) means a naive script would redownload/reinstall everything,
    models included, on every update.
 
 ## Open questions for the user / planning session
+
+Two of the three questions this document originally raised were resolved
+directly by the user on 2026-09-28 (code signing → ship unsigned, given
+~3 users; tiering → heavier components must be prompted/opt-in, separate
+from Core — see the note at the top of this document and items 4-5 above).
+One remains open:
 
 - **Conda/Miniforge vs. embeddable-Python + pip (§3):** this document's
   read favors keeping the merged recommendation (embeddable Python + pip)
@@ -331,7 +364,5 @@ additions/sharpenings to fold into §5's "what needs to change" list:
 - **GPU detection depth (§4):** how much engineering effort is worth
   spending on robust auto-detection (a real fallback chain) vs. a cheap
   manual "I have an NVIDIA GPU" checkbox — a genuine cost/robustness
-  tradeoff, not a right-answer question.
-- **Code signing budget (§8):** unsigned-and-accept-SmartScreen-warnings
-  vs. a recurring ~$10/month signing subscription — a maintainer-cost
-  decision this research can lay out but not make.
+  tradeoff, not a right-answer question. Unaffected by the two decisions
+  above.
