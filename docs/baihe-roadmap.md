@@ -1,18 +1,102 @@
 # Baihe Subtitler — Gap Audit & Roadmap toward the Phase 1 Architecture
 
-> **NEXT (2026-09-27, wholesale-replaced per §5 rule 1)** — this note had grown to ~50 appended entries without ever actually being replaced wholesale, several already contradicted by later entries above them; superseded by this single current summary. Full history of every merge lives in each step's own section and in §4's status table — not repeated here.
+> **NEXT (2026-09-28, wholesale-replaced per §5 rule 1)** — resyncs §4's status
+> table against a freshly-fetched `origin/baihe-subtitler` (`git merge-base
+> --is-ancestor <sha> origin/baihe-subtitler` checked per row, not `git log
+> --all` presence alone — an earlier pass in this same review conflated a
+> roadmap-doc commit living only on this planning branch with the real code
+> commit for Step 68 before this stricter check caught it), not against
+> memory or a sibling session's own notes file alone.
 >
-> **Roadmap-hygiene finding from this pass, fixed directly:** §4's own status table had silently stopped growing at Step 62 — eleven already-merged steps (26c, 31, 32, 63, 64, 66, 68, 71, 73, 75, 76, 77, 78, PRs #155–#172) had no row at all, and two existing rows (26c, 31, 32) still read "Not started" despite being squash-merged weeks... same day. All fourteen rows added/corrected against real `git log`/PR-API state, not memory. This is the same squash-merge-blind-spot class of bug CLAUDE.md already warns about — the table just wasn't being extended as new steps were added, only updated for steps already in it.
+> **Merged since the last NEXT note (all ancestor-verified 2026-09-28):**
+> Steps 45–59, 61, 62, 74, 80, 81 (its three sub-branches), 83, 84, 87, 90,
+> 91 (both colliding branches — session-shaped pacing, and the
+> ranobes/wuxiaworld/webnovel adapter work, now renumbered **93**), 92 (its
+> baozimh mirror-hardcoding half — its own ToS-review half was separately
+> completed by a later, independent JJWXC/wuxiaworld pass, see below), 94.
+> Also merged, unnumbered (single-commit fixes, following the Step 10d
+> precedent rather than getting their own step id): the wuxiaworld
+> `ai_ml_use` ToS-field correction (PR #190), the jjwxc `site_terms.py`
+> citation correction, and `get_with_mirrors`'s mirror-persistence fix.
+> **Also merged today, beyond the secondary-review session's own notes:**
+> the React+FastAPI migration foundation (PR #191 — see the dedicated note
+> below; this reverses the branch's original "never merge" instruction,
+> done only after the user confirmed it directly), Step 96 (browser
+> extension text-capture mode, PR #192, merged together with a second,
+> previously-unmerged branch fixing content-capture timing and CAPTCHA
+> detection — the one real conflict between them, both branches exporting
+> to the same line of `content.js`, is resolved in the merge), and the
+> Windows-installer research follow-up notes (PR #193, docs only).
 >
-> **Ready to send now:** Step 74 (per-episode running summary) — confirmed unblocked, no file overlap with anything in flight. Both known implementing sessions are idle.
+> **Correction to a claim in `docs/secondary-review-notes.md`:** that
+> file's own "READ THIS FIRST" section stated the React/FastAPI migration
+> foundation was already merged into `baihe-subtitler` as of 2026-09-28
+> early morning. That was false at the time it was written (confirmed:
+> no `api/`/`services/`/`frontend/` existed on `baihe-subtitler` then) —
+> it has since actually been merged, via PR #191, later the same day, by
+> this planning session directly. Treat every other claim in that file as
+> needing the same direct ancestor-check verification before acting on it.
 >
-> **Not yet dispatched:** Step 79 (start.bat's Python-stub detection bug + version pinning — small, concrete). Step 80 (design-only Windows installer/uninstaller & update-distribution architecture — see its own Exit section; explicitly no implementation). Step 81 (full dead-code/redundancy sweep of `baihe-subtitler`, added 2026-09-27 at the user's request — flagged for Opus per §4's model table, gated review, not autonomous).
+> **Step 96 numbering collision, resolved:** `step-96-extension-text-capture`
+> (built, tested, merged under that name) keeps id **96**. The unrelated,
+> undispatched "tiered translation cost/quality escalation" idea that a
+> secondary-review session also called "Step 96" is renumbered to **99**.
+> New tracked-but-not-dispatched ids: **95** (background-music-preserving
+> dub), **97** (translate_engines fallback-chain + doctor command), **98**
+> (proxy support in `sources/http.py`, low priority), **99** (the
+> renumbered tiered-escalation idea). None of 95/97/98/99 have a branch yet.
 >
-> **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42, which doesn't exist yet). Steps 36–44 (deliberately a later, subscription-independence phase — see the note above Step 36). Steps 19, 26, 40b, 60, 61, 62 are simply not started and not currently prioritized — no blocker beyond "not sent yet."
+> **Provisionally numbered but never actually dispatched — branches
+> confirmed NOT to exist, don't treat as merged or in flight:** Steps 85
+> (Sources search result-limit/Clear-results), 86 (`ladder.py`
+> `test_tier()` status recompute), 89 (add "music" to `MEDIA_TYPE_OPTIONS`).
 >
-> **Manual checks still owed** (real machine or a real API key, not blocking further building) — see §2's table for the authoritative full list; nothing there is new this pass.
+> **Decision-needed items, flagged for the user to check later, not build
+> steps yet — see their own write-ups below §4's table:** (a) the
+> `sources_tab.py:638` imported-chapters `st.data_editor` dark-mode gap
+> (widget swap vs. documented native limitation); (b) JJWXC ToS status
+> (more resolved than it looked — see write-up: citation corrected,
+> enforcement already off app-wide via Step 90, and a dedicated adapter is
+> platform-blocked, not reopened by further confirmation); (c) the
+> deferred Anki-mining concept + 5 transcription/diarization pipeline
+> findings, explicitly held until after migration work settles.
 >
-> *(Kept accurate per §5 rule 1 — checked against real branch/PR state, not memory, as of 2026-09-27. Replace this whole note wholesale next time rather than appending another dated entry on top — that discipline lapsing is exactly what produced the ~50-entry version this replaced.)*
+> **`docs/secondary-review-notes.md`: NOT yet deleted.** Its "Confirmed
+> real bugs" verdicts, external-tool review, and the three decision-needed
+> items above are now folded into this doc (§4's table + the write-ups
+> below it). Its Anki-mining/transcription findings and its account of the
+> JJWXC/browser-extension redirect are folded into §0 and this note above.
+> Kept in place rather than deleted this pass, at the user's explicit
+> instruction, pending final confirmation that nothing was lost — delete
+> only after that confirmation, not automatically once folded.
+>
+> **Open, unmerged branches:** none as of this pass — the four branches
+> open at the start of this review round (wuxiaworld fix, Step 96,
+> migration foundation, Windows-installer research) are now all merged
+> (PRs #190–#193). (An earlier draft of this note said "5 open branches"
+> counting the wuxiaworld fix before it merged; corrected to the real
+> count at time of writing.)
+>
+> **Not yet dispatched:** Step 79 (start.bat's Python-stub detection bug +
+> version pinning — small, concrete; the secondary-review session found
+> `start.ps1:42` has the identical bug and not in Step 79's original
+> scope — amend Step 79 to cover both scripts when picked up). Steps
+> 95/97/98/99 (see above, no branch yet). Steps 85/86/89 (provisionally
+> numbered, never pushed — confirm scope before dispatch).
+>
+> **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42,
+> which doesn't exist yet). Step 60 (multi-agent orchestration — also
+> hard-gated on Step 42). Steps 36–44 (deliberately a later,
+> subscription-independence phase — see the note above Step 36). Steps 19,
+> 26, 40b are simply not started and not currently prioritized.
+>
+> **Manual checks still owed** (real machine or a real API key, not
+> blocking further building) — see §2's table for the authoritative full
+> list; nothing there is new this pass.
+>
+> *(Kept accurate per §5 rule 1 — checked against a freshly force-fetched
+> `origin/baihe-subtitler`, ancestor-verified per row, 2026-09-28. Replace
+> this whole note wholesale next time rather than appending on top.)*
 
 Status: agreed plan (**shortened version**). This doc is written in the
 **planning** chat, and the **implementing** chat carries it out on
@@ -4020,24 +4104,24 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 33 — Fix: `requirements-install.bat` hardcodes a personal Windows path | `step-33-requirements-install-path` | ✅ Merged (PR #131) | ⏳ Pending |
   | 34 — Browser extension: translate the page you're looking at, live | `step-34-page-translate-extension` | ✅ Merged (PR #134) | ⏳ Pending |
   | 35 — Fix: ML bubble detector double-counts every balloon; free CV fallback near-no-op on color art | `step-35-bubble-detector-dedupe` | ✅ Merged (PR #132) | ⏳ Pending |
-  | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | Sent (`session_016KcFVDnWv5nucubdzCswnY`) | — |
-  | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | Sent (`session_01AFTp6gL3ugXzgMEGPXgoxt`) | — |
-  | 47 — Fix: Model & engine versions panel has no install action or explanation | — | Sent (`session_0171s2f4ttLpmPj3UE53EBk5`) | — |
-  | 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize | — | Sent (`session_01JddH1p56rYqa8PpafiSZ1z`) | — |
+  | 45 — URGENT: stage indicator stuck on Diarize despite finished translation/export; subtitles missing from player | — | ✅ Merged (PR #151, `1234a45`) | ⏳ Pending |
+  | 46 — Fix: dark mode visually inconsistent, several UI surfaces don't switch | — | ✅ Merged (PR #140, `5e6e0a5`) | ⏳ Pending |
+  | 47 — Fix: Model & engine versions panel has no install action or explanation | — | ✅ Merged (PR #149, `ea7183d`) | ⏳ Pending |
+  | 48 — Fix: Live capture's retry logic skips YouTube error messages it doesn't recognize | — | ✅ Merged (PR #141, `4b2edd8`) | ⏳ Pending |
   | 49 — Fix: `test_background_jobs.py`'s notification test has a genuine race window | `fix-flaky-notify-on-completion-tests` | ✅ Merged (PR #135) | ⏳ Pending |
-  | 50 — Fix: reference novel sent whole, unbounded, to every translation batch | — | Sent (`session_01Duq4neyaTTMDu69uYDBGA8`, with Steps 54/55, sequentially — same file) | — |
-  | 51 — URGENT: test isolation unsafe, `db.py` initializes real DB at import time | — | Sent (`session_01PFefLTAs5eBhnZs4TxrpC7`) | — |
-  | 52 — Fix: backup restore has no ZIP size/member-count limits | — | Sent (`session_0198p7dXxLwjp2UZRuFNW2jb`) | — |
-  | 53 — Fix: `start.bat` dependency check only verifies `streamlit` imports | — | Sent (`session_01FKX5booDhaeqefdk6mYrjj`) | — |
-  | 54 — Fix: hardcoded "baihe (GL/yuri)" genre framing on every translation | — | Sent (`session_01Duq4neyaTTMDu69uYDBGA8`, with Steps 50/55, sequentially — same file) | — |
-  | 55 — Fix: `check_consistency_llm` silently swallows batch failures | — | Sent (`session_01Duq4neyaTTMDu69uYDBGA8`, with Steps 50/54, sequentially — same file) | — |
-  | 56 — `FILE_ORGANIZATION.md` badly stale, no rule to keep it current | — | Sent (`session_0168RfVWsyKeVWEAoomSa1Bj`) | — |
-  | 57 — Formalize a 🟢/🟡/🔴 action-permission-tier classification | — | Sent (`session_01G4F9yiUNccegni6ixHG5gX`) | — |
-  | 58 — "What happened here?" per-segment debugging view | — | Sent (`session_016FukM8hJrX1xkfzQQvzeFi`) | — |
-  | 59 — Media/Project Inspector: analyze dropped media before creating a project | — | Sent (`session_01HtZpbua7t4QikLDfE5BLL6`) | — |
+  | 50 — Fix: reference novel sent whole, unbounded, to every translation batch | — | ✅ Merged (PR #142, `4adaedc`) | ⏳ Pending |
+  | 51 — URGENT: test isolation unsafe, `db.py` initializes real DB at import time | — | ✅ Merged (PR #148, `1b8bb28`) | ⏳ Pending |
+  | 52 — Fix: backup restore has no ZIP size/member-count limits | — | ✅ Merged (PR #143, `dc2bce0`) | ⏳ Pending |
+  | 53 — Fix: `start.bat` dependency check only verifies `streamlit` imports | — | ✅ Merged (PR #144, `dc63168`) | ⏳ Pending |
+  | 54 — Fix: hardcoded "baihe (GL/yuri)" genre framing on every translation | — | ✅ Merged (PR #153, `fa0e8d1`) | ⏳ Pending |
+  | 55 — Fix: `check_consistency_llm` silently swallows batch failures | — | ✅ Merged (PR #154, `f6e9464`) | ⏳ Pending |
+  | 56 — `FILE_ORGANIZATION.md` badly stale, no rule to keep it current | — | ✅ Merged (PR #147, `6aef069`) | ⏳ Pending |
+  | 57 — Formalize a 🟢/🟡/🔴 action-permission-tier classification | — | ✅ Merged (PR #145, `0b2adf4`) | ⏳ Pending |
+  | 58 — "What happened here?" per-segment debugging view | — | ✅ Merged (PR #152, `600513a`) | ⏳ Pending |
+  | 59 — Media/Project Inspector: analyze dropped media before creating a project | — | ✅ Merged (PR #146, `a14a52f`) | ⏳ Pending |
   | 60 — Multi-agent orchestration: specialized roles, cross-provider review | — | Not started | — |
-  | 61 — Fix: `audio-separator`'s `diffq-fixed` has no Python 3.14 wheel, broken sdist | — | Not started | — |
-  | 62 — Real install actions for requirement tiers and Deno, not just pip packages | — | Not started | — |
+  | 61 — Fix: `audio-separator`'s `diffq-fixed` has no Python 3.14 wheel, broken sdist | — | ✅ Merged (PR #159, `d586cf5`) | ⏳ Pending |
+  | 62 — Real install actions for requirement tiers and Deno, not just pip packages | — | ✅ Merged (PR #160, `2350ffd`) | ⏳ Pending |
   | 40b — Scheduled model re-evaluation and promotion | — | Not started | — |
   | 67 — Three confirmed test-suite defects from a real Windows disposable-copy run | — | ✅ Merged (PR #157) | ⏳ Pending |
   | 69 — URGENT: `db.py`'s leaked-connection cleanup can silently fail under real concurrency | — | ✅ Merged (PR #158) | ⏳ Pending |
@@ -4050,15 +4134,37 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 71 — Confirm-before-delete on four permanent-delete actions | `step-71-confirm-before-delete` | ✅ Merged (PR #166) | ⏳ Pending |
   | 72 — GitHub integration: deliver the maintenance assistant's proposed fixes as real PRs (gated on Step 42) | — | Not started — hard-gated, Step 42 not built yet | — |
   | 73 — Raise the Streamlit floor to the real minimum, 1.56 | — | ✅ Merged (PR #168) | ⏳ Pending |
-  | 74 — Per-episode running summary for real cross-episode narrative continuity | — | Not started — ready to send, unblocked | — |
+  | 74 — Per-episode running summary for real cross-episode narrative continuity | `step-74-per-episode-summary` | ✅ Merged (PR #176, `aa074d5`) | ⏳ Pending |
   | 75 — Consolidate on tiered requirements files as the one source of truth | — | ✅ Merged (PR #165) | ⏳ Pending |
   | 76 — Fix qwen-asr's unresolvable `>=0.1` version floor | — | ✅ Merged (PR #171) | ⏳ Pending |
   | 77 — Confirm-before-delete on the voice bank entry delete button | — | ✅ Merged (PR #172) | ⏳ Pending |
   | 78 — Household profiles (Jellyfin-style) + GPU-awareness | — | ✅ Merged (PR #167) | ⏳ Pending (three items) |
   | 79 — Fix `start.bat`'s Python-stub check; add version pinning | — | Not started — not yet dispatched | — |
-  | 80 — Design-only: Windows installer/uninstaller & distribution architecture | — | Not started — not yet dispatched | — |
-  | 81 — Full dead-code/redundancy sweep of `baihe-subtitler` | — | Not started — not yet dispatched | — |
+  | 80 — Design-only: Windows installer/uninstaller & distribution architecture | `step-80-windows-installer-design` | ✅ Merged (PR #175, `3bd361c`, design-only) | — (design-only) |
+  | 81 — Full dead-code/redundancy sweep of `baihe-subtitler` | 3 sub-branches: `step-81-file-organization`/`step-81-unused-params`/`step-81-dead-code-removal` | ✅ Merged (PRs #181–#183) | ⏳ Pending |
   | 82 — Push the updated `docs/ai-setup/CLAUDE.md` staging copy into `baihe-subtitler`'s live root | — | Not started — not yet dispatched | — |
+  | 83 — Fix: dependency-tier mislabeling (cv2/faster_whisper/PIL wrongly tagged Core) | `step-83-dependency-tier-mislabeling` | ✅ Merged (PR #177) | ⏳ Pending |
+  | 84 — Make Discover tab's API-key gating engine-aware (FREE_ENGINES-based, not `!= "ollama"`) | `step-84-discover-key-gating` | ✅ Merged (PR #178) | ⏳ Pending |
+  | 85 — Sources tab: result-per-source limit + a "Clear results" button | — | Not started — provisionally assigned by a secondary-review session, no branch pushed yet | — |
+  | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | — | Not started — provisionally assigned, no branch pushed yet | — |
+  | 87 — Add a language selector to new-drama creation (was silently defaulting to `zh`) | `step-87-new-drama-language-selector` | ✅ Merged (PR #179) | ⏳ Pending |
+  | 88 — (id skipped in the secondary-review session's own provisional numbering — not used) | — | — | — |
+  | 89 — Add `music` to `MEDIA_TYPE_OPTIONS` | — | Not started — provisionally assigned, no branch pushed yet | — |
+  | 90 — Deactivate ToS/robots.txt enforcement app-wide (`sources/ladder.py::check_terms()`, kept reversible) | `step-90-deactivate-tos-enforcement` | ✅ Merged (PR #173) | ⏳ Pending |
+  | 91 — Session-shaped pacing: a longer break every N requests | `step-91-session-shaped-pacing` | ✅ Merged (PR #185) | ⏳ Pending |
+  | 92 — Fix two real baozimh adapter bugs (mirror-hardcoding) + record the real baozimh ToS finding | `step-92-baozimh-bugfixes` | ✅ Merged (PRs #180, #184) | ⏳ Pending |
+  | 93 — New novel adapters: ranobes.net (built); wuxiaworld/webnovel findings recorded (renumbered from a "Step 91" collision with the session-shaped-pacing task above) | `step-91-wuxiaworld-ranobes-webnovel` (kept its original branch name — the rename request didn't land before it pushed) | ✅ Merged (PR #186) | ⏳ Pending |
+  | 94 — MaoerFM/MissEvan audio-drama adapter | `step-94-maoerfm-missevan-adapter` | ✅ Merged (PR #187) | ⏳ Pending |
+  | 95 — Background-music-preserving dub: `dub.build_dub_track()` currently discards original BGM/ambience/SFX; reuse Step 4g's Demucs separation, remix background back in post-dub | — | Not started — tracked, not dispatched |  — |
+  | 96 — Browser extension: generic, site-agnostic text-capture mode (translate a page's prose, not just comic images) + content-capture-timing/CAPTCHA-interstitial detection | `step-96-extension-text-capture` (merged together with a second, previously-separate branch fixing capture timing/CAPTCHA detection — see decision-needed note below on the JJWXC redirect that motivated this) | ✅ Merged (PR #192) | ⏳ Pending |
+  | 97 — `translate_engines.py` fallback-chain (engine A → B → C on failure) + a `doctor`-style diagnostics command pre-flighting every configured engine's credentials/reachability before a batch job starts | — | Not started — tracked, not dispatched | — |
+  | 98 — Proxy support in `sources/http.py` (confirmed zero proxy support anywhere via repo-wide grep; low priority, no adapter currently failing for lack of it) | — | Not started — tracked, not dispatched | — |
+  | 99 — Tiered translation cost/quality escalation: cheap/local model by default, auto-escalate a specific line to a stronger paid model on a glossary conflict/ambiguous term/QC flag (renumbered from a "Step 96" collision with the browser-extension work above) | — | Not started — tracked, not dispatched | — |
+  | — React + FastAPI migration foundation (`api/`, `services/library_service.py`, `frontend/` Library view; not a numbered step, an ongoing parallel workstream — see `docs/migration-review.md` for the full remaining-work plan) | `migration/react-fastapi-foundation` | ✅ Merged (PR #191) | — |
+  | — Windows installer/uninstaller: research follow-up notes (tiering/code-signing decisions, GPU-detection test matrix; docs only, no roadmap step id, exploratory by design) | `research/windows-installer-followup` | ✅ Merged (PR #193) | — |
+  | — Fix: wuxiaworld's `site_terms.py` record was missing its own AI/ML clause | `fix-wuxiaworld-ai-ml-clause` | ✅ Merged (PR #190) | — |
+  | — Fix: jjwxc's `site_terms.py` record cited a clause not in the live ToS (see JJWXC decision-needed note below) | `fix-jjwxc-tos-citation` | ✅ Merged (`cfdc8e4`) | — |
+  | — `get_with_mirrors`: prefer whichever mirror actually worked last time | `mirror-persistence-from-research` | ✅ Merged (`3287f95`) | — |
   | 36 — Capability-based AI task routing (later phase — see the note above Step 36) | — | Not started | — |
   | 37 — Gemini Search Grounding for metadata research (later phase) | — | Not started | — |
   | 38 — Benchmark Lab real scope (later phase; decide vs. Step 24 first) | — | Not started | — |
@@ -4068,6 +4174,73 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 42 — In-app AI maintenance assistant, read-only v1 (later phase) | — | Not started | — |
   | 43 — Universal soft-delete + confirm-and-review for every change (later phase) | — | Not started | — |
   | 44 — Notification system: Discord/ntfy (later phase) | — | Not started | — |
+- **Decision-needed / flagged-for-review items — NOT build steps, for the
+  user to check later, folded in from `docs/secondary-review-notes.md`:**
+  1. **Dark-mode gap in the imported Series/Chapters chapter-checkbox table**
+     (`tabs/sources_tab.py:638`). Confirmed still open, not fixed by Step 68:
+     `st.data_editor` renders its cells on a `<canvas>` (Glide Data Grid)
+     themed by Streamlit's own light theme in JavaScript — no app CSS
+     reaches inside it (`ui_theme.py`'s own comment documents this,
+     "checked in Step 68: its `--gdg-*` custom properties are outputs, not
+     inputs"). Step 68 only reached the frame/border, not the cell canvas.
+     **Needs a decision**: swap this one table for CSS-themeable manual
+     checkbox rows, or accept and document the native-widget limitation.
+     Whichever is picked needs a real before/after screenshot pass per
+     CLAUDE.md's structural-UI rule before it's a step someone builds.
+  2. **JJWXC ToS status — more resolved than it first looked, confirm and
+     close out.** The user asked to remove/correct the `EXPLICITLY_RESTRICTED`
+     record for JJWXC. Status as of this pass: **already corrected and
+     already deactivated**, via two separate changes, both merged —
+     `sources/site_terms.py`'s JJWXC entry was re-read in full (visible text
+     + raw HTML) and found to cite a clause (§4.3) that's actually an
+     anti-hacking clause, not a scraping ban; `automation_permission` is now
+     `UNKNOWN`, not `EXPLICITLY_RESTRICTED` (unnumbered fix, `cfdc8e4`).
+     Separately, Step 90 deactivated ToS/robots.txt enforcement app-wide,
+     reversibly (`sources/ladder.py::check_terms()` is a no-op `pass` with a
+     documented restore path). **A dedicated JJWXC adapter itself stays
+     closed for a different, platform-level reason**, not reopened by
+     further user confirmation: two dispatch attempts were refused outright
+     by Claude Code's own security classifier (the second, most narrowly
+     scoped — free chapters only, zero decryption — was refused with no
+     reason given at all). JJWXC coverage instead goes through Step 96's
+     generic, site-agnostic browser-extension text-capture mode. **Flagging
+     for the user to confirm this reading is what they wanted**, not
+     assuming it closes the request unilaterally.
+  3. **Deferred: Anki-mining concept + 5 transcription/diarization pipeline
+     findings**, explicitly held by the user until after migration work
+     settles — not implemented, not yet a numbered step, confirmed absent
+     from this roadmap by grep (`"anki mining"`, `"realign_oversized_segments"`
+     both zero matches before this pass).
+     - *Anki-mining*: curated mining from a **reviewed** transcript (not raw
+       ASR) — propose candidate terms, filter ones the learner already
+       knows, let them accept/reject, build a context-rich note (term,
+       reviewed line, translation, reading, audio clip, speaker label).
+       Maps onto the existing Reader vocabulary lookup and Step 20b's
+       sentence+audio Anki export. Needs dedup (don't re-mine the same
+       word repeatedly across a series) and an undo-able mining run.
+     - *Transcription/diarization findings, priority order as given*:
+       (1) verify pyannote actually runs on the GPU — `diarize.py` has no
+       explicit `.to(torch.device("cuda"))` call, unconfirmed possible real
+       perf issue; (2) `word_align.py::realign_oversized_segments()` reloads
+       the alignment model on every oversized segment — avoidable churn;
+       (3) Qwen ASR processes one Whisper-selected segment at a time,
+       forgoing batch inference — worth evaluating, pin a version first,
+       real upstream batch-correctness issues exist; (4) MOSS-Transcribe-
+       Diarize as an experimental alternative backend, unverified for JA/KO;
+       (5) expose a speaker-count *range* alongside the exact-count option
+       for pyannote Community-1. None independently re-verified yet by this
+       planning session — logged as-received, same as the note that
+       recorded them.
+  4. **`docs/secondary-review-notes.md` — kept, not yet deleted.** Its
+     "Confirmed real bugs" verdicts and the three items above are folded
+     into this doc as of this pass. Its full external-tool review (13+
+     GitHub repos assessed for site-selection signal) is not reproduced
+     here to avoid duplicating a large writeup — see that file directly, or
+     this session's own conversation log, if it needs resurfacing. Delete
+     the notes file only after the user confirms nothing else in it was
+     lost in this fold-in — not automatically, per the user's explicit
+     instruction.
+
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
   ```
