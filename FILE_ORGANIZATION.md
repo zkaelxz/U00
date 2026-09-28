@@ -185,13 +185,14 @@ baihe-subtitler/
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
-│   ├── export_service.py         Migration Slices 12+14+15+18 -- get_export_readiness (read-only
+│   ├── export_service.py         Migration Slices 12+14+15+18+27 -- get_export_readiness (read-only
 │   │                             counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
 │   │                             write), flag_overlapping_lines/flag_dense_lines/
 │   │                             run_auto_qc_flagging (Slice 15: field-scoped db.save_lines
 │   │                             writes, flag/flag_note only), generate_epub (Slice 18:
-│   │                             novel-narration dramas only, needs optional `ebooklib`); ASS
-│   │                             export and audiobook/burned-in-video export stay out of scope
+│   │                             novel-narration dramas only, needs optional `ebooklib`),
+│   │                             generate_ass_text/get_ass_style_options (Slice 27: ASS text,
+│   │                             per-request style); audiobook/burned-in-video export stay out of scope
 │   ├── diarization_service.py    Migration Slice 16 -- get_diarization_config (read-only:
 │   │                             hf_token_configured bool, expected_speakers, audio_available)
 │   │                             plus start_diarization_run (a real GPU-touching background job);
@@ -234,6 +235,7 @@ baihe-subtitler/
 │       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
+│       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)

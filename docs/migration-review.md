@@ -704,6 +704,16 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 27 — Export ASS subtitle text (2026-09-28).** `export_service.
+generate_ass_text` / `get_ass_style_options`, exposed as `POST /api/export/
+dramas/{id}/ass` (text download) and `GET /api/export/ass-style-options`.
+Style is per-request (preset plus optional overrides, only client-set
+fields override) with no new column. Lines come from the DB, not the
+Streamlit tab's unsaved session copy, so unsaved edits will differ.
+Explicit colour/range validation replaces the tab's silent white/alignment
+fallbacks. Out of scope: burned-in video, audiobook, package zip,
+mark-as-exported, Anki (Reader tab).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
