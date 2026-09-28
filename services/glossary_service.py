@@ -130,8 +130,10 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
     With an "id" the term is updated in place (its original text may be
     corrected, like the tab's edit form); without one it is keyed on
     (series, term_original) exactly like the tab's add form. Omitted
-    optional fields keep their stored value on update. Returns the saved
-    term."""
+    optional fields keep their stored value on update -- including when no
+    "id" is given but a term with that original text already exists in the
+    series (it is then an update of that term, not a reset to defaults);
+    a brand-new term gets fresh defaults. Returns the saved term."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
     if not isinstance(term_fields, dict):
@@ -139,6 +141,11 @@ def upsert_glossary_term(drama_id: int, term_fields: dict) -> dict:
 
     existing = _owned_term(sid, term_fields["id"]) if term_fields.get("id") is not None else None
     base = _serialize(existing) if existing else {}
+    if existing is None and isinstance(term_fields.get("term_original"), str):
+        key = term_fields["term_original"].strip()
+        match = next((r for r in db.list_glossary_terms(sid) if r["term_original"] == key), None)
+        if match:
+            base = _serialize(match)
 
     def pick(key, default=None):
         return term_fields[key] if key in term_fields else base.get(key, default)
