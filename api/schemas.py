@@ -363,3 +363,61 @@ class TranscribeRunRequest(BaseModel):
 
 class TranscribeRunResult(BaseModel):
     job_id: str
+
+
+from pydantic import ConfigDict  # noqa: E402  (kept with the Slice 35 block; append-only)
+
+
+class DramaCreateRequest(BaseModel):
+    """Create a drama (Migration Slice 35). `source_language` is required
+    (zh/ja/ko); `series_id` and `new_series_name` are mutually exclusive."""
+    model_config = ConfigDict(extra="forbid")
+    source_language: str
+    title_en: str = ""
+    title_zh: str = ""
+    author: str = ""
+    studio: str = ""
+    director: str = ""
+    voice_actors: str = ""
+    summary: str = ""
+    media_type: str = "audio_drama"
+    series_id: Optional[int] = None
+    new_series_name: Optional[str] = None
+    preset_id: Optional[int] = None
+
+
+class DramaMetadataUpdate(BaseModel):
+    """Partial metadata update: only fields present in the body are applied.
+    Unknown keys (status, content_mode, *_filename, ...) are rejected. For
+    `chapter_count`/`episode_number`, 0 clears the value."""
+    model_config = ConfigDict(extra="forbid")
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    author: Optional[str] = None
+    studio: Optional[str] = None
+    director: Optional[str] = None
+    voice_actors: Optional[str] = None
+    summary: Optional[str] = None
+    genre: Optional[str] = None
+    custom_tags: Optional[str] = None
+    source_url: Optional[str] = None
+    episode_summary: Optional[str] = None
+    project_instructions: Optional[str] = None
+    chapter_count: Optional[int] = None
+    episode_number: Optional[int] = None
+    media_type: Optional[str] = None
+    publication_status: Optional[str] = None
+    series_id: Optional[int] = None
+
+
+class DramaPresetDefaults(BaseModel):
+    """A preset's session-only values, returned for the client to hold
+    (only the preset's translation engine is persisted on the drama)."""
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: bool
+    include_genre_notes: bool
+
+
+class DramaCreateResult(DramaDetail):
+    preset_defaults: Optional[DramaPresetDefaults] = None
