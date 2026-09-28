@@ -354,21 +354,28 @@ def render_settings_sidebar():
                      "if you have a CUDA GPU. Falls back to CPU automatically if unavailable.")
             st.caption("Requires a CUDA-capable GPU and the GPU build of PyTorch. "
                       "If transcription errors after enabling this, turn it back off.")
+            import background_jobs
+            # Migration Slice 9: these two now persist to db.app_settings
+            # (cross-process, survives a restart) instead of resetting to
+            # a hardcoded default every fresh session -- the default
+            # below only seeds st.session_state's own per-widget key on
+            # this session's first render.
             st.session_state["settings_limit_one_gpu_job"] = st.checkbox(
                 "Limit to one GPU job at a time",
-                value=st.session_state.get("settings_limit_one_gpu_job", True),
+                value=st.session_state.get(
+                    "settings_limit_one_gpu_job", background_jobs.get_gpu_limit_enabled()),
                 help="Transcription, diarization, OCR, TTS/dub, and local-model (Ollama) "
                      "translation all load a model onto the GPU. On an 8-12GB consumer GPU, "
                      "two of these running at once (e.g. from two different tabs) can overwhelm "
                      "its VRAM -- with this on, a second GPU-touching job waits for the first "
                      "to finish instead of starting alongside it. Turn off only if you know your "
                      "hardware can handle several at once (24GB+ VRAM).")
-            import background_jobs
             background_jobs.set_gpu_limit_enabled(st.session_state["settings_limit_one_gpu_job"])
 
             st.session_state["settings_notify_on_job_done"] = st.checkbox(
                 "🔔 Desktop notification when a background job finishes",
-                value=st.session_state.get("settings_notify_on_job_done", False),
+                value=st.session_state.get(
+                    "settings_notify_on_job_done", background_jobs.get_notify_on_completion()),
                 help="A local OS notification (not email -- nothing to email to for a local "
                      "single-user app) so a long job, especially an unattended bulk series "
                      "translate, doesn't need the tab watched the whole time. Off by default "

@@ -1801,3 +1801,36 @@ class TestJobRecords:
         db.save_job_record("new", status="running", started_at=200.0)
         records = db.list_job_records()
         assert [r["job_id"] for r in records] == ["new", "old"]
+
+
+class TestAppSettings:
+    """Migration Slice 9 (D1 fix 2): a general-purpose, cross-process
+    app-settings store -- distinct from sources/store.py's own settings
+    table, which stays scoped to the source-adapter system."""
+
+    def test_missing_key_returns_the_given_default(self, isolated_db):
+        assert db.get_app_setting("does_not_exist", "fallback") == "fallback"
+        assert db.get_app_setting("does_not_exist") is None
+
+    def test_set_then_get_round_trips(self, isolated_db):
+        db.set_app_setting("gpu_limit_enabled", False)
+        assert db.get_app_setting("gpu_limit_enabled") is False
+
+    def test_setting_again_updates_in_place_not_a_second_row(self, isolated_db):
+        db.set_app_setting("k", 1)
+        db.set_app_setting("k", 2)
+        conn = db.get_conn()
+        n = conn.execute("SELECT COUNT(*) AS n FROM app_settings WHERE key='k'").fetchone()["n"]
+        conn.close()
+        assert n == 1
+        assert db.get_app_setting("k") == 2
+
+    def test_value_types_round_trip_via_json(self, isolated_db):
+        db.set_app_setting("a_string", "hello")
+        db.set_app_setting("a_number", 3.5)
+        db.set_app_setting("a_bool", True)
+        db.set_app_setting("a_list", [1, 2, 3])
+        assert db.get_app_setting("a_string") == "hello"
+        assert db.get_app_setting("a_number") == 3.5
+        assert db.get_app_setting("a_bool") is True
+        assert db.get_app_setting("a_list") == [1, 2, 3]
