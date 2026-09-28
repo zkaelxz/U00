@@ -873,6 +873,60 @@ Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: un
 fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
 `background_jobs`. Not verified against a real LLM (fake engine only).
 
+**Slice 37 -- Metadata auto-fill and media analysis.** `POST
+/api/metadata/dramas/{id}/analyze-media` (ffprobe of the stored video/audio:
+`duration_seconds`, `has_video`, `has_audio`, `audio_track_count`,
+`sample_rate`; no paths), `POST .../autofill` (`{url | page_text, engine?}`;
+returns a `suggestion` of title/author/studio/director/voice_actors/summary
+(+ `source_url` when a URL was used) and writes nothing) and `POST
+.../autofill/apply` (whitelisted fields only, via
+`drama_service.update_drama_metadata`). URLs must be http(s) and every
+resolved address (and redirect hop, followed manually, max 3) must be global,
+else 422; no key, unreachable page, LLM failure or missing ffprobe is a 503
+with fixed text (exceptions are never echoed); unknown drama 404. Keys come
+from server settings, never the request. Residual risk: DNS rebinding between
+the check and the fetch; the LLM call's timeout is the engine's own. No
+JS-rendered fetch (Streamlit's fallback) -- paste text instead. Not verified
+against a real LLM or site (tests mock everything).
+
+**Slice 38 -- Novel attach + chapter OCR (2026-09-28).** `services/novel_attach_service.py` +
+`api/routers/novel_routes.py`: `POST /api/novel/dramas/{id}/attach-text` (JSON, 2M-char cap),
+`POST .../attach-epub` (multipart; stdlib zip/HTML only, entry-count and uncompressed-size caps, rejects
+traversal/absolute names/symlinks, no entity resolution, only plain text stored, the .epub is not kept),
+`POST .../ocr-chapter` (multipart PNG/JPG images staged under generated names, background job
+`ocrchapter_{id}`, backend per source language, `mode` append|replace) and `GET .../status` (booleans and
+counts only). Text goes to `novel_narration_source.txt`, which Slice 33 reads. 404 unknown drama, 409 job
+running or duplicate OCR, 422 bad input, 503 OCR backend not installed. Deliberate differences: the tab's
+EPUB chapter-range picker and image extraction are not offered; no stored-image OCR (none exist); the
+Settings tesseract path is not applied. Tests use a fake OCR; no real OCR was run.
+
+**Slice 44 -- Review checks + AI jobs (2026-09-28).** `POST
+/api/review-jobs/dramas/{id}/{consistency|emotion|notes|flag|fix-flagged}`
+each start a background job (ids `consistency_`/`emotion_`/`notes_`/`flag_`/
+`fixflag_{id}`, the tab's own, so either side sees a running one) that does
+everything, DB write included, by reusing the tab's runners
+(`run_consistency_job`, `run_emotion_job`, `run_translation_notes_job`,
+`run_flag_job`, `run_fix_flagged_lines_job`). Writes are field-scoped by
+permanent line id: `("flag","flag_note")` for flag, the consistency-issues /
+emotions / notes tables, and `("zh","en","flag","flag_note")` for fix-flagged
+(as the tab does); `db.save_lines` skips a field the user changed meanwhile.
+Body: optional `engine`/`model`/`gemini_free_tier` (default: the drama's
+engine); emotion adds `use_audio_cues` (default: drama has audio); fix-flagged
+adds `job_cost_cap_usd` (same cap/monthly-refusal machinery as translate) and
+uses the drama's stored Whisper size, source language and the persisted GPU
+toggle. Keys are resolved server-side only. Errors: unknown drama 404;
+duplicate start 409; no key 503 with fixed text; bad engine/body 422; no
+lines, nothing translated (flag), nothing flagged (fix-flagged), a
+translation-only engine (all but fix-flagged) or a cap refusal 400. Job
+errors are redacted by the job runner. Out of scope: the Claude/Gemini bulk
+(batch) variants, Auto QC, pacing auto-shorten. Notes need an engine with
+`supports_reference`; otherwise the job finishes with 0 notes (as the tab).
+Real LLM/Whisper runs were not verified (tests stub the helpers).
+
+**Slice 29 -- Audiobook export job.** `POST /api/export/dramas/{id}/audiobook` (no body) starts thread job `audiobook_<id>` (`services/media_export_service.start_audiobook_export`) and returns `{job_id}`. The job encodes the drama's `narration_track.wav` to an AAC `.m4b` with chapter markers via `dub.export_narration_m4b` (fixed ffmpeg argument list, no shell, no client paths), builds it in a temp folder, and moves it to `artifact_service.output_path(id, "audio", "audiobook_<id>.m4b")`, so a failed run never leaves a partial file; download with `GET /api/artifacts/dramas/{id}/audio`. Errors: unknown drama 404; no lines or no narration audio yet 422 (fixed text); ffmpeg missing 503; duplicate start 409. Job failures carry fixed text with no paths. `audiobook_` and `burned_video_` are now in `background_jobs.DRAMA_JOB_PREFIXES`. Only `.m4b` exists in the app today (no mp3). Real ffmpeg was not verified (tests patch `subprocess.run`).
+
+**Slice 30 -- Burned-in video export job.** `POST /api/export/dramas/{id}/burned-video` (optional body: the Slice 27 `AssExportRequest` -- field, preset, style overrides, speaker colours, notes, wrapping) starts thread job `burned_video_<id>` and returns `{job_id}`. The ASS text is generated and validated at start with `export_service.generate_ass_text` (Slice 27 helpers: ranges, colours, control characters rejected), then the job writes it to a temp folder as the fixed name `subs.ass` and runs `ffmpeg -y -i <stored source video> -vf subtitles=subs.ass -c:a copy out.<ext>` with that folder as the working directory, so the filter string holds nothing client-supplied and needs no path escaping. The result is moved to `artifact_service.output_path(id, "video", "burned_video_<id>.<ext>")` (source extension if mp4/mkv/mov/webm, else mp4); download via `GET /api/artifacts/dramas/{id}/video`. Errors: unknown drama 404; no lines, no stored source video (name re-checked as a bare filename) or bad style 422 (fixed text); ffmpeg missing 503; duplicate 409; job failures carry no paths. Softsub, the SRT hardsub with `force_style`, dub-audio replacement and the vertical clip stay out of scope. Real ffmpeg (including libass) was not verified.
+
 **Next candidates:** the
 
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
@@ -996,6 +1050,31 @@ from. Deliberate: the switch is immediate on the first qualifying error (no
 backoff wait on the primary first); the CLI/Streamlit button do not expose a
 chain yet (API/service level only, per the held step's scope). Out of scope:
 bulk/Reflect chains.
+
+**Slice 32 (upload-then-transcribe wiring).** `POST /api/media/dramas/{id}/upload-and-transcribe`
+takes a multipart `file` plus the `TranscribeRunRequest` options as form fields
+(validated through that same model before anything is stored), stores the file
+via `media_upload_service.upload_media`, then calls the existing
+`start_transcribe_run`, returning `{upload, job_id}`. If the run cannot start
+after a successful upload (no key, already running, wrong mode, ...), the
+service error is returned and the uploaded file is deliberately kept; the client
+can retry via `POST /api/transcribe/dramas/{id}/run`. The persisted `use_gpu`
+(Slice 23) is read inside `start_transcribe_run` and is tested through this
+route. New `GET /api/media/dramas/{id}/status` returns `has_audio`,
+`has_source_video`, `upload_max_mb` (BAIHE_MAX_UPLOAD_MB) only, no paths; it is a
+separate endpoint because the transcribe config's response shape is pinned by
+exact-match tests.
+
+**E0 -- Library remainder (2026-09-28).** Read endpoints under `/api/library`: `GET /stats`
+(counts + usage totals), `/recent`, `/costs` (dramas with logged calls, free runs included),
+`/series` (series with 2+ dramas plus character/glossary counts), `/search?q=` (1-200 chars,
+limit 1-100), `/history` (default profile only -- no profile selector yet), `/presets`,
+`/voice-bank` (no clip filename/path; `clip_available` flag). Non-destructive writes:
+`POST /presets/{id}/rename` and `POST /voice-bank/{id}/rename` (name 1-100 chars, ids capped at
+2**31-1, duplicate preset name 409, unknown id 404). Deferred, not built: preset and voice-bank
+delete (the tab's checkbox confirm has no server equivalent yet), clear reading history, bulk
+status/tags/delete and bulk translate, storage scan/clean, backup/restore (need the typed
+confirm and `drama_service._job_running_for_drama` refusal), and Continue reading (per-profile).
 
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the

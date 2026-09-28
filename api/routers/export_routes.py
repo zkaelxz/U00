@@ -9,15 +9,18 @@ writes only the flag/flag_note fields (see services/export_service.py's
 own docstring for the field-scoped-write discipline). Migration Slice 18
 adds EPUB export (novel-narration dramas only) as a binary download.
 Migration Slice 27 adds ASS subtitle text (POST, per-request style, plain-text
-download) and the style-options listing. Still out of scope: audiobook,
-burned-in video export.
+download) and the style-options listing. Migration Slice 29 adds the audiobook export
+job and Slice 30 the burned-in video job
+(POST, returns {job_id}, output downloads via /api/artifacts).
 """
+
+from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Response
 
 from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, ErrorResponse,
-                         ExportReadiness, FlagActionResult)
-from services import export_service
+                         ExportReadiness, FlagActionResult, MediaExportStarted)
+from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -104,3 +107,25 @@ def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
             summary="Presets, fonts, alignments and ranges for ASS style controls")
 def get_ass_style_options():
     return export_service.get_ass_style_options()
+
+
+@router.post("/dramas/{drama_id}/audiobook", response_model=MediaExportStarted,
+             summary="Start the audiobook (.m4b) export job (poll GET /api/jobs/{job_id})",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_audiobook(drama_id: int = Path(ge=1)):
+    return media_export_service.start_audiobook_export(drama_id)
+
+
+@router.post("/dramas/{drama_id}/burned-video", response_model=MediaExportStarted,
+             summary="Start the burned-in (hardsub ASS) video export job",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest] = None):
+    req = req or AssExportRequest()
+    style = req.style.model_dump(exclude_unset=True) if req.style is not None else None
+    return media_export_service.start_burned_video_export(
+        drama_id, field=req.field, style=style, preset=req.preset,
+        speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
+        include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
+        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)

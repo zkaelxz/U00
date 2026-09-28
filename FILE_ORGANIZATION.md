@@ -242,8 +242,16 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
-│   └── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
-│                                 novel chunk_and_tag as a job-does-everything background job
+│   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
+│   │                             novel chunk_and_tag as a job-does-everything background job
+│   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
+│   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
+│   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
+│   │                             notes, flag, fix-flagged): background jobs that write themselves,
+│   │                             field-scoped by line id; reuse workspace_job_service runners
+│   └── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
+│                                 export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -268,6 +276,7 @@ baihe-subtitler/
 │       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
+│       │                         + POST .../audiobook, .../burned-video (Migration Slices 29+30)
 │       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
@@ -298,7 +307,12 @@ baihe-subtitler/
 │       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       ├── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
 │       │                         only) (Migration Slice 31)
-│       └── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
+│       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
+│       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
+│       │                         (Migration Slice 37)
+│       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
+│       └── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
+│                                 fix-flagged (POST, start job; Migration Slice 44)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
