@@ -301,3 +301,38 @@ class TestDiagnosticsEndpoint:
         # Only a GET is offered; no install/upgrade/delete verb exists here.
         assert client.post("/api/diagnostics").status_code == 405
         assert client.delete("/api/diagnostics").status_code == 405
+
+
+class TestJobsEndpoint:
+    """Migration Slice 8: a read-only, cross-process job list over HTTP,
+    reading Migration Slice 7's job_records mirror. No cancel endpoint --
+    see api/routers/jobs_routes.py's own docstring for why."""
+
+    def test_empty_list_when_no_jobs_recorded(self, client, isolated_db):
+        body = client.get("/api/jobs").json()
+        assert body == {"items": [], "count": 0}
+
+    def test_lists_a_recorded_job(self, client, isolated_db):
+        import db
+        db.save_job_record("j1", status="running", progress=0.5, description="Translating")
+        body = client.get("/api/jobs").json()
+        assert body["count"] == 1
+        assert body["items"][0]["job_id"] == "j1"
+        assert body["items"][0]["status"] == "running"
+
+    def test_get_one_job(self, client, isolated_db):
+        import db
+        db.save_job_record("j1", status="done", progress=1.0)
+        body = client.get("/api/jobs/j1").json()
+        assert body["status"] == "done"
+
+    def test_unknown_job_is_404(self, client, isolated_db):
+        resp = client.get("/api/jobs/nope")
+        assert resp.status_code == 404
+        assert _error(resp)["code"] == "not_found"
+
+    def test_no_cancel_endpoint_is_exposed(self, client, isolated_db):
+        import db
+        db.save_job_record("j1", status="running")
+        assert client.post("/api/jobs/j1/cancel").status_code == 404
+        assert client.delete("/api/jobs/j1").status_code == 405

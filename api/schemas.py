@@ -151,3 +151,25 @@ class DiagnosticsOverview(BaseModel):
     model_engine_versions: List[ModelEngineVersion]
     running_jobs: List[RunningJob]
     recent_log_lines: List[str]
+
+
+class JobRecord(BaseModel):
+    """One job's cross-process record (Migration Slice 8, reading
+    Migration Slice 7's job_records mirror) -- the last status this app
+    knows about, from any process, not necessarily the current one (see
+    job_records' own "no resume" limitation)."""
+    job_id: str
+    status: str
+    progress: Optional[float] = None
+    message: str = ""
+    error: Optional[str] = None
+    description: Optional[str] = None
+    gpu_touching: bool = False
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    updated_at: float
+
+
+class JobListResponse(BaseModel):
+    items: List[JobRecord]
+    count: int
