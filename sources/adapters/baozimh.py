@@ -326,7 +326,7 @@ class BaozimhSource(SourceAdapter):
                           "twice, never built). (Re-verified by direct fetch while building this "
                           "adapter.)",
             "tos": "No terms-of-service/terms-of-use page exists on the site (confirmed "
-                  "directly, not guessed) -- absence noted, not a clearance.",
+                   "directly, not guessed) -- absence noted, not a clearance.",
             "tos_prohibited": False,
         }
         return caps
