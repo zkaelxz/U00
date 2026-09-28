@@ -173,3 +173,12 @@ class JobRecord(BaseModel):
 class JobListResponse(BaseModel):
     items: List[JobRecord]
     count: int
+
+
+class SettingsOverview(BaseModel):
+    """Non-secret settings snapshot (Migration Slice 10) -- engine_keys
+    reports only whether a key/endpoint is configured, never its value
+    (D2: keys are server-side only)."""
+    engine_keys: dict[str, bool]
+    gpu_limit_enabled: bool
+    notify_on_completion: bool
