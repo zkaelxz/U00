@@ -5,6 +5,7 @@ export type Route =
   | { name: 'drama'; id: number; stage: string }
   | { name: 'settings' }
   | { name: 'diagnostics' }
+  | { name: 'translate' }
 
 export const DEFAULT_STAGE = 'source'
 
@@ -15,6 +16,7 @@ export function parseRoute(hash: string): Route {
   const [head, a, b] = parts
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
+  if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if (head === 'drama' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length <= 3) {
     let stage = DEFAULT_STAGE
     if (b) {

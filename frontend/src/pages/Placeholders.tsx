@@ -10,8 +10,6 @@ function Placeholder({ title }: { title: string }) {
   )
 }
 
-export const SettingsPage = () => <Placeholder title="Settings" />
-export const DiagnosticsPage = () => <Placeholder title="Diagnostics" />
 export const DramaPage = ({ id, stage }: { id: number; stage: string }) => (
   <Placeholder title={`Drama ${id} · ${stage}`} />
 )
