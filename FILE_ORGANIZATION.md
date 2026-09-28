@@ -46,7 +46,7 @@ baihe-subtitler/
 │   ├── pull_request_template.md
 │   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check)
 │
-├── .claude/                      session-start hook + settings for AI coding sessions
+├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
 │
 ├── assets/
 │   └── app_icon.ico              used by make_shortcut.bat / packaging

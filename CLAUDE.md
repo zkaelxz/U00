@@ -98,6 +98,28 @@ merged.
   already reviewed and approved the branch). Open it into
   `baihe-subtitler`. Don't merge it yourself.
 
+## Lead session: delegating to subagents
+
+The session the user talks to is the **lead orchestrator**. The delegation
+policy lives in `.claude/CLAUDE.md` (it complements this file; this file
+and the roadmap win where they overlap) and the project agents live in
+`.claude/agents/`:
+
+- `codebase-analyst`: read-only map of current behavior, data flow, tests
+- `migration-architect`: read-only migration map and thin-slice plan
+- `roadmap-planner`: read-only step analysis; give it the roadmap text or
+  a readable path, since it has no shell to fetch the planning branch
+- `implementer`: edits only the files it is assigned; no git writes
+- `code-reviewer`: read-only review of a diff you supply
+- `qa-runner`: runs the assigned checks and diagnoses failures; no edits
+
+In short: delegate substantial research, planning, review, and QA; run
+independent tasks concurrently in the background; assign file ownership
+before any parallel edits (one writer per file); brief each agent
+completely; keep tiny tasks, tightly coupled changes, and integration in
+the lead; report agent status, verify results, and review the final diff.
+Delegation never widens the user's requested scope.
+
 ## If you were spawned directly by the planning session
 
 If your very first message told you to "Build Step X from the roadmap" and
