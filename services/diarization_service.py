@@ -60,6 +60,47 @@ def get_diarization_config(drama_id: int) -> dict:
     }
 
 
+def apply_diarization_result(drama_id: int, result: dict,
+                             expected_speakers: Optional[int] = None) -> None:
+    """UI-free port of the DB half of tabs/workspace_tab.py's
+    _apply_diarization_job_result/_apply_speaker_turns (Migration Slice
+    49), used as the process job's on_done hook so an API-started
+    diarization persists its own result: saves the turns (+model,
+    embeddings, the count the job was started with), re-merges speakers
+    onto the saved lines (speaker_manual lines are kept), upserts a
+    character row per label, and writes ONLY the speaker/speaker_manual
+    fields -- never a full sync.
+
+    Deviation from Streamlit: there, if any manual line would change, the
+    merge is skipped and the user is asked to confirm an overwrite. There
+    is no user to ask here, so the merge always runs with
+    overwrite_manual=False -- manual corrections are still never undone.
+
+    Double-apply note: Streamlit's render loop only sees jobs in ITS
+    process's memory (a job started via the API lives in the API
+    process), so it normally never applies an API job's result too. If
+    both did run (same process), it is harmless: save_turns overwrites
+    the same file, and merge_speakers over the same turns is idempotent
+    (a second pass changes nothing; manual lines stay manual)."""
+    turns = (result or {}).get("segments")
+    if turns is None:
+        return
+    diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
+                       model=result.get("model"), embeddings=result.get("embeddings", {}))
+    lines = db.load_line_objects(drama_id)
+    diarize.merge_speakers(lines, turns, overwrite_manual=False)
+    for label in sorted({ln.speaker for ln in lines if ln.speaker}):
+        db.upsert_character(drama_id, label)
+    db.save_lines(drama_id, lines, fields=("speaker", "speaker_manual"))
+
+
+def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None):
+    """The on_done hook for a diarize_<drama_id> process job."""
+    def _on_done(job_id, result):
+        apply_diarization_result(drama_id, result, expected_speakers)
+    return _on_done
+
+
 def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None) -> dict:
     """Starts a real background job to re-detect speakers from this
     drama's stored audio -- the same action as the Diarize tab's own
@@ -96,7 +137,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     started = background_jobs.start_process_job(
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None),
-        gpu_touching=True, description=f"Diarization (drama #{drama_id})")
+        gpu_touching=True, description=f"Diarization (drama #{drama_id})",
+        on_done=make_apply_on_done(drama_id, expected_speakers))
     if not started:
         raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
     return {"job_id": job_id}

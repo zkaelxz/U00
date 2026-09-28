@@ -613,7 +613,8 @@ class TestDiarizationEndpoints:
         os.makedirs(ddir, exist_ok=True)
         open(os.path.join(ddir, "audio.wav"), "wb").close()
 
-        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None):
+        def fake_start_process_job(job_id, target, args=(), gpu_touching=False, description=None,
+                                   on_done=None):
             isolated_db.save_job_record(job_id, status="running", description=description)
             return True
 
