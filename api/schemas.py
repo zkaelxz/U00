@@ -1153,3 +1153,123 @@ class MediaStatus(BaseModel):
 class UploadAndTranscribeResult(BaseModel):
     upload: MediaUploadResult
     job_id: str
+
+
+class LibraryUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    estimated_cost_usd: float
+    call_count: int
+
+
+class LibraryDashboard(BaseModel):
+    total_dramas: int
+    by_status: Dict[str, int]
+    by_media_type: Dict[str, int]
+    total_lines: int
+    translated_lines: int
+    usage: LibraryUsage
+
+
+class LibraryDramaRef(BaseModel):
+    id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    status: Optional[str] = None
+    updated_at: Optional[str] = None
+    media_type: Optional[str] = None
+
+
+class LibraryRecentResponse(BaseModel):
+    items: List[LibraryDramaRef]
+
+
+class LibraryCostRow(BaseModel):
+    id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    translation_engine: Optional[str] = None
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    estimated_cost_usd: float
+    call_count: int
+
+
+class LibraryCostResponse(BaseModel):
+    items: List[LibraryCostRow]
+
+
+class LibrarySeries(BaseModel):
+    id: int
+    name: str
+    character_count: int
+    glossary_term_count: int
+    dramas: List[LibraryDramaRef]
+
+
+class LibrarySeriesResponse(BaseModel):
+    items: List[LibrarySeries]
+
+
+class LibrarySearchHit(BaseModel):
+    drama_id: int
+    idx: int
+    zh: Optional[str] = None
+    en: Optional[str] = None
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+
+
+class LibrarySearchResponse(BaseModel):
+    count: int
+    items: List[LibrarySearchHit]
+
+
+class LibraryHistoryEntry(BaseModel):
+    drama_id: int
+    line_idx: Optional[int] = None
+    percent_complete: Optional[float] = None
+    accessed_at: Optional[str] = None
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+
+
+class LibraryHistoryResponse(BaseModel):
+    items: List[LibraryHistoryEntry]
+
+
+class LibraryPreset(BaseModel):
+    id: int
+    name: str
+    translation_engine: Optional[str] = None
+    engine_model: Optional[str] = None
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: Optional[int] = None
+    include_genre_notes: Optional[int] = None
+
+
+class LibraryPresetsResponse(BaseModel):
+    items: List[LibraryPreset]
+
+
+class LibraryVoice(BaseModel):
+    id: int
+    name: str
+    language: Optional[str] = None
+    clone_engine: Optional[str] = None
+    source_drama: Optional[str] = None
+    source_speaker: Optional[str] = None
+    clip_available: bool
+
+
+class LibraryVoiceBankResponse(BaseModel):
+    items: List[LibraryVoice]
+
+
+class LibraryRename(BaseModel):
+    """Rename a preset or voice-bank entry; nothing else changes."""
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
