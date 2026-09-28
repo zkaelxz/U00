@@ -276,6 +276,7 @@ baihe-subtitler/
 │       │                         + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
+│       │                         + POST .../audiobook, .../burned-video (Migration Slices 29+30)
 │       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
@@ -310,14 +311,8 @@ baihe-subtitler/
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
-│       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
-│       │                         fix-flagged (POST, start job; Migration Slice 44)
-│       └── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12)
-│                                 + .../subtitle (Migration Slice 14, SRT/VTT)
-│                                 + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
-│                                 (Migration Slice 15)
-│                                 + .../epub (Migration Slice 18, novel-narration only)
-│                                 + POST .../ass and GET /ass-style-options (Migration Slice 27)
+│       └── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
+│                                 fix-flagged (POST, start job; Migration Slice 44)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
