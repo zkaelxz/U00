@@ -32,10 +32,10 @@ export class ApiError extends Error {
 
 type Fetch = typeof fetch
 
-async function getJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
+async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Promise<T> {
   let resp: Response
   try {
-    resp = await fetchImpl(`${BASE}${path}`, { headers: { Accept: 'application/json' } })
+    resp = await fetchImpl(`${BASE}${path}`, init)
   } catch {
     throw new ApiError(0, {
       code: 'network_error',
@@ -56,6 +56,44 @@ async function getJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
     )
   }
   return body as T
+}
+
+const JSON_ACCEPT = { Accept: 'application/json' }
+
+export function getJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
+  return request<T>(path, { headers: JSON_ACCEPT }, fetchImpl)
+}
+
+export function postJson<T>(path: string, body?: unknown, fetchImpl: Fetch = fetch): Promise<T> {
+  return request<T>(
+    path,
+    {
+      method: 'POST',
+      headers:
+        body === undefined ? JSON_ACCEPT : { ...JSON_ACCEPT, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    fetchImpl,
+  )
+}
+
+export function deleteJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
+  return request<T>(path, { method: 'DELETE', headers: JSON_ACCEPT }, fetchImpl)
+}
+
+// Multipart upload. No Content-Type header: the browser sets it with the boundary.
+export function postMultipart<T>(
+  path: string,
+  form: FormData,
+  fetchImpl: Fetch = fetch,
+): Promise<T> {
+  return request<T>(path, { method: 'POST', headers: JSON_ACCEPT, body: form }, fetchImpl)
+}
+
+// A plain link for the browser to download (Content-Disposition: attachment);
+// nothing is fetched or buffered in JS.
+export function artifactUrl(dramaId: number, kind: string): string {
+  return `${BASE}/api/artifacts/dramas/${dramaId}/${encodeURIComponent(kind)}`
 }
 
 export function buildDramaQuery(filters: DramaFilters = {}): string {
