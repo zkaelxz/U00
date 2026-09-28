@@ -14,12 +14,16 @@ No Streamlit or FastAPI import: plain dicts out. Nothing secret or
 location-revealing is returned (D2): no filesystem path, no GPT-SoVITS URL,
 only booleans such as `gpt_sovits_configured`.
 """
+import importlib.util
 import os
+import shutil
 
+import background_jobs
 import db
 import dub
 from services import settings_service
-from services.service_errors import NotFoundError
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+                                     NotFoundError)
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
 
@@ -136,3 +140,113 @@ def get_dub_pacing(drama_id: int) -> dict:
             out_lines.append({"idx": ln.idx, "status": status, "factor": factor,
                               "clip_ms": clip_ms, "window_ms": window_ms})
     return {"available": bool(out_lines), "counts": counts, "lines": out_lines}
+
+
+def _missing_engine_dependency(tts_engine: str):
+    """Fixed-text reason the requested fallback engine (or ffmpeg) can't run
+    here, or None. Never names a path."""
+    if shutil.which("ffmpeg") is None:
+        return "ffmpeg is not installed or not on PATH, which dubbing requires."
+    module, label = ("edge_tts", "edge-tts") if tts_engine == "edge_tts" else ("piper", "piper-tts")
+    if importlib.util.find_spec(module) is None:
+        return f"The {label} package is not installed."
+    return None
+
+
+def apply_dub_result(drama_id: int, result: dict) -> None:
+    """on_done hook body (Migration Slice 26): persists a finished dub run
+    the way the Dub tab's "done" branch does -- field-scoped
+    save_lines(dub_filename [+ start/end for narration]) and status
+    "dubbed". The subprocess's returned lines are used only as a source of
+    those fields, matched by permanent line id onto the CURRENT database
+    lines, so edits made while the job ran (text, flag, flag_note,
+    speaker) are never overwritten and a line merged away is skipped."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        return
+    is_narration = drama.get("content_mode") == "novel_narration"
+    fields = ("dub_filename", "start", "end") if is_narration else ("dub_filename",)
+    produced = {ln.id: ln for ln in (result or {}).get("lines") or [] if ln.id is not None}
+    current = db.load_line_objects(drama_id)
+    for ln in current:
+        src = produced.get(ln.id)
+        if src is None:
+            continue
+        for f in fields:
+            setattr(ln, f, getattr(src, f))
+    db.save_lines(drama_id, current, fields=fields)
+    db.update_drama(drama_id, status="dubbed")
+
+
+def start_dub_run(drama_id: int, tts_engine: str = "edge_tts", max_speedup=None,
+                  max_slowdown=None, narration_language=None) -> dict:
+    """Starts the Dub tab's "Generate dub/narration track" as a background
+    process job (`dub_<drama_id>`), with the same voice/clone/emotion/pacing
+    inputs as the tab and `cli dub` (per-speaker voices, filled from the
+    pools; GPT-SoVITS URL from settings; drama glossary/locale are not used
+    by TTS). The result is applied by an on_done hook, not by a UI render
+    loop. Raises NotFoundError (unknown drama), InvalidInputError (bad
+    engine/pacing/narration language, or nothing speakable),
+    DependencyUnavailableError (ffmpeg/engine package missing),
+    ConflictError (already running). Returns {"job_id": ...}."""
+    drama = _get_drama(drama_id)
+    if tts_engine not in {e["key"] for e in TTS_ENGINES}:
+        raise InvalidInputError("Unknown TTS engine.")
+    is_narration = drama.get("content_mode") == "novel_narration"
+    if narration_language is not None:
+        if narration_language not in NARRATION_LANGUAGE_OPTIONS:
+            raise InvalidInputError("Unknown narration language.")
+        if not is_narration:
+            raise InvalidInputError("Narration language only applies to narration dramas.")
+    max_speedup = dub.DUB_MAX_SPEEDUP if max_speedup is None else max_speedup
+    max_slowdown = dub.DUB_MAX_SLOWDOWN if max_slowdown is None else max_slowdown
+    if not (1.0 <= max_speedup <= 2.0 and 0.5 <= max_slowdown <= 1.0):
+        raise InvalidInputError("Pacing limits are out of range.")
+
+    if narration_language is None:
+        narration_language = drama.get("narration_language") or "translation"
+        if narration_language not in NARRATION_LANGUAGE_OPTIONS:
+            narration_language = "translation"
+    narrate_original = is_narration and narration_language == "original"
+    lines = db.load_line_objects(drama_id)
+    if not any((getattr(ln, "zh" if narrate_original else "en") or "").strip() for ln in lines):
+        raise InvalidInputError("No source text to narrate." if narrate_original
+                                else "No translated lines to dub yet.")
+    missing = _missing_engine_dependency(tts_engine)
+    if missing:
+        raise DependencyUnavailableError(missing)
+
+    job_id = f"dub_{drama_id}"
+    job = background_jobs.get_status(job_id)
+    if job and job["status"] in ("running", "queued"):
+        raise ConflictError(f"A dub job is already running for drama {drama_id}.")
+    if is_narration and narration_language != (drama.get("narration_language") or "translation"):
+        db.update_drama(drama_id, narration_language=narration_language)
+
+    ddir = db.drama_dir(drama_id)
+    source_lang = drama.get("source_language") or "zh"
+    pool = (dub.DEFAULT_VOICE_POOL_BY_LANGUAGE.get(source_lang, dub.DEFAULT_VOICE_POOL)
+            if narrate_original else dub.DEFAULT_VOICE_POOL)
+    chars = db.list_characters(drama_id)
+    voice_map = {c["speaker_label"]: c["tts_voice"] for c in chars if c.get("tts_voice")}
+    offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
+                         if c.get("offline_voice")}
+    speakers = {ln.speaker for ln in lines if ln.speaker}
+    voice_map = dub.fill_missing_voices(voice_map, speakers, pool)
+    offline_voice_map = dub.fill_missing_voices(
+        offline_voice_map, speakers, dub.DEFAULT_OFFLINE_VOICE_POOL)
+    clone_map = dub.clone_map_from_characters(
+        chars, ddir, gpt_sovits_url=settings_service.resolve_key("gpt_sovits_url") or None,
+        ref_language=source_lang)
+
+    started = background_jobs.start_process_job(
+        job_id, dub.build_track_subprocess_worker,
+        args=(lines, ddir, voice_map, pool[0], clone_map, tts_engine, is_narration,
+              db.load_emotions(drama_id), max_speedup, max_slowdown, offline_voice_map,
+              narrate_original, source_lang),
+        gpu_touching=dub.clone_map_uses_local_model(clone_map),
+        description=f"Dub generation (drama #{drama_id})",
+        on_done=lambda _jid, result: apply_dub_result(drama_id, result))
+    if not started:
+        raise ConflictError(f"A dub job is already running for drama {drama_id}.")
+    return {"job_id": job_id}

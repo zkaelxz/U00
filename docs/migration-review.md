@@ -825,6 +825,8 @@ series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
 line/note text, 500 for terms. Out of scope: merge/split/delete lines,
 restore original text, LLM tools, bulk modes.
 
+**Slice 26 -- Dub run job.** `POST /api/dub/dramas/{id}/run` (body `DubRunRequest`: `tts_engine`, optional `max_speedup`/`max_slowdown`/`narration_language`) starts the Dub tab's Generate as process job `dub_<id>` via `dub_service.start_dub_run` and returns `{job_id}` to poll at `/api/jobs/{job_id}`. It builds the same voice/offline-voice/clone/emotion inputs and GPU decision as the tab and `cli dub` (TTS uses no glossary/locale). The result is applied by the Slice 49 `on_done` hook (`apply_dub_result`): field-scoped `save_lines(dub_filename [+ start/end for narration])` plus status "dubbed", copying the produced fields by permanent line id onto the CURRENT database lines, so flag/flag_note/speaker and edits made during the run are never overwritten. Errors: unknown drama 404; no speakable text or bad engine/pacing/narration language 422 (the app's InvalidInput status); ffmpeg or the engine package missing 503; duplicate start 409. No paths or secrets in any response. Track download stays out of scope. Real TTS was not verified (tests fake the worker).
+
 **Slice 22 (cross-process job cancel).** `POST /api/jobs/{job_id}/cancel`
 flags the job (`job_records.cancel_requested`, new column) and, if this
 process owns it, sets the in-memory flag too. The owning process notices via
