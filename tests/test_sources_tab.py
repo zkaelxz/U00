@@ -44,6 +44,23 @@ class TestSourcesTab:
         assert any("Demo Comic" in m.value for m in at.markdown)
         assert _button(at, "📥 Import 0 selected chapter(s)").disabled
 
+    def test_chapter_rows_are_checkboxes_not_a_data_editor(self, isolated_db, monkeypatch):
+        """Step 86 decision item (dark mode): st.data_editor's cells render on
+        a <canvas> app CSS can't theme (confirmed in Step 68). Checking a
+        row's box must select it, the same as the old table's "Import"
+        column did, and no data_editor should be on the page at all."""
+        from sources import chapter_check, store
+        monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)
+        store.set_setting("demo_source_enabled", True)
+        isolated_db.create_drama(title_zh="演示", media_type="manhua")
+        at = _app(isolated_db, src_series=("demo", "1"))
+        assert not at.get("data_editor")
+        checkboxes = [c for c in at.checkbox if c.key and c.key.startswith("src_ch_demo_1_")]
+        assert checkboxes, "expected one checkbox per chapter"
+        checkboxes[0].set_value(True)
+        at.run(timeout=30)
+        assert _button(at, "📥 Import 1 selected chapter(s)")
+
     def test_demo_challenge_shows_the_handoff(self, isolated_db, monkeypatch):
         from sources import chapter_check, store
         monkeypatch.setattr(chapter_check, "ensure_scheduler_started", lambda *a, **k: None)

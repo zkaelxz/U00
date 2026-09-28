@@ -639,13 +639,24 @@ def _render_series_browser():
     if info and info.description:
         st.caption(info.description[:400])
 
-    import pandas as pd
-    table = pd.DataFrame({"Import": [False] * len(chapters),
-                          "Chapter": [c.title for c in chapters],
-                          "Section": [c.group for c in chapters]})
-    edited = st.data_editor(table, key=f"src_ch_table_{source}_{series_id}", hide_index=True,
-                            disabled=["Chapter", "Section"], width="stretch")
-    selected = [c for c, keep in zip(chapters, edited["Import"].tolist()) if keep]
+    # Step 86 decision item (dark mode): st.data_editor renders its cells on
+    # a <canvas> (Glide Data Grid) themed by Streamlit's own light theme in
+    # JavaScript -- confirmed in Step 68 that no app CSS reaches inside it.
+    # Plain st.checkbox rows are real DOM elements ui_theme.py's dark-mode
+    # CSS already reaches. This table never offered data_editor's
+    # spreadsheet gestures (click-drag select, a header "select all") to
+    # begin with, so nothing behavioral is lost -- only the widget's own
+    # dark-mode-broken look.
+    selected = []
+    with st.container(height=min(400, 44 * len(chapters) + 8), border=True):
+        for c in chapters:
+            row = st.columns([1, 5, 2])
+            checked = row[0].checkbox("Import", key=f"src_ch_{source}_{series_id}_{c.chapter_id}",
+                                      label_visibility="collapsed")
+            row[1].write(c.title)
+            row[2].caption(c.group)
+            if checked:
+                selected.append(c)
 
     drama_id = _drama_picker("Import into drama", "src_series_drama",
                              _COMIC_MEDIA if adapter.supports("get_pages") else ("novel",))

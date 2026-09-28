@@ -564,6 +564,41 @@ def render_diagnostics_tab():
                     st.error("GPU PyTorch reinstall failed -- see the streamed output above for "
                              "the real pip error.")
 
+    with st.expander("🌐 Source access", expanded=False):
+        st.caption("Confirms a source can actually be reached right now, standalone -- no "
+                  "thrown challenge/exception needed first (Step 86). \"Test Now\" runs the "
+                  "real access ladder (`sources.ladder.test_tier`) against the page you give "
+                  "it and records the outcome as evidence; there is no manual \"mark as "
+                  "working\" override with no test behind it.")
+        from sources import ladder as src_ladder
+        from sources import registry as src_registry
+        from sources import store as src_store
+        from sources.models import AccessTier, CapabilityStatus
+        for name, cls in src_registry.adapter_classes().items():
+            if getattr(cls, "is_demo", False) and not src_store.get_setting("demo_source_enabled"):
+                continue
+            adapter = cls()
+            caps = src_ladder.apply_terms(src_ladder.load_capabilities(name, adapter.capabilities()))
+            tos_prohibited = caps.status == CapabilityStatus.TOS_PROHIBITED.value
+            st.markdown(f"**{cls.display_name or name}** -- {caps.status}")
+            for tier, res in caps.tiers.items():
+                st.caption(f"{tier}: " + ("UNTESTED" if not res.tested else
+                                          ("✅ works" if res.ok else f"❌ {res.reason}")))
+            test_url = st.text_input("Page to test against", key=f"diag_src_test_url_{name}")
+            if tos_prohibited:
+                st.caption("🚫 This source's terms restrict automated access -- disabled.")
+            if st.button("Test Now (Static HTTP)", key=f"diag_src_test_{name}",
+                        disabled=tos_prohibited or not test_url.strip()):
+                try:
+                    src_ladder.test_tier(name, AccessTier.STATIC_HTTP, test_url.strip(),
+                                         src_ladder.static_tier(adapter.client),
+                                         adapter.capabilities())
+                    st.success("Recorded -- see the tier line above.")
+                except Exception as e:
+                    st.error(str(e))
+                st.rerun()
+            st.divider()
+
     # ---- Less frequently needed: collapsed by default ------------------
     with st.expander("💾 Downloaded model cache", expanded=False):
         st.caption("Whisper/pyannote/Qwen3-ASR/F5-TTS weights live in Hugging Face's own cache "
