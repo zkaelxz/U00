@@ -53,6 +53,21 @@ class TestCrud:
         assert a["id"] == b["id"] and b["term_translation"] == "Shen Q."
         assert len(gs.list_glossary_terms(did)) == 1
 
+    def test_create_path_preserves_omitted_fields(self, isolated_db):
+        did, _ = _drama(isolated_db)
+        gs.upsert_glossary_term(did, FULL)
+        b = gs.upsert_glossary_term(did, {"term_original": FULL["term_original"],
+                                          "term_translation": "Shen Q."})
+        assert b["term_translation"] == "Shen Q."
+        for k in ("notes", "aliases", "banned_translations", "enforce_exact",
+                  "category", "policy"):
+            assert b[k] == FULL[k]
+        c = gs.upsert_glossary_term(did, {"term_original": FULL["term_original"],
+                                          "term_translation": "Shen Q.", "notes": ""})
+        assert c["notes"] == "" and c["aliases"] == FULL["aliases"]
+        new = gs.upsert_glossary_term(did, {"term_original": "别人", "term_translation": "X"})
+        assert new["aliases"] == [] and new["enforce_exact"] is False and new["notes"] == ""
+
     def test_update_by_id_renames_and_keeps_omitted(self, isolated_db):
         did, _ = _drama(isolated_db)
         a = gs.upsert_glossary_term(did, FULL)

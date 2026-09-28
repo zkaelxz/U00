@@ -726,6 +726,11 @@ Streamlit tab's unsaved session copy, so unsaved edits will differ.
 Explicit colour/range validation replaces the tab's silent white/alignment
 fallbacks. Out of scope: burned-in video, audiobook, package zip,
 mark-as-exported, Anki (Reader tab).
+*Hardening H2:* `_ass_field`/the `Title:` header now replace control characters (newlines
+would inject extra `Style:`/`Dialogue:`/`[Events]` lines) and `style.font` with control
+characters is a 422; `speaker_colors` is capped (200 entries, 100-char labels; kept rather
+than intersected with the drama's speakers); ASS `wrap_chars_*` is `le=200` like SRT/VTT.
+Explicit JSON `null` for a style field stays a 422 (omit the key instead).
 
 **Slice 46 -- Glossary, instructions and catalogues.** `services/glossary_service.py`
 plus `/api/glossary/*`: series glossary term list/upsert/delete, project and series
@@ -736,6 +741,9 @@ id with no series check); a series-less drama reads as empty and refuses term wr
 series instructions (400). Delete needs `confirm=true`, mirroring the tab's Step 71 confirm
 checkbox. Text, list and instruction lengths are capped. Out of scope: LLM term extraction (a
 paid call, later slice), presets CRUD, characters.
+*Hardening H2:* a POST without `id` for an existing `term_original` now starts from that term's
+stored values (like update-by-id) so omitted notes/aliases/banned/enforce_exact survive;
+explicit `""`/`[]` still clears, and a brand-new term still gets fresh defaults.
 
 **Slice 47 — Review read-only line views (2026-09-28).**
 `services/review_lines_service.py` + `api/routers/review_lines_routes.py`
@@ -838,6 +846,32 @@ as not passed. Voice-bank apply copies the clip into the drama's folder
 server-side but never returns a path or filename (only `has_ref_audio`).
 Out of scope: reference-audio upload/auto-extract (multipart), series-
 character writes, Dub generation.
+
+*Hardening H1 (Slices 35/42).* Review fixes: error messages never echo client
+text (speaker label, clone engine, unknown field names); ids and counts are
+capped at 2**31-1 in services and schemas (422, not a sqlite OverflowError);
+drama text fields have length caps, titles are stripped and `source_url` must
+be empty or http(s) (blank titles stay allowed, as in the tab); voice-bank apply
+rejects labels that can't be a filename part, returns NotFound for a missing
+clip, and enforces the Step 26c language rule on the entry's engine (stricter
+than the tab, by design); a new series is created only after the drama row
+exists, so a failed create leaves no stray series.
+
+**Slice 36 -- Drama delete.** `DELETE /api/dramas/{id}?confirm=true&confirm_text=DELETE`
+-> `{"deleted": true, "drama_id": n}`. User-approved rule: needs `confirm=true`
+AND an exact-match typed `confirm_text` (Streamlit's checkbox + type-DELETE
+pair, translated to API terms like Slice 17's `clear_history`), and is refused
+409 while a job runs for the drama. Check order: unknown id 404 first (always),
+then 422 for a missing/wrong confirmation (message never echoes the text), then
+409. The running-job check covers in-process jobs
+(`background_jobs.any_job_running_for_drama`) AND cross-process
+`db.job_records` rows for this drama's job ids that are running/queued and
+updated within 6 hours -- older rows are a crashed process's leftovers and must
+not block forever. Deletion goes through one private function
+(`_hard_delete_drama`) so roadmap Step 43's soft-delete can replace it. Known
+hazard, unchanged: `db.delete_drama` removes the DB row first, then the folder
+(including non-regenerable `voice_refs/`); a failed rmtree leaves an orphan
+folder, surfaced as a clear 500 `application_error` (no paths).
 
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the

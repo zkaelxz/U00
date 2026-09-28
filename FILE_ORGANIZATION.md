@@ -214,7 +214,8 @@ baihe-subtitler/
 │   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │   │                             engines, per-speaker voices, pacing of the last run; no paths)
 │   ├── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
-│   │                             update_drama_metadata (whitelisted partial update); delete,
+│   │                             update_drama_metadata (whitelisted partial update); Slice 36
+│   │                             delete_drama (typed-confirm, refused while a job runs);
 │   │                             cover upload and metadata auto-fill stay out of scope
 │   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
@@ -265,7 +266,7 @@ baihe-subtitler/
 │       │                         (Migration Slice 20)
 │       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
-│       │                         (Migration Slice 35)
+│       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
 │       │                         (Migration Slice 39, read-only)
 │       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,

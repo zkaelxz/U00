@@ -429,7 +429,8 @@ class DubPacing(BaseModel):
 
 class AssStyleOverrides(BaseModel):
     """Per-request ASS style overrides (Migration Slice 27). Only fields the
-    client sets replace the preset's values; unknown keys are a 422."""
+    client sets replace the preset's values; unknown keys are a 422. An
+    explicit JSON null for a field is also a 422 (omit the key instead)."""
     model_config = ConfigDict(extra="forbid")
     font: Optional[str] = None
     size: Optional[int] = None
@@ -452,8 +453,8 @@ class AssExportRequest(BaseModel):
     per_speaker_colors: bool = True
     include_notes: bool = False
     notes_as_separate_line: bool = False
-    wrap_chars_en: Optional[int] = Field(default=None, ge=0)
-    wrap_chars_source: Optional[int] = Field(default=None, ge=0)
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class AssStyleOptions(BaseModel):
@@ -473,17 +474,17 @@ class DramaCreateRequest(BaseModel):
     (zh/ja/ko); `series_id` and `new_series_name` are mutually exclusive."""
     model_config = ConfigDict(extra="forbid")
     source_language: str
-    title_en: str = ""
-    title_zh: str = ""
-    author: str = ""
-    studio: str = ""
-    director: str = ""
-    voice_actors: str = ""
-    summary: str = ""
+    title_en: str = Field(default="", max_length=300)
+    title_zh: str = Field(default="", max_length=300)
+    author: str = Field(default="", max_length=300)
+    studio: str = Field(default="", max_length=300)
+    director: str = Field(default="", max_length=300)
+    voice_actors: str = Field(default="", max_length=300)
+    summary: str = Field(default="", max_length=5000)
     media_type: str = "audio_drama"
-    series_id: Optional[int] = None
-    new_series_name: Optional[str] = None
-    preset_id: Optional[int] = None
+    series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
+    new_series_name: Optional[str] = Field(default=None, max_length=300)
+    preset_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
 
 
 class DramaMetadataUpdate(BaseModel):
@@ -491,23 +492,23 @@ class DramaMetadataUpdate(BaseModel):
     Unknown keys (status, content_mode, *_filename, ...) are rejected. For
     `chapter_count`/`episode_number`, 0 clears the value."""
     model_config = ConfigDict(extra="forbid")
-    title_en: Optional[str] = None
-    title_zh: Optional[str] = None
-    author: Optional[str] = None
-    studio: Optional[str] = None
-    director: Optional[str] = None
-    voice_actors: Optional[str] = None
-    summary: Optional[str] = None
-    genre: Optional[str] = None
-    custom_tags: Optional[str] = None
-    source_url: Optional[str] = None
-    episode_summary: Optional[str] = None
-    project_instructions: Optional[str] = None
-    chapter_count: Optional[int] = None
-    episode_number: Optional[int] = None
+    title_en: Optional[str] = Field(default=None, max_length=300)
+    title_zh: Optional[str] = Field(default=None, max_length=300)
+    author: Optional[str] = Field(default=None, max_length=300)
+    studio: Optional[str] = Field(default=None, max_length=300)
+    director: Optional[str] = Field(default=None, max_length=300)
+    voice_actors: Optional[str] = Field(default=None, max_length=300)
+    summary: Optional[str] = Field(default=None, max_length=5000)
+    genre: Optional[str] = Field(default=None, max_length=300)
+    custom_tags: Optional[str] = Field(default=None, max_length=2000)
+    source_url: Optional[str] = Field(default=None, max_length=2000)
+    episode_summary: Optional[str] = Field(default=None, max_length=5000)
+    project_instructions: Optional[str] = Field(default=None, max_length=5000)
+    chapter_count: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
-    series_id: Optional[int] = None
+    series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
 
 
 class DramaPresetDefaults(BaseModel):
@@ -646,7 +647,7 @@ class CharactersVoiceBankEntry(BaseModel):
 
 class CharactersVoiceBankApply(BaseModel):
     speaker_label: str
-    voice_bank_id: int = Field(ge=1)
+    voice_bank_id: int = Field(ge=1, le=2147483647)
 
 
 # --- Glossary, instructions and catalogues (Migration Slice 46) -----------
@@ -973,3 +974,8 @@ class ReviewRecordsTmSuggestion(BaseModel):
     similarity: float
     exact: bool
     entry_id: int
+
+
+class DramaDeleteResult(BaseModel):
+    deleted: bool
+    drama_id: int
