@@ -108,10 +108,17 @@ class MultiSearchResult:
     per_source_counts: dict = field(default_factory=dict)
 
 
-def multi_search(query: str, adapters=None, max_workers: int = 4) -> MultiSearchResult:
+def multi_search(query: str, adapters=None, max_workers: int = 4,
+                 limit_per_source: int = 20) -> MultiSearchResult:
     """Fans `query` out to every adapter concurrently. Each adapter's own
     pacing still applies (it's per source, not per search); a slow or
-    failing source only costs that source's results."""
+    failing source only costs that source's results.
+
+    `limit_per_source` caps how many of one adapter's own results are
+    kept (Step 85: an unbounded search against a source with a huge
+    catalog could otherwise return hundreds of results with no way to
+    trim them -- 20 per source is already generous for picking the
+    right series by title)."""
     if adapters is None:
         adapters = enabled_adapters()
     adapters = [a for a in adapters if a.supports("search")]
@@ -122,7 +129,7 @@ def multi_search(query: str, adapters=None, max_workers: int = 4) -> MultiSearch
     def one(adapter):
         try:
             ladder.check_terms(adapter.name, adapter.capabilities())
-            return adapter.name, list(adapter.search(query)), None
+            return adapter.name, list(adapter.search(query))[:limit_per_source], None
         except NotSupportedError as e:
             return adapter.name, [], str(e)
         except SourceError as e:

@@ -575,10 +575,18 @@ def _render_search():
     st.caption("Searches every enabled source at once. Each source keeps its own pace, and a slow "
                "or failing source only loses its own results.")
     q = st.text_input("Title", key="src_search_q")
-    if st.button("🔎 Search sources", key="src_search_go", disabled=not q.strip()):
+    c1, c2 = st.columns([3, 1])
+    if c1.button("🔎 Search sources", key="src_search_go", disabled=not q.strip()):
         with st.spinner("Searching..."):
             st.session_state.src_search = registry.multi_search(q.strip())
     res = st.session_state.get("src_search")
+    # Step 85: results otherwise never clear on their own -- each search
+    # correctly replaces the previous result set, but a stale set from an
+    # earlier query with nothing left to search for can sit there
+    # indefinitely with no way to dismiss it.
+    if res is not None and c2.button("🧹 Clear results", key="src_search_clear"):
+        del st.session_state["src_search"]
+        st.rerun()
     if res is None:
         return
     for name, err in res.errors.items():
