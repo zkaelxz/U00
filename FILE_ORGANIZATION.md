@@ -54,6 +54,9 @@ baihe-subtitler/
 │   └── app_icon.ico              used by make_shortcut.bat / packaging
 │
 ├── docs/                       (see role tags below: what each doc is for and who keeps it current)
+│   ├── README.md                 short navigational index + the roadmap fetch pointer; this
+│   │                             tree listing is the detailed per-file map, README.md is the
+│   │                             front door — keep both in sync if either changes
 │   ├── adding-source.md          how to write a new sources/adapters/*.py adapter, incl. the
 │   │                             pre-coding site checklist [reference — read before adding a
 │   │                             source; tells the author to update content-sources.md]
@@ -103,9 +106,15 @@ baihe-subtitler/
 │   Note: the numbered build-order roadmap (`docs/baihe-roadmap.md`) and its own status table
 │   don't live in this repo — they're tracked on the separate planning branch
 │   `claude/baihe-subtitle-planning-95qyvq` until the roadmap's own final step copies the file
-│   in (see root `CLAUDE.md`). There's also no `docs/README.md` index on this branch — this
-│   `docs/` listing is the closest thing to one; if a `docs/README.md` appears on some other
-│   branch, cross-link it with this file rather than letting the two drift apart.
+│   in (see root `CLAUDE.md`, and `docs/README.md`'s own fetch command). A branch,
+│   `claude/baihe-subtitler-tracker-gzuzhg`, once carried a copy of `docs/baihe-roadmap.md` and a
+│   `docs/README.md` committed straight into this repo — deliberately not merged: the roadmap
+│   copy was a stale snapshot (missing several already-merged steps) and duplicating the file
+│   here at all is exactly the two-copies-drift the "doesn't live in this repo yet" convention
+│   above exists to prevent. `docs/README.md` was instead rewritten from scratch against
+│   verified-current state, pointing at the roadmap by fetch command rather than by a copied-in
+│   file. If a `docs/README.md` or `docs/baihe-roadmap.md` copy turns up again on another
+│   branch, re-verify it the same way before trusting or merging any of it.
 │
 ├── tabs/                      ← UI ONLY. One file per tab, 10 tabs total.
 │   ├── __init__.py               (empty, marks the package)
