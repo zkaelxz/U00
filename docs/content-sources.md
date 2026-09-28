@@ -225,6 +225,23 @@ work".
 | Reference | `keiyoushi/extensions-source` `src/ja/mangatoshokanz` + its own `Crypto.kt` (Apache-2.0). |
 | Tests | `tests/test_sources_mangaz.py`. Page reading is covered against a fake viewer that answers the adapter's probes the way the real reader does: pages come from the `#doc` manifest, the scrambled `.jpg` is never fetched directly, several stragglers across a 43-page book are all recovered, a page the reader never drew is refused rather than substituted, a book is driven once even when pages are missing, and a reader that never opens is not retried per page. The legacy RSA+AES helpers keep their own full round trip -- a real keypair, a real RSA/PKCS1v1.5 encrypt of a real AES key, and a real AES-CBC/PKCS7 encrypt of a real JSON manifest, built by the test as the exact inverse of what the adapter decrypts -- but they no longer correspond to anything the live site does. |
 
+## 猫耳FM MissEvan — `sources/adapters/missevan.py`
+
+| | |
+|---|---|
+| URL patterns | `missevan.com/mdrama/<id>` and `missevan.com/mdrama/drama/<id>` (series, both real, live), `missevan.com/sound/<sound_id>` (episode) |
+| Content type / language | **First audio_drama adapter** (Step 94 added `ContentType.AUDIO_DRAMA`, previously nonexistent), zh |
+| Status | `search`/`get_series`/`get_chapters`/`get_audio_url` all **confirmed live (2026-09-28)** for free content, over three plain JSON HTTP endpoints. The authenticated/paid-episode path is unverified -- no real account was available (see Auth). |
+| Access tier | `STATIC_HTTP` only for free content -- no browser rendering needed. `robots.txt` is real and permissive: `Disallow: /files/` and `/backend/` only, no blanket `User-agent: *` disallow, and none of this adapter's API paths are blocked. |
+| Extraction | `GET /dramaapi/search?s=<keyword>&p=<page>` (the real param is `s`, not `keyword` -- a `keyword=` request 200s but always reports zero results, which looks like a working-but-empty search unless separately cross-checked). `GET /dramaapi/getdrama?drama_id=<id>` for series + episode list (`info.episodes.{ft,episode,music}`; `get_chapters()` includes `episode`+`ft`, excludes `music`-only soundtrack tracks -- not spoken dialogue). `GET /sound/getsound?soundid=<sound_id>` for the resolved audio, preferring `videourl` > `soundurl_128` > `soundurl`. |
+| **Audio isn't a flat file** | `soundurl`/`soundurl_128` are signed, expiring **HLS (`.m3u8`) manifest URLs** (`?...&expire_time=...&token=...`), not direct downloadable files -- playable, but turning one into a local file needs an HLS-aware fetch (e.g. ffmpeg), not implemented here. A `dash.audio[].base_url` structure (signed, fragmented `.m4s` segments) also exists and isn't used. `models.AudioRef.format` distinguishes `"hls"` from `"direct"` for whichever a caller gets. |
+| **The paywall is a silent null field, not an error** | Confirmed against a real paid drama (魔道祖师 第三季, `drama_id=22602`, `need_pay:1`/`price:399`) and its first paid episode with no session: `getsound` returns HTTP 200 / `success:true`, but `soundurl`/`soundurl_128` are both `null`, with `need_pay`/`price`/`pay_type`/`limit_type` fields the free response doesn't carry at all. `get_audio_url()` checks these explicitly and raises `ContentHidden`/`FailureReason.PURCHASE_REQUIRED` with a specific message, never a raw failure or a broken URL. |
+| Auth | `login()` (inherited, generic) opens `sources/auth_browser.py`'s persistent profile for a real sign-in. `get_audio_url()` retries a locked episode by reading the same `getsound` URL through that profile (`page_fetch.fetch_with_profile`), on the assumption its rendered `page.content()` still carries the raw JSON body. **Unverified** -- no real purchased/VIP MissEvan account was available this pass, matching `bilibili_manga.py`'s own hedge on its authenticated tier. |
+| Anti-bot | A real, confirmed wall, but Referer-gated rather than blanket: one `getsound` request sent with no `Referer` header came back HTTP 200 with an Aliyun WAF slide-verification page instead of JSON; this adapter always sends a `Referer`, and `sources/detect.py`'s existing bot-challenge detection (matches "滑动验证") already raises `ChallengeDetected` if it recurs -- no special-casing added. |
+| Terms, recorded separately | The real ToS (猫耳FM用户使用协议, `link.missevan.com/rule/duty`, genuinely server-rendered, read in full) **explicitly restricts automated access**: §4.2.11 bans using any automated program/script/bot/spider/crawler to obtain the platform's services, content, or data, for any reason, without prior written permission -- the same class of clause that marks Naver/Novelpia/JJWXC `EXPLICITLY_RESTRICTED` in `site_terms.py`. Recorded in `capabilities()` (`terms.tos_prohibited = True`); per Step 90, `ladder.check_terms()`'s enforcement is currently a deliberate app-wide no-op, so this is recorded for the record rather than enforced -- the same "state facts, the person decides" convention every adapter follows. |
+| Known limits | `music`-catalog entries (soundtrack-only) are excluded from `get_chapters()`. HLS manifests are returned as-is, not downloaded/muxed to a file. The authenticated-fallback extraction shape (raw JSON inside a rendered `<pre>`) is a reasonable guess, not confirmed against a real session. |
+| Tests | `tests/test_sources_missevan.py`. All fetches are mocked fixtures trimmed from real captured responses; no live network call. |
+
 ## Generic "paste a URL" import (no adapter)
 
 | | |
@@ -542,6 +559,24 @@ they've been tried against the real site.
   per-missing-page browser re-drive that the live runs had masked, now
   fixed and covered by tests. Only the browser capture itself still needs
   a real machine.
+- [x] **missevan, normal work (free content):** confirmed live (2026-09-28)
+  -- `search("重生")` returned real results via the real `s=` query param
+  (not `keyword=`, which 200s but always reports zero hits), a real
+  drama's episode list loaded via `getdrama`, and `getsound` resolved a
+  real free episode to a real, playable, signed HLS `.m3u8` URL. A real
+  paid drama's locked episode (魔道祖师 第三季) was also confirmed with no
+  session: HTTP 200 / `success:true` with `soundurl`/`soundurl_128` both
+  `null` and `need_pay`/`price` set -- the exact "silent null field, not
+  an error" shape this adapter's `get_audio_url()` checks for. **UI
+  import into a drama itself not separately driven.**
+- [ ] **missevan, signed-in/paid session (pending a real account):** with
+  a real purchased or VIP MissEvan account signed in through this
+  source's browser profile, confirm whether `get_audio_url()`'s
+  authenticated fallback (reading `getsound` through that profile) really
+  does return a usable URL for a paid episode -- and whether the "JSON
+  inside a rendered `<pre>`" extraction shape it assumes is actually what
+  the browser hands back for this specific endpoint. Not verified this
+  pass; no such account was available.
 - [ ] **Mag-Comi, raw1001.net, novema.jp, Kakuyomu, Hameln -- generic
   pipeline only, no dedicated adapter:** search a real title on each
   through the existing generic paste-a-URL / adaptive-extraction flow
