@@ -39,6 +39,30 @@ import time
 import traceback
 
 _jobs = {}
+
+
+def _mirror_locked(job_id):
+    """Caller must already hold _lock. Writes this job's current
+    status-transition fields (Migration Slice 7) to the cross-process
+    job_records table -- a best-effort mirror, never on the hot path of
+    update_progress()'s own per-tick calls. A DB hiccup here must never
+    break the job it's describing, so any exception is swallowed after
+    logging; the in-memory _jobs dict stays the real, authoritative
+    state for the process that owns the job either way."""
+    job = _jobs.get(job_id)
+    if job is None:
+        return
+    try:
+        import db
+        db.save_job_record(
+            job_id, status=job.get("status"), progress=job.get("progress"),
+            message=job.get("message"), error=job.get("error"),
+            description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
+            started_at=job.get("started_at"), finished_at=job.get("finished_at"))
+    except Exception:
+        import applog
+        applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
+                                    exc_info=True)
 # RLock, not Lock: _promote_next_queued_gpu_job() is called from inside a
 # just-finished job's own runner thread, and needs to re-take the lock it
 # might already be inside of via a nested call path -- a plain Lock would
@@ -225,6 +249,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _jobs[job_id]["progress"] = 1.0
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
+                    _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
             _notify_job_finished(_description, "done")
         except Exception as exc:
@@ -238,6 +263,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _jobs[job_id]["traceback"] = tb
                     _jobs[job_id]["finished_at"] = time.time()
                     _description = _jobs[job_id].get("description")
+                    _mirror_locked(job_id)
             logger.error(f"job {job_id} failed: {error_msg}\n{tb}")
             _notify_job_finished(_description, "error")
         finally:
@@ -284,6 +310,7 @@ def _promote_next_queued_gpu_job():
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
             _jobs[job_id]["started_at"] = time.time()
+            _mirror_locked(job_id)
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]
             break
     if entry.get("kind") == "process":
@@ -322,6 +349,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
                 "cancel_requested": False, "result": None,
                 "gpu_touching": True, "description": description, "kind": "thread",
             }
+            _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": kwargs, "description": description, "kind": "thread"})
             return True
@@ -331,6 +359,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             "cancel_requested": False, "result": None,
             "gpu_touching": gpu_touching, "description": description, "kind": "thread",
         }
+        _mirror_locked(job_id)
 
     _spawn(job_id, target, args, kwargs, gpu_touching=gpu_touching)
     return True
@@ -372,6 +401,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                 "gpu_touching": True, "description": description, "kind": "process",
                 "process": None,
             }
+            _mirror_locked(job_id)
             _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process"})
             return True
@@ -398,6 +428,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description):
         "gpu_touching": gpu_touching, "description": description, "kind": "process",
         "process": proc,
     }
+    _mirror_locked(job_id)
     return proc, result_queue
 
 
@@ -430,6 +461,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                     if job_id in _jobs:
                         _jobs[job_id]["status"] = "cancelled"
                         _jobs[job_id]["finished_at"] = time.time()
+                        _mirror_locked(job_id)
                 logger.info(f"job {job_id} {'cleared' if was_cleared else 'cancelled'} "
                            f"(subprocess terminated)")
                 return
@@ -488,6 +520,7 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 _jobs[job_id]["finished_at"] = time.time()
                 logger.error(f"job {job_id} subprocess died with no result "
                             f"(exit code {proc.exitcode})")
+            _mirror_locked(job_id)
             _final_status = _jobs[job_id]["status"]
             _description = _jobs[job_id].get("description")
         _notify_job_finished(_description, _final_status)
@@ -676,6 +709,13 @@ def clear_job(job_id: str):
     with _lock:
         _jobs.pop(job_id, None)
         _gpu_queue[:] = [e for e in _gpu_queue if e["job_id"] != job_id]
+    try:
+        import db
+        db.delete_job_record(job_id)
+    except Exception:
+        import applog
+        applog.get_logger().warning(f"job {job_id}: failed to delete its job_records row",
+                                    exc_info=True)
 
 
 def clear_all_jobs():
@@ -685,6 +725,12 @@ def clear_all_jobs():
     with _lock:
         _jobs.clear()
         _gpu_queue.clear()
+    try:
+        import db
+        db.clear_all_job_records()
+    except Exception:
+        import applog
+        applog.get_logger().warning("failed to clear job_records", exc_info=True)
 
 
 def list_running_jobs():

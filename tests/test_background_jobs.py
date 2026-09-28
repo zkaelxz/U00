@@ -8,6 +8,7 @@ of switching to another tab and coming back later.
 """
 import sys
 import os
+import sqlite3
 import threading
 import time
 
@@ -879,7 +880,16 @@ class TestProcessBasedJobs:
 
         release.set()
         _wait("test_process_gpu_thread")
-        status = _wait_for_status(job_id, "queued")
+        # Migration Slice 7's status-transition mirror to job_records does
+        # real (if brief) DB I/O at the queued->running step, which is
+        # enough to make the intermediate "running" state observable by a
+        # poll that previously only ever saw "queued" or "done" -- wait
+        # for a genuinely terminal status, not just "no longer queued".
+        deadline = time.time() + 2.0
+        status = bg.get_status(job_id)
+        while time.time() < deadline and status and status["status"] in ("queued", "running"):
+            time.sleep(0.01)
+            status = bg.get_status(job_id)
         assert status["status"] == "done"
         bg.clear_job("test_process_gpu_thread")
         bg.clear_job(job_id)
@@ -1104,3 +1114,49 @@ class TestNotifyOnCompletion:
         assert status["status"] == "done"
         assert calls == [("A process job", "done")]
         bg.clear_job(job_id)
+
+
+class TestJobRecordsMirror:
+    """Migration Slice 7: a job's status transitions mirror into db.py's
+    cross-process job_records table -- the actual cross-process
+    visibility gap this slice exists to close. Uses isolated_db so the
+    mirror writes land in a throwaway library, not the real one."""
+
+    def test_a_thread_job_appears_in_job_records_once_started_and_finished(self, isolated_db):
+        import db
+        done = threading.Event()
+        bg.start_job("mirror_thread_job", lambda: done.set(), description="Mirror test")
+        done.wait(timeout=2.0)
+        _wait("mirror_thread_job")
+        deadline = time.time() + 2.0
+        rec = db.get_job_record("mirror_thread_job")
+        while time.time() < deadline and (not rec or rec["status"] != "done"):
+            time.sleep(0.01)
+            rec = db.get_job_record("mirror_thread_job")
+        assert rec is not None
+        assert rec["status"] == "done"
+        assert rec["description"] == "Mirror test"
+        bg.clear_job("mirror_thread_job")
+
+    def test_clearing_a_job_removes_its_job_record_too(self, isolated_db):
+        import db
+        done = threading.Event()
+        bg.start_job("mirror_clear_job", lambda: done.set())
+        done.wait(timeout=2.0)
+        _wait("mirror_clear_job")
+        _wait_for(lambda: db.get_job_record("mirror_clear_job") is not None)
+        bg.clear_job("mirror_clear_job")
+        assert db.get_job_record("mirror_clear_job") is None
+
+    def test_a_failed_db_write_never_breaks_the_job_itself(self, isolated_db, monkeypatch):
+        import db
+        def boom(*a, **k):
+            raise sqlite3.OperationalError("simulated failure")
+        monkeypatch.setattr(db, "save_job_record", boom)
+        done = threading.Event()
+        ok = bg.start_job("mirror_db_down_job", lambda: done.set())
+        assert ok is True
+        assert done.wait(timeout=2.0)
+        _wait("mirror_db_down_job")
+        assert bg.get_status("mirror_db_down_job")["status"] == "done"
+        bg.clear_job("mirror_db_down_job")
