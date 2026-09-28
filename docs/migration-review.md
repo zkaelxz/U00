@@ -825,6 +825,14 @@ series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
 line/note text, 500 for terms. Out of scope: merge/split/delete lines,
 restore original text, LLM tools, bulk modes.
 
+**Migration Slice 28 (artifact download).** `services/artifact_service.py` defines where a job
+writes a downloadable output: `<drama folder>/exports/<kind>/<filename>` (`output_path` validates
+the bare filename). `GET /api/artifacts/dramas/{id}/{kind}` streams the newest regular file there
+with a sanitized `Content-Disposition`; `.../info` returns name/size/kind only (never a path).
+Kinds are whitelisted (subtitle, epub, audio, video, archive); clients never send a path;
+symlinks and anything resolving outside the kind folder are ignored; errors are fixed text
+(404 when missing, 422 for an unknown kind). No job writes artifacts yet -- wiring is later.
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions

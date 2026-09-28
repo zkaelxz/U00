@@ -234,9 +234,12 @@ baihe-subtitler/
 │   │                             translation versions (list/compare), notes (list/Markdown),
 │   │                             stored consistency issues, emotion summary, edit tendencies,
 │   │                             TM suggestions; enforces drama ownership itself; no writes/LLM
-│   └── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
-│                                 (field-scoped save_lines only): patch with compare-and-set, dismiss
-│                                 flag, find-replace apply, TM accept, note add/delete; ownership-checked
+│   ├── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
+│   │                             (field-scoped save_lines only): patch with compare-and-set, dismiss
+│   │                             flag, find-replace apply, TM accept, note add/delete; ownership-checked
+│   └── artifact_service.py       Migration Slice 28 -- job-output file convention
+│                                 (<drama>/exports/<kind>/<file>), output_path, get_artifact
+│                                 (whitelisted kind, no symlinks, stays inside drama folder)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -285,9 +288,10 @@ baihe-subtitler/
 │       │                         /versions/compare, /notes, /notes/markdown, /consistency,
 │       │                         /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
 │       │                         read-only)
-│       └── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
-│                                 `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
-│                                 notes (POST, DELETE .../{note_id}) (Migration Slice 43)
+│       ├── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
+│       │                         `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
+│       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
+│       └── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

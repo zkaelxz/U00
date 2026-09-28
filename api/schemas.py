@@ -1052,3 +1052,9 @@ class LinesNote(BaseModel):
 class LinesNoteDeleteResult(BaseModel):
     deleted: bool
     note_id: int
+
+
+class ArtifactInfo(BaseModel):
+    name: str
+    size: int
+    kind: str
