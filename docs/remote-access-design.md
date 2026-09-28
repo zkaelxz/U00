@@ -20,7 +20,7 @@
 | Domain | None purchased. Tailscale provides the name and HTTPS certificate (`<machine>.<tailnet>.ts.net`). |
 | Who | The user and other household members, including from phones. Each installs the Tailscale app once and signs in (free Personal plan: up to 6 users, unlimited devices per user, [pricing](https://tailscale.com/pricing)). |
 | Threat model | The Baihe PC and its logged-in account's processes are trusted (§3). |
-| Permission scope | Global to start; progress/preferences per user (§4). |
+| Permission scope | Global; no private libraries. Everyone granted access is trusted with full access (§4). Progress/preferences per user. |
 | Admin actions | Admin permission + confirmation + only from the Baihe PC (§6). |
 | What they can do | Start, cancel, read and review, controlled by **deny-by-default permissions** in Baihe. |
 | API process | FastAPI runs as its own process (D1), with the four fixes in `migration-review.md` §6 D1. |
@@ -134,9 +134,12 @@ trusted ([Serve identity headers](https://tailscale.com/docs/features/tailscale-
   to the whole library. Reading progress, notes and preferences stay
   **per user**. Per-series/per-drama access is **not** built unless
   household members need private libraries or different content access.
-  If they do, that has to be decided *before* anyone else is given
-  access, because adding it afterwards means re-checking every route and
-  every list query.
+  **Answered 2026-09-28: they don't.** "No one will have access that
+  shouldn't have full access." Every person granted access is trusted
+  with the whole library. Per-series/per-drama scoping is therefore
+  dropped, not deferred. Permissions remain as a guard against accidents
+  (e.g. spending on paid engines) and against unknown tailnet members,
+  who still get nothing by default.
 - **Every route declares its required permission**, checked by one
   FastAPI dependency. A static test fails the build if any route lacks
   one, which is what makes deny-by-default real.
