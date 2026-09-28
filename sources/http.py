@@ -197,14 +197,15 @@ def _state(source: str, max_concurrent: int) -> dict:
         st = _source_state.get(source)
         if st is None or st["limit"] != max_concurrent:
             st = {"sem": threading.BoundedSemaphore(max_concurrent), "limit": max_concurrent,
-                  "pace_lock": threading.Lock(), "last": {}}
+                  "pace_lock": threading.Lock(), "last": {}, "good_mirror": None}
             _source_state[source] = st
         return st
 
 
 def reset_pacing_state():
     """Test helper / settings-change hook: forget every source's last
-    request time and rebuild the concurrency limits."""
+    request time, rebuild the concurrency limits, and forget which mirror
+    last worked for each source."""
     with _state_lock:
         _source_state.clear()
 
@@ -424,19 +425,30 @@ class SourceClient:
         return self.request("POST", url, data=data, use_cache=False, **kw)
 
     def get_with_mirrors(self, path: str, mirrors, **kw) -> Response:
-        """Tries `path` against each base URL in `mirrors` in order, moving
-        on when one is unreachable (network error, timeout, 5xx after its
-        retries). A challenge on any mirror still stops everything -- a
-        different mirror isn't a way around a verification page. Health is
-        recorded once for the whole operation, not per mirror, so a dead
-        primary can't push the source into 🔴 before the backups are tried."""
+        """Tries `path` against each base URL in `mirrors`, moving on when
+        one is unreachable (network error, timeout, 5xx after its retries).
+        A challenge on any mirror still stops everything -- a different
+        mirror isn't a way around a verification page. Health is recorded
+        once for the whole operation, not per mirror, so a dead primary
+        can't push the source into 🔴 before the backups are tried.
+
+        Whichever mirror last actually worked for this source is tried
+        first (in-memory only, for this process's lifetime -- it does not
+        survive a restart), then the rest of `mirrors` in their given
+        order. This only changes *which mirror is tried first*; a mirror
+        that was never configured for this call is never tried, and the
+        challenge/never-bypass rule above is unaffected."""
         wait = health.retry_after(self.source)
         if wait is not None:
             raise SourceUnavailable(
                 f"{self.source} is marked unavailable after repeated failures; "
                 f"next try allowed in {wait:.0f}s.", retry_after=wait)
+        st = _state(self.source, self.policy.max_concurrent)
+        preferred = st.get("good_mirror")
+        order = mirrors if preferred not in mirrors else \
+            [preferred] + [m for m in mirrors if m != preferred]
         errors = []
-        for base in mirrors:
+        for base in order:
             url = base.rstrip("/") + path
             try:
                 resp = self.get(url, record_health=False, **kw)
@@ -454,6 +466,7 @@ class SourceClient:
                 raise
             health.record_success(self.source, 0.0)
             resp.mirror = base
+            st["good_mirror"] = base
             return resp
         msg = "Every configured mirror failed:\n" + "\n".join(errors)
         health.record_failure(self.source, FailureReason.HTTP_ERROR.value, msg)

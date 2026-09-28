@@ -199,6 +199,61 @@ class TestPacing:
 
 
 # ---------------------------------------------------------------------------
+# get_with_mirrors: the mirror that actually worked is preferred next time
+# ---------------------------------------------------------------------------
+
+class TestMirrors:
+    def test_a_later_call_tries_the_mirror_that_worked_last_time_first(self, isolated_db):
+        import requests
+        mirrors = ["https://a.invalid", "https://b.invalid", "https://c.invalid"]
+        clock = FakeClock()
+        t = ScriptedTransport({
+            "https://a.invalid/x": requests.ConnectionError("down"),
+            "https://b.invalid/x": html("<p>ok</p>"),
+        }, clock)
+        c = make_client("mir", t, clock, max_retries=0)
+        c.get_with_mirrors("/x", mirrors)
+        assert t.urls() == ["https://a.invalid/x", "https://b.invalid/x"]
+        # A second call, even against a fresh route set, should try the
+        # mirror that won last time (b) before falling back to a or c.
+        t.routes["https://b.invalid/x"] = html("<p>ok again</p>")
+        c.get_with_mirrors("/x", mirrors)
+        assert t.urls()[-1] == "https://b.invalid/x"
+
+    def test_a_preferred_mirror_no_longer_in_the_list_is_ignored(self, isolated_db):
+        import requests
+        clock = FakeClock()
+        t = ScriptedTransport({
+            "https://a.invalid/x": requests.ConnectionError("down"),
+            "https://b.invalid/x": html("<p>ok</p>"),
+        }, clock)
+        c = make_client("mir2", t, clock, max_retries=0)
+        c.get_with_mirrors("/x", ["https://a.invalid", "https://b.invalid"])
+        # b won and is now preferred; call again with a mirror list that no
+        # longer contains b at all -- the preference should be ignored
+        # rather than crash or insert a mirror never configured for this call.
+        t.routes["https://c.invalid/x"] = html("<p>ok</p>")
+        c.get_with_mirrors("/x", ["https://c.invalid"])
+        assert t.urls()[-1] == "https://c.invalid/x"
+
+    def test_reset_pacing_state_forgets_the_preferred_mirror(self, isolated_db):
+        import requests
+        mirrors = ["https://a.invalid", "https://b.invalid"]
+        clock = FakeClock()
+        t = ScriptedTransport({
+            "https://a.invalid/x": requests.ConnectionError("down"),
+            "https://b.invalid/x": html("<p>ok</p>"),
+        }, clock)
+        c = make_client("mir3", t, clock, max_retries=0)
+        c.get_with_mirrors("/x", mirrors)
+        reset_pacing_state()
+        t.routes["https://a.invalid/x"] = html("<p>ok</p>")
+        c.get_with_mirrors("/x", mirrors)
+        # Back to trying a first, since the preference was forgotten.
+        assert t.urls()[-1] == "https://a.invalid/x"
+
+
+# ---------------------------------------------------------------------------
 # Health: 🔴 sources wait out their backoff
 # ---------------------------------------------------------------------------
 
