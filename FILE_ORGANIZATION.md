@@ -237,9 +237,11 @@ baihe-subtitler/
 │   ├── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
 │   │                             (field-scoped save_lines only): patch with compare-and-set, dismiss
 │   │                             flag, find-replace apply, TM accept, note add/delete; ownership-checked
-│   └── artifact_service.py       Migration Slice 28 -- job-output file convention
-│                                 (<drama>/exports/<kind>/<file>), output_path, get_artifact
-│                                 (whitelisted kind, no symlinks, stays inside drama folder)
+│   ├── artifact_service.py       Migration Slice 28 -- job-output file convention
+│   │                             (<drama>/exports/<kind>/<file>), output_path, get_artifact
+│   │                             (whitelisted kind, no symlinks, stays inside drama folder)
+│   └── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
+│                                 (safe stored name, extension whitelist, size cap, temp+atomic rename)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -291,7 +293,9 @@ baihe-subtitler/
 │       ├── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
 │       │                         `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
 │       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
-│       └── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
+│       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
+│       └── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
+│                                 only) (Migration Slice 31)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

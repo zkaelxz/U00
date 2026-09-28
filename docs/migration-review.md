@@ -833,6 +833,22 @@ Kinds are whitelisted (subtitle, epub, audio, video, archive); clients never sen
 symlinks and anything resolving outside the kind folder are ignored; errors are fixed text
 (404 when missing, 422 for an unknown kind). No job writes artifacts yet -- wiring is later.
 
+**Slice 31 — Media upload (2026-09-28).**
+`services/media_upload_service.py` + `api/routers/media_routes.py`:
+`POST /api/media/dramas/{id}/upload` (multipart, `file` field; needs
+`python-multipart`, added to `requirements-core.txt`). Same result as the
+Source tab's upload: stored as `source<ext>` in the drama folder (audio:
+`audio_filename` set; video: audio extracted to `audio.wav`, both
+`audio_filename` and `source_video_filename` set). The client filename is
+never stored or returned (only a whitelisted extension is read: mp3 wav m4a
+flac ogg mp4 mkv mov webm); the body streams to a temp file in the drama
+folder, is capped by `BAIHE_MAX_UPLOAD_MB` (default 2048; over-limit is a 422
+with fixed text and the partial file is deleted) and is atomically renamed.
+409 if a job is running for the drama, 404 for an unknown drama. Response is
+`name`, `size`, `kind` only. Uploading replaces the previous `source<ext>`
+of the same extension. Video audio extraction runs synchronously in the
+request (ffmpeg). Out of scope: yt-dlp URL download, ref-audio/cover uploads.
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
