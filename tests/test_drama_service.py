@@ -162,6 +162,77 @@ def test_detail_has_no_filesystem_path(isolated_db):
             assert db.LIBRARY_DIR not in v
 
 
+# --- Hardening H1 -----------------------------------------------------------
+
+BIG = 10**30
+HOSTILE = "evil\n" + "x" * 5000 + "\u202e\u2603"
+
+
+@pytest.mark.parametrize("kw", [{"series_id": BIG}, {"preset_id": BIG}])
+def test_h1_create_oversized_ids(isolated_db, kw):
+    with pytest.raises(InvalidInputError):
+        ds.create_drama(source_language="zh", **kw)
+    assert _count() == 0
+
+
+@pytest.mark.parametrize("field", ["chapter_count", "episode_number", "series_id"])
+def test_h1_update_oversized_ints(isolated_db, field):
+    did = ds.create_drama(source_language="zh")["id"]
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(did, **{field: BIG})
+
+
+def test_h1_update_oversized_drama_id(isolated_db):
+    with pytest.raises(InvalidInputError):
+        ds.update_drama_metadata(BIG, title_en="x")
+
+
+def test_h1_text_caps_and_no_echo(isolated_db):
+    with pytest.raises(InvalidInputError) as e:
+        ds.create_drama(source_language="zh", title_en=HOSTILE)
+    assert "evil" not in str(e.value)
+    did = ds.create_drama(source_language="zh")["id"]
+    for field, value in (("summary", "a" * 5001), ("project_instructions", "a" * 5001),
+                         ("author", "a" * 301), ("source_url", "http://" + "a" * 2001),
+                         ("custom_tags", "a" * 2001)):
+        with pytest.raises(InvalidInputError):
+            ds.update_drama_metadata(did, **{field: value})
+    ds.update_drama_metadata(did, summary="a" * 5000, author="a" * 300)
+
+
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "file:///etc/passwd", "ftp://x"])
+def test_h1_source_url_scheme(isolated_db, url):
+    did = ds.create_drama(source_language="zh")["id"]
+    with pytest.raises(InvalidInputError) as e:
+        ds.update_drama_metadata(did, source_url=url)
+    assert url not in str(e.value)
+    assert ds.update_drama_metadata(did, source_url="https://ok.example/a")["source_url"]
+    assert ds.update_drama_metadata(did, source_url="")["source_url"] in ("", None)
+
+
+def test_h1_titles_stripped_and_blank_titles_allowed(isolated_db):
+    d = ds.create_drama(source_language="zh", title_en="  Hi  ", title_zh="\u4f60 ")
+    assert d["title_en"] == "Hi" and d["title_zh"] == "\u4f60"
+    assert ds.create_drama(source_language="zh")["id"]  # the tab allows both blank
+    assert ds.update_drama_metadata(d["id"], title_en=" B ")["title_en"] == "B"
+
+
+def test_h1_unknown_field_message_never_echoes_key(isolated_db):
+    did = ds.create_drama(source_language="zh")["id"]
+    with pytest.raises(InvalidInputError) as e:
+        ds.update_drama_metadata(did, secret_key_name="x")
+    assert "secret_key_name" not in str(e.value)
+
+
+def test_h1_failed_create_leaves_no_stray_series(isolated_db):
+    with pytest.raises(InvalidInputError):
+        ds.create_drama(source_language="zh", new_series_name="S", title_en="a" * 301)
+    with pytest.raises(NotFoundError):
+        ds.create_drama(source_language="zh", new_series_name="S", preset_id=999)
+    assert db.list_series() == []
+    d = ds.create_drama(source_language="zh", new_series_name="S")
+    assert d["series_id"] == db.list_series()[0]["id"]
+
 # ---- Slice 36: delete ----------------------------------------------------
 import os
 import time

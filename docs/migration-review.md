@@ -827,6 +827,16 @@ server-side but never returns a path or filename (only `has_ref_audio`).
 Out of scope: reference-audio upload/auto-extract (multipart), series-
 character writes, Dub generation.
 
+*Hardening H1 (Slices 35/42).* Review fixes: error messages never echo client
+text (speaker label, clone engine, unknown field names); ids and counts are
+capped at 2**31-1 in services and schemas (422, not a sqlite OverflowError);
+drama text fields have length caps, titles are stripped and `source_url` must
+be empty or http(s) (blank titles stay allowed, as in the tab); voice-bank apply
+rejects labels that can't be a filename part, returns NotFound for a missing
+clip, and enforces the Step 26c language rule on the entry's engine (stricter
+than the tab, by design); a new series is created only after the drama row
+exists, so a failed create leaves no stray series.
+
 **Slice 36 -- Drama delete.** `DELETE /api/dramas/{id}?confirm=true&confirm_text=DELETE`
 -> `{"deleted": true, "drama_id": n}`. User-approved rule: needs `confirm=true`
 AND an exact-match typed `confirm_text` (Streamlit's checkbox + type-DELETE

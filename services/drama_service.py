@@ -50,13 +50,40 @@ _TEXT_FIELDS = ("title_en", "title_zh", "author", "studio", "director", "voice_a
                 "summary", "genre", "custom_tags", "source_url", "episode_summary",
                 "project_instructions")
 _INT_FIELDS = ("chapter_count", "episode_number")
+
+# Hardening H1: sqlite ints are 64-bit and a Python int above that raises
+# OverflowError (a 500), so every id/count the client sends is capped well
+# below it; text fields get length caps so a client can't store megabytes.
+MAX_ID = 2**31 - 1
+MAX_NAME_LEN = 300
+MAX_LONG_TEXT_LEN = 5000
+MAX_URL_LEN = 2000
+_TEXT_CAPS = {"summary": MAX_LONG_TEXT_LEN, "episode_summary": MAX_LONG_TEXT_LEN,
+              "project_instructions": MAX_LONG_TEXT_LEN, "source_url": MAX_URL_LEN,
+              "custom_tags": MAX_URL_LEN}
+_STRIPPED = ("title_en", "title_zh")
 _UPDATABLE = frozenset(_TEXT_FIELDS + _INT_FIELDS
                        + ("media_type", "publication_status", "series_id"))
 
 
 def _check_text(name, value):
+    """Type, length cap and (source_url) scheme check; returns the value,
+    stripped for titles. Messages name only the field, never the value."""
     if not isinstance(value, str):
         raise InvalidInputError(f"{name} must be text.")
+    cap = _TEXT_CAPS.get(name, MAX_NAME_LEN)
+    if len(value) > cap:
+        raise InvalidInputError(f"{name} is too long (max {cap} characters).")
+    if name == "source_url" and value and not value.startswith(("http://", "https://")):
+        raise InvalidInputError("source_url must be empty or start with http:// or https://.")
+    return value.strip() if name in _STRIPPED else value
+
+
+def _check_id(name, value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise InvalidInputError(f"{name} must be a whole number.")
+    if value < 1 or value > MAX_ID:
+        raise InvalidInputError(f"{name} is out of range.")
 
 
 def _check_media_type(value):
@@ -88,32 +115,26 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     texts = {"title_en": title_en, "title_zh": title_zh, "author": author, "studio": studio,
              "director": director, "voice_actors": voice_actors, "summary": summary}
     for name, value in texts.items():
-        _check_text(name, value)
+        texts[name] = _check_text(name, value)
     _check_media_type(media_type)
 
     if series_id is not None and new_series_name is not None:
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
     if series_id is not None:
-        if isinstance(series_id, bool) or not isinstance(series_id, int):
-            raise InvalidInputError("series_id must be a whole number.")
+        _check_id("series_id", series_id)
         if not _series_exists(series_id):
-            raise NotFoundError(f"No series with id {series_id}.")
+            raise NotFoundError("No series with that id.")
     if new_series_name is not None:
-        _check_text("new_series_name", new_series_name)
-        new_series_name = new_series_name.strip()
+        new_series_name = _check_text("new_series_name", new_series_name).strip()
         if not new_series_name:
             raise InvalidInputError("new_series_name must not be blank.")
 
     preset = None
     if preset_id is not None:
-        if isinstance(preset_id, bool) or not isinstance(preset_id, int):
-            raise InvalidInputError("preset_id must be a whole number.")
+        _check_id("preset_id", preset_id)
         preset = _find_preset(preset_id)
         if preset is None:
-            raise NotFoundError(f"No preset with id {preset_id}.")
-
-    if new_series_name is not None:
-        series_id = db.get_or_create_series(new_series_name)
+            raise NotFoundError("No preset with that id.")
 
     fields = dict(texts, media_type=media_type, source_language=source_language)
     if series_id is not None:
@@ -121,6 +142,11 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     if preset and preset.get("translation_engine"):
         fields["translation_engine"] = preset["translation_engine"]
     new_id = db.create_drama(**fields)
+    # Hardening H1: a NEW series is created only after the drama row exists
+    # (as the Streamlit form does), so a failed create can't leave a stray
+    # series behind (db has no delete_series to clean one up).
+    if new_series_name is not None:
+        db.update_drama(new_id, series_id=db.get_or_create_series(new_series_name))
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
@@ -140,21 +166,24 @@ def update_drama_metadata(drama_id, **partial) -> dict:
     set" convention; None can't mean both "not passed" and "clear"). Raises
     NotFoundError for an unknown drama or series, InvalidInputError for a
     non-whitelisted field or bad value. Returns the drama detail."""
+    if isinstance(drama_id, int) and not isinstance(drama_id, bool) and drama_id > MAX_ID:
+        raise InvalidInputError("drama_id is out of range.")
     library_service.get_library_drama(drama_id)  # id check + existence
     for key in partial:
         if key not in _UPDATABLE:
-            raise InvalidInputError(f"Field {key!r} cannot be updated here."
-                                    if key.isidentifier() else "Unknown field.")
+            raise InvalidInputError("That field cannot be updated here.")
 
     fields = {}
     for key, value in partial.items():
         if value is None:
             continue
         if key in _TEXT_FIELDS:
-            _check_text(key, value)
+            value = _check_text(key, value)
         elif key in _INT_FIELDS:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise InvalidInputError(f"{key} must be a non-negative whole number.")
+            if value > MAX_ID:
+                raise InvalidInputError(f"{key} is out of range.")
             value = value or None  # 0 = "not set", stored NULL, as the tab does
         elif key == "media_type":
             _check_media_type(value)
@@ -163,10 +192,9 @@ def update_drama_metadata(drama_id, **partial) -> dict:
                 raise InvalidInputError("Unknown publication_status.",
                                         details={"allowed": list(PUBLICATION_STATUSES)})
         elif key == "series_id":
-            if isinstance(value, bool) or not isinstance(value, int):
-                raise InvalidInputError("series_id must be a whole number.")
+            _check_id("series_id", value)
             if not _series_exists(value):
-                raise NotFoundError(f"No series with id {value}.")
+                raise NotFoundError("No series with that id.")
         fields[key] = value
 
     if fields:
