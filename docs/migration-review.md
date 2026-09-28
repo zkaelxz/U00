@@ -357,28 +357,54 @@ that needs it.
 
 ---
 
-## 6. Decisions needed from you
+## 6. Decisions
 
-- **D1. Where the API runs.** In-process with Streamlit (recommended;
-  shares jobs, the GPU guard and model caches, with no new infrastructure)
-  vs a separate process (needs Step 41's durable jobs first).
-- **D2. API keys once there's more than one frontend.** Server-side only
-  (`.env` / environment; the UI shows "configured" and never the value)
-  vs keeping today's per-browser-session entry (which requires a
-  server-side session store). Recommendation: server-side only. It's
-  simpler and never sends keys over the wire again after setup.
-- **D3. Whether FastAPI becomes a core dependency.** Today it's optional,
-  so CI (core-only) skips the API tests. If the migration continues,
-  make it core, or add an API job to CI.
-- **D4. Streamlit UX investment.** Not-yet-started Streamlit-only polish
-  (e.g. Step 19's click-through pass, Issue 12's data-editor dark mode)
-  could be weighed against the React replacement of the same screens.
-  Bug fixes should obviously continue either way.
-- **D5. Admin actions over HTTP** (pip install, library reset, restore).
-  Recommendation: loopback-only or Streamlit-only until M8-H.
-- **D6. Remote access (M8-H).** Unchanged, still deferred. The
-  migration adds one fact to it: during coexistence there are two local
-  HTTP services to front (8501 and 8600).
+Status as of 2026-09-28 (user answers in brackets).
+
+- **D1. Where the API runs. [User leans toward its own process; under
+  discussion.]** An earlier version of this section said a separate
+  process "needs Step 41's durable jobs first" and wouldn't share the GPU
+  guard. That was overstated. Step 25w's SQLite GPU lock
+  (`db.try_acquire_gpu_lock`) already coordinates GPU jobs across
+  processes (it's how `cli.py` and the UI avoid colliding). The real costs
+  of a separate process are narrower:
+  1. job *lists* aren't shared (each UI only sees jobs it started);
+  2. settings pushed into module globals (GPU-limit toggle, notify
+     toggle, `page_server` config) don't cross over;
+  3. model caches load once per process;
+  4. `db.init_db`'s check-then-ALTER migration could race on a
+     simultaneous first start after an upgrade.
+
+  Fix (1) with a small SQLite job table (records only, no resume), which
+  is much smaller than Step 41's checkpointing. Fix (2) with settings read
+  from the DB or `.env`, which D2 already implies. (3) is acceptable. Fix
+  (4) with a `try/except` around each `ALTER`. The upside of a separate
+  process: the API is independent of Streamlit's lifecycle, it's the same
+  shape as the end state (retiring Streamlit is just not starting it),
+  it's a standard uvicorn deployment, and there's no thread-embedding.
+- **D2. API keys: [decided: server-side only.]** `.env` / environment.
+  The API reports "configured / not configured", never the value.
+- **D3. FastAPI core: [decided: fully integrate.]** Done on this branch.
+  `fastapi`/`uvicorn` are in `requirements-core.txt` and `required` tier
+  in Diagnostics. CI installs them plus `httpx`, and a new `frontend` job
+  runs build, unit tests, lint and the Playwright e2e.
+- **D4. Streamlit UX investment. [User: React + FastAPI as soon as
+  possible while the app stays usable; asked for a judgment.]**
+  Judgment: stop new Streamlit-only *polish* on any screen React will
+  replace, and keep all bug fixes. Bug fixes land in logic React reuses,
+  and they keep the app usable meanwhile. Concretely: Step 19's
+  click-through pass and the Issue 12 data-editor dark-mode work aren't
+  worth doing in Streamlit (React fixes dark mode natively). Anything a
+  step builds as a plain function or service carries straight over, so
+  new features should be built service-first, with a thin Streamlit
+  surface. Migrating a service-first feature later costs only its UI.
+  Migrating one written inside a widget handler costs an extraction plus
+  the risk of dropping its guards (§4).
+- **D5. Admin actions over HTTP: [decided: wait for M8-H.]** Install,
+  reset and restore stay Streamlit-only until M8-H is decided.
+- **D6. Remote access (M8-H). [Discussion requested.]** See the
+  discussion notes for M8-H (to be written up once options are
+  compared).
 
 ---
 

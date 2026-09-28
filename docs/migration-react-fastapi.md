@@ -205,10 +205,9 @@ proxy serving the built `frontend/dist`, which is deferred).
 
 ## 3. Running it (development)
 
-Requirements: the normal Baihe Python environment, plus
-`pip install fastapi uvicorn` (both listed in
-`requirements-optional.txt` under "HTTP API for the React frontend"), and
-Node.js 20+ with npm, needed for the frontend only.
+Requirements: the normal Baihe Python environment (`fastapi` and
+`uvicorn` are in `requirements-core.txt`, decision D3), and Node.js 20+
+with npm, needed for the frontend only.
 
 ```bash
 # Terminal 1 -- API (http://127.0.0.1:8600, docs at http://127.0.0.1:8600/api/docs)
@@ -287,10 +286,15 @@ visible across *browser sessions* (roadmap M8-C tier 1 is correct: two
 devices on one Streamlit server see the same jobs) but **not across
 processes**. A FastAPI server started with `python -m api` is a second
 process. It would not see jobs Streamlit started, Streamlit would not see
-jobs it started, and the one-GPU-job guard (`_gpu_queue`) would not
-coordinate between them. Separately, model caches such as
-`core._whisper_model_cache` are also per-process, so two processes each
-loading Whisper would double VRAM use on a 12 GB card.
+jobs it started, and each process has its own in-memory GPU *queue*
+(`_gpu_queue`). **Correction (2026-09-28):** GPU *exclusion* does already
+work across processes. Step 25w added a SQLite-backed lock
+(`db.try_acquire_gpu_lock`) that `background_jobs` and `cli.py` both take,
+so two processes can't run GPU jobs at the same time. What's per-process
+is the queue order and position display. Model caches such as
+`core._whisper_model_cache` are also per-process, so each process pays its
+own model load, though not at the same time as the other's, since the lock
+serializes GPU work.
 
 That is harmless for this phase, which is read-only. It decides the
 design for jobs:
@@ -374,10 +378,10 @@ Checked against the roadmap's not-yet-built and in-flight steps as of
 | 44 event bus / notification center | Live job progress | A future SSE endpoint should consume Step 44's bus, not a parallel one. |
 | 57 / 43 confirm-and-review | Future write endpoints | Use `action_tiers.py`. See §7. |
 | 79 (start.bat) | Launcher | Not touched here, to avoid a conflict. The API launcher flag comes later. |
-| 80 installer design | New components | FastAPI/uvicorn are one optional component. End users must receive a **prebuilt** `frontend/dist`, never need Node. Node is a developer dependency only. |
+| 80 installer design | New components | FastAPI/uvicorn are core (D3). End users must receive a **prebuilt** `frontend/dist`, never need Node. Node is a developer dependency only. |
 | 81 dead-code sweep | New packages | Runs against `baihe-subtitler`, which doesn't contain these files. If this branch ever merges, `api/`, `services/`, `frontend/` are reachable via `python -m api`/npm and are not dead code. |
 | 13–21 (Streamlit IA redesign, mostly merged) | Streamlit investment | Unaffected. Future React screens should reuse those decisions (stage tabs, project header state model in `ui/project_state.py`) rather than re-derive them. |
-| 18c install buttons | New optional deps | `fastapi`/`uvicorn` are registered as `feature` tier, so Diagnostics lists them with Install buttons. `httpx` is `dev` tier, like `pytest`. |
+| 18c install buttons | New deps | `fastapi`/`uvicorn` are `required` tier (core, D3), so they aren't offered as optional installs. `httpx` is `dev` tier, like `pytest`. |
 
 ---
 
@@ -403,11 +407,10 @@ Checked against the roadmap's not-yet-built and in-flight steps as of
 Write endpoints. Job endpoints. Authentication. Serving `frontend/dist`
 from FastAPI. A combined launcher. Porting `page_server`. OpenAPI-generated
 TS types. Settings/API-key handling in the API. Any Workspace migration.
-Redis/Celery or any external queue. Docker. Making FastAPI a core
-dependency. It stays optional, and **CI (core-only install) therefore skips
-`tests/test_api_foundation.py`**; the service tests do run in CI. Whether
-FastAPI becomes core is a decision for whenever this branch is considered
-for merging.
+Redis/Celery or any external queue. Docker. (FastAPI **is** now a core
+dependency, per decision D3, 2026-09-28. CI installs it plus `httpx`, and
+a separate `frontend` CI job runs build, unit tests, lint and the
+Playwright e2e.)
 
 ---
 
