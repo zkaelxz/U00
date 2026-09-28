@@ -416,8 +416,8 @@ class DubPacingLine(BaseModel):
     idx: int
     status: str
     factor: float
-    clip_ms: Optional[int] = None
-    window_ms: Optional[int] = None
+    clip_ms: Optional[float] = None
+    window_ms: Optional[float] = None
 
 
 class DubPacing(BaseModel):
@@ -852,8 +852,8 @@ class ReviewLinesOriginalText(BaseModel):
 class ReviewRecordsHistoryItem(BaseModel):
     id: int
     drama_id: int
-    label: str
-    created_at: str
+    label: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 class ReviewRecordsSnapshotLine(BaseModel):
@@ -871,24 +871,24 @@ class ReviewRecordsSnapshotLine(BaseModel):
 class ReviewRecordsSnapshot(BaseModel):
     id: int
     drama_id: int
-    label: str
-    created_at: str
+    label: Optional[str] = None
+    created_at: Optional[str] = None
     lines: List[ReviewRecordsSnapshotLine]
 
 
 class ReviewRecordsVersionItem(BaseModel):
     id: int
     drama_id: int
-    label: str
+    label: Optional[str] = None
     engine: str
     model: str
     is_active: bool
-    created_at: str
+    created_at: Optional[str] = None
 
 
 class ReviewRecordsVersionRef(BaseModel):
     id: int
-    label: str
+    label: Optional[str] = None
 
 
 class ReviewRecordsDiff(BaseModel):
