@@ -87,19 +87,31 @@
 > current code before fixing (both gaps still real), full suite 3219
 > passed.
 >
-> **React+FastAPI migration, Slice 2 in progress:** job-runner-extraction
-> (moving `run_translate_job`/`run_transcribe_job`/etc. out of
-> `tabs/workspace_tab.py` and `restore_library_backup`/
-> `run_bulk_series_translate_job` out of `tabs/library_tab.py`, into
-> `services/`, a pure move with zero logic change per
-> `docs/migration-review.md`'s own slice plan) — dispatched to an
-> implementer working in its own worktree/branch
-> (`step-migration-slice2-job-services`), not yet reviewed/merged as of
-> this note. Check its actual state (branch existence, diff, test
-> results) before assuming it's done or restarting it — don't duplicate.
+> **Step 86 merged (2026-09-28, same pass), partial by design:**
+> `step-86-test-tier-staleness-fix`, PR #196 — the two concretely-specified
+> fixes only (technical_status recompute, preset-access_method override),
+> full suite 3224 passed. The step's third item (a "standalone
+> user-confirmation action") is genuinely underspecified — flagged as a
+> decision-needed item above rather than guessed at, not implemented.
+>
+> **React+FastAPI migration, Slice 2 — implementation done, integration
+> pending as of this note.** An implementer moved the 11 job-runner
+> functions out of `tabs/workspace_tab.py`/`tabs/library_tab.py` into
+> `services/workspace_job_service.py` (worktree/branch
+> `step-migration-slice2-job-services`), zero logic change confirmed. Real
+> blocker found in its own verification: 23 existing tests in
+> `tests/test_workspace_tab.py`/`tests/test_library_features.py`
+> monkeypatch a dependency by the *old* module's dotted path (e.g.
+> `tabs.workspace_tab.transcribe_for_timing`), which the move makes
+> inert — a structural, expected consequence of moving the real
+> implementation, not a bug in the move. Retargeting those 23 patches to
+> `services.workspace_job_service.*` and updating `FILE_ORGANIZATION.md`
+> (both outside the implementer's assigned scope) is this session's next
+> integration step before merge — check the branch's actual current state
+> before assuming this is done or restarting it.
 >
 > **Not yet dispatched:** Steps 95/97/98/99 (see above, no branch yet).
-> Steps 86/89 (provisionally numbered, never pushed — confirm scope
+> Step 89 (provisionally numbered, never pushed — confirm scope
 > before dispatch).
 >
 > **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42,
@@ -4164,7 +4176,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 83 — Fix: dependency-tier mislabeling (cv2/faster_whisper/PIL wrongly tagged Core) | `step-83-dependency-tier-mislabeling` | ✅ Merged (PR #177) | ⏳ Pending |
   | 84 — Make Discover tab's API-key gating engine-aware (FREE_ENGINES-based, not `!= "ollama"`) | `step-84-discover-key-gating` | ✅ Merged (PR #178) | ⏳ Pending |
   | 85 — Sources tab: result-per-source limit + a "Clear results" button | `step-85-sources-search-limit-clear` | ✅ Merged (PR #195) | ⏳ Pending |
-  | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | — | Not started — provisionally assigned, no branch pushed yet | — |
+  | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | `step-86-test-tier-staleness-fix` | ✅ Merged (PR #196) — the two concrete fixes only; see decision-needed note below for the third, underspecified "standalone user-confirmation action" item | ⏳ Pending |
   | 87 — Add a language selector to new-drama creation (was silently defaulting to `zh`) | `step-87-new-drama-language-selector` | ✅ Merged (PR #179) | ⏳ Pending |
   | 88 — (id skipped in the secondary-review session's own provisional numbering — not used) | — | — | — |
   | 89 — Add `music` to `MEDIA_TYPE_OPTIONS` | — | Not started — provisionally assigned, no branch pushed yet | — |
@@ -4194,6 +4206,20 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 44 — Notification system: Discord/ntfy (later phase) | — | Not started | — |
 - **Decision-needed / flagged-for-review items — NOT build steps, for the
   user to check later, folded in from `docs/secondary-review-notes.md`:**
+  0. **Step 86's third item — "add a standalone user-confirmation action
+     outside the existing challenge-handoff-only flow" (2026-09-28).**
+     Step 86's other two, concretely-specified fixes are merged (PR #196);
+     this one was left out rather than guessed at, since the notes file
+     gives no concrete UI/design for it — the existing challenge-handoff
+     screen (`tabs/sources_tab.py::_render_handoff`) only offers Open in
+     Browser/Retry/Cancel/paste-the-solved-page, triggered by a caught
+     `ChallengeDetected`. What's unclear: should a "standalone" version let
+     a user manually mark a tier as confirmed-working with no live
+     challenge/exception at all (and if so, on what evidence — this app's
+     own philosophy is evidence-based capability recording, not a bare
+     unverified claim), or does it mean something narrower (e.g. reachable
+     from Diagnostics' per-source tier view, not only from a thrown
+     exception)? Needs the user's own intent before this becomes a step.
   1. **Dark-mode gap in the imported Series/Chapters chapter-checkbox table**
      (`tabs/sources_tab.py:638`). Confirmed still open, not fixed by Step 68:
      `st.data_editor` renders its cells on a `<canvas>` (Glide Data Grid)
