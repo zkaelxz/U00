@@ -365,14 +365,15 @@ prerequisites; splitting them out by risk and dependency:
 
 | Slice | Goal | Depends on | Size |
 |---|---|---|---|
-| **6** | D1 fix 4: guard every `db.init_db()` `ALTER TABLE` against a concurrent-process race (`sqlite3.OperationalError: duplicate column name`) | none | Small -- one helper, ~55 mechanical call-site edits |
-| 7 | D1 fix 1: a small SQLite job-record table (records only, no resume) so a job started in one process is visible from another | Slice 6 (touches the same `init_db` migration path) | Small-medium |
+| **6** | ✅ Built. D1 fix 4: guard every `db.init_db()` `ALTER TABLE` against a concurrent-process race (`sqlite3.OperationalError: duplicate column name`) | none | Small -- one helper, 50 mechanical call-site edits |
+| **7** | ✅ Built. D1 fix 1: a small SQLite job-record table (`db.job_records`, records only, no resume) so a job started in one process is visible from another -- `background_jobs.py` mirrors every status transition (queued/running/done/error/cancelled), never per-progress-tick; a mirror-write failure is swallowed (logged), never breaks the job it describes | Slice 6 (touches the same `init_db` migration path) | Small-medium |
 | 8 | Minimal jobs API: `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, read/act through the Slice 7 table | Slice 7 | Small |
 | 9 | D1 fix 2: settings read from the DB/`.env` instead of module globals | D2 (server-side-only keys, already decided) | Larger -- touches every module-global settings read across the app; needs its own scoping pass when it's next, not assumed here |
 
 D1 fix 3 (model caches load once per process) needs no code change --
-already acceptable per D1's own text. Slice 6 is scoped in full and
-starting now; 7-9 are recorded here as the plan, not started.
+already acceptable per D1's own text. Slices 6 and 7 are both built;
+Slice 8 (the read-only/cancel jobs API on top of Slice 7's table) is
+next; 9 is recorded here as the plan, not started.
 
 ---
 

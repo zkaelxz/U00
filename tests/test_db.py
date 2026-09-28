@@ -1755,3 +1755,49 @@ class TestSafeAlterGuardsInitDbAgainstACrossProcessRace:
         cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
         conn.close()
         assert {"speaker", "flag", "flag_note", "sfx"} <= cols
+
+
+class TestJobRecords:
+    """Migration Slice 7 (D1 fix 1): job_records is a cross-process,
+    records-only mirror of background_jobs.py's own in-memory job state
+    -- no resume, so these tests exercise db.py's own CRUD directly
+    rather than a real multi-process scenario."""
+
+    def test_save_and_get_a_job_record(self, isolated_db):
+        db.save_job_record("job1", status="running", progress=0.5, message="halfway",
+                           error=None, description="Translating", gpu_touching=True,
+                           started_at=100.0, finished_at=None)
+        rec = db.get_job_record("job1")
+        assert rec["status"] == "running"
+        assert rec["progress"] == 0.5
+        assert rec["description"] == "Translating"
+        assert bool(rec["gpu_touching"]) is True
+        assert rec["finished_at"] is None
+
+    def test_saving_again_updates_in_place_not_a_second_row(self, isolated_db):
+        db.save_job_record("job1", status="running", progress=0.0)
+        db.save_job_record("job1", status="done", progress=1.0, finished_at=200.0)
+        records = db.list_job_records()
+        assert len(records) == 1
+        assert records[0]["status"] == "done"
+        assert records[0]["finished_at"] == 200.0
+
+    def test_get_missing_record_is_none(self, isolated_db):
+        assert db.get_job_record("does-not-exist") is None
+
+    def test_delete_job_record(self, isolated_db):
+        db.save_job_record("job1", status="done")
+        db.delete_job_record("job1")
+        assert db.get_job_record("job1") is None
+
+    def test_clear_all_job_records(self, isolated_db):
+        db.save_job_record("job1", status="done")
+        db.save_job_record("job2", status="running")
+        db.clear_all_job_records()
+        assert db.list_job_records() == []
+
+    def test_list_job_records_orders_newest_started_first(self, isolated_db):
+        db.save_job_record("old", status="done", started_at=100.0)
+        db.save_job_record("new", status="running", started_at=200.0)
+        records = db.list_job_records()
+        assert [r["job_id"] for r in records] == ["new", "old"]

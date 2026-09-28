@@ -720,6 +720,29 @@ def init_db():
             heartbeat_at REAL NOT NULL
         );
 
+        -- Migration Slice 7 (React + FastAPI migration, D1 fix 1): background_jobs.py's
+        -- own _jobs dict (Step 5c docstring: "Single-process, in-memory only") is
+        -- invisible to a separate process -- a job started from the live Streamlit UI
+        -- doesn't show up if `python -m api` later lists jobs, and vice versa. This
+        -- table is a records-only mirror, written at status transitions (queued,
+        -- started, finished), never on every progress tick -- "much smaller than
+        -- Step 41's checkpointing" per the migration doc's own D1 text. No resume:
+        -- a job whose owning process dies leaves its last-written record exactly as
+        -- it was, forever (a real, named limitation, not silently glossed over) --
+        -- see save_job_record's own docstring.
+        CREATE TABLE IF NOT EXISTS job_records (
+            job_id TEXT PRIMARY KEY,
+            status TEXT NOT NULL,
+            progress REAL,
+            message TEXT,
+            error TEXT,
+            description TEXT,
+            gpu_touching INTEGER DEFAULT 0,
+            started_at REAL,
+            finished_at REAL,
+            updated_at REAL NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
         CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
@@ -2751,6 +2774,61 @@ def gpu_lock_status():
     if not row or (time.time() - row["heartbeat_at"]) >= GPU_LOCK_STALE_SECONDS:
         return None, None
     return row["holder"], row["description"]
+
+
+def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
+                    error: str = None, description: str = None, gpu_touching: bool = False,
+                    started_at: float = None, finished_at: float = None):
+    """Mirrors one background_jobs.py job's status-transition fields into
+    the cross-process job_records table (Migration Slice 7) -- records
+    only, no resume: this is the *last written* state, not necessarily
+    the *current* state, if the process that wrote it has since died
+    without writing a terminal status. A caller reading this table for
+    cross-process visibility should treat a long-unchanged `updated_at`
+    on a "running"/"queued" row as suspect, not trust `status` blindly."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("""
+            INSERT INTO job_records (job_id, status, progress, message, error, description,
+                gpu_touching, started_at, finished_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                status = excluded.status, progress = excluded.progress,
+                message = excluded.message, error = excluded.error,
+                description = excluded.description, gpu_touching = excluded.gpu_touching,
+                started_at = excluded.started_at, finished_at = excluded.finished_at,
+                updated_at = excluded.updated_at
+        """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
+              started_at, finished_at, time.time()))
+        conn.commit()
+
+
+def list_job_records() -> list:
+    """Every job_records row, newest-started first -- the cross-process
+    job list a `GET /api/jobs` endpoint (Migration Slice 8) would read.
+    Rows accumulate forever unless cleared (delete_job_record/
+    clear_all_job_records) -- no automatic pruning in this slice."""
+    with contextlib.closing(get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM job_records ORDER BY started_at DESC NULLS LAST").fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_job_record(job_id: str):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM job_records WHERE job_id = ?", (job_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def delete_job_record(job_id: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("DELETE FROM job_records WHERE job_id = ?", (job_id,))
+        conn.commit()
+
+
+def clear_all_job_records():
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("DELETE FROM job_records")
+        conn.commit()
 
 
 def get_usage_summary(drama_id: int = None):
