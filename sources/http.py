@@ -132,8 +132,14 @@ def decode_html(content: bytes, headers: dict = None) -> str:
 
 def _requests_transport(method, url, headers, data, timeout):
     session = _thread_session()
+    # Step 98: route through a configured proxy, if one is set. Applied
+    # here rather than baked into the session (session.proxies would
+    # persist across a settings change within the same thread/process
+    # lifetime) so a change takes effect on the very next request.
+    proxy_url = store.get_setting("http_proxy_url")
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     r = session.request(method, url, headers=headers, data=data, timeout=timeout,
-                        allow_redirects=True)
+                        allow_redirects=True, proxies=proxies)
     # `r.cookies` alone only carries the *final* hop's own Set-Cookie headers
     # (requests' HTTPAdapter.build_response extracts each response's cookies
     # onto that same response object, not onto the ones before it) -- a
