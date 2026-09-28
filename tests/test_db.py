@@ -1714,3 +1714,44 @@ class TestStep26eProfilesMigration:
             assert len(db.list_profiles()) == 1
 
         self._with_redirected_library(tmp_path_str, upgrade_twice)
+
+
+class TestSafeAlterGuardsInitDbAgainstACrossProcessRace:
+    """Migration Slice 6 (React + FastAPI migration, D1 fix 4):
+    db._ensure_ready() calls init_db() lazily, per process, with no
+    cross-process lock -- Streamlit and a separately-running
+    `python -m api` process can both pass init_db()'s own
+    "column not in existing_cols yet" check before either ALTER runs, so
+    the second ALTER for the same column hits
+    sqlite3.OperationalError: duplicate column name even though nothing
+    is actually wrong. _safe_alter() is the guard; these tests exercise
+    it directly rather than trying to force a real thread race against
+    SQLite's own file locking."""
+
+    def test_duplicate_column_is_swallowed(self, tmp_path):
+        conn = sqlite3.connect(str(tmp_path / "t.db"))
+        conn.execute("CREATE TABLE t (id INTEGER)")
+        conn.execute("ALTER TABLE t ADD COLUMN x TEXT")
+        # Simulates the race outcome directly: both "processes" already
+        # passed the not-in-existing_cols check, so this ALTER runs for
+        # real against a column that's already there.
+        db._safe_alter(conn, "ALTER TABLE t ADD COLUMN x TEXT")  # must not raise
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(t)").fetchall()}
+        assert cols == {"id", "x"}
+        conn.close()
+
+    def test_other_operational_errors_still_raise(self, tmp_path):
+        import pytest
+        conn = sqlite3.connect(str(tmp_path / "t.db"))
+        with pytest.raises(sqlite3.OperationalError):
+            db._safe_alter(conn, "ALTER TABLE does_not_exist ADD COLUMN x TEXT")
+        conn.close()
+
+    def test_init_db_still_adds_a_genuinely_missing_column(self, isolated_db):
+        # isolated_db's own setup already ran init_db() once against a
+        # fresh schema -- confirms the real check-then-_safe_alter path
+        # (not just the swallow-a-duplicate path) actually adds columns.
+        conn = db.get_conn()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
+        conn.close()
+        assert {"speaker", "flag", "flag_note", "sfx"} <= cols
