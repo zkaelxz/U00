@@ -418,6 +418,130 @@ class TestSeveralImagesAtOnce:
         assert handler.status == 422
 
 
+class TestTranslatingCapturedText:
+    """Step 96's text-capture mode: `/text` runs the same security checks
+    as `/page`/`/pages` (covered generically above, since `_check_access`
+    is shared code) plus its own input rules, then funnels into
+    `translate_engines.standalone_translate` -- the same function
+    `tabs/translate_tab.py` already uses -- rather than a second
+    translation path.
+    """
+
+    def _post_text(self, token, **payload):
+        body = {"text": "some captured page text"}
+        body.update(payload)
+        return _post(token, body, path="/text")
+
+    def test_text_is_required(self, token):
+        assert self._post_text(token, text="").status == 400
+        assert self._post_text(token, text="   ").status == 400
+
+    def test_oversized_text_is_refused(self, token):
+        handler = self._post_text(token, text="x" * (page_server.MAX_TEXT_CHARS + 1))
+        assert handler.status == 413
+
+    def test_an_unknown_language_is_refused(self, token):
+        assert self._post_text(token, source_language="fr").status == 400
+
+    def test_source_and_target_must_differ(self, token):
+        assert self._post_text(token, source_language="en", target_language="en").status == 400
+
+    def test_one_side_must_be_english(self, token):
+        """standalone_translate only ever translates one side of a pair
+        with English -- see its own docstring -- so a zh->ja request must
+        be refused rather than silently mistranslated."""
+        handler = self._post_text(token, source_language="zh", target_language="ja")
+        assert handler.status == 400
+
+    def test_with_no_engine_configured_the_source_text_still_comes_back(self, token, isolated_db):
+        handler = self._post_text(token, text="原文内容")
+        assert handler.status == 200
+        payload = handler.payload
+        assert payload["source_text"] == "原文内容"
+        assert payload["translated_text"] == ""
+        assert any("no translation engine" in note[1] for note in payload["notes"])
+        assert payload["saved_to_history"] is False
+
+    def test_a_configured_engine_translates_and_saves_to_history(self, token, isolated_db,
+                                                                 monkeypatch):
+        import translate_engines
+
+        class _FakeEngine:
+            name = "claude"
+
+            def translate_batch(self, chunks, context):
+                return [f"[TEST] {c}" for c in chunks]
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
+        page_server.set_translation_config(engine="claude", api_key="test-key")
+        handler = self._post_text(token, text="原文内容", source_language="zh",
+                                  target_language="en")
+        assert handler.status == 200
+        payload = handler.payload
+        assert payload["translated_text"] == "[TEST] 原文内容"
+        assert payload["saved_to_history"] is True
+
+        import db
+        history = db.list_translate_history()
+        assert history and history[0]["source_text"] == "原文内容"
+        assert history[0]["translated_text"] == "[TEST] 原文内容"
+
+    def test_store_false_skips_history(self, token, isolated_db, monkeypatch):
+        import translate_engines
+
+        class _FakeEngine:
+            name = "claude"
+
+            def translate_batch(self, chunks, context):
+                return [f"[TEST] {c}" for c in chunks]
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
+        page_server.set_translation_config(engine="claude", api_key="test-key")
+        handler = self._post_text(token, text="原文内容", store=False)
+        assert handler.payload["saved_to_history"] is False
+
+        import db
+        assert db.list_translate_history() == []
+
+    def test_a_failing_engine_still_returns_the_captured_text(self, token, isolated_db,
+                                                              monkeypatch):
+        """A translation failure must not throw away the captured text --
+        the same choice translate_image makes on this failure."""
+        import translate_engines
+
+        class _BoomEngine:
+            name = "claude"
+
+            def translate_batch(self, chunks, context):
+                raise ValueError("the engine returned nothing")
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _BoomEngine())
+        page_server.set_translation_config(engine="claude", api_key="test-key")
+        handler = self._post_text(token, text="原文内容")
+        assert handler.status == 200
+        payload = handler.payload
+        assert payload["source_text"] == "原文内容"
+        assert payload["translated_text"] == ""
+        assert any("translation failed" in note[1] for note in payload["notes"])
+        assert payload["saved_to_history"] is False
+
+    def test_an_unsupported_direction_is_refused_with_a_clear_message(self, token, isolated_db,
+                                                                      monkeypatch):
+        import translate_engines
+
+        class _FakeEngine:
+            name = "libretranslate"
+
+            def translate_batch(self, chunks, context):
+                return list(chunks)
+
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **kw: _FakeEngine())
+        page_server.set_translation_config(engine="libretranslate", api_key="local")
+        handler = self._post_text(token, text="hello there", source_language="en",
+                                  target_language="zh")
+        assert handler.status == 422
+
+
 class TestStartingTheServer:
     def test_it_starts_once_per_process(self, monkeypatch):
         started = []

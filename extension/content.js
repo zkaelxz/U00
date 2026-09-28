@@ -157,6 +157,19 @@
                      background: #1b1b1f; color: #fff; padding: 10px 14px;
                      border-radius: 8px; font: 13px/1.4 "Segoe UI", sans-serif;
                      max-width: 340px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); }
+      #baihe-text-panel { position: fixed; right: 18px; bottom: 18px; width: 380px;
+                          max-height: 70vh; display: flex; flex-direction: column;
+                          background: #fff; color: #111; border-radius: 10px;
+                          box-shadow: 0 8px 28px rgba(0,0,0,0.4); z-index: 2147483500;
+                          font: 14px/1.5 "Segoe UI", sans-serif; overflow: hidden; }
+      .baihe-text-panel-header { display: flex; align-items: center; justify-content: space-between;
+                                 padding: 10px 12px; background: #1b1b1f; color: #fff;
+                                 font-weight: 600; font-size: 13px; gap: 8px; }
+      .baihe-text-panel-header button { font: inherit; font-size: 12px; cursor: pointer;
+                                        background: rgba(255,255,255,0.14); color: #fff;
+                                        border: none; border-radius: 5px; padding: 4px 8px; }
+      .baihe-text-panel-body { padding: 12px 14px; overflow-y: auto; white-space: pre-wrap;
+                               word-break: break-word; }
     `;
     document.documentElement.appendChild(style);
   }
@@ -287,6 +300,177 @@
     return state.overlaysVisible;
   }
 
+  // -- text capture (Step 96) ------------------------------------------
+  //
+  // The same philosophy as the image mode applies to text-heavy pages:
+  // the browser has already rendered the page, so this reads what's on
+  // screen rather than fetching anything itself. Which text counts as
+  // "the page" is decided here, once, the same way MIN_WIDTH/MIN_HEIGHT
+  // above decide which images do -- not per-site.
+
+  const MIN_PARAGRAPH_CHARS = 40;
+  const MAX_TEXT_CHARS = 20000;
+  // Tag-based, not site-specific: any page can have a <nav> or <aside>,
+  // and this skips them the same way on all of them.
+  const SKIP_TAGS = new Set(["NAV", "HEADER", "FOOTER", "ASIDE", "SCRIPT", "STYLE"]);
+
+  function insideSkippedAncestor(el) {
+    for (let node = el; node; node = node.parentElement) {
+      if (SKIP_TAGS.has(node.tagName)) return true;
+    }
+    return false;
+  }
+
+  function paragraphCandidates() {
+    const found = [];
+    for (const p of document.querySelectorAll("p")) {
+      const text = (p.textContent || "").trim();
+      if (text.length < MIN_PARAGRAPH_CHARS) continue;
+      if (!isVisible(p)) continue;
+      if (insideSkippedAncestor(p)) continue;
+      found.push(p);
+    }
+    return found;
+  }
+
+  // "Largest contiguous block of paragraph text": group paragraphs by
+  // their immediate parent element, and take the group with the most
+  // total text. A real article/chapter body is almost always many <p>
+  // siblings under one container; nav/sidebar/ad text, if it has
+  // paragraphs at all, is short and scattered across different
+  // containers. A simple heuristic on purpose, not a full readability
+  // implementation.
+  function mainContentBlock() {
+    const paragraphs = paragraphCandidates();
+    if (!paragraphs.length) return "";
+    const groups = new Map();
+    for (const p of paragraphs) {
+      const parent = p.parentElement;
+      if (!groups.has(parent)) groups.set(parent, []);
+      groups.get(parent).push(p);
+    }
+    let best = null;
+    let bestLength = 0;
+    for (const group of groups.values()) {
+      const length = group.reduce((sum, p) => sum + p.textContent.trim().length, 0);
+      if (length > bestLength) {
+        bestLength = length;
+        best = group;
+      }
+    }
+    if (!best) return "";
+    best.sort((a, b) =>
+      a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+    return best.map((p) => p.textContent.trim()).join("\n\n");
+  }
+
+  function selectedText() {
+    const selection = window.getSelection();
+    return selection ? selection.toString().trim() : "";
+  }
+
+  // Selection wins when there is one -- it's an explicit "translate
+  // this" from the person -- and the heuristic block is the fallback for
+  // "translate this page" with nothing selected.
+  function collectPageText() {
+    const selected = selectedText();
+    const raw = selected || mainContentBlock();
+    if (!raw) return { text: "", fromSelection: false, truncated: false };
+    const truncated = raw.length > MAX_TEXT_CHARS;
+    return {
+      text: truncated ? raw.slice(0, MAX_TEXT_CHARS) : raw,
+      fromSelection: !!selected,
+      truncated,
+    };
+  }
+
+  // -- text panel --------------------------------------------------------
+
+  function ensureTextPanel() {
+    ensureStyles();
+    let panel = document.getElementById("baihe-text-panel");
+    if (panel) return panel;
+    panel = document.createElement("div");
+    panel.id = "baihe-text-panel";
+    const header = document.createElement("div");
+    header.className = "baihe-text-panel-header";
+    const title = document.createElement("span");
+    title.textContent = "Baihe Subtitler — translation";
+    const buttons = document.createElement("div");
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.textContent = "Show original";
+    toggleBtn.addEventListener("click", () => {
+      const showingOriginal = panel.classList.toggle("baihe-showing-original");
+      toggleBtn.textContent = showingOriginal ? "Show translation" : "Show original";
+      updateTextPanelBody(panel);
+    });
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "✕";
+    closeBtn.addEventListener("click", () => panel.remove());
+    buttons.append(toggleBtn, closeBtn);
+    header.append(title, buttons);
+    const body = document.createElement("div");
+    body.className = "baihe-text-panel-body";
+    panel.append(header, body);
+    document.documentElement.appendChild(panel);
+    return panel;
+  }
+
+  function updateTextPanelBody(panel) {
+    const body = panel.querySelector(".baihe-text-panel-body");
+    const showingOriginal = panel.classList.contains("baihe-showing-original");
+    body.textContent = (showingOriginal ? panel.dataset.original : panel.dataset.translated) || "";
+  }
+
+  function showTextPanel({ sourceText, translatedText }) {
+    const panel = ensureTextPanel();
+    panel.dataset.original = sourceText || "";
+    panel.dataset.translated = translatedText || sourceText || "";
+    panel.classList.remove("baihe-showing-original");
+    const toggleBtn = panel.querySelector(".baihe-text-panel-header button");
+    if (toggleBtn) toggleBtn.textContent = "Show original";
+    updateTextPanelBody(panel);
+  }
+
+  // A page-length block of prose doesn't fit the popup's own 300px width,
+  // and a Chrome popup closes as soon as it loses focus -- so unlike the
+  // image mode's per-bubble overlay (which has to sit exactly on the
+  // page anyway), the natural place for a paragraph-shaped result is a
+  // panel injected into the page itself, not the popup.
+  async function translatePageText({ sourceLanguage, targetLanguage, store }) {
+    const captured = collectPageText();
+    if (!captured.text) {
+      return {
+        ok: false,
+        error: "No selectable text found here. Try selecting a passage first, or scroll to " +
+              "the part of the page you want translated.",
+      };
+    }
+    const response = await chrome.runtime.sendMessage({
+      type: "sendText",
+      text: captured.text,
+      sourceLanguage,
+      targetLanguage,
+      store,
+    });
+    if (!response || !response.ok) {
+      return response || { ok: false, error: "No answer from the extension's background worker." };
+    }
+    showTextPanel({
+      sourceText: response.data.source_text,
+      translatedText: response.data.translated_text,
+    });
+    const warning = (response.data.notes || []).find((n) => n[0] === "warning");
+    if (warning) toast(warning[1]);
+    return {
+      ok: true,
+      data: { ...response.data, fromSelection: captured.fromSelection,
+              truncated: captured.truncated },
+    };
+  }
+
   // -- the main action -------------------------------------------------
 
   async function translateVisible({ dramaId, store, all }) {
@@ -385,6 +569,9 @@
           case "translateVisible":
             respond(await translateVisible(message));
             break;
+          case "translatePageText":
+            respond(await translatePageText(message));
+            break;
           case "toggleOverlays":
             respond({ ok: true, data: { visible: setOverlaysVisible(!state.overlaysVisible) } });
             break;
@@ -415,5 +602,6 @@
   });
 
   // Exposed for the popup's injected checks and for tests.
-  window.__baihe = { translateVisible, setOverlaysVisible, candidateElements, state, toast };
+  window.__baihe = { translateVisible, setOverlaysVisible, candidateElements, state, toast,
+                     translatePageText, collectPageText, mainContentBlock };
 })();

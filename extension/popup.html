@@ -42,6 +42,21 @@
   <button id="translateAll">Translate everything visible</button>
   <button id="toggle">Show / hide translations</button>
 
+  <hr>
+
+  <label for="textDirection">Translate page text</label>
+  <select id="textDirection">
+    <option value="zh:en">Chinese → English</option>
+    <option value="ja:en">Japanese → English</option>
+    <option value="ko:en">Korean → English</option>
+    <option value="en:zh">English → Chinese</option>
+    <option value="en:ja">English → Japanese</option>
+    <option value="en:ko">English → Korean</option>
+  </select>
+  <button id="translateText">Translate this page's text</button>
+  <p class="muted">Uses the text you've selected, or the page's main text block if nothing
+    is selected. Shown in a panel on the page, and saved to Standalone translate's history.</p>
+
   <p class="muted">No token yet? Open <a href="#" id="options">options</a> and paste the
     one from Baihe's Settings → Browser extension.</p>
 
