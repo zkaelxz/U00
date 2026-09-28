@@ -12,7 +12,7 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -363,3 +363,66 @@ class TranscribeRunRequest(BaseModel):
 
 class TranscribeRunResult(BaseModel):
     job_id: str
+
+
+class DubTtsEngine(BaseModel):
+    """One selectable TTS engine for the Dub stage (Migration Slice 25)."""
+    key: str
+    label: str
+    requires_internet: bool
+
+
+class DubSpeaker(BaseModel):
+    """One speaker's resolved voices and engine, as the Generate button
+    would resolve them. D2: no reference-audio path, only a boolean."""
+    speaker_label: str
+    character_name: Optional[str] = None
+    edge_voice: Optional[str] = None
+    offline_voice: Optional[str] = None
+    engine: str
+    has_clone_ref: bool
+
+
+class DubDefaults(BaseModel):
+    """Pacing-limit defaults and slider ranges; null for narration."""
+    max_speedup: float
+    max_slowdown: float
+    speedup_range: List[float]
+    slowdown_range: List[float]
+
+
+class DubConfig(BaseModel):
+    """Read-only Dub-stage summary for one drama (Migration Slice 25).
+    D2: no filesystem path, no GPT-SoVITS URL or secret -- only the
+    `gpt_sovits_configured` boolean."""
+    drama_id: int
+    content_mode: Optional[str] = None
+    is_narration: bool
+    narration_language: str
+    narration_language_options: List[str]
+    source_language: str
+    tts_engines: List[DubTtsEngine]
+    defaults: Optional[DubDefaults] = None
+    speakers: List[DubSpeaker]
+    gpu_required: bool
+    speakable_line_count: int
+    track_available: bool
+    gpt_sovits_configured: bool
+
+
+class DubPacingLine(BaseModel):
+    """One line's fit against its original timing window. status is
+    "fit", "stretched" or "overflow"."""
+    idx: int
+    status: str
+    factor: float
+    clip_ms: Optional[int] = None
+    window_ms: Optional[int] = None
+
+
+class DubPacing(BaseModel):
+    """Per-line pacing from the last dub run; `available` is False when
+    there is nothing to show (never dubbed, or narration). D2: no paths."""
+    available: bool
+    counts: Dict[str, int]
+    lines: List[DubPacingLine]
