@@ -363,6 +363,40 @@ class TestSettingsEndpoint:
         assert client.delete("/api/settings").status_code == 405
 
 
+class TestTranslateEndpoints:
+    """Migration Slice 11: read-only Translate-standalone endpoints --
+    engine metadata and history. No translate action, no history-clear
+    endpoint; see api/routers/translate_routes.py's own docstring for why."""
+
+    def test_engines_contract_shape(self, client, isolated_db):
+        body = client.get("/api/translate/engines").json()
+        names = {e["name"] for e in body["items"]}
+        assert "claude" in names
+        assert "test_offline" in names
+        for e in body["items"]:
+            assert isinstance(e["free"], bool)
+            assert isinstance(e["key_configured"], bool)
+
+    def test_engines_never_leak_a_key_value(self, client, isolated_db, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-not-leak")
+        resp = client.get("/api/translate/engines")
+        assert "sk-should-not-leak" not in resp.text
+
+    def test_empty_history(self, client, isolated_db):
+        body = client.get("/api/translate/history").json()
+        assert body == {"items": []}
+
+    def test_history_reflects_saved_translations(self, client, isolated_db):
+        isolated_db.save_translate_history("zh", "en", "test_offline", "你好", "[TEST] Hello")
+        body = client.get("/api/translate/history").json()
+        assert len(body["items"]) == 1
+        assert body["items"][0]["source_text"] == "你好"
+
+    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
+        assert client.post("/api/translate/engines").status_code == 405
+        assert client.delete("/api/translate/history").status_code == 405
+
+
 class TestExportReadinessEndpoint:
     """Migration Slice 12: a drama's read-only export-readiness summary.
     Never flags a line, never generates a file; see
