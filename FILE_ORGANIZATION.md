@@ -202,14 +202,14 @@ baihe-subtitler/
 │   │                             novel text stay out of scope, folded into a future
 │   │                             transcribe-and-align action slice instead
 │   ├── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
-│   │                                 (Whisper tuning knobs, newly persisted per drama) plus
-│   │                                 start_transcribe_run: a background job that does the WHOLE
-│   │                                 pipeline (ASR, alignment, DB write, optional diarization chain-
-│   │                                 start), unlike Streamlit's render-loop apply step. Slice 21 adds
-│   │                                 hardsub_ocr transcript_mode (burned-in video captions, via
-│   │                                 hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
-│   │                                 step, same as Whisper's own text). chunk_and_tag and qwen3
-│   │                                 backends still stay out of scope
+│   │                             (Whisper tuning knobs, newly persisted per drama) plus
+│   │                             start_transcribe_run: a background job that does the WHOLE
+│   │                             pipeline (ASR, alignment, DB write, optional diarization chain-
+│   │                             start), unlike Streamlit's render-loop apply step. Slice 21 adds
+│   │                             hardsub_ocr transcript_mode (burned-in video captions, via
+│   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
+│   │                             step, same as Whisper's own text). chunk_and_tag and qwen3
+│   │                             backends still stay out of scope
 │   └── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │                                 engines, per-speaker voices, pacing of the last run; no paths)
 │
