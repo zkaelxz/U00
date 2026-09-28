@@ -848,6 +848,20 @@ def init_db():
                               # model/backend picks) had to be re-selected every time.
                               ("transcript_mode", "TEXT"), ("whisper_size", "TEXT"),
                               ("alignment_method", "TEXT"), ("asr_backend_choice", "TEXT"),
+                              # Migration Slice 20: the remaining Whisper-tuning knobs that
+                              # transcript_mode/whisper_size/alignment_method/asr_backend_choice
+                              # (above) didn't already cover -- these previously lived only in
+                              # Streamlit session_state (min_silence_ms) or as bare widget
+                              # defaults with no persistence at all, so a stateless API client
+                              # had nowhere to read a real per-drama default from.
+                              ("min_silence_ms", "INTEGER DEFAULT 300"),
+                              ("vad_threshold", "REAL DEFAULT 0.5"),
+                              ("beam_size", "INTEGER DEFAULT 5"),
+                              ("separate_vocals_first", "INTEGER DEFAULT 0"),
+                              ("separation_backend", "TEXT DEFAULT 'auto'"),
+                              ("realign_long_segments", "INTEGER DEFAULT 0"),
+                              ("whisper_fast_mode", "INTEGER DEFAULT 0"),
+                              ("use_groq", "INTEGER DEFAULT 0"),
                               # Step 12e: freeform, multi-line instructions that DO reach
                               # the translation prompt (translate_engines.build_llm_instructions)
                               # -- unlike personal_notes above, which is private and never

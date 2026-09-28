@@ -196,11 +196,17 @@ baihe-subtitler/
 │   │                             hf_token_configured bool, expected_speakers, audio_available)
 │   │                             plus start_diarization_run (a real GPU-touching background job);
 │   │                             status polling reuses the existing jobs API, not duplicated here
-│   └── source_service.py         Migration Slice 19 -- get_source_config/update_source_config
-│                                 (language/script/content mode/transcript mode; read-only audio/
-│                                 video/transcript-source presence); audio upload and transcript/
-│                                 novel text stay out of scope, folded into a future
-│                                 transcribe-and-align action slice instead
+│   ├── source_service.py         Migration Slice 19 -- get_source_config/update_source_config
+│   │                             (language/script/content mode/transcript mode; read-only audio/
+│   │                             video/transcript-source presence); audio upload and transcript/
+│   │                             novel text stay out of scope, folded into a future
+│   │                             transcribe-and-align action slice instead
+│   └── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
+│                                 (Whisper tuning knobs, newly persisted per drama) plus
+│                                 start_transcribe_run: a background job that does the WHOLE
+│                                 pipeline (ASR, alignment, DB write, optional diarization chain-
+│                                 start), unlike Streamlit's render-loop apply step; hardsub_ocr,
+│                                 chunk_and_tag, qwen3 backends and audio upload stay out of scope
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -227,7 +233,9 @@ baihe-subtitler/
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
-│       └── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
+│       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
+│       └── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
+│                                 (Migration Slice 20)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

@@ -642,13 +642,57 @@ validation the Streamlit UI never needed, since the radio option simply
 wasn't rendered; the API has to enforce explicitly what the UI enforced
 by omission.
 
-**Next candidates:** the transcribe-and-align action slice itself (now
-unblocked by this one -- needs its own design decision on how upload +
-job-start compose into one request, and how "job succeeded" becomes
-"result applied to the drama's lines" over a stateless API, per the
-first Transcript scoping pass's own open questions), or continue with
-ASS export/audiobook/burned-in-video export (Export's remaining scope)
-or Dub (§3.2's build order) in the meantime.
+**Slice 20 — Transcript-stage action, job-does-everything
+(2026-09-28).** A third `migration-architect` pass scoped the
+transcribe-and-align action (its real trigger, `run_prep`, lives in
+`tab_translate`, not `tab_transcript`) and found that today's "apply the
+finished job's result to lines" step runs as a side effect of Streamlit's
+own render loop, densely interleaved with UI calls -- no clean way to
+expose that over a stateless API, and diarization's Slice 16 had already
+punted on an easier version of the same problem. **User decisions
+(2026-09-28):** (1) the background job itself does the whole pipeline
+(ASR, alignment, DB write, optional diarization chain-start) and reports
+one "done" outcome, rather than a separate "apply" call; (2) persist the
+remaining Whisper-tuning knobs now; (3) fix Slice 16's silent-duplicate-
+start gap in this same PR.
+
+New `services/transcribe_service.py`: `get_transcribe_config` /
+`update_transcribe_config` (new per-drama columns `min_silence_ms`,
+`vad_threshold`, `beam_size`, `separate_vocals_first`, `separation_
+backend`, `realign_long_segments`, `whisper_fast_mode`, `use_groq` --
+`transcript_mode`, `whisper_size`, `alignment_method`, `asr_backend_
+choice` were **already** persisted; the scoping pass had wrongly said
+none were, corrected here by re-reading `db.py`/`workspace_tab.py`
+directly) and `start_transcribe_run`, whose job body
+(`_run_transcribe_and_apply_job`) reuses `transcribe_for_timing` and the
+same empty-result-never-wipes-existing-lines safety rule as Step 25 item
+2. New `ConflictError` (409 `conflict`) in `service_errors.py` -- none of
+the four existing classes fit "valid request, but a job is already
+running" -- and **fixes a real pre-existing bug in Slice 16's**
+`start_diarization_run`, which never checked `start_process_job`'s
+return value and silently reported success on a duplicate start.
+
+**Deliberately out of scope, by design:** `hardsub_ocr` transcript_mode
+(raises `UnsupportedOperationError`), the synchronous `chunk_and_tag`
+novel-narration path (needs its own benchmark pass before deciding a
+synchronous API call fits), the experimental `qwen3_asr` /
+`qwen3_forced_align` backends, audio upload (unchanged from Slice 19),
+auto-tune (a separate Source-tab feature), and `use_gpu` (a bare
+`st.session_state` toggle with no server-side source of truth --
+hardcoded `False` in the job body, documented in its docstring), and
+Streamlit's automatic `initial_prompt` derivation from the series glossary
+and raw-novel excerpt (the API takes an optional client-supplied
+`initial_prompt` instead). An independent code review of this slice found
+and fixed: persisted `source_language`/`chinese_script` being ignored
+(now default to the drama's own stored values, validated), diarization
+chained on the vocals-only file instead of the original audio, no
+`has_audio_pipeline` check (novel_narration dramas are now rejected), and
+`use_groq` with no key failing late instead of at start.
+
+**Next candidates:** the `hardsub_ocr` half of the Transcript action, the
+`chunk_and_tag` novel-narration path (both need their own scoping), or
+continue with ASS export/audiobook/burned-in-video export (Export's
+remaining scope) or Dub (§3.2's build order).
 
 ---
 

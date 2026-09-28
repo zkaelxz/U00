@@ -15,7 +15,7 @@ import pytest
 import background_jobs
 import diarize
 from services import diarization_service, settings_service
-from services.service_errors import (DependencyUnavailableError, NotFoundError,
+from services.service_errors import (ConflictError, DependencyUnavailableError, NotFoundError,
                                       UnsupportedOperationError)
 
 
@@ -147,3 +147,14 @@ class TestStartDiarizationRun:
 
         diarization_service.start_diarization_run(did)
         assert calls[0][2] is None
+
+    def test_already_running_job_raises_conflict(self, isolated_db, monkeypatch):
+        # Migration Slice 20 fix: start_process_job returning False (a job
+        # with this id is already running/queued) used to be silently
+        # ignored, reporting a fake success -- now it's a real ConflictError.
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda *a, **k: False)
+        with pytest.raises(ConflictError):
+            diarization_service.start_diarization_run(did)
