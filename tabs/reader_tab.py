@@ -285,7 +285,7 @@ def render_reader_tab():
                 eng = translate_engines.get_engine("claude", story_key)
                 with st.spinner("Mapping the cast..."):
                     st.session_state[f"relmap_{rdrama['id']}"] = story_context.build_relationship_map(
-                        scoped_lines, rdrama, eng)
+                        scoped_lines, eng)
             relmap = st.session_state.get(f"relmap_{rdrama['id']}")
             if relmap and relmap.get("characters"):
                 for c in relmap["characters"]:
