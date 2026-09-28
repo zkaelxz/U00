@@ -16,7 +16,9 @@ pattern for the burned-in-caption OCR path.
 """
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
 import time
 
@@ -40,6 +42,25 @@ from core import Line
 
 def _clear(job_id):
     background_jobs.clear_job(job_id)
+
+
+def _isolate_library_for_setup_method():
+    """Migration Slice 9: background_jobs.set_gpu_limit_enabled() now
+    persists to db.app_settings for real, so any setup_method calling it
+    needs a real, valid LIBRARY_DIR of its own -- setup_method runs
+    outside pytest's own fixture resolution, so isolated_db can't be
+    requested there the normal way. Same isolate/restore logic as
+    conftest.py's isolated_db fixture, inlined for setup_method use."""
+    previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+    temp_dir = tempfile.mkdtemp(prefix="baihe_test_wt_")
+    db.configure_library_dir(temp_dir)
+    db.init_db()
+    return previous, temp_dir
+
+
+def _restore_library_for_teardown_method(previous, temp_dir):
+    db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def test_success_stores_segments_and_no_gpu_fallback(monkeypatch):
@@ -4917,11 +4938,13 @@ class TestTranscribeQueuesBehindAnotherGpuJob:
     another GPU-touching job is already running should queue, not start."""
 
     def setup_method(self):
+        self._library_state = _isolate_library_for_setup_method()
         background_jobs.set_gpu_limit_enabled(True)
 
     def teardown_method(self):
         background_jobs.set_gpu_limit_enabled(True)
         background_jobs.clear_job("gpu_busy_elsewhere")
+        _restore_library_for_teardown_method(*self._library_state)
 
     def _drama_with_audio_and_transcript(self, isolated_db, tmp_path):
         did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
@@ -4982,11 +5005,13 @@ class TestQueuedJobPanelVisibleAndCancellable:
     it."""
 
     def setup_method(self):
+        self._library_state = _isolate_library_for_setup_method()
         background_jobs.set_gpu_limit_enabled(True)
 
     def teardown_method(self):
         background_jobs.set_gpu_limit_enabled(True)
         background_jobs.clear_job("gpu_busy_elsewhere_q2")
+        _restore_library_for_teardown_method(*self._library_state)
 
     def _drama_with_audio_and_transcript(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",

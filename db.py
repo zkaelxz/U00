@@ -743,6 +743,22 @@ def init_db():
             updated_at REAL NOT NULL
         );
 
+        -- Migration Slice 9 (D1 fix 2): a general-purpose, cross-process
+        -- app-settings store -- not sources/store.py's settings table,
+        -- which is deliberately scoped to the source-adapter system's own
+        -- domain (its own docstring: "a separate domain from the drama/
+        -- line data"). This table is for the handful of app-wide runtime
+        -- toggles that used to live only as a Python module global (the
+        -- GPU-limit and notify-on-completion toggles in background_jobs.py
+        -- being D1's own two named examples), invisible to a separate
+        -- `python -m api` process and lost on every restart. Same
+        -- JSON-encoded-value/upsert shape as sources/store.py's own
+        -- settings table, for consistency, not shared storage.
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
         CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
@@ -2774,6 +2790,26 @@ def gpu_lock_status():
     if not row or (time.time() - row["heartbeat_at"]) >= GPU_LOCK_STALE_SECONDS:
         return None, None
     return row["holder"], row["description"]
+
+
+def get_app_setting(key: str, default=None):
+    """A general-purpose, cross-process app setting (Migration Slice 9,
+    D1 fix 2) -- distinct from sources/store.py's own settings table,
+    which is scoped to the source-adapter system only."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return default
+    return json.loads(row["value"])
+
+
+def set_app_setting(key: str, value):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("""
+            INSERT INTO app_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """, (key, json.dumps(value)))
+        conn.commit()
 
 
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,

@@ -8,7 +8,9 @@ of switching to another tab and coming back later.
 """
 import sys
 import os
+import shutil
 import sqlite3
+import tempfile
 import threading
 import time
 
@@ -16,7 +18,27 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import background_jobs as bg
+import db
 import diagnostics
+
+
+def _isolate_library():
+    """Migration Slice 9: several settings (GPU-limit, notify-on-completion)
+    now persist to db.app_settings for real, so any setup_method/
+    teardown_method exercising them needs a real, valid LIBRARY_DIR --
+    setup_method runs outside pytest's own fixture resolution, so
+    isolated_db can't be requested the normal way here. Same
+    isolate/restore logic as conftest.py's isolated_db fixture, inlined."""
+    previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
+    temp_dir = tempfile.mkdtemp(prefix="baihe_test_bg_")
+    db.configure_library_dir(temp_dir)
+    db.init_db()
+    return previous, temp_dir
+
+
+def _restore_library(previous, temp_dir):
+    db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def _wait(job_id, timeout=2.0):
@@ -353,7 +375,7 @@ class TestAnyJobRunningForDrama:
             _wait("transcribe_702")
             bg.clear_job("transcribe_702")
 
-    def test_true_while_queued_not_just_running(self):
+    def test_true_while_queued_not_just_running(self, isolated_db):
         bg.set_gpu_limit_enabled(True)
         release = threading.Event()
         bg.start_job("gpu_busy_703", release.wait, gpu_touching=True)
@@ -430,10 +452,12 @@ class TestGpuJobGuard:
     are unaffected either way."""
 
     def setup_method(self):
+        self._library_state = _isolate_library()
         bg.set_gpu_limit_enabled(True)
 
     def teardown_method(self):
         bg.set_gpu_limit_enabled(True)  # never leak into other tests
+        _restore_library(*self._library_state)
 
     def test_a_second_gpu_job_queues_instead_of_starting(self):
         release = threading.Event()
@@ -547,10 +571,12 @@ class TestExternalGpuLoadGuard:
     Baihe jobs."""
 
     def setup_method(self):
+        self._library_state = _isolate_library()
         bg.set_gpu_limit_enabled(True)
 
     def teardown_method(self):
         bg.set_gpu_limit_enabled(True)  # never leak into other tests
+        _restore_library(*self._library_state)
 
     def test_queues_when_gpu_is_externally_busy_even_with_no_baihe_job_running(self, monkeypatch):
         monkeypatch.setattr(diagnostics, "external_gpu_is_busy", lambda: True)
@@ -971,8 +997,12 @@ class TestNotifyOnCompletion:
     background job finishes, gated behind set_notify_on_completion()
     (synced from the Settings toggle, off by default)."""
 
+    def setup_method(self):
+        self._library_state = _isolate_library()
+
     def teardown_method(self):
         bg.set_notify_on_completion(False)
+        _restore_library(*self._library_state)
 
     def test_off_by_default_no_notification_attempted(self, monkeypatch):
         import sys
@@ -1160,3 +1190,45 @@ class TestJobRecordsMirror:
         _wait("mirror_db_down_job")
         assert bg.get_status("mirror_db_down_job")["status"] == "done"
         bg.clear_job("mirror_db_down_job")
+
+
+class TestGpuLimitAndNotifySettingsPersist:
+    """Migration Slice 9 (D1 fix 2): these two used to be bare module
+    globals, reset to a hardcoded default every restart and invisible to
+    a separate process. Now backed by db.app_settings."""
+
+    def setup_method(self):
+        self._library_state = _isolate_library()
+
+    def teardown_method(self):
+        bg.set_gpu_limit_enabled(True)
+        bg.set_notify_on_completion(False)
+        _restore_library(*self._library_state)
+
+    def test_gpu_limit_round_trips_through_the_db(self, isolated_db):
+        bg.set_gpu_limit_enabled(False)
+        assert bg.get_gpu_limit_enabled() is False
+        assert db.get_app_setting("gpu_limit_enabled") is False
+
+    def test_notify_on_completion_round_trips_through_the_db(self, isolated_db):
+        bg.set_notify_on_completion(True)
+        assert bg.get_notify_on_completion() is True
+        assert db.get_app_setting("notify_on_completion") is True
+
+    def test_gpu_limit_defaults_true_when_never_set(self, isolated_db):
+        assert bg.get_gpu_limit_enabled() is True
+
+    def test_notify_defaults_false_when_never_set(self, isolated_db):
+        assert bg.get_notify_on_completion() is False
+
+    def test_gpu_limit_read_fails_open_on_a_db_error(self, isolated_db, monkeypatch):
+        def boom(*a, **k):
+            raise sqlite3.OperationalError("simulated failure")
+        monkeypatch.setattr(db, "get_app_setting", boom)
+        assert bg.get_gpu_limit_enabled() is True  # fails open -- the safer default
+
+    def test_notify_read_fails_closed_on_a_db_error(self, isolated_db, monkeypatch):
+        def boom(*a, **k):
+            raise sqlite3.OperationalError("simulated failure")
+        monkeypatch.setattr(db, "get_app_setting", boom)
+        assert bg.get_notify_on_completion() is False  # fails closed -- no notification
