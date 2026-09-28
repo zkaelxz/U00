@@ -4,28 +4,33 @@ by the FastAPI /api/export routes and the Streamlit Export tab
 (`tabs/workspace_tab.py`'s `with tab_export:` block, lines ~5655-5900).
 
 Migration Slice 12 (read-only readiness summary), Slice 14 (subtitle text
-generation, pure/no writes), and Slice 15 (the three flagging actions)
-are all here. Every flagging function writes ONLY the flag/flag_note
-fields (`db.save_lines(..., fields=("flag", "flag_note"))`) -- a
-field-scoped write that can't clobber a concurrent edit to a line's text/
-timing/speaker, the same discipline every other background-job write in
-this app follows (see root CLAUDE.md's "A background job must not
-silently overwrite another job's work"). What's still deliberately out
-of scope, each its own separate slice: ASS export (needs the interactive
-per-drama style state `_subtitle_style_fragment` builds in Streamlit, no
-API contract for it yet) and EPUB/audiobook/burned-in-video export (each
-its own subprocess/library dependency).
+generation, pure/no writes), Slice 15 (the three flagging actions), and
+Slice 18 (EPUB export, novel-narration dramas only) are all here. Every
+flagging function writes ONLY the flag/flag_note fields
+(`db.save_lines(..., fields=("flag", "flag_note"))`) -- a field-scoped
+write that can't clobber a concurrent edit to a line's text/timing/
+speaker, the same discipline every other background-job write in this
+app follows (see root CLAUDE.md's "A background job must not silently
+overwrite another job's work"). What's still deliberately out of scope,
+each its own separate slice: ASS export (needs the interactive per-drama
+style state `_subtitle_style_fragment` builds in Streamlit, no API
+contract for it yet) and audiobook/burned-in-video export (each its own
+subprocess dependency, ffmpeg in particular).
 
-No Streamlit or FastAPI import: plain functions, plain dicts in, plain
-values out, so a CLI or another service could call them too.
+No Streamlit or FastAPI import: plain functions, plain dicts/bytes in and
+out, so a CLI or another service could call them too.
 """
+import os
 from typing import Optional
 
 import auto_qc
 import core as core_module
 import db
 import subtitle_formats
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+                                      NotFoundError, UnsupportedOperationError)
+
+_EPUB_FIELDS = ("en", "zh")
 
 _SUBTITLE_FORMATS = ("srt", "vtt")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
@@ -193,3 +198,45 @@ def run_auto_qc_flagging(drama_id: int) -> dict:
     if result["flagged"] or result["cleared"]:
         db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
     return result
+
+
+def generate_epub(drama_id: int, field: str = "en") -> bytes:
+    """Exports one novel-narration drama's lines as an .epub -- the same
+    action as the Export tab's own "Generate EPUB" button
+    (`epub_io.export_epub`). Read-only from the caller's point of view
+    (returns bytes to serve as a download); internally it does write the
+    .epub to the drama's own directory as `translated.epub`, same as the
+    Streamlit tab already does, so a resolved [[IMG:...]] placeholder's
+    `epub_images` cache stays in the usual place.
+
+    field: "en" for the translation, "zh" for the raw source text.
+
+    Raises NotFoundError for an unknown drama id, UnsupportedOperationError
+    if the drama isn't in novel-narration mode (this only makes sense for
+    novel content, not audio/video dramas), InvalidInputError for an
+    unknown field, and DependencyUnavailableError if `ebooklib` isn't
+    installed (`pip install ebooklib`)."""
+    if field not in _EPUB_FIELDS:
+        raise InvalidInputError(f"Unknown EPUB field {field!r}.")
+
+    drama, lines = _load_drama_and_lines(drama_id)
+    if drama.get("content_mode") != "novel_narration":
+        raise UnsupportedOperationError(
+            f"Drama {drama_id} isn't in novel-narration mode -- EPUB export only "
+            "applies to novel content.")
+
+    try:
+        import epub_io
+    except ImportError as exc:
+        raise DependencyUnavailableError(
+            "The `ebooklib` package isn't installed. Run `pip install ebooklib` "
+            "to enable EPUB export.") from exc
+
+    ddir = db.drama_dir(drama_id)
+    out_path = os.path.join(ddir, "translated.epub")
+    title = drama.get("title_en") or drama.get("title_zh") or "Untitled"
+    epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
+                        images_dir=os.path.join(ddir, "epub_images"))
+
+    with open(out_path, "rb") as f:
+        return f.read()

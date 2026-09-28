@@ -13,7 +13,8 @@ import pytest
 
 from core import Line, lines_from_rows
 from services import export_service
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+                                      NotFoundError, UnsupportedOperationError)
 
 
 def _drama(db, **fields):
@@ -251,3 +252,70 @@ class TestRunAutoQcFlagging:
     def test_unknown_drama_raises_not_found(self, isolated_db):
         with pytest.raises(NotFoundError):
             export_service.run_auto_qc_flagging(999999)
+
+
+class TestGenerateEpub:
+    def _novel_drama_with_lines(self, isolated_db, **fields):
+        fields.setdefault("content_mode", "novel_narration")
+        did = _drama(isolated_db, **fields)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="你好世界", en="Hello world"),
+        ])
+        return did
+
+    def test_unknown_drama_raises_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            export_service.generate_epub(999999)
+
+    def test_non_novel_drama_raises_unsupported_operation(self, isolated_db):
+        did = self._novel_drama_with_lines(isolated_db, content_mode="audio_drama")
+        with pytest.raises(UnsupportedOperationError):
+            export_service.generate_epub(did)
+
+    def test_unknown_field_is_invalid_input(self, isolated_db):
+        did = self._novel_drama_with_lines(isolated_db)
+        with pytest.raises(InvalidInputError):
+            export_service.generate_epub(did, field="bilingual")
+
+    def test_missing_ebooklib_raises_dependency_unavailable(self, isolated_db, monkeypatch):
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "epub_io":
+                raise ImportError("simulated missing ebooklib")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        did = self._novel_drama_with_lines(isolated_db)
+        with pytest.raises(DependencyUnavailableError):
+            export_service.generate_epub(did)
+
+
+class TestGenerateEpubWithEbooklib:
+    """Only runs if ebooklib is actually installed -- see epub_io.py's
+    own note that it's an optional extra."""
+
+    @pytest.fixture(autouse=True)
+    def _require_ebooklib(self):
+        pytest.importorskip("ebooklib")
+
+    def _novel_drama_with_lines(self, isolated_db, **fields):
+        fields.setdefault("content_mode", "novel_narration")
+        did = _drama(isolated_db, **fields)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=2.0, zh="你好世界", en="Hello world"),
+        ])
+        return did
+
+    def test_generates_real_epub_bytes(self, isolated_db):
+        did = self._novel_drama_with_lines(isolated_db, title_en="My Novel")
+        data = export_service.generate_epub(did)
+        assert isinstance(data, bytes)
+        assert data[:2] == b"PK"  # EPUB is a zip container
+
+    def test_zh_field_selects_source_text(self, isolated_db):
+        did = self._novel_drama_with_lines(isolated_db)
+        data = export_service.generate_epub(did, field="zh")
+        assert isinstance(data, bytes)
+        assert len(data) > 0

@@ -564,10 +564,56 @@ explicit-opt-in gate translating `tabs/translate_tab.py`'s own
 checkbox-then-button UI pattern into API terms, rather than a bare
 delete. New `DELETE /api/translate/history?confirm=true`.
 
-**Next candidates:** the next Workspace stage after Diarize per §3.2's
-build order (Transcript), or ASS/EPUB/audiobook/video export (Export's
-own remaining scope, named above), whichever a future scoping pass
-picks.
+**Slice 18 — Export's EPUB generation (2026-09-28).** `services/
+export_service.py` gains `generate_epub(drama_id, field="en")`, reusing
+`epub_io.export_epub` verbatim -- the same action as the Export tab's own
+"Generate EPUB" button, gated the same way (`drama["content_mode"] ==
+"novel_narration"` -- `UnsupportedOperationError` otherwise). Writes the
+.epub to the drama's own directory (`translated.epub`, same path the
+Streamlit tab already uses, so a resolved `[[IMG:...]]` placeholder's
+`epub_images` cache stays put) then reads it back as bytes to return --
+read-only from the caller's point of view even though it does touch disk
+internally. New `GET /api/export/dramas/{id}/epub` (binary download,
+`application/epub+zip`). Missing the optional `ebooklib` dependency maps
+to `DependencyUnavailableError` (503), same tier as any other
+optional-package gap. Audiobook and burned-in-video export remain out of
+scope -- both need a real `ffmpeg` subprocess, a different risk class
+than a pure-Python library call.
+
+**Transcript stage scoping pass (2026-09-28) -- found a real ordering
+conflict, not yet resolved.** A `migration-architect` pass to scope
+Transcript per §3.2's build order (Export → Diarize → **Transcript** →
+Dub → Pick/create → Source → Translate → Review) found that the
+"Transcript" *tab*'s own body (`tabs/workspace_tab.py:1960-2410`) holds
+only settings (novel-reference upload, the "Build a glossary from this
+novel" expander -- a real LLM call, Whisper/alignment/ASR-backend
+pickers). **The actual transcription trigger, job start, and result-
+apply logic live inside the `tab_translate` block instead**
+(`workspace_tab.py:2940-3507`, confirmed against `stage_labels` and the
+`st.tabs()` unpacking -- not a line-number drift, a genuine cross-tab
+split), and nearly every input that action consumes (`audio_file`,
+`transcript_mode`, `content_mode`, etc.) is set up in the *Source* tab,
+not Transcript -- a stage this build order hasn't reached yet. So
+"Transcript" can't be cleanly extracted as one self-contained slice the
+way Diarize/Export were, without either (a) pulling a slice of Source
+forward as a prerequisite, or (b) narrowing this round to Transcript's
+config + the novel-glossary builder only (both genuinely buildable now,
+independent of the ordering question) and deferring the actual
+run/apply action to a later slice once Source exists. **This is a
+build-order decision, not a slice-scoping one -- needs the user's/
+planning session's call before building anything under the "Transcript"
+name.** Full detail (proposed services, API contracts, five other
+unresolved design questions -- job-result "apply" as a stateless HTTP
+step, autotune's self-chaining behavior, sync-vs-background-job for
+glossary extraction, a missing "job already running" error class, and
+`min_silence_ms`'s session-only persistence) is in this scoping pass's
+own report, not yet copied into this doc; ask the session that ran it if
+picking this back up.
+
+**Next candidates:** resolve the Transcript ordering question above, or
+continue with ASS export/audiobook/burned-in-video export (Export's
+remaining scope) or Dub (next in §3.2's build order after Transcript, so
+possibly promotable ahead of it) in the meantime.
 
 ---
 
