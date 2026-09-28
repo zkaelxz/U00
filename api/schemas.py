@@ -363,3 +363,78 @@ class TranscribeRunRequest(BaseModel):
 
 class TranscribeRunResult(BaseModel):
     job_id: str
+
+
+
+# --- Glossary, instructions and catalogues (Migration Slice 46) -----------
+
+class GlossaryTerm(BaseModel):
+    id: int
+    term_original: str
+    term_translation: str
+    notes: str = ""
+    category: Optional[str] = None
+    policy: Optional[str] = None
+    enforce_exact: bool = False
+    aliases: List[str] = Field(default_factory=list)
+    banned_translations: List[str] = Field(default_factory=list)
+
+
+class GlossaryTermUpsert(BaseModel):
+    """With `id` the term is updated in place (omitted fields keep their
+    stored value); without it the term is keyed on term_original.
+    term_original/term_translation are required for a new term (the
+    service enforces that)."""
+    model_config = {"extra": "forbid"}
+
+    id: Optional[int] = None
+    term_original: Optional[str] = None
+    term_translation: Optional[str] = None
+    notes: Optional[str] = None
+    category: Optional[str] = None
+    policy: Optional[str] = None
+    enforce_exact: Optional[bool] = None
+    aliases: Optional[List[str]] = None
+    banned_translations: Optional[List[str]] = None
+
+
+class GlossaryDeleteResult(BaseModel):
+    deleted: bool
+
+
+class GlossaryInstructions(BaseModel):
+    project_instructions: str
+    series_instructions: str
+
+
+class GlossaryInstructionsUpdate(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    text: str
+
+
+class GlossaryCatalogueOption(BaseModel):
+    key: str
+    label: str
+
+
+class GlossaryTermPolicyOption(BaseModel):
+    key: str
+    label: str
+    example: str = ""
+
+
+class GlossaryWorkflowTier(BaseModel):
+    key: str
+    label: str
+    translation_engine: str
+    engine_model: Optional[str] = None
+    reflect: bool
+    auto_qc: bool
+
+
+class GlossaryCatalogues(BaseModel):
+    style_presets: List[GlossaryCatalogueOption]
+    term_categories: List[GlossaryCatalogueOption]
+    term_policies: List[GlossaryTermPolicyOption]
+    workflow_tiers: List[GlossaryWorkflowTier]

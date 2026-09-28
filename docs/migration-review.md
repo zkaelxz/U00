@@ -704,6 +704,16 @@ session-state only" gap Slice 20 closed for the Whisper knobs);
 persisted setting, since Streamlit's own equivalent is a global Settings
 value with no `settings_service`-backed home yet.
 
+**Slice 46 -- Glossary, instructions and catalogues.** `services/glossary_service.py`
+plus `/api/glossary/*`: series glossary term list/upsert/delete, project and series
+instructions, and the read-only option catalogues (style presets, term categories/policies,
+workflow tiers). Terms are series-owned, so every write/delete verifies the term belongs to
+the drama's own series first (`db.update_glossary_term`/`db.delete_glossary_term` take a bare
+id with no series check); a series-less drama reads as empty and refuses term writes and
+series instructions (400). Delete needs `confirm=true`, mirroring the tab's Step 71 confirm
+checkbox. Text, list and instruction lengths are capped. Out of scope: LLM term extraction (a
+paid call, later slice), presets CRUD, characters.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
