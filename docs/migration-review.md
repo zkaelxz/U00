@@ -889,6 +889,17 @@ the check and the fetch; the LLM call's timeout is the engine's own. No
 JS-rendered fetch (Streamlit's fallback) -- paste text instead. Not verified
 against a real LLM or site (tests mock everything).
 
+**Slice 38 -- Novel attach + chapter OCR (2026-09-28).** `services/novel_attach_service.py` +
+`api/routers/novel_routes.py`: `POST /api/novel/dramas/{id}/attach-text` (JSON, 2M-char cap),
+`POST .../attach-epub` (multipart; stdlib zip/HTML only, entry-count and uncompressed-size caps, rejects
+traversal/absolute names/symlinks, no entity resolution, only plain text stored, the .epub is not kept),
+`POST .../ocr-chapter` (multipart PNG/JPG images staged under generated names, background job
+`ocrchapter_{id}`, backend per source language, `mode` append|replace) and `GET .../status` (booleans and
+counts only). Text goes to `novel_narration_source.txt`, which Slice 33 reads. 404 unknown drama, 409 job
+running or duplicate OCR, 422 bad input, 503 OCR backend not installed. Deliberate differences: the tab's
+EPUB chapter-range picker and image extraction are not offered; no stored-image OCR (none exist); the
+Settings tesseract path is not applied. Tests use a fake OCR; no real OCR was run.
+
 **Next candidates:** the
 
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with

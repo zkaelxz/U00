@@ -1310,3 +1310,25 @@ class AutofillApply(BaseModel):
     voice_actors: Optional[str] = Field(None, max_length=300)
     summary: Optional[str] = Field(None, max_length=5000)
     source_url: Optional[str] = Field(None, max_length=2000)
+
+
+class NovelAttachTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(max_length=2_000_000)
+    mode: str = Field(default="replace", max_length=10)
+
+
+class NovelAttachResult(BaseModel):
+    char_count: int
+
+
+class NovelOcrResult(BaseModel):
+    job_id: str
+
+
+class NovelStatus(BaseModel):
+    drama_id: int
+    has_novel_text: bool
+    char_count: int
+    chapters: int
+    ocr_running: bool
