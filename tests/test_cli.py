@@ -22,11 +22,13 @@ paths this audit touched.
 import argparse
 import io
 import contextlib
+import sys
 
 import json
 
 import pytest
 import db
+import diagnostics
 import translate_engines
 import dub as dub_module
 from core import Line
@@ -933,3 +935,50 @@ class TestInspectLine:
             cli.cmd_inspect_line(args)
 
         assert "No line #5" in out.getvalue()
+
+
+class TestCmdDoctor:
+    """Step 97: pre-flight an engine's credentials/reachability with a
+    real, minimal translate call, before committing a batch job to it."""
+
+    def test_prints_ok_and_exits_cleanly_on_success(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+                            lambda *a, **k: {"engine": "test_offline", "ok": True, "error": None})
+        args = argparse.Namespace(engine="test_offline", api_key=None, model=None)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            cli.cmd_doctor(args)
+        assert "OK: test_offline is reachable" in out.getvalue()
+
+    def test_prints_the_error_and_exits_nonzero_on_failure(self, monkeypatch):
+        monkeypatch.setattr(diagnostics, "check_engine_reachable",
+                            lambda *a, **k: {"engine": "claude", "ok": False,
+                                            "error": "invalid x-api-key"})
+        args = argparse.Namespace(engine="claude", api_key="bad-key", model=None)
+        out = io.StringIO()
+        with pytest.raises(SystemExit) as exc_info:
+            with contextlib.redirect_stdout(out):
+                cli.cmd_doctor(args)
+        assert exc_info.value.code == 1
+        assert "FAILED: claude -- invalid x-api-key" in out.getvalue()
+
+    def test_real_argv_wires_doctor_to_cmd_doctor_with_the_right_namespace(self, monkeypatch):
+        """Exercises the real parser built in cli.main() -- not a mirrored
+        copy -- so this fails if the subparser's own wiring ever drifts,
+        the same class of bug Step 67's own TestCmdRunArgparseParity was
+        written to catch for `run`."""
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_doctor", lambda args: captured.setdefault("args", args))
+        monkeypatch.setattr(sys, "argv", ["cli.py", "doctor", "--engine", "claude",
+                                          "--api-key", "sk-real", "--model", "claude-sonnet-5"])
+        cli.main()
+        assert captured["args"].engine == "claude"
+        assert captured["args"].api_key == "sk-real"
+        assert captured["args"].model == "claude-sonnet-5"
+
+    def test_ollama_url_is_optional_and_defaults_to_none(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_doctor", lambda args: captured.setdefault("args", args))
+        monkeypatch.setattr(sys, "argv", ["cli.py", "doctor", "--engine", "ollama"])
+        cli.main()
+        assert captured["args"].ollama_url is None
