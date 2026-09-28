@@ -32,7 +32,13 @@ merged.
 
 ## How to work
 
-- **One step, one branch, off the latest `baihe-subtitler`.**
+- **One step, one branch, off the latest `baihe-subtitler` — with one
+  explicit exception: a batch of steps the planning session's handoff
+  names together** (e.g. "Build Steps 50, 51, 52 from the roadmap, in one
+  session"). Only batch when the handoff says to; don't decide on your own
+  to fold an unrequested step into the one you were given. See "Coding-
+  session efficiency" below for what makes steps batchable and how to keep
+  them separately reviewable even when built together.
 - **Check the roadmap's §4 "Working agreement" for which mode you're in.**
   Steps 1e–10 are **autonomous mode** (as of 2026-09-24, at the user's
   request): build, test, open the PR, and **merge it yourself**, then
@@ -375,6 +381,72 @@ test run exited. It then loops forever, silently.
   keeping it current, unlike `OPTIONAL_DEPENDENCIES` above. Add your new
   file to its tree listing, in the right subsystem grouping, as part of
   finishing the step that creates it — not a separate cleanup pass.
+
+## Coding-session efficiency
+
+Added 2026-09-27, from an external review of this project's own governance
+that the user requested and relayed. The goal isn't "use as few messages
+as possible" — a fast session that ships a wrong fix is worse than a
+longer one that gets it right. The goal is spending session time on
+**inspect → implement → test → fix → verify**, not on re-deriving context
+this file, the roadmap, or the repo itself already hand you.
+
+1. **Prefer continuing an existing session over starting a fresh one** when
+   it still has relevant context — e.g. you just finished Step 50 and were
+   handed Step 51 which touches the same file, or you're the project's own
+   long-running implementing session and the planning session resumed you
+   rather than spawning new. A fresh session pays a real "context tax"
+   (read this file, fetch the roadmap, re-orient in the repo) that a
+   continuation skips.
+2. **When the planning session's handoff names a batch of steps together,
+   build them in one session, one at a time, each still its own commit and
+   still checked against its own exit condition** — don't merge their
+   diffs into one undifferentiated change. This is only safe, and only
+   happens, when the planning session has already judged the steps
+   closely related, same-file, compatible in scope, and not needing a
+   human decision between them (see the roadmap's own working agreement
+   for what "needing a decision between them" rules out, e.g. an urgent
+   fix always gets its own session even if it'd technically fit a batch).
+   Don't self-assemble a batch by pulling in a nearby step nobody asked
+   for.
+3. **Start with the smallest sufficient context.** Roadmap step → the
+   files it names → the relevant functions/tests → only search wider if
+   the step's own description turns out to be incomplete or wrong once
+   you're in the code. Don't read an entire large file (`tabs/
+   workspace_tab.py` is 2,800+ lines — see "Where things are" below) or
+   sweep the whole repo when the step names exactly what it touches.
+4. **Don't restate what's already written down.** This file and the
+   roadmap already carry the workflow, the model-recommendation table, the
+   "rules learned from real bugs," and every step's own background — your
+   summary to the planning session should report what you found and did,
+   not re-explain rules you were already given.
+5. **Don't reopen a settled architectural or product decision** (Streamlit
+   now/React only if justified, capability-based routing instead of a
+   giant model router, no automatic model switching, a native Windows
+   installer over Docker as the primary deploy path, etc. — see the
+   roadmap's "Decisions already made" and the planning `CLAUDE.md`'s
+   "Product preferences") **unless the step you're building reveals a
+   concrete, specific conflict with it.** If it does, say so and flag it
+   for the planning session rather than silently working around the
+   decision or silently re-litigating it in your own summary.
+6. **Keep handoffs short and don't expect long ones.** "Build Step 4k from
+   the roadmap" is normally the whole handoff, on purpose — this file and
+   the roadmap already carry the rest. If a handoff you receive is much
+   longer than that, it's because the step name alone was genuinely
+   ambiguous or the user added something new; don't infer a standing
+   requirement for longer handoffs from one example.
+7. **If you finish early and another compatible, already-handed-off task
+   is waiting, continuing straight into it (staying within whatever mode —
+   autonomous or gated — you were already told to use for it) is fine**;
+   don't idle a session that has clearly finished its assigned work and
+   has more of the same kind of work queued, but also don't self-assign
+   work nobody handed you.
+8. **None of the above ever trades away testing or review.** Batching
+   steps together still means each one passes the full suite and meets
+   its own exit condition; "gated mode" still means stopping for the
+   planning session's check at whatever boundary the roadmap's working
+   agreement puts it at. Efficiency is about not re-deriving context that
+   already exists, never about skipping verification to move faster.
 
 ## Where things are
 
