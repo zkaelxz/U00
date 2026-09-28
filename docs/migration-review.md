@@ -835,6 +835,32 @@ server-side but never returns a path or filename (only `has_ref_audio`).
 Out of scope: reference-audio upload/auto-extract (multipart), series-
 character writes, Dub generation.
 
+*Hardening H1 (Slices 35/42).* Review fixes: error messages never echo client
+text (speaker label, clone engine, unknown field names); ids and counts are
+capped at 2**31-1 in services and schemas (422, not a sqlite OverflowError);
+drama text fields have length caps, titles are stripped and `source_url` must
+be empty or http(s) (blank titles stay allowed, as in the tab); voice-bank apply
+rejects labels that can't be a filename part, returns NotFound for a missing
+clip, and enforces the Step 26c language rule on the entry's engine (stricter
+than the tab, by design); a new series is created only after the drama row
+exists, so a failed create leaves no stray series.
+
+**Slice 36 -- Drama delete.** `DELETE /api/dramas/{id}?confirm=true&confirm_text=DELETE`
+-> `{"deleted": true, "drama_id": n}`. User-approved rule: needs `confirm=true`
+AND an exact-match typed `confirm_text` (Streamlit's checkbox + type-DELETE
+pair, translated to API terms like Slice 17's `clear_history`), and is refused
+409 while a job runs for the drama. Check order: unknown id 404 first (always),
+then 422 for a missing/wrong confirmation (message never echoes the text), then
+409. The running-job check covers in-process jobs
+(`background_jobs.any_job_running_for_drama`) AND cross-process
+`db.job_records` rows for this drama's job ids that are running/queued and
+updated within 6 hours -- older rows are a crashed process's leftovers and must
+not block forever. Deletion goes through one private function
+(`_hard_delete_drama`) so roadmap Step 43's soft-delete can replace it. Known
+hazard, unchanged: `db.delete_drama` removes the DB row first, then the folder
+(including non-regenerable `voice_refs/`); a failed rmtree leaves an orphan
+folder, surfaced as a clear 500 `application_error` (no paths).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
