@@ -185,9 +185,6 @@ baihe-subtitler/
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
 │   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
-│   ├── artifact_service.py       Migration Slice 28 -- job-output file convention
-│   │                             (<drama>/exports/<kind>/<file>), output_path, get_artifact
-│   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── export_service.py         Migration Slices 12+14+15+18+27 -- get_export_readiness (read-only
 │   │                             counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
 │   │                             write), flag_overlapping_lines/flag_dense_lines/
@@ -237,9 +234,12 @@ baihe-subtitler/
 │   │                             translation versions (list/compare), notes (list/Markdown),
 │   │                             stored consistency issues, emotion summary, edit tendencies,
 │   │                             TM suggestions; enforces drama ownership itself; no writes/LLM
-│   └── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
-│                                 (field-scoped save_lines only): patch with compare-and-set, dismiss
-│                                 flag, find-replace apply, TM accept, note add/delete; ownership-checked
+│   ├── lines_service.py          Migration Slice 43 -- Review per-line WRITES by permanent line id
+│   │                             (field-scoped save_lines only): patch with compare-and-set, dismiss
+│   │                             flag, find-replace apply, TM accept, note add/delete; ownership-checked
+│   └── artifact_service.py       Migration Slice 28 -- job-output file convention
+│                                 (<drama>/exports/<kind>/<file>), output_path, get_artifact
+│                                 (whitelisted kind, no symlinks, stays inside drama folder)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -265,7 +265,6 @@ baihe-subtitler/
 │       │                         (Migration Slice 15)
 │       │                         + .../epub (Migration Slice 18, novel-narration only)
 │       │                         + POST .../ass and GET /ass-style-options (Migration Slice 27)
-│       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
@@ -289,9 +288,10 @@ baihe-subtitler/
 │       │                         /versions/compare, /notes, /notes/markdown, /consistency,
 │       │                         /emotions, /tendencies, /tm-suggestions (Migration Slice 48,
 │       │                         read-only)
-│       └── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
-│                                 `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
-│                                 notes (POST, DELETE .../{note_id}) (Migration Slice 43)
+│       ├── lines_routes.py       /api/lines/dramas/{id}/lines/{line_id} (POST partial edit, 409 on stale
+│       │                         `expected`), .../dismiss-flag, .../accept-tm, find-replace/apply,
+│       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
+│       └── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
