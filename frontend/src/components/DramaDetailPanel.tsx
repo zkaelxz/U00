@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client'
 import { deleteDrama } from '../api/library'
 import type { DramaDetail } from '../api/types'
 import { canConfirmDelete } from '../pages/libraryForm'
+import { routeHref } from '../router'
 import { ErrorBanner } from './ErrorBanner'
 
 function credit(name: string | null, romanized: string | null) {
@@ -77,6 +78,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
             </div>
           ))}
       </dl>
+      <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Open workspace</a>
       {onDeleted && !confirming && (
         <button type="button" onClick={() => setConfirming(true)}>
           Delete drama…
