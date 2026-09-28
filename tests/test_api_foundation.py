@@ -695,3 +695,54 @@ class TestExportEpubEndpoint:
         assert resp.headers["content-type"].startswith("application/epub+zip")
         assert "attachment" in resp.headers["content-disposition"]
 
+
+class TestSourceConfigEndpoints:
+    """Migration Slice 19: Source-stage config only -- audio/video upload
+    and transcript/novel text are out of scope, see
+    services/source_service.py's own docstring for why."""
+
+    def test_get_config_contract_shape(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        body = client.get(f"/api/source/dramas/{did}/config").json()
+        assert body == {
+            "drama_id": did, "source_language": "zh", "chinese_script": "simplified",
+            "content_mode": "audio_drama", "has_audio_pipeline": True,
+            "audio_available": False, "has_video_source": False,
+            "transcript_mode": "have_transcript",
+            "transcript_mode_options": ["have_transcript", "whisper"],
+            "has_raw_novel_context": False,
+        }
+
+    def test_get_config_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/source/dramas/999999/config")
+        assert resp.status_code == 404
+
+    def test_post_config_updates_source_language(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/source/dramas/{did}/config", json={"source_language": "ja"})
+        assert resp.status_code == 200
+        assert resp.json()["source_language"] == "ja"
+
+    def test_post_config_unknown_value_is_422(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/source/dramas/{did}/config", json={"content_mode": "not_a_mode"})
+        assert resp.status_code == 422
+
+    def test_post_config_hardsub_ocr_without_video_is_400(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/source/dramas/{did}/config",
+                          json={"transcript_mode": "hardsub_ocr"})
+        assert resp.status_code == 400
+
+    def test_post_config_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.post("/api/source/dramas/999999/config", json={"source_language": "ja"})
+        assert resp.status_code == 404
+
+    def test_post_config_streamer_vod_syncs_media_type(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        resp = client.post(f"/api/source/dramas/{did}/config",
+                          json={"content_mode": "streamer_vod"})
+        assert resp.status_code == 200
+        drama = isolated_db.get_drama(did)
+        assert drama["media_type"] == "streamer_vod"
+

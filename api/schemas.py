@@ -272,3 +272,30 @@ class DiarizationConfig(BaseModel):
 
 class DiarizationRunResult(BaseModel):
     job_id: str
+
+
+class SourceConfig(BaseModel):
+    """Source-stage config for one drama (Migration Slice 19) -- config
+    only (language/script/content mode/transcript mode) plus read-only
+    audio/video/transcript-source presence. Never includes an upload or
+    a secret."""
+    drama_id: int
+    source_language: str
+    chinese_script: str
+    content_mode: str
+    has_audio_pipeline: bool
+    audio_available: bool
+    has_video_source: bool
+    transcript_mode: str
+    transcript_mode_options: List[str]
+    has_raw_novel_context: bool
+
+
+class SourceConfigUpdate(BaseModel):
+    """All fields optional -- only what's passed is validated and
+    written (a field-scoped partial update, matching db.update_drama's
+    own shape)."""
+    source_language: Optional[str] = None
+    chinese_script: Optional[str] = None
+    content_mode: Optional[str] = None
+    transcript_mode: Optional[str] = None

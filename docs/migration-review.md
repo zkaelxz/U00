@@ -610,10 +610,45 @@ glossary extraction, a missing "job already running" error class, and
 own report, not yet copied into this doc; ask the session that ran it if
 picking this back up.
 
-**Next candidates:** resolve the Transcript ordering question above, or
-continue with ASS export/audiobook/burned-in-video export (Export's
-remaining scope) or Dub (next in §3.2's build order after Transcript, so
-possibly promotable ahead of it) in the meantime.
+**Decision (2026-09-28):** the user chose to pull a slice of Source
+forward as a prerequisite, rather than narrowing Transcript or promoting
+Dub. A second `migration-architect` pass scoped exactly which slice.
+
+**Slice 19 — Source-stage config, the Transcript prerequisite
+(2026-09-28).** `services/source_service.py` gains `get_source_config`
+(read-only: `source_language`, `chinese_script`, `content_mode`,
+`has_audio_pipeline`, `audio_available`, `has_video_source`,
+`transcript_mode`, `transcript_mode_options`, `has_raw_novel_context`)
+and `update_source_config` (a field-scoped partial update -- only fields
+actually passed are validated/written, mirroring `db.update_drama`'s own
+shape). Replicates `tab_source`'s own `content_mode == "streamer_vod"` ->
+`media_type` sync exactly, including its one-directional-only behavior
+(switching away from `streamer_vod` never reverts `media_type` -- an
+existing behavior, not a gap this slice introduces). New
+`GET /api/source/dramas/{id}/config`, `POST /api/source/dramas/{id}/config`
+(POST for consistency with every other mutation endpoint in this
+migration -- no PATCH precedent exists yet).
+
+**Deliberately out of scope, by design**: audio/video upload and
+yt-dlp download (a materially different risk tier -- multipart upload,
+an `ffmpeg` subprocess -- than any config write so far) and
+`transcript_text`/`novel_narration_text` (neither is persisted ahead of
+the transcribe/chunk action today either). Both are folded into a future
+"transcribe-and-align" action slice instead, which preserves the current
+one-click upload-then-transcribe behavior rather than inventing a new
+two-step flow. `transcript_mode == "hardsub_ocr"` on a drama with no
+video source raises `UnsupportedOperationError` (400) -- a new
+validation the Streamlit UI never needed, since the radio option simply
+wasn't rendered; the API has to enforce explicitly what the UI enforced
+by omission.
+
+**Next candidates:** the transcribe-and-align action slice itself (now
+unblocked by this one -- needs its own design decision on how upload +
+job-start compose into one request, and how "job succeeded" becomes
+"result applied to the drama's lines" over a stateless API, per the
+first Transcript scoping pass's own open questions), or continue with
+ASS export/audiobook/burned-in-video export (Export's remaining scope)
+or Dub (§3.2's build order) in the meantime.
 
 ---
 
