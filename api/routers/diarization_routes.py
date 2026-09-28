@@ -28,7 +28,7 @@ def get_diarization_config(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/run", response_model=DiarizationRunResult,
             summary="Start a real speaker-detection job for one drama's stored audio",
             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                      503: {"model": ErrorResponse}})
+                      409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def post_start_diarization(drama_id: int = Path(ge=1),
                            expected_speakers: int = Query(None, ge=0, le=20)):
     return diarization_service.start_diarization_run(drama_id, expected_speakers=expected_speakers)

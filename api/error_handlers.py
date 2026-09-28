@@ -14,6 +14,7 @@ so the React client (and later the browser extension) can branch on
 | 422  | validation_error        | FastAPI request validation, `InvalidInputError` |
 | 404  | not_found               | `NotFoundError`, unknown route              |
 | 400  | unsupported_operation   | `UnsupportedOperationError`                 |
+| 409  | conflict                | `ConflictError`                             |
 | 503  | dependency_unavailable  | `DependencyUnavailableError`                |
 | 500  | application_error       | any other `ServiceError`                    |
 | 500  | internal_error          | anything unexpected (a bug)                 |
@@ -31,13 +32,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, ServiceError, UnsupportedOperationError)
 
 _STATUS_BY_ERROR = (
     (InvalidInputError, 422),
     (NotFoundError, 404),
     (UnsupportedOperationError, 400),
+    (ConflictError, 409),
     (DependencyUnavailableError, 503),
     (ServiceError, 500),
 )

@@ -24,7 +24,7 @@ import background_jobs
 import db
 import diarize
 from services import settings_service
-from services.service_errors import (DependencyUnavailableError, NotFoundError,
+from services.service_errors import (ConflictError, DependencyUnavailableError, NotFoundError,
                                       UnsupportedOperationError)
 
 
@@ -67,7 +67,8 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     transcript text/timing are never touched; only merging the resulting
     turns back onto lines is out of scope here (a later slice). Raises
     NotFoundError for an unknown drama id or if no audio is available,
-    DependencyUnavailableError if no Hugging Face token is configured.
+    DependencyUnavailableError if no Hugging Face token is configured,
+    ConflictError if a diarization job is already running for this drama.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/
     {job_id}."""
     drama = db.get_drama(drama_id)
@@ -87,8 +88,15 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
         raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
 
     job_id = f"diarize_{drama_id}"
-    background_jobs.start_process_job(
+    # Migration Slice 20 fix: start_process_job returns False without
+    # starting anything if this job id is already running/queued -- this
+    # went unchecked here, silently no-opping a duplicate start instead of
+    # telling the caller (a pre-existing bug found by Slice 20's own
+    # scoping pass, fixed here since it needs the same new error class).
+    started = background_jobs.start_process_job(
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None),
         gpu_touching=True, description=f"Diarization (drama #{drama_id})")
+    if not started:
+        raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
     return {"job_id": job_id}

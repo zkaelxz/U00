@@ -299,3 +299,58 @@ class SourceConfigUpdate(BaseModel):
     chinese_script: Optional[str] = None
     content_mode: Optional[str] = None
     transcript_mode: Optional[str] = None
+
+
+class TranscribeConfig(BaseModel):
+    """Read-only Transcript-stage summary for one drama (Migration Slice
+    20) -- which action the transcribe button would run (from Slice 19's
+    transcript_mode) plus every tuning knob's current value, falling back
+    to the same defaults the Streamlit widgets use."""
+    drama_id: int
+    transcript_mode: str
+    has_audio_pipeline: bool
+    audio_available: bool
+    alignment_method: str
+    asr_backend_choice: str
+    whisper_size: str
+    whisper_model_cached: bool
+    beam_size: int
+    min_silence_ms: int
+    vad_threshold: float
+    separate_vocals_first: bool
+    separation_backend: str
+    realign_long_segments: bool
+    whisper_fast_mode: bool
+    use_groq: bool
+
+
+class TranscribeConfigUpdate(BaseModel):
+    """All fields optional -- only what's passed is validated and
+    written."""
+    whisper_size: Optional[str] = None
+    alignment_method: Optional[str] = None
+    asr_backend_choice: Optional[str] = None
+    beam_size: Optional[int] = None
+    min_silence_ms: Optional[int] = None
+    vad_threshold: Optional[float] = None
+    separate_vocals_first: Optional[bool] = None
+    separation_backend: Optional[str] = None
+    realign_long_segments: Optional[bool] = None
+    whisper_fast_mode: Optional[bool] = None
+    use_groq: Optional[bool] = None
+
+
+class TranscribeRunRequest(BaseModel):
+    """transcript_text is required (and only used) when this drama's
+    transcript_mode is "have_transcript" -- per Slice 19, it's never
+    persisted server-side."""
+    source_language: Optional[str] = None
+    chinese_script: Optional[str] = None
+    transcript_text: Optional[str] = None
+    run_diarize: bool = False
+    expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    initial_prompt: str = ""
+
+
+class TranscribeRunResult(BaseModel):
+    job_id: str
