@@ -987,6 +987,7 @@ class SettingsUpdateRequest(BaseModel):
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
 
+
 class DramaDeleteResult(BaseModel):
     deleted: bool
     drama_id: int
