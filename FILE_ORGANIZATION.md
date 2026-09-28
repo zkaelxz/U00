@@ -211,8 +211,11 @@ baihe-subtitler/
 │   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
 │   │                             step, same as Whisper's own text). chunk_and_tag and qwen3
 │   │                             backends still stay out of scope
-│   └── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
-│                                 engines, per-speaker voices, pacing of the last run; no paths)
+│   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
+│   │                             engines, per-speaker voices, pacing of the last run; no paths)
+│   └── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
+│                                 update_drama_metadata (whitelisted partial update); delete,
+│                                 cover upload and metadata auto-fill stay out of scope
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -243,7 +246,9 @@ baihe-subtitler/
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
-│       └── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
+│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
+│       └── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
+│                                 (Migration Slice 35)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

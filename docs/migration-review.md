@@ -739,6 +739,28 @@ uploads use streamed multipart (new `python-multipart` dependency) with long exp
 writing a fixed file in the drama folder served by a download endpoint; `use_gpu` is persisted in
 `db.app_settings` (default off) and honoured by every GPU-capable API job.
 
+**Slice 35 -- Drama create and update.** `POST /api/dramas` (201) and
+`POST /api/dramas/{id}/metadata` (partial update; only fields present in the
+body are applied). POST for writes, per the convention set by Slice 19 (no
+PATCH). Updatable fields are a whitelist, enforced twice: the request schema
+forbids unknown keys (422), and `services/drama_service.py` re-checks, because
+`db.create_drama`/`db.update_drama` interpolate kwarg keys straight into SQL --
+`status`, `content_mode`, `source_language`, `*_filename`, `translation_engine`
+and `personal_notes` (per-profile) are never client-writable here.
+`source_language` is required on create (Step 87 enforced explicitly). Preset
+semantics: only the preset's `translation_engine` is persisted on the drama;
+`style_preset`, `locale`, `default_female_pronouns` and `include_genre_notes`
+are session-only in Streamlit, so create returns them as `preset_defaults`
+for the client to hold. Out of scope: delete (destructive; gated on a
+confirmation-semantics decision), cover upload (needs python-multipart),
+series rename/unassign, presets CRUD, metadata auto-fill, personal notes.
+
+**Next candidates:** the `chunk_and_tag` novel-narration path (needs its
+own scoping -- fully synchronous today, no natural job boundary), the
+experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
+ASS export/audiobook/burned-in-video export (Export's remaining scope) or
+Dub (§3.2's build order).
+
 ---
 
 ## 6. Decisions
