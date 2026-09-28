@@ -89,3 +89,17 @@ def upload_media(drama_id, client_filename, fileobj) -> dict:
         db.update_drama(drama_id, audio_filename=f"source{ext}")
         kind = "audio"
     return {"name": f"source{ext}", "size": size, "kind": kind}
+
+
+def get_media_status(drama_id) -> dict:
+    """Booleans and the upload cap only -- never a path or filename."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    audio = drama.get("audio_filename")
+    return {
+        "drama_id": drama_id,
+        "has_audio": bool(audio and os.path.exists(os.path.join(db.drama_dir(drama_id), audio))),
+        "has_source_video": bool(drama.get("source_video_filename")),
+        "upload_max_mb": max_upload_bytes() // (1024 * 1024),
+    }

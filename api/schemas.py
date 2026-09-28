@@ -1141,3 +1141,15 @@ class TranslateRunStarted(BaseModel):
     engine: str
     model: Optional[str] = None
     target_line_count: int
+
+
+class MediaStatus(BaseModel):
+    drama_id: int
+    has_audio: bool
+    has_source_video: bool
+    upload_max_mb: int
+
+
+class UploadAndTranscribeResult(BaseModel):
+    upload: MediaUploadResult
+    job_id: str
