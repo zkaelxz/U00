@@ -873,6 +873,33 @@ Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: un
 fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
 `background_jobs`. Not verified against a real LLM (fake engine only).
 
+**Slice 37 -- Metadata auto-fill and media analysis.** `POST
+/api/metadata/dramas/{id}/analyze-media` (ffprobe of the stored video/audio:
+`duration_seconds`, `has_video`, `has_audio`, `audio_track_count`,
+`sample_rate`; no paths), `POST .../autofill` (`{url | page_text, engine?}`;
+returns a `suggestion` of title/author/studio/director/voice_actors/summary
+(+ `source_url` when a URL was used) and writes nothing) and `POST
+.../autofill/apply` (whitelisted fields only, via
+`drama_service.update_drama_metadata`). URLs must be http(s) and every
+resolved address (and redirect hop, followed manually, max 3) must be global,
+else 422; no key, unreachable page, LLM failure or missing ffprobe is a 503
+with fixed text (exceptions are never echoed); unknown drama 404. Keys come
+from server settings, never the request. Residual risk: DNS rebinding between
+the check and the fetch; the LLM call's timeout is the engine's own. No
+JS-rendered fetch (Streamlit's fallback) -- paste text instead. Not verified
+against a real LLM or site (tests mock everything).
+
+**Slice 38 -- Novel attach + chapter OCR (2026-09-28).** `services/novel_attach_service.py` +
+`api/routers/novel_routes.py`: `POST /api/novel/dramas/{id}/attach-text` (JSON, 2M-char cap),
+`POST .../attach-epub` (multipart; stdlib zip/HTML only, entry-count and uncompressed-size caps, rejects
+traversal/absolute names/symlinks, no entity resolution, only plain text stored, the .epub is not kept),
+`POST .../ocr-chapter` (multipart PNG/JPG images staged under generated names, background job
+`ocrchapter_{id}`, backend per source language, `mode` append|replace) and `GET .../status` (booleans and
+counts only). Text goes to `novel_narration_source.txt`, which Slice 33 reads. 404 unknown drama, 409 job
+running or duplicate OCR, 422 bad input, 503 OCR backend not installed. Deliberate differences: the tab's
+EPUB chapter-range picker and image extraction are not offered; no stored-image OCR (none exist); the
+Settings tesseract path is not applied. Tests use a fake OCR; no real OCR was run.
+
 **Next candidates:** the
 
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
@@ -979,16 +1006,30 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
-**Slice 38 -- Novel attach + chapter OCR (2026-09-28).** `services/novel_attach_service.py` +
-`api/routers/novel_routes.py`: `POST /api/novel/dramas/{id}/attach-text` (JSON, 2M-char cap),
-`POST .../attach-epub` (multipart; stdlib zip/HTML only, entry-count and uncompressed-size caps, rejects
-traversal/absolute names/symlinks, no entity resolution, only plain text stored, the .epub is not kept),
-`POST .../ocr-chapter` (multipart PNG/JPG images staged under generated names, background job
-`ocrchapter_{id}`, backend per source language, `mode` append|replace) and `GET .../status` (booleans and
-counts only). Text goes to `novel_narration_source.txt`, which Slice 33 reads. 404 unknown drama, 409 job
-running or duplicate OCR, 422 bad input, 503 OCR backend not installed. Deliberate differences: the tab's
-EPUB chapter-range picker and image extraction are not offered; no stored-image OCR (none exist); the
-Settings tesseract path is not applied. Tests use a fake OCR; no real OCR was run.
+**Slice 32 (upload-then-transcribe wiring).** `POST /api/media/dramas/{id}/upload-and-transcribe`
+takes a multipart `file` plus the `TranscribeRunRequest` options as form fields
+(validated through that same model before anything is stored), stores the file
+via `media_upload_service.upload_media`, then calls the existing
+`start_transcribe_run`, returning `{upload, job_id}`. If the run cannot start
+after a successful upload (no key, already running, wrong mode, ...), the
+service error is returned and the uploaded file is deliberately kept; the client
+can retry via `POST /api/transcribe/dramas/{id}/run`. The persisted `use_gpu`
+(Slice 23) is read inside `start_transcribe_run` and is tested through this
+route. New `GET /api/media/dramas/{id}/status` returns `has_audio`,
+`has_source_video`, `upload_max_mb` (BAIHE_MAX_UPLOAD_MB) only, no paths; it is a
+separate endpoint because the transcribe config's response shape is pinned by
+exact-match tests.
+
+**E0 -- Library remainder (2026-09-28).** Read endpoints under `/api/library`: `GET /stats`
+(counts + usage totals), `/recent`, `/costs` (dramas with logged calls, free runs included),
+`/series` (series with 2+ dramas plus character/glossary counts), `/search?q=` (1-200 chars,
+limit 1-100), `/history` (default profile only -- no profile selector yet), `/presets`,
+`/voice-bank` (no clip filename/path; `clip_available` flag). Non-destructive writes:
+`POST /presets/{id}/rename` and `POST /voice-bank/{id}/rename` (name 1-100 chars, ids capped at
+2**31-1, duplicate preset name 409, unknown id 404). Deferred, not built: preset and voice-bank
+delete (the tab's checkbox confirm has no server equivalent yet), clear reading history, bulk
+status/tags/delete and bulk translate, storage scan/clean, backup/restore (need the typed
+confirm and `drama_service._job_running_for_drama` refusal), and Continue reading (per-profile).
 
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
