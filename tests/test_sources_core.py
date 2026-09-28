@@ -452,6 +452,7 @@ class TestCapabilitiesAndTestNow:
         roundtrip = SourceCapabilities.from_dict(caps.to_dict())
         assert roundtrip.terms == caps.terms and roundtrip.tiers.keys() == caps.tiers.keys()
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_stale_stored_record_cant_clear_a_corrected_built_in_prohibition(self, isolated_db):
         """Step 25q gap 1: an earlier import saved a stored record saying
         the source was fine. The adapter's own built-in default has since
@@ -463,6 +464,7 @@ class TestCapabilitiesAndTestNow:
         with pytest.raises(TermsProhibited):
             ladder.check_terms("src", default)
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_stored_prohibition_survives_even_if_default_lacks_it(self, isolated_db):
         """The reverse must still hold: a stored record that itself
         recorded a prohibition isn't cleared just because the caller's
