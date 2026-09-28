@@ -400,14 +400,17 @@ Status as of 2026-09-28 (user answers in brackets).
   surface. Migrating a service-first feature later costs only its UI.
   Migrating one written inside a widget handler costs an extraction plus
   the risk of dropping its guards (§4).
-- **D5. Admin actions over HTTP: [waiting on M8-H; M8-H is now decided,
-  proposal pending confirmation.]** Proposal: admin permission, plus
-  re-entering the password/2FA, plus a request from the home network only.
-  See [`remote-access-design.md`](remote-access-design.md) §6.
-- **D6. Remote access (M8-H). [Decided 2026-09-28: option E, logins built
-  into Baihe, exposed directly, no purchased domain, household members
-  including phones, deny-by-default permissions.]** Full design,
-  prerequisites and open questions:
+- **D5. Admin actions over HTTP: [proposal pending confirmation.]**
+  `admin.system` permission, a confirmation step, and only from devices
+  the admin marks as trusted (default: the Baihe PC). Until built, these
+  stay in Streamlit, which is owner-only over Tailscale. See
+  [`remote-access-design.md`](remote-access-design.md) §6.
+- **D6. Remote access (M8-H). [Decided 2026-09-28: Tailscale + Tailscale
+  Serve (option A).]** Private to the household's tailnet, no open ports,
+  no domain, HTTPS and identity from Tailscale. Baihe adds
+  deny-by-default permissions keyed on `Tailscale-User-Login`. Option E
+  (built-in logins, publicly exposed) was chosen first and then reversed
+  on effort. Full design:
   [`remote-access-design.md`](remote-access-design.md).
 
 ---
