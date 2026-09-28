@@ -1136,6 +1136,8 @@ class TranslateRunStart(BaseModel):
     gemini_free_tier: bool = False
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
     fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
+    reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
+    bulk: bool = False  # Slice 41: batch API / DeepSeek off-peak, job bulk_translate_{id}
 
 
 class TranslateRunStarted(BaseModel):
@@ -1145,6 +1147,8 @@ class TranslateRunStarted(BaseModel):
     model: Optional[str] = None
     target_line_count: int
     fallback_engines: List[str] = []
+    reflect: bool = False
+    bulk: bool = False
 
 
 class TranslateFallbackEngine(BaseModel):
@@ -1377,3 +1381,14 @@ class MediaExportStarted(BaseModel):
     """Audiobook / burned-in video export job started (Migration Slices 29-30).
     Poll GET /api/jobs/{job_id}; download via GET /api/artifacts/dramas/{id}/{kind}."""
     job_id: str
+
+
+class TranslateBulkResumeEntry(BaseModel):
+    bulk_job_id: int
+    state: str  # "polling" | "needs_key" | "running"
+
+
+class TranslateBulkResumeResult(BaseModel):
+    """Pending bulk jobs picked back up after a restart (Migration Slice 41)."""
+    drama_id: int
+    jobs: List[TranslateBulkResumeEntry]

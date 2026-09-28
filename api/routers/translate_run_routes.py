@@ -10,8 +10,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Path, Query
 
-from api.schemas import (ErrorResponse, TranslateRunConfig, TranslateRunEstimate,
-                         TranslateRunStart, TranslateRunStarted)
+from api.schemas import (ErrorResponse, TranslateBulkResumeResult, TranslateRunConfig,
+                         TranslateRunEstimate, TranslateRunStart, TranslateRunStarted)
 from services import translate_run_service
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -43,8 +43,9 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
 
 
 @router.post("/dramas/{drama_id}/run", response_model=TranslateRunStarted,
-             summary="Start a normal translation as a background job",
-             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+             summary="Start a translation (normal, Reflect and/or bulk) as a background job",
+             responses={400: {"model": ErrorResponse},
+                        404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def start_translate_run(body: TranslateRunStart, drama_id: int = Path(ge=1)):
     return translate_run_service.start_translate_run(
@@ -56,4 +57,12 @@ def start_translate_run(body: TranslateRunStart, drama_id: int = Path(ge=1)):
         line_ids=body.line_ids, gemini_free_tier=body.gemini_free_tier,
         job_cost_cap_usd=body.job_cost_cap_usd,
         fallback_chain=[f.model_dump() for f in body.fallback_chain]
-        if body.fallback_chain else None)
+        if body.fallback_chain else None,
+        reflect=body.reflect, bulk=body.bulk)
+
+
+@router.post("/dramas/{drama_id}/bulk/resume", response_model=TranslateBulkResumeResult,
+             summary="Resume polling this drama's pending bulk jobs after a restart",
+             responses={404: {"model": ErrorResponse}})
+def resume_bulk_translations(drama_id: int = Path(ge=1)):
+    return translate_run_service.resume_bulk_translations(drama_id)

@@ -1078,6 +1078,39 @@ confirm and `drama_service._job_running_for_drama` refusal), and Continue readin
 
 **Step 95 -- BGM-preserving dub (service + API + CLI, 2026-09-28).** `DubRunRequest` gained `keep_background: bool = False` (edited in place; `DubConfig` gained a booleans-only `can_keep_background`, also in place). With it set on a video dub, `start_dub_run` binds the drama's stored audio and `separation_backend` into the worker (`functools.partial`, so the trailing result queue lands on the worker's `result_queue` parameter); after `build_dub_track` the worker calls `dub.mix_original_background`, which reuses `audio_preprocess.separate_vocals` (new `extract_background` subtracts the vocals stem from the original), caches `dub_background.wav` in the drama folder, and overlays it at -6 dB under the track. Narration or a drama with no audio is 422; missing soundfile/numpy/separation backend is 503 with fixed text. A separation failure keeps the plain dub and reports `background_mixed: false` with a fixed `background_error`. `cli dub --keep-background` does the same. Pre-existing bug found: the Streamlit Dub tab (and, before this step, Slice 26's service) passes `narrate_original, source_lang` positionally after which `background_jobs` appends `result_queue`, but the worker declares `result_queue` before them, so the queue lands in the wrong parameter; the service now binds them by keyword, the tab still has the old call. Real separation and mixing were not verified (tests fake them).
 
+**Slice 41 -- Translate Reflect + bulk (2026-09-28).** `POST
+/api/translate-run/dramas/{id}/run` gains `reflect` and `bulk` (both default
+false; `TranslateRunStart`/`TranslateRunStarted` edited in place). `reflect`
+alone passes `reflect=True` to the same `run_translate_job` the tab and `cli.py
+translate --reflect` use: Step 7's three passes (the code has three, not two),
+id-keyed at every pass, critiques saved as notes by line, field-scoped `en`
+writes, same force-retranslate snapshot. `bulk` starts job
+`bulk_translate_{id}`, which submits exactly what the tab's
+`_start_bulk_translation`/`_start_bulk_reflect` submit (Claude/Gemini batch
+API; DeepSeek off-peak schedule; with `reflect`, the bulk Reflect pipeline),
+then polls inside the job with `bulk_translate.run_bulk_poller` and follows each
+Reflect stage bulk_translate submits in turn, until applied, failed (job
+error, redacted text) or cancelled. Results are applied by line id by
+bulk_translate's existing apply step (dropped if deleted, flagged if the source
+changed, hand edits kept). Cancelling the job (`POST /api/jobs/{id}/cancel`)
+cancels the pending bulk job at the provider when it can. Resumability reuses
+what exists: `POST /api/translate-run/dramas/{id}/bulk/resume` calls
+`bulk_translate.resume_pending` (the Bulk jobs panel's call) with server-side
+keys; nothing new is persisted. Errors: unknown drama 404; a running job or a
+pending bulk job for the drama 409; no key 503; fallback chain with reflect or
+bulk, or `line_ids` with bulk, 422; Reflect on a translation-only engine, bulk
+on a non-bulk engine or Gemini free tier, bulk Reflect on DeepSeek, nothing to
+translate, a monthly-cap refusal, or a Claude/Gemini batch estimate above the
+cap 400 (a batch can't stop part-way; DeepSeek off-peak stops at the cap when it
+runs). The fallback chain is refused for both modes: Reflect goes through
+`call_llm_json`, which `FallbackEngine` does not wrap, and a batch is bound to
+one provider. Deliberate differences: bulk Reflect now gets the same cap
+refusal as bulk translation (the tab checks none); the API job, not a separate
+`bulkpoll_` job, polls, so a Streamlit tab calling `resume_pending` at the same
+time could start a second poller (`check_once` is locked, so results apply once).
+Paid-key and real batch runs were not verified (tests use a fake provider and a
+fake Reflect helper).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
