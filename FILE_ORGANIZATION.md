@@ -185,9 +185,9 @@ baihe-subtitler/
 │   ├── translate_service.py      Migration Slices 11+13 -- list_engines/list_history (read-only)
 │   │                             plus translate() itself (Slice 13), server-side key resolution
 │   │                             per engine (D2); no history-clear
-│   └── export_service.py         Migration Slice 12 -- read-only get_export_readiness (line/
-│                                 translation/overlap/QC/dense-line counts); never flags a line,
-│                                 never generates a subtitle file
+│   └── export_service.py         Migration Slices 12+14 -- get_export_readiness (read-only counts)
+│                                 plus generate_subtitle_text (Slice 14: SRT/VTT text, pure/no
+│                                 disk write); ASS/EPUB/audiobook/video and flagging stay out of scope
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -206,7 +206,8 @@ baihe-subtitler/
 │       ├── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13); no history-clear
-│       └── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12, read-only)
+│       └── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12)
+│                                 + /api/export/dramas/{id}/subtitle (Migration Slice 14, SRT/VTT)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
