@@ -688,7 +688,8 @@ class TestRequestsTransport:
             self.cookies = cookies if cookies is not None else _cookie_jar()
 
         def request(self, method, url, headers=None, data=None, timeout=None,
-                    allow_redirects=True):
+                    allow_redirects=True, proxies=None):
+            self.last_proxies = proxies
             return self._response
 
     def test_merges_cookies_from_a_redirect_hop_into_the_final_response(self, monkeypatch):
@@ -755,3 +756,22 @@ class TestRequestsTransport:
         monkeypatch.setattr("sources.http._thread_session", lambda: self._FakeSession(final))
         resp = _requests_transport("GET", "https://kuaikan.invalid/page", {}, None, 20)
         assert dict(resp.cookies) == {"referer_name": ""}
+
+    def test_no_proxy_by_default(self, monkeypatch, isolated_db):
+        # Step 98: confirmed zero proxy support anywhere in the codebase
+        # before this -- the default setting must keep every existing
+        # direct-connection adapter unchanged.
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/")
+        fake = self._FakeSession(final)
+        monkeypatch.setattr("sources.http._thread_session", lambda: fake)
+        _requests_transport("GET", "https://x.invalid/", {}, None, 20)
+        assert fake.last_proxies is None
+
+    def test_configured_proxy_is_applied_to_both_schemes(self, monkeypatch, isolated_db):
+        store.set_setting("http_proxy_url", "http://127.0.0.1:8080")
+        final = self._FakeResp(200, {}, b"ok", "https://x.invalid/")
+        fake = self._FakeSession(final)
+        monkeypatch.setattr("sources.http._thread_session", lambda: fake)
+        _requests_transport("GET", "https://x.invalid/", {}, None, 20)
+        assert fake.last_proxies == {"http": "http://127.0.0.1:8080",
+                                     "https": "http://127.0.0.1:8080"}

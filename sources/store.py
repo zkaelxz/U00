@@ -50,6 +50,12 @@ DEFAULT_SETTINGS = {
     "disabled_sources": [],
     "adult_sources": [],            # sources the person opted in to adult-flagged works for
     "extraction_diagnostics": False,  # Step 23g: always show Review Extraction + diagnostics
+    # Step 98: an HTTP(S) proxy URL (e.g. "http://127.0.0.1:8080") every
+    # source adapter's requests go through. Empty (the default) means no
+    # proxy -- direct connections, unchanged from before this setting
+    # existed. HTTP(S) only, not SOCKS -- that needs the optional PySocks
+    # package, which this app doesn't currently install.
+    "http_proxy_url": "",
     # Step 34: whether the browser extension's localhost endpoint runs.
     # Off by default -- it opens a port, so it's opt-in, never something
     # a fresh install starts on its own. Lives here because this is the
