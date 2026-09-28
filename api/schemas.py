@@ -1143,6 +1143,222 @@ class TranslateRunStarted(BaseModel):
     target_line_count: int
 
 
+class MediaStatus(BaseModel):
+    drama_id: int
+    has_audio: bool
+    has_source_video: bool
+    upload_max_mb: int
+
+
+class UploadAndTranscribeResult(BaseModel):
+    upload: MediaUploadResult
+    job_id: str
+
+
+class LibraryUsage(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    estimated_cost_usd: float
+    call_count: int
+
+
+class LibraryDashboard(BaseModel):
+    total_dramas: int
+    by_status: Dict[str, int]
+    by_media_type: Dict[str, int]
+    total_lines: int
+    translated_lines: int
+    usage: LibraryUsage
+
+
+class LibraryDramaRef(BaseModel):
+    id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    status: Optional[str] = None
+    updated_at: Optional[str] = None
+    media_type: Optional[str] = None
+
+
+class LibraryRecentResponse(BaseModel):
+    items: List[LibraryDramaRef]
+
+
+class LibraryCostRow(BaseModel):
+    id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    translation_engine: Optional[str] = None
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    estimated_cost_usd: float
+    call_count: int
+
+
+class LibraryCostResponse(BaseModel):
+    items: List[LibraryCostRow]
+
+
+class LibrarySeries(BaseModel):
+    id: int
+    name: str
+    character_count: int
+    glossary_term_count: int
+    dramas: List[LibraryDramaRef]
+
+
+class LibrarySeriesResponse(BaseModel):
+    items: List[LibrarySeries]
+
+
+class LibrarySearchHit(BaseModel):
+    drama_id: int
+    idx: int
+    zh: Optional[str] = None
+    en: Optional[str] = None
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+
+
+class LibrarySearchResponse(BaseModel):
+    count: int
+    items: List[LibrarySearchHit]
+
+
+class LibraryHistoryEntry(BaseModel):
+    drama_id: int
+    line_idx: Optional[int] = None
+    percent_complete: Optional[float] = None
+    accessed_at: Optional[str] = None
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+
+
+class LibraryHistoryResponse(BaseModel):
+    items: List[LibraryHistoryEntry]
+
+
+class LibraryPreset(BaseModel):
+    id: int
+    name: str
+    translation_engine: Optional[str] = None
+    engine_model: Optional[str] = None
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: Optional[int] = None
+    include_genre_notes: Optional[int] = None
+
+
+class LibraryPresetsResponse(BaseModel):
+    items: List[LibraryPreset]
+
+
+class LibraryVoice(BaseModel):
+    id: int
+    name: str
+    language: Optional[str] = None
+    clone_engine: Optional[str] = None
+    source_drama: Optional[str] = None
+    source_speaker: Optional[str] = None
+    clip_available: bool
+
+
+class LibraryVoiceBankResponse(BaseModel):
+    items: List[LibraryVoice]
+
+
+class LibraryRename(BaseModel):
+    """Rename a preset or voice-bank entry; nothing else changes."""
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+
+
+class MediaAnalysis(BaseModel):
+    """Numbers/booleans only (Migration Slice 37); never a path."""
+    drama_id: int
+    duration_seconds: float
+    has_video: bool
+    has_audio: bool
+    audio_track_count: int
+    sample_rate: Optional[int] = None
+
+
+class AutofillRequest(BaseModel):
+    """Exactly one of url / page_text. No keys: resolved server-side."""
+    model_config = ConfigDict(extra="forbid")
+    url: Optional[str] = Field(None, max_length=2000)
+    page_text: Optional[str] = Field(None, max_length=200000)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class AutofillSuggestion(BaseModel):
+    drama_id: int
+    suggestion: dict[str, str]
+    found: bool
+
+
+class AutofillApply(BaseModel):
+    """Whitelisted suggestion fields only; unknown keys are a 422."""
+    model_config = ConfigDict(extra="forbid")
+    title_en: Optional[str] = Field(None, max_length=300)
+    title_zh: Optional[str] = Field(None, max_length=300)
+    author: Optional[str] = Field(None, max_length=300)
+    studio: Optional[str] = Field(None, max_length=300)
+    director: Optional[str] = Field(None, max_length=300)
+    voice_actors: Optional[str] = Field(None, max_length=300)
+    summary: Optional[str] = Field(None, max_length=5000)
+    source_url: Optional[str] = Field(None, max_length=2000)
+
+
+class NovelAttachTextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(max_length=2_000_000)
+    mode: str = Field(default="replace", max_length=10)
+
+
+class NovelAttachResult(BaseModel):
+    char_count: int
+
+
+class NovelOcrResult(BaseModel):
+    job_id: str
+
+
+class NovelStatus(BaseModel):
+    drama_id: int
+    has_novel_text: bool
+    char_count: int
+    chapters: int
+    ocr_running: bool
+
+
+class ReviewJobStart(BaseModel):
+    """Start a Review-stage AI job (Migration Slice 44). No keys/URLs."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    gemini_free_tier: bool = False
+
+
+class EmotionJobStart(ReviewJobStart):
+    use_audio_cues: Optional[bool] = None
+
+
+class FixFlaggedJobStart(ReviewJobStart):
+    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
+
+
+class ReviewJobStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    kind: str
+    engine: str
+    model: Optional[str] = None
+    line_count: int
+
+
 class MediaExportStarted(BaseModel):
     """Audiobook / burned-in video export job started (Migration Slices 29-30).
     Poll GET /api/jobs/{job_id}; download via GET /api/artifacts/dramas/{id}/{kind}."""
