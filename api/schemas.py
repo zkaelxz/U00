@@ -344,11 +344,12 @@ class TranscribeRunRequest(BaseModel):
     """transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- per Slice 19, it's never
     persisted server-side."""
-    source_language: str = "zh"
-    chinese_script: str = "simplified"
+    source_language: Optional[str] = None
+    chinese_script: Optional[str] = None
     transcript_text: Optional[str] = None
     run_diarize: bool = False
-    expected_speakers: Optional[int] = None
+    expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    initial_prompt: str = ""
 
 
 class TranscribeRunResult(BaseModel):

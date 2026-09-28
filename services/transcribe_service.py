@@ -55,7 +55,8 @@ import db
 import raw_transcript
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
 from services import settings_service, source_service
-from services.service_errors import ConflictError, InvalidInputError, NotFoundError, UnsupportedOperationError
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+                                     NotFoundError, UnsupportedOperationError)
 
 # Matches the Streamlit widgets' own hardcoded defaults exactly (see
 # tabs/workspace_tab.py: beam_size slider ~2184, min_silence_ms slider
@@ -170,9 +171,15 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     return get_transcribe_config(drama_id)
 
 
-def start_transcribe_run(drama_id: int, source_language: str = "zh", chinese_script: str = "simplified",
+_SOURCE_LANGUAGES = ("zh", "ja", "ko")
+_CHINESE_SCRIPTS = ("simplified", "traditional")
+
+
+def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
+                          chinese_script: Optional[str] = None,
                           transcript_text: Optional[str] = None, run_diarize: bool = False,
-                          expected_speakers: Optional[int] = None) -> dict:
+                          expected_speakers: Optional[int] = None,
+                          initial_prompt: str = "") -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -180,6 +187,12 @@ def start_transcribe_run(drama_id: int, source_language: str = "zh", chinese_scr
     existing GET /api/jobs/{job_id}; once "done", the DB write has already
     happened (see this module's own docstring for why, vs. the Streamlit
     tab's render-loop-apply approach).
+
+    source_language / chinese_script default to this drama's own stored
+    values (Slice 19) when omitted. initial_prompt is an optional,
+    client-supplied names-to-expect string; Streamlit's automatic
+    derivation of one from the series glossary and raw-novel excerpt is
+    out of scope for this slice.
 
     transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- per Slice 19, it's
@@ -189,11 +202,26 @@ def start_transcribe_run(drama_id: int, source_language: str = "zh", chinese_scr
     Raises NotFoundError for an unknown drama id; UnsupportedOperationError
     if there's no audio available, or transcript_mode is "hardsub_ocr"
     (out of scope for this slice -- see module docstring) or
-    "have_transcript" with no transcript_text supplied; ConflictError if a
-    transcription is already running for this drama."""
+    "have_transcript" with no transcript_text supplied, or the drama has
+    no audio pipeline (novel_narration); InvalidInputError for an unknown
+    language/script; DependencyUnavailableError if use_groq is on with no
+    Groq key configured; ConflictError if a transcription is already
+    running for this drama."""
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(
+            f"Drama {drama_id} has no audio pipeline (content mode "
+            f"{drama.get('content_mode')!r}); novel chunking isn't available via this API yet.")
+
+    source_language = source_language or drama.get("source_language") or "zh"
+    chinese_script = chinese_script or drama.get("chinese_script") or "simplified"
+    if source_language not in _SOURCE_LANGUAGES:
+        raise InvalidInputError(f"Unknown source_language {source_language!r}.")
+    if chinese_script not in _CHINESE_SCRIPTS:
+        raise InvalidInputError(f"Unknown chinese_script {chinese_script!r}.")
 
     audio_path = _drama_audio_path(drama_id, drama)
     if audio_path is None:
@@ -210,6 +238,9 @@ def start_transcribe_run(drama_id: int, source_language: str = "zh", chinese_scr
 
     hf_token = settings_service.resolve_key("hf_token") if run_diarize else None
     groq_api_key = settings_service.resolve_key("groq") if drama.get("use_groq") else None
+    if drama.get("use_groq") and not groq_api_key:
+        raise DependencyUnavailableError(
+            "use_groq is on but no Groq API key is configured. Set one in Settings first.")
 
     job_id = f"transcribe_{drama_id}"
     started = background_jobs.start_job(
@@ -223,6 +254,7 @@ def start_transcribe_run(drama_id: int, source_language: str = "zh", chinese_scr
         drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
         bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
+        initial_prompt or "",
         gpu_touching=True, description=f"Transcription (drama #{drama_id})")
     if not started:
         raise ConflictError(f"A transcription is already running for drama {drama_id}.")
@@ -233,7 +265,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                                    source_language, chinese_script, whisper_size, beam_size,
                                    min_silence_ms, vad_threshold, separate_vocals_first,
                                    separation_backend, realign_long_segments, whisper_fast_mode,
-                                   use_groq, groq_api_key, hf_token, expected_speakers):
+                                   use_groq, groq_api_key, hf_token, expected_speakers,
+                                   initial_prompt=""):
     """The background job body itself: runs ASR, applies the result to the
     drama's lines, and optionally chain-starts diarization -- all before
     reporting "done", so a client polling GET /api/jobs/{job_id} never
@@ -253,6 +286,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     so there's no server-side source of truth for an API caller yet --
     out of scope for this slice, left for whenever GPU control becomes a
     real settings_service concern."""
+    original_audio_path = audio_path
     if separate_vocals_first:
         import audio_preprocess
         background_jobs.update_progress(job_id, 0.0, "Separating vocals from background music...")
@@ -289,7 +323,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         try:
             segments = transcribe_for_timing(
                 audio_path, whisper_size, language=source_language, use_gpu=False,
-                local_model_path=None, hf_token=None, initial_prompt="", beam_size=beam_size,
+                local_model_path=None, hf_token=None, initial_prompt=initial_prompt,
+                beam_size=beam_size,
                 min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
                 on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
                 progress_cb=lambda frac: background_jobs.update_progress(
@@ -348,7 +383,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(audio_path, hf_token, expected_speakers or None),
+            args=(original_audio_path, hf_token, expected_speakers or None),
             gpu_touching=True, description=f"Diarization (drama #{drama_id})")
 
     background_jobs.set_result(job_id, {

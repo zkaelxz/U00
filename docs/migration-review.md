@@ -679,7 +679,15 @@ synchronous API call fits), the experimental `qwen3_asr` /
 `qwen3_forced_align` backends, audio upload (unchanged from Slice 19),
 auto-tune (a separate Source-tab feature), and `use_gpu` (a bare
 `st.session_state` toggle with no server-side source of truth --
-hardcoded `False` in the job body, documented in its docstring).
+hardcoded `False` in the job body, documented in its docstring), and
+Streamlit's automatic `initial_prompt` derivation from the series glossary
+and raw-novel excerpt (the API takes an optional client-supplied
+`initial_prompt` instead). An independent code review of this slice found
+and fixed: persisted `source_language`/`chinese_script` being ignored
+(now default to the drama's own stored values, validated), diarization
+chained on the vocals-only file instead of the original audio, no
+`has_audio_pipeline` check (novel_narration dramas are now rejected), and
+`use_groq` with no key failing late instead of at start.
 
 **Next candidates:** the `hardsub_ocr` half of the Transcript action, the
 `chunk_and_tag` novel-narration path (both need their own scoping), or

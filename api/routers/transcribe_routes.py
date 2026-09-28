@@ -36,9 +36,11 @@ def post_transcribe_config(payload: TranscribeConfigUpdate, drama_id: int = Path
 @router.post("/dramas/{drama_id}/run", response_model=TranscribeRunResult,
             summary="Start the background transcribe-and-apply job for one drama",
             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                      409: {"model": ErrorResponse}})
+                      409: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
+                      503: {"model": ErrorResponse}})
 def post_start_transcribe(payload: TranscribeRunRequest, drama_id: int = Path(ge=1)):
     return transcribe_service.start_transcribe_run(
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,
-        expected_speakers=payload.expected_speakers)
+        expected_speakers=payload.expected_speakers,
+        initial_prompt=payload.initial_prompt)
