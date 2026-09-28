@@ -112,10 +112,19 @@ SITE_TERMS = [
         # finding the real page. The real path is `/terms-of-service`
         # (found from the site's own footer link), fetched and read in full
         # directly (2026-09-28).
+        #
+        # ai_ml_use corrected 2026-09-28 (a second pass re-reading this same
+        # page while investigating jjwxc): the "Automated Access/Extraction"
+        # and "Automated Data Collection" bullets quoted below sit right
+        # next to a separate, distinct "AI/ML Use" bullet in the same list
+        # -- present in the same full-text read that already quoted its two
+        # neighbors, just not itself recorded. EXPLICITLY_RESTRICTED, not
+        # UNKNOWN, per this file's own rule that only a directly-read clause
+        # sets it either way.
         "domains": ("wuxiaworld.com",),
         "platform": "Wuxiaworld",
         "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
-        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.EXPLICITLY_RESTRICTED.value,
         "terms": {
             "read": "www.wuxiaworld.com/terms-of-service, fetched and read in full directly "
                     "(2026-09-28) -- the real path, found via the site's own footer link, not "
@@ -127,7 +136,10 @@ SITE_TERMS = [
                       "automated means to access or extract data from Wuxiaworld without our "
                       "prior written permission. The only exception is public search engine "
                       "indexing... Any other automated reading or downloading of our content "
-                      "(for instance, to create an archive) is prohibited.\"",
+                      "(for instance, to create an archive) is prohibited.\" And, the same list's "
+                      "own separate AI/ML clause: \"AI/ML Use: Use the Platform content to "
+                      "develop, train, or improve artificial intelligence or machine learning "
+                      "models without our prior written consent.\"",
             "extraction_method": "Recorded for completeness, even though the ToS clause above "
                                  "is what actually rules this site out: chapter text is fully "
                                  "retrievable over plain HTTP without any browser/JS execution. "
