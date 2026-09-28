@@ -1,0 +1,28 @@
+// Hand-written mirrors of api/schemas.py (Translate-standalone models).
+
+export interface TranslateEngine {
+  name: string
+  label: string
+  free: boolean
+  models: string[] | null
+  key_configured: boolean
+}
+
+export interface TranslateHistoryEntry {
+  source_language: string
+  target_language: string
+  engine: string
+  source_text: string
+  translated_text: string
+  created_at: string | null
+}
+
+export interface TranslateRequest {
+  text: string
+  engine: string
+  source_language: string
+  target_language: string
+  model?: string | null
+}
+
+export type TranslateDirection = 'to_english' | 'from_english'

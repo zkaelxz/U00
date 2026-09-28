@@ -28,6 +28,8 @@ merged.
   roadmap in sync.
 - **Streamlit-to-React/FastAPI migration:** status, recipe, decisions and queue are in
   `docs/migration-handoff.md` (merge helpers in `scripts/migration/`). Read it first.
+  Frontend (React) phase plan: `docs/migration-frontend-plan.md`.
+  Master index (bug tracker, fixed bugs, to-do, deferred/review-later steps 106+): `docs/baihe-roadmap-master.md`.
 - See the roadmap's own NEXT pointer for exactly which steps are
   currently sent/in-progress/ready — don't duplicate that list here, it
   goes stale faster than the roadmap does.
