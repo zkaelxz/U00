@@ -227,6 +227,10 @@ class TranslateResponse(BaseModel):
     translated_text: str
 
 
+class ClearHistoryResult(BaseModel):
+    cleared: bool
+
+
 class ExportReadiness(BaseModel):
     """Read-only export-readiness summary for one drama (Migration Slice
     12) -- counts only, never flags a line or generates a file."""

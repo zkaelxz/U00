@@ -182,9 +182,9 @@ baihe-subtitler/
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
 │   │                             get_settings_overview; server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
-│   ├── translate_service.py      Migration Slices 11+13 -- list_engines/list_history (read-only)
-│   │                             plus translate() itself (Slice 13), server-side key resolution
-│   │                             per engine (D2); no history-clear
+│   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
+│   │                             (read-only), translate() (Slice 13, server-side key resolution
+│   │                             per engine, D2), clear_history() (Slice 17, confirm-gated delete)
 │   └── export_service.py         Migration Slices 12+14+15 -- get_export_readiness (read-only
 │                                 counts), generate_subtitle_text (Slice 14: SRT/VTT, pure/no disk
 │                                 write), flag_overlapping_lines/flag_dense_lines/
@@ -208,10 +208,12 @@ baihe-subtitler/
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
 │       ├── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
-│       │                         + POST /api/translate (Migration Slice 13); no history-clear
+│       │                         + POST /api/translate (Migration Slice 13)
+│       │                         + DELETE .../history?confirm=true (Migration Slice 17)
 │       └── export_routes.py      /api/export/dramas/{id}/readiness (Migration Slice 12)
 │                                 + .../subtitle (Migration Slice 14, SRT/VTT)
 │                                 + POST .../flag-overlaps, .../flag-dense-lines, .../flag-auto-qc
+│                                 (Migration Slice 15)
 │                                 (Migration Slice 15)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.

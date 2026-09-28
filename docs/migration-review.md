@@ -523,11 +523,32 @@ New `POST /api/export/dramas/{id}/flag-overlaps`, `.../flag-dense-lines`,
 `.../flag-auto-qc`. Each is a no-op-safe action -- a 0 count is a normal
 result, not an error.
 
-**Next candidate:** ASS export (needs the interactive per-drama style
-state `_subtitle_style_fragment` builds in Streamlit -- no API contract
-for it yet) or EPUB/audiobook/burned-in-video export, whichever a future
-scoping pass picks; Export's own read/write actions are now otherwise
-complete.
+Export's own read/write actions are now complete: ASS export (needs the
+interactive per-drama style state `_subtitle_style_fragment` builds in
+Streamlit -- no API contract for it yet) and EPUB/audiobook/burned-in-
+video export remain deliberately out of scope, each its own future
+slice.
+
+**Slices 16 and 17 — built in parallel (2026-09-28), the second real use
+of the §5.2 guardrails** (the first was Slices 11+12). Two `implementer`
+agents ran concurrently, each owning only its own files -- Slice 16
+created two brand-new files, Slice 17 extended two files Slice 16 never
+touched -- so this pair was file-disjoint by construction, not just by
+scoping care. The lead added both routers/schemas/server registrations
+and fixed one real defect found during integration (Slice 16's own
+entry has the detail). Merged as two separate PRs per guardrail #4; this
+entry covers Slice 17.
+
+**Slice 17** (Translate-standalone's one remaining deferred piece):
+`services/translate_service.py` gains `clear_history(confirm: bool =
+False)`, raising `InvalidInputError` unless `confirm=True` -- an
+explicit-opt-in gate translating `tabs/translate_tab.py`'s own
+checkbox-then-button UI pattern into API terms, rather than a bare
+delete. New `DELETE /api/translate/history?confirm=true`.
+
+**Next candidate for this slice:** ASS/EPUB/audiobook/video export
+(Export's own remaining scope, named above), a future scoping pass's
+call.
 
 ---
 
