@@ -825,6 +825,56 @@ series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
 line/note text, 500 for terms. Out of scope: merge/split/delete lines,
 restore original text, LLM tools, bulk modes.
 
+**Slice 26 -- Dub run job.** `POST /api/dub/dramas/{id}/run` (body `DubRunRequest`: `tts_engine`, optional `max_speedup`/`max_slowdown`/`narration_language`) starts the Dub tab's Generate as process job `dub_<id>` via `dub_service.start_dub_run` and returns `{job_id}` to poll at `/api/jobs/{job_id}`. It builds the same voice/offline-voice/clone/emotion inputs and GPU decision as the tab and `cli dub` (TTS uses no glossary/locale). The result is applied by the Slice 49 `on_done` hook (`apply_dub_result`): field-scoped `save_lines(dub_filename [+ start/end for narration])` plus status "dubbed", copying the produced fields by permanent line id onto the CURRENT database lines, so flag/flag_note/speaker and edits made during the run are never overwritten. Errors: unknown drama 404; no speakable text or bad engine/pacing/narration language 422 (the app's InvalidInput status); ffmpeg or the engine package missing 503; duplicate start 409. No paths or secrets in any response. Track download stays out of scope. Real TTS was not verified (tests fake the worker).
+
+**Slice 22 (cross-process job cancel).** `POST /api/jobs/{job_id}/cancel`
+flags the job (`job_records.cancel_requested`, new column) and, if this
+process owns it, sets the in-memory flag too. The owning process notices via
+`background_jobs.is_cancel_requested` (and the process-job watcher), which
+checks the DB at most once per 2s per job, so tight loops never hit SQLite
+each iteration. Cancellation is asynchronous. Unknown id is 404; an already
+finished job is 409 (the flag is cleared on any terminal status, so a reused
+job id never inherits a stale request). Only ids/status are returned.
+
+**Migration Slice 28 (artifact download).** `services/artifact_service.py` defines where a job
+writes a downloadable output: `<drama folder>/exports/<kind>/<filename>` (`output_path` validates
+the bare filename). `GET /api/artifacts/dramas/{id}/{kind}` streams the newest regular file there
+with a sanitized `Content-Disposition`; `.../info` returns name/size/kind only (never a path).
+Kinds are whitelisted (subtitle, epub, audio, video, archive); clients never send a path;
+symlinks and anything resolving outside the kind folder are ignored; errors are fixed text
+(404 when missing, 422 for an unknown kind). No job writes artifacts yet -- wiring is later.
+
+**Slice 31 — Media upload (2026-09-28).**
+`services/media_upload_service.py` + `api/routers/media_routes.py`:
+`POST /api/media/dramas/{id}/upload` (multipart, `file` field; needs
+`python-multipart`, added to `requirements-core.txt`). Same result as the
+Source tab's upload: stored as `source<ext>` in the drama folder (audio:
+`audio_filename` set; video: audio extracted to `audio.wav`, both
+`audio_filename` and `source_video_filename` set). The client filename is
+never stored or returned (only a whitelisted extension is read: mp3 wav m4a
+flac ogg mp4 mkv mov webm); the body streams to a temp file in the drama
+folder, is capped by `BAIHE_MAX_UPLOAD_MB` (default 2048; over-limit is a 422
+with fixed text and the partial file is deleted) and is atomically renamed.
+409 if a job is running for the drama, 404 for an unknown drama. Response is
+`name`, `size`, `kind` only. Uploading replaces the previous `source<ext>`
+of the same extension. Video audio extraction runs synchronously in the
+request (ffmpeg). Out of scope: yt-dlp URL download, ref-audio/cover uploads.
+
+**Slice 33 -- Novel narration chunk & tag.** `GET /api/narration/dramas/{id}/config`
+(booleans/enums only: novel text attached, per-engine `key_configured`, existing line
+count, job running) and `POST /api/narration/dramas/{id}/run` (`{engine?, model?}`,
+default engine `claude`; claude/deepseek/gemini/ollama) -> `{"job_id": "narration_<id>"}`.
+The job does everything (Slice 20 pattern): chunks the drama's attached
+`novel_narration_source.txt`, tags speakers with `tag_speakers_llm` (id-keyed; a
+wrong-length result falls back to all Narrator), upserts characters, takes a "before chunk
+& tag speakers" history snapshot, then replaces the drama's lines (the same full replace
+Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: unknown drama
+404, no novel text or non-LLM engine 422, no key 503 (Streamlit's silent all-Narrator
+fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
+`background_jobs`. Not verified against a real LLM (fake engine only).
+
+**Next candidates:** the
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions

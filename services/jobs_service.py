@@ -8,10 +8,8 @@ Reads `db.job_records` (Migration Slice 7's records-only mirror of
 `background_jobs` itself -- the whole point of this slice is answering
 "what jobs exist" from a process (the API host) that never started any
 of them, which `background_jobs`'s own in-memory `_jobs` dict can't do.
-Cancelling a job from a different process than the one running it needs
-its own mechanism beyond a records-only mirror (the owning process has
-to notice the request) and is deliberately not built here -- see
-docs/migration-review.md's Slice 8 note for why.
+Slice 22 adds cancel_job: it flags the job_records row, which the
+owning process's throttled check in background_jobs picks up.
 
 No Streamlit import, no HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
@@ -19,7 +17,8 @@ dicts, so `cli.py` or a script could call it too.
 
 import db
 import diagnostics
-from services.service_errors import NotFoundError
+import background_jobs
+from services.service_errors import ConflictError, NotFoundError
 
 
 def _redact(record: dict) -> dict:
@@ -45,3 +44,20 @@ def get_job(job_id: str) -> dict:
     if record is None:
         raise NotFoundError(f"No job with id {job_id!r}.")
     return _redact(record)
+
+
+def cancel_job(job_id: str) -> dict:
+    """Requests cancellation of a queued/running job, possibly owned by
+    another process. In-process jobs get the normal cancel flag at once;
+    the job_records flag is set either way so the owning process notices
+    it (throttled check in background_jobs). Unknown id -> NotFoundError;
+    already finished -> ConflictError (409). Cancellation is
+    asynchronous: the returned status is the record's current one."""
+    record = db.get_job_record(job_id)
+    if record is None:
+        raise NotFoundError(f"No job with id {job_id!r}.")
+    if record.get("status") not in ("queued", "running"):
+        raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
+    background_jobs.request_cancel(job_id)
+    db.request_job_record_cancel(job_id)
+    return {"job_id": job_id, "cancel_requested": True, "status": record["status"]}

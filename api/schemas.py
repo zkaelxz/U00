@@ -429,6 +429,7 @@ class DubPacing(BaseModel):
     counts: Dict[str, int]
     lines: List[DubPacingLine]
 
+
 class AssStyleOverrides(BaseModel):
     """Per-request ASS style overrides (Migration Slice 27). Only fields the
     client sets replace the preset's values; unknown keys are a 422. An
@@ -525,6 +526,7 @@ class DramaPresetDefaults(BaseModel):
 class DramaCreateResult(DramaDetail):
     preset_defaults: Optional[DramaPresetDefaults] = None
 
+
 class TranslateRunStylePreset(BaseModel):
     key: str
     label: str
@@ -580,6 +582,7 @@ class TranslateRunEstimate(BaseModel):
     effective_cap_usd: Optional[float] = None
     monthly_refusal: bool
     estimate_above_cap: bool
+
 
 class CharactersEntry(BaseModel):
     """One speaker's character/voice settings. No reference-audio
@@ -653,6 +656,7 @@ class CharactersVoiceBankApply(BaseModel):
 
 
 # --- Glossary, instructions and catalogues (Migration Slice 46) -----------
+
 
 class GlossaryTerm(BaseModel):
     id: int
@@ -729,6 +733,7 @@ class GlossaryCatalogues(BaseModel):
 # --- Review read-only line views (Migration Slice 47) -----------------------
 # Names are prefixed `ReviewLines` on purpose. Identity is always the permanent
 # line `id`; `idx` is display-only.
+
 
 class ReviewLinesLine(BaseModel):
     id: int
@@ -851,6 +856,7 @@ class ReviewLinesOriginalText(BaseModel):
 # services/review_records_service.py. Every model is prefixed
 # ReviewRecords to stay clear of the sibling ReviewLines* models.
 # ---------------------------------------------------------------------------
+
 
 class ReviewRecordsHistoryItem(BaseModel):
     id: int
@@ -995,6 +1001,7 @@ class DramaDeleteResult(BaseModel):
 
 # --- Migration Slice 43: per-line edit writes (services/lines_service.py) ---
 
+
 class LinesPatchRequest(BaseModel):
     """Partial line edit: only fields the client sets are applied. `expected`
     maps field -> the old value the client saw (409 if the line differs)."""
@@ -1052,6 +1059,63 @@ class LinesNote(BaseModel):
 class LinesNoteDeleteResult(BaseModel):
     deleted: bool
     note_id: int
+
+
+class JobCancelResult(BaseModel):
+    job_id: str
+    cancel_requested: bool
+    status: str
+
+
+class ArtifactInfo(BaseModel):
+    name: str
+    size: int
+    kind: str
+
+
+class MediaUploadResult(BaseModel):
+    name: str
+    size: int
+    kind: str
+
+
+class NarrationEngineOption(BaseModel):
+    key: str
+    key_configured: bool
+
+
+class NarrationConfig(BaseModel):
+    drama_id: int
+    is_narration: bool
+    has_novel_source: bool
+    engines: List[NarrationEngineOption]
+    default_engine: str
+    max_chunk_chars: int
+    existing_line_count: int
+    replaces_existing_lines: bool
+    job_running: bool
+
+
+class NarrationRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(default=None, max_length=40)
+    model: Optional[str] = Field(default=None, max_length=200)
+
+
+class NarrationRunResult(BaseModel):
+    job_id: str
+
+
+class DubRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tts_engine: str = Field(default="edge_tts", max_length=40)
+    max_speedup: Optional[float] = Field(default=None, ge=1.0, le=2.0)
+    max_slowdown: Optional[float] = Field(default=None, ge=0.5, le=1.0)
+    narration_language: Optional[str] = Field(default=None, max_length=20)
+
+
+class DubRunStarted(BaseModel):
+    job_id: str
 
 
 class TranslateRunStart(BaseModel):
