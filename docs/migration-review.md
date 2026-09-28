@@ -432,16 +432,30 @@ assumed:
    combined PR (same rule as batched-but-sequential steps in the root
    `CLAUDE.md`).
 
-**Next candidate pair, once Slice 10 is merged:** Translate-standalone
-(§3.7 -- `services/translate_service.py` + `api/routers/translate_routes.py`
-+ `tests/test_translate_service.py`, built on Slice 10's
-`settings_service.resolve_key`) and Phase 6's first Workspace stage, Export
-(§3.2's proposed build order puts it first -- `services/export_service.py`
-+ `api/routers/export_routes.py`, reading `tabs/workspace_tab.py`'s Export
-section 5655-6059 but not editing it in this slice). Both are read-only-or-
-simple, both only add to `api/server.py`/`api/schemas.py`, and neither
-depends on the other -- a real candidate for the guardrails above, not yet
-executed.
+**Slices 11 and 12 — ✅ Built in parallel (2026-09-28), the first real use of
+the guardrails above.** Two `implementer` agents ran concurrently in the
+same checkout, each owning only its own two new files (never `api/schemas.py`,
+`api/server.py`, or the other agent's files); the lead added both routers,
+both schema blocks, and both `api/server.py` registrations itself afterward,
+once, after both agents reported done -- exactly the sequencing guardrail
+#2 above describes. No file conflicts, no coordination needed mid-flight.
+Merged as two separate PRs per guardrail #4, even though built together --
+this entry (Slice 11's own) covers this PR; Slice 12's own entry follows it
+once that PR lands.
+
+**Slice 11** (§3.7, Translate-standalone's read-only half):
+`services/translate_service.py` -- `list_engines()` (name/label/free/
+models/`key_configured`, built on Slice 10's `settings_service.key_status`;
+`test_offline`/`nllb`/`ollama`/`libretranslate` always report
+`key_configured: True` since none needs a real hosted-API key -- see the
+service's own docstring for the reasoning) and `list_history()`. New
+`GET /api/translate/engines`, `GET /api/translate/history`. Actually
+translating (a real network call) and clearing history (a write) stay out
+of scope, deferred to a later slice.
+
+**Next candidate for this slice:** the actual translate action (`POST`,
+needs `settings_service.resolve_key` server-side) -- not a mechanical
+follow-on to the read-only half, so not batched in here.
 
 ---
 

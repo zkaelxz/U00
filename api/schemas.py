@@ -182,3 +182,30 @@ class SettingsOverview(BaseModel):
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     notify_on_completion: bool
+
+
+class TranslateEngine(BaseModel):
+    """One entry from translate_engines.ENGINES (Migration Slice 11) --
+    key_configured is a boolean only, never a key value (D2)."""
+    name: str
+    label: str
+    free: bool
+    models: Optional[List[str]] = None
+    key_configured: bool
+
+
+class TranslateEngineListResponse(BaseModel):
+    items: List[TranslateEngine]
+
+
+class TranslateHistoryEntry(BaseModel):
+    source_language: str
+    target_language: str
+    engine: str
+    source_text: str
+    translated_text: str
+    created_at: Optional[str] = None
+
+
+class TranslateHistoryResponse(BaseModel):
+    items: List[TranslateHistoryEntry]

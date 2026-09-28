@@ -179,9 +179,11 @@ baihe-subtitler/
 │   │                             versions, running jobs, log tail); no admin action, no network call
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
-│   └── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
-│                                 get_settings_overview; server-side key resolution shared with
-│                                 tabs/settings_tab.py; never returns a key value over an API (D2)
+│   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
+│   │                             get_settings_overview; server-side key resolution shared with
+│   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
+│   └── translate_service.py      Migration Slice 11 -- read-only list_engines/list_history for the
+│                                 standalone Translate tool; no translate action, no history-clear
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -197,7 +199,9 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
-│       └── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
+│       ├── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
+│       └── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11,
+│                                 read-only, no translate action, no history-clear)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
