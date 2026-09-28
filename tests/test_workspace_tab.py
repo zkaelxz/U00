@@ -50,7 +50,7 @@ def test_success_stores_segments_and_no_gpu_fallback(monkeypatch):
 
     fake_segments = [{"start": 0.0, "end": 1.0, "text": "hi"}]
     monkeypatch.setattr(
-        "tabs.workspace_tab.transcribe_for_timing",
+        "services.workspace_job_service.transcribe_for_timing",
         lambda *a, **k: fake_segments)
 
     run_transcribe_job(job_id, "/fake.wav", "medium", "zh", False, None, None, "", 5, 2000)
@@ -70,7 +70,7 @@ def test_gpu_fallback_message_is_captured(monkeypatch):
         k["on_gpu_fallback"]("CUDA out of memory")
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     run_transcribe_job(job_id, "/fake.wav", "medium", "zh", True, None, None, "", 5, 2000)
 
@@ -89,7 +89,7 @@ def test_progress_cb_is_wired_to_update_progress(monkeypatch):
         k["progress_cb"](0.5)
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
 
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     run_transcribe_job(job_id, "/fake.wav", "medium", "zh", False, None, None, "", 5, 2000)
 
@@ -119,7 +119,7 @@ def test_vocal_separation_runs_before_transcription_and_feeds_its_output(monkeyp
     def fake_transcribe(path, *a, **k):
         seen["transcribed_path"] = path
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
                         separate_vocals_first=True, separation_backend="audio_separator")
@@ -143,7 +143,7 @@ def test_vocal_separation_off_by_default_transcribes_the_original_audio(monkeypa
     def fake_transcribe(path, *a, **k):
         seen["transcribed_path"] = path
         return [{"start": 0.0, "end": 1.0, "text": "hi"}]
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
 
@@ -171,7 +171,7 @@ def test_groq_transcription_is_used_instead_of_local_whisper_when_enabled(monkey
     monkeypatch.setattr(core_module, "transcribe_with_groq", fake_groq)
 
     called = []
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: called.append(1))
 
     run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
@@ -196,7 +196,7 @@ def test_groq_failure_is_recorded_not_raised(monkeypatch):
     monkeypatch.setattr(core_module, "transcribe_with_groq", fake_groq)
 
     called = []
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: called.append(1))
 
     run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000,
@@ -217,7 +217,7 @@ def test_use_groq_off_by_default_still_uses_local_whisper(monkeypatch):
     def boom(*a, **k):
         raise AssertionError("Groq must not be called when use_groq is False")
     monkeypatch.setattr(core_module, "transcribe_with_groq", boom)
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
 
     run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
@@ -241,7 +241,7 @@ def test_vocal_separation_failure_is_recorded_not_raised(monkeypatch, tmp_path):
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
 
     called = []
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: called.append(1))
 
     run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
@@ -271,7 +271,7 @@ def test_vocal_separation_cancel_reports_cancelled_and_never_starts_transcriptio
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
 
     called = []
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: called.append(1))
 
     run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
@@ -307,7 +307,7 @@ def test_cancel_right_after_vocal_separation_finishes_stops_before_transcription
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
 
     called = []
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: called.append(1))
 
     run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
@@ -330,7 +330,7 @@ def test_cancel_before_transcription_starts_with_separation_off_also_stops_it(mo
                                       "error": None, "cancel_requested": True, "result": None}
 
     called = []
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: called.append(1))
 
     run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
@@ -362,7 +362,7 @@ def test_vocal_separation_threads_progress_and_cancel_callbacks_through(monkeypa
         assert cancel_check_cb() is False
         return out_path
     monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: [
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", lambda *a, **k: [
         {"start": 0.0, "end": 1.0, "text": "hi"}])
 
     run_transcribe_job(job_id, audio_path, "medium", "zh", False, None, None, "", 5, 2000,
@@ -398,7 +398,7 @@ def test_cancel_after_transcription_skips_realign_but_keeps_the_transcript(monke
     def fake_transcribe(*a, **k):
         background_jobs.request_cancel(job_id)
         return fake_segments
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     import word_align
     monkeypatch.setattr(word_align, "realign_oversized_segments",
@@ -418,7 +418,7 @@ def test_realign_long_segments_runs_after_transcription(monkeypatch):
     _clear(job_id)
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing",
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing",
                          lambda *a, **k: [{"start": 0.0, "end": 20.0, "text": "long merged line"}])
 
     import word_align
@@ -452,7 +452,7 @@ def test_realign_off_by_default_leaves_segments_unchanged(monkeypatch):
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: fake_segments)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", lambda *a, **k: fake_segments)
 
     run_transcribe_job(job_id, "/fake/audio.wav", "medium", "zh", False, None, None, "", 5, 2000)
 
@@ -471,7 +471,7 @@ def test_realign_missing_dependency_keeps_the_transcript_and_reports_the_issue(m
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
     fake_segments = [{"start": 0.0, "end": 20.0, "text": "long merged line"}]
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: fake_segments)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", lambda *a, **k: fake_segments)
 
     import word_align
 
@@ -497,7 +497,7 @@ def test_model_download_failure_is_recorded_not_raised(monkeypatch):
     def fake_transcribe(*a, **k):
         raise core_module.ModelDownloadError("network unreachable")
 
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     run_transcribe_job(job_id, "/fake.wav", "medium", "zh", False, None, None, "", 5, 2000)  # must not raise
 
@@ -513,7 +513,7 @@ def test_empty_segments_is_recorded_not_raised(monkeypatch):
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
 
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", lambda *a, **k: [])
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", lambda *a, **k: [])
 
     run_transcribe_job(job_id, "/fake.wav", "medium", "zh", False, None, None, "", 5, 2000)
 
@@ -532,7 +532,7 @@ def test_unexpected_exception_still_propagates(monkeypatch):
     def fake_transcribe(*a, **k):
         raise RuntimeError("something genuinely broke")
 
-    monkeypatch.setattr("tabs.workspace_tab.transcribe_for_timing", fake_transcribe)
+    monkeypatch.setattr("services.workspace_job_service.transcribe_for_timing", fake_transcribe)
 
     try:
         run_transcribe_job(job_id, "/fake.wav", "medium", "zh", False, None, None, "", 5, 2000)
@@ -5194,8 +5194,9 @@ class TestTranscriptionCompletionDoesNotWipeExistingLines:
                                             transcribe_impl=None):
         from streamlit.testing.v1 import AppTest
         import tabs.workspace_tab as wt
+        from services import workspace_job_service
         monkeypatch.setattr(
-            wt, "transcribe_for_timing",
+            workspace_job_service, "transcribe_for_timing",
             transcribe_impl or (lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}]))
 
         def _render():
@@ -5358,8 +5359,9 @@ class TestDiarizationAutoStartsAfterAlign:
     def _run(self, did, monkeypatch):
         from streamlit.testing.v1 import AppTest
         import tabs.workspace_tab as wt
+        from services import workspace_job_service
 
-        monkeypatch.setattr(wt, "transcribe_for_timing",
+        monkeypatch.setattr(workspace_job_service, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
 
         def _render():
@@ -6644,7 +6646,8 @@ class TestReferenceNovelUploadDoesNotLeakAcrossDramas:
     def test_transcribing_drama_b_does_not_pull_in_drama_as_upload(
             self, isolated_db, monkeypatch):
         import tabs.workspace_tab as wt
-        monkeypatch.setattr(wt, "transcribe_for_timing",
+        from services import workspace_job_service
+        monkeypatch.setattr(workspace_job_service, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         uploads = self._fake_uploader(monkeypatch)
         did_a = self._drama(isolated_db, "Drama A")
@@ -6666,7 +6669,8 @@ class TestReferenceNovelUploadDoesNotLeakAcrossDramas:
 
     def test_pasted_reference_does_not_leak_either(self, isolated_db, monkeypatch):
         import tabs.workspace_tab as wt
-        monkeypatch.setattr(wt, "transcribe_for_timing",
+        from services import workspace_job_service
+        monkeypatch.setattr(workspace_job_service, "transcribe_for_timing",
                             lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
         did_a = self._drama(isolated_db, "Drama A")
         did_b = self._drama(isolated_db, "Drama B")

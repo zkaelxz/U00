@@ -1393,8 +1393,9 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         limit must be rejected before extractall() ever runs, not partway
         through with a full disk -- and the existing library survives."""
         import tabs.library_tab as lt
+        from services import workspace_job_service
 
-        monkeypatch.setattr(lt, "_MAX_RESTORE_TOTAL_BYTES", 10)
+        monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_TOTAL_BYTES", 10)
 
         marker = os.path.join(tmp_path_str, "dramas", "existing_drama.txt")
         os.makedirs(os.path.dirname(marker))
@@ -1413,8 +1414,9 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         """Step 52: the per-file limit catches one huge member even if the
         total-size limit wouldn't (e.g. it's the only file in the zip)."""
         import tabs.library_tab as lt
+        from services import workspace_job_service
 
-        monkeypatch.setattr(lt, "_MAX_RESTORE_MEMBER_BYTES", 10)
+        monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBER_BYTES", 10)
 
         oversized_zip = self._make_zip_bytes({"library.db": "x" * 100})
         with pytest.raises(ValueError, match="per-file limit"):
@@ -1424,8 +1426,9 @@ class TestRestoreFromBackupValidatesBeforeDestroying:
         """Step 52: a zip with too many members is rejected up front,
         without ever calling extractall()."""
         import tabs.library_tab as lt
+        from services import workspace_job_service
 
-        monkeypatch.setattr(lt, "_MAX_RESTORE_MEMBERS", 1)
+        monkeypatch.setattr(workspace_job_service, "_MAX_RESTORE_MEMBERS", 1)
 
         many_files_zip = self._make_zip_bytes({
             "library.db": "fake sqlite bytes",

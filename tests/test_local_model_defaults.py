@@ -87,7 +87,11 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     def fake_transcribe(audio_path, whisper_size, **kw):
         core._whisper_model_cache[(whisper_size, "cuda")] = object()  # what loading does
         return [{"start": 0.0, "end": 1.0, "text": "你好"}]
-    monkeypatch.setattr(wt, "transcribe_for_timing", fake_transcribe)
+    # Migration Slice 2: run_transcribe_job now lives in and resolves
+    # transcribe_for_timing from services.workspace_job_service's own
+    # globals, not tabs.workspace_tab's.
+    from services import workspace_job_service
+    monkeypatch.setattr(workspace_job_service, "transcribe_for_timing", fake_transcribe)
     job_id = "test_release_after_transcribe"
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
