@@ -6,15 +6,16 @@ Thin adapters over `services.drama_service`. POST for both writes,
 matching every other mutation endpoint (no PATCH precedent). Update is a
 partial update: only fields present in the JSON body are passed on
 (`exclude_unset`), so an omitted field never means "set to None".
-Delete, cover upload, series rename/unassign and presets CRUD are out of
+Delete (Slice 36) needs confirm=true and confirm_text=DELETE as query
+params, like translate history's confirm gate. Cover upload, series rename/unassign and presets CRUD are out of
 scope -- see services/drama_service.py.
 """
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Query
 
 from api.routers.library_routes import _to_detail
-from api.schemas import (DramaCreateRequest, DramaCreateResult, DramaDetail,
-                         DramaMetadataUpdate, ErrorResponse)
+from api.schemas import (DramaCreateRequest, DramaCreateResult, DramaDeleteResult,
+                         DramaDetail, DramaMetadataUpdate, ErrorResponse)
 from services import drama_service
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
@@ -35,3 +36,12 @@ def post_drama(payload: DramaCreateRequest):
 def post_drama_metadata(payload: DramaMetadataUpdate, drama_id: int = Path(ge=1)):
     return _to_detail(drama_service.update_drama_metadata(
         drama_id, **payload.model_dump(exclude_unset=True)))
+
+
+@router.delete("/{drama_id}", response_model=DramaDeleteResult,
+               summary="Permanently delete a drama (requires confirm=true and confirm_text=DELETE)",
+               responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                          422: {"model": ErrorResponse}})
+def delete_drama(drama_id: int = Path(ge=1), confirm: bool = Query(False),
+                 confirm_text: str = Query("")):
+    return drama_service.delete_drama(drama_id, confirm=confirm, confirm_text=confirm_text)
