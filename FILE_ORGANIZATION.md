@@ -244,8 +244,9 @@ baihe-subtitler/
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
-│   └── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
-│                                 suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
+│   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   └── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -301,8 +302,9 @@ baihe-subtitler/
 │       ├── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
 │       │                         only) (Migration Slice 31)
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
-│       └── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
-│                                 (Migration Slice 37)
+│       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
+│       │                         (Migration Slice 37)
+│       └── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
