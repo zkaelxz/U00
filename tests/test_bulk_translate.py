@@ -968,3 +968,120 @@ class TestFinishTranslationRunGlossaryEnforcement:
                                   glossary_terms=[self._term], errors=[])
 
         assert isolated_db.load_lines(did)[0]["en"] == "Nothing to enforce here"
+
+
+class _FakeSummaryBlock:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class _FakeSummaryEngine:
+    """Claude-shaped fake for Step 74's episode-summary call -- records
+    how many times it was actually asked to generate something, so tests
+    can confirm this runs once per finished episode, not once per batch
+    or once per line."""
+    supports_reference = True
+    model = "fake-summary-model"
+    name = "claude"
+
+    def __init__(self, summary_text='{"summary": "Auto-generated summary."}'):
+        self.client = self
+        self.messages = self
+        self.call_count = 0
+        self.summary_text = summary_text
+
+    def create(self, model, max_tokens, messages):
+        self.call_count += 1
+        return type("Resp", (), {"content": [_FakeSummaryBlock(self.summary_text)]})()
+
+
+class TestFinishTranslationRunEpisodeSummary:
+    """Step 74: finish_translation_run is the one place (shared by
+    Workspace's run_translate_job and cli.py translate) where a finished
+    episode's running summary gets generated and stored."""
+
+    def _translated_drama(self, isolated_db, status="aligned"):
+        did = isolated_db.create_drama(title_en="Test", status=status, translation_engine="claude")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="一", en="Xiaoling arrived home."),
+        ])
+        return did, isolated_db.load_line_objects(did)
+
+    def test_generates_and_stores_a_summary_once_the_episode_is_fully_translated(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine)
+
+        assert engine.call_count == 1
+        assert isolated_db.get_drama(did)["episode_summary"] == "Auto-generated summary."
+
+    def test_no_summary_engine_skips_generation_entirely(self, isolated_db):
+        """summary_engine=None (its default) -- e.g. no engine could be
+        built -- must never fail or alter the translation run itself."""
+        did, lines = self._translated_drama(isolated_db)
+
+        assert bt.finish_translation_run(
+            did, lines, NS(model="fake"), "claude", "audio_drama",
+            glossary_terms=None, errors=[]) is True
+        assert isolated_db.get_drama(did)["episode_summary"] is None
+
+    def test_not_generated_for_a_cancelled_run(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], cancelled=True,
+                                  summary_engine=engine)
+
+        assert engine.call_count == 0
+        assert isolated_db.get_drama(did)["episode_summary"] is None
+
+    def test_not_generated_while_lines_remain_untranslated(self, isolated_db):
+        """Only once the drama actually reaches 'translated' -- a batch
+        failure or a partial run leaving lines untouched shouldn't
+        generate a summary from an incomplete episode."""
+        did = isolated_db.create_drama(title_en="Test", status="aligned",
+                                       translation_engine="claude")
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0, end=1, zh="一", en="Done."),
+            Line(idx=1, start=1, end=2, zh="二", en=""),  # still untranslated
+        ])
+        lines = isolated_db.load_line_objects(did)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine)
+
+        assert engine.call_count == 0
+        assert isolated_db.get_drama(did)["episode_summary"] is None
+
+    def test_called_once_regardless_of_how_many_lines_the_episode_has(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test", status="aligned",
+                                       translation_engine="claude")
+        isolated_db.save_lines(did, [
+            Line(idx=i, start=i, end=i + 1, zh=f"line {i}", en=f"Line {i}.")
+            for i in range(40)
+        ])
+        lines = isolated_db.load_line_objects(did)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine)
+
+        assert engine.call_count == 1
+
+    def test_a_declining_summary_engine_does_not_overwrite_an_existing_summary(self, isolated_db):
+        """generate_episode_summary returning "" (a decline -- parse
+        failure, pure-MT engine, etc.) must not blank out a summary a
+        previous run (or a manual edit) already stored."""
+        did, lines = self._translated_drama(isolated_db)
+        isolated_db.update_drama(did, episode_summary="Earlier good summary.")
+        engine = _FakeSummaryEngine(summary_text="not valid json")
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine)
+
+        assert isolated_db.get_drama(did)["episode_summary"] == "Earlier good summary."

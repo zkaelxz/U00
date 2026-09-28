@@ -1003,6 +1003,37 @@ class TestNotifyOnCompletion:
         assert calls == [("A doomed job", "error")]
         bg.clear_job("t_notify_err")
 
+    def test_wait_for_genuinely_waits_rather_than_racing_the_notification(self, monkeypatch):
+        """Step 49's own exit condition: prove `_wait_for` actually blocks
+        on the notification landing rather than getting lucky, by
+        artificially delaying `_notify_job_finished` past the point where
+        `is_running()` already went False -- the exact window that made
+        `test_failed_job_notifies_with_error_status` flaky before `_wait_for`
+        existed (see `_wait_for`'s own docstring above)."""
+        calls = []
+        delay = 0.1
+
+        def delayed_notify(*a, **k):
+            time.sleep(delay)
+            calls.append(a)
+
+        monkeypatch.setattr(bg, "_notify_job_finished", delayed_notify)
+        bg.set_notify_on_completion(True)
+        bg.start_job("t_notify_delayed", lambda: (_ for _ in ()).throw(ValueError("boom")),
+                     description="A doomed job")
+        _wait("t_notify_delayed")
+        assert not calls, (
+            "notification landed before is_running() even went False -- the race "
+            "window this test is supposed to exercise didn't happen, so this test "
+            "isn't proving what it claims to")
+        start = time.time()
+        assert _wait_for(lambda: calls, timeout=2.0), "the notification never arrived"
+        assert time.time() - start >= delay / 2, (
+            "_wait_for returned before the delayed notification could plausibly "
+            "have landed -- it isn't actually waiting on the notification")
+        assert calls == [("A doomed job", "error")]
+        bg.clear_job("t_notify_delayed")
+
     def test_notify_job_finished_is_a_no_op_without_plyer_installed(self, monkeypatch):
         """Core-only install (no `pip install plyer`): must never raise,
         matching every other optional-dependency fallback in this app."""

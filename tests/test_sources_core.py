@@ -110,6 +110,42 @@ class TestPacing:
         assert t.calls[1]["t"] - t.calls[0]["t"] == pytest.approx(5.0)
         assert c.policy.max_retries == 1
 
+    def test_session_break_is_on_by_default(self):
+        """Direct construction (bypassing make_client's test-only override
+        below) gets the real, human-like default: a longer break every
+        8-20 requests, not a constant per-request rate for a whole run."""
+        policy = PacingPolicy()
+        assert policy.session_break_min_requests == 8
+        assert policy.session_break_max_requests == 20
+        assert (policy.session_break_min_delay, policy.session_break_max_delay) == (30.0, 90.0)
+        assert PacingPolicy.from_settings().session_break_min_requests == 8
+
+    def test_a_long_running_session_takes_a_human_like_break(self, isolated_db):
+        """Step 90 follow-up: a session shouldn't be an evenly spaced
+        request rate for its whole length -- every so often it pauses
+        longer, like a person setting the app down and coming back."""
+        clock = FakeClock()
+        urls = [f"https://session.invalid/p{i}" for i in range(7)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        c = make_client("session_break", t, clock, rng=FixedRng(0.0),
+                        session_break_min_requests=3, session_break_max_requests=3,
+                        session_break_min_delay=45.0, session_break_max_delay=45.0)
+        for u in urls:
+            c.get(u)
+        gaps = [b["t"] - a["t"] for a, b in zip(t.calls, t.calls[1:])]
+        # Ordinary gap is 0 (min_delay=max_delay=0 from make_client); the
+        # break lands before the 4th and 7th requests (every 3 requests).
+        assert gaps == pytest.approx([0.0, 0.0, 45.0, 0.0, 0.0, 45.0])
+
+    def test_zero_disables_the_session_break(self, isolated_db):
+        clock = FakeClock()
+        urls = [f"https://no_break.invalid/p{i}" for i in range(25)]
+        t = ScriptedTransport({u: html("x") for u in urls}, clock)
+        c = make_client("no_break", t, clock, rng=FixedRng(0.0))   # make_client's own default
+        for u in urls:
+            c.get(u)
+        assert all(b["t"] == a["t"] for a, b in zip(t.calls, t.calls[1:]))
+
     def test_adapter_host_minimum_overrides_a_shorter_default(self, isolated_db):
         clock = FakeClock()
         t = ScriptedTransport({"https://slow.invalid/1": html("x"),
@@ -452,6 +488,7 @@ class TestCapabilitiesAndTestNow:
         roundtrip = SourceCapabilities.from_dict(caps.to_dict())
         assert roundtrip.terms == caps.terms and roundtrip.tiers.keys() == caps.tiers.keys()
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_stale_stored_record_cant_clear_a_corrected_built_in_prohibition(self, isolated_db):
         """Step 25q gap 1: an earlier import saved a stored record saying
         the source was fine. The adapter's own built-in default has since
@@ -463,6 +500,7 @@ class TestCapabilitiesAndTestNow:
         with pytest.raises(TermsProhibited):
             ladder.check_terms("src", default)
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_stored_prohibition_survives_even_if_default_lacks_it(self, isolated_db):
         """The reverse must still hold: a stored record that itself
         recorded a prohibition isn't cleared just because the caller's

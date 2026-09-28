@@ -843,7 +843,7 @@ def test_translation_notes_job_persists_and_logs_usage(isolated_db):
             usage = type("Usage", (), {"input_tokens": 25, "output_tokens": 10})()
             return type("Resp", (), {"content": [block], "usage": usage})()
 
-    run_translation_notes_job(job_id, did, lines, FakeNotesEngine(), "claude", "zh")
+    run_translation_notes_job(job_id, did, lines, FakeNotesEngine(), "claude")
 
     result = background_jobs.get_status(job_id)["result"]
     assert result == {"note_count": 1}
@@ -2156,7 +2156,7 @@ class TestCharacterNamingGaps:
         import diarize
         diarize.save_turns(ddir, [{"start": 0.0, "end": 1.5, "speaker": "SPEAKER_01"}])
 
-        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+        def fake_extract(audio_path, speaker_segments, drama_dir):
             return {}, {"SPEAKER_01": {"closest_duration": 1.5, "reason": "too_short"}}
         monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
 
@@ -2174,7 +2174,7 @@ class TestCharacterNamingGaps:
         import diarize
         diarize.save_turns(ddir, [{"start": 100.0, "end": 106.0, "speaker": "SPEAKER_00"}])
 
-        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+        def fake_extract(audio_path, speaker_segments, drama_dir):
             # A clip WAS found, but its time window (100-106s) doesn't
             # match any of this drama's real lines (all under 5s) -- the
             # exact "clip found, speaker-tag match failed" case.
@@ -2195,7 +2195,7 @@ class TestCharacterNamingGaps:
         import diarize
         diarize.save_turns(ddir, [{"start": 0.0, "end": 1.0, "speaker": "SPEAKER_00"}])
 
-        def fake_extract(audio_path, lines, speaker_segments, drama_dir):
+        def fake_extract(audio_path, speaker_segments, drama_dir):
             return {"SPEAKER_00": {"path": os.path.join(drama_dir, "SPEAKER_00.wav"),
                                    "start": 0.0, "end": 1.0}}, {}
         monkeypatch.setattr(dub_module, "extract_reference_clips", fake_extract)
@@ -6111,6 +6111,7 @@ class TestApplyPresetOnNewDrama:
     def test_no_presets_saved_still_allows_creating_a_drama(self, isolated_db):
         at = self._run()
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Plain One").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
         dramas = db.list_dramas()
         assert len(dramas) == 1
@@ -6124,6 +6125,7 @@ class TestApplyPresetOnNewDrama:
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("New One").run()
         [s for s in at.selectbox if s.label == "Apply a preset (optional)"][0].select(
             "Novel defaults").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
 
         dramas = db.list_dramas()
@@ -6134,6 +6136,55 @@ class TestApplyPresetOnNewDrama:
         assert at.session_state[f"locale_{new_id}"] == "en-GB"
         assert at.session_state[f"default_female_pronouns_{new_id}"] is True
         assert at.session_state[f"include_genre_notes_{new_id}"] is False
+
+
+class TestNewDramaLanguageSelector:
+    """Step 87: the new-drama creation form had a content-type selector
+    but no language selector, so db.create_drama was called with no
+    source_language and silently fell through to the schema's DEFAULT
+    'zh' with zero UI indication. Now there's a required selector with
+    no default selection, matching the existing edit-branch selector's
+    zh/ja/ko options, and "Create drama" stays disabled until one is
+    picked."""
+
+    def _run(self):
+        from streamlit.testing.v1 import AppTest
+
+        def _render():
+            import tabs.workspace_tab as wt
+            wt.render_workspace_tab()
+
+        at = AppTest.from_function(_render)
+        at.session_state["active_drama_id"] = None
+        at.session_state["lines"] = None
+        at.run(timeout=30)
+        return at
+
+    def test_no_language_preselected(self, isolated_db):
+        at = self._run()
+        source_language = [s for s in at.selectbox if s.label == "Source language *(required)*"][0]
+        assert source_language.value is None
+
+    def test_create_drama_button_disabled_until_a_language_is_picked(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Unset Lang").run()
+        create_button = [b for b in at.button if b.label == "Create drama"][0]
+        assert create_button.disabled
+        assert any("Still needed: a source language" in i.value for i in at.info)
+
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("ja").run()
+        create_button = [b for b in at.button if b.label == "Create drama"][0]
+        assert not create_button.disabled
+
+    def test_creating_a_drama_saves_the_picked_language_not_a_silent_zh_default(self, isolated_db):
+        at = self._run()
+        [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Japanese Show").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("ja").run()
+        [b for b in at.button if b.label == "Create drama"][0].click().run()
+
+        dramas = db.list_dramas()
+        assert len(dramas) == 1
+        assert dramas[0]["source_language"] == "ja"
 
 
 class TestAnimeContentTypeAndSeriesAtCreation:
@@ -6163,6 +6214,7 @@ class TestAnimeContentTypeAndSeriesAtCreation:
         at = self._run()
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("A Show").run()
         [s for s in at.selectbox if s.label == "Content type"][0].select("anime").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
 
         dramas = db.list_dramas()
@@ -6174,6 +6226,7 @@ class TestAnimeContentTypeAndSeriesAtCreation:
         at = self._run()
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Episode 1").run()
         [s for s in at.selectbox if s.label == "Series (optional)"][0].select("Existing Series").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
 
         dramas = db.list_dramas()
@@ -6186,6 +6239,7 @@ class TestAnimeContentTypeAndSeriesAtCreation:
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("Episode 1").run()
         [s for s in at.selectbox if s.label == "Series (optional)"][0].select("+ New series...").run()
         [t for t in at.text_input if t.label == "New series name"][0].set_value("Brand New Series").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
 
         dramas = db.list_dramas()
@@ -6198,6 +6252,7 @@ class TestAnimeContentTypeAndSeriesAtCreation:
     def test_leaving_series_unset_does_not_assign_one(self, isolated_db):
         at = self._run()
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("No Series").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
 
         dramas = db.list_dramas()
@@ -6212,6 +6267,7 @@ class TestAnimeContentTypeAndSeriesAtCreation:
         [t for t in at.text_input if t.label == "Title (English)"][0].set_value("The Movie").run()
         [s for s in at.selectbox if s.label == "Content type"][0].select("anime").run()
         [s for s in at.selectbox if s.label == "Series (optional)"][0].select("A Show").run()
+        [s for s in at.selectbox if s.label == "Source language *(required)*"][0].select("zh").run()
         [b for b in at.button if b.label == "Create drama"][0].click().run()
 
         in_series = db.list_dramas_by_series(sid)
