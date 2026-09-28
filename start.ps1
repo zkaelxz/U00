@@ -7,15 +7,30 @@
 #
 #   .\start.ps1              # normal launch
 #   .\start.ps1 -Portable    # also turns on portable mode for this run
+#   .\start.ps1 -PythonVersion 3.12  # Step 79: pin the Python version
+#                            used to create the venv, via the `py`
+#                            launcher, for an optional dependency that
+#                            needs a specific version. A PYTHON_VERSION
+#                            marker file next to this script (containing
+#                            just "3.12") does the same thing without the
+#                            flag -- same pattern as the PORTABLE marker.
 
 param(
-    [switch]$Portable
+    [switch]$Portable,
+    [string]$PythonVersion
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
 if ($Portable) { $env:BAIHE_PORTABLE = "1" }
+
+if (-not $PythonVersion) {
+    $markerPath = Join-Path $PSScriptRoot "PYTHON_VERSION"
+    if (Test-Path $markerPath) {
+        $PythonVersion = (Get-Content $markerPath -Raw).Trim()
+    }
+}
 
 $Port = 8501
 $VenvDir = Join-Path $PSScriptRoot "venv"
@@ -39,19 +54,53 @@ function Test-PortOpen {
     }
 }
 
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    Write-Host "Python wasn't found on PATH."
-    Write-Host ""
-    Write-Host "Install Python 3.9 or newer from https://python.org/downloads/"
-    Write-Host "and make sure to tick 'Add python.exe to PATH' during setup,"
-    Write-Host "then run this again."
+# `Get-Command python` only confirms a file named python.exe exists
+# somewhere on PATH -- Windows ships a non-functional stub at
+# ...\WindowsApps\python.exe (the Microsoft Store "App execution alias")
+# that satisfies that check even with no real Python installed, or with
+# a real install shadowed by the stub earlier on PATH. Actually running
+# it and checking its exit code is the only way to tell a real
+# interpreter from the stub, which prints the Store message and exits
+# non-zero.
+if ($PythonVersion) {
+    $PyCmd = "py"
+    $PyArgs = @("-$PythonVersion")
+} else {
+    $PyCmd = "python"
+    $PyArgs = @()
+}
+
+$pyVersionCheck = & $PyCmd @PyArgs --version 2>$null
+if ($LASTEXITCODE -ne 0) {
+    if ($PythonVersion) {
+        Write-Host "Python $PythonVersion wasn't found via the 'py' launcher."
+        Write-Host ""
+        Write-Host "Install Python $PythonVersion from https://python.org/downloads/"
+        Write-Host "(the 'py' launcher is installed automatically with it), then"
+        Write-Host "run this again."
+    } elseif (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        Write-Host "Python wasn't found on PATH."
+        Write-Host ""
+        Write-Host "Install Python 3.9 or newer from https://python.org/downloads/"
+        Write-Host "and make sure to tick 'Add python.exe to PATH' during setup,"
+        Write-Host "then run this again."
+    } else {
+        Write-Host "Python is on PATH but isn't runnable -- this is the"
+        Write-Host "Microsoft Store's non-functional 'App execution aliases' stub,"
+        Write-Host "not a real Python install."
+        Write-Host ""
+        Write-Host "Fix: Settings -> Apps -> Advanced app settings -> App execution aliases"
+        Write-Host "-> turn OFF both 'App Installer python.exe' and 'App Installer"
+        Write-Host "python3.exe', then run this again. If Python genuinely isn't"
+        Write-Host "installed, install it from https://python.org/downloads/ first."
+    }
     Read-Host "Press Enter to close"
     exit 1
 }
 
 if (-not (Test-Path $Py)) {
     Write-Host "Setting up a virtual environment in '$VenvDir' (first run only)..."
-    python -m venv $VenvDir
+    & $PyCmd @PyArgs -m venv $VenvDir
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "Could not create the virtual environment. See the error above."
