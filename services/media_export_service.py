@@ -20,10 +20,11 @@ import tempfile
 import background_jobs
 import db
 import dub
-from services import artifact_service
+from services import artifact_service, export_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError)
 
+_VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm")
 _FFMPEG_MISSING = "ffmpeg is not installed or not on PATH, which this export requires."
 
 
@@ -83,4 +84,54 @@ def start_audiobook_export(drama_id: int) -> dict:
         description=f"Audiobook export (drama #{drama_id})")
     if not started:
         raise ConflictError(f"The audiobook export is already running for drama {drama_id}.")
+    return {"job_id": job_id}
+
+
+def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
+    background_jobs.update_progress(job_id, 0.1, "Rendering video...")
+    with tempfile.TemporaryDirectory() as tmp:
+        # A fixed, plain subtitle filename in the working folder means the
+        # filter string needs no path escaping and holds nothing client-supplied.
+        with open(os.path.join(tmp, "subs.ass"), "w", encoding="utf-8") as f:
+            f.write(ass_text)
+        out_name = f"out{ext}"
+        cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", "subtitles=subs.ass",
+               "-c:a", "copy", out_name]
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, cwd=tmp)
+        except (subprocess.CalledProcessError, OSError):
+            raise RuntimeError("ffmpeg failed to produce the export.") from None
+        final = artifact_service.output_path(drama_id, "video", f"burned_video_{drama_id}{ext}")
+        shutil.move(os.path.join(tmp, out_name), final)
+    background_jobs.update_progress(job_id, 1.0, "Video ready.")
+
+
+def start_burned_video_export(drama_id: int, **ass_options) -> dict:
+    """Starts the Export tab's hardsub "Generate subtitled episode" (ASS,
+    burned in with libass) as thread job `burned_video_<drama_id>`, output
+    kind "video". ass_options are export_service.generate_ass_text's
+    keyword arguments (field, style, preset, speaker_colors, ...), validated
+    there. Raises NotFoundError (unknown drama), InvalidInputError (no
+    lines, no source video, bad style), DependencyUnavailableError (ffmpeg
+    missing), ConflictError (already running). Returns {"job_id": ...}."""
+    drama = _get_drama(drama_id)
+    if not db.load_line_objects(drama_id):
+        raise InvalidInputError("This drama has no lines to export.")
+    filename = drama.get("source_video_filename") or ""
+    video_path = os.path.join(db.drama_dir(drama_id), filename) if filename else ""
+    if (not filename or filename != os.path.basename(filename)
+            or not os.path.isfile(video_path)):
+        raise InvalidInputError("No source video uploaded for this drama.")
+    ass_text = export_service.generate_ass_text(drama_id, **ass_options)
+    _require_ffmpeg()
+    job_id = f"burned_video_{drama_id}"
+    _refuse_duplicate(job_id, "burned-in video", drama_id)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _VIDEO_EXTS:
+        ext = ".mp4"
+    started = background_jobs.start_job(
+        job_id, _burned_video_job, job_id, drama_id, video_path, ass_text, ext,
+        description=f"Burned-in video export (drama #{drama_id})")
+    if not started:
+        raise ConflictError(f"The burned-in video export is already running for drama {drama_id}.")
     return {"job_id": job_id}

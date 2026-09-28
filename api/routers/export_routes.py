@@ -10,8 +10,11 @@ own docstring for the field-scoped-write discipline). Migration Slice 18
 adds EPUB export (novel-narration dramas only) as a binary download.
 Migration Slice 27 adds ASS subtitle text (POST, per-request style, plain-text
 download) and the style-options listing. Migration Slice 29 adds the audiobook export
-job (POST, returns {job_id}, output downloads via /api/artifacts).
+job and Slice 30 the burned-in video job
+(POST, returns {job_id}, output downloads via /api/artifacts).
 """
+
+from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Response
 
@@ -112,3 +115,17 @@ def get_ass_style_options():
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def post_audiobook(drama_id: int = Path(ge=1)):
     return media_export_service.start_audiobook_export(drama_id)
+
+
+@router.post("/dramas/{drama_id}/burned-video", response_model=MediaExportStarted,
+             summary="Start the burned-in (hardsub ASS) video export job",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest] = None):
+    req = req or AssExportRequest()
+    style = req.style.model_dump(exclude_unset=True) if req.style is not None else None
+    return media_export_service.start_burned_video_export(
+        drama_id, field=req.field, style=style, preset=req.preset,
+        speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
+        include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
+        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)

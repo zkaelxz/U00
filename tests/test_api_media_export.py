@@ -158,3 +158,82 @@ def test_audiobook_failure_leaves_no_artifact_and_no_paths(client, drama, isolat
     assert st["status"] == "error"
     assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
     _no_artifact(drama, "audio")
+
+
+# ---- Slice 30: burned-in video ----------------------------------------------
+
+def _add_video(isolated_db, did, name="source.mp4"):
+    _touch(isolated_db, did, name)
+    isolated_db.update_drama(did, source_video_filename=name)
+
+
+def test_burned_video_runs_and_writes_artifact(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    r = client.post(f"/api/export/dramas/{drama}/burned-video", json={"style": {"size": 30}})
+    assert r.status_code == 200
+    assert r.json() == {"job_id": f"burned_video_{drama}"}
+    assert _wait(f"burned_video_{drama}")["status"] == "done"
+    assert artifact_service.get_artifact(drama, "video")["name"] == f"burned_video_{drama}.mp4"
+    cmd, kwargs = fake_ffmpeg.calls[0]
+    assert cmd[0] == "ffmpeg" and isinstance(cmd, list) and "shell" not in kwargs
+    assert cmd[cmd.index("-vf") + 1] == "subtitles=subs.ass"
+    assert kwargs["cwd"]
+    assert client.get(f"/api/artifacts/dramas/{drama}/video").status_code == 200
+
+
+def test_burned_video_body_optional(client, drama, isolated_db):
+    _add_video(isolated_db, drama)
+    assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 200
+    _wait(f"burned_video_{drama}")
+
+
+@pytest.mark.parametrize("body", [
+    {"style": {"font": "Ar\nial"}}, {"style": {"font": "A\x07"}}, {"style": {"size": 999}},
+    {"preset": "Nope"}, {"style": {"primary": "red"}}])
+def test_burned_video_bad_style_422(client, drama, isolated_db, body, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    assert client.post(f"/api/export/dramas/{drama}/burned-video", json=body).status_code == 422
+    assert not fake_ffmpeg.calls
+
+
+def test_burned_video_unknown_drama_404(client):
+    assert client.post("/api/export/dramas/999/burned-video").status_code == 404
+
+
+def test_burned_video_no_lines_422(client, isolated_db):
+    did = isolated_db.create_drama(title_en="Empty")
+    assert client.post(f"/api/export/dramas/{did}/burned-video").status_code == 422
+
+
+def test_burned_video_no_source_video_422(client, drama):
+    r = client.post(f"/api/export/dramas/{drama}/burned-video")
+    assert r.status_code == 422
+    assert _error(r)["message"] == "No source video uploaded for this drama."
+
+
+def test_burned_video_traversal_filename_rejected(client, drama, isolated_db):
+    isolated_db.update_drama(drama, source_video_filename="../evil.mp4")
+    assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 422
+
+
+def test_burned_video_ffmpeg_missing_503(client, drama, isolated_db, monkeypatch):
+    _add_video(isolated_db, drama)
+    monkeypatch.setattr(media_export_service.shutil, "which", lambda name: None)
+    assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 503
+
+
+def test_burned_video_duplicate_409(client, drama, isolated_db):
+    _add_video(isolated_db, drama)
+    with background_jobs._lock:
+        background_jobs._jobs[f"burned_video_{drama}"] = {"status": "queued"}
+    assert client.post(f"/api/export/dramas/{drama}/burned-video").status_code == 409
+
+
+def test_burned_video_failure_no_artifact_no_paths(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    fake_ffmpeg.fail = True
+    client.post(f"/api/export/dramas/{drama}/burned-video")
+    st = _wait(f"burned_video_{drama}")
+    assert st["status"] == "error"
+    assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
+    _no_artifact(drama, "video")
