@@ -11,6 +11,9 @@ const python = process.env.PYTHON ?? 'python'
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
+  // One worker: the specs share one seeded throwaway library (library-page.spec.ts
+  // creates and deletes a drama while library.spec.ts asserts a count of 3).
+  workers: 1,
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
     // Lets a machine with a preinstalled Chromium (e.g. PLAYWRIGHT_CHROMIUM_PATH=

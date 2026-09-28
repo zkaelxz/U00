@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 
 import { api } from './api/client'
 import type { MetaResponse } from './api/types'
-import { DramaDetailPanel } from './components/DramaDetailPanel'
-import { LibraryList } from './components/LibraryList'
-import { DiagnosticsPage, DramaPage, SettingsPage } from './pages/Placeholders'
+import DiagnosticsPage from './pages/Diagnostics'
+import LibraryPage from './pages/Library'
+import { DramaPage } from './pages/Placeholders'
+import SettingsPage from './pages/Settings'
+import TranslatePage from './pages/Translate'
 import { routeHref, useRoute } from './router'
 
 function ApiStatus() {
@@ -24,16 +26,6 @@ function ApiStatus() {
   )
 }
 
-function Library() {
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  return (
-    <main>
-      <LibraryList selectedId={selectedId} onSelect={setSelectedId} />
-      {selectedId !== null && <DramaDetailPanel key={selectedId} dramaId={selectedId} />}
-    </main>
-  )
-}
-
 export default function App() {
   const route = useRoute()
 
@@ -43,18 +35,19 @@ export default function App() {
         <h1>Baihe Studio</h1>
         <nav>
           <a href={routeHref({ name: 'library' })}>Library</a>
+          <a href={routeHref({ name: 'translate' })}>Translate</a>
           <a href={routeHref({ name: 'settings' })}>Settings</a>
           <a href={routeHref({ name: 'diagnostics' })}>Diagnostics</a>
         </nav>
         <ApiStatus />
       </header>
       <p className="muted">
-        Preview of the new React frontend (read-only). Everything else still lives in the
-        Streamlit app.
+        Preview of the new React frontend. The Workspace stages still live in the Streamlit app.
       </p>
-      {route.name === 'library' && <Library />}
+      {route.name === 'library' && <LibraryPage />}
       {route.name === 'drama' && <DramaPage key={route.id} id={route.id} stage={route.stage} />}
       {route.name === 'settings' && <SettingsPage />}
+      {route.name === 'translate' && <TranslatePage />}
       {route.name === 'diagnostics' && <DiagnosticsPage />}
     </>
   )
