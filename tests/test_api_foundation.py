@@ -647,3 +647,51 @@ class TestTranslateHistoryClearEndpoint:
         history = client.get("/api/translate/history").json()["items"]
         assert history == []
 
+
+class TestExportEpubEndpoint:
+    """Migration Slice 18: EPUB export for novel-narration dramas only.
+    Binary download (application/epub+zip); see
+    services/export_service.py's own docstring for the scope decision."""
+
+    def _novel_drama_with_lines(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D", content_mode="novel_narration")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        return did
+
+    def test_unknown_drama_is_404(self, client, isolated_db):
+        resp = client.get("/api/export/dramas/999999/epub")
+        assert resp.status_code == 404
+
+    def test_non_novel_drama_is_400(self, client, isolated_db):
+        did = isolated_db.create_drama(title_en="D", content_mode="audio_drama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello")])
+        resp = client.get(f"/api/export/dramas/{did}/epub")
+        assert resp.status_code == 400
+
+    def test_unknown_field_is_422(self, client, isolated_db):
+        did = self._novel_drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/epub?field=bilingual")
+        assert resp.status_code == 422
+
+    def test_missing_ebooklib_is_503(self, client, isolated_db, monkeypatch):
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "epub_io":
+                raise ImportError("simulated missing ebooklib")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        did = self._novel_drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/epub")
+        assert resp.status_code == 503
+
+    def test_epub_download_shape(self, client, isolated_db):
+        pytest.importorskip("ebooklib")
+        did = self._novel_drama_with_lines(isolated_db)
+        resp = client.get(f"/api/export/dramas/{did}/epub")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/epub+zip")
+        assert "attachment" in resp.headers["content-disposition"]
+
