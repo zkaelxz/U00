@@ -196,14 +196,14 @@ class TestLimitOneGpuJobToggle:
         import background_jobs
         at = self._run()
         assert self._checkbox(at).value is True
-        assert background_jobs._gpu_limit_enabled is True
+        assert background_jobs.get_gpu_limit_enabled() is True
 
     def test_turning_it_off_syncs_to_background_jobs(self):
         import background_jobs
         at = self._run()
         try:
             self._checkbox(at).set_value(False).run()
-            assert background_jobs._gpu_limit_enabled is False
+            assert background_jobs.get_gpu_limit_enabled() is False
         finally:
             background_jobs.set_gpu_limit_enabled(True)  # don't leak into other tests
 
@@ -235,14 +235,14 @@ class TestNotifyOnJobDoneToggle:
         import background_jobs
         at = self._run()
         assert self._checkbox(at).value is False
-        assert background_jobs._notify_on_completion is False
+        assert background_jobs.get_notify_on_completion() is False
 
     def test_turning_it_on_syncs_to_background_jobs(self):
         import background_jobs
         at = self._run()
         try:
             self._checkbox(at).set_value(True).run()
-            assert background_jobs._notify_on_completion is True
+            assert background_jobs.get_notify_on_completion() is True
         finally:
             background_jobs.set_notify_on_completion(False)  # don't leak into other tests
 

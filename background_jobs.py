@@ -79,31 +79,58 @@ _lock = threading.RLock()
 # instead. Defaults on (matches the 8-12GB consumer-GPU assumption this
 # project is built around); a Settings toggle can turn it off for anyone
 # on higher-VRAM hardware.
-_gpu_limit_enabled = True
-_gpu_queue = []  # [{"job_id", "target", "args", "kwargs", "description"}, ...], FIFO
+#
+# Migration Slice 9 (D1 fix 2): this used to be a bare module global,
+# invisible to a separately-running `python -m api` process and reset to
+# the hardcoded default on every restart -- D1's own two named examples
+# of this exact problem. Now backed by db.app_settings, read fresh on
+# each check rather than cached: these checks happen only at job
+# start/finish, never in a hot per-tick loop, so a DB read each time
+# costs nothing worth avoiding.
+_gpu_queue = []  # [{"job_id", "target", "args", "kwargs", "description"}, ...], FIFO -- stays
+# per-process on purpose: each process only ever manages the GPU jobs it
+# itself started, so there's nothing cross-process to reconcile here.
+
+
+def get_gpu_limit_enabled() -> bool:
+    import db
+    try:
+        return bool(db.get_app_setting("gpu_limit_enabled", True))
+    except Exception:
+        # Never let a DB hiccup block a job from starting -- the GPU
+        # guard is a soft, best-effort convenience, not a correctness
+        # requirement. Fails open (limit stays on, the safer default).
+        return True
 
 
 def set_gpu_limit_enabled(enabled: bool):
-    global _gpu_limit_enabled
-    with _lock:
-        _gpu_limit_enabled = bool(enabled)
+    import db
+    db.set_app_setting("gpu_limit_enabled", bool(enabled))
 
 
 # Step 23c item 4: an optional local desktop notification when a
 # background job finishes, so a long job (especially Step 9b's bulk
 # series-translate, which can run unattended for a while) doesn't
 # require watching the tab. Off by default -- a Settings toggle
-# (settings_tab.py) turns it on via set_notify_on_completion() below,
-# the same "Streamlit-side setting synced into this module's own state"
-# pattern set_gpu_limit_enabled() already uses, since this module
-# deliberately doesn't import streamlit itself.
-_notify_on_completion = False
+# (settings_tab.py) turns it on via set_notify_on_completion() below.
+# Migration Slice 9 (D1 fix 2): also now backed by db.app_settings, same
+# reasoning as get/set_gpu_limit_enabled() above.
+
+
+def get_notify_on_completion() -> bool:
+    import db
+    try:
+        return bool(db.get_app_setting("notify_on_completion", False))
+    except Exception:
+        # _notify_job_finished's own contract is "never raises" -- a DB
+        # hiccup here must not break the job it's reporting on. Fails
+        # closed (no notification), the safer default.
+        return False
 
 
 def set_notify_on_completion(enabled: bool):
-    global _notify_on_completion
-    with _lock:
-        _notify_on_completion = bool(enabled)
+    import db
+    db.set_app_setting("notify_on_completion", bool(enabled))
 
 
 def _notify_job_finished(description, status):
@@ -111,7 +138,7 @@ def _notify_job_finished(description, status):
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
     the job's real work."""
-    if not _notify_on_completion:
+    if not get_notify_on_completion():
         return
     try:
         from plyer import notification
@@ -341,7 +368,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
-        if gpu_touching and _gpu_limit_enabled and not _gpu_slot_available_locked(job_id, description):
+        if gpu_touching and get_gpu_limit_enabled() and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
                 "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
@@ -392,7 +419,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
-        if gpu_touching and _gpu_limit_enabled and not _gpu_slot_available_locked(job_id, description):
+        if gpu_touching and get_gpu_limit_enabled() and not _gpu_slot_available_locked(job_id, description):
             _jobs[job_id] = {
                 "status": "queued", "progress": 0.0,
                 "message": "Waiting -- GPU busy with " + (gpu_busy_description() or "another job"),
