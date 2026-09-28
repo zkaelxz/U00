@@ -239,3 +239,18 @@ class ExportReadiness(BaseModel):
     overlap_count: int
     auto_qc_issue_count: int
     dense_line_count: int
+
+
+class FlagActionResult(BaseModel):
+    """A flagging action's result (Migration Slice 15) -- 0 is not an
+    error, just nothing new to flag."""
+    flagged_count: int
+
+
+class AutoQcFlagResult(BaseModel):
+    """auto_qc.run_auto_qc's own counts (Migration Slice 15) -- see its
+    docstring for exactly what each counts."""
+    flagged: int
+    cleared: int
+    already_flagged: int
+    checked: int

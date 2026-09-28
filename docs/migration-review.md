@@ -500,9 +500,34 @@ that yet), EPUB/audiobook/burned-in-video export (each its own
 subprocess/library dependency), and the readiness page's flagging
 actions (a write, deferred to its own slice).
 
-**Next candidate:** Export's actual write action (flagging overlapping/
-QC/dense lines via `db.save_lines`) -- a real database write, so its own
-slice rather than folded into Slice 14's pure-function scope.
+**Slice 15 — Export's flagging actions (2026-09-28).** The real database
+write Slice 14 deliberately deferred. `services/export_service.py` gains
+three functions, each writing ONLY `flag`/`flag_note`
+(`db.save_lines(..., fields=("flag", "flag_note"))`) -- a field-scoped
+write that can't clobber a concurrent edit to a line's text/timing/
+speaker, same discipline as every other background-job write in this
+app:
+
+- `flag_overlapping_lines(drama_id)` -- flags every currently-
+  overlapping, not-yet-flagged line (`subtitle_formats.OVERLAP_FLAG`),
+  same as the tab's "Flag overlapping lines for review" button.
+- `flag_dense_lines(drama_id)` -- flags every line too dense to read
+  (`subtitle_formats.flag_dense_lines`), same as the tab's dense-line
+  button.
+- `run_auto_qc_flagging(drama_id)` -- runs Auto QC's factual-detail
+  check (`auto_qc.run_auto_qc`) with the drama's own series glossary/
+  character names, same as the tab's own `_run_auto_qc` helper (reused
+  logic, not duplicated).
+
+New `POST /api/export/dramas/{id}/flag-overlaps`, `.../flag-dense-lines`,
+`.../flag-auto-qc`. Each is a no-op-safe action -- a 0 count is a normal
+result, not an error.
+
+**Next candidate:** ASS export (needs the interactive per-drama style
+state `_subtitle_style_fragment` builds in Streamlit -- no API contract
+for it yet) or EPUB/audiobook/burned-in-video export, whichever a future
+scoping pass picks; Export's own read/write actions are now otherwise
+complete.
 
 ---
 
