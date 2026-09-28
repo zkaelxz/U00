@@ -4,9 +4,9 @@ import { api } from './api/client'
 import type { MetaResponse } from './api/types'
 import DiagnosticsPage from './pages/Diagnostics'
 import LibraryPage from './pages/Library'
-import { DramaPage } from './pages/Placeholders'
 import SettingsPage from './pages/Settings'
 import TranslatePage from './pages/Translate'
+import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import { routeHref, useRoute } from './router'
 
 function ApiStatus() {
@@ -45,7 +45,7 @@ export default function App() {
         Preview of the new React frontend. The Workspace stages still live in the Streamlit app.
       </p>
       {route.name === 'library' && <LibraryPage />}
-      {route.name === 'drama' && <DramaPage key={route.id} id={route.id} stage={route.stage} />}
+      {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'settings' && <SettingsPage />}
       {route.name === 'translate' && <TranslatePage />}
       {route.name === 'diagnostics' && <DiagnosticsPage />}
