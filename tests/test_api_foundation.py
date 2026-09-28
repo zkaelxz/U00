@@ -10,6 +10,7 @@ from erroring instead of skipping.
 """
 
 import os
+import time
 
 import pytest
 
@@ -821,6 +822,16 @@ class TestTranscribeConfigEndpoints:
 
         job_resp = client.get(f"/api/jobs/{job_id}")
         assert job_resp.status_code == 200
+        # Wait for the real thread to finish before the test (and its
+        # isolated_db) ends: a thread still saving its job record while the
+        # next test's init_db runs left "database is locked" errors in the
+        # next test's fixture setup (seen twice in full-suite runs).
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            status = (background_jobs.get_status(job_id) or {}).get("status")
+            if status not in ("queued", "running"):
+                break
+            time.sleep(0.05)
         background_jobs.clear_job(job_id)
 
     def test_run_already_running_is_409(self, client, isolated_db, monkeypatch):
