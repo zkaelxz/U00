@@ -439,9 +439,7 @@ same checkout, each owning only its own two new files (never `api/schemas.py`,
 both schema blocks, and both `api/server.py` registrations itself afterward,
 once, after both agents reported done -- exactly the sequencing guardrail
 #2 above describes. No file conflicts, no coordination needed mid-flight.
-Merged as two separate PRs per guardrail #4, even though built together --
-this entry (Slice 11's own) covers this PR; Slice 12's own entry follows it
-once that PR lands.
+Merged as two separate PRs per guardrail #4, even though built together.
 
 **Slice 11** (§3.7, Translate-standalone's read-only half):
 `services/translate_service.py` -- `list_engines()` (name/label/free/
@@ -453,9 +451,21 @@ service's own docstring for the reasoning) and `list_history()`. New
 translating (a real network call) and clearing history (a write) stay out
 of scope, deferred to a later slice.
 
-**Next candidate for this slice:** the actual translate action (`POST`,
-needs `settings_service.resolve_key` server-side) -- not a mechanical
-follow-on to the read-only half, so not batched in here.
+**Slice 12** (§3.2, Phase 6's first Workspace stage, Export):
+`services/export_service.py` -- `get_export_readiness(drama_id)` reusing
+`reader_service`'s own drama/lines-loading pattern, reporting line/
+translation counts plus the same overlap (`subtitle_formats.clamp_overlaps`)/
+Auto QC (`auto_qc.find_issues`)/dense-line (`subtitle_formats.dense_lines`)
+issue counts the Streamlit Export tab already computes read-only. New
+`GET /api/export/dramas/{id}/readiness`. Flagging a line, generating a
+subtitle file, and inlining translation notes are all writes/file-output
+and stay Streamlit-only for now.
+
+**Next candidates:** the actual translate action (`POST`, needs
+`settings_service.resolve_key` server-side) and Export's write half
+(flagging, file generation) are each their own, higher-risk slice --
+neither is a mechanical follow-on to its read-only half, so neither was
+batched in here.
 
 ---
 
