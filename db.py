@@ -778,6 +778,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
         CREATE INDEX IF NOT EXISTS idx_voice_bank_name ON voice_bank(name);
         """)
+        # Migration Slice 22: cross-process cancel request flag on the job mirror.
+        jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
+        if "cancel_requested" not in jr_cols:
+            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
         # Lightweight migrations for DBs created before these columns existed
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
         if "speaker" not in existing_cols:
@@ -2850,10 +2854,32 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                 message = excluded.message, error = excluded.error,
                 description = excluded.description, gpu_touching = excluded.gpu_touching,
                 started_at = excluded.started_at, finished_at = excluded.finished_at,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
+                    THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
               started_at, finished_at, time.time()))
         conn.commit()
+
+
+def request_job_record_cancel(job_id: str) -> bool:
+    """Migration Slice 22: flags a job_records row as cancel-requested so
+    the process actually running the job (which may not be this one) can
+    notice it. Only touches a still queued/running row; returns whether
+    it did."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE job_records SET cancel_requested = 1, updated_at = ? "
+            "WHERE job_id = ? AND status IN ('queued', 'running')", (time.time(), job_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def is_job_record_cancel_requested(job_id: str) -> bool:
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT cancel_requested FROM job_records WHERE job_id = ?",
+                           (job_id,)).fetchone()
+    return bool(row and row[0])
 
 
 def list_job_records() -> list:

@@ -334,10 +334,10 @@ class TestJobsEndpoint:
         assert resp.status_code == 404
         assert _error(resp)["code"] == "not_found"
 
-    def test_no_cancel_endpoint_is_exposed(self, client, isolated_db):
+    def test_no_delete_endpoint_is_exposed(self, client, isolated_db):
+        # Cancel exists since Migration Slice 22 (tests/test_api_job_cancel.py).
         import db
         db.save_job_record("j1", status="running")
-        assert client.post("/api/jobs/j1/cancel").status_code == 404
         assert client.delete("/api/jobs/j1").status_code == 405
 
 

@@ -825,6 +825,15 @@ series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
 line/note text, 500 for terms. Out of scope: merge/split/delete lines,
 restore original text, LLM tools, bulk modes.
 
+**Slice 22 (cross-process job cancel).** `POST /api/jobs/{job_id}/cancel`
+flags the job (`job_records.cancel_requested`, new column) and, if this
+process owns it, sets the in-memory flag too. The owning process notices via
+`background_jobs.is_cancel_requested` (and the process-job watcher), which
+checks the DB at most once per 2s per job, so tight loops never hit SQLite
+each iteration. Cancellation is asynchronous. Unknown id is 404; an already
+finished job is 409 (the flag is cleared on any terminal status, so a reused
+job id never inherits a stale request). Only ids/status are returned.
+
 **Migration Slice 28 (artifact download).** `services/artifact_service.py` defines where a job
 writes a downloadable output: `<drama folder>/exports/<kind>/<filename>` (`output_path` validates
 the bare filename). `GET /api/artifacts/dramas/{id}/{kind}` streams the newest regular file there

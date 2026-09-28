@@ -491,6 +491,8 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
             with _lock:
                 job = _jobs.get(job_id)
                 should_stop = job is None or job.get("cancel_requested")
+            if not should_stop and _db_cancel_requested(job_id):
+                should_stop = True
             if should_stop:
                 # terminate()/join() happen OUTSIDE the lock -- join can block
                 # for real seconds, and nothing else here should have to wait
@@ -722,10 +724,43 @@ def request_cancel(job_id: str):
             _jobs[job_id]["cancel_requested"] = True
 
 
+_DB_CANCEL_CHECK_INTERVAL = 2.0
+_last_db_cancel_check = {}
+
+
+def _db_cancel_requested(job_id: str) -> bool:
+    """Migration Slice 22: a cancel requested from another process (the API
+    host) lives in job_records. Checked at most once per
+    _DB_CANCEL_CHECK_INTERVAL seconds per job so a tight job loop doesn't
+    hit SQLite every iteration; on a hit the in-memory flag is set so
+    later checks are free. Only for jobs this process owns and that are
+    still queued/running. A DB error means "not requested"."""
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None or job.get("status") not in ("queued", "running"):
+            return False
+        if job.get("cancel_requested"):
+            return True
+        now = time.monotonic()
+        if now - _last_db_cancel_check.get(job_id, -1e9) < _DB_CANCEL_CHECK_INTERVAL:
+            return False
+        _last_db_cancel_check[job_id] = now
+    try:
+        import db
+        requested = db.is_job_record_cancel_requested(job_id)
+    except Exception:
+        return False
+    if requested:
+        request_cancel(job_id)
+    return requested
+
+
 def is_cancel_requested(job_id: str) -> bool:
     with _lock:
         job = _jobs.get(job_id)
-        return bool(job and job.get("cancel_requested"))
+        if job and job.get("cancel_requested"):
+            return True
+    return _db_cancel_requested(job_id)
 
 
 def cancel_queued(job_id: str) -> bool:
