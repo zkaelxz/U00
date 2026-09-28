@@ -54,4 +54,6 @@ def start_translate_run(body: TranslateRunStart, drama_id: int = Path(ge=1)):
         context_window=body.context_window,
         context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
         line_ids=body.line_ids, gemini_free_tier=body.gemini_free_tier,
-        job_cost_cap_usd=body.job_cost_cap_usd)
+        job_cost_cap_usd=body.job_cost_cap_usd,
+        fallback_chain=[f.model_dump() for f in body.fallback_chain]
+        if body.fallback_chain else None)
