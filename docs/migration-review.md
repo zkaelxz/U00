@@ -993,6 +993,17 @@ route. New `GET /api/media/dramas/{id}/status` returns `has_audio`,
 separate endpoint because the transcribe config's response shape is pinned by
 exact-match tests.
 
+**E0 -- Library remainder (2026-09-28).** Read endpoints under `/api/library`: `GET /stats`
+(counts + usage totals), `/recent`, `/costs` (dramas with logged calls, free runs included),
+`/series` (series with 2+ dramas plus character/glossary counts), `/search?q=` (1-200 chars,
+limit 1-100), `/history` (default profile only -- no profile selector yet), `/presets`,
+`/voice-bank` (no clip filename/path; `clip_available` flag). Non-destructive writes:
+`POST /presets/{id}/rename` and `POST /voice-bank/{id}/rename` (name 1-100 chars, ids capped at
+2**31-1, duplicate preset name 409, unknown id 404). Deferred, not built: preset and voice-bank
+delete (the tab's checkbox confirm has no server equivalent yet), clear reading history, bulk
+status/tags/delete and bulk translate, storage scan/clean, backup/restore (need the typed
+confirm and `drama_service._job_running_for_drama` refusal), and Continue reading (per-profile).
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with

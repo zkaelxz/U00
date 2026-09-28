@@ -1,5 +1,5 @@
 """
-api/routers/library_routes.py -- read-only Library endpoints.
+api/routers/library_routes.py -- Library endpoints (reads, plus preset/voice-bank rename).
 
 Every route here is a thin adapter: parse/validate the HTTP request,
 call `services.library_service`, convert the result into the contract
@@ -16,7 +16,11 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Path, Query
 
-from api.schemas import DramaDetail, DramaListResponse, DramaSummary, ErrorResponse
+from api.schemas import (
+    DramaDetail, DramaListResponse, DramaSummary, ErrorResponse, LibraryCostResponse,
+    LibraryDashboard, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
+    LibraryRecentResponse, LibraryRename, LibrarySearchResponse, LibrarySeriesResponse,
+    LibraryVoice, LibraryVoiceBankResponse)
 from services import library_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -66,3 +70,65 @@ def list_dramas(
             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def get_drama(drama_id: int = Path(ge=1)):
     return _to_detail(library_service.get_library_drama(drama_id))
+
+
+_ERR = {422: {"model": ErrorResponse}}
+_ERR_WRITE = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+              422: {"model": ErrorResponse}}
+
+
+@router.get("/stats", response_model=LibraryDashboard, summary="Dashboard counts and spend")
+def get_stats():
+    return library_service.get_library_dashboard()
+
+
+@router.get("/recent", response_model=LibraryRecentResponse, responses=_ERR,
+            summary="Recently active dramas")
+def get_recent(limit: int = Query(8, ge=1, le=50)):
+    return {"items": library_service.list_recently_active(limit)}
+
+
+@router.get("/costs", response_model=LibraryCostResponse, summary="Cost breakdown by drama")
+def get_costs():
+    return {"items": library_service.list_cost_by_drama()}
+
+
+@router.get("/series", response_model=LibrarySeriesResponse,
+            summary="Series that contain two or more dramas")
+def get_series():
+    return {"items": library_service.list_series_with_dramas()}
+
+
+@router.get("/search", response_model=LibrarySearchResponse, responses=_ERR,
+            summary="Search line text across every drama")
+def search(q: str = Query(min_length=1, max_length=200), limit: int = Query(50, ge=1, le=100)):
+    return library_service.search_lines(q, limit)
+
+
+@router.get("/history", response_model=LibraryHistoryResponse, responses=_ERR,
+            summary="Reading history (default profile)")
+def get_history(limit: int = Query(25, ge=1, le=100)):
+    return {"items": library_service.list_history(limit)}
+
+
+@router.get("/presets", response_model=LibraryPresetsResponse, summary="Saved presets")
+def get_presets():
+    return {"items": library_service.list_presets()}
+
+
+@router.post("/presets/{preset_id}/rename", response_model=LibraryPreset,
+             responses=_ERR_WRITE, summary="Rename a preset")
+def rename_preset(body: LibraryRename, preset_id: int = Path(ge=1, le=2**31 - 1)):
+    return library_service.rename_preset(preset_id, body.name)
+
+
+@router.get("/voice-bank", response_model=LibraryVoiceBankResponse,
+            summary="Voice bank entries (no file paths)")
+def get_voice_bank():
+    return {"items": library_service.list_voice_bank()}
+
+
+@router.post("/voice-bank/{entry_id}/rename", response_model=LibraryVoice,
+             responses=_ERR_WRITE, summary="Rename a voice bank entry")
+def rename_voice(body: LibraryRename, entry_id: int = Path(ge=1, le=2**31 - 1)):
+    return library_service.rename_voice_bank_entry(entry_id, body.name)
