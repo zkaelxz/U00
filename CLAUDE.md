@@ -221,6 +221,36 @@ screenshot specifically if it wants one.
   for a real, gated-access-accepted token up front** rather than
   discovering the gap from a failed run.
 
+## GitHub Actions minutes
+
+- **Before a discretionary CI run** (re-running a job on a hunch, a
+  speculative push just to see what happens), check the org's remaining
+  monthly Actions minutes allowance and its reset date first. GitHub's
+  own billing usage page is the source of truth, not an estimate from
+  workflow-file line counts — different runner types (Linux/Windows/
+  macOS) bill minutes at different multipliers, so the same job costs a
+  different amount depending on where it runs.
+- **Iterate locally, reserve Actions for what actually gates a merge.**
+  Run focused/relevant tests locally (per the Tests section above and
+  the project's own test-cadence agreement) while working on a change;
+  push to trigger CI once for the PR/merge-required checks, not once
+  per intermediate edit.
+- **Avoid duplicate runs**: batch related commits into one push rather
+  than pushing each small edit separately, and cancel a superseded run
+  (an earlier commit's CI still going after a newer push replaces it)
+  when it's safe to — i.e. when nothing depends on that specific run's
+  own result finishing.
+- **Never weaken a check to save minutes.** Skipping, shortening, or
+  narrowing a required check or real test coverage to cut CI cost is
+  not an acceptable trade — minutes are cheaper than a regression a
+  weakened check would have caught.
+- **Before changing triggers, matrices, concurrency limits, or caching**
+  in a workflow file, inspect which jobs are actually consuming the
+  minutes (the billing usage page's own per-workflow/per-job breakdown,
+  not a guess) and state the real trade-off being made — what coverage
+  or turnaround time is given up for what minutes saved — before making
+  the change.
+
 ## Background tasks — avoid stuck monitor loops
 
 Multiple `while pgrep ...; do sleep N; done` loops have been left running
