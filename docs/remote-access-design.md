@@ -18,7 +18,10 @@
 | Access model | **Tailscale** (a private network of the household's devices) with **Tailscale Serve** publishing Baihe to it over HTTPS. Nothing is exposed to the public internet; no router port is opened. |
 | Priority | Lowest effort that meets the needs below. |
 | Domain | None purchased. Tailscale provides the name and HTTPS certificate (`<machine>.<tailnet>.ts.net`). |
-| Who | The user and other household members, including from phones. Each installs the Tailscale app once and signs in. |
+| Who | The user and other household members, including from phones. Each installs the Tailscale app once and signs in (free Personal plan: up to 6 users, unlimited devices per user, [pricing](https://tailscale.com/pricing)). |
+| Threat model | The Baihe PC and its logged-in account's processes are trusted (§3). |
+| Permission scope | Global to start; progress/preferences per user (§4). |
+| Admin actions | Admin permission + confirmation + only from the Baihe PC (§6). |
 | What they can do | Start, cancel, read and review, controlled by **deny-by-default permissions** in Baihe. |
 | API process | FastAPI runs as its own process (D1), with the four fixes in `migration-review.md` §6 D1. |
 
@@ -78,12 +81,44 @@ owner-only (§5), until it's retired.
      sharing), whose traffic carries no identity headers. Funnel must
      never be turned on for Baihe anyway; the Diagnostics check will warn
      if it is.
-  3. "Came from localhost" is **not** trust. Serve's own requests come
-     from localhost too. Even the owner, sitting at the PC, uses the
-     `ts.net` URL (the PC is on the tailnet).
+  3. **Localhost doesn't prove a request came through Serve.** Serve's
+     proxied requests arrive from `127.0.0.1`, and so does any other
+     process on the PC. A local process can bypass Serve and send a
+     forged `Tailscale-User-Login` directly. Binding to loopback stops
+     *network* clients from doing that, not *local* ones. That's accepted
+     only under the threat model below, and nothing in Baihe may treat
+     "from localhost" as more than that. Even the owner, sitting at the
+     PC, uses the `ts.net` URL (the PC is on the tailnet).
   4. Local development (`npm run dev` with no Tailscale) uses an explicit
      `BAIHE_API_DEV_USER` override, honoured only with
      `BAIHE_API_ENV=development` on a loopback bind.
+
+### Threat model (stated explicitly)
+
+**The Baihe PC, its logged-in Windows account, and the processes running
+under that account are trusted.** Serve's identity headers authenticate
+*remote tailnet users*. They don't defend against software already
+running on the PC.
+
+Why this is the right model here, not a shortcut: any process running as
+that Windows user can already read `library/library.db`, the media
+folders and `.env` (the API keys) directly from disk. An authenticated
+boundary between Serve and FastAPI wouldn't protect any of that data from
+such a process; it would only protect the API's *actions*. Real
+protection against untrusted local software needs OS-level separation
+first (Baihe running under its own service account, with file
+permissions locking its data away from the everyday account). That's a
+different, much larger project.
+
+**Revisit if** the Baihe PC becomes shared by people who shouldn't have
+full access, or routinely runs software you don't trust. Then do both:
+(a) a dedicated service account with locked-down file permissions, and
+(b) an authenticated hop between Serve and FastAPI (e.g. a secret only
+the proxy holds, or a socket only the service account can open; which
+mechanism is available on Windows must be verified at that time). A
+required identity header alone does not meet that stronger requirement,
+consistent with Tailscale's own guidance, which assumes the host is
+trusted ([Serve identity headers](https://tailscale.com/docs/features/tailscale-serve)).
 
 ## 4. Permissions: deny by default (Baihe's part)
 
@@ -95,6 +130,13 @@ owner-only (§5), until it's retired.
   you@example.com`, run on the PC. There's no network bootstrap.
 - **Roles** are saved permission bundles ("Reader", "Reviewer",
   "Operator", "Admin"), plus per-user grants on top.
+- **Scope: global to start** (decided 2026-09-28). A permission applies
+  to the whole library. Reading progress, notes and preferences stay
+  **per user**. Per-series/per-drama access is **not** built unless
+  household members need private libraries or different content access.
+  If they do, that has to be decided *before* anyone else is given
+  access, because adding it afterwards means re-checking every route and
+  every list query.
 - **Every route declares its required permission**, checked by one
   FastAPI dependency. A static test fails the build if any route lacks
   one, which is what makes deny-by-default real.
@@ -125,8 +167,27 @@ owner-only (§5), until it's retired.
 
 1. **Network (Tailscale access rules, set in the Tailscale admin
    console):** only the people you list can reach the Baihe machine at
-   all, and only on ports 443/8443. Everyone else in the world, and
-   anyone not on your tailnet, can't even connect.
+   all, and only on the specific ports. Anyone not on your tailnet can't
+   even connect. **Tailscale's default policy lets every member reach
+   every device and port**, so tailnet membership alone must not grant
+   broad access: replace the default with rules restricted to the Baihe
+   service ([access controls](https://tailscale.com/docs/features/access-control)).
+   Shape of the policy (field names to be checked against the current
+   policy syntax when it's actually set up):
+
+   ```json
+   {
+     "groups":    { "group:household": ["alice@example.com", "bob@example.com"] },
+     "tagOwners": { "tag:baihe": ["autogroup:admin"] },
+     "grants": [
+       { "src": ["group:household"],   "dst": ["tag:baihe"], "ip": ["tcp:443"]  },
+       { "src": ["owner@example.com"], "dst": ["tag:baihe"], "ip": ["tcp:8443"] }
+     ]
+   }
+   ```
+
+   Nothing else is granted: no access to other household devices, no other
+   ports on the Baihe PC, and never 8756 or 8600 directly.
 2. **Application (Baihe permissions, §4):** what each of those people can
    do once connected.
 
@@ -139,15 +200,43 @@ available to everyone according to their permissions.
 
 ## 6. Admin actions (D5)
 
-Installing packages runs code; reset and restore can destroy the library.
-Proposal:
-- the `admin.system` permission (admins only),
-- a confirmation step showing exactly what will happen, and
-- only from devices the admin marks as trusted (Tailscale identifies the
-  device too; by default, the Baihe PC itself).
+Installing packages runs code; reset and restore can replace the whole
+server's software or its data. **Decided 2026-09-28:** admin permission,
+an explicit confirmation step, and **initially only from the Baihe PC
+itself.** Not from a phone.
 
-Until that's built, these stay in Streamlit, reachable only by the owner
-(§5).
+**Correction to the earlier draft:** it said Tailscale identifies the
+*device*. Serve's standard identity headers identify the **user**, not
+which device they used, so `Tailscale-User-Login` can't enforce "only
+from this device". The mechanism instead:
+
+- **Admin endpoints are not on the Serve-published service at all.** They
+  live on a separate listener (e.g. `127.0.0.1:8601`) that Tailscale
+  Serve never publishes. Under the threat model (§3), reaching it means
+  being on the PC. It still requires `admin.system` and the confirmation
+  step (identity comes from the local owner configuration, not a header).
+- **Later, if remote admin is ever wanted:** Serve can forward
+  *application-capability* headers granted through the access policy
+  (e.g. only to one tagged device) with extra configuration
+  ([Serve app capabilities](https://tailscale.com/docs/features/tailscale-serve)).
+  That has to be designed and tested explicitly; it isn't assumed here.
+
+**Streamlit conflicts with "PC only" during the transition.**
+Diagnostics (install, reset) and Library (restore) live in Streamlit.
+Serving Streamlit to the owner over Tailscale (§5) would make those
+reachable from the owner's phone. Choose one:
+- **(a)** Don't publish Streamlit through Serve. The owner uses it only
+  at home. Remote access is React-only for everyone, including the owner.
+  This fully honours "PC only".
+- **(b)** Publish it owner-only and accept the admin actions as a
+  temporary exception for the owner's devices until they move to React.
+
+**Existing exposure to fix regardless of (a)/(b):** `start.bat` binds
+Streamlit to all interfaces (Step 10e), so *any device on the home
+Wi-Fi*, guests included, can already open Streamlit and its danger zone.
+With Tailscale providing remote and household access, Streamlit could
+go back to `127.0.0.1` only. That's a separate step touching `start.bat`
+(currently owned by Step 79), so it's flagged, not changed here.
 
 ## 7. Costs and limits
 
@@ -205,8 +294,10 @@ Until that's built, these stay in Streamlit, reachable only by the owner
    test, and the audit log.
 4. FastAPI serving the built React app from the same origin (§2).
 5. Tailscale installed on the PC, Serve configured (§2), Funnel **off**.
-6. Tailscale access rules: port 443 for household members, port 8443
-   (Streamlit) for the owner only. Port 8756 is never served.
+   Admin endpoints on their own unpublished listener (§6).
+6. Tailscale access policy replaced (the default allows everything): port 443
+   for the household group, 8443 (Streamlit) owner-only or not published
+   (§6 choice), nothing else; 8756, 8600 and 8601 never reachable.
 7. The PC's sleep settings are adjusted so it stays reachable.
 8. A check from a phone on mobile data: the React app works for a
    granted user; an ungranted tailnet user sees "ask for access";
