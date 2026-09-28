@@ -101,7 +101,7 @@ baihe-subtitler/
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
-│           toonkor.py, xbanxia.py, zerosumonline.py
+│           ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
 ├── ui/                         ← small shared UI building blocks used across tabs (Step 13).
 │   ├── __init__.py               (package docstring: a map of the modules below)

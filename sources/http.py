@@ -7,6 +7,10 @@ What it guarantees, structurally rather than by convention:
     the same source, one request in flight per source by default, and an
     adapter can declare a stricter per-host minimum (e.g. a robots.txt
     Crawl-delay).
+  * Session-shaped: every so often (a randomized request count, default
+    8-20) the source takes one longer pause (default 30-90s) before
+    continuing -- like a person setting the app down and coming back --
+    rather than a constant, evenly-spaced request rate for an entire run.
   * Ordinary trouble (HTTP 429, 5xx, timeouts, dropped connections) is
     retried with exponential backoff, up to a capped number of times.
   * An active anti-automation challenge is NEVER retried and never passed
@@ -52,17 +56,31 @@ class PacingPolicy:
     max_retries: int = 3
     backoff_base: float = 2.0
     host_min_interval: dict = field(default_factory=dict)   # host -> seconds
+    # A longer, occasional pause on top of the ordinary per-request gap --
+    # picked once per `session_break_min/max_requests` requests, mimicking a
+    # person setting the app down and coming back. 0 (either bound) disables
+    # it entirely.
+    session_break_min_requests: int = 8
+    session_break_max_requests: int = 20
+    session_break_min_delay: float = 30.0
+    session_break_max_delay: float = 90.0
 
     @classmethod
     def from_settings(cls, host_min_interval: dict = None) -> "PacingPolicy":
         s = store.all_settings()
         lo = max(0.0, float(s["pace_min_delay"]))
         hi = max(lo, float(s["pace_max_delay"]))
+        break_lo = max(0, int(s["session_break_min_requests"]))
+        break_hi = max(break_lo, int(s["session_break_max_requests"]))
+        break_delay_lo = max(0.0, float(s["session_break_min_delay"]))
+        break_delay_hi = max(break_delay_lo, float(s["session_break_max_delay"]))
         return cls(min_delay=lo, max_delay=hi,
                    max_concurrent=max(1, int(s["max_concurrent"])),
                    max_retries=max(0, int(s["max_retries"])),
                    backoff_base=max(0.0, float(s["backoff_base"])),
-                   host_min_interval=dict(host_min_interval or {}))
+                   host_min_interval=dict(host_min_interval or {}),
+                   session_break_min_requests=break_lo, session_break_max_requests=break_hi,
+                   session_break_min_delay=break_delay_lo, session_break_max_delay=break_delay_hi)
 
 
 @dataclass
@@ -250,6 +268,7 @@ class SourceClient:
     # -- pacing ------------------------------------------------------------
     def _wait_turn(self, host: str, st: dict):
         """Called holding the source's pace lock."""
+        self._maybe_take_a_break(st)
         last = st["last"].get(host)
         gap = self.rng.uniform(self.policy.min_delay, self.policy.max_delay)
         gap = max(gap, float(self.policy.host_min_interval.get(host, 0.0)))
@@ -259,6 +278,30 @@ class SourceClient:
                 self._status(f"Waiting {wait:.1f}s before next request...", wait)
                 self._sleep_cancellable(wait)
         st["last"][host] = self.clock()
+
+    def _pick_break_at(self) -> int:
+        lo = self.policy.session_break_min_requests
+        hi = self.policy.session_break_max_requests
+        return max(1, round(self.rng.uniform(lo, hi)))
+
+    def _maybe_take_a_break(self, st: dict):
+        """Every `break_at` requests to this source (across every host),
+        pauses for longer than the ordinary per-request gap -- a person
+        would set the app down and come back rather than keep an evenly
+        spaced request rate going for a whole session."""
+        if self.policy.session_break_min_requests <= 0:
+            return
+        if "break_at" not in st:
+            st["break_at"] = self._pick_break_at()
+            st["since_break"] = 0
+        if st["since_break"] >= st["break_at"]:
+            pause = self.rng.uniform(self.policy.session_break_min_delay,
+                                     self.policy.session_break_max_delay)
+            self._status(f"Taking a break ({pause:.0f}s)...", pause)
+            self._sleep_cancellable(pause)
+            st["since_break"] = 0
+            st["break_at"] = self._pick_break_at()
+        st["since_break"] += 1
 
     # -- the request -------------------------------------------------------
     def request(self, method: str, url: str, headers: dict = None, data=None,

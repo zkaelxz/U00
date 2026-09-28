@@ -72,6 +72,84 @@ SITE_TERMS = [
             "unverified": "Not cleared: UNKNOWN is not PERMITTED.",
         },
     },
+    {
+        # roadmap Step 91 investigation. No adapter -- not because the
+        # technique couldn't be found (it was, in full: see below), but
+        # because the site's own real, directly-read Terms of Service
+        # explicitly prohibit exactly this. Automation_permission is
+        # EXPLICITLY_RESTRICTED, not UNKNOWN -- a real found-and-corrected
+        # mistake from this same investigation: an earlier pass guessed the
+        # wrong ToS URL (`/about/terms-of-service`, which 404s), read that
+        # 404 page's near-empty content, and recorded UNKNOWN rather than
+        # finding the real page. The real path is `/terms-of-service`
+        # (found from the site's own footer link), fetched and read in full
+        # directly (2026-09-28).
+        "domains": ("wuxiaworld.com",),
+        "platform": "Wuxiaworld",
+        "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "www.wuxiaworld.com/terms-of-service, fetched and read in full directly "
+                    "(2026-09-28) -- the real path, found via the site's own footer link, not "
+                    "the guessed `/about/terms-of-service` path (which 404s).",
+            "clause": "\"Automated Access/Extraction: Use any robot, bot, scraper, crawler, or "
+                      "other automated means to access or extract content from the Platform "
+                      "except as expressly permitted.\" And separately: \"Automated Data "
+                      "Collection: Do not use any robot, spider, scraper, crawler, or any "
+                      "automated means to access or extract data from Wuxiaworld without our "
+                      "prior written permission. The only exception is public search engine "
+                      "indexing... Any other automated reading or downloading of our content "
+                      "(for instance, to create an archive) is prohibited.\"",
+            "extraction_method": "Recorded for completeness, even though the ToS clause above "
+                                 "is what actually rules this site out: chapter text is fully "
+                                 "retrievable over plain HTTP without any browser/JS execution. "
+                                 "Series and chapter *pages* both embed a "
+                                 "`window.__REACT_QUERY_STATE__` JSON cache server-side; its "
+                                 "`['chapter', novel_slug, chapter_slug, None]` query holds the "
+                                 "real chapter HTML at `item.content.value` and a reliable "
+                                 "`item.pricingInfo.isFree` flag -- confirmed true for an early "
+                                 "chapter and false for a late one on the same real novel "
+                                 "(dragon-prince-yuan). A real karma (premium-currency) paywall "
+                                 "also covers most of the catalog (per-chapter `karmaInfo`, a "
+                                 "timed free-unlock mechanic), but even a free, unlocked "
+                                 "chapter's text is still off-limits under the clause above -- "
+                                 "the paywall status doesn't change the ToS answer. No "
+                                 "server-side endpoint for the *full* chapter list was found "
+                                 "(a novel page's own `chapterInfo.chapterGroups[].chapterList` "
+                                 "is server-rendered empty; the real list is fetched by "
+                                 "client-side JS this session didn't reverse-engineer), which "
+                                 "would have been a second, independent reason to leave "
+                                 "`get_chapters()` unbuilt even absent the ToS finding.",
+        },
+    },
+    {
+        # roadmap Step 91 investigation. No adapter: an active Cloudflare
+        # interactive challenge blocks even the homepage and the terms
+        # pages over plain HTTP -- this project's own architecture (see
+        # sources/models.py's CHALLENGE_REASONS / sources/ladder.py) always
+        # hands an active challenge to the person rather than trying to
+        # solve or automate past it, so no tier below USER_ASSISTED_BROWSER
+        # is buildable here regardless of what a real browser might do.
+        "domains": ("webnovel.com",),
+        "platform": "Webnovel (Qidian International / WebNovel/YueWen)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "www.webnovel.com/about/termOfUse and /about/tos both returned an active "
+                    "Cloudflare \"Just a moment...\" interactive challenge page (HTTP 403) on a "
+                    "direct fetch (2026-09-28), same as the site's own homepage -- the real "
+                    "clause text was never reachable to read.",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. Automated challenge-solving "
+                          "was not attempted, per this project's standing rule that an active "
+                          "anti-automation challenge is always handed to the person, never "
+                          "solved automatically.",
+            "extraction_method": "UNAVAILABLE at STATIC_HTTP -- an active Cloudflare "
+                                 "interactive challenge (not just a CDN passthrough; confirmed "
+                                 "by the literal \"Just a moment...\" challenge page and HTTP "
+                                 "403) fires on the bare homepage itself, before any book/chapter "
+                                 "path is even reached.",
+        },
+    },
 ]
 
 
