@@ -8,6 +8,10 @@
 > and proves it with one real read-only feature: the Library's drama list
 > and a drama's details.
 
+**For the whole-app review** (every tab and Workspace stage, embedded
+bug-fix invariants, per-area service/API plans, sequencing, decisions
+needed), see [`migration-review.md`](migration-review.md).
+
 This is the start of a migration, not a rewrite. The approach is the
 strangler-fig one the roadmap already recommended (§3, M8+ analysis): move
 logic into UI-independent services one area at a time, let both Streamlit
