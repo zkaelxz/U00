@@ -28,6 +28,19 @@ What it asserts:
     should, at the element's own scale, and still do after a resize,
   * click-to-see-original and the overlay toggle work,
   * the same image appearing twice is sent once, not once per element.
+
+Step 96 added a second, text-capture mode alongside the image one, and
+this script covers it with the same rigor:
+
+  * with nothing selected, the page's own largest contiguous block of
+    paragraph text is captured -- and a <nav>'s links are not, even
+    though the nav sits on the same page,
+  * that text is translated for real through
+    translate_engines.standalone_translate (not mocked -- TestOfflineEngine
+    needs no network or key, so the real function runs end to end),
+  * the result is drawn into a panel on the page itself and saved to the
+    Standalone translate tab's own history table,
+  * an explicit text selection wins over the heuristic block.
 """
 import base64
 import functools
@@ -130,7 +143,13 @@ def main():
 
     scanlate.detect_and_ocr_page = fake_detect
     scanlate.translate_page_bubbles = fake_translate
-    translate_engines.get_engine = lambda *a, **kw: object()
+    # TestOfflineEngine is real code (translate_engines.py), not a fake --
+    # it just needs no network or key, which is what makes the text-mode
+    # checks below a genuine run of standalone_translate rather than a
+    # mock of it. Standing in for get_engine at all (rather than calling
+    # the real one) only skips API-key bookkeeping the image checks don't
+    # exercise either.
+    translate_engines.get_engine = lambda *a, **kw: translate_engines.TestOfflineEngine()
     page_server.set_translation_config(engine="test_offline", api_key="x")
 
     server_port = free_port()
@@ -162,6 +181,22 @@ def main():
 <img id="twice" src="data:image/png;base64,{page_a}" style="width:200px">
 <img id="viaBlob" style="width:400px">
 <img id="icon" src="data:image/png;base64,{icon}" width="32">
+<nav>
+<p>Home</p>
+<p>Chapters</p>
+<p>These nav links are inside a &lt;nav&gt;, so they must never be captured as page text,
+   no matter how long this one paragraph is made to be.</p>
+</nav>
+<article>
+<p>Chapter Ninety-Six: The Signal in the Static. Kaelith stood at the edge of the ridge,
+   watching lightning fork over the valley below, and for the first time in weeks she let
+   herself hope the old relay might still answer.</p>
+<p>The climb down took the better part of an hour, her boots slipping on wet stone, the
+   storm's noise swallowing every word she tried to say to steady her own nerve.</p>
+<p id="chosenParagraph">When the transmitter finally hissed to life, the voice on the other
+   end was faint but unmistakably her sister's, three years gone and speaking as if no time
+   had passed at all.</p>
+</article>
 <script>
 // A blob:-backed page image: it exists only inside this tab, which is
 // exactly the case a source adapter cannot reach.
@@ -321,6 +356,60 @@ document.getElementById("viaBlob").src =
             check("a page already translated is served from the cache",
                   len([c for c in calls if c[0] == "translate"]) == before,
                   f"{len([c for c in calls if c[0] == 'translate'])} translate call(s) total")
+
+            # -- text capture (Step 96) -------------------------------
+            # With nothing selected: the heuristic should pick the
+            # <article>'s three paragraphs and skip the <nav> entirely,
+            # then run that text through the real (unmocked)
+            # standalone_translate via TestOfflineEngine.
+            no_selection = options.evaluate(drive, [site_url, {
+                "type": "translatePageText", "sourceLanguage": "en",
+                "targetLanguage": "zh", "store": True}])
+            check("translating the page's main text block succeeds",
+                  bool(no_selection and no_selection.get("ok")),
+                  json.dumps(no_selection)[:200])
+            if no_selection and no_selection.get("ok"):
+                captured = no_selection["data"]
+                source_text = captured.get("source_text", "")
+                check("the captured text is the article, not the nav links",
+                      "Kaelith" in source_text and "sister" in source_text
+                      and "Home" not in source_text and "Chapters" not in source_text,
+                      source_text[:160])
+                check("the text was actually translated through standalone_translate, "
+                      "not just echoed back",
+                      captured.get("translated_text", "").startswith("[TEST]"),
+                      captured.get("translated_text", ""))
+                check("a translation panel is drawn on the page",
+                      page.evaluate(
+                          "() => !!document.getElementById('baihe-text-panel')"))
+                check("it was saved into Standalone translate's own history table",
+                      bool(captured.get("saved_to_history")))
+
+            # An explicit selection must win over the heuristic block --
+            # select just the third paragraph and confirm only that text
+            # is sent, not the whole article.
+            page.evaluate(
+                """() => {
+                     const target = document.getElementById('chosenParagraph');
+                     const range = document.createRange();
+                     range.selectNodeContents(target);
+                     const selection = window.getSelection();
+                     selection.removeAllRanges();
+                     selection.addRange(range);
+                   }""")
+            with_selection = options.evaluate(drive, [site_url, {
+                "type": "translatePageText", "sourceLanguage": "en",
+                "targetLanguage": "zh", "store": False}])
+            check("an explicit text selection is captured instead of the heuristic block",
+                  bool(with_selection and with_selection.get("ok"))
+                  and with_selection["data"].get("fromSelection") is True
+                  and "sister" in with_selection["data"].get("source_text", "")
+                  and "Kaelith stood" not in with_selection["data"].get("source_text", ""),
+                  json.dumps(with_selection)[:200] if with_selection else "no response")
+
+            check("history has exactly the one translation that asked to be saved",
+                  len(db.list_translate_history()) == 1,
+                  f"{len(db.list_translate_history())} entrie(s)")
         finally:
             context.close()
             site.shutdown()

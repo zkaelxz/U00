@@ -437,11 +437,12 @@ def _render_browser_extension_settings():
 
     with st.expander("Browser extension (translate the page you're on)", expanded=False):
         st.caption(
-            "Lets a browser extension send the comic page you're reading straight into "
-            "Baihe -- useful for a site with no adapter, and for pages an adapter can't "
-            "reach because only your own browser can unscramble or decrypt them. Opens a "
-            "small HTTP endpoint on this computer only (127.0.0.1); nothing on your "
-            "network can reach it, and every request needs the token below.")
+            "Lets a browser extension send the comic page -- or the text of a novel page --"
+            " you're reading straight into Baihe -- useful for a site with no adapter, and "
+            "for pages an adapter can't reach because only your own browser can unscramble "
+            "or decrypt them. Opens a small HTTP endpoint on this computer only "
+            "(127.0.0.1); nothing on your network can reach it, and every request needs the "
+            "token below.")
         stored = bool(src_store.get_setting("page_server_enabled"))
         enabled = st.checkbox(
             "Run the local endpoint", value=stored, key="settings_page_server_enabled",
