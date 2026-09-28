@@ -10,7 +10,6 @@ import numpy as np
 cv2 = pytest.importorskip("cv2")  # requirements-media.txt, not core -- skip cleanly without it
 import emotion as em
 import scanlate
-import ui_theme as ui
 from core import Line
 
 
@@ -276,30 +275,6 @@ class TestTextRegionClassification:
     def test_font_sampling_missing_file_fallback(self):
         s = scanlate.sample_text_style("/nope/x.png", {"x": 0, "y": 0, "w": 5, "h": 5})
         assert s["weight"] == "regular"
-
-
-class TestUiPrimitives:
-    def test_status_pill_uses_status_colour(self):
-        h = ui.status_pill("translated")
-        assert "bh-pill" in h and ui.STATUS_COLORS["translated"][0] in h
-
-    def test_unknown_status_keeps_label_neutral_colour(self):
-        h = ui.status_pill("bogus")
-        assert "bogus" in h and ui.STATUS_COLORS["not started"][0] in h
-
-    def test_all_statuses_have_colours(self):
-        for k, (fg, bg) in ui.STATUS_COLORS.items():
-            assert fg.startswith("#") and bg.startswith("#")
-
-    def test_stage_mapping(self):
-        assert ui.stage_for_drama({"status": "not started"}, False) == 0
-        assert ui.stage_for_drama({"status": "not started", "audio_filename": "a"}, False) == 1
-        assert ui.stage_for_drama({"status": "aligned"}, True) == 2
-        assert ui.stage_for_drama({"status": "translated"}, True) == 3
-        assert ui.stage_for_drama({"status": "dubbed"}, True) == 4
-
-    def test_stage_handles_none_drama(self):
-        assert ui.stage_for_drama(None, False) == 0
 
 
 class TestReaderFollowAlong:

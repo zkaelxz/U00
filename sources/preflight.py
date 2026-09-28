@@ -41,7 +41,7 @@ answer below is derived from that same response.
 from dataclasses import dataclass, field
 
 from . import ai_extract as ax
-from . import detect, front_door, generic_import, profiles
+from . import detect, front_door, profiles
 from .models import SourceError, TermsProhibited
 
 UNKNOWN = front_door.UNKNOWN
