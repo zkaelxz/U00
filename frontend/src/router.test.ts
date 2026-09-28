@@ -12,6 +12,8 @@ describe('parseRoute', () => {
   it('parses settings and diagnostics', () => {
     expect(parseRoute('#/settings')).toEqual({ name: 'settings' })
     expect(parseRoute('#/diagnostics')).toEqual({ name: 'diagnostics' })
+    expect(parseRoute('#/translate')).toEqual({ name: 'translate' })
+    expect(parseRoute('#/translate/extra')).toEqual({ name: 'library' })
   })
 
   it('parses drama id and stage, defaulting the stage', () => {
