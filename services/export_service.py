@@ -58,6 +58,11 @@ def _load_notes_by_idx(drama_id: int):
 
 
 _HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+# Each speaker_colors entry becomes an ASS Style line; unknown speakers are
+# harmless but kept under a cap rather than intersected with the drama's.
+MAX_SPEAKER_COLORS = 200
+MAX_SPEAKER_LABEL_LEN = 100
+
 _STYLE_KEYS = ("font", "size", "bold", "italic", "primary", "outline", "outline_width",
                "shadow", "alignment", "sfx_alignment", "notes_alignment")
 # Ranges mirror the Streamlit tab's own sliders (_subtitle_style_controls).
@@ -108,6 +113,8 @@ def _build_ass_style(preset: str, style) -> dict:
     font = merged["font"]
     if not isinstance(font, str) or not font.strip():
         raise InvalidInputError("Style 'font' must be a non-empty string.")
+    if any(ord(c) < 32 or ord(c) == 127 for c in font):
+        raise InvalidInputError("Style 'font' must not contain control characters.")
     _check_int_range(merged["size"], "size", _SIZE_RANGE)
     _check_int_range(merged["outline_width"], "outline_width", _OUTLINE_WIDTH_RANGE)
     _check_int_range(merged["shadow"], "shadow", _SHADOW_RANGE)
@@ -164,9 +171,13 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     if speaker_colors is not None:
         if not isinstance(speaker_colors, dict):
             raise InvalidInputError("'speaker_colors' must be an object.")
+        if len(speaker_colors) > MAX_SPEAKER_COLORS:
+            raise InvalidInputError("'speaker_colors' has too many entries.")
         for label, color in speaker_colors.items():
             if not isinstance(label, str):
                 raise InvalidInputError("Speaker labels must be strings.")
+            if len(label) > MAX_SPEAKER_LABEL_LEN:
+                raise InvalidInputError("A speaker label is too long.")
             _check_color(color, "speaker_colors")
     if notes_as_separate_line and not include_notes:
         raise InvalidInputError("'notes_as_separate_line' requires 'include_notes'.")

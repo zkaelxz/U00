@@ -429,7 +429,8 @@ class DubPacing(BaseModel):
 
 class AssStyleOverrides(BaseModel):
     """Per-request ASS style overrides (Migration Slice 27). Only fields the
-    client sets replace the preset's values; unknown keys are a 422."""
+    client sets replace the preset's values; unknown keys are a 422. An
+    explicit JSON null for a field is also a 422 (omit the key instead)."""
     model_config = ConfigDict(extra="forbid")
     font: Optional[str] = None
     size: Optional[int] = None
@@ -452,8 +453,8 @@ class AssExportRequest(BaseModel):
     per_speaker_colors: bool = True
     include_notes: bool = False
     notes_as_separate_line: bool = False
-    wrap_chars_en: Optional[int] = Field(default=None, ge=0)
-    wrap_chars_source: Optional[int] = Field(default=None, ge=0)
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
 
 
 class AssStyleOptions(BaseModel):
