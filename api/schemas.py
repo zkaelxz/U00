@@ -577,3 +577,73 @@ class TranslateRunEstimate(BaseModel):
     effective_cap_usd: Optional[float] = None
     monthly_refusal: bool
     estimate_above_cap: bool
+
+class CharactersEntry(BaseModel):
+    """One speaker's character/voice settings. No reference-audio
+    filename or path -- only the two booleans (D2)."""
+    speaker_label: str
+    character_name: str
+    pronouns: str
+    tts_voice: str
+    offline_voice: str
+    clone_engine: str
+    voice_design: str
+    has_ref_audio: bool
+    ref_text_present: bool
+    series_character_id: Optional[int] = None
+    series_character_name: str
+    line_count: int
+
+
+class CharactersUpdateRequest(BaseModel):
+    """speaker_label identifies the speaker; every other field is
+    optional -- omitted (or null) leaves the stored value alone, an
+    explicit "" clears it (character_name can't be blank)."""
+    model_config = {"extra": "forbid"}
+
+    speaker_label: str
+    character_name: Optional[str] = None
+    pronouns: Optional[str] = None
+    tts_voice: Optional[str] = None
+    offline_voice: Optional[str] = None
+    clone_engine: Optional[str] = None
+    voice_design: Optional[str] = None
+    ref_text: Optional[str] = None
+
+
+class CharactersSeriesEntry(BaseModel):
+    id: int
+    character_name: str
+    aliases: str
+    notes: str
+    pronouns: str
+
+
+class CharactersCloneEngineItem(BaseModel):
+    id: str
+    label: str
+    is_default: bool
+    language_gated: bool
+    local_model: bool
+
+
+class CharactersCloneEngines(BaseModel):
+    source_language: str
+    default_engine: str
+    engines: List[CharactersCloneEngineItem]
+
+
+class CharactersVoiceBankEntry(BaseModel):
+    """Voice bank picklist entry: metadata only, never the clip file."""
+    id: int
+    name: str
+    clone_engine: str
+    voice_design: str
+    language: str
+    notes: str
+    ref_text_present: bool
+
+
+class CharactersVoiceBankApply(BaseModel):
+    speaker_label: str
+    voice_bank_id: int = Field(ge=1)
