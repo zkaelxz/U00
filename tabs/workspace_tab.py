@@ -22,7 +22,7 @@ from services.workspace_job_service import (
 )
 
 MEDIA_TYPE_OPTIONS = ["audio_drama", "video_drama", "anime", "novel", "manhwa", "manga", "manhua",
-                       "asmr", "streamer_vod", "other"]
+                       "asmr", "streamer_vod", "music", "other"]
 
 
 def _format_media_type(m):

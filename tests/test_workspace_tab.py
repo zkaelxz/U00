@@ -6189,6 +6189,18 @@ class TestNewDramaLanguageSelector:
         assert dramas[0]["source_language"] == "ja"
 
 
+class TestMusicMediaType:
+    """Step 89: add music alongside the existing anime/asmr entries."""
+
+    def test_music_is_a_media_type_option(self):
+        import tabs.workspace_tab as wt
+        assert "music" in wt.MEDIA_TYPE_OPTIONS
+
+    def test_music_displays_with_ordinary_title_case(self):
+        import tabs.workspace_tab as wt
+        assert wt._format_media_type("music") == "Music"
+
+
 class TestAnimeContentTypeAndSeriesAtCreation:
     """Step 22b: "anime" as its own media_type, and assigning a series
     directly from the "Create drama" form instead of needing a later
