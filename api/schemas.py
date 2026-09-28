@@ -1052,3 +1052,30 @@ class LinesNote(BaseModel):
 class LinesNoteDeleteResult(BaseModel):
     deleted: bool
     note_id: int
+
+
+class NarrationEngineOption(BaseModel):
+    key: str
+    key_configured: bool
+
+
+class NarrationConfig(BaseModel):
+    drama_id: int
+    is_narration: bool
+    has_novel_source: bool
+    engines: List[NarrationEngineOption]
+    default_engine: str
+    max_chunk_chars: int
+    existing_line_count: int
+    replaces_existing_lines: bool
+    job_running: bool
+
+
+class NarrationRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(default=None, max_length=40)
+    model: Optional[str] = Field(default=None, max_length=200)
+
+
+class NarrationRunResult(BaseModel):
+    job_id: str

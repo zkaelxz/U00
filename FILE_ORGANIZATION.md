@@ -202,6 +202,8 @@ baihe-subtitler/
 │   │                             video/transcript-source presence); audio upload and transcript/
 │   │                             novel text stay out of scope, folded into a future
 │   │                             transcribe-and-align action slice instead
+│   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
+│   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
 │   │                             (Whisper tuning knobs, newly persisted per drama) plus
 │   │                             start_transcribe_run: a background job that does the WHOLE
@@ -265,6 +267,7 @@ baihe-subtitler/
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
+│       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
 │       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
