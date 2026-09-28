@@ -352,8 +352,8 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     # The OCR text is still real and still useful, so it
                     # is returned rather than thrown away -- the same
                     # choice the Scanlate tab makes on this failure.
-                    notes.append(["warning", f"translation failed ({e}); the source text "
-                                             "below was still read"])
+                    notes.append(["warning", f"translation failed ({translate_engines.redact_secrets(str(e))}); "
+                                             "the source text below was still read"])
             elif bubbles and engine is None:
                 notes.append(["warning", "no translation engine is configured in Settings, so "
                                          "only the original text was read"])
