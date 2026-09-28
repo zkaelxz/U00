@@ -106,5 +106,28 @@ The 13 false leads (pure keyword collisions, nothing to adopt): baihepailei, bai
 | 131 | Frontend/API hygiene: CORS decision, `useJob` retry/backoff | B-17, B-18 |
 | 132 | Streamlit-parity items to resolve at tab retirement | B-11, B-13 |
 
+## 5b. Needs to be added to the roadmap (3 items)
+Real findings with nowhere to live yet: flagged in review, not written up as a numbered step in `docs/baihe-roadmap.md`, or waiting on their own verification before they can be.
+I could not see the old planner artifact's original three entries, so this list is reconstructed from roadmap §8a; the planning session should reconcile it against that artifact.
+1. **Conditional HTTP (ETag / Last-Modified) for `sources/http.py` and `chapter_check.py`** -- confirmed gap, proposed Step 106.
+2. **Partial-import retry state** (show already-succeeded chapters to the picker; failed-chapter manifest) -- confirmed gap, proposed Step 107.
+3. **Media/page cache disk ceiling with LRU eviction** -- waiting on its own verification (not a confirmed gap; check Step 9b model-disk management first), proposed Step 111.
+
+A separate third adversarial QC pass (`dub.py`, `background_jobs.py`, `sources/`, `cli.py`, `bulk_translate.py`, every translate engine) has since completed clean: its one apparent finding turned out to already be fixed by Step 25o, and nothing else it checked turned up a new issue.
+
+## 5c. Deferred milestones (long-term, not current scope)
+Recorded direction, revisited only if a real need shows up -- not steps waiting in a queue. (Carried over from the old planner chat's artifact.)
+
+| Milestone | Why it is deferred | Revisit when |
+|---|---|---|
+| R4 -- standalone VAD, independent ASR | Whisper already works and nothing shows Qwen3-ASR is better on this content | Whisper transcripts turn out clearly poor, or long jobs keep failing partway |
+| R7 -- full-pipeline benchmark | A developer tool whose only real use is deciding R4 | R4 is being reconsidered |
+| Live capture (Bilibili / TikTok Live) | Each platform's live/HLS quirks are real, separate work; the app's actual focus is VOD audio dramas | Live capture itself is wanted, not just downloading a finished VOD |
+| R1-full -- general artifact/versioning | R1-lite already covers not losing the original | Several stages need a real version history |
+| R2 windowing -- diarize long audio in windows | Only matters for streams several hours long | Such streams are actually being processed |
+| R3-full -- single-slot model manager | Only matters once the GPU actually runs out of memory | GPU out-of-memory errors appear |
+| M8+ -- FastAPI + React, job queue | Was deferred: a large migration with no current pain. **Status update: now underway at the user's direction** (backend services/API merged, React foundations merged; see section 1 and `docs/migration-frontend-plan.md`). The separate "job queue" half is still deferred | Streamlit becomes the real bottleneck (job queue) |
+| Docker / browser extension | User explicitly put both on the back burner | The rest of the roadmap's functionality is further along |
+
 ## 6. Working rules that still apply (from `CLAUDE.md`, not repeated in full)
 One step, one branch off the latest `baihe-subtitler`; keep changes minimal; remove what your change makes dead and flag pre-existing dead code; run `python run_tests.py`; secrets never in URLs/logs/errors; every HTTP call has `timeout=`; field-scoped writes by permanent line id; register new optional dependencies in `diagnostics.OPTIONAL_DEPENDENCIES`; update `FILE_ORGANIZATION.md` for new top-level modules; structural UI rebuilds need before/after Playwright screenshots.
