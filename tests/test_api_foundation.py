@@ -336,3 +336,28 @@ class TestJobsEndpoint:
         db.save_job_record("j1", status="running")
         assert client.post("/api/jobs/j1/cancel").status_code == 404
         assert client.delete("/api/jobs/j1").status_code == 405
+
+
+class TestSettingsEndpoint:
+    """Migration Slice 10: a read-only settings overview over HTTP --
+    engine key presence only, never a value (D2). No write route exists
+    here; see api/routers/settings_routes.py's own docstring for why."""
+
+    def test_overview_contract_shape(self, client, isolated_db):
+        body = client.get("/api/settings").json()
+        assert set(body) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion"}
+        assert isinstance(body["engine_keys"], dict)
+        assert "claude" in body["engine_keys"]
+        assert "monthly_cap_usd" not in body["engine_keys"]
+        for value in body["engine_keys"].values():
+            assert isinstance(value, bool)
+
+    def test_overview_never_leaks_a_key_value(self, client, isolated_db, monkeypatch):
+        monkeypatch.setenv("BAIHE_CLAUDE_KEY", "sk-should-not-leak")
+        resp = client.get("/api/settings")
+        assert "sk-should-not-leak" not in resp.text
+        assert resp.json()["engine_keys"]["claude"] is True
+
+    def test_no_write_endpoint_is_exposed(self, client, isolated_db):
+        assert client.post("/api/settings").status_code == 405
+        assert client.delete("/api/settings").status_code == 405

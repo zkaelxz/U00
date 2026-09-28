@@ -18,6 +18,7 @@ import os
 from common import st, synced_api_key_input
 import db
 import ocr
+from services.settings_service import ENV_NAMES as _ENV_NAMES
 import translate_engines
 import ui_theme
 import video_download
@@ -75,27 +76,12 @@ def _load_env_defaults(env_path: str = None):
                 break
 
 
-# Per settings key, the env var name(s) _load_env_defaults() reads on
-# startup, in priority order -- the first entry is also the canonical
-# name save_key_to_env() writes back, so a saved key round-trips through
-# the exact same name it would be read back under.
-_ENV_NAMES = {
-    "claude": ("BAIHE_CLAUDE_KEY", "ANTHROPIC_API_KEY"),
-    "deepseek": ("BAIHE_DEEPSEEK_KEY", "DEEPSEEK_API_KEY"),
-    # Deliberately NOT falling back to GOOGLE_API_KEY here -- that name
-    # is already claimed by the separate Google Translate engine above,
-    # and a Cloud Translation key isn't guaranteed to also work as a
-    # Gemini API key (different products, often different projects).
-    "gemini": ("BAIHE_GEMINI_KEY", "GEMINI_API_KEY"),
-    "deepl": ("BAIHE_DEEPL_KEY", "DEEPL_API_KEY"),
-    "google": ("BAIHE_GOOGLE_KEY", "GOOGLE_API_KEY"),
-    "groq": ("BAIHE_GROQ_KEY", "GROQ_API_KEY"),
-    "hf_token": ("BAIHE_HF_TOKEN", "HF_TOKEN", "HUGGINGFACE_TOKEN"),
-    "ollama_url": ("BAIHE_OLLAMA_URL",),
-    "libretranslate_url": ("BAIHE_LIBRETRANSLATE_URL",),
-    "gpt_sovits_url": ("BAIHE_GPT_SOVITS_URL",),
-    "monthly_cap_usd": ("BAIHE_MONTHLY_CAP_USD",),
-}
+# _ENV_NAMES (per settings key, the env var name(s) _load_env_defaults()
+# reads on startup, in priority order -- the first entry is also the
+# canonical name save_key_to_env() writes back) now lives in
+# services/settings_service.py (imported above), shared with the FastAPI
+# settings endpoint so both read the same mapping instead of two copies
+# that could drift.
 
 
 def save_key_to_env(settings_key: str, value: str, env_path: str = None) -> str:
