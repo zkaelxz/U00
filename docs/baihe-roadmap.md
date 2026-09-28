@@ -129,7 +129,12 @@
 > flagging per this project's own don't-guess-at-decisions rule rather
 > than picking one unilaterally.
 >
-> **Not yet dispatched:** Steps 95/97/98/99 (see above, no branch yet).
+> **Step 98 merged (2026-09-28):** `step-98-proxy-support`, PR #199 —
+> HTTP(S) proxies only, SOCKS deliberately not added (would need a new
+> `PySocks` dependency, out of this step's minimal scope). Full suite
+> 3232 passed.
+>
+> **Not yet dispatched:** Steps 95/97/99 (see above, no branch yet).
 >
 > **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42,
 > which doesn't exist yet). Step 60 (multi-agent orchestration — also
@@ -4205,7 +4210,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 95 — Background-music-preserving dub: `dub.build_dub_track()` currently discards original BGM/ambience/SFX; reuse Step 4g's Demucs separation, remix background back in post-dub | — | Not started — tracked, not dispatched |  — |
   | 96 — Browser extension: generic, site-agnostic text-capture mode (translate a page's prose, not just comic images) + content-capture-timing/CAPTCHA-interstitial detection | `step-96-extension-text-capture` (merged together with a second, previously-separate branch fixing capture timing/CAPTCHA detection — see decision-needed note below on the JJWXC redirect that motivated this) | ✅ Merged (PR #192) | ⏳ Pending |
   | 97 — `translate_engines.py` fallback-chain (engine A → B → C on failure) + a `doctor`-style diagnostics command pre-flighting every configured engine's credentials/reachability before a batch job starts | — | Not started — tracked, not dispatched | — |
-  | 98 — Proxy support in `sources/http.py` (confirmed zero proxy support anywhere via repo-wide grep; low priority, no adapter currently failing for lack of it) | — | Not started — tracked, not dispatched | — |
+  | 98 — Proxy support in `sources/http.py` (confirmed zero proxy support anywhere via repo-wide grep; low priority, no adapter currently failing for lack of it) | `step-98-proxy-support` | ✅ Merged (PR #199) — HTTP(S) only, SOCKS needs the optional PySocks package, deliberately not added | — |
   | 99 — Tiered translation cost/quality escalation: cheap/local model by default, auto-escalate a specific line to a stronger paid model on a glossary conflict/ambiguous term/QC flag (renumbered from a "Step 96" collision with the browser-extension work above) | — | Not started — tracked, not dispatched | — |
   | — React + FastAPI migration foundation (`api/`, `services/library_service.py`, `frontend/` Library view; not a numbered step, an ongoing parallel workstream — see `docs/migration-review.md` for the full remaining-work plan) | `migration/react-fastapi-foundation` | ✅ Merged (PR #191) | — |
   | — Migration Slice 2: job-runner extraction to `services/workspace_job_service.py` | `step-migration-slice2-job-services` | ✅ Merged (PR #197) | — |
