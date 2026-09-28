@@ -78,7 +78,7 @@ def who_is_character(character_name: str, lines, drama_meta: dict, engine,
     return call_llm_json(engine, prompt, max_tokens=800, fallback="")
 
 
-def build_relationship_map(lines, drama_meta: dict, engine, max_context_lines: int = 400):
+def build_relationship_map(lines, engine, max_context_lines: int = 400):
     """Extracts the cast and how they relate to each other. Returns
     {"characters": [{name, role, description}],
      "relationships": [{from, to, relation, note}]} -- structured so it

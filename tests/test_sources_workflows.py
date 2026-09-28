@@ -594,6 +594,7 @@ class TestTermsOfServiceBlocking:
         assert caps.tiers["STATIC_HTTP"].tested and caps.tiers["STATIC_HTTP"].ok
         assert caps.access_method == "STATIC_HTTP"
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_prohibited_source_is_refused_before_any_request(self, isolated_db):
         from sources.models import TermsProhibited
         self._prohibit("generic")
@@ -609,6 +610,7 @@ class TestTermsOfServiceBlocking:
             adaptive.import_comic("https://comic.invalid/read/1", client=make_client("generic", t))
         assert t.calls == []
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_a_pasted_link_uses_the_matching_adapters_record(self, isolated_db, monkeypatch):
         from sources.models import TermsProhibited
 
@@ -631,6 +633,7 @@ class TestTermsOfServiceBlocking:
         with pytest.raises(TermsProhibited):
             front_door.preview("https://tos-site.invalid/ch/1")
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_multi_chapter_import_is_refused(self, isolated_db):
         import background_jobs
         routes = {f"https://img.fake.invalid/c1/{i}.png": image(600, 900, i) for i in range(2)}
@@ -650,6 +653,7 @@ class TestTermsOfServiceBlocking:
         assert t.calls == [] and isolated_db.list_pages(drama_id) == []
         background_jobs.clear_job(job)
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_a_stale_stored_record_cant_clear_a_corrected_built_in_prohibition(self, isolated_db):
         """Step 25q gap 1: an earlier import already stored a clean
         record. The adapter's own built-in default has since been
@@ -668,6 +672,7 @@ class TestTermsOfServiceBlocking:
         with pytest.raises(TermsProhibited):
             ladder.check_terms("fake_comic", corrected_default)
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_multi_search_skips_a_prohibited_source(self, isolated_db):
         A = _named("A", "src_a")
         B = _named("B", "src_b")
@@ -680,6 +685,7 @@ class TestTermsOfServiceBlocking:
         assert [r.source for m in out.results for r in m.entries] == ["src_a"]
         assert "src_b" in out.errors and "TOS_PROHIBITED" in out.errors["src_b"]
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_tracked_series_checker_skips_a_prohibited_source(self, isolated_db, monkeypatch):
         adapter = FakeComicSource(make_client("fake_comic", ScriptedTransport()),
                                   chapters=[("c1", "第1话"), ("c2", "第2话")])
@@ -691,6 +697,7 @@ class TestTermsOfServiceBlocking:
         assert "Series" in out["errors"] and "TOS_PROHIBITED" in out["errors"]["Series"]
         assert adapter.chapters and store.list_notifications() == []
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_test_tier_refuses_a_prohibited_source(self, isolated_db):
         """Step 28 gap 1: the Sources tab's "Test Now" diagnostic buttons
         went straight to the tier function with no check_terms() call --
@@ -708,6 +715,7 @@ class TestTermsOfServiceBlocking:
         caps = ladder.load_capabilities("fake_comic")
         assert not caps.tiers.get("STATIC_HTTP") or not caps.tiers["STATIC_HTTP"].tested
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_import_video_refuses_a_prohibited_video_adapter(self, isolated_db, monkeypatch):
         """Step 28 gap 2: front_door.import_video() dispatched straight to
         adapter.download() with no check_terms() call of its own, unlike

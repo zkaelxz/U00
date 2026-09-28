@@ -124,6 +124,22 @@ class TestChapters:
         assert [c.title for c in chapters] == ["Chapter 1", "Chapter 2"]
         assert [c.chapter_id for c in chapters] == ["100", "101"]
 
+    def test_chapter_urls_use_the_mirror_that_was_actually_active(self):
+        """If the primary mirror is down and the series page was actually
+        fetched from a fallback mirror, chapter URLs must point at that
+        same fallback -- never hardcode the first mirror in the list."""
+        import requests
+        routes = {
+            f"{MIRRORS[0]}/manga/test-manhua": requests.ConnectionError("down"),
+            f"{MIRRORS[1]}/manga/test-manhua": html(DETAIL_HTML),
+            f"{baozimh.API_BASE}/api/manga/get?mid=12&mode=all": html(CHAPTERS_JSON),
+        }
+        a, t = _adapter(routes)
+        chapters = a.get_chapters("test-manhua")
+        assert len(chapters) == 2
+        assert all(c.url.startswith(MIRRORS[1]) for c in chapters)
+        assert not any(c.url.startswith(MIRRORS[0]) for c in chapters)
+
 
 class TestPageImageDecoding:
     """The roadmap's own exit condition: correctly resolve a sample

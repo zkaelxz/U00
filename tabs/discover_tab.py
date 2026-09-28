@@ -41,7 +41,7 @@ def render_discover_tab():
         [e for e in translate_engines.ENGINES if translate_engines.ENGINES[e].supports_reference],
         format_func=lambda e: f"{e} — {translate_engines.engine_picker_label(e, _discover_gemini_free_tier)}",
         key="discover_engine")
-    _dc_needs_key = dc_engine_choice != "ollama"
+    _dc_needs_key = dc_engine_choice not in translate_engines.FREE_ENGINES
     dc_api_key = synced_api_key_input(
         "API key" + (" *(required for most actions below)*" if _dc_needs_key else " (optional)"),
         dc_engine_choice, "discover_api_key")
@@ -271,7 +271,10 @@ def render_discover_tab():
         bulk_source_name = st.text_input("Source label (for your own reference)", value="jjwxc_baihe_tag",
                                           key="bulk_source_name")
 
-        if st.button("🔍 Extract entries (review before saving)") and bulk_urls_text and dc_api_key:
+        _bulk_extract_blocked = _dc_needs_key and not dc_api_key
+        if _bulk_extract_blocked:
+            st.info("Still needed: an API key (set one above, or in the ⚙️ Settings sidebar).")
+        if st.button("🔍 Extract entries (review before saving)", disabled=_bulk_extract_blocked) and bulk_urls_text:
             urls = [u.strip() for u in bulk_urls_text.splitlines() if u.strip()]
             engine = _discover_engine()
             progress_bar = st.progress(0.0, text="Extracting...")
@@ -299,7 +302,10 @@ def render_discover_tab():
                     "works. Or install Playwright to let the app render those pages itself "
                     "(see the Diagnostics tab).")
                 pasted_listing = st.text_area("Pasted listing text", height=200, key="manual_bulk_paste")
-                if st.button("Extract from pasted text") and pasted_listing.strip() and dc_api_key:
+                _manual_paste_blocked = _dc_needs_key and not dc_api_key
+                if _manual_paste_blocked:
+                    st.info("Still needed: an API key (set one above, or in the ⚙️ Settings sidebar).")
+                if st.button("Extract from pasted text", disabled=_manual_paste_blocked) and pasted_listing.strip():
                     engine_p = _discover_engine()
                     with st.spinner("Extracting..."):
                         manual_entries = bulk_import.extract_listing_from_text(
@@ -355,7 +361,10 @@ def render_discover_tab():
             "drama, use the Sources tab's 🚪 Paste any URL instead.")
         import_url = st.text_input("Listing page URL *(required)*", key="import_url",
                                     placeholder="https://baihehub.com/audio-dramas/...")
-        if st.button("Fetch & add to library") and import_url and dc_api_key:
+        _import_url_blocked = _dc_needs_key and not dc_api_key
+        if _import_url_blocked:
+            st.info("Still needed: an API key (set one above, or in the ⚙️ Settings sidebar).")
+        if st.button("Fetch & add to library", disabled=_import_url_blocked) and import_url:
             engine = _discover_engine()
             with st.spinner("Fetching and extracting..."):
                 found, status = title_library.import_title_from_url(import_url, engine)

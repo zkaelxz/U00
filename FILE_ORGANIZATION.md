@@ -5,8 +5,10 @@ if you're downloading files individually, a file's name tells you
 unambiguously where it belongs: anything ending `_tab.py` goes in
 `tabs/`, anything starting `test_` goes in `tests/`, everything else
 sits at the top level or in one of the subsystem packages below. The
-one expected exception is `__init__.py` (an empty marker in every
-package). The other exceptions to "Python" are `extension/`, which is
+one expected exception is `__init__.py` (a marker in every package --
+empty, or a docstring mapping the package's modules; `sources/adapters/`'s
+also holds the list of built-in adapters to load).
+The other exception to "Python" is `extension/`, which is
 browser-side JavaScript loaded by Chrome rather than anything Python
 imports, and `frontend/` (experimental migration branch only), a
 TypeScript/React app built with npm that talks to `api/` over HTTP.
@@ -15,6 +17,7 @@ TypeScript/React app built with npm that talks to `api/` over HTTP.
 baihe-subtitler/
 │
 ├── app.py                     ← START HERE:  streamlit run app.py
+├── __init__.py                   (empty)
 ├── common.py                     shared imports every tab pulls in
 ├── cli.py                        headless batch runner
 │                                 (experimental: `python -m api` starts the HTTP API, see api/ below)
@@ -30,6 +33,7 @@ baihe-subtitler/
 ├── make_lock.bat                 snapshots installed package versions to constraints.lock.txt
 ├── make_shortcut.bat             creates a desktop shortcut to start.bat
 ├── uninstall.bat                 this app has no registry/Program Files footprint to clean up
+├── uninstall_path_cleanup.ps1    optional uninstall.bat add-on: remove ffmpeg/Tesseract PATH entries
 ├── pytest.ini                    test config
 ├── .gitignore                    excludes library/ and .env
 ├── .env.example                  copy to .env for persistent API keys
@@ -39,6 +43,12 @@ baihe-subtitler/
 │
 ├── .streamlit/
 │   └── config.toml               visual theme
+│
+├── .github/
+│   ├── pull_request_template.md
+│   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check)
+│
+├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
 │
 ├── assets/
 │   └── app_icon.ico              used by make_shortcut.bat / packaging
@@ -53,7 +63,8 @@ baihe-subtitler/
 │   ├── migration-review.md       whole-app migration review: per-tab/stage plan, invariants, sequence
 │   ├── remote-access-design.md   M8-H: Tailscale Serve access + Baihe permissions (design only)
 │   ├── migration-screenshots/    before/after screenshots referenced by that doc
-│   └── technical-notes.md        engineering changelog: real bugs found + how they were fixed
+│   ├── technical-notes.md        engineering changelog: real bugs found + how they were fixed
+│   └── ux-click-through-audit.md Step 19's live click-through UX audit of every workflow
 │
 ├── tabs/                      ← UI ONLY. One file per tab, 10 tabs total.
 │   ├── __init__.py               (empty, marks the package)
@@ -69,7 +80,7 @@ baihe-subtitler/
 │   └── diagnostics_tab.py        "check my setup"
 │
 ├── sources/                   ← the site-adapter system (roadmap Step 23 and its sub-steps).
-│   ├── __init__.py               (empty, marks the package)
+│   ├── __init__.py               (package docstring: a map of the modules below)
 │   ├── base.py                    the adapter interface every site implements
 │   ├── models.py                  shared vocabulary (result/chapter/etc. types) for the system
 │   ├── registry.py                which adapters exist and which are switched on
@@ -87,18 +98,19 @@ baihe-subtitler/
 │   ├── health.py                  per-source health status (🟢/🟡/🔴, last success/failure)
 │   ├── http.py                    the one paced HTTP client every adapter shares
 │   ├── lzstring.py                LZString decoding (some sites compress embedded JSON with it)
+│   ├── mock.py                    offline demo source ("Show the demo source" in the Sources tab)
 │   ├── preflight.py               "will this site work?", answered before committing to import
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (13 sites)
-│       ├── __init__.py
+│   └── adapters/                  one file per supported site (14 sites)
+│       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
-│       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py,
-│           toonkor.py, xbanxia.py, zerosumonline.py
+│       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
+│           ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
 ├── ui/                         ← small shared UI building blocks used across tabs (Step 13).
-│   ├── __init__.py               (empty, marks the package)
+│   ├── __init__.py               (package docstring: a map of the modules below)
 │   ├── project_header.py         the compact, always-visible project header
 │   ├── project_state.py          the unified project-state model
 │   ├── status.py                 the shared background-job status block
@@ -136,9 +148,11 @@ baihe-subtitler/
 │   ├── options.html / options.js  paste the token
 │   └── verify_end_to_end.py       standalone script that checks the extension ↔ app handshake
 │
-├── tests/                      ← 94 test files, 2,800+ test functions. Run: python run_tests.py
+├── tests/                      ← 100+ test files, 3,000+ test functions. Run: python run_tests.py
 │   ├── __init__.py
 │   ├── conftest.py                fixtures (isolated temp database, etc.)
+│   ├── sources_helpers.py         shared fakes for adapter tests (clock, scripted HTTP, PNGs)
+│   ├── manhuagui_fixtures.py      offline stand-ins for manhuagui pages
 │   └── test_*.py                  one or more files per module above, named to match
 │
 └── library/                    ← YOUR DATA. Created automatically. Gitignored.
@@ -170,7 +184,7 @@ baihe-subtitler/
 | `background_jobs.py` | in-memory background-job tracker (thread + dict) |
 | `applog.py` | a single rotating log file for the whole app |
 | `diagnostics.py` | environment self-check: which optional dependencies/models are available |
-| `check_setup.py` | `start.bat`'s "print anything missing in plain words" check |
+| `check_setup.py` | `start.bat`/`start.ps1`'s "print anything missing in plain words" check |
 | `portable.py` | lets the whole app folder be copied/moved and still work |
 | `ui_theme.py` | design system (CSS, layout primitives) |
 | `app_help.py` | "App Assistant": ask "where is X" or "is this a bug" |
@@ -195,7 +209,7 @@ baihe-subtitler/
 **Translation & quality**
 | File | Does |
 |---|---|
-| `translate_engines.py` | Claude / DeepSeek / DeepL / Google / Ollama / LibreTranslate |
+| `translate_engines.py` | Claude / DeepSeek / Gemini / DeepL / Google / Ollama / NLLB / LibreTranslate (+ an offline test engine) |
 | `translation_guide.py` | style presets, term policies, translation notes |
 | `translation_memory.py` | suggests a translation you already approved for an exact/near-identical line (never auto-applied) |
 | `auto_qc.py` | flags a translation that drops or invents a number, date, name, amount or unit |

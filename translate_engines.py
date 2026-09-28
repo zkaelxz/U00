@@ -315,6 +315,25 @@ def build_project_instructions_block(drama_meta: dict) -> str:
             + "\n".join(parts) + "\n")
 
 
+def build_previous_episode_summary_block(drama_meta: dict) -> str:
+    """Step 74: the immediately preceding episode's stored running summary
+    (db._DRAMA_SELECT's previous_episode_summary, resolved from
+    dramas.episode_number -- see its own docstring), as a fixed prompt
+    block. Only ever the ONE immediately-preceding episode's summary, not
+    the whole prior episode's transcript and not every earlier episode's
+    summary concatenated -- a fixed, small, once-per-episode context cost
+    that doesn't grow with how many episodes came before it. Empty string
+    when there's no series, no episode ordering, or no earlier episode
+    yet."""
+    text = (drama_meta.get("previous_episode_summary") or "").strip()
+    if not text:
+        return ""
+    return ("- Continuity from the previous episode of this series (a fixed summary, "
+            "not the full prior transcript) -- use it to resolve callbacks, pronouns, "
+            "or references to earlier events; don't restate it or mention it directly "
+            "in your translation:\n" + text + "\n")
+
+
 # Step 54: markers in a drama's own (freeform) genre field that mean "yes,
 # this really is baihe/yuri content" -- matched as whole words so a genre
 # like "tangled romance" doesn't false-positive on "gl". An unset/blank
@@ -402,6 +421,7 @@ def build_llm_instructions(style_note: str, drama_meta: dict, locale: str = "en-
         "staying consistent with the established voice.\n"
         + (f"- Additional style notes: {style_note}\n" if style_note else "")
         + build_project_instructions_block(drama_meta)
+        + build_previous_episode_summary_block(drama_meta)
         + "- Return ONLY a JSON object mapping each line's number (as a string) to its "
         "translation, e.g. {\"1\": \"...\", \"2\": \"...\"} -- include EVERY number you "
         "were given, and no numbers you weren't. No preamble, no markdown fences, no "
@@ -1480,6 +1500,61 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
         if isinstance(batch_issues, list):
             issues.extend(i for i in batch_issues if isinstance(i, dict) and i.get("term"))
     return issues, failed_batches, total_batches
+
+
+def build_episode_summary_prompt(lines) -> str:
+    """Step 74's per-episode running-summary prompt -- one call over the
+    WHOLE finished episode's English text, not a per-batch window (unlike
+    build_consistency_prompt above), since the point is a fixed, once-per-
+    episode artifact that the next episode's translation can afford to
+    read in full."""
+    body = "\n".join(ln.en.strip() for ln in lines if (ln.en or "").strip())
+    return (
+        "Below is the complete English translation of one finished episode from an "
+        "ongoing series. Write a short running summary for continuity into the NEXT "
+        "episode of the same series: key events, any unresolved plot threads or "
+        "questions, and each named character's state at the end of this episode "
+        "(relationships, secrets revealed or still hidden, where they ended up). A "
+        "few sentences of plain prose -- no preamble, no episode-by-episode recap of "
+        "earlier episodes, just what a translator picking up the next episode cold "
+        "would need to resolve a callback or an ambiguous reference correctly.\n\n"
+        'Return ONLY a JSON object: {"summary": "..."}. No markdown fences, no other '
+        "keys.\n\n" + body
+    )
+
+
+def generate_episode_summary(lines, engine, usage_cb=None) -> str:
+    """Step 74: one LLM call per finished episode (never once per
+    translation batch) producing a short running summary for cross-
+    episode narrative continuity -- distinct from glossary/translation
+    memory's terminology-only continuity. Stored on the drama row
+    (dramas.episode_summary) by the caller; this function only generates
+    the text.
+
+    Declines quietly (returns "") for a pure-MT engine that can't reason
+    about a whole episode's text (same supports_reference guard as
+    check_consistency_llm/flag_uncertain_lines above), when there's
+    nothing translated yet to summarize, or when the call itself fails --
+    a missing/unreachable summary engine must never block or fail the
+    translation run that just finished."""
+    if not getattr(engine, "supports_reference", False):
+        return ""
+    translated = [ln for ln in lines if (ln.en or "").strip()]
+    if not translated:
+        return ""
+    prompt = build_episode_summary_prompt(translated)
+    try:
+        text = call_llm_json(engine, prompt, max_tokens=500, fallback=None, usage_cb=usage_cb)
+        if text is None:
+            return ""
+    except Exception as e:
+        import applog
+        applog.get_logger().warning(f"episode summary generation failed: {redact_secrets(str(e))}")
+        return ""
+    data = _extract_first_json_value(text)
+    if isinstance(data, dict) and isinstance(data.get("summary"), str):
+        return data["summary"].strip()
+    return ""
 
 
 # Kept intentionally to what's actually assessable from the text alone --

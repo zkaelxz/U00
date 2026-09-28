@@ -320,6 +320,7 @@ class TestAutomationPermission:
         assert caps.authentication_required == Requirement.UNKNOWN.value
         assert caps.technical_protection == TechnicalProtection.NONE.value
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_pipeline_refuses_before_anything_runs(self, signed_in_restricted):
         """Exit condition 3, second half: nothing past the capability check
         -- no request, no browser launch, no sign-in window."""
@@ -345,6 +346,7 @@ class TestAutomationPermission:
         "https://novelpia.com/viewer/123",
         "https://www.jjwxc.net/onebook.php?novelid=1&chapterid=2",
     ])
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_real_vetted_restricted_sites_are_refused_signed_in_or_not(
             self, isolated_db, fake_browser, url):
         launcher = fake_browser(lambda u, s: novel_page())
@@ -366,6 +368,7 @@ class TestAutomationPermission:
         assert not caps.terms_restrictions()
         assert site_terms.capabilities_for("https://unrelated.invalid/") is None
 
+    @pytest.mark.skip(reason="ToS/robots enforcement intentionally deactivated 2026-09-27 per explicit user decision -- see sources/ladder.py:check_terms")
     def test_an_ai_ml_use_restriction_refuses_too(self, isolated_db):
         default = SourceCapabilities(platform="AI-restricted",
                                      ai_ml_use=AiMlUse.EXPLICITLY_RESTRICTED.value)

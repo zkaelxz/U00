@@ -50,15 +50,43 @@ SITE_TERMS = [
         },
     },
     {
+        # Corrected 2026-09-28 (prompted by a wuxiaworld/webnovel investigation
+        # that happened to re-touch this file): the previous entry's citation
+        # doesn't hold up on a direct re-read of the exact same URL. Re-fetched
+        # my.jjwxc.net/register/registerRule.php in full and searched both the
+        # extracted text AND the raw HTML/script source (in case, like
+        # wuxiaworld below, the real clause text turned out to be embedded
+        # somewhere a naive extraction would miss -- it wasn't) for
+        # 爬/抓取/采集/镜像/机器人/crawl/scrape/spider: zero matches anywhere.
+        # The real, current §4.3 is an anti-hacking clause (illegally
+        # tampering with/deleting content, attacking jjwxc's servers/systems,
+        # spreading viruses) -- not a scraping ban. §4.9 is a general
+        # enforcement/liability clause (cooperating with authorities, the
+        # right to delete/block/terminate), not scraping-specific either. The
+        # closest related clause found is a reverse-engineering ban scoped to
+        # jjwxc's own software/functions (in the IP-rights section), a
+        # different target than scraping content. Whether the document
+        # changed since the original finding or that finding just cited the
+        # wrong thing isn't known -- either way, EXPLICITLY_RESTRICTED isn't
+        # supportable from this page as it reads today.
         "domains": ("jjwxc.net",),
         "platform": "JJWXC (晋江文学城)",
-        "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
+        "automation_permission": AutomationPermission.UNKNOWN.value,
         "ai_ml_use": AiMlUse.UNKNOWN.value,
         "terms": {
-            "read": "my.jjwxc.net/register/registerRule.php, read directly.",
-            "clause": "§4.3 bans any manner of crawling or scraping (爬取/抓取) of its database "
-                      "materials; §4.9 invokes civil and criminal liability for serious "
-                      "violations. Never attempted, whatever access the app has.",
+            "read": "my.jjwxc.net/register/registerRule.php, re-read in full directly "
+                    "(2026-09-28) -- the same URL originally cited.",
+            "clause": "No crawling/scraping/automated-access clause found anywhere in this "
+                      "document on a full-text re-check (raw HTML included, not just visible "
+                      "text). §4.3 is actually an anti-hacking clause (tampering with/deleting "
+                      "content, attacking jjwxc's servers/systems, spreading viruses); §4.9 is a "
+                      "general enforcement/liability clause. A reverse-engineering ban exists "
+                      "elsewhere (IP-rights section) but is scoped to jjwxc's own software, not "
+                      "content scraping.",
+            "unverified": "This is 'the previously-cited basis doesn't hold up', not 'confirmed "
+                          "permitted' -- no separate, broader user agreement was found linked "
+                          "from the homepage this pass, but that search wasn't exhaustive, and a "
+                          "genuine restriction could still exist on a page not yet found.",
         },
     },
     {
@@ -70,6 +98,96 @@ SITE_TERMS = [
             "read": "page.kakao.com/policy/terms exists but is a client-rendered shell; the "
                     "clause text could not be retrieved.",
             "unverified": "Not cleared: UNKNOWN is not PERMITTED.",
+        },
+    },
+    {
+        # roadmap Step 91 investigation. No adapter -- not because the
+        # technique couldn't be found (it was, in full: see below), but
+        # because the site's own real, directly-read Terms of Service
+        # explicitly prohibit exactly this. Automation_permission is
+        # EXPLICITLY_RESTRICTED, not UNKNOWN -- a real found-and-corrected
+        # mistake from this same investigation: an earlier pass guessed the
+        # wrong ToS URL (`/about/terms-of-service`, which 404s), read that
+        # 404 page's near-empty content, and recorded UNKNOWN rather than
+        # finding the real page. The real path is `/terms-of-service`
+        # (found from the site's own footer link), fetched and read in full
+        # directly (2026-09-28).
+        #
+        # ai_ml_use corrected 2026-09-28 (a second pass re-reading this same
+        # page while investigating jjwxc): the "Automated Access/Extraction"
+        # and "Automated Data Collection" bullets quoted below sit right
+        # next to a separate, distinct "AI/ML Use" bullet in the same list
+        # -- present in the same full-text read that already quoted its two
+        # neighbors, just not itself recorded. EXPLICITLY_RESTRICTED, not
+        # UNKNOWN, per this file's own rule that only a directly-read clause
+        # sets it either way.
+        "domains": ("wuxiaworld.com",),
+        "platform": "Wuxiaworld",
+        "automation_permission": AutomationPermission.EXPLICITLY_RESTRICTED.value,
+        "ai_ml_use": AiMlUse.EXPLICITLY_RESTRICTED.value,
+        "terms": {
+            "read": "www.wuxiaworld.com/terms-of-service, fetched and read in full directly "
+                    "(2026-09-28) -- the real path, found via the site's own footer link, not "
+                    "the guessed `/about/terms-of-service` path (which 404s).",
+            "clause": "\"Automated Access/Extraction: Use any robot, bot, scraper, crawler, or "
+                      "other automated means to access or extract content from the Platform "
+                      "except as expressly permitted.\" And separately: \"Automated Data "
+                      "Collection: Do not use any robot, spider, scraper, crawler, or any "
+                      "automated means to access or extract data from Wuxiaworld without our "
+                      "prior written permission. The only exception is public search engine "
+                      "indexing... Any other automated reading or downloading of our content "
+                      "(for instance, to create an archive) is prohibited.\" And, the same list's "
+                      "own separate AI/ML clause: \"AI/ML Use: Use the Platform content to "
+                      "develop, train, or improve artificial intelligence or machine learning "
+                      "models without our prior written consent.\"",
+            "extraction_method": "Recorded for completeness, even though the ToS clause above "
+                                 "is what actually rules this site out: chapter text is fully "
+                                 "retrievable over plain HTTP without any browser/JS execution. "
+                                 "Series and chapter *pages* both embed a "
+                                 "`window.__REACT_QUERY_STATE__` JSON cache server-side; its "
+                                 "`['chapter', novel_slug, chapter_slug, None]` query holds the "
+                                 "real chapter HTML at `item.content.value` and a reliable "
+                                 "`item.pricingInfo.isFree` flag -- confirmed true for an early "
+                                 "chapter and false for a late one on the same real novel "
+                                 "(dragon-prince-yuan). A real karma (premium-currency) paywall "
+                                 "also covers most of the catalog (per-chapter `karmaInfo`, a "
+                                 "timed free-unlock mechanic), but even a free, unlocked "
+                                 "chapter's text is still off-limits under the clause above -- "
+                                 "the paywall status doesn't change the ToS answer. No "
+                                 "server-side endpoint for the *full* chapter list was found "
+                                 "(a novel page's own `chapterInfo.chapterGroups[].chapterList` "
+                                 "is server-rendered empty; the real list is fetched by "
+                                 "client-side JS this session didn't reverse-engineer), which "
+                                 "would have been a second, independent reason to leave "
+                                 "`get_chapters()` unbuilt even absent the ToS finding.",
+        },
+    },
+    {
+        # roadmap Step 91 investigation. No adapter: an active Cloudflare
+        # interactive challenge blocks even the homepage and the terms
+        # pages over plain HTTP -- this project's own architecture (see
+        # sources/models.py's CHALLENGE_REASONS / sources/ladder.py) always
+        # hands an active challenge to the person rather than trying to
+        # solve or automate past it, so no tier below USER_ASSISTED_BROWSER
+        # is buildable here regardless of what a real browser might do.
+        "domains": ("webnovel.com",),
+        "platform": "Webnovel (Qidian International / WebNovel/YueWen)",
+        "automation_permission": AutomationPermission.UNKNOWN.value,
+        "ai_ml_use": AiMlUse.UNKNOWN.value,
+        "terms": {
+            "read": "www.webnovel.com/about/termOfUse and /about/tos both returned an active "
+                    "Cloudflare \"Just a moment...\" interactive challenge page (HTTP 403) on a "
+                    "direct fetch (2026-09-28), same as the site's own homepage -- the real "
+                    "clause text was never reachable to read.",
+            "unverified": "Not cleared: UNKNOWN is not PERMITTED. Automated challenge-solving "
+                          "was not attempted, per this project's standing rule that an active "
+                          "anti-automation challenge is always handed to the person, never "
+                          "solved automatically.",
+            "extraction_method": "UNAVAILABLE at STATIC_HTTP -- an active Cloudflare "
+                                 "interactive challenge (not just a CDN passthrough; confirmed "
+                                 "by the literal \"Just a moment...\" challenge page and HTTP "
+                                 "403) fires on the bare homepage itself, before any book/chapter "
+                                 "path is even reached.",
         },
     },
 ]

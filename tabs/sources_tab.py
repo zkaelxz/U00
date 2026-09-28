@@ -890,6 +890,20 @@ def _render_settings():
                               int(s["max_retries"]), key="src_set_retries",
                               help="Never applies to a browser-verification page -- those are "
                                    "always handed to you instead.")
+    c7, c8 = st.columns(2)
+    break_lo = c7.number_input("Take a longer break every N requests (0 = off)", 0, 200,
+                               int(s["session_break_min_requests"]), key="src_set_break_lo",
+                               help="N is picked at random in this range each time, so a whole "
+                                    "session isn't an evenly spaced request rate.")
+    break_hi = c8.number_input("...up to N requests", 0, 200,
+                               int(s["session_break_max_requests"]), key="src_set_break_hi")
+    c9, c10 = st.columns(2)
+    break_delay_lo = c9.number_input("Break length: min seconds", 0.0, 600.0,
+                                     float(s["session_break_min_delay"]), 5.0,
+                                     key="src_set_break_delay_lo")
+    break_delay_hi = c10.number_input("Break length: max seconds", 0.0, 900.0,
+                                      float(s["session_break_max_delay"]), 5.0,
+                                      key="src_set_break_delay_hi")
     mode = st.selectbox("Raw-content cache", src_cache.MODES,
                         index=src_cache.MODES.index(s["cache_mode"]),
                         format_func=lambda m: src_cache.MODE_LABELS[m], key="src_set_cache",
@@ -911,7 +925,11 @@ def _render_settings():
         for k, v in {"pace_min_delay": lo, "pace_max_delay": max(lo, hi), "max_concurrent": conc,
                      "max_retries": retries, "cache_mode": mode, "check_interval_hours": interval,
                      "auto_queue_new_chapters": auto, "demo_source_enabled": demo,
-                     "extraction_diagnostics": diag}.items():
+                     "extraction_diagnostics": diag,
+                     "session_break_min_requests": break_lo,
+                     "session_break_max_requests": max(break_lo, break_hi),
+                     "session_break_min_delay": break_delay_lo,
+                     "session_break_max_delay": max(break_delay_lo, break_delay_hi)}.items():
             src_store.set_setting(k, v)
         from sources.http import reset_pacing_state
         reset_pacing_state()
