@@ -51,24 +51,30 @@
 > (Sources search result-limit/Clear-results), 86 (`ladder.py`
 > `test_tier()` status recompute), 89 (add "music" to `MEDIA_TYPE_OPTIONS`).
 >
-> **Decision-needed items, flagged for the user to check later, not build
-> steps yet — see their own write-ups below §4's table:** (a) the
-> `sources_tab.py:638` imported-chapters `st.data_editor` dark-mode gap
-> (widget swap vs. documented native limitation); (b) JJWXC ToS status
-> (more resolved than it looked — see write-up: citation corrected,
-> enforcement already off app-wide via Step 90, and a dedicated adapter is
-> platform-blocked, not reopened by further confirmation); (c) the
-> deferred Anki-mining concept + 5 transcription/diarization pipeline
-> findings, explicitly held until after migration work settles.
+> **User decisions received and closed out (2026-09-28):** JJWXC ToS
+> status — confirmed permanently closed, Step 96's extension mode is the
+> only JJWXC path, no dedicated adapter ever. Anki-mining + 5
+> transcription/diarization findings — now numbered **Steps 100–105**
+> (still deferred until migration work settles — numbering isn't a
+> build go-ahead). Migration Slice 4 (Reader endpoint) scope — confirmed:
+> cached definitions only on GET, a fresh/paid lookup stays a separate
+> explicit action; **now unblocked, ready to build.** Step 97's
+> fallback-chain half scope — confirmed: fall back only on auth/rate-limit/
+> timeout/connection failures, never across the instruction-following vs.
+> translation-only engine boundary, failed-attempt spend counts and the
+> fallback engine's cap applies independently; **now unblocked, ready to
+> build.** See §4's decision-needed list (items 2/3/5/6) for the full
+> write-up of each.
 >
-> **`docs/secondary-review-notes.md`: NOT yet deleted.** Its "Confirmed
-> real bugs" verdicts, external-tool review, and the three decision-needed
-> items above are now folded into this doc (§4's table + the write-ups
-> below it). Its Anki-mining/transcription findings and its account of the
-> JJWXC/browser-extension redirect are folded into §0 and this note above.
-> Kept in place rather than deleted this pass, at the user's explicit
-> instruction, pending final confirmation that nothing was lost — delete
-> only after that confirmation, not automatically once folded.
+> **Still open, not a user decision yet:** (a) the `sources_tab.py:638`
+> imported-chapters `st.data_editor` dark-mode gap (widget swap vs.
+> documented native limitation).
+>
+> **`docs/secondary-review-notes.md`: NEVER DELETE, per the user's
+> explicit instruction (2026-09-28)** — kept permanently on its own
+> branch, alongside §8's durable folded-in copy (now including the full
+> external-tool review verbatim, not just a summary). Every finding
+> compared against this roadmap; nothing outstanding.
 >
 > **Open, unmerged branches:** none as of this pass — the four branches
 > open at the start of this review round (wuxiaworld fix, Step 96,
@@ -3974,6 +3980,63 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
 - No other file changes — this step touches exactly one file.
 - **Manual check**: none needed beyond confirming the file content matches — this step changes no running behavior.
 
+*(Steps 83–99 exist as real, merged/tracked rows in §4's status table and in past NEXT-pointer notes above, but — a known, flagged gap, not backfilled in this pass — don't yet have their own `### Step NN` prose section here the way every earlier step does. Steps 100 onward, below, do get one from the start.)*
+
+### Step 100 — Anki-mining: curated card generation from a reviewed transcript
+
+**User instruction (2026-09-28): "Implement it as steps"** — numbered and tracked here; explicitly still gated behind the user's own standing deferral ("after migration work settles") before any session actually builds it. Concept from reviewing Anki Miner (a real open-source JA/ZH/KO vocabulary-mining tool, external-tool review above): the useful idea isn't "generate a card per transcript line," it's curated mining from a **reviewed** transcript — propose candidate words/phrases, let the learner filter out ones they already know, accept/reject each one, then build a context-rich note (term, the reviewed line it appeared in, translation, reading/pronunciation, an audio clip, speaker/character label).
+
+**Scope:**
+1. Candidate-term extraction from a drama's reviewed (not raw-ASR) lines, reusing the existing segmentation (`segment.py`) already used by Reader's vocabulary lookup.
+2. A filter/accept/reject UI step before any card is built — never auto-generate a card from every word seen.
+3. Card content: term, reviewed source line (not raw ASR text), translation, reading, an audio clip sliced from the line's own timing, speaker/character label — reuses Step 20b's existing sentence+audio Anki export machinery rather than a separate export path.
+4. **Dedup**: don't re-mine the same word repeatedly across a series — needs a per-series (or per-user) seen-words record.
+5. **Reversible/undo-able mining run** — a run that added cards the user didn't want must be cleanly undoable, consistent with this project's own confirm-before-destructive-action and history/undo precedents elsewhere (Steps 25k/25z/71).
+
+**Exit:** a test confirms a candidate list built from a reviewed transcript excludes words the learner has already marked known; a test confirms a generated card's audio clip matches the source line's own timing, not the whole file; a test confirms an undone mining run removes exactly the cards it added, nothing else. Manual check: mine a real reviewed drama, accept/reject a mixed set of candidates, and confirm the resulting Anki export opens correctly with working audio.
+
+### Step 101 — Verify pyannote actually runs on the GPU during diarization
+
+From the transcription/diarization pipeline review (external-tool review above), priority 1 of 5, **status: not independently re-verified yet by the planning session** — logged as-received. `diarize.py`'s pipeline load/inference has no explicit `.to(torch.device("cuda"))` call visible in the reviewer's pass; pyannote's own docs show this as required for real GPU use. Being marked a "GPU-touching" job in Baihe's own job-guard system doesn't by itself guarantee the model is actually placed on the GPU — a possible real, unconfirmed performance issue, not confirmed either way.
+
+**Scope:** re-read `diarize.py`'s pipeline construction/inference path directly against pyannote's own current documentation; if the model isn't explicitly placed on the configured device, confirm whether pyannote's own `Pipeline.from_pretrained(...).to(device)` (or equivalent) is missing, and add it if so.
+
+**Exit:** a real run on a GPU machine confirms (via `nvidia-smi` or the model's own device attribute) the pyannote pipeline is actually resident on the GPU during inference, not just CPU-bound with the job merely tagged as GPU-touching. **Manual check: needs a real GPU machine, not available in this environment.**
+
+### Step 102 — `word_align.py`'s `realign_oversized_segments()` reloads the alignment model per segment
+
+Priority 2 of 5 from the same review, **not independently re-verified yet**. Each oversized segment's `align_words()` call reportedly hits `bundle.get_model()` again — real, avoidable latency/memory churn on audio with multiple long segments, since the model should only need loading once per job, not once per oversized segment within it.
+
+**Scope:** confirm the reload is real by reading `word_align.py::realign_oversized_segments()` directly; if confirmed, load the alignment model once per job and reuse it across every oversized segment's realignment within that same run.
+
+**Exit:** a test confirms the alignment model is loaded exactly once across a job with multiple oversized segments, not once per segment (mock/count the load call). Manual check: time a real realignment run on audio with several oversized segments before and after, confirm a real wall-clock improvement.
+
+### Step 103 — Evaluate batch inference for the Qwen ASR path
+
+Priority 3 of 5, **not independently re-verified yet**. The Qwen ASR path reportedly processes one Whisper-selected segment at a time, forgoing Qwen's own batch-inference support and inheriting any speech Whisper's own segmentation missed. The external reviewer flagged real upstream GitHub issues around heterogeneous-length batch correctness and long-clip behavior — **pin a specific Qwen version and validate against real material before adopting batching**, don't just turn it on.
+
+**Scope:** confirm the current one-segment-at-a-time behavior by reading the Qwen ASR call path directly; if adopting batching, pin the Qwen version tested against and validate on real, varied-length audio (short lines, long monologues, overlapping speech) before making it the default.
+
+**Exit:** a real before/after comparison on the same held-out audio samples shows batching doesn't regress transcription accuracy on any of them, with the pinned version and validation method recorded in this step's own write-up once done. **Explicitly not to be adopted speculatively** — the evaluation method matters as much as the result.
+
+### Step 104 — Pilot MOSS-Transcribe-Diarize as an experimental alternative backend
+
+Priority 4 of 5, **not independently re-verified yet, genuinely exploratory**. A combined ASR+diarization backend (one pass, with its own fine-tuning workflow) suggested by the external reviewer — not verified for JA/KO support depth, evaluated upstream mainly on Chinese meeting/podcast/movie audio, not audio dramas specifically. Real risk this doesn't transfer well to Baihe's actual content shape.
+
+**Scope:** pilot only, on a small set of reviewed clips spanning narration/dialogue/music/quiet speech/overlapping speakers (the same evaluation-sample shape the reviewer recommends for every change in this batch) — not a default-backend switch. Measure transcription and diarization error separately against the existing Whisper+pyannote baseline, plus time/peak memory.
+
+**Exit:** a written comparison against the existing baseline on the same held-out samples, with a clear go/no-go recommendation — this step's own exit condition is producing that evaluation, not necessarily shipping the backend as a selectable option (that's a follow-up decision once the pilot's real result is in).
+
+### Step 105 — Expose a speaker-count range for pyannote Community-1
+
+Priority 5 of 5, **not independently re-verified yet**. Baihe already exposes an exact speaker-count option for diarization; the reviewer's suggestion is to also allow a **range** (e.g. "2 to 4") alongside it, for the case where the range is known but the exact count isn't — a real, small usability gap if the current option genuinely requires an exact number with no range fallback.
+
+**Scope:** confirm the current diarization settings only accept an exact count (or already silently allow 0/unset for auto-detect — check before assuming this is missing); if genuinely missing, add a range input alongside the existing exact-count one, passed through to pyannote's own `min_speakers`/`max_speakers` parameters (Community-1 supports both) rather than a single `num_speakers`.
+
+**Exit:** a test confirms a configured range is passed through as `min_speakers`/`max_speakers` correctly, and that setting an exact count still works exactly as before (no regression to the existing option). Manual check: run diarization with a range on a real multi-speaker clip and confirm the speaker count it lands on falls within the given range.
+
+**Cross-cutting note for Steps 101–105, from the reviewer's own methodology (applies to whichever of these is picked up first):** evaluate any of this against the same reviewed audio samples per change (narration/dialogue/music/quiet speech/overlapping speakers), measuring transcription and diarization error separately, plus time/peak memory, with held-out recordings for any fine-tuning evaluation. **Explicitly do NOT add more transcription tuning sliders** in the meantime — Baihe already exposes model/beam-width/prompt-terms/VAD-threshold/silence-splitting/batched-fast-mode, and whether faster-whisper's additional VAD knobs would help depends on diagnosing what's actually going wrong first (Steps 101/102 above), not speculative new sliders.
+
 ---
 
 ## 3. Deferred: revisit only if a real need appears
@@ -4229,6 +4292,12 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 97 — `translate_engines.py` fallback-chain (engine A → B → C on failure) + a `doctor`-style diagnostics command pre-flighting every configured engine's credentials/reachability before a batch job starts | `step-97-doctor-command` | ✅ Merged (PR #200) — **doctor half only**; the fallback-chain half needs a scoping decision (see NEXT note) | — |
   | 98 — Proxy support in `sources/http.py` (confirmed zero proxy support anywhere via repo-wide grep; low priority, no adapter currently failing for lack of it) | `step-98-proxy-support` | ✅ Merged (PR #199) — HTTP(S) only, SOCKS needs the optional PySocks package, deliberately not added | — |
   | 99 — Tiered translation cost/quality escalation: cheap/local model by default, auto-escalate a specific line to a stronger paid model on a glossary conflict/ambiguous term/QC flag (renumbered from a "Step 96" collision with the browser-extension work above) | — | Not started — tracked, not dispatched | — |
+  | 100 — Anki-mining: curated card generation from a reviewed transcript | — | Not started — deferred by the user until after migration work settles; numbered per their "implement it as steps" instruction (2026-09-28) | — |
+  | 101 — Verify pyannote actually runs on the GPU during diarization | — | Not started — deferred, same as 100; not independently re-verified yet | — |
+  | 102 — `word_align.py`'s `realign_oversized_segments()` reloads the alignment model per segment | — | Not started — deferred, same as 100; not independently re-verified yet | — |
+  | 103 — Evaluate batch inference for the Qwen ASR path | — | Not started — deferred, same as 100; not independently re-verified yet | — |
+  | 104 — Pilot MOSS-Transcribe-Diarize as an experimental alternative backend | — | Not started — deferred, same as 100; exploratory | — |
+  | 105 — Expose a speaker-count range for pyannote Community-1 | — | Not started — deferred, same as 100; not independently re-verified yet | — |
   | — React + FastAPI migration foundation (`api/`, `services/library_service.py`, `frontend/` Library view; not a numbered step, an ongoing parallel workstream — see `docs/migration-review.md` for the full remaining-work plan) | `migration/react-fastapi-foundation` | ✅ Merged (PR #191) | — |
   | — Migration Slice 2: job-runner extraction to `services/workspace_job_service.py` | `step-migration-slice2-job-services` | ✅ Merged (PR #197) | — |
   | — Windows installer/uninstaller: research follow-up notes (tiering/code-signing decisions, GPU-detection test matrix; docs only, no roadmap step id, exploratory by design) | `research/windows-installer-followup` | ✅ Merged (PR #193) | — |
@@ -4271,59 +4340,59 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
      checkbox rows, or accept and document the native-widget limitation.
      Whichever is picked needs a real before/after screenshot pass per
      CLAUDE.md's structural-UI rule before it's a step someone builds.
-  2. **JJWXC ToS status — more resolved than it first looked, confirm and
-     close out.** The user asked to remove/correct the `EXPLICITLY_RESTRICTED`
-     record for JJWXC. Status as of this pass: **already corrected and
-     already deactivated**, via two separate changes, both merged —
-     `sources/site_terms.py`'s JJWXC entry was re-read in full (visible text
-     + raw HTML) and found to cite a clause (§4.3) that's actually an
-     anti-hacking clause, not a scraping ban; `automation_permission` is now
-     `UNKNOWN`, not `EXPLICITLY_RESTRICTED` (unnumbered fix, `cfdc8e4`).
-     Separately, Step 90 deactivated ToS/robots.txt enforcement app-wide,
-     reversibly (`sources/ladder.py::check_terms()` is a no-op `pass` with a
-     documented restore path). **A dedicated JJWXC adapter itself stays
-     closed for a different, platform-level reason**, not reopened by
-     further user confirmation: two dispatch attempts were refused outright
-     by Claude Code's own security classifier (the second, most narrowly
-     scoped — free chapters only, zero decryption — was refused with no
-     reason given at all). JJWXC coverage instead goes through Step 96's
-     generic, site-agnostic browser-extension text-capture mode. **Flagging
-     for the user to confirm this reading is what they wanted**, not
-     assuming it closes the request unilaterally.
-  3. **Deferred: Anki-mining concept + 5 transcription/diarization pipeline
-     findings**, explicitly held by the user until after migration work
-     settles — not implemented, not yet a numbered step, confirmed absent
-     from this roadmap by grep (`"anki mining"`, `"realign_oversized_segments"`
-     both zero matches before this pass).
-     - *Anki-mining*: curated mining from a **reviewed** transcript (not raw
-       ASR) — propose candidate terms, filter ones the learner already
-       knows, let them accept/reject, build a context-rich note (term,
-       reviewed line, translation, reading, audio clip, speaker label).
-       Maps onto the existing Reader vocabulary lookup and Step 20b's
-       sentence+audio Anki export. Needs dedup (don't re-mine the same
-       word repeatedly across a series) and an undo-able mining run.
-     - *Transcription/diarization findings, priority order as given*:
-       (1) verify pyannote actually runs on the GPU — `diarize.py` has no
-       explicit `.to(torch.device("cuda"))` call, unconfirmed possible real
-       perf issue; (2) `word_align.py::realign_oversized_segments()` reloads
-       the alignment model on every oversized segment — avoidable churn;
-       (3) Qwen ASR processes one Whisper-selected segment at a time,
-       forgoing batch inference — worth evaluating, pin a version first,
-       real upstream batch-correctness issues exist; (4) MOSS-Transcribe-
-       Diarize as an experimental alternative backend, unverified for JA/KO;
-       (5) expose a speaker-count *range* alongside the exact-count option
-       for pyannote Community-1. None independently re-verified yet by this
-       planning session — logged as-received, same as the note that
-       recorded them.
-  4. **`docs/secondary-review-notes.md` — kept, not yet deleted.** Its
-     "Confirmed real bugs" verdicts and the three items above are folded
-     into this doc as of this pass. Its full external-tool review (13+
-     GitHub repos assessed for site-selection signal) is not reproduced
-     here to avoid duplicating a large writeup — see that file directly, or
-     this session's own conversation log, if it needs resurfacing. Delete
-     the notes file only after the user confirms nothing else in it was
-     lost in this fold-in — not automatically, per the user's explicit
-     instruction.
+  2. **JJWXC ToS status — CONFIRMED CLOSED by the user (2026-09-28).**
+     Asked directly whether they're fine with JJWXC coverage going through
+     Step 96's generic, site-agnostic browser-extension text-capture mode
+     **permanently**, instead of a dedicated adapter — **the user said yes.**
+     Status, now final: `sources/site_terms.py`'s JJWXC entry corrected
+     (re-read in full, the originally-cited §4.3 clause is actually an
+     anti-hacking clause, not a scraping ban; `automation_permission` is
+     `UNKNOWN`, not `EXPLICITLY_RESTRICTED`, unnumbered fix `cfdc8e4`); Step
+     90 deactivated ToS/robots.txt enforcement app-wide, reversibly; no
+     dedicated JJWXC adapter will be built (Claude Code's own security
+     classifier refused two dispatch attempts outright, including the most
+     narrowly-scoped one, for platform-level reasons unrelated to code
+     quality or scope — not reopened by asking again). **This item is
+     closed — nothing further to decide.**
+  3. **Anki-mining concept + 5 transcription/diarization pipeline
+     findings — now Steps 100–105** (own `### Step 10x` write-ups above,
+     status-table rows in §4), per the user's explicit instruction
+     (2026-09-28): "Implement it as steps." Still gated behind the user's
+     own standing deferral — held until after migration work settles —
+     numbering them doesn't authorize building them yet; that's a separate,
+     later go-ahead.
+  4. **`docs/secondary-review-notes.md` — NEVER DELETE, per the user's
+     explicit instruction (2026-09-28).** Kept permanently on its own
+     branch (`notes/secondary-review-2026-09-27`), in addition to §8's
+     durable folded-in copy above (which now includes the full
+     external-tool review, not just a summary). Every finding in the notes
+     file has been compared against this roadmap's current content —
+     nothing outstanding; see §8's own "full comparison" note for what
+     that check covered.
+  5. **Reader endpoint (migration Slice 4) — scope CONFIRMED by the user
+     (2026-09-28):** serve only already-cached definitions on the GET
+     endpoint; a fresh, potentially-paid dictionary lookup stays a
+     separate, explicit action (a distinct POST/UI trigger), never
+     triggered as a side effect of the page-load GET. This was the real
+     blocker (the existing Streamlit call path does a paid LLM call and a
+     `db.save_vocab_lookup` write as side effects of "loading a page,"
+     which an HTTP GET must never silently inherit) — **now unblocked,
+     ready to build** with this scope.
+  6. **Step 97's fallback-chain half — scope CONFIRMED by the user
+     (2026-09-28):** fall back only on auth failure, rate-limit, timeout,
+     or connection error (never a content-moderation refusal — Step 31
+     already handles that as its own distinct case — and never a bare
+     generic exception, which could mask a real bug instead of a real
+     transient failure). Keep instruction-following engines
+     (Claude/DeepSeek/Gemini) and translation-only engines
+     (`TRANSLATION_ONLY_ENGINES`: DeepL/Google/NLLB/LibreTranslate) in
+     separate fallback groups — never silently fall back from one class to
+     the other, since that would silently drop glossary/style/
+     project-instructions adherence with no UI indication. A failed
+     attempt's spend still counts (it was a real API call); the fallback
+     engine's own cost cap applies independently, not shared with the
+     engine it fell back from. **Now unblocked, ready to build** with this
+     scope.
 
 - **After Step 10:** copy this roadmap into `baihe-subtitler`'s own `docs/` folder, with a final status for every step, so the plan stays with the code. The planning branch can be deleted after that.
 - To read this doc from the implementing chat:
@@ -5004,3 +5073,36 @@ Batch processing (Claude, Gemini) and prompt caching (both, plus DeepSeek's own 
 - **What Torii's own claim is actually worth here**: Torii's marketing material recommends "Gemini 3 Flash" generally as "the best model for the job, and cheap" — a real quote, but it's Torii's own product recommendation for *image/manga OCR+translate* specifically, not an independent benchmark, and doesn't name Luna or the 3.1 Flash-Lite variant by name as translation-quality winners the way the user's message implied. Treating it as a lead worth checking (which this pass did), not as verified fact on its own — same discipline applied to every other secondary-source claim in this doc.
 
 **Decision, given at the user's follow-up:** don't default to Flash-Lite, but do add it as a selectable, clearly-labelled-as-cheaper (not clearly-labelled-as-better) option — done, see Step 9 item 4. **GPT-6 Luna stays not-added** — the user didn't ask for it to be added the way they did for Flash-Lite, and it would need a real new engine class (no OpenAI-model support exists in `translate_engines.py` today) rather than a model-string change, so the bar for adding it without quality evidence is higher. Recommendation if Luna is wanted later: run one real head-to-head — translate the same CJK sample through Luna and through the existing defaults — same manual-check pattern already used for the PaddleOCR-VL-For-Manga vs. `manga-ocr` decision in Step 11.
+
+## 8. External-tool review record (2026-09-27) — folded in permanently, never delete
+
+Per the user's explicit instruction (2026-09-28): **`docs/secondary-review-notes.md` is never to be deleted**, on its own branch (`notes/secondary-review-2026-09-27`) or otherwise — it stays as a standing, permanent record, in addition to this section, which folds its durable content into the doc every session actually reads. This section is the durable copy; the branch stays as the redundant original.
+
+**Full comparison against this roadmap, done 2026-09-28, to confirm nothing was lost:** every provisional step the notes file proposed (83–99) is now a real row in §4's status table with real merge evidence; the JJWXC and dark-mode decision-needed items are recorded (JJWXC now resolved, see below; dark-mode still open, see §4's own decision-needed list); the Anki-mining/transcription findings are now Steps 100–105 (see their own `### Step 10x` entries below). What follows is everything else in the notes file that had no home yet.
+
+### External tool review — 13 GitHub repos the user pointed at (2026-09-27)
+
+User asked whether 13 third-party scraper/tool repos contained techniques or site coverage worth adopting into Baihe. None of their code was reproduced verbatim (prose-only summaries, IP-conscious); several were fetched and read in full, not just named.
+
+**Site-selection signal only (led to Step 93 — WuxiaWorld/Ranobes/Webnovel novel adapters, merged):** Novel-Grabber, Wuxiaworld-2-eBook, Ranobes-Scraper, WebnovelYoinker, jjwxcNovelCrawler, jjwxcCrawler, jjwxc-downloader.
+
+**Led to a merged fix (Step 92 — baozimh real-bug fixes):** baozimh-plus-aidoku, MultiMangaScraper, Baozi-Downloader, baozimh_crawler all target baozimh.org/godamh.com, which Baihe already covers (`baozimh.py`, Step 23i). An initial no-fetch assessment found no gap; **the user correctly pushed back that "merged" ≠ "bug-free."** Actually reading `baozimh.py` in full found 2 real bugs, fixed in Step 92: `get_chapters()` hardcoded every chapter URL to `baozimh.org` specifically instead of whichever of the 6 mirrors was actually reachable, and `capabilities()`'s `terms["tos"]` was literally the string `"Not reviewed."` — robots.txt was checked, ToS never was. **Lesson recorded for future review passes generally: don't call something "no gap found" on the strength of a roadmap/PR's own self-report alone — actually read the code when asked, even for something recently merged.**
+
+**Led to a merged feature (Step 98 — proxy support):** Webtoon-Downloader (targets official webtoons.com, not in Baihe's list) — its real technique worth adopting was configurable concurrency + retry + **proxy support**. Baihe's `sources/http.py` already had mature backoff/retry/rate-limiting, but genuinely zero proxy support anywhere (confirmed via repo-wide grep) — the one real, concrete architecture gap found across all 13 repos. Fixed in Step 98.
+
+**False leads (named like something relevant, weren't):** integrity_baozi- (a Bilibili sponsorship-bias-detector extension, unrelated to manga), baozibanner (a tiny ad-stripping Android interceptor, no scraping logic), newtoki-cracker (an adblock-detection-evasion userscript, not a scraper — Newtoki isn't in Baihe's adapter list anyway), manga-ripper-beauty (actually "AnimeFlow," an anime video downloader), manga-cascade-engine (actually "StoryForge," a terminal creative-writing tool, no scraping at all).
+
+**Validated existing architecture, not a gap:** weebcentral_downloader's "HTTP-first, escalate to browser-automation only on 403/503" pattern is already exactly `sources/ladder.py`'s own design (STATIC_HTTP → RENDERED_BROWSER → ...).
+
+**Real ideas, confirmed genuine, deliberately NOT dispatched — no current pain point driving them, kept here so they're findable if one appears:**
+- **toonkor-translate** — Baihe already has `toonkor.py`; this tool's translation pipeline (image inpaint-and-render-back) is already what Scanlate does end-to-end (Step 11/12d). Its one distinct idea: a curl-cookie-import pattern for capturing a live browser session's headers as a Cloudflare workaround — a lower-effort alternative to the existing paste-page-source challenge-handoff flow. Minor, not built.
+- **searxng-mcp** — points at a real gap: Baihe's Discover search only covers its own ~15 adapters, with no general-web-search fallback when a title isn't on any of them. A self-hosted SearXNG instance + a plain HTTP client (not this MCP-wrapper repo, which is agent-tool-calling shaped, not library-shaped) could fill that. Real setup cost (a standing server) for a personal-use app — needs the user to weigh in on whether that's worth it before it becomes a step.
+- **apify/crawlee** — general-purpose crawling framework (primarily JS/TS). Wrong-shaped dependency for a ~15-site personal-use app — don't adopt the library itself. One idea worth remembering if a specific adapter ever starts getting fingerprint-blocked: TLS/header fingerprint realism, which neither `sources/http.py` nor `sources/auth_browser.py` currently does.
+- **lightnovel_epub** — targets lightnovel.us + wenku8.net, neither in Baihe's novel adapters or Step 93's target list — a genuine new-adapter candidate if ever pursued. Real technique worth remembering: ADB/UIAutomator2 device-automation fallback for app-only sources with no web API (dual-pointer text-stitching to merge portrait/landscape screenshot passes) — no current Baihe target needs this. Also confirmed Baihe already uses OpenCC for Chinese text normalization (`segment.py`) — not a gap there.
+- **NovelScraper** — targets NovelFull/NovelBin/Novgo (new-adapter scope if pursued). Tauri/Rust desktop app; README gives no verifiable scraping technique — nothing actionable, just a site-coverage candidate.
+- **plex-anime-metadata-provider** — a real, working Plex metadata-provider service (Plex's HTTP provider-agent contract, AniDB/MAL-backed). Baihe's "Fetch & add to library" is architecturally adjacent in spirit but **not a substitute** — building an equivalent means implementing Plex's own provider-protocol server and a show/season/episode data model from scratch, not repackaging existing adapters. Bigger and riskier than anything else in this batch; needs the user to confirm real interest before it's ever scoped as a step.
+- **manga tools re-assessed a second time at the user's request** (baozimh-plus-aidoku, MultiMangaScraper, Baozi-Downloader, baozimh_crawler) — no concrete gap found without fetching the reference repos' own source (deliberately not done, to stay IP-conscious); acted on only via Step 92 above, found by reading Baihe's own code directly instead.
+
+**Musicgrabber and Ximalaya-Downloader-Next** (reviewed the next day, 2026-09-28, alongside the MaoerFM/audio-drama batch that led to Step 94): musicgrabber is a general Western-music aggregator, confirmed no relevance to Baihe. Ximalaya-Downloader-Next is a genuine rewrite (not a fork) with 4 backends, explicitly doesn't crack paid content or bypass login — but doesn't resolve whether Ximalaya's paid tier is still DRM-wrapped upstream either way. Net: still no clean, non-DRM path to Ximalaya content confirmed; MaoerFM/MissEvan (Step 94) remains the one concrete, plain-HTTP, non-DRM audio-drama candidate.
+
+**Cross-session operational note, kept for any future multi-session dispatch:** `SendMessage` to a child session, and a child session's own attempt to message back, both failed with "not reachable" in this environment on 2026-09-27, even when `list_sessions` showed the target as connected — confirmed by a child session's own independent report of the identical failure in the opposite direction. Git branch/PR state was the reliable channel, not live messages, for that entire multi-session dispatch. Worth re-checking if a future session relies on peer messaging rather than git state.
