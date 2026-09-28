@@ -979,6 +979,20 @@ refusal 422. Deliberate differences: the summary engine is always local Ollama
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
 
+**Slice 32 (upload-then-transcribe wiring).** `POST /api/media/dramas/{id}/upload-and-transcribe`
+takes a multipart `file` plus the `TranscribeRunRequest` options as form fields
+(validated through that same model before anything is stored), stores the file
+via `media_upload_service.upload_media`, then calls the existing
+`start_transcribe_run`, returning `{upload, job_id}`. If the run cannot start
+after a successful upload (no key, already running, wrong mode, ...), the
+service error is returned and the uploaded file is deliberately kept; the client
+can retry via `POST /api/transcribe/dramas/{id}/run`. The persisted `use_gpu`
+(Slice 23) is read inside `start_transcribe_run` and is tested through this
+route. New `GET /api/media/dramas/{id}/status` returns `has_audio`,
+`has_source_video`, `upload_max_mb` (BAIHE_MAX_UPLOAD_MB) only, no paths; it is a
+separate endpoint because the transcribe config's response shape is pinned by
+exact-match tests.
+
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
