@@ -8,6 +8,15 @@
   --border: #e2e2e8;
   --bad: #b3261e;
   --ok: #1e7b3a;
+  --warn: #8a5a00;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --font-sm: 0.85rem;
+  --font-md: 1rem;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans CJK SC', sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -23,6 +32,7 @@
     --border: #33333c;
     --bad: #f2b8b5;
     --ok: #8fd6a0;
+    --warn: #f0c36d;
   }
 }
 
@@ -107,3 +117,17 @@ dd { margin: 0; }
 }
 .badge.ok { color: var(--ok); }
 .badge.bad { color: var(--bad); }
+
+nav { display: flex; gap: var(--space-3); }
+a { color: var(--accent); }
+
+.banner {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.error-banner { border-color: var(--bad); color: var(--bad); }
