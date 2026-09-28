@@ -116,7 +116,8 @@ and the roadmap win where they overlap) and the project agents live in
 - `roadmap-planner`: read-only step analysis; give it the roadmap text or
   a readable path, since it has no shell to fetch the planning branch
 - `implementer`: edits only the files it is assigned; no git writes
-- `code-reviewer`: read-only review of a diff you supply
+- `code-reviewer`: read-only review; give it the diff, base commit, and
+  changed-file list (inline if small, a saved patch file if large)
 - `qa-runner`: runs the assigned checks and diagnoses failures; no edits
 
 In short: delegate substantial research, planning, review, and QA; run

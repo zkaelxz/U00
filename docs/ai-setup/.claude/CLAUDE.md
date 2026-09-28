@@ -8,7 +8,9 @@ These instructions complement the root `CLAUDE.md`; the root file and the active
 - At the start of a substantial task, inspect the root instructions, `FILE_ORGANIZATION.md`, the relevant roadmap entry, and `git status`. Treat staged, unstaged, and untracked work as user-owned unless the user explicitly assigns it.
 - Delegate meaningful, independent research, planning, review, and QA to the matching project subagent. Start independent read-only tasks concurrently in the background when useful. Keep small tasks and tightly coupled work in the lead session.
 - Subagents do not inherit the conversation history. Give each a concise task packet: goal, roadmap step, current branch/state, relevant files, constraints, expected result, and whether it may edit. Require file/line evidence for findings.
-- Use the roadmap planner only after providing the current roadmap text or its exact available path. If it is not available, report that instead of guessing step IDs, status, or decisions.
+- Read-only agents get no shell access. The lead hands them what they cannot fetch themselves:
+  - `code-reviewer`: the diff, its base commit, and the changed-file list — inline for a small patch, or as a saved patch file for a large one.
+  - `roadmap-planner`: the current roadmap text, or an exact path it can read. If neither is available, report that instead of guessing step IDs, status, or decisions.
 
 ## Parallel changes and safety
 
