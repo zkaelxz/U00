@@ -160,3 +160,79 @@ def test_detail_has_no_filesystem_path(isolated_db):
     for v in d.values():
         if isinstance(v, str):
             assert db.LIBRARY_DIR not in v
+
+
+# ---- Slice 36: delete ----------------------------------------------------
+import os
+import time
+
+import background_jobs
+from services.service_errors import ConflictError
+
+
+def _drama_with_files():
+    did = db.create_drama(title_en="Doomed", source_language="zh")
+    refs = os.path.join(db.drama_dir(did), "voice_refs")
+    os.makedirs(refs)
+    with open(os.path.join(refs, "x"), "wb") as f:
+        f.write(b"clip")
+    return did, db.drama_dir(did)
+
+
+def _intact(did, folder):
+    return db.get_drama(did) is not None and os.path.isfile(os.path.join(folder, "voice_refs", "x"))
+
+
+def test_delete_unknown_is_not_found_even_without_confirm(isolated_db):
+    with pytest.raises(NotFoundError):
+        ds.delete_drama(999)
+
+
+@pytest.mark.parametrize("confirm,text", [(False, "DELETE"), (True, ""), (True, "delete"),
+                                          (True, "DELETE "), (1, "DELETE"), (None, "DELETE")])
+def test_delete_bad_confirmation(isolated_db, confirm, text):
+    did, folder = _drama_with_files()
+    with pytest.raises(InvalidInputError):
+        ds.delete_drama(did, confirm=confirm, confirm_text=text)
+    assert _intact(did, folder)
+
+
+def test_delete_ok(isolated_db):
+    did, folder = _drama_with_files()
+    assert ds.delete_drama(did, confirm=True, confirm_text="DELETE") == {
+        "deleted": True, "drama_id": did}
+    assert db.get_drama(did) is None and not os.path.exists(folder)
+
+
+def test_delete_blocked_by_in_process_job(isolated_db, monkeypatch):
+    did, folder = _drama_with_files()
+    monkeypatch.setattr(background_jobs, "any_job_running_for_drama", lambda _id: True)
+    with pytest.raises(ConflictError):
+        ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert _intact(did, folder)
+
+
+def test_delete_blocked_by_fresh_job_record(isolated_db):
+    did, folder = _drama_with_files()
+    db.save_job_record(f"transcribe_{did}", "running")
+    with pytest.raises(ConflictError):
+        ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert _intact(did, folder)
+
+
+def test_delete_stale_job_record_does_not_block(isolated_db, monkeypatch):
+    did, folder = _drama_with_files()
+    db.save_job_record(f"transcribe_{did}", "running")
+    real = time.time()
+    monkeypatch.setattr(ds.time, "time", lambda: real + ds._STALE_JOB_RECORD_SECONDS + 60)
+    ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert db.get_drama(did) is None
+
+
+def test_delete_other_dramas_job_record_does_not_block(isolated_db):
+    did, _ = _drama_with_files()
+    other = db.create_drama(title_en="Other", source_language="zh")
+    db.save_job_record(f"transcribe_{other}", "running")
+    db.save_job_record(f"transcribe_{did}", "done")
+    ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert db.get_drama(did) is None and db.get_drama(other) is not None
