@@ -165,6 +165,25 @@ def snapshot_database(dest_path: str):
         conn.close()
 
 
+def _safe_alter(conn, sql: str):
+    """Runs one `ALTER TABLE ... ADD COLUMN` from init_db()'s own
+    check-then-ALTER lightweight-migration block, swallowing exactly the
+    race it's there to guard against: `_ensure_ready()` calls `init_db()`
+    lazily, per process, with no cross-process lock -- Streamlit and a
+    separately-running `python -m api` process (React + FastAPI
+    migration, Slice 6) can both reach the same "column not in
+    existing_cols yet" check at once on a fresh/upgraded database, and
+    whichever ALTER runs second then hits sqlite3.OperationalError:
+    duplicate column name, even though the migration itself succeeded.
+    Anything else raises -- a column genuinely failing to add for a real
+    reason (a locked file, a malformed DB) must not be hidden."""
+    try:
+        conn.execute(sql)
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+
 def init_db():
     with contextlib.closing(get_conn()) as conn:
         conn.executescript("""
@@ -723,56 +742,56 @@ def init_db():
         # Lightweight migrations for DBs created before these columns existed
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
         if "speaker" not in existing_cols:
-            conn.execute("ALTER TABLE lines ADD COLUMN speaker TEXT")
+            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker TEXT")
         if "dub_filename" not in existing_cols:
-            conn.execute("ALTER TABLE lines ADD COLUMN dub_filename TEXT")
+            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN dub_filename TEXT")
         if "flag" not in existing_cols:
             # A key from translate_engines.FLAG_REASONS, set by flag_uncertain_lines()
             # -- the review queue for a long file, so a person doesn't have to
             # scan every line to find the handful worth a second look.
-            conn.execute("ALTER TABLE lines ADD COLUMN flag TEXT")
+            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag TEXT")
         if "flag_note" not in existing_cols:
-            conn.execute("ALTER TABLE lines ADD COLUMN flag_note TEXT")
+            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN flag_note TEXT")
         if "speaker_manual" not in existing_cols:
             # 1 once a line's speaker was set by hand; re-running speaker
             # detection won't overwrite it without confirmation (Step 4).
-            conn.execute("ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN speaker_manual INTEGER DEFAULT 0")
         if "sfx" not in existing_cols:
             # 1 for a non-verbal/SFX cue line ("[door slams]") -- exported
             # bracketed and styled apart from dialogue (Step 12c).
-            conn.execute("ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE lines ADD COLUMN sfx INTEGER DEFAULT 0")
         drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
         if "translation_engine" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN translation_engine TEXT DEFAULT 'claude'")
         if "content_mode" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN content_mode TEXT DEFAULT 'audio_drama'")
         if "narration_language" not in drama_cols:
             # Step 26c: novel narration only -- 'translation' (default, existing
             # behavior) speaks ln.en; 'original' speaks ln.zh (the app's generic
             # source-text field, holding ja/ko source text too when that's the
             # drama's actual source_language).
-            conn.execute("ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN narration_language TEXT DEFAULT 'translation'")
         if "source_video_filename" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_video_filename TEXT")
         if "source_language" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN source_language TEXT DEFAULT 'zh'")
         if "chinese_script" not in drama_cols:
             # Only meaningful when source_language == "zh": Whisper transcription
             # and LLM translation don't care (they read/produce either script
             # fine), but OCR (Tesseract's chi_sim vs chi_tra language pack) and
             # jieba segmentation (built for Simplified, degrades on Traditional)
             # both need to know which one they're looking at.
-            conn.execute("ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN chinese_script TEXT DEFAULT 'simplified'")
         if "media_type" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN media_type TEXT DEFAULT 'audio_drama'")
         if "series_id" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN series_id INTEGER")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN series_id INTEGER")
         if "episode_number" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_number INTEGER")
         if "episode_summary" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN episode_summary TEXT")
         if "updated_at" not in drama_cols:
-            conn.execute("ALTER TABLE dramas ADD COLUMN updated_at TEXT")
+            _safe_alter(conn, "ALTER TABLE dramas ADD COLUMN updated_at TEXT")
         for col, coltype in [("last_translate_errors", "TEXT"),
                               ("author_romanized", "TEXT"), ("studio_romanized", "TEXT"),
                               ("voice_actors_romanized", "TEXT"), ("director_romanized", "TEXT"),
@@ -797,46 +816,46 @@ def init_db():
                               # series.instructions, inherited by every drama in the series.
                               ("project_instructions", "TEXT")]:
             if col not in drama_cols:
-                conn.execute(f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
+                _safe_alter(conn, f"ALTER TABLE dramas ADD COLUMN {col} {coltype}")
         series_cols = {r[1] for r in conn.execute("PRAGMA table_info(series)").fetchall()}
         if "instructions" not in series_cols:
-            conn.execute("ALTER TABLE series ADD COLUMN instructions TEXT")
+            _safe_alter(conn, "ALTER TABLE series ADD COLUMN instructions TEXT")
         char_cols = {r[1] for r in conn.execute("PRAGMA table_info(characters)").fetchall()}
         if "ref_audio_filename" not in char_cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_audio_filename TEXT")
         if "ref_text" not in char_cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN ref_text TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN ref_text TEXT")
         if "elevenlabs_voice_id" not in char_cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN elevenlabs_voice_id TEXT")
         if "clone_engine" not in char_cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN clone_engine TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN clone_engine TEXT")
         if "voice_design" not in char_cols:
-            conn.execute("ALTER TABLE characters ADD COLUMN voice_design TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN voice_design TEXT")
         if "offline_voice" not in char_cols:
             # Step 25c: Piper can't load an edge-tts voice name, so the offline
             # engine gets its own per-character voice instead of reading tts_voice.
-            conn.execute("ALTER TABLE characters ADD COLUMN offline_voice TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN offline_voice TEXT")
         if "series_character_id" not in char_cols:
             # Links this drama's speaker to a persistent series_characters row,
             # so renaming/updating the series-level character (once) reflects
             # everywhere it's been assigned, instead of needing a per-drama edit.
-            conn.execute("ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN series_character_id INTEGER")
         if "pronouns" not in char_cols:
             # Per-drama pronoun text ("she/her", "they/them", "xe/xem", ...) --
             # lets a drama with no series set pronouns at all, and overrides
             # the linked series character's value when both are set.
-            conn.execute("ALTER TABLE characters ADD COLUMN pronouns TEXT")
+            _safe_alter(conn, "ALTER TABLE characters ADD COLUMN pronouns TEXT")
         gloss_cols = {r[1] for r in conn.execute("PRAGMA table_info(glossary_terms)").fetchall()}
         if "category" not in gloss_cols:
-            conn.execute("ALTER TABLE glossary_terms ADD COLUMN category TEXT")
+            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN category TEXT")
         if "policy" not in gloss_cols:
-            conn.execute("ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
+            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN policy TEXT")
         if "enforce_exact" not in gloss_cols:
-            conn.execute("ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN enforce_exact INTEGER DEFAULT 0")
         if "aliases" not in gloss_cols:
-            conn.execute("ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
+            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN aliases TEXT")
         if "banned_translations" not in gloss_cols:
-            conn.execute("ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
+            _safe_alter(conn, "ALTER TABLE glossary_terms ADD COLUMN banned_translations TEXT")
         sc_cols = {r[1] for r in conn.execute("PRAGMA table_info(series_characters)").fetchall()}
         if "gender" not in sc_cols:
             # Feeds translation as a fixed pronoun hint for this character
@@ -846,12 +865,12 @@ def init_db():
             # named character is a much more visible error than an ambiguous
             # unnamed one. NULL/"" means unset -- no hint is added for that
             # character, distinct from "unspecified" as a deliberate choice.
-            conn.execute("ALTER TABLE series_characters ADD COLUMN gender TEXT")
+            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN gender TEXT")
         usage_cols = {r[1] for r in conn.execute("PRAGMA table_info(usage_log)").fetchall()}
         if "cache_read_tokens" not in usage_cols:
             # Step 9: the part of input_tokens served from a provider prompt
             # cache, so the dashboard can show how often caching actually hits.
-            conn.execute("ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE usage_log ADD COLUMN cache_read_tokens INTEGER DEFAULT 0")
         if "voice_fingerprint" not in sc_cols:
             # Step 8: a running-average pyannote voice embedding (JSON list of
             # floats), built up from every drama where a speaker was confirmed
@@ -860,8 +879,8 @@ def init_db():
             # similarity against a NEW drama's own per-speaker embeddings to
             # suggest "this speaker sounds like <name>". NULL until at least
             # one confirmed sample exists.
-            conn.execute("ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
-            conn.execute("ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint TEXT")
+            _safe_alter(conn, "ALTER TABLE series_characters ADD COLUMN voice_fingerprint_samples INTEGER DEFAULT 0")
         bubble_cols = {r[1] for r in conn.execute("PRAGMA table_info(bubbles)").fetchall()}
         if "font_category" not in bubble_cols:
             # One of scanlate.FONT_CATEGORIES ("regular"/"bold"/"handwritten"),
@@ -869,7 +888,7 @@ def init_db():
             # irregularity analysis at detection time, editable per bubble
             # before render -- see scanlate.py's own docstring for why this
             # isn't a trained font-classifier model.
-            conn.execute("ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN font_category TEXT DEFAULT 'regular'")
         if "kind" not in bubble_cols:
             # Step 12d: each bubble row is a structured text region (see
             # scanlate.TextRegion) -- region type from classify_text_regions(),
@@ -878,30 +897,30 @@ def init_db():
             # predating this are all speech bubbles, hence kind's default.
             # include_sfx is the per-region override that puts an SFX region
             # back into the automated inpaint-and-replace pass.
-            conn.execute("ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
-            conn.execute("ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
-            conn.execute("ALTER TABLE bubbles ADD COLUMN confidence REAL")
-            conn.execute("ALTER TABLE bubbles ADD COLUMN language TEXT")
-            conn.execute("ALTER TABLE bubbles ADD COLUMN orientation TEXT")
-            conn.execute("ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
-            conn.execute("ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind TEXT DEFAULT 'bubble'")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN kind_confidence REAL")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN confidence REAL")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN language TEXT")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN orientation TEXT")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN panel_id INTEGER")
+            _safe_alter(conn, "ALTER TABLE bubbles ADD COLUMN include_sfx INTEGER DEFAULT 0")
         bulk_job_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_jobs)").fetchall()}
         if "kind" not in bulk_job_cols:
             # Step 9d: see the `bulk_jobs` table's own comment above -- every
             # bulk job predating this column was a translation job.
-            conn.execute("ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
-            conn.execute("ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
-            conn.execute("ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
+            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'translate'")
+            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN stage TEXT")
+            _safe_alter(conn, "ALTER TABLE bulk_jobs ADD COLUMN pipeline_id TEXT")
         bulk_job_line_cols = {r[1] for r in conn.execute("PRAGMA table_info(bulk_job_lines)").fetchall()}
         if "result_text" not in bulk_job_line_cols:
-            conn.execute("ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
-            conn.execute("ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
+            _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN result_text TEXT")
+            _safe_alter(conn, "ALTER TABLE bulk_job_lines ADD COLUMN state_at_submit TEXT")
         vocab_cols = {r[1] for r in conn.execute("PRAGMA table_info(vocab_lookups)").fetchall()}
         if "export_rich" not in vocab_cols:
             # Step 20b: flags a lookup as queued for the richer sentence+audio
             # Anki card type, set from the Reader right where the word was
             # looked up, rather than only via a bulk end-of-session export.
-            conn.execute("ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+            _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
         conn.commit()
     _migrate_line_refs_to_ids()
     _migrate_step26e_profiles()

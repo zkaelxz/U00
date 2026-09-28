@@ -347,13 +347,32 @@ that needs it.
 | 1 | Foundation | ✅ done on this branch | — |
 | 2 | Low-risk reads | Library (stats, series, search, history); Diagnostics read-only (deps, versions, running jobs, log); Reader via the served HTML | none |
 | 3 | Extract job runners | Move every `run_*_job` / bulk starter out of tab files into `services/`, Streamlit calling them unchanged | none. Pure refactor, safest large win |
-| 4 | In-process API host + jobs API | Uvicorn thread inside the Streamlit process; `POST/GET /jobs`, cancel; SSE after Step 44 | D1 |
+| 4 | API host + jobs API | Stale cell, corrected 2026-09-28: D1 decided **its own process**, not an in-process thread -- and `api/__main__.py` already runs `python -m api` as its own uvicorn process today, so that half of this row is already built. What's left: `POST/GET /jobs`, cancel; SSE after Step 44. See the slice breakdown right below this table -- D1's own 4 fixes are real prerequisites, not optional polish, and are being built as their own narrow slices rather than one big Phase 4 PR. | D1 |
 | 5 | Settings service + standalone Translate | Keys/settings model; the Translate tab in React | D2 |
 | 6 | Workspace, stage by stage | Export → Diarize → Transcript → Dub → Pick/create → Source → Translate → Review | phases 3–5; §4 tests per stage |
 | 7 | Scanlate editor | React canvas editor | phase 4 |
 | 8 | Sources / Discover / Live | Local-only marking for sign-in; SSE for Live | phases 4–5 |
 | 9 | Admin actions | Install/upgrade, reset, restore via the API, if ever | D5 / M8-H |
 | 10 | Retire Streamlit screens | Per screen, only after M8-A-style real-device checks | each screen's gate |
+
+### 5.1 Phase 4 broken into slices (added 2026-09-28)
+
+Phase 4 as one PR would bundle a schema change, a settings-storage
+migration, and a new HTTP surface -- too much for one reviewed step, and
+not how every slice before this one was actually built (Slices 2/4/5 were
+each one small, narrowly-scoped thing). D1's own four fixes are the real
+prerequisites; splitting them out by risk and dependency:
+
+| Slice | Goal | Depends on | Size |
+|---|---|---|---|
+| **6** | D1 fix 4: guard every `db.init_db()` `ALTER TABLE` against a concurrent-process race (`sqlite3.OperationalError: duplicate column name`) | none | Small -- one helper, ~55 mechanical call-site edits |
+| 7 | D1 fix 1: a small SQLite job-record table (records only, no resume) so a job started in one process is visible from another | Slice 6 (touches the same `init_db` migration path) | Small-medium |
+| 8 | Minimal jobs API: `GET /api/jobs`, `GET /api/jobs/{id}`, `POST /api/jobs/{id}/cancel`, read/act through the Slice 7 table | Slice 7 | Small |
+| 9 | D1 fix 2: settings read from the DB/`.env` instead of module globals | D2 (server-side-only keys, already decided) | Larger -- touches every module-global settings read across the app; needs its own scoping pass when it's next, not assumed here |
+
+D1 fix 3 (model caches load once per process) needs no code change --
+already acceptable per D1's own text. Slice 6 is scoped in full and
+starting now; 7-9 are recorded here as the plan, not started.
 
 ---
 
