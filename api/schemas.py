@@ -14,7 +14,7 @@ field is a compatible change; renaming or removing one is not -- bump
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 API_VERSION = "0.1"
 
@@ -182,6 +182,8 @@ class SettingsOverview(BaseModel):
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     notify_on_completion: bool
+    use_gpu: bool = False
+    gemini_free_tier: bool = False
 
 
 class TranslateEngine(BaseModel):
@@ -973,3 +975,13 @@ class ReviewRecordsTmSuggestion(BaseModel):
     similarity: float
     exact: bool
     entry_id: int
+
+
+class SettingsUpdateRequest(BaseModel):
+    """Non-secret Settings writes (Migration Slice 23). Booleans only;
+    unknown fields are rejected -- keys/URLs/paths are never accepted."""
+    model_config = ConfigDict(extra="forbid")
+    gpu_limit_enabled: Optional[StrictBool] = None
+    notify_on_completion: Optional[StrictBool] = None
+    use_gpu: Optional[StrictBool] = None
+    gemini_free_tier: Optional[StrictBool] = None

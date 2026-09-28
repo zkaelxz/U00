@@ -769,6 +769,17 @@ suggestions are `line_id`/`line_idx`/`zh`/`en`/`suggestion`/`similarity`/
 Out of scope: all writes (restore/activate/delete/add/dismiss), LLM analysis,
 job starters, bulk modes.
 
+**Slice 23 (non-secret Settings writes + persisted `use_gpu`):** `POST /api/settings`
+takes optional booleans (`gpu_limit_enabled`, `notify_on_completion`, `use_gpu`,
+`gemini_free_tier`; `extra="forbid"`, applied via `exclude_unset`) and returns the updated
+overview, which now also reports `use_gpu`/`gemini_free_tier` (both default False, stored in
+`db.app_settings`). `settings_service.set_settings` validates the whole batch against a typed
+allow-list before writing anything; unknown key or non-bool -> `InvalidInputError` (422, the
+value is never echoed). Keys, URLs and paths are never accepted (D2; key writes remain a
+separate gated slice). `start_transcribe_run` now reads `settings_service.get_use_gpu()` and
+passes it as a new trailing job parameter `use_gpu=False`, replacing the hardcoded
+`use_gpu=False` in `transcribe_for_timing`; diarization keeps its own path.
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions

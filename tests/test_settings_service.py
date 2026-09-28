@@ -71,7 +71,8 @@ def test_key_status_never_contains_a_configured_value(tmp_path):
 def test_get_settings_overview_shape(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-test\n")
     overview = settings_service.get_settings_overview(env_path)
-    assert set(overview) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion"}
+    assert set(overview) == {"engine_keys", "gpu_limit_enabled", "notify_on_completion",
+                             "use_gpu", "gemini_free_tier"}
     assert overview["engine_keys"]["claude"] is True
     assert isinstance(overview["gpu_limit_enabled"], bool)
     assert isinstance(overview["notify_on_completion"], bool)

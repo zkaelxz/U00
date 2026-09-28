@@ -248,7 +248,7 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
-│       ├── settings_routes.py    /api/settings (Migration Slice 10, read-only, no write route)
+│       ├── settings_routes.py    /api/settings (Slices 10, 23: GET overview, POST non-secret bool toggles)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)
