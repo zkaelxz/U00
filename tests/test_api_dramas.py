@@ -178,3 +178,28 @@ def test_no_filesystem_path_in_responses(client, isolated_db):
     for r in (r1, r2, r3, r4):
         assert lib not in r.text
     assert "filename" not in r1.text and "filename" not in r2.text
+
+
+# --- Hardening H1 -----------------------------------------------------------
+
+def test_h1_oversized_ints_are_422_never_500(client):
+    big = 10**30
+    for body in ({"source_language": "zh", "series_id": big},
+                 {"source_language": "zh", "preset_id": big}):
+        assert client.post("/api/dramas", json=body).status_code == 422
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    for f in ("chapter_count", "episode_number", "series_id"):
+        assert client.post(f"/api/dramas/{did}/metadata", json={f: big}).status_code == 422
+    assert client.post(f"/api/dramas/{big}/metadata", json={"title_en": "x"}).status_code == 422
+
+
+def test_h1_caps_and_url_scheme(client):
+    assert client.post("/api/dramas", json={"source_language": "zh",
+                                            "title_en": "a" * 301}).status_code == 422
+    did = client.post("/api/dramas", json={"source_language": "zh"}).json()["id"]
+    r = client.post(f"/api/dramas/{did}/metadata", json={"source_url": "javascript:alert(1)"})
+    assert r.status_code == 422 and "javascript" not in r.text
+    r = client.post(f"/api/dramas/{did}/metadata", json={"summary": "a" * 5001})
+    assert r.status_code == 422
+    r = client.post(f"/api/dramas/{did}/metadata", json={"source_url": "https://e.example"})
+    assert r.status_code == 200
