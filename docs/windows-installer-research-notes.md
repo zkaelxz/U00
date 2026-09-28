@@ -378,9 +378,10 @@ installer, run on a clean Windows machine/VM, that does no more than**:
    is cheapest to verify a real model download + inference call against,
    not just an import) — to prove the bootstrap doesn't just `import`
    cleanly but actually runs a real workload.
-4. Confirms `torch`'s CPU vs. CUDA wheel selection behaves as expected on
-   both a GPU-equipped and (if available) a non-GPU clean machine, per the
-   CPU-fallback requirement above.
+4. **Runs the GPU-detection test matrix decided on 2026-09-28** — see
+   below. Deliberately no broad GPU-detection system is designed yet; the
+   prototype's job is to produce evidence on whether one is even worth
+   building, not to implement one.
 
 **This research session has no Windows environment to run this in** — it
 executed entirely from a Linux cloud container, so this step needs either
@@ -388,6 +389,24 @@ the user's own Windows machine, a Windows VM, or a future session with
 Windows access. This is the natural first task for the eventual
 implementation step to start with, before building out the full
 installer script, tier picker, or manifest.
+
+### GPU-detection test matrix (2026-09-28 decision)
+
+Test whatever detection mechanism the prototype uses (even a single naive
+`nvidia-smi` check is fine for this pass — the point is observing its
+behavior, not building the fallback chain from §4 yet) against three
+machine states, and for each, **record**: (a) whether Baihe picked GPU or
+CPU mode, (b) whether the user can override that automatic choice, and
+(c) how clear the failure message is if something goes wrong.
+
+| Machine state | What to record |
+|---|---|
+| No supported GPU (CPU-only machine/VM) | Picks CPU mode cleanly? Any spurious GPU-path attempt? |
+| A supported NVIDIA setup (working driver, CUDA-capable) | Picks GPU mode correctly? Does it actually exercise CUDA (not just detect it)? |
+| An NVIDIA setup where the installed runtime/driver can't actually use CUDA (present GPU, but e.g. a driver too old for the selected wheel, or CUDA libraries missing) | **This is the case that matters most.** Treat uncertain detection as CPU mode — never let an ambiguous read result in a broken "looks like GPU mode but CUDA doesn't actually work" install. Record whether it does fall back to CPU, and whether the failure (if any) is surfaced clearly enough for a user to understand, versus a silent `torch.cuda.is_available() == False` at runtime with no explanation anywhere. |
+
+This matrix is what decides the open question below — not a design
+document, a measurement.
 
 ## Open questions for the user / planning session
 
@@ -399,9 +418,13 @@ Genuinely still open after the 2026-09-28 decisions:
   Baihe's actual dependencies. If the prototype fails on this specifically
   (not just needs debugging, but hits a real embeddable-Python limitation
   pip can't work around), that's the trigger to revisit conda, not before.
-- **GPU detection depth beyond the CPU-fallback floor (§4):** how much
-  engineering effort is worth spending on robust auto-detection (a real
-  fallback chain, per `unslothai/unsloth`'s tiered approach) vs. a cheap
-  manual "I have an NVIDIA GPU" checkbox. Worth answering with evidence
-  from the prototype above (does a naive check actually misfire on the
-  test machine's real driver?) rather than resolving in the abstract.
+- **GPU detection depth beyond the CPU-fallback floor (§4):** deliberately
+  kept as a discussion item, not designed yet — how much engineering
+  effort is worth spending on robust auto-detection (a real fallback
+  chain, per `unslothai/unsloth`'s tiered approach) vs. a cheap manual "I
+  have an NVIDIA GPU" checkbox depends entirely on what the test matrix
+  above shows. If a naive check already handles all three states
+  acceptably (correct GPU/CPU pick, or a clean fallback + clear message on
+  the broken-CUDA case), there's no case for building more. If it
+  misbehaves specifically on the broken-driver/broken-runtime case, that's
+  the evidence that justifies the fuller detection chain.
