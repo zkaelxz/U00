@@ -973,3 +973,8 @@ class ReviewRecordsTmSuggestion(BaseModel):
     similarity: float
     exact: bool
     entry_id: int
+
+
+class DramaDeleteResult(BaseModel):
+    deleted: bool
+    drama_id: int
