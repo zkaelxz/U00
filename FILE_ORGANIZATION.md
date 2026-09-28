@@ -201,7 +201,7 @@ baihe-subtitler/
 │   │                             video/transcript-source presence); audio upload and transcript/
 │   │                             novel text stay out of scope, folded into a future
 │   │                             transcribe-and-align action slice instead
-│   └── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
+│   ├── transcribe_service.py     Migration Slice 20 -- get_transcribe_config/update_transcribe_config
 │                                 (Whisper tuning knobs, newly persisted per drama) plus
 │                                 start_transcribe_run: a background job that does the WHOLE
 │                                 pipeline (ASR, alignment, DB write, optional diarization chain-
@@ -210,6 +210,9 @@ baihe-subtitler/
 │                                 hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
 │                                 step, same as Whisper's own text). chunk_and_tag and qwen3
 │                                 backends still stay out of scope
+│   └── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
+│                                 get_translate_config + estimate_translate_cost (advisory cost
+│                                 estimate / cap gating); start-translate job is a later slice
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -237,8 +240,10 @@ baihe-subtitler/
 │       ├── diarization_routes.py /api/diarization/dramas/{id}/config, POST .../run
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
-│       └── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
-│                                 (Migration Slice 20)
+│       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
+│       │                         (Migration Slice 20)
+│       └── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
+│                                 (Migration Slice 39, read-only)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
