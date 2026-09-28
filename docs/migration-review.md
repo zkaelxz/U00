@@ -375,6 +375,74 @@ already acceptable per D1's own text. Slices 6, 7, 8's read half, and 9
 are all built; a cross-process cancel mechanism (8's other half) is the
 one item left in this table with no code yet.
 
+**Slice 10 — ✅ Built (2026-09-28).** Phase 5's settings half: read-only
+`GET /api/settings` (engine key presence as booleans only, never a value
+-- D2; plus Slice 9's two `app_settings` toggles). New
+`services/settings_service.py` (`ENV_NAMES`, `resolve_key`, `key_status`,
+`get_settings_overview`) is the single canonical copy of the env-var
+mapping `tabs/settings_tab.py` previously kept as its own `_ENV_NAMES`
+dict -- the tab now imports it rather than maintaining a second copy that
+could drift. Scoped via a `migration-architect` pass first; deliberately
+excludes a write endpoint (writing a secret to disk over HTTP is a
+separate, higher-risk slice of its own, same reasoning as Slice 8 splitting
+cancel out) and excludes non-key Settings state that was never a module
+global to begin with (default engine, default locale, OCR backend, etc. --
+still Streamlit-session-only, unchanged). Unblocks Translate-standalone
+(needs server-side key resolution under D2) and, later, any Workspace
+stage that calls an engine.
+
+**Doc-freshness note from the Slice 10 scoping pass:** §3.2's Workspace
+stage line numbers are stale (the file is 359 lines shorter than when that
+table was written, from unrelated earlier edits), but every stage's own
+size/order is unchanged -- offsets moved by a constant ~-361 lines, not a
+restructure. Also, Phase 3 (job-runner extraction) turned out to already
+be complete: every `run_*_job` name §3.2/§5 called "still in
+`tabs/workspace_tab.py`" is already in `services/workspace_job_service.py`
+(including `run_bulk_series_translate_job`, which the doc had misattributed
+to `library_tab.py`). Neither is fixed here (scoping passes don't edit this
+doc); flagging for whoever next touches §3.2's numbers.
+
+### 5.2 Parallel-slice guardrails (added 2026-09-28)
+
+Slices 2 and 5-10 were each built sequentially, one session at a time --
+correct for slices that touch shared files (`db.py`, `background_jobs.py`)
+or depend on each other. But not every pair of remaining slices does: two
+slices are safe to build **concurrently, in separate sessions**, only when
+**all** of the following hold, checked explicitly before starting, not
+assumed:
+
+1. **File-disjoint.** Each slice's new/edited files (per its own migration
+   map) don't overlap, *except* for a small fixed set of append-only shared
+   files: `api/server.py` (router registration), `api/schemas.py` (new
+   Pydantic models), `FILE_ORGANIZATION.md`, and this doc. Two slices each
+   adding their own new lines to those is fine; two slices editing the
+   *same* line, or one slice's logic living inside a file the other also
+   needs to change, is not -- that pair goes back to sequential.
+2. **No shared-file edit lands mid-flight.** The lead applies the shared-
+   file edits (routers list in `api/server.py`, new schema classes) itself,
+   once, after each worker's own files are done and tested -- never while
+   both workers are still active, and never let a worker touch those files
+   directly.
+3. **Dependency-clean.** Neither slice's migration map lists the other as
+   a prerequisite, and neither reads a table/function the other is still
+   in the middle of adding.
+4. **Independently reviewable.** Each still gets its own PR, its own
+   `code-reviewer` pass, its own entry in this doc and the roadmap's
+   session notes -- parallel build time never means merged review or a
+   combined PR (same rule as batched-but-sequential steps in the root
+   `CLAUDE.md`).
+
+**Next candidate pair, once Slice 10 is merged:** Translate-standalone
+(§3.7 -- `services/translate_service.py` + `api/routers/translate_routes.py`
++ `tests/test_translate_service.py`, built on Slice 10's
+`settings_service.resolve_key`) and Phase 6's first Workspace stage, Export
+(§3.2's proposed build order puts it first -- `services/export_service.py`
++ `api/routers/export_routes.py`, reading `tabs/workspace_tab.py`'s Export
+section 5655-6059 but not editing it in this slice). Both are read-only-or-
+simple, both only add to `api/server.py`/`api/schemas.py`, and neither
+depends on the other -- a real candidate for the guardrails above, not yet
+executed.
+
 ---
 
 ## 6. Decisions
