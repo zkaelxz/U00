@@ -28,6 +28,17 @@ REM                            an always-on personal server for other
 REM                            devices on the LAN, rather than reaching for
 REM                            a flag literally called "CI" for that. Same
 REM                            effect as setting BAIHE_SERVER_ONLY.
+REM   start.bat --python-version 3.12 -- Step 79: pin the Python version
+REM                            used to create the venv, via the `py`
+REM                            launcher (`py -3.12`), for an optional
+REM                            dependency that needs a specific version
+REM                            (e.g. qwen-asr recommends a clean 3.12 env).
+REM                            A PYTHON_VERSION marker file next to this
+REM                            script (containing just "3.12") does the
+REM                            same thing without needing the flag every
+REM                            time -- same pattern as the PORTABLE marker.
+REM                            Falls back to plain `python` when neither
+REM                            is set, so nothing changes by default.
 
 cd /d "%~dp0"
 
@@ -36,9 +47,17 @@ if "%~1"=="" goto :args_done
 if /i "%~1"=="--portable" set BAIHE_PORTABLE=1
 if /i "%~1"=="--ci" set BAIHE_CI=1
 if /i "%~1"=="--server-only" set BAIHE_SERVER_ONLY=1
+if /i "%~1"=="--python-version" (
+    set PYTHON_VERSION=%~2
+    shift
+)
 shift
 goto :parse_args
 :args_done
+
+if not defined PYTHON_VERSION if exist PYTHON_VERSION (
+    set /p PYTHON_VERSION=<PYTHON_VERSION
+)
 
 set PORT=8501
 set VENV_DIR=venv
@@ -50,13 +69,46 @@ echo ============================================
 echo.
 
 REM --- Python check -----------------------------------------------------
-where python >nul 2>nul
+REM `where python` only confirms a file named python.exe exists somewhere
+REM on PATH -- Windows ships a non-functional stub at
+REM ...\WindowsApps\python.exe (the Microsoft Store "App execution
+REM alias") that satisfies that check even with no real Python installed,
+REM or with a real install shadowed by the stub earlier on PATH. Actually
+REM running it and checking its exit code/output is the only way to tell
+REM a real interpreter from the stub, which prints the Store message and
+REM exits non-zero.
+if defined PYTHON_VERSION (
+    set PYCMD=py -%PYTHON_VERSION%
+) else (
+    set PYCMD=python
+)
+%PYCMD% --version >nul 2>nul
 if errorlevel 1 (
-    echo Python wasn't found on PATH.
-    echo.
-    echo Install Python 3.9 or newer from https://python.org/downloads/
-    echo and make sure to tick "Add python.exe to PATH" during setup,
-    echo then run this again.
+    if defined PYTHON_VERSION (
+        echo Python %PYTHON_VERSION% wasn't found via the "py" launcher.
+        echo.
+        echo Install Python %PYTHON_VERSION% from https://python.org/downloads/
+        echo ^(the "py" launcher is installed automatically with it^), then run
+        echo this again.
+    ) else (
+        where python >nul 2>nul
+        if errorlevel 1 (
+            echo Python wasn't found on PATH.
+            echo.
+            echo Install Python 3.9 or newer from https://python.org/downloads/
+            echo and make sure to tick "Add python.exe to PATH" during setup,
+            echo then run this again.
+        ) else (
+            echo Python is on PATH but isn't runnable -- this is the
+            echo Microsoft Store's non-functional "App execution aliases" stub,
+            echo not a real Python install.
+            echo.
+            echo Fix: Settings -^> Apps -^> Advanced app settings -^> App execution aliases
+            echo -^> turn OFF both "App Installer python.exe" and "App Installer python3.exe",
+            echo then run this again. If Python genuinely isn't installed, install
+            echo it from https://python.org/downloads/ first.
+        )
+    )
     if not defined BAIHE_CI if not defined BAIHE_SERVER_ONLY pause
     exit /b 1
 )
@@ -64,7 +116,7 @@ if errorlevel 1 (
 REM --- Virtual environment ------------------------------------------------
 if not exist %PY% (
     echo Setting up a virtual environment in "%VENV_DIR%\" ^(first run only^)...
-    python -m venv "%VENV_DIR%"
+    %PYCMD% -m venv "%VENV_DIR%"
     if errorlevel 1 (
         echo.
         echo Could not create the virtual environment. See the error above.
