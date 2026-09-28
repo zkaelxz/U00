@@ -319,3 +319,153 @@ class TestGenerateEpubWithEbooklib:
         data = export_service.generate_epub(did, field="zh")
         assert isinstance(data, bytes)
         assert len(data) > 0
+
+
+# ---------------------------------------------------------------- Slice 27: ASS
+
+import subtitle_formats as sf
+
+
+def _ass_drama(db, lines=None, **fields):
+    did = _drama(db, **fields)
+    db.save_lines(did, lines or [
+        Line(idx=0, start=0.0, end=2.0, zh="你好", en="Hello", speaker="A"),
+        Line(idx=1, start=2.0, end=4.0, zh="再见", en="Bye", speaker="B"),
+    ])
+    return did
+
+
+class TestGetAssStyleOptions:
+    def test_matches_module_constants(self):
+        opts = export_service.get_ass_style_options()
+        assert opts["presets"] == sf.ASS_PRESETS
+        assert opts["fonts"] == sf.FONT_CHOICES
+        assert opts["alignments"] == sf.ALIGNMENTS
+        assert opts["default_preset"] in sf.ASS_PRESETS
+
+
+class TestGenerateAssText:
+    def _expected(self, db, did, style, field="en", **kw):
+        lines = lines_from_rows(db.load_lines(did))
+        clamped, _ = sf.clamp_overlaps(lines)
+        return sf.lines_to_ass(clamped, style, field, title="D", **kw)
+
+    def test_en_matches_real_formatter(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        text = export_service.generate_ass_text(did, "en", per_speaker_colors=False)
+        assert text.startswith("[Script Info]")
+        assert text == self._expected(isolated_db, did, sf.ASS_PRESETS["Clean"],
+                                      speaker_colors={}, speaker_names={})
+        assert "Hello" in text and "你好" not in text
+
+    def test_zh_and_bilingual(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        zh = export_service.generate_ass_text(did, "zh", per_speaker_colors=False)
+        bi = export_service.generate_ass_text(did, "bilingual", per_speaker_colors=False)
+        assert "你好" in zh and "Hello" not in zh
+        assert "你好" in bi and "Hello" in bi
+
+    def test_per_speaker_default_and_supplied_colors(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        text = export_service.generate_ass_text(did)
+        assert "Style: Speaker 1" in text and "Style: Speaker 2" in text
+        text = export_service.generate_ass_text(
+            did, speaker_colors={"A": "#123456", "B": "#654321"})
+        assert sf.ass_color("#123456") in text and sf.ass_color("#654321") in text
+
+    def test_per_speaker_off_has_no_speaker_styles(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        text = export_service.generate_ass_text(
+            did, speaker_colors={"A": "#123456"}, per_speaker_colors=False)
+        assert "Style: Speaker" not in text
+
+    def test_overrides_beat_preset_and_missing_keys_fall_back(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        text = export_service.generate_ass_text(
+            did, style={"font": "Meiryo", "size": 40}, preset="Streamer clip",
+            per_speaker_colors=False)
+        expected = dict(sf.ASS_PRESETS["Streamer clip"], font="Meiryo", size=40,
+                        sfx_alignment=None, notes_alignment=None)
+        assert text == self._expected(isolated_db, did, expected,
+                                      speaker_colors={}, speaker_names={})
+        assert "Meiryo,40" in text and "Arial Black" not in text
+
+    def test_overlaps_clamped_like_srt(self, isolated_db):
+        did = _ass_drama(isolated_db, [
+            Line(idx=0, start=0.0, end=3.0, zh="a", en="One"),
+            Line(idx=1, start=2.0, end=4.0, zh="b", en="Two"),
+        ])
+        text = export_service.generate_ass_text(did)
+        assert "Dialogue: 0,0:00:00.00,0:00:02.00" in text
+        assert "0:00:03.00" not in text
+
+    def test_wrap_applied(self, isolated_db):
+        long_text = "This is a very long English subtitle line that should wrap onto more lines"
+        did = _ass_drama(isolated_db, [Line(idx=0, start=0.0, end=5.0, zh="", en=long_text)])
+        assert "\\N" not in export_service.generate_ass_text(did)
+        assert "\\N" in export_service.generate_ass_text(did, wrap_chars_en=20)
+
+    def test_speaker_names_used(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Alice")
+        assert ",Alice,0,0,0,," in export_service.generate_ass_text(did)
+
+    def test_notes_inline_and_separate(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        isolated_db.save_translation_notes(did, [
+            {"line_idx": 0, "term": "Hello", "note_type": "cultural", "note": "a greeting"}])
+        assert "a greeting" not in export_service.generate_ass_text(did)
+        inline = export_service.generate_ass_text(did, include_notes=True)
+        assert "a greeting" in inline and "Style: Notes" not in inline
+        sep = export_service.generate_ass_text(
+            did, include_notes=True, notes_as_separate_line=True)
+        assert "Style: Notes" in sep
+        assert any(l.startswith("Dialogue:") and ",Notes," in l and "a greeting" in l
+                   for l in sep.splitlines())
+
+    @pytest.mark.parametrize("kwargs", [
+        {"field": "nope"},
+        {"preset": "Nope"},
+        {"style": {"primary": "red"}},
+        {"style": {"primary": "#FFF"}},
+        {"style": {"outline": "#GGGGGG"}},
+        {"style": {"font": ""}},
+        {"style": {"font": "  "}},
+        {"style": {"size": 5}},
+        {"style": {"size": 99}},
+        {"style": {"size": "24"}},
+        {"style": {"outline_width": 11}},
+        {"style": {"shadow": 6}},
+        {"style": {"shadow": -1}},
+        {"style": {"bold": "yes"}},
+        {"style": {"alignment": "middle"}},
+        {"style": {"alignment": None}},
+        {"style": {"sfx_alignment": "middle"}},
+        {"style": {"notes_alignment": 2}},
+        {"style": {"bogus": 1}},
+        {"speaker_colors": {"A": "blue"}},
+        {"notes_as_separate_line": True},
+        {"wrap_chars_en": -1},
+        {"wrap_chars_source": 1.5},
+    ])
+    def test_validation_errors(self, isolated_db, kwargs):
+        did = _ass_drama(isolated_db)
+        with pytest.raises(InvalidInputError):
+            export_service.generate_ass_text(did, **kwargs)
+
+    def test_error_does_not_echo_value(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        with pytest.raises(InvalidInputError) as ei:
+            export_service.generate_ass_text(did, style={"primary": "SECRETVALUE"})
+        assert "SECRETVALUE" not in str(ei.value)
+
+    def test_valid_alignments_accepted(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        text = export_service.generate_ass_text(
+            did, style={"alignment": "top-left", "sfx_alignment": "top-right",
+                        "notes_alignment": None})
+        assert text.startswith("[Script Info]")
+
+    def test_unknown_drama_raises_not_found(self, isolated_db):
+        with pytest.raises(NotFoundError):
+            export_service.generate_ass_text(99999)

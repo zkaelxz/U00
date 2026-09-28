@@ -12,15 +12,16 @@ write that can't clobber a concurrent edit to a line's text/timing/
 speaker, the same discipline every other background-job write in this
 app follows (see root CLAUDE.md's "A background job must not silently
 overwrite another job's work"). What's still deliberately out of scope,
-each its own separate slice: ASS export (needs the interactive per-drama
-style state `_subtitle_style_fragment` builds in Streamlit, no API
-contract for it yet) and audiobook/burned-in-video export (each its own
-subprocess dependency, ffmpeg in particular).
+each its own separate slice: audiobook/burned-in-video export (each its
+own subprocess dependency, ffmpeg in particular). Slice 27 adds ASS text
+generation (generate_ass_text) with per-request style (not persisted) and
+get_ass_style_options.
 
 No Streamlit or FastAPI import: plain functions, plain dicts/bytes in and
 out, so a CLI or another service could call them too.
 """
 import os
+import re
 from typing import Optional
 
 import auto_qc
@@ -42,6 +43,157 @@ def _load_drama_and_lines(drama_id: int):
         raise NotFoundError(f"No drama with id {drama_id}.")
     lines = core_module.lines_from_rows(db.load_lines(drama_id))
     return drama, lines
+
+
+def _build_wrap_chars(wrap_chars_en, wrap_chars_source):
+    if wrap_chars_en is None and wrap_chars_source is None:
+        return None
+    return {"en": wrap_chars_en, "zh": wrap_chars_source}
+
+
+def _load_notes_by_idx(drama_id: int):
+    from translation_guide import group_notes_by_line
+    notes = db.list_translation_notes(drama_id)
+    return group_notes_by_line(notes) if notes else None
+
+
+_HEX_COLOR = re.compile(r"#[0-9A-Fa-f]{6}")
+_STYLE_KEYS = ("font", "size", "bold", "italic", "primary", "outline", "outline_width",
+               "shadow", "alignment", "sfx_alignment", "notes_alignment")
+# Ranges mirror the Streamlit tab's own sliders (_subtitle_style_controls).
+_SIZE_RANGE = (12, 60)
+_OUTLINE_WIDTH_RANGE = (0, 10)
+_SHADOW_RANGE = (0, 5)
+
+
+def get_ass_style_options() -> dict:
+    """Everything a UI needs to render ASS style controls without
+    hard-coding it: presets, fonts, alignments, numeric ranges, and the
+    default preset name. Migration Slice 27."""
+    return {
+        "presets": {name: dict(p) for name, p in subtitle_formats.ASS_PRESETS.items()},
+        "default_preset": "Clean",
+        "fonts": list(subtitle_formats.FONT_CHOICES),
+        "custom_font_allowed": True,
+        "alignments": dict(subtitle_formats.ALIGNMENTS),
+        "size_range": list(_SIZE_RANGE),
+        "outline_width_range": list(_OUTLINE_WIDTH_RANGE),
+        "shadow_range": list(_SHADOW_RANGE),
+    }
+
+
+def _check_int_range(value, name, rng):
+    if isinstance(value, bool) or not isinstance(value, int) or not rng[0] <= value <= rng[1]:
+        raise InvalidInputError(f"Style '{name}' must be an integer from {rng[0]} to {rng[1]}.")
+
+
+def _check_color(value, name):
+    if not isinstance(value, str) or not _HEX_COLOR.fullmatch(value):
+        raise InvalidInputError(f"'{name}' must be a colour like #RRGGBB.")
+
+
+def _build_ass_style(preset: str, style) -> dict:
+    if preset not in subtitle_formats.ASS_PRESETS:
+        raise InvalidInputError("Unknown ASS preset.")
+    style = style or {}
+    if not isinstance(style, dict):
+        raise InvalidInputError("'style' must be an object.")
+    unknown = [k for k in style if k not in _STYLE_KEYS]
+    if unknown:
+        raise InvalidInputError("Unknown style key: " + ", ".join(sorted(map(str, unknown))) + ".")
+    merged = {**subtitle_formats.ASS_PRESETS[preset], **style}
+    merged.setdefault("sfx_alignment", None)
+    merged.setdefault("notes_alignment", None)
+
+    font = merged["font"]
+    if not isinstance(font, str) or not font.strip():
+        raise InvalidInputError("Style 'font' must be a non-empty string.")
+    _check_int_range(merged["size"], "size", _SIZE_RANGE)
+    _check_int_range(merged["outline_width"], "outline_width", _OUTLINE_WIDTH_RANGE)
+    _check_int_range(merged["shadow"], "shadow", _SHADOW_RANGE)
+    for key in ("bold", "italic"):
+        if not isinstance(merged[key], bool):
+            raise InvalidInputError(f"Style '{key}' must be true or false.")
+    _check_color(merged["primary"], "primary")
+    _check_color(merged["outline"], "outline")
+    if merged["alignment"] not in subtitle_formats.ALIGNMENTS:
+        raise InvalidInputError("Style 'alignment' is not a valid position.")
+    for key in ("sfx_alignment", "notes_alignment"):
+        if merged[key] is not None and merged[key] not in subtitle_formats.ALIGNMENTS:
+            raise InvalidInputError(f"Style '{key}' is not a valid position.")
+    return merged
+
+
+def _check_wrap(value, name):
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+        raise InvalidInputError(f"'{name}' must be a non-negative integer.")
+
+
+def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = None,
+                      preset: str = "Clean", speaker_colors: Optional[dict] = None,
+                      per_speaker_colors: bool = True, include_notes: bool = False,
+                      notes_as_separate_line: bool = False,
+                      wrap_chars_en: Optional[int] = None,
+                      wrap_chars_source: Optional[int] = None) -> str:
+    """Generates ASS subtitle text for one drama (Migration Slice 27) --
+    pure and read-only, returns text only.
+
+    Lines come from the database (saved state); the Streamlit tab exports
+    its unsaved session copy, so unsaved edits will differ. field: "en",
+    "zh" or "bilingual". The style starts from the named preset; any keys in
+    `style` (font, size, bold, italic, primary, outline, outline_width,
+    shadow, alignment, sfx_alignment, notes_alignment) override it, and
+    missing keys keep the preset's values. speaker_colors is
+    {speaker_label: "#RRGGBB"}; when omitted and per_speaker_colors is
+    true, subtitle_formats.default_speaker_colors picks one per speaker in
+    the drama; per_speaker_colors=False means one style for everyone.
+    Overlaps are clamped and lines wrapped exactly as generate_subtitle_text
+    does. notes_as_separate_line requires include_notes.
+
+    Out of scope: persisting the style per drama (it's per-request), the
+    burned-in-video and audiobook exports, the Package zip, "Mark as
+    exported", and any binary/file download.
+
+    Raises NotFoundError (unknown drama) and InvalidInputError (unknown
+    field/preset, any invalid style/colour/wrap value, or
+    notes_as_separate_line without include_notes).
+    """
+    if field not in _SUBTITLE_FIELDS:
+        raise InvalidInputError("Unknown subtitle field.")
+    merged_style = _build_ass_style(preset, style)
+    if speaker_colors is not None:
+        if not isinstance(speaker_colors, dict):
+            raise InvalidInputError("'speaker_colors' must be an object.")
+        for label, color in speaker_colors.items():
+            if not isinstance(label, str):
+                raise InvalidInputError("Speaker labels must be strings.")
+            _check_color(color, "speaker_colors")
+    if notes_as_separate_line and not include_notes:
+        raise InvalidInputError("'notes_as_separate_line' requires 'include_notes'.")
+    _check_wrap(wrap_chars_en, "wrap_chars_en")
+    _check_wrap(wrap_chars_source, "wrap_chars_source")
+
+    drama, lines = _load_drama_and_lines(drama_id)
+    export_lines, _ = subtitle_formats.clamp_overlaps(lines)
+
+    if not per_speaker_colors:
+        colors = {}
+    elif speaker_colors is not None:
+        colors = dict(speaker_colors)
+    else:
+        colors = subtitle_formats.default_speaker_colors(ln.speaker for ln in lines)
+
+    speaker_names = {c["speaker_label"]: c["character_name"]
+                     for c in db.list_characters_with_series_names(drama_id)
+                     if c.get("character_name")}
+    notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
+
+    return subtitle_formats.lines_to_ass(
+        export_lines, merged_style, field, notes_by_idx,
+        speaker_colors=colors, speaker_names=speaker_names,
+        wrap_chars=_build_wrap_chars(wrap_chars_en, wrap_chars_source),
+        title=drama.get("title_en") or drama.get("title_zh") or "",
+        notes_as_separate_line=notes_as_separate_line)
 
 
 def get_export_readiness(drama_id: int) -> dict:
@@ -120,15 +272,8 @@ def generate_subtitle_text(drama_id: int, fmt: str, field: str,
     lines = core_module.lines_from_rows(rows)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
-    wrap_chars = None
-    if wrap_chars_en is not None or wrap_chars_source is not None:
-        wrap_chars = {"en": wrap_chars_en, "zh": wrap_chars_source}
-
-    notes_by_idx = None
-    if include_notes:
-        from translation_guide import group_notes_by_line
-        notes = db.list_translation_notes(drama_id)
-        notes_by_idx = group_notes_by_line(notes) if notes else None
+    wrap_chars = _build_wrap_chars(wrap_chars_en, wrap_chars_source)
+    notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
 
     if fmt == "vtt":
         return subtitle_formats.lines_to_vtt(export_lines, field, notes_by_idx, wrap_chars)

@@ -8,12 +8,15 @@ download. Migration Slice 15 added the three flagging actions -- each
 writes only the flag/flag_note fields (see services/export_service.py's
 own docstring for the field-scoped-write discipline). Migration Slice 18
 adds EPUB export (novel-narration dramas only) as a binary download.
-Still out of scope: ASS export, audiobook, burned-in video export.
+Migration Slice 27 adds ASS subtitle text (POST, per-request style, plain-text
+download) and the style-options listing. Still out of scope: audiobook,
+burned-in video export.
 """
 
 from fastapi import APIRouter, Path, Query, Response
 
-from api.schemas import AutoQcFlagResult, ErrorResponse, ExportReadiness, FlagActionResult
+from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, ErrorResponse,
+                         ExportReadiness, FlagActionResult)
 from services import export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -78,3 +81,26 @@ def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|
     return Response(
         content=data, media_type="application/epub+zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.post("/dramas/{drama_id}/ass",
+             summary="Generate ASS subtitle text for one drama (plain-text download)",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_ass_text(req: AssExportRequest, drama_id: int = Path(ge=1)):
+    style = req.style.model_dump(exclude_unset=True) if req.style is not None else None
+    text = export_service.generate_ass_text(
+        drama_id, field=req.field, style=style, preset=req.preset,
+        speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
+        include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
+        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
+    filename = f"drama_{drama_id}_{req.field}.ass"
+    return Response(
+        content=text, media_type="text/x-ssa; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+# Static path; every other route here lives under /dramas/..., so it can't be shadowed.
+@router.get("/ass-style-options", response_model=AssStyleOptions,
+            summary="Presets, fonts, alignments and ranges for ASS style controls")
+def get_ass_style_options():
+    return export_service.get_ass_style_options()
