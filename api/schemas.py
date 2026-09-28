@@ -14,7 +14,7 @@ field is a compatible change; renaming or removing one is not -- bump
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 API_VERSION = "0.1"
 
@@ -426,3 +426,42 @@ class DubPacing(BaseModel):
     available: bool
     counts: Dict[str, int]
     lines: List[DubPacingLine]
+
+class AssStyleOverrides(BaseModel):
+    """Per-request ASS style overrides (Migration Slice 27). Only fields the
+    client sets replace the preset's values; unknown keys are a 422."""
+    model_config = ConfigDict(extra="forbid")
+    font: Optional[str] = None
+    size: Optional[int] = None
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    primary: Optional[str] = None
+    outline: Optional[str] = None
+    outline_width: Optional[int] = None
+    shadow: Optional[int] = None
+    alignment: Optional[str] = None
+    sfx_alignment: Optional[str] = None
+    notes_alignment: Optional[str] = None
+
+
+class AssExportRequest(BaseModel):
+    field: str = "en"
+    style: Optional[AssStyleOverrides] = None
+    preset: str = "Clean"
+    speaker_colors: Optional[Dict[str, str]] = None
+    per_speaker_colors: bool = True
+    include_notes: bool = False
+    notes_as_separate_line: bool = False
+    wrap_chars_en: Optional[int] = Field(default=None, ge=0)
+    wrap_chars_source: Optional[int] = Field(default=None, ge=0)
+
+
+class AssStyleOptions(BaseModel):
+    presets: Dict[str, Dict[str, Any]]
+    default_preset: str
+    fonts: List[str]
+    custom_font_allowed: bool
+    alignments: Dict[str, int]
+    size_range: List[int]
+    outline_width_range: List[int]
+    shadow_range: List[int]
