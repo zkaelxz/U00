@@ -825,6 +825,45 @@ series' TM entry is the same 404 as a missing one). Text caps: 2000 chars for
 line/note text, 500 for terms. Out of scope: merge/split/delete lines,
 restore original text, LLM tools, bulk modes.
 
+**Migration Slice 28 (artifact download).** `services/artifact_service.py` defines where a job
+writes a downloadable output: `<drama folder>/exports/<kind>/<filename>` (`output_path` validates
+the bare filename). `GET /api/artifacts/dramas/{id}/{kind}` streams the newest regular file there
+with a sanitized `Content-Disposition`; `.../info` returns name/size/kind only (never a path).
+Kinds are whitelisted (subtitle, epub, audio, video, archive); clients never send a path;
+symlinks and anything resolving outside the kind folder are ignored; errors are fixed text
+(404 when missing, 422 for an unknown kind). No job writes artifacts yet -- wiring is later.
+
+**Slice 31 — Media upload (2026-09-28).**
+`services/media_upload_service.py` + `api/routers/media_routes.py`:
+`POST /api/media/dramas/{id}/upload` (multipart, `file` field; needs
+`python-multipart`, added to `requirements-core.txt`). Same result as the
+Source tab's upload: stored as `source<ext>` in the drama folder (audio:
+`audio_filename` set; video: audio extracted to `audio.wav`, both
+`audio_filename` and `source_video_filename` set). The client filename is
+never stored or returned (only a whitelisted extension is read: mp3 wav m4a
+flac ogg mp4 mkv mov webm); the body streams to a temp file in the drama
+folder, is capped by `BAIHE_MAX_UPLOAD_MB` (default 2048; over-limit is a 422
+with fixed text and the partial file is deleted) and is atomically renamed.
+409 if a job is running for the drama, 404 for an unknown drama. Response is
+`name`, `size`, `kind` only. Uploading replaces the previous `source<ext>`
+of the same extension. Video audio extraction runs synchronously in the
+request (ffmpeg). Out of scope: yt-dlp URL download, ref-audio/cover uploads.
+
+**Slice 33 -- Novel narration chunk & tag.** `GET /api/narration/dramas/{id}/config`
+(booleans/enums only: novel text attached, per-engine `key_configured`, existing line
+count, job running) and `POST /api/narration/dramas/{id}/run` (`{engine?, model?}`,
+default engine `claude`; claude/deepseek/gemini/ollama) -> `{"job_id": "narration_<id>"}`.
+The job does everything (Slice 20 pattern): chunks the drama's attached
+`novel_narration_source.txt`, tags speakers with `tag_speakers_llm` (id-keyed; a
+wrong-length result falls back to all Narrator), upserts characters, takes a "before chunk
+& tag speakers" history snapshot, then replaces the drama's lines (the same full replace
+Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: unknown drama
+404, no novel text or non-LLM engine 422, no key 503 (Streamlit's silent all-Narrator
+fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
+`background_jobs`. Not verified against a real LLM (fake engine only).
+
+**Next candidates:** the
+
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
@@ -909,20 +948,8 @@ hazard, unchanged: `db.delete_drama` removes the DB row first, then the folder
 (including non-regenerable `voice_refs/`); a failed rmtree leaves an orphan
 folder, surfaced as a clear 500 `application_error` (no paths).
 
-**Slice 33 -- Novel narration chunk & tag.** `GET /api/narration/dramas/{id}/config`
-(booleans/enums only: novel text attached, per-engine `key_configured`, existing line
-count, job running) and `POST /api/narration/dramas/{id}/run` (`{engine?, model?}`,
-default engine `claude`; claude/deepseek/gemini/ollama) -> `{"job_id": "narration_<id>"}`.
-The job does everything (Slice 20 pattern): chunks the drama's attached
-`novel_narration_source.txt`, tags speakers with `tag_speakers_llm` (id-keyed; a
-wrong-length result falls back to all Narrator), upserts characters, takes a "before chunk
-& tag speakers" history snapshot, then replaces the drama's lines (the same full replace
-Streamlit/CLI do; the lines are brand new) and sets status `aligned`. Errors: unknown drama
-404, no novel text or non-LLM engine 422, no key 503 (Streamlit's silent all-Narrator
-fallback is deliberately not offered), duplicate run 409; failed-job errors are redacted by
-`background_jobs`. Not verified against a real LLM (fake engine only).
-
-**Next candidates:** the
+**Next candidates:** the `chunk_and_tag` novel-narration path (needs its
+own scoping -- fully synchronous today, no natural job boundary), the
 experimental `qwen3_asr`/`qwen3_forced_align` backends, or continue with
 ASS export/audiobook/burned-in-video export (Export's remaining scope) or
 Dub (§3.2's build order).
