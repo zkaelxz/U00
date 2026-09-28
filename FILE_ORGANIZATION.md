@@ -100,7 +100,7 @@ baihe-subtitler/
 │   └── adapters/                  one file per supported site (14 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
-│       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py,
+│       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
 │           ranobes.py, toonkor.py, xbanxia.py, zerosumonline.py
 │
 ├── ui/                         ← small shared UI building blocks used across tabs (Step 13).

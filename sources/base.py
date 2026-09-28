@@ -101,6 +101,12 @@ class SourceAdapter:
     def get_chapter_text(self, chapter):
         raise NotSupportedError(f"{self.display_name or self.name} doesn't provide chapter text.")
 
+    def get_audio_url(self, chapter):
+        """Optional: an audio source's equivalent of get_pages()/
+        get_chapter_text() (roadmap Step 94) -- resolves one episode to
+        its real, playable location. Returns models.AudioRef."""
+        raise NotSupportedError(f"{self.display_name or self.name} doesn't provide episode audio.")
+
     def login(self, url: str = "", launcher=None):
         """Step 23k's manual login: opens this source's persistent browser
         profile at `url` (or `login_url`) for the person to sign in

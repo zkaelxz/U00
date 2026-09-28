@@ -18,6 +18,7 @@ class ContentType(str, Enum):
     MANHWA = "manhwa"
     NOVEL = "novel"
     VIDEO = "video"
+    AUDIO_DRAMA = "audio_drama"
 
 
 class AccessTier(str, Enum):
@@ -284,6 +285,23 @@ class PageRef:
     chapter_id: str
     index: int
     url: str
+    headers: dict = field(default_factory=dict)
+
+
+@dataclass
+class AudioRef:
+    """One episode's resolved, playable audio location -- roadmap Step
+    94. Not necessarily a flat file: an audio-drama platform can issue a
+    signed HLS manifest (`format="hls"`) instead of a direct downloadable
+    file (`format="direct"`), so a caller knows whether it needs an
+    HLS-aware fetch (e.g. ffmpeg) rather than a plain byte download. Both
+    kinds are commonly short-lived/signed -- resolve and use promptly,
+    don't cache past a session."""
+    source: str
+    chapter_id: str
+    url: str
+    format: str = "direct"
+    ext: str = ""
     headers: dict = field(default_factory=dict)
 
 
