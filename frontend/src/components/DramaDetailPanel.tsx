@@ -1,16 +1,35 @@
 import { useEffect, useState } from 'react'
 
 import { api, ApiError } from '../api/client'
+import { deleteDrama } from '../api/library'
 import type { DramaDetail } from '../api/types'
+import { canConfirmDelete } from '../pages/libraryForm'
+import { ErrorBanner } from './ErrorBanner'
 
 function credit(name: string | null, romanized: string | null) {
   if (!name) return null
   return romanized && romanized !== name ? `${name} (${romanized})` : name
 }
 
-export function DramaDetailPanel({ dramaId }: { dramaId: number }) {
+interface Props {
+  dramaId: number
+  // When given, the panel offers a typed-confirmation delete.
+  onDeleted?: () => void
+}
+
+export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
   const [drama, setDrama] = useState<DramaDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [deleteError, setDeleteError] = useState<unknown>(null)
+
+  const remove = () => {
+    deleteDrama(dramaId).then(
+      () => onDeleted?.(),
+      (e: unknown) => setDeleteError(e),
+    )
+  }
 
   useEffect(() => {
     // App remounts this panel per drama (key={dramaId}), so state starts
@@ -58,6 +77,35 @@ export function DramaDetailPanel({ dramaId }: { dramaId: number }) {
             </div>
           ))}
       </dl>
+      {onDeleted && !confirming && (
+        <button type="button" onClick={() => setConfirming(true)}>
+          Delete drama…
+        </button>
+      )}
+      {onDeleted && confirming && (
+        <div className="delete-confirm">
+          <p>This permanently deletes the drama and all its lines. Type DELETE to confirm.</p>
+          <input
+            aria-label="Type DELETE to confirm"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+          <button type="button" disabled={!canConfirmDelete(typed)} onClick={remove}>
+            Delete permanently
+          </button>
+          <button type="button" className="link" onClick={() => { setConfirming(false); setTyped(''); setDeleteError(null) }}>
+            Cancel
+          </button>
+          {deleteError instanceof ApiError && deleteError.status === 409 ? (
+            <p className="error" role="alert">
+              Not deleted: a background job is still running for this drama. Wait for it to
+              finish or cancel it, then try again.
+            </p>
+          ) : (
+            <ErrorBanner error={deleteError} />
+          )}
+        </div>
+      )}
     </section>
   )
 }
