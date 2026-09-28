@@ -82,6 +82,11 @@
 > `start.bat` and `start.ps1` (the secondary-review session's amendment),
 > full suite 3217 passed. Manual check (real Windows machine) still owed.
 >
+> **Step 85 merged (2026-09-28, same pass):**
+> `step-85-sources-search-limit-clear`, PR #195 — re-verified against
+> current code before fixing (both gaps still real), full suite 3219
+> passed.
+>
 > **React+FastAPI migration, Slice 2 in progress:** job-runner-extraction
 > (moving `run_translate_job`/`run_transcribe_job`/etc. out of
 > `tabs/workspace_tab.py` and `restore_library_backup`/
@@ -94,7 +99,7 @@
 > results) before assuming it's done or restarting it — don't duplicate.
 >
 > **Not yet dispatched:** Steps 95/97/98/99 (see above, no branch yet).
-> Steps 85/86/89 (provisionally numbered, never pushed — confirm scope
+> Steps 86/89 (provisionally numbered, never pushed — confirm scope
 > before dispatch).
 >
 > **Blocked / gated, not next-in-line:** Step 72 (hard-gated on Step 42,
@@ -4158,7 +4163,7 @@ This is a distinct, more foundational issue from Step 68's dark-mode/selectbox D
   | 82 — Push the updated `docs/ai-setup/CLAUDE.md` staging copy into `baihe-subtitler`'s live root | — | Not started — not yet dispatched | — |
   | 83 — Fix: dependency-tier mislabeling (cv2/faster_whisper/PIL wrongly tagged Core) | `step-83-dependency-tier-mislabeling` | ✅ Merged (PR #177) | ⏳ Pending |
   | 84 — Make Discover tab's API-key gating engine-aware (FREE_ENGINES-based, not `!= "ollama"`) | `step-84-discover-key-gating` | ✅ Merged (PR #178) | ⏳ Pending |
-  | 85 — Sources tab: result-per-source limit + a "Clear results" button | — | Not started — provisionally assigned by a secondary-review session, no branch pushed yet | — |
+  | 85 — Sources tab: result-per-source limit + a "Clear results" button | `step-85-sources-search-limit-clear` | ✅ Merged (PR #195) | ⏳ Pending |
   | 86 — `ladder.py`'s `test_tier()` never recomputes `technical_status` after "Test Now"; several adapters preset a non-`None` `access_method` a later lower-tier success can't overwrite | — | Not started — provisionally assigned, no branch pushed yet | — |
   | 87 — Add a language selector to new-drama creation (was silently defaulting to `zh`) | `step-87-new-drama-language-selector` | ✅ Merged (PR #179) | ⏳ Pending |
   | 88 — (id skipped in the secondary-review session's own provisional numbering — not used) | — | — | — |
