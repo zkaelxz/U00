@@ -250,3 +250,37 @@ def test_known_chapter_ids_rejects_non_series(fakes):
         svc.known_chapter_ids({"kind": "series", "error": {"status": 503}})
     assert svc.known_chapter_ids({"kind": "series", "chapters": [
         {"chapter_id": "a"}, {"chapter_id": "a"}, {"chapter_id": ""}, {"chapter_id": "b"}]}) == ["a", "b"]
+
+
+def test_running_series_job_names_its_series(fakes):
+    """The series job id is per source, so a poll while it runs must say
+    which series it is for (ids only; no line text in the payload)."""
+    import threading
+    gate = threading.Event()
+    fakes["alpha"] = cls = _make("alpha")
+    orig = cls.get_series
+
+    def slow(self, series_id):
+        gate.wait(5)
+        return orig(self, series_id)
+
+    cls.get_series = slow
+    svc.start_series("alpha", "A")
+    try:
+        r = svc.get_job_result("sources_series_alpha")
+        assert r["status"] in ("running", "queued")
+        assert (r["source"], r["series_id"]) == ("alpha", "A")
+        assert r["result"] is None
+    finally:
+        gate.set()
+    _wait("sources_series_alpha")
+    done = svc.get_job_result("sources_series_alpha")
+    assert (done["source"], done["series_id"]) == ("alpha", "A")
+
+
+def test_search_job_has_no_series_identity(fakes):
+    fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
+    svc.start_search("abc")
+    _wait("sources_search")
+    r = svc.get_job_result("sources_search")
+    assert "source" not in r and "series_id" not in r

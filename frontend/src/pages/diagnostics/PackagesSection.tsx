@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { installDependency, upgradeDependency } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
-import type { PcMode } from '../../hooks/usePcOnly'
+import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import type { DiagnosticsOverview } from '../../types/diagnostics'
 import { splitDependencies } from '../diagnosticsFormat'
 import {
@@ -37,6 +37,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const runningId = useId()
   // Install/Upgrade only once /api/meta says this is the main PC.
   const local = pc === 'local'
+  const pending = usePcPendingNote(pc)
   // Jobs are polled only while this is open and the buttons can be used.
   const watching = open && local
   useEffect(() => {
@@ -85,6 +86,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           {deps.installed.length} installed, {deps.missing.length} missing.
         </p>
         {pc === 'remote' && <p className="muted">Installing is PC only.</p>}
+        {pending && <p className="muted" data-testid="pc-pending">{pending}</p>}
         {local && blocked && !running && <p className="muted" id={reasonId}>{blocked}</p>}
         <p className="muted" aria-live="polite" data-testid="install-running" id={runningId}>
           {running ?? ''}

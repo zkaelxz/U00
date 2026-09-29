@@ -231,6 +231,9 @@ export interface SourcesJobResult<R = Record<string, unknown>> {
   progress: number | null
   message: string | null
   result: R | null // only once done
+  // Series jobs only: which series the per-source run is for (also while running).
+  source?: string | null
+  series_id?: string | null
 }
 
 // What the page remembers about the open series (sources.lastSeries).

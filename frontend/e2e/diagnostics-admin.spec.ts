@@ -241,6 +241,59 @@ test('away from the PC: no install, reset or extension controls and no extension
   expect(unmocked).toEqual([])
 })
 
+test('PC mode not yet known or unconfirmed: a muted line instead of install, reset and extension controls', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page)
+  const extensionCalls: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/api/extension')) extensionCalls.push(r.url())
+  })
+  // /api/meta held (the mode stays 'unknown'), then failed. afterEach
+  // releases it too, so it is always answered before the page closes.
+  let answerMeta: () => void = () => undefined
+  const held = new Promise<void>((go) => {
+    answerMeta = go
+    releaseInstall = go
+  })
+  let metaDone: () => void = () => undefined
+  const metaAnswered = new Promise<void>((done) => {
+    metaDone = done
+  })
+  pendingFulfils.push(metaAnswered)
+  await page.route('**/api/meta', async (r) => {
+    await held
+    try {
+      await r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'down' } } })
+    } finally {
+      metaDone()
+    }
+  })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  const panel = page.getByTestId('dependency-panel')
+  await expect(panel).toContainText('Checking whether this is the main PC…')
+  await openSection(page, /^Missing packages/)
+  await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
+  await openSection(page, /^Danger zone/)
+  await expect(page.locator('.danger-zone')).toContainText('Checking whether this is the main PC…')
+  await expect(page.locator('.danger-zone').getByRole('textbox')).toHaveCount(0)
+
+  // /api/meta fails: say so, still no controls.
+  answerMeta()
+  await metaAnswered
+  await expect(panel).toContainText("Couldn't confirm this is the main PC.")
+  await expect(page.locator('.danger-zone')).toContainText("Couldn't confirm this is the main PC.")
+  await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0)
+
+  await page.goto('/#/settings')
+  const ext = page.locator('details.section', { hasText: 'Browser extension' })
+  await ext.locator('summary').click()
+  await expect(ext).toContainText("Couldn't confirm this is the main PC.")
+  await page.waitForTimeout(300)
+  expect(extensionCalls).toEqual([])
+  expect(unmocked).toEqual([])
+})
+
 test('log filter waits for typing to settle; an empty result says so', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page)

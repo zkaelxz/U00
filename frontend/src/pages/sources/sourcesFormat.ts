@@ -208,13 +208,16 @@ export interface SeriesJobLike {
   error: unknown
   startedHere: boolean
   startError: unknown
+  // Which series a running run is for, when the server says (series jobs).
+  runningFor?: { source: string; series_id: string } | null
 }
 
 export interface SeriesView {
   status: 'idle' | 'running' | 'done' | 'error'
   result: SeriesResult | null
   error: unknown
-  // A start was refused because another series from this source is loading.
+  // Another series from this source is loading: a start was refused, or
+  // the running run (found on load) reports a different series.
   busyOther: boolean
 }
 
@@ -223,6 +226,7 @@ export interface SeriesView {
  * source, so the job can hold a different series: a finished result counts
  * only when its source and series_id match `open`, and a run found on mount
  * (not started here) that failed is not shown, since it can't be matched.
+ * A running run that reports another series (`runningFor`) is `busyOther`.
  */
 export function seriesView(open: OpenSeries | null, job: SeriesJobLike, jobId: string | null): SeriesView {
   const busyOther = !!jobId && isSameJobConflict(job.startError, jobId)
@@ -235,6 +239,11 @@ export function seriesView(open: OpenSeries | null, job: SeriesJobLike, jobId: s
       : none
   }
   if (job.status === 'error') return job.startedHere ? { status: 'error', result: null, error: job.error, busyOther } : none
+  const f = job.status === 'running' ? job.runningFor : null
+  if (f && (f.source !== open.source || f.series_id !== open.series_id)) {
+    // Found running on load for another series of this source.
+    return { ...none, busyOther: true }
+  }
   return { status: job.status, result: null, error: null, busyOther }
 }
 

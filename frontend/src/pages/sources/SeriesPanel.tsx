@@ -21,6 +21,8 @@ type Props = {
   remote: boolean
   // Chapter list dropped after the source's Adult works switch changed.
   cleared: boolean
+  // Another series was loading and has now stopped: offer Try again.
+  busyEnded: boolean
   // Changes each time a series is opened: focus moves to the heading.
   focusKey: number
   // Phone/tablet: the panel replaces the results and starts with "‹ Results".
@@ -35,7 +37,7 @@ type Props = {
 const LONG_DESCRIPTION = 180
 
 export function SeriesPanel({
-  open, display, job, view, tracked, remote, cleared, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
+  open, display, job, view, tracked, remote, cleared, busyEnded, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
 }: Props) {
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
@@ -113,6 +115,15 @@ export function SeriesPanel({
           </p>
         )}
       </div>
+
+      {busyEnded && (
+        <p className="muted">
+          The other series stopped loading.{' '}
+          <button type="button" className="link" onClick={onReload}>
+            Try again
+          </button>
+        </p>
+      )}
 
       {cleared && <p className="muted">Chapter list cleared; reload it to use the new setting.</p>}
 
