@@ -2,6 +2,9 @@ import { useState } from 'react'
 
 import { applyFindReplace, previewFindReplace } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { Field } from '../../../../components/Field'
+import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { ApplyResult, ReviewMatch } from '../../../../types/review'
 import { staleLabels } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
@@ -48,23 +51,23 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
     <section className="review-replace" aria-label="Find and replace">
       <div className="review-replace-head">
         <h3>Find and replace</h3>
-        <button type="button" className="link" onClick={onClose}>Close</button>
+        <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>Close</button>
       </div>
       <div className="filters">
         <input aria-label="Find" value={find} onChange={(e) => { setFind(e.target.value); setMatches(null) }} />
         <input aria-label="Replace with" value={replace} onChange={(e) => { setReplace(e.target.value); setMatches(null) }} />
       </div>
-      <label>
-        <input type="checkbox" checked={caseSensitive} onChange={(e) => { setCaseSensitive(e.target.checked); setMatches(null) }} />{' '}
-        Match case
-      </label>{' '}
-      <label>
-        <input type="checkbox" checked={useRegex} onChange={(e) => { setUseRegex(e.target.checked); setMatches(null) }} />{' '}
-        Regular expression
-      </label>
+      <div className="setting-list review-toggles">
+        <Field label="Match case">
+          <Toggle checked={caseSensitive} onChange={(on) => { setCaseSensitive(on); setMatches(null) }} />
+        </Field>
+        <Field label="Regular expression">
+          <Toggle checked={useRegex} onChange={(on) => { setUseRegex(on); setMatches(null) }} />
+        </Field>
+      </div>
       <div className="review-actions">
-        <button type="button" disabled={!find} onClick={preview}>Preview</button>
-        <button type="button" disabled={!matches?.length} onClick={apply}>
+        <button type="button" className={buttonClass('secondary')} disabled={!find} onClick={preview}>Preview</button>
+        <button type="button" className={buttonClass('primary')} disabled={!matches?.length} onClick={apply}>
           Apply {matches?.length ?? 0} change{matches?.length === 1 ? '' : 's'}
         </button>
       </div>

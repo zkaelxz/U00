@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { ApiError, withSignal } from '../../../../api/client'
 import { lineAlternatives, lineGrammar, pronounceLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { LineAlternatives, LineGrammar, ReviewLine } from '../../../../types/review'
 import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale, type ToolMode } from './reviewLogic'
 
@@ -107,11 +108,11 @@ export function LineTools({ dramaId, line, mode, onClose, onUse }: Props) {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <div className="review-actions">
         {(error !== null || unavailable || mode === 'pronounce') && !busy && (
-          <button type="button" data-testid="line-tools-retry" onClick={retry}>
+          <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-tools-retry" onClick={retry}>
             {mode === 'pronounce' && result ? 'Make again' : 'Try again'}
           </button>
         )}
-        <button type="button" className="link review-jump" onClick={onClose}>
+        <button type="button" className={buttonClass('ghost', 'sm')} onClick={onClose}>
           {hide}
         </button>
       </div>
@@ -140,7 +141,7 @@ function AlternativeList({ line, data, busy, onUse }: {
               </p>
             )}
             {a.translation !== line.en && (
-              <button type="button" disabled={busy || stale} onClick={() => onUse(a.translation)}>
+              <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || stale} onClick={() => onUse(a.translation)}>
                 Use this
               </button>
             )}
