@@ -9,7 +9,8 @@ is field-scoped (never a full line-list sync). Writes are POSTs; a note delete
 is a DELETE with no confirm, matching the Review tab.
 
 Auto-shorten overlong lines (review parity R28) calls an LLM, so besides
-`lines.edit` the handler runs `require_engines_allowed` and takes an LLM
+`lines.edit` the handler runs `require_engines_allowed` on the engine the
+call will use (the named one, else the drama's own) and takes an LLM
 slot; it writes only `en` (compare-and-set per line) after a line_history
 snapshot, needs confirm=true and is refused (409) while a job runs for the
 drama (services/line_tools_service.py).
@@ -22,7 +23,7 @@ from api.schemas import (ErrorResponse, LinesAcceptTmRequest, LinesFindReplaceAp
                          LinesFindReplaceApplyResult, LinesNote, LinesNoteCreate,
                          LinesNoteDeleteResult, LinesPatchRequest, LinesShortenRequest,
                          LinesShortenResult, ReviewLinesLine)
-from services import line_tools_service, lines_service
+from services import line_ai_service, line_tools_service, lines_service
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
@@ -77,8 +78,9 @@ def delete_note(drama_id: int = Path(ge=1), note_id: int = Path(ge=1)):
              responses={**_404_409_422, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
                         503: {"model": ErrorResponse}})
 def post_shorten_overlong(body: LinesShortenRequest, request: Request, drama_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
+    require_engines_allowed(request, engine)
     with llm_slot(request):
-        return line_tools_service.shorten_overlong(drama_id, body.line_ids, body.engine,
+        return line_tools_service.shorten_overlong(drama_id, body.line_ids, engine,
                                                    body.model, body.gemini_free_tier,
                                                    confirm=body.confirm)

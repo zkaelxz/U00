@@ -493,6 +493,27 @@ class TestPermissions:
         assert remote.post(url, json={"confirm": True, "engine": "claude"}, headers=_h(editor)).status_code == 403
         assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(editor)).status_code == 200
 
+    @pytest.mark.parametrize("tool", ["alternatives", "grammar", "shorten"])
+    def test_gate_uses_the_dramas_engine_when_none_is_named(self, remote, monkeypatch, tool):
+        monkeypatch.setattr(line_tools, "alternative_translations",
+                            lambda *a, **k: [{"translation": "x"}])
+        monkeypatch.setattr(line_tools, "grammar_breakdown",
+                            lambda *a, **k: [{"word": "w", "meaning": "m"}])
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+                            lambda work, engine, usage_cb=None: work)
+        built = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, *a, **k: built.append(name) or FakeEngine())
+        household = _user("h@example.com", "lines.read", "lines.edit")
+        for engine, status in (("ollama", 200), ("claude", 403)):
+            did, ids = _overlong_drama()
+            db.update_drama(did, translation_engine=engine)
+            url = _shorten(did) if tool == "shorten" else _ai(did, ids[0], tool)
+            body = {"confirm": True} if tool == "shorten" else {}
+            assert remote.post(url, json=body, headers=_h(household)).status_code == status
+        # the call runs on the engine the gate checked
+        assert built == ["ollama"]
+
     def test_pronounce_and_navigation_need_lines_read(self, remote):
         did, ids = _seed()
         nobody = _user("n@example.com")

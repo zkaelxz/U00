@@ -36,6 +36,16 @@ from services.service_errors import (DependencyUnavailableError, InvalidInputErr
 MAX_ISSUE_CHARS = 500
 
 
+def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
+    """The engine an LLM tool on this drama will use: the named one, else
+    the drama's translation_engine (default claude). For the router's
+    engines.paid gate, which passes this name on, so the call can't switch
+    to an engine the gate didn't see."""
+    if engine_name:
+        return engine_name
+    return translate_run_service._require_drama(drama_id).get("translation_engine") or "claude"
+
+
 def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None:
     """Refuses a paid call once this month's spending cap is used up, as the
     review jobs do (a single short call can't be stopped part way, so there

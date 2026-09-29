@@ -9,8 +9,8 @@ services/line_ai_service.py. Both take a slot from the shared LLM cap
 
 Also here (review parity R17-R19): "Alternatives" and "Grammar" are
 read-only (`lines.read`) but call an LLM, so the handler also runs
-`require_engines_allowed` on the named engine (none = the default, which
-counts as paid). "Pronounce" returns an edge-tts MP3 of the line's source
+`require_engines_allowed` on the engine the call will use: the named one,
+else the drama's own translation engine (resolved here, then passed on). "Pronounce" returns an edge-tts MP3 of the line's source
 text (free service, bounded length and time; services/line_tools_service.py).
 All three take an LLM slot, since each holds a worker thread on a network call.
 """
@@ -56,9 +56,10 @@ def post_explain(body: LineExplainRequest, request: Request, drama_id: int = Pat
              responses={**_ERRORS, 403: {"model": ErrorResponse}})
 def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                       line_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
+    require_engines_allowed(request, engine)
     with llm_slot(request):
-        return line_ai_service.alternatives_for_line(drama_id, line_id, body.engine, body.model,
+        return line_ai_service.alternatives_for_line(drama_id, line_id, engine, body.model,
                                                      body.gemini_free_tier)
 
 
@@ -68,9 +69,10 @@ def post_alternatives(body: LineExplainRequest, request: Request, drama_id: int 
              responses={**_ERRORS, 403: {"model": ErrorResponse}})
 def post_grammar(body: LineExplainRequest, request: Request, drama_id: int = Path(ge=1),
                  line_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    engine = line_ai_service.tool_engine_name(drama_id, body.engine)
+    require_engines_allowed(request, engine)
     with llm_slot(request):
-        return line_ai_service.grammar_for_line(drama_id, line_id, body.engine, body.model,
+        return line_ai_service.grammar_for_line(drama_id, line_id, engine, body.model,
                                                 body.gemini_free_tier)
 
 
