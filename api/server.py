@@ -23,6 +23,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import ApiSettings, load_settings
+from api.auth import EarlyAuthGate, public_api_paths
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
@@ -77,6 +78,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
         openapi_url=None if settings.auth_enabled else "/api/openapi.json",
     )
     app.state.settings = settings
+    if settings.auth_enabled:
+        # Added before CORS so CORS stays the outermost layer (dev preflight).
+        app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app))
     if settings.is_development and settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -114,9 +118,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
+    app.include_router(sources_catalog_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
-    app.include_router(sources_catalog_routes.router)
     return app
 
 

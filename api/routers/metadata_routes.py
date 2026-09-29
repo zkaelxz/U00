@@ -4,8 +4,8 @@ api/routers/metadata_routes.py -- Media analysis and metadata auto-fill
 suggestion only; apply writes whitelisted fields.
 """
 
-from fastapi import APIRouter, Path
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Request
+from api.auth import require_engines_allowed, require_permission
 from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, ErrorResponse,
                          MediaAnalysis)
 from services import metadata_service
@@ -26,12 +26,13 @@ def analyze_media(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/autofill", dependencies=[require_permission("media.import_url")], response_model=AutofillSuggestion,
              summary="Suggest metadata from a public page or pasted text (writes nothing)",
              responses=_ERRS)
-def autofill(payload: AutofillRequest, drama_id: int = Path(ge=1)):
+def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, payload.engine)
     return metadata_service.autofill_suggestion(
         drama_id, url=payload.url, page_text=payload.page_text, engine_name=payload.engine)
 
 
-@router.post("/dramas/{drama_id}/autofill/apply", dependencies=[require_permission("lines.edit")],
+@router.post("/dramas/{drama_id}/autofill/apply", dependencies=[require_permission("admin.library")],
              summary="Write chosen autofill fields to the drama; returns drama detail",
              responses=_ERRS)
 def apply_autofill(payload: AutofillApply, drama_id: int = Path(ge=1)):

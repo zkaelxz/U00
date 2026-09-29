@@ -4,8 +4,8 @@ api/routers/narration_routes.py -- novel-narration "Chunk & tag speakers"
 services/narration_service.py. Poll the job via GET /api/jobs/{job_id}.
 """
 
-from fastapi import APIRouter, Path
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Request
+from api.auth import require_engines_allowed, require_permission
 from api.schemas import ErrorResponse, NarrationConfig, NarrationRunRequest, NarrationRunResult
 from services import narration_service
 
@@ -23,6 +23,8 @@ def get_narration_config(drama_id: int = Path(ge=1)):
              summary="Start the background chunk-and-tag job for one drama",
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-def post_start_narration(payload: NarrationRunRequest, drama_id: int = Path(ge=1)):
+def post_start_narration(payload: NarrationRunRequest, request: Request,
+                         drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, payload.engine)
     return narration_service.start_narration_run(
         drama_id, engine_name=payload.engine, model=payload.model)

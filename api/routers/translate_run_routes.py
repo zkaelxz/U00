@@ -8,8 +8,8 @@ see services/translate_run_service.py for the scope decision.
 
 from typing import Optional
 
-from fastapi import APIRouter, Path, Query
-from api.auth import require_permission
+from fastapi import APIRouter, Path, Query, Request
+from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, TranslateBulkResumeResult, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted)
 from services import translate_run_service
@@ -47,7 +47,9 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
              responses={400: {"model": ErrorResponse},
                         404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                         422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-def start_translate_run(body: TranslateRunStart, drama_id: int = Path(ge=1)):
+def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, body.engine,
+                            *[f.engine for f in (body.fallback_chain or ())])
     return translate_run_service.start_translate_run(
         drama_id, engine_name=body.engine, model=body.model,
         style_preset=body.style_preset, style_note=body.style_note,
