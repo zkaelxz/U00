@@ -3033,3 +3033,33 @@ class BugReportListItem(BaseModel):
 class BugReportDeleted(BaseModel):
     id: int
     deleted: bool
+
+
+# ---------------------------------------------------------------------------
+# Novel files (parity audit B1 #3/#4): the English novel translation
+# reference and the raw original-language novel. Booleans and counts only;
+# no filename or path is ever returned.
+# ---------------------------------------------------------------------------
+
+class NovelFileStatus(BaseModel):
+    drama_id: int
+    present: bool
+    size_bytes: int
+    char_count: int
+
+
+class NovelFileUploadResult(NovelFileStatus):
+    replaced: bool
+
+
+class NovelReferenceRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    present: bool
+
+
+class NovelFileTextRequest(BaseModel):
+    """Pasted text for the novel reference or raw novel. The route reads
+    the body itself, capped at 32 MB, before this is validated."""
+    model_config = ConfigDict(extra="forbid")
+    text: str

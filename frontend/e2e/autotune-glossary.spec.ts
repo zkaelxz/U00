@@ -343,11 +343,10 @@ test.describe('PC-only stage deletes', () => {
 
   test('remove audio/video and raw novel on the PC', async ({ page }) => {
     await withAudio(page)
-    await page.route('**/api/source/dramas/1/config', async (route) => {
-      if (route.request().method() !== 'GET') return route.fallback()
-      const resp = await route.fetch()
-      await route.fulfill({ response: resp, json: { ...(await resp.json()), has_raw_novel_context: true } })
-    })
+    // The raw novel is shown and removed by NovelFilePanel (Transcribe).
+    let rawPresent = true
+    await page.route('**/api/novel/dramas/1/raw-novel', (route) =>
+      route.fulfill({ json: { drama_id: 1, present: rawPresent, size_bytes: rawPresent ? 9 : 0, char_count: rawPresent ? 3 : 0 } }))
     const posted: string[] = []
     await page.route('**/api/media/dramas/1/remove', (route) => {
       posted.push(route.request().url())
@@ -355,6 +354,7 @@ test.describe('PC-only stage deletes', () => {
     })
     await page.route('**/api/novel/dramas/1/raw-novel/remove', (route) => {
       posted.push(route.request().url())
+      rawPresent = false
       return route.fulfill({ json: { drama_id: 1, removed: true, has_raw_novel_context: false } })
     })
     await page.goto('/#/drama/1/source')
@@ -364,9 +364,12 @@ test.describe('PC-only stage deletes', () => {
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
     await expect(page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })).toHaveAttribute('href', '#/drama/1/translate')
-    await page.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
-    await page.getByRole('button', { name: 'Confirm remove raw novel' }).click()
-    await expect(page.getByRole('status').filter({ hasText: 'Removed.' }).last()).toBeVisible()
+    const raw = page.getByRole('region', { name: 'Raw novel (original language)' })
+    await raw.locator('.section-title').click()
+    await raw.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
+    await raw.getByRole('button', { name: 'Confirm remove raw novel' }).click()
+    await expect(raw.getByRole('status')).toHaveText('Removed.')
+    await expect(page.getByRole('link', { name: /Build a glossary from this novel/ })).toHaveCount(0)
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
       '/api/media/dramas/1/remove',
       '/api/novel/dramas/1/raw-novel/remove',

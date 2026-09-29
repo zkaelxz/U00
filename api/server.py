@@ -56,6 +56,7 @@ from api.routers import (
     media_routes,
     metadata_routes,
     narration_routes,
+    novel_files_routes,
     novel_routes,
     reader_routes,
     restructure_routes,
@@ -184,6 +185,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(series_people_routes.router)
     app.include_router(voice_clone_routes.router)
     app.include_router(bug_report_routes.router)
+    app.include_router(novel_files_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

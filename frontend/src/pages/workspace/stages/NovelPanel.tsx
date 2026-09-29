@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { getSourceConfig } from '../../../api/source'
-import { removeRawNovel } from '../../../api/stageDeletes'
+import { getRawNovel } from '../../../api/novelFiles'
 import { attachNovelEpub, attachNovelText, getNovelStatus, startNovelOcr } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { NovelMode, NovelStatus } from '../../../types/workspace'
-import { ConfirmButton } from '../../../components/ConfirmButton'
-import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { useNovelFilesVersion } from './novelFileEvents'
 
 interface Props {
   busy?: boolean
@@ -46,30 +44,18 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
     }
   }, [dramaId, reloads, reloadKey])
 
-  // The original-language novel (raw_novel_context.txt), removable on the PC.
+  // Whether the original-language novel is saved, for the glossary link.
+  // It is uploaded and removed in the Transcribe section (NovelFilePanel),
+  // which bumps useNovelFilesVersion so this re-reads.
   const [hasRaw, setHasRaw] = useState(false)
-  const [removeError, setRemoveError] = useState<unknown>(null)
-  const pc = usePcOnly()
+  const filesVersion = useNovelFilesVersion()
   useEffect(() => {
     let cancelled = false
-    getSourceConfig(dramaId).then((c) => !cancelled && setHasRaw(c.has_raw_novel_context), () => undefined)
+    getRawNovel(dramaId).then((s) => !cancelled && setHasRaw(s.present), () => undefined)
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads, reloadKey])
-
-  const removeRaw = () => {
-    setRemoveError(null)
-    removeRawNovel(dramaId).then(
-      () => {
-        setError(null)
-        setNotice('Removed.')
-        setReloads((n) => n + 1)
-        refetchDrama()
-      },
-      setRemoveError,
-    )
-  }
+  }, [dramaId, reloads, reloadKey, filesVersion])
 
   const attached = useCallback(
     (chars: number) => {
@@ -103,23 +89,6 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
             <a href={`#/drama/${dramaId}/translate`}>Build a glossary from this novel (Translate → Glossary) →</a>
           </p>
         )}
-        {hasRaw && (
-          <div className="actions">
-            <span className="muted">Raw novel (original language) attached.</span>
-            {pc === 'local' && (
-              <ConfirmButton
-                name="raw novel"
-                label="Remove…"
-                confirmLabel="Confirm remove raw novel"
-                disabled={busy}
-                onConfirm={removeRaw}
-              />
-            )}
-            {pc === 'local' && busy && <span className="muted">Wait for the running job to finish.</span>}
-            {pc === 'remote' && <span className="muted">{PC_ONLY_DELETE_NOTE}</span>}
-          </div>
-        )}
-        <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
         <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
           <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
             <option value="replace">Replace existing</option>
