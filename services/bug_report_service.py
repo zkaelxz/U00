@@ -17,7 +17,8 @@ translation input for replay -- and are not reused.
 
 Every stored string passes `_scrub`: translate_engines.redact_secrets and
 diagnostics.redact_for_support (OS user name, absolute paths), plus
-session-cookie / CSRF / long-token and user-home-folder redaction. App
+session-cookie / CSRF / Cookie-header / URL-userinfo / credential-query
+parameter / long-token and user-home-folder redaction. App
 routes and API paths are not filesystem paths, so they keep their shape
 unless they look like one. Screenshot metadata (EXIF, XMP, PNG text
 chunks) is stripped. Nothing returned here contains a filesystem path.
@@ -43,9 +44,13 @@ MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 MAX_JSON_BYTES = 256 * 1024
 LOG_TAIL_LINES = 40
 GIT_TIMEOUT_SECONDS = 5
+SETUP_CACHE_SECONDS = 600
+COUNTER_FILE = ".last_id"     # high-water mark: an id is never handed out twice
 
 _FOLDER_RE = re.compile(r"^(\d{8}T\d{6}Z)_(\d+)$")
+_STAMP_RE = re.compile(r"^\d{8}T\d{6}Z$")
 _LOCK = threading.Lock()
+_CACHE = {}
 
 # Extra redaction on top of redact_for_support. The session cookie and the
 # CSRF token by name, any long token-like run (session tokens, keys a
@@ -53,6 +58,18 @@ _LOCK = threading.Lock()
 # from another machine carries a user name redact_for_support can't know.
 _COOKIE_RE = re.compile(r"(baihe_session\s*[=:]\s*)[^;\s\"']+", re.IGNORECASE)
 _CSRF_RE = re.compile(r"(x-csrf-token[\"']?\s*[:=]\s*[\"']?)[^\s\"',;]+", re.IGNORECASE)
+# Any Cookie / Set-Cookie value (header dump or JSON), to the end of the line.
+_COOKIE_HDR_RE = re.compile(r"(?im)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*")
+# URL userinfo: scheme://user:pass@host -> scheme://***@host.
+_USERINFO_RE = re.compile(r"(?<=//)[^/\s@\"'<>]+@")
+# Credential-shaped parameters of any length, wherever they sit (a query
+# string, a log line, JSON): token=, access_token=, sig=, signature=,
+# X-Amz-Signature=, Key-Pair-Id=, auth=, api_key=, password=, ... The name
+# set follows sources/ai_extract._SENSITIVE_PARAM (prompt_safe), without its
+# need for a preceding ?/&.
+_PARAM_RE = re.compile(
+    r"(?i)(?<![\w.\-])((?:[\w.\-]*(?:token|sig|auth|session|secret|credential|passw|key|jwt|"
+    r"ticket|hmac|policy)[\w.\-]*|x-amz-[\w.\-]+)=)[^&#\s\"'<>\\;,]*")
 _TOKENISH_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 _USER_DIR_RE = re.compile(
     r"(?i)((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s\"'<>|:*?]+")
@@ -70,7 +87,10 @@ def _project_root() -> str:
 
 def _pre_scrub(text: str) -> str:
     text = _COOKIE_RE.sub(r"\1[REDACTED]", text)
+    text = _COOKIE_HDR_RE.sub(r"\1[REDACTED]", text)
     text = _CSRF_RE.sub(r"\1[REDACTED]", text)
+    text = _USERINFO_RE.sub("***@", text)
+    text = _PARAM_RE.sub(r"\1[REDACTED]", text)
     text = _USER_DIR_RE.sub(r"\1[USER]", text)
     return _TOKENISH_RE.sub("[REDACTED]", text)
 
@@ -166,6 +186,19 @@ def clean_screenshot(data: bytes):
 # ---------------------------------------------------------------------------
 # Server-side facts
 # ---------------------------------------------------------------------------
+
+def _cached(name, compute, ttl=None):
+    """compute() once per process (or per `ttl` seconds): git and the
+    setup checks are not re-run for every report."""
+    import time
+    now = time.monotonic()
+    hit = _CACHE.get(name)
+    if hit is not None and (ttl is None or now - hit[0] < ttl):
+        return hit[1]
+    value = compute()
+    _CACHE[name] = (now, value)
+    return value
+
 
 def _git_commit():
     try:
@@ -348,39 +381,62 @@ def _write(path: str, data, binary=False):
     os.replace(tmp, path)
 
 
+def _read_counter(root: str) -> int:
+    try:
+        with open(os.path.join(root, COUNTER_FILE), encoding="utf-8") as fh:
+            value = int(fh.read().strip() or 0)
+    except (OSError, ValueError):
+        return 0
+    return max(value, 0)
+
+
+def issue_title(what_happened: str) -> str:
+    first = (what_happened or "").strip().split("\n", 1)[0]
+    short = first if len(first) <= 80 else first[:79] + "\u2026"
+    return f"[Bug] {short or 'Problem report'}"
+
+
 def create_report(client: dict, screenshot: bytes = None, include_server_in_response=True,
                   now: datetime.datetime = None) -> dict:
-    """Saves a report and returns {id, markdown}. The stored markdown always
-    has the server section; the returned one only when
-    include_server_in_response (the caller may read diagnostics)."""
+    """Saves a report and returns {id, stamp, markdown, issue_markdown,
+    what_happened, expected, title}. The stored markdown always has the
+    server section; `markdown` has it only when include_server_in_response
+    (the caller may read diagnostics); `issue_markdown` (for the public
+    GitHub link) never has it. The text fields are the scrubbed ones."""
     if not isinstance(client, dict) or not str(client.get("what_happened") or "").strip():
         raise InvalidInputError("Say what happened.")
     shot, ext = clean_screenshot(screenshot)
     cleaned = _clean_client(client)
-    server = {"git_commit": _git_commit(), "setup": _setup_summary(),
-              "log_tail": _log_tail() if client.get("include_server_log", True) else []}
     now = now or datetime.datetime.now(datetime.timezone.utc)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
     with _LOCK:
+        # The cap is checked before any of the server-side work below runs.
         existing = _folders()
         root = _reports_dir()
         if len(existing) >= MAX_REPORTS or (
                 existing and _folder_bytes(root) + len(shot or b"") > MAX_TOTAL_BYTES):
             raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
-        report_id = max(existing, default=0) + 1
+        server = {"git_commit": _cached("git", _git_commit),
+                  "setup": _cached("setup", _setup_summary, SETUP_CACHE_SECONDS),
+                  "log_tail": _log_tail() if client.get("include_server_log", True) else []}
+        report_id = max(_read_counter(root), max(existing, default=0)) + 1
         folder = os.path.join(root, f"{stamp}_{report_id}")
         report = {"id": report_id, "created_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
                   "has_screenshot": shot is not None, "client": cleaned, "server": server}
         markdown = build_markdown(report, include_server=True)
         os.makedirs(folder, exist_ok=False)
+        _write(os.path.join(root, COUNTER_FILE), str(report_id))
         if shot is not None:
             _write(os.path.join(folder, f"screenshot.{ext}"), shot, binary=True)
         _write(os.path.join(folder, "report.md"), markdown)
         _write(os.path.join(folder, "report.json"),
                json.dumps(report, ensure_ascii=False, indent=2))
-    if not include_server_in_response:
-        markdown = build_markdown(report, include_server=False)
-    return {"id": report_id, "markdown": markdown}
+    public = build_markdown(report, include_server=False)
+    return {"id": report_id, "stamp": stamp,
+            "markdown": markdown if include_server_in_response else public,
+            "issue_markdown": public,
+            "what_happened": cleaned["what_happened"], "expected": cleaned["expected"],
+            "title": issue_title(cleaned["what_happened"])}
 
 
 def _check_id(report_id) -> int:
@@ -402,16 +458,21 @@ def _load(report_id: int):
     return folder, report
 
 
+def _stamp(folder: str) -> str:
+    return _FOLDER_RE.match(os.path.basename(folder)).group(1)
+
+
 def list_reports() -> list:
-    """Newest first: id, when, the first line of "what happened", the page,
-    and booleans (screenshot, server log). No paths."""
+    """Newest first: id, folder stamp, when, the first line of "what
+    happened", the page, and booleans (screenshot, server log). No paths."""
     out = []
     for report_id in sorted(_folders(), reverse=True):
-        _folder, r = _load(report_id)
+        folder, r = _load(report_id)
         c = (r or {}).get("client") or {}
         what = (c.get("what_happened") or "").strip().splitlines()
         out.append({
             "id": report_id,
+            "stamp": _stamp(folder),
             "created_at": (r or {}).get("created_at"),
             "summary": (what[0][:120] if what else "(unreadable report)"),
             "route": c.get("route") or None,
@@ -429,13 +490,20 @@ def get_report(report_id: int) -> dict:
             markdown = fh.read()
     except OSError:
         raise NotFoundError(f"Bug report #{report_id} has no readable text.")
-    return {"id": report_id, "markdown": markdown}
+    return {"id": report_id, "stamp": _stamp(folder), "markdown": markdown}
 
 
-def delete_report(report_id: int, confirm: bool = False) -> dict:
+def delete_report(report_id: int, stamp: str = None, confirm: bool = False) -> dict:
+    """Deletes report `report_id` only if its folder carries `stamp` (from
+    the list), so a stale list can never delete a different report."""
+    if not isinstance(stamp, str) or not _STAMP_RE.match(stamp):
+        raise InvalidInputError("Deleting a bug report needs its stamp from the list.")
     folder, _r = _load(report_id)
+    if _stamp(folder) != stamp:
+        raise NotFoundError(f"No bug report #{report_id} with that stamp.")
     if confirm is not True:
         raise InvalidInputError("Deleting a bug report needs confirm=true.")
     import shutil
-    shutil.rmtree(folder)
+    with _LOCK:
+        shutil.rmtree(folder)
     return {"id": report_id, "deleted": True}

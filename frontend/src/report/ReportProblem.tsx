@@ -6,10 +6,12 @@
  *                             an error fallback, while a <ReportProblemButton/>
  *                             is mounted
  *
- * The dialog sends the notes, an optional screenshot and the capture buffers
+ * The dialog sends the notes, an optional screenshot (PC only: the field is
+ * hidden off the PC, and the server refuses one) and the capture buffers
  * (report/capture.ts) to POST /api/diagnostics/bug-reports, then offers
- * Copy report (markdown) and Open GitHub issue. If saving fails, both still
- * work with the client-side data.
+ * Copy report (markdown) and Open GitHub issue. The link is built only from
+ * the server-scrubbed texts, never with the server log. If saving fails,
+ * both still work with the client-side data, sanitized here first.
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 
@@ -20,9 +22,12 @@ import type { MetaResponse } from '../api/types'
 import { Sheet } from '../components/Sheet'
 import { describeError } from '../components/errorMessages'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import type { BugReportClient } from '../types/bugReports'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { captureSnapshot } from './capture'
-import { buildIdFrom, buildReport, clientMarkdown, githubIssueUrl, screenshotProblem } from './reportBundle'
+import {
+  buildIdFrom, buildReport, clientMarkdown, githubIssueUrl, sanitizeReport, sanitizeText, screenshotProblem,
+  type IssueFields,
+} from './reportBundle'
 import { closeReportDialog, isReportDialogOpen, openReportDialog, subscribeReportDialog } from './reportDialogStore'
 import './reportProblem.css'
 
@@ -48,9 +53,10 @@ export function ReportProblemButton() {
   )
 }
 
+// `markdown` is what Copy report copies; `issue`/`issueMarkdown` feed the public link.
 type Result =
-  | { kind: 'saved'; id: number; markdown: string }
-  | { kind: 'failed'; error: unknown; markdown: string }
+  | { kind: 'saved'; id: number; markdown: string; issue: IssueFields; issueMarkdown: string }
+  | { kind: 'failed'; error: unknown; markdown: string; issue: IssueFields; issueMarkdown: string }
 
 function environment() {
   const scripts = Array.from(document.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'))
@@ -70,11 +76,12 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
   const [missing, setMissing] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
-  const [report, setReport] = useState<BugReportClient | null>(null)
   const meta = useRef<MetaResponse | null>(null)
   const metaLoaded = useRef<Promise<void>>(Promise.resolve())
   const ids = useId()
-  const shotError = screenshotProblem(shot)
+  const pc = usePcOnly()
+  const shotsAllowed = pc !== 'remote'
+  const shotError = shotsAllowed ? screenshotProblem(shot) : null
 
   useEffect(() => {
     let live = true
@@ -107,12 +114,16 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
     await metaLoaded.current
     const r = buildReport({ whatHappened: what, expected, includeServerLog: includeLog }, captureSnapshot(),
       meta.current, environment(), getPcMode())
-    setReport(r)
     try {
-      const saved = await submitBugReport(r, shot)
-      setResult({ kind: 'saved', id: saved.id, markdown: saved.markdown })
+      const saved = await submitBugReport(r, shotsAllowed ? shot : null)
+      setResult({
+        kind: 'saved', id: saved.id, markdown: saved.markdown, issueMarkdown: saved.issue_markdown,
+        issue: { what_happened: saved.what_happened, expected: saved.expected, route: r.route, title: saved.title },
+      })
     } catch (e) {
-      setResult({ kind: 'failed', error: e, markdown: clientMarkdown(r) })
+      const safe = sanitizeReport(r)
+      const markdown = sanitizeText(clientMarkdown(safe))
+      setResult({ kind: 'failed', error: e, markdown, issueMarkdown: markdown, issue: safe })
     } finally {
       setSending(false)
     }
@@ -120,8 +131,8 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Sheet open title="Report a problem" onClose={onClose}>
-      {result && report ? (
-        <ReportResult result={result} report={report} hadScreenshot={!!shot} onClose={onClose} />
+      {result ? (
+        <ReportResult result={result} hadScreenshot={shotsAllowed && !!shot} onClose={onClose} />
       ) : (
         <form
           className="report-form"
@@ -152,21 +163,28 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             <textarea id={`${ids}-exp`} rows={2} maxLength={5000} value={expected}
               onChange={(e) => setExpected(e.target.value)} />
           </div>
-          <div className="field-item">
-            <label htmlFor={`${ids}-shot`}>Screenshot <span className="muted">(optional, PNG or JPEG, max 5 MB)</span></label>
-            <input id={`${ids}-shot`} type="file" accept="image/png,image/jpeg"
-              aria-invalid={shotError ? true : undefined}
-              aria-describedby={shotError ? `${ids}-shot-err` : undefined}
-              onChange={(e) => setShot(e.target.files?.[0] ?? null)} />
-            {shotError && <p id={`${ids}-shot-err`} className="field-error error" role="alert">{shotError}</p>}
-          </div>
+          {shotsAllowed ? (
+            <div className="field-item">
+              <label htmlFor={`${ids}-shot`}>Screenshot <span className="muted">(optional, PNG or JPEG, max 5 MB)</span></label>
+              <input id={`${ids}-shot`} type="file" accept="image/png,image/jpeg"
+                aria-invalid={shotError ? true : undefined}
+                aria-describedby={shotError ? `${ids}-shot-err` : undefined}
+                onChange={(e) => setShot(e.target.files?.[0] ?? null)} />
+              {shotError && <p id={`${ids}-shot-err`} className="field-error error" role="alert">{shotError}</p>}
+            </div>
+          ) : (
+            <p className="muted" data-testid="report-shot-pc-only">
+              Screenshots can only be attached at the main PC. Add one to the GitHub issue instead.
+            </p>
+          )}
           <label className="report-check">
             <input type="checkbox" checked={includeLog} onChange={(e) => setIncludeLog(e.target.checked)} />
             Include recent server log
           </label>
           <p className="muted report-note">
             Also sent: the pages you visited, recent errors and failed requests (never their contents),
-            your browser and screen size. Keys and folder names are removed on the PC.
+            your browser and screen size. Keys, tokens and user folder names are removed before the report
+            is saved and before it goes into the GitHub link; the server log is never put in the link.
           </p>
           <div className="actions report-actions">
             <button type="submit" className="primary" disabled={sending}>
@@ -180,9 +198,8 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function ReportResult({ result, report, hadScreenshot, onClose }: {
+function ReportResult({ result, hadScreenshot, onClose }: {
   result: Result
-  report: BugReportClient
   hadScreenshot: boolean
   onClose: () => void
 }) {
@@ -190,7 +207,7 @@ function ReportResult({ result, report, hadScreenshot, onClose }: {
   const [note, setNote] = useState('')
   const [showText, setShowText] = useState(false)
   const textRef = useRef<HTMLTextAreaElement>(null)
-  const issue = githubIssueUrl(report, result.markdown)
+  const issue = githubIssueUrl(result.issue, result.issueMarkdown)
 
   const copy = async () => {
     try {

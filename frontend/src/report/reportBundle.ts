@@ -1,7 +1,12 @@
 /*
  * Pure helpers for "Report a problem": build the report the server stores,
- * the client-side markdown (used when the server can't be reached), and the
- * pre-filled GitHub issue link.
+ * the client-side markdown (used when the server can't be reached), the
+ * link-safe sanitizer for that fallback, and the pre-filled GitHub issue link.
+ *
+ * The GitHub link is public, so it is only ever built from the server's
+ * scrubbed texts (BugReportSaved: issue_markdown, what_happened, expected,
+ * title; never the server log) or, when saving failed, from the client data
+ * passed through sanitizeText().
  */
 import { SCREENSHOT_MAX_BYTES, SCREENSHOT_TYPES } from '../api/bugReports'
 import type { PcMode } from '../api/pcOnly'
@@ -126,6 +131,35 @@ export function clientMarkdown(r: BugReportClient): string {
   return `${out.join('\n').trimEnd()}\n`
 }
 
+// Client-side masking for the save-failed path: the server can't scrub, so
+// keys, tokens, cookies, URL userinfo, user folders and absolute paths are
+// masked here before the text reaches the clipboard or the GitHub link.
+const SECRET_PATTERNS: [RegExp, string][] = [
+  [/((?:set-)?cookie["']?\s*[:=]\s*)[^\r\n]*/gi, '$1[REDACTED]'],
+  [/(authorization["']?\s*[:=]\s*["']?(?:Bearer\s+)?)[A-Za-z0-9_\-.~+/=]{6,}/gi, '$1[REDACTED]'],
+  [/(x-csrf-token["']?\s*[:=]\s*["']?)[^\s"',;]+/gi, '$1[REDACTED]'],
+  [/(\/\/)[^/\s@"'<>]+@/g, '$1***@'],
+  [/(^|[^\w.-])((?:[\w.-]*(?:token|sig|auth|session|secret|credential|passw|key|jwt|ticket|hmac|policy)[\w.-]*|x-amz-[\w.-]+)=)[^&#\s"'<>\\;,]*/gi, '$1$2[REDACTED]'],
+  [/\b(?:sk-|AIza|hf_|gsk_|ghp_|gho_|ghs_|github_pat_|xox[abprs]-)[A-Za-z0-9_-]{10,}/g, '[REDACTED]'],
+  [/(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])/g, '$1[REDACTED]'],
+]
+// A user's home folder on any OS: C:\Users\<name>, /home/<name>, /Users/<name>.
+const USER_DIR = /((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s"'<>|:*?]+/gi
+// An absolute filesystem path (drive, UNC or a POSIX system root), cut to its last segment.
+const ABS_PATH = /(?:(?<!\w)[a-z]:[\\/]|\\\\|(?<![\w.:/])\/(?:home|users|root|mnt|media|tmp|var|etc|opt|srv|private|volumes)\/)(?:[^\s\\/:*?"<>|]+[\\/])*([^\s\\/:*?"<>|]+)/gi
+
+export function sanitizeText(text: string): string {
+  let out = text
+  for (const [re, to] of SECRET_PATTERNS) out = out.replace(re, to)
+  out = out.replace(USER_DIR, '$1[USER]')
+  return out.replace(ABS_PATH, '.../$1')
+}
+
+/** The client-only report made safe for the clipboard and the GitHub link. */
+export function sanitizeReport(r: BugReportClient): BugReportClient {
+  return { ...r, what_happened: sanitizeText(r.what_happened), expected: sanitizeText(r.expected) }
+}
+
 export function issueTitle(whatHappened: string): string {
   const first = whatHappened.trim().split('\n', 1)[0] ?? ''
   const short = first.length > 80 ? `${first.slice(0, 79)}…` : first
@@ -142,11 +176,13 @@ function issueUrlWith(params: Record<string, string>): string {
  * `body`). The report is cut, on a character boundary, so the whole link
  * stays within ISSUE_URL_MAX; `truncated` says it was cut.
  */
-export function githubIssueUrl(r: Pick<BugReportClient, 'what_happened' | 'expected' | 'route'>, markdown: string,
+export type IssueFields = Pick<BugReportClient, 'what_happened' | 'expected' | 'route'> & { title?: string }
+
+export function githubIssueUrl(r: IssueFields, markdown: string,
   max = ISSUE_URL_MAX): { url: string; truncated: boolean } {
   const base: Record<string, string> = {
     template: ISSUE_TEMPLATE,
-    title: issueTitle(r.what_happened),
+    title: r.title ?? issueTitle(r.what_happened),
     area: areaForRoute(r.route),
     'what-happened': r.what_happened.slice(0, 1500),
     expected: r.expected.slice(0, 800),

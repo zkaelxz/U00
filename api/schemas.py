@@ -2899,14 +2899,38 @@ class BugReportClient(BaseModel):
 
 
 class BugReportSaved(BaseModel):
-    """`markdown` includes the server section (commit, setup, log tail) only
-    for a caller holding admin.diagnostics; it is always saved on the PC."""
+    """`markdown` (for Copy report) includes the server section (commit,
+    setup, log tail) only for a caller holding admin.diagnostics; it is
+    always saved on the PC. `issue_markdown`, `what_happened`, `expected`
+    and `title` are the server-scrubbed texts for the public GitHub issue
+    link, which never carries the server section."""
     id: int
+    stamp: str
     markdown: str
+    issue_markdown: str
+    what_happened: str
+    expected: str
+    title: str
+
+
+class BugReportText(BaseModel):
+    """One saved report's markdown (with the server section)."""
+    id: int
+    stamp: str
+    markdown: str
+
+
+class BugReportDeleteConfirm(BaseModel):
+    """PC-only delete: `stamp` is the folder stamp from the list, so a stale
+    list can't delete a different report."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    stamp: str = Field(pattern=r"^\d{8}T\d{6}Z$")
 
 
 class BugReportListItem(BaseModel):
     id: int
+    stamp: str
     created_at: Optional[str] = None
     summary: str
     route: Optional[str] = None

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import db
 from api import auth as api_auth
 from api.api_config import ApiSettings
+from api.routers import bug_report_routes
 from api.server import create_app
 from services import auth_service
 from services import bug_report_service as svc
@@ -50,6 +51,9 @@ def fakes(isolated_db, monkeypatch):
         "library_writable": True})
     monkeypatch.setattr(diagnostics_gaps_service, "get_log_tail",
                         lambda n=50, keyword="": ["INFO fine", f"ERROR {DIRTY}"])
+    monkeypatch.setattr(svc, "_CACHE", {})
+    monkeypatch.setattr(bug_report_routes, "_limiter",
+                        auth_service.SlidingWindowRateLimiter(1000, 600))
 
 
 @pytest.fixture
@@ -105,8 +109,15 @@ def test_create_list_get_delete(client):
     r = _post(client, files={"screenshot": ("s.png", _png(), "image/png")})
     assert r.status_code == 200, r.text
     b = r.json()
-    assert b["id"] == 1 and set(b) == {"id", "markdown"}
+    assert b["id"] == 1 and set(b) == {"id", "stamp", "markdown", "issue_markdown",
+                                        "what_happened", "expected", "title"}
     md = b["markdown"]
+    # The GitHub-link fields: scrubbed, and never the server section.
+    for field in ("issue_markdown", "what_happened", "title"):
+        _assert_clean(b[field])
+    assert b["title"].startswith("[Bug] The Review page went blank.")
+    assert "INFO fine" not in b["issue_markdown"] and "abc1234def" not in b["issue_markdown"]
+    assert "Server details are saved with the report on the PC." in b["issue_markdown"]
     assert "The Review page went blank." in md and "It shows the lines." in md
     assert "`/drama/3/review`" in md                    # route kept, query dropped
     assert "| GET | `/api/review/dramas/3/lines` | 500 | internal_error |" in md
@@ -132,13 +143,18 @@ def test_create_list_get_delete(client):
 
     one = client.get(f"{URL}/1")
     assert one.status_code == 200 and one.json()["markdown"] == md
+    assert one.json()["stamp"] == b["stamp"] == items[1]["stamp"]
     assert client.get(f"{URL}/99").status_code == 404
 
-    assert client.post(f"{URL}/1/delete", json={"confirm": False}).status_code == 422
-    d = client.post(f"{URL}/1/delete", json={"confirm": True})
+    stamp = b["stamp"]
+    assert client.post(f"{URL}/1/delete", json={"confirm": False, "stamp": stamp}).status_code == 422
+    assert client.post(f"{URL}/1/delete", json={"confirm": True}).status_code == 422
+    assert client.post(f"{URL}/1/delete",
+                       json={"confirm": True, "stamp": "20000101T000000Z"}).status_code == 404
+    d = client.post(f"{URL}/1/delete", json={"confirm": True, "stamp": stamp})
     assert d.status_code == 200 and d.json() == {"id": 1, "deleted": True}
     assert not os.path.exists(folder)
-    assert client.post(f"{URL}/1/delete", json={"confirm": True}).status_code == 404
+    assert client.post(f"{URL}/1/delete", json={"confirm": True, "stamp": stamp}).status_code == 404
     assert client.get(f"{URL}/1").status_code == 404
 
 
@@ -239,15 +255,158 @@ def test_auth_on(fakes):
     assert full.status_code == 200 and "INFO fine" in full.json()["markdown"]
 
     # Delete is PC only: refused remotely even for the admin, allowed at the PC.
-    assert c.post(f"{URL}/1/delete", json={"confirm": True}, headers=_h(admin)).status_code == 403
+    stamp = c.get(URL, headers=_h(admin)).json()[1]["stamp"]
+    body = {"confirm": True, "stamp": stamp}
+    assert c.post(f"{URL}/1/delete", json=body, headers=_h(admin)).status_code == 403
     local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
                        raise_server_exceptions=False)
-    assert local.post(f"{URL}/1/delete", json={"confirm": True},
+    assert local.post(f"{URL}/1/delete", json=body,
                       headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403
-    assert local.post(f"{URL}/1/delete", json={"confirm": True}).status_code == 200
+    assert local.post(f"{URL}/1/delete", json=body).status_code == 200
 
 
 def test_auth_off_multipart_needs_local_header(client):
     r = client.post(URL, files={"report": (None, json.dumps(_report()))})
     assert r.status_code == 403
     assert _post(client).status_code == 200
+
+
+# --- security-review fixes ----------------------------------------------------
+
+def _local_on(app):
+    return TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
+                      raise_server_exceptions=False)
+
+
+def test_screenshot_is_pc_only_with_auth_on(fakes):
+    app = create_app(ApiSettings(auth_mode="on"))
+    remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
+    kid = _session(auth_service.add_user("kid@example.com"))
+    shot = {"screenshot": ("s.png", _png(), "image/png")}
+    r = _post(remote, files=shot, headers=_h(kid))
+    assert r.status_code == 403
+    assert "only be attached at the main PC" in r.json()["error"]["message"]
+    assert not os.path.isdir(svc._reports_dir()) or svc._folders() == {}
+    # The same file sent as a plain field is refused too.
+    r = remote.post(URL, files={"report": (None, json.dumps(_report())), "screenshot": (None, "x")},
+                    headers={**LOCAL, **_h(kid)})
+    assert r.status_code in (403, 422) and svc._folders() == {}
+    ok = _post(remote, headers=_h(kid))                     # text only: fine remotely
+    assert ok.status_code == 200, ok.text
+    assert _post(_local_on(app), files=shot, headers=_h(kid)).status_code == 200   # at the PC
+    assert [i["has_screenshot"] for i in svc.list_reports()] == [True, False]
+
+
+def test_transfer_encoding_refused(client):
+    body = b"--b\r\nContent-Disposition: form-data; name=\"report\"\r\n\r\n{}\r\n--b--\r\n"
+    r = client.post(URL, content=body, headers={
+        **LOCAL, "Content-Type": "multipart/form-data; boundary=b",
+        "Content-Length": str(len(body)), "Transfer-Encoding": "chunked"})
+    assert r.status_code == 422 and "chunked" in r.json()["error"]["message"]
+
+    def chunks():
+        for _ in range(8):
+            yield b"x" * (1024 * 1024)
+    r = client.post(URL, content=chunks(), headers={
+        **LOCAL, "Content-Type": "multipart/form-data; boundary=b"})
+    assert r.status_code == 422
+    assert svc._folders() == {}
+
+
+def test_body_counted_whatever_the_headers_say(fakes):
+    """A Content-Length under the cap but a longer body (what h11 lets
+    through for CL+TE) is cut off with 413 by the counting receive."""
+    import asyncio
+    app = create_app(ApiSettings())
+    chunk = (b"--b\r\nContent-Disposition: form-data; name=\"screenshot\"; filename=\"s.png\"\r\n"
+             b"Content-Type: image/png\r\n\r\n" + b"a" * 1024)
+    sent, total = [], 0
+
+    async def receive():
+        nonlocal total
+        total += 1024 * 1024
+        more = total < bug_report_routes._MAX_BODY + 4 * 1024 * 1024
+        body = chunk if total == 1024 * 1024 else b"a" * (1024 * 1024)
+        return {"type": "http.request", "body": body, "more_body": more}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "POST",
+             "scheme": "http", "path": URL, "raw_path": URL.encode(), "query_string": b"",
+             "root_path": "", "client": ("127.0.0.1", 5000), "server": ("127.0.0.1", 8600),
+             "headers": [(b"host", b"127.0.0.1:8600"), (b"x-baihe-local", b"1"),
+                         (b"content-type", b"multipart/form-data; boundary=b"),
+                         (b"content-length", b"1000")]}
+    asyncio.run(app(scope, receive, send))
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    assert start["status"] == 413
+    assert total <= bug_report_routes._MAX_BODY + 2 * 1024 * 1024
+    assert svc._folders() == {}
+
+
+def test_over_cap_content_length_413(client):
+    r = client.post(URL, content=b"x", headers={
+        **LOCAL, "Content-Type": "multipart/form-data; boundary=b",
+        "Content-Length": str(bug_report_routes._MAX_BODY + 1)})
+    assert r.status_code == 413 and r.json()["error"]["code"] == "too_large"
+
+
+def test_deeply_nested_json_422(client):
+    deep = "[" * 100000 + "]" * 100000
+    r = client.post(URL, files={"report": (None, deep)}, headers=LOCAL)
+    assert r.status_code == 422
+
+
+def test_rate_limit_per_principal(client, monkeypatch):
+    monkeypatch.setattr(bug_report_routes, "_limiter", auth_service.SlidingWindowRateLimiter(2, 600))
+    assert _post(client).status_code == 200
+    assert _post(client).status_code == 200
+    r = _post(client)
+    assert r.status_code == 429
+    assert [i["id"] for i in client.get(URL).json()] == [2, 1]
+
+
+def test_cap_checked_before_server_work(fakes, monkeypatch):
+    monkeypatch.setattr(svc, "MAX_REPORTS", 1)
+    svc.create_report(_report())
+    calls = []
+    monkeypatch.setattr(svc, "_log_tail", lambda: calls.append("log") or [])
+    monkeypatch.setattr(svc, "_git_commit", lambda: calls.append("git"))
+    monkeypatch.setattr(svc, "_setup_summary", lambda: calls.append("setup") or "")
+    monkeypatch.setattr(svc, "_CACHE", {})
+    with pytest.raises(svc.ConflictError):
+        svc.create_report(_report())
+    assert calls == []
+
+
+def test_git_and_setup_cached(fakes, monkeypatch):
+    calls = []
+    monkeypatch.setattr(svc, "_git_commit", lambda: calls.append("git") or "abc1234def")
+    monkeypatch.setattr(svc, "_setup_summary", lambda: calls.append("setup") or "ok")
+    svc.create_report(_report())
+    svc.create_report(_report())
+    assert calls == ["git", "setup"]
+
+
+def test_ids_never_reused(fakes):
+    first = svc.create_report(_report())
+    second = svc.create_report(_report())
+    svc.delete_report(second["id"], stamp=second["stamp"], confirm=True)
+    third = svc.create_report(_report())
+    assert (first["id"], second["id"], third["id"]) == (1, 2, 3)
+    svc.delete_report(first["id"], stamp=first["stamp"], confirm=True)
+    svc.delete_report(third["id"], stamp=third["stamp"], confirm=True)
+    assert svc.create_report(_report())["id"] == 4
+
+
+def test_pre_scrub_urls_params_and_cookies(fakes):
+    text = svc._scrub(
+        "GET https://alice:hunter2pass@cdn.example.com/a.png?X-Amz-Signature=abc&Key-Pair-Id=K1 "
+        "then /x?sig=s1&signature=s2&auth=a1 token=t1 access_token=t2\n"
+        "Cookie: theme=dark; sid=abcdef\nSet-Cookie: other=zzz; Path=/\n"
+        '{"cookie": "c=1"}')
+    for bad in ("alice", "hunter2pass", "=abc", "K1", "s1", "s2", "a1", "t1", "t2",
+                "theme=dark", "abcdef", "other=zzz", "c=1"):
+        assert bad not in text, (bad, text)
+    assert "//***@cdn.example.com" in svc._pre_scrub("https://alice:pw@cdn.example.com/x")

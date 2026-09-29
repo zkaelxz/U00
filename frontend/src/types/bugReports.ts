@@ -23,12 +23,25 @@ export interface BugReportClient {
 
 export interface BugReportSaved {
   id: number
-  // The server section (commit, setup, log) is included only for admins.
+  stamp: string
+  // For Copy report: the server section (commit, setup, log) only for admins.
+  markdown: string
+  // Server-scrubbed texts for the public GitHub link (never the server section).
+  issue_markdown: string
+  what_happened: string
+  expected: string
+  title: string
+}
+
+export interface BugReportText {
+  id: number
+  stamp: string
   markdown: string
 }
 
 export interface BugReportListItem {
   id: number
+  stamp: string
   created_at: string | null
   summary: string
   route: string | null

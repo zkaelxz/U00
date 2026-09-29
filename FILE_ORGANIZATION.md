@@ -410,9 +410,9 @@ baihe-subtitler/
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
-│       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report +
-│       │                         screenshot), GET list and GET {id} (admin.diagnostics), POST {id}/delete
-│       │                         (local_only + confirm)
+│       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
+│       │                         screenshot PC only), GET list and GET {id} (admin.diagnostics),
+│       │                         POST {id}/delete (local_only + confirm + folder stamp)
 │       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
 │

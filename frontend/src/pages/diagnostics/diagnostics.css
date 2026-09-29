@@ -54,3 +54,9 @@
 
 /* Bug reports (BugReportsSection) */
 .bug-report-list .bug-report-main { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+/* Phones: keep Delete… beside Copy instead of on its own row (index.css
+   gives .confirm-button a full row under 640 px). */
+@media (max-width: 640px) {
+  .bug-report-list .actions { margin-left: auto; justify-content: flex-end; }
+  .bug-report-list .confirm-button { display: inline-flex; flex: 0 0 auto; }
+}

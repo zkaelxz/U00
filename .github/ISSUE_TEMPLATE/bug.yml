@@ -9,7 +9,9 @@ body:
         The quickest way: use **Report a problem** at the top of the app, then **Open GitHub issue**.
         It fills in most of this form. If the text was cut, press **Copy report** in the app and paste
         it into "Report from the app" below.
-        Don't paste API keys, cookies or private file paths. The app removes these from its own report.
+        Don't paste API keys, cookies or private file paths. The app removes keys, tokens, cookies and
+        user folder names from its report and from the link, and never puts the server log in the link.
+        An admin's **Copy report** also includes a redacted server log: read it before pasting it here.
   - type: textarea
     id: what-happened
     attributes:

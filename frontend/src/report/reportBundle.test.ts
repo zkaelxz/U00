@@ -4,7 +4,7 @@ import { submitBugReport } from '../api/bugReports'
 import type { CaptureSnapshot } from './capture'
 import {
   CUT_NOTE, ISSUE_URL_MAX, areaForRoute, buildIdFrom, buildReport, clientMarkdown, githubIssueUrl, isPrivateHost,
-  issueTitle, reportMode, screenshotProblem,
+  issueTitle, reportMode, sanitizeReport, sanitizeText, screenshotProblem,
 } from './reportBundle'
 import { closeReportDialog, isReportDialogOpen, openReportDialog, subscribeReportDialog } from './reportDialogStore'
 
@@ -84,6 +84,32 @@ describe('report bundle', () => {
     expect(report.endsWith(CUT_NOTE)).toBe(true)
     expect(report.length).toBeGreaterThan(500)
     expect(report).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)   // no lone high surrogate
+  })
+
+  it('the save-failed link has no planted key, token or Windows user path', () => {
+    const key = 'sk-ant-api03-SECRETSECRETSECRET123456'
+    const win = String.raw`C:\Users\kaewinuser\AppData\Local\Baihe\library\library.db`
+    const notes = `Crashed with ${key} at ${win}; see https://bob:hunter2@cdn.example.com/a.png?X-Amz-Signature=zz9&token=abc and /home/someoneelse/x.txt Cookie: sid=cookieval`
+    const r = sanitizeReport(buildReport({ whatHappened: notes, expected: `also ${win}`, includeServerLog: true },
+      { ...snap, console: [{ level: 'error', message: `boom ${key} ${win}`, at: '12:00:06' }] }, meta, env, 'local'))
+    const md = sanitizeText(clientMarkdown(r))
+    const { url } = githubIssueUrl(r, md)
+    const decoded = decodeURIComponent(url)
+    for (const bad of [key, 'SECRETSECRET', 'kaewinuser', 'AppData', 'someoneelse', 'bob', 'hunter2', 'zz9', 'token=abc', 'cookieval']) {
+      expect(decoded).not.toContain(bad)
+      expect(md).not.toContain(bad)
+    }
+    expect(decoded).toContain('.../library.db')
+    expect(decoded).toContain('[REDACTED]')
+    expect(md).toContain('`/drama/3/review`')                     // app routes keep their shape
+    expect(sanitizeText('/Users/alice/Desktop')).not.toContain('alice')
+  })
+
+  it('the saved-report link uses the server texts and title as given', () => {
+    const { url } = githubIssueUrl({ what_happened: 'scrubbed', expected: '', route: '/', title: '[Bug] scrubbed' }, 'issue md')
+    const u = new URL(url)
+    expect(u.searchParams.get('title')).toBe('[Bug] scrubbed')
+    expect(u.searchParams.get('report')).toBe('issue md')
   })
 
   it('screenshot checks', () => {

@@ -1,7 +1,9 @@
 // "Report a problem" (api/routers/bug_report_routes.py). Submitting is open
 // to anyone who can use the app; listing/reading needs diagnostics access;
 // delete is PC only (pcOnlyFetch).
-import type { BugReportClient, BugReportDeleted, BugReportListItem, BugReportSaved } from '../types/bugReports'
+import type {
+  BugReportClient, BugReportDeleted, BugReportListItem, BugReportSaved, BugReportText,
+} from '../types/bugReports'
 import { getJson, postJson, postMultipart } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
@@ -22,7 +24,8 @@ export function submitBugReport(report: BugReportClient, screenshot: File | null
 
 export const listBugReports = (f?: Fetch) => getJson<BugReportListItem[]>(BASE, f)
 
-export const getBugReport = (id: number, f?: Fetch) => getJson<BugReportSaved>(`${BASE}/${id}`, f)
+export const getBugReport = (id: number, f?: Fetch) => getJson<BugReportText>(`${BASE}/${id}`, f)
 
-export const deleteBugReport = (id: number, f?: Fetch) =>
-  postJson<BugReportDeleted>(`${BASE}/${id}/delete`, { confirm: true }, pcOnlyFetch(f))
+// `stamp` (from the list) pins the delete to that report's folder.
+export const deleteBugReport = (id: number, stamp: string, f?: Fetch) =>
+  postJson<BugReportDeleted>(`${BASE}/${id}/delete`, { confirm: true, stamp }, pcOnlyFetch(f))

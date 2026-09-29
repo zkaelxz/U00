@@ -46,10 +46,10 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
     }
   }
 
-  const remove = async (id: number) => {
+  const remove = async (id: number, stamp: string) => {
     setBusy(id)
     try {
-      await deleteBugReport(id)
+      await deleteBugReport(id, stamp)
       if (shown?.id === id) setShown(null)
       load()
     } catch (e) {
@@ -85,7 +85,7 @@ export function BugReportsSection({ pc }: { pc: PcMode }) {
                   </button>
                   {pc !== 'remote' && (
                     <ConfirmButton name={`report #${r.id}`} busy={busy === r.id}
-                      disabled={busy !== null && busy !== r.id} onConfirm={() => void remove(r.id)} />
+                      disabled={busy !== null && busy !== r.id} onConfirm={() => void remove(r.id, r.stamp)} />
                   )}
                 </div>
               </li>
