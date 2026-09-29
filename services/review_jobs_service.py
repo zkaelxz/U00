@@ -46,6 +46,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
     """make_args(drama, lines, engine, engine_name) -> (args, extra kwargs)
     for start_job after the job id."""
     prefix, label = _KINDS[kind]
+    gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = translate_run_service._require_drama(drama_id)
     lines = core.lines_from_rows(db.load_lines(drama_id))
     if not lines:
@@ -85,7 +86,7 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
 
 
 def start_consistency_check(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = False) -> dict:
+                            gemini_free_tier: bool = None) -> dict:
     """Same-term-translated-differently check; saves the consistency issues."""
     return _start("consistency", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_consistency_job,
@@ -93,7 +94,7 @@ def start_consistency_check(drama_id: int, engine_name: str = None, model: str =
 
 
 def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = None,
-                          gemini_free_tier: bool = False,
+                          gemini_free_tier: bool = None,
                           use_audio_cues: bool = None) -> dict:
     """Emotional register per line, saved by permanent line id. use_audio_cues
     defaults on when the drama has audio, like the tab."""
@@ -105,7 +106,7 @@ def start_emotion_tagging(drama_id: int, engine_name: str = None, model: str = N
 
 
 def start_translation_notes(drama_id: int, engine_name: str = None, model: str = None,
-                            gemini_free_tier: bool = False) -> dict:
+                            gemini_free_tier: bool = None) -> dict:
     """Notes for readers, saved to the notes table by permanent line id."""
     return _start("notes", drama_id, engine_name, model, gemini_free_tier,
                   workspace_job_service.run_translation_notes_job,
@@ -113,7 +114,7 @@ def start_translation_notes(drama_id: int, engine_name: str = None, model: str =
 
 
 def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = False) -> dict:
+                      gemini_free_tier: bool = None) -> dict:
     """LLM 'needs a second look' pass; writes only flag/flag_note by line id."""
     def precheck(lines):
         if not any((ln.en or "").strip() for ln in lines):
@@ -124,11 +125,12 @@ def start_flag_review(drama_id: int, engine_name: str = None, model: str = None,
 
 
 def start_fix_flagged(drama_id: int, engine_name: str = None, model: str = None,
-                      gemini_free_tier: bool = False,
+                      gemini_free_tier: bool = None,
                       job_cost_cap_usd: float = None) -> dict:
     """Re-transcribes (when the drama has audio) and re-translates every
     currently flagged line, clearing the flag on lines it changed. Stops at
     the spending cap, keeping what was fixed."""
+    gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
 
