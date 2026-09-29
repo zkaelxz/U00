@@ -808,8 +808,12 @@ class TestCliGpuLock:
         import threading
         import time as time_module
 
+        import types
         _real_sleep = time_module.sleep
-        monkeypatch.setattr(cli.time, "sleep", lambda s: _real_sleep(0.01))
+        # Stub only cli's `time`, not the global module (the job-heartbeat
+        # thread would otherwise loop every 10 ms).
+        monkeypatch.setattr(cli, "time", types.SimpleNamespace(
+            time=time_module.time, sleep=lambda s: _real_sleep(0.01)))
         engine = self._OllamaEngine()
         monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
         did = self._drama(isolated_db)
