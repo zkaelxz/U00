@@ -32,6 +32,11 @@ from sources import front_door, generic_import
 from sources.http import Cancelled
 
 MAX_URL_LEN = 2000
+# Tighter than sources.http's defaults: a pasted URL is anyone's page, and
+# R1/R2 are reachable from another device (security review MED-1).
+PASTED_MAX_PAGE_BYTES = 5_000_000
+PASTED_MAX_IMAGE_BYTES = 15_000_000
+PASTED_REQUEST_DEADLINE = 60.0
 _BAD_URL = "Paste a public http:// or https:// web address."
 _NOT_PUBLIC = "That address is not a public web address, so it was not opened."
 _NO_RESOLVE = "The address could not be resolved. Check the URL and your connection."
@@ -67,8 +72,12 @@ def check_public_url(url) -> str:
 
 def source_client(url: str, job_id: str):
     """The paced SourceClient a pasted-URL fetch runs through (the matching
-    adapter's source name, or the generic one), cancellable from the job."""
+    adapter's source name, or the generic one), cancellable from the job,
+    under the pasted-URL body caps and deadline (checked between chunks)."""
     client = generic_import._client(None, url)
+    client.max_page_bytes = PASTED_MAX_PAGE_BYTES
+    client.max_image_bytes = PASTED_MAX_IMAGE_BYTES
+    client.request_deadline = PASTED_REQUEST_DEADLINE
     client.cancel_check = lambda: background_jobs.is_cancel_requested(job_id)
     return client
 

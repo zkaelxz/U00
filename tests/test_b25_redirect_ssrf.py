@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 import pytest
 
 requests = pytest.importorskip("requests")
+import urllib3  # noqa: E402  (installed with requests)
 
 from sources.http import PacingPolicy, SourceClient, reset_pacing_state  # noqa: E402
 
@@ -51,7 +52,8 @@ def fake_net(monkeypatch, isolated_db):
         resp.status_code = status
         resp.headers.update(headers)
         resp._content = body
-        resp.raw = io.BytesIO(body)
+        # A real urllib3 response over the bytes: the transport streams it (MED-1).
+        resp.raw = urllib3.HTTPResponse(body=io.BytesIO(body), preload_content=False)
         resp.url = request.url
         resp.request = request
         resp.encoding = "utf-8"

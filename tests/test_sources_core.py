@@ -699,6 +699,18 @@ class TestRequestsTransport:
             self.url = url
             self.cookies = cookies if cookies is not None else _cookie_jar()
             self.history = history or []
+            self.raw = self._Raw(content)   # the transport streams (MED-1)
+
+        class _Raw:
+            def __init__(self, data):
+                self.data = data
+
+            def read1(self, n, decode_content=True):
+                out, self.data = self.data[:n], self.data[n:]
+                return out
+
+        def close(self):
+            pass
 
     class _FakeSession:
         def __init__(self, response, cookies=None):
@@ -710,7 +722,7 @@ class TestRequestsTransport:
             self.cookies = cookies if cookies is not None else _cookie_jar()
 
         def request(self, method, url, headers=None, data=None, timeout=None,
-                    allow_redirects=True, proxies=None):
+                    allow_redirects=True, proxies=None, stream=False):
             self.last_proxies = proxies
             return self._response
 

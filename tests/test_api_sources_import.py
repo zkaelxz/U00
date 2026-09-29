@@ -336,6 +336,109 @@ def test_track_seeds_known_chapters_first_check_announces_nothing(client, fakes)
 
 
 # ---------------------------------------------------------------------------
+# Security review MED-2: one import job per drama on every path, and page
+# writes that never overwrite
+# ---------------------------------------------------------------------------
+
+def _chs(name="comic"):
+    return [c for c in _chapters(name, "s1") if c.chapter_id in ("c1", "c2")]
+
+
+def test_pipeline_start_import_claims_the_drama_job(client, fakes):
+    gate = threading.Event()
+    fakes["comic"] = _make("comic", comic=True, gate=gate)
+    did = db.create_drama(title_en="M", media_type="manhua")
+    assert pipeline.import_job_id(did) == imp.import_job_id(did) == f"sourceimport_{did}"
+    assert pipeline.start_import("comic", "s1", _chs(), did) is True
+    assert background_jobs.get_status(f"sourceimport_{did}")["status"] == "running"
+    # the API refuses while the Streamlit / auto-import job writes this drama
+    r = client.post("/api/sources/comic/import",
+                    json={"series_id": "s1", "chapter_ids": ["c10"], "drama_id": did})
+    assert r.status_code == 409
+    assert pipeline.start_import("comic", "s1", _chs(), did) is False
+    gate.set()
+    _wait(f"sourceimport_{did}")
+    assert len(db.list_pages(did)) == 4
+    # and the other way round: the API's job blocks the pipeline path
+    gate.clear()
+    r = client.post("/api/sources/comic/import",
+                    json={"series_id": "s1", "chapter_ids": ["c10"], "drama_id": did})
+    assert r.status_code == 200
+    assert pipeline.start_import("comic", "s1", _chs(), did) is False
+    gate.set()
+    _wait(f"sourceimport_{did}")
+
+
+def test_pipeline_start_import_skips_chapters_already_imported(client, fakes):
+    fakes["alpha"] = _make("alpha")
+    did = _novel()
+    store.record_imported("alpha", "s1", "c1", did)
+    assert pipeline.start_import("alpha", "s1", _chs("alpha"), did) is True
+    st = _wait(f"sourceimport_{did}")
+    rows = {r["chapter_id"]: r for r in st["result"]["chapters"]}
+    assert rows["c1"].get("skipped") is True and not rows["c2"].get("skipped")
+    assert fakes["alpha"].calls == ["c2"]
+
+
+def test_chapter_check_auto_import_skips_a_busy_drama(client, fakes, monkeypatch):
+    fakes["alpha"] = _make("alpha")
+    did = _novel()
+    store.track_series("alpha", "s1", "Series T", "", did,
+                       known_chapters=[c for c in _chapters("alpha", "s1") if c.chapter_id == "c1"])
+    store.set_setting("auto_queue_new_chapters", True)
+    monkeypatch.setattr(registry, "is_enabled", lambda name: True)
+    hold = threading.Event()
+    assert background_jobs.start_job(f"sourceimport_{did}", lambda: hold.wait(5))
+    try:
+        summary = chapter_check.run_check_cycle(adapter_factory=lambda n: fakes["alpha"]())
+        assert summary["new"] == 2 and summary["queued"] == []
+        assert background_jobs.get_status(f"sourceimport_{did}")["status"] == "running"
+    finally:
+        hold.set()
+        _wait(f"sourceimport_{did}")
+    assert fakes["alpha"].calls == []
+    assert not [j for j in background_jobs.list_all_jobs() if str(j).startswith("source_import_")]
+
+
+def test_add_page_images_never_overwrites_an_existing_file(fakes):
+    from tests.sources_helpers import png
+    did = db.create_drama(title_en="M", media_type="manhua")
+    pages_dir = os.path.join(db.drama_dir(did), "pages")
+    os.makedirs(pages_dir)
+    foreign = os.path.join(pages_dir, "page_0000.png")   # another writer's page, no row yet
+    with open(foreign, "wb") as f:
+        f.write(png(10, 10, seed=99))
+    before = open(foreign, "rb").read()
+    assert pipeline.add_page_images(did, [(png(20, 30, seed=1), ".png")]) == 1
+    assert open(foreign, "rb").read() == before
+    assert [(p["idx"], p["filename"]) for p in db.list_pages(did)] == [
+        (1, os.path.join("pages", "page_0001.png"))]
+
+
+def test_add_page_images_concurrent_writers_get_distinct_pages(fakes):
+    from tests.sources_helpers import png
+    did = db.create_drama(title_en="M", media_type="manhua")
+    errors = []
+
+    def writer(seed):
+        try:
+            pipeline.add_page_images(did, [(png(20, 30, seed=seed * 10 + i), ".png")
+                                           for i in range(3)])
+        except Exception as e:  # pragma: no cover -- reported below
+            errors.append(e)
+    threads = [threading.Thread(target=writer, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert errors == []
+    pages = db.list_pages(did)
+    assert sorted(p["idx"] for p in pages) == list(range(12))
+    assert len({p["filename"] for p in pages}) == 12
+    assert len(os.listdir(os.path.join(db.drama_dir(did), "pages"))) == 12
+
+
+# ---------------------------------------------------------------------------
 # Permissions
 # ---------------------------------------------------------------------------
 

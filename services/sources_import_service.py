@@ -13,9 +13,11 @@ already imported into this drama (sources.store.imported_chapters) is
 It never creates a drama (POST /api/dramas is `admin.library`; the client
 creates one first). Writes are the pipeline's append-only ones: comic pages
 into `<drama>/pages/` plus page rows, novel text appended to the raw-novel
-file. No `db.save_lines`. The job id is per drama (`sourceimport_<id>`),
-which serialises the pipeline's unlocked page-index and append writes, and
-is in background_jobs.DRAMA_JOB_PREFIXES so a delete refuses while it runs.
+file. No `db.save_lines`. The job id is per drama (`sourceimport_<id>`,
+the same one pipeline.start_import claims for Streamlit and the
+chapter-check auto-import) and is in background_jobs.DRAMA_JOB_PREFIXES so
+a delete refuses while it runs; pipeline.add_page_images also locks and
+creates page files exclusively on its own.
 
 `start_url_import` (S-5, thin slice: novel text only) checks the pasted URL
 in the request (sources_url_service.check_public_url), then the job runs

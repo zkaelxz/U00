@@ -27,7 +27,7 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import _require_source, _scrub, _scrub_any, safe_url
 from sources import chapter_order, ladder, registry
-from sources.http import Cancelled
+from sources.http import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, NotSupportedError, SourceError,
                             SourceUnavailable, TermsProhibited)
 
@@ -72,6 +72,9 @@ def _error_view(exc, source: str = None) -> dict:
     if isinstance(exc, Cancelled):
         return {"status": 409, "code": ConflictError.code, "message": "Cancelled.",
                 "details": {"reason": "CANCELLED"}}
+    if isinstance(exc, ResponseRefused):
+        return {"status": exc.status, "code": _CLASS_BY_STATUS[exc.status].code,
+                "message": str(exc), "details": {"reason": "RESPONSE_REFUSED"}}
     if isinstance(exc, SourceError):
         return {"status": 500, "code": ServiceError.code, "message": msg,
                 "details": {"reason": exc.reason.value}}

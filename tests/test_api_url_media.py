@@ -192,7 +192,7 @@ def test_ydl_options_caps_filters_and_no_cookies(client, env):
     assert o["paths"]["temp"] == tmp and os.path.dirname(tmp) == db.drama_dir(did)
     assert os.path.basename(tmp).startswith(".urldl_")
     assert os.path.dirname(o["outtmpl"]) == tmp
-    assert "allowed_extractors" not in o
+    assert o["allowed_extractors"] == ["default", "-generic"]
     mf = o["match_filter"]
     assert mf({"duration": 60}) is None
     assert mf({"is_live": True}) and mf({"live_status": "is_upcoming"})
@@ -340,3 +340,109 @@ def test_remote_and_cross_site_refused(env):
                       headers={**other, "Content-Type": "text/plain"}).status_code == 403
     assert local.post(path, json=body, headers={"Origin": "https://evil.example"}).status_code == 403
     assert FakeYDL.calls == []
+
+
+# ---------------------------------------------------------------------------
+# Security review LOW-1: no generic extractor; direct media links are
+# fetched by our own guarded downloader instead
+# ---------------------------------------------------------------------------
+
+DIRECT = f"https://cdn.example/media/ep1.mp3?sig={SECRET}"
+
+
+class _Raw:
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+
+    def read1(self, n, decode_content=True):
+        return self.chunks.pop(0) if self.chunks else b""
+
+
+class _Resp:
+    def __init__(self, status=200, headers=None, chunks=(b"ID3data",)):
+        self.status_code, self.headers, self.raw = status, dict(headers or {}), _Raw(chunks)
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.fixture
+def direct(env, monkeypatch):
+    from services import metadata_service
+    hops = []
+    script = {}
+
+    def fake_get(url, ip, headers):
+        hops.append((url, ip))
+        return script.get(url) or _Resp()
+    monkeypatch.setattr(metadata_service, "_pinned_get", fake_get)
+    return types.SimpleNamespace(hops=hops, script=script)
+
+
+def test_direct_audio_link_skips_ytdlp(client, env, direct, monkeypatch):
+    monkeypatch.delitem(sys.modules, "yt_dlp")   # not needed for a direct link
+    monkeypatch.setattr(svc, "_yt_dlp_installed", lambda: False)
+    did = _drama()
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": DIRECT, "audio_only": True})
+    assert r.status_code == 200, r.text
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "done", st
+    assert FakeYDL.calls == [] and direct.hops == [(DIRECT, "93.184.216.34")]
+    cmd = env.ffmpeg[0]
+    assert cmd[cmd.index("-protocol_whitelist") + 1] == "file"
+    assert os.path.exists(os.path.join(db.drama_dir(did), "source.wav"))
+    assert env.writes == [{"audio_filename": "source.wav", "source_url": DIRECT}]
+    _no_tmp(did)
+
+
+def test_direct_video_link_keeps_video(client, env, direct):
+    url = "https://cdn.example/v/clip.mp4"
+    did = _drama()
+    r = client.post(f"/api/media/dramas/{did}/download-url",
+                    json={"url": url, "audio_only": False})
+    assert r.status_code == 200
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "done", st
+    ddir = db.drama_dir(did)
+    assert os.path.exists(os.path.join(ddir, "source.mp4"))
+    assert os.path.exists(os.path.join(ddir, "audio.wav"))
+    assert FakeYDL.calls == []
+
+
+def test_direct_link_redirect_to_private_address_refused(client, env, direct, monkeypatch):
+    direct.script[DIRECT] = _Resp(302, {"Location": "http://inside.example:8756/x.mp3"})
+
+    def dns(host, port, **kw):
+        ip = "127.0.0.1" if host == "inside.example" else "93.184.216.34"
+        return [(2, 1, 6, "", (ip, port))]
+    monkeypatch.setattr(url_guard.socket, "getaddrinfo", dns)
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._FAILED)
+    assert [h[0] for h in direct.hops] == [DIRECT]   # never connected to the private hop
+    assert env.writes == [] and env.ffmpeg == []
+    _no_tmp(did)
+
+
+def test_direct_link_byte_cap(client, env, direct, monkeypatch):
+    monkeypatch.setattr(media_upload_service, "max_upload_bytes", lambda: 100)
+    direct.script[DIRECT] = _Resp(chunks=[b"x" * 60] * 5)
+    did = _drama()
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE)
+    direct.script[DIRECT] = _Resp(headers={"Content-Length": "101"})
+    client.post(f"/api/media/dramas/{did}/download-url", json={"url": DIRECT, "audio_only": True})
+    st = _wait(f"urlmedia_{did}")
+    assert st["status"] == "error" and st["error"].endswith(svc._TOO_LARGE)
+    assert env.writes == []
+    _no_tmp(did)
+
+
+def test_direct_media_ext():
+    assert svc.direct_media_ext("https://a.example/x/ep.MP3?t=1") == ".mp3"
+    assert svc.direct_media_ext("https://a.example/watch?v=x.mp4") is None
+    assert svc.direct_media_ext("https://a.example/page.html") is None

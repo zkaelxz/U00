@@ -8,14 +8,22 @@ Checks in the request, before any job or fetch: the pasted URL is public
 (sources_url_service.check_public_url: http(s), no userinfo, <=2000 chars,
 every resolved address global), the drama exists and works from audio
 (`content_mode` audio_drama or streamer_vod), replacing existing audio
-needs `confirm_replace_audio`, yt-dlp is installed, no job runs for the
+needs `confirm_replace_audio`, yt-dlp is installed (unless the link is a
+direct media link), no job runs for the
 drama, and no other URL download runs in this process.
 
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
 `ydl_options`): one item, no live streams, at most 6 h long, at most the
 upload cap in bytes and 2 h of wall clock, native downloader only, never
-cookies. Audio only: the extracted WAV becomes `source.wav`. Video: the
+cookies, and never yt-dlp's `generic` extractor (security review LOW-1: it
+follows any embedded media URL and redirect without our address guard).
+A plain direct media link (the URL path ends in an audio/video extension
+the upload accepts) is fetched by `_direct_download` instead, without
+yt-dlp: every hop re-validated and pinned (services.metadata_service,
+the same rule as safe_fetch), streamed under the same byte, wall-clock and
+cancel caps; its audio is converted with ffmpeg. Audio only: the extracted
+WAV becomes `source.wav`. Video: the
 audio is extracted with ffmpeg inside the temp folder first, then the
 video becomes `source<ext>` and the audio `audio.wav`. The one DB write is
 field-scoped: audio_filename, [source_video_filename], source_url and,
@@ -33,6 +41,7 @@ import sys
 import tempfile
 import threading
 import time
+from urllib.parse import urljoin, urlsplit
 
 import background_jobs
 import db
@@ -55,6 +64,12 @@ _TOO_LARGE = "The download is larger than the upload limit, so it was stopped."
 _TOO_SLOW = "The download took longer than 2 hours, so it was stopped."
 _EXTRACT_FAILED = "Could not read audio from the downloaded video."
 _start_lock = threading.Lock()
+DIRECT_MEDIA_EXTENSIONS = (media_upload_service.AUDIO_EXTENSIONS
+                           + media_upload_service.VIDEO_EXTENSIONS)
+MAX_DIRECT_REDIRECTS = 5
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
+_CHUNK = 65_536
+_DIRECT_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; BaiheStudio/1.0)"}
 
 
 def job_id_for(drama_id: int) -> str:
@@ -120,9 +135,9 @@ class _Caps:
 
 def ydl_options(tmp_dir: str, caps: _Caps) -> dict:
     """The options merged over video_download's own (they win). Never any
-    cookie option. `allowed_extractors` is left at yt-dlp's default while
-    the route is PC-only (see docs/migration-review.md)."""
+    cookie option, and every default extractor except `generic`."""
     return {
+        "allowed_extractors": ["default", "-generic"],
         "noplaylist": True,
         "playlistend": 1,
         "match_filter": caps.match_filter,
@@ -145,6 +160,90 @@ def _extract_cmd(video_path: str, wav_path: str) -> list:
     playlist naming network URLs; ffmpeg may only open local files."""
     return ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path, "-vn",
             "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path]
+
+
+def direct_media_ext(url: str):
+    """The extension when the URL's path ends in an accepted audio/video
+    extension (a plain direct link), else None."""
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        return None
+    ext = os.path.splitext(path)[1].lower()
+    return ext if ext in DIRECT_MEDIA_EXTENSIONS else None
+
+
+def _read_some(resp, n: int) -> bytes:
+    raw = resp.raw
+    read1 = getattr(raw, "read1", None)
+    return read1(n, decode_content=True) if read1 else raw.read(min(n, 8192), decode_content=True)
+
+
+def _direct_download(job_id: str, url: str, tmp: str, ext: str, clock=time.monotonic) -> str:
+    """A direct media link, without yt-dlp: each hop (first included) must
+    be http(s) with only public addresses and is connected to the checked
+    address; at most MAX_DIRECT_REDIRECTS hops. The body is streamed into
+    `tmp` under the upload byte cap and the 2 h wall clock, cancel checked
+    between chunks. Fixed-text errors only."""
+    from services import metadata_service as ms
+    limit = media_upload_service.max_upload_bytes()
+    started = clock()
+    current = url
+    for _ in range(MAX_DIRECT_REDIRECTS + 1):
+        try:
+            ip = ms._check_public_url(current)
+            resp = ms._pinned_get(current, ip, _DIRECT_HEADERS)
+        except Exception:
+            raise RuntimeError(_FAILED) from None
+        try:
+            if resp.status_code in _REDIRECT_CODES:
+                location = resp.headers.get("Location")
+                if not location:
+                    raise RuntimeError(_FAILED)
+                current = urljoin(current, location)
+                continue
+            if resp.status_code != 200:
+                raise RuntimeError(_FAILED)
+            length = str(resp.headers.get("Content-Length") or "").strip()
+            if length.isdigit() and int(length) > limit:
+                raise RuntimeError(_TOO_LARGE)
+            path = os.path.join(tmp, "downloaded" + ext)
+            got = 0
+            with open(path, "xb") as out:
+                while True:
+                    if background_jobs.is_cancel_requested(job_id):
+                        raise background_jobs.JobCancelled(job_id)
+                    if clock() - started > MAX_WALL_SECONDS:
+                        raise RuntimeError(_TOO_SLOW)
+                    try:
+                        chunk = _read_some(resp, _CHUNK)
+                    except Exception:
+                        raise RuntimeError(_FAILED) from None
+                    if not chunk:
+                        break
+                    got += len(chunk)
+                    if got > limit:
+                        raise RuntimeError(_TOO_LARGE)
+                    out.write(chunk)
+                    total = int(length) if length.isdigit() else 0
+                    background_jobs.update_progress(
+                        job_id, 0.05 + 0.8 * (min(got / total, 1.0) if total else 0.0),
+                        "Downloading...")
+            if got == 0:
+                raise RuntimeError(_FAILED)
+            return path
+        finally:
+            resp.close()
+    raise RuntimeError(_FAILED)  # too many redirects
+
+
+def _extract_audio(job_id: str, src: str, wav: str, cwd: str):
+    try:
+        background_jobs.run_cancellable(
+            job_id, _extract_cmd(src, wav), cwd=cwd,
+            timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        raise RuntimeError(_EXTRACT_FAILED) from None
 
 
 def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
@@ -180,22 +279,27 @@ def _download_job(job_id: str, drama_id: int, url: str, audio_only: bool):
     tmp = tempfile.mkdtemp(dir=ddir, prefix=".urldl_")
     try:
         background_jobs.update_progress(job_id, 0.02, "Starting the download...")
-        path, title = _download(job_id, url, tmp, audio_only)
-        if audio_only:
+        direct_ext = direct_media_ext(url)
+        if direct_ext:
+            path, title = _direct_download(job_id, url, tmp, direct_ext), None
+        else:
+            path, title = _download(job_id, url, tmp, audio_only)
+        ext = os.path.splitext(path)[1].lower()
+        if audio_only and not direct_ext:
             os.replace(path, os.path.join(ddir, "source.wav"))
             fields = {"audio_filename": "source.wav"}
+        elif direct_ext and (audio_only or ext in media_upload_service.AUDIO_EXTENSIONS):
+            background_jobs.update_progress(job_id, 0.88, "Converting the audio...")
+            wav = os.path.join(tmp, "converted.wav")
+            _extract_audio(job_id, path, wav, tmp)
+            os.replace(wav, os.path.join(ddir, "source.wav"))
+            fields = {"audio_filename": "source.wav"}
         else:
-            ext = os.path.splitext(path)[1].lower()
             if ext not in media_upload_service.VIDEO_EXTENSIONS:
                 raise RuntimeError(_FAILED)
             background_jobs.update_progress(job_id, 0.88, "Extracting audio from the video...")
             wav = os.path.join(tmp, "audio.wav")
-            try:
-                background_jobs.run_cancellable(
-                    job_id, _extract_cmd(path, wav), cwd=tmp,
-                    timeout=media_upload_service.EXTRACT_TIMEOUT_SECONDS)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-                raise RuntimeError(_EXTRACT_FAILED) from None
+            _extract_audio(job_id, path, wav, tmp)
             os.replace(path, os.path.join(ddir, f"source{ext}"))
             os.replace(wav, os.path.join(ddir, "audio.wav"))
             fields = {"audio_filename": "audio.wav", "source_video_filename": f"source{ext}"}
@@ -228,7 +332,7 @@ def start_url_download(drama_id, url, audio_only, confirm_replace_audio=False) -
     if _has_audio(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError("This drama already has audio. Confirm replacing it first.",
                                 details={"reason": "confirm_replace_audio"})
-    if not _yt_dlp_installed():
+    if direct_media_ext(url) is None and not _yt_dlp_installed():
         raise DependencyUnavailableError(_NO_YTDLP)
     with media_upload_service._claims_lock:
         if drama_id in media_upload_service._claimed:
