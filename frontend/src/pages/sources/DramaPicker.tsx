@@ -13,6 +13,8 @@ import { createDrama } from '../../api/library'
 import type { DramaSummary } from '../../api/types'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { humanize } from '../../components/labels'
+import { buttonClass } from '../../components/uiClasses'
 import { SOURCE_LANGUAGES } from '../libraryForm'
 import { dramaLabel, newDramaRequest } from './urlImportFormat'
 
@@ -93,19 +95,19 @@ export function DramaPicker({ dramas, value, onChange, newDrama, onCreated, disa
             <select value={language} onChange={(e) => setLanguage(e.target.value)}>
               {SOURCE_LANGUAGES.map((l) => (
                 <option key={l} value={l}>
-                  {l}
+                  {humanize('language', l)}
                 </option>
               ))}
             </select>
           </Field>
           <p className="muted">
-            Made as a {newDramaRequest('', language, newDrama.comic).media_type} drama.
+            Made as a {humanize('mediaType', newDramaRequest('', language, newDrama.comic).media_type).toLowerCase()} drama.
           </p>
           <div className="actions">
-            <button type="button" className="primary" disabled={busy || !title.trim()} onClick={create}>
+            <button type="button" className={buttonClass('secondary')} disabled={busy || !title.trim()} onClick={create}>
               {busy ? 'Creating…' : 'Create drama'}
             </button>
-            <button type="button" className="link" onClick={() => setCreating(false)}>
+            <button type="button" className={buttonClass('ghost')} onClick={() => setCreating(false)}>
               Cancel
             </button>
           </div>
