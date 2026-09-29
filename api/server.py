@@ -54,6 +54,7 @@ from api.routers import (
     media_routes,
     metadata_routes,
     narration_routes,
+    notification_routes,
     novel_routes,
     reader_routes,
     restructure_routes,
@@ -176,6 +177,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
+    app.include_router(notification_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

@@ -2827,3 +2827,38 @@ class TranslatePresetSave(BaseModel):
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+# --- Step 44: job notifications (Discord / ntfy) ------------------------------
+
+NotificationChannel = Literal["discord", "ntfy"]
+NotificationOutcome = Literal["sent", "failed", "refused", "not_configured"]
+
+
+class NotificationStatus(BaseModel):
+    """Configured booleans only: never a webhook URL, host or topic."""
+    discord_configured: bool
+    ntfy_configured: bool
+    ntfy_allow_local: bool
+
+
+class NotificationChannelSetRequest(BaseModel):
+    """Write-only channel URL. `value` is a secret: never echoed back, and
+    validation errors never include it."""
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(..., repr=False)
+    confirm: StrictBool = False
+
+
+class NotificationChannelClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class NotificationChannelResult(BaseModel):
+    channel: NotificationChannel
+    configured: bool
+
+
+class NotificationTestResult(BaseModel):
+    results: Dict[NotificationChannel, NotificationOutcome]
