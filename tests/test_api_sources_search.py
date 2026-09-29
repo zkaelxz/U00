@@ -107,8 +107,10 @@ def test_404_422_400(client, fakes):
     for body in ({"query": ""}, {"query": "https://fake.invalid/x"}, {"query": "a" * 201},
                  {"query": "abc", "url": "https://x"}, {}):
         assert client.post("/api/sources/search", json=body).status_code == 422, body
-    assert client.post("/api/sources/alpha/series",
-                       json={"series_id": "http://evil/x"}).status_code == 422
+    for sid in ("http://evil/x", "//169.254.169.254/x", "a@evil.invalid", "", "a" * 201):
+        r = client.post("/api/sources/alpha/series", json={"series_id": sid})
+        assert r.status_code == 422, sid
+    assert background_jobs.get_status("sources_series_alpha") is None
     registry.set_enabled("alpha", False)
     r = client.post("/api/sources/search", json={"query": "abc", "sources": ["alpha"]})
     assert r.status_code == 400

@@ -268,11 +268,11 @@ baihe-subtitler/
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
-│   │                             temp dir, use_gpu, max_minutes stop, redacted cues); no router yet
+│   │                             temp dir, use_gpu, max_minutes stop, redacted cues); router: live_routes.py
 │   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
-│   │                             results, known-chapter helper (no router yet)
+│   │                             results, known-chapter helper (router: sources_search_routes.py)
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
-│   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
+│   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
@@ -365,8 +365,10 @@ baihe-subtitler/
 │       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │       ├── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
 │       ├── live_routes.py        /api/live/sessions (POST start, GET list), /{id} (GET poll), /{id}/stop (spec L-1; API batch 1)
-│       └── discover_lookup_routes.py /api/discover/translate-query|baihehub-search|import-suggestion|bulk-extract[/result]|
-│                                 bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
+│       ├── discover_lookup_routes.py /api/discover/translate-query|baihehub-search|import-suggestion|bulk-extract[/result]|
+│       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
+│       └── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
+│                                 /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
