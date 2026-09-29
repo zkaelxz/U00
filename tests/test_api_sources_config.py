@@ -21,7 +21,8 @@ from sources import http as src_http
 
 @pytest.fixture
 def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 @pytest.fixture
