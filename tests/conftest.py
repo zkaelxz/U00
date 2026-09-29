@@ -95,14 +95,55 @@ def isolated_db():
     profile picker rendered from Settings' sidebar, Step 26e, was the
     first thing to actually hit it: `sqlite3.OperationalError: unable to
     open database file`, from a test with no isolated_db of its own that
-    merely happened to run after one that had it, alphabetically)."""
+    merely happened to run after one that had it, alphabetically).
+
+    The library is a "library" folder inside a private temp directory,
+    not a direct child of the shared system temp dir. A library restore
+    stages its replacement (".restore_staging_*") and parks the old
+    folder ("<library>.pre_restore_*") *next to* the library, so with the
+    library sitting straight in /tmp every pytest-xdist worker's restore
+    scratch landed in one shared folder, and a test asserting "restore
+    left nothing behind" saw another worker's in-flight staging dir."""
     previous = (db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR)
-    temp_dir = tempfile.mkdtemp(prefix="baihe_test_")
+    parent_dir = tempfile.mkdtemp(prefix="baihe_test_")
+    temp_dir = os.path.join(parent_dir, "library")
+    os.makedirs(temp_dir)
     db.configure_library_dir(temp_dir)
     db.init_db()
     yield db
     db.LIBRARY_DIR, db.DRAMAS_DIR, db.DB_PATH, db.BENCHMARK_DIR = previous
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    shutil.rmtree(parent_dir, ignore_errors=True)
+
+
+def _reset_background_jobs_memory():
+    """Drops background_jobs' in-process state: job records, the GPU
+    queue, the restore's exclusive hold, the maintenance count and the
+    per-job cancel-check cache. In memory only -- clear_all_jobs() would
+    also wipe job_records in whatever library db.LIBRARY_DIR points at,
+    which outside an isolated_db test can be a real one."""
+    import background_jobs as bg
+    with bg._lock:
+        bg._jobs.clear()
+        bg._gpu_queue.clear()
+        bg._last_db_cancel_check.clear()
+    bg.release_exclusive()
+    while bg._maintenance_count:
+        bg.exit_maintenance()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_background_jobs():
+    """background_jobs keeps its state in module globals for the life of
+    the process, so a finished job one test leaves behind is still there
+    for whichever test the scheduler runs next in the same worker. Job ids
+    are built from drama ids and every isolated_db starts again at id 1,
+    so e.g. a leftover "done" novel_glossary_1 made a later test's "no
+    finished extraction" refusal not fire -- only under pytest-xdist,
+    where the order within a worker differs from a serial run. Reset
+    before and after every test so no test depends on another's jobs."""
+    _reset_background_jobs_memory()
+    yield
+    _reset_background_jobs_memory()
 
 
 @pytest.fixture

@@ -113,29 +113,43 @@ class TestSurvivesWithNoPolling:
     someone is looking at a different tab."""
 
     def test_progress_advances_during_a_silent_period(self):
+        # Waits on the worker's own signal instead of a fixed sleep, so a
+        # loaded machine (pytest-xdist) can't make the check run before
+        # the first step; still nothing polls background_jobs meanwhile.
         sink = []
+        first_step = threading.Event()
 
         def work():
             for i in range(5):
                 time.sleep(0.03)
                 sink.append(i)
                 bg.update_progress("t5", (i + 1) / 5)
+                first_step.set()
 
         bg.start_job("t5", work)
-        time.sleep(0.1)  # nobody polls during this window
+        assert first_step.wait(10)  # nobody polls during this window
         status = bg.get_status("t5")
         assert status["progress"] > 0
         assert len(sink) > 0
-        _wait("t5")
+        _wait("t5", timeout=10)
         assert len(sink) == 5
         bg.clear_job("t5")
 
     def test_job_finishes_even_if_never_polled_until_the_end(self):
+        # The work signals when it has returned; the test blocks on that
+        # (zero polling of background_jobs in between) rather than on a
+        # fixed 0.15 s sleep that a busy xdist worker could overrun. The
+        # "done" transition lands just after the target returns, so that
+        # one read is polled with a deadline.
+        returned = threading.Event()
+
         def work():
             time.sleep(0.05)
+            returned.set()
 
         bg.start_job("t6", work)
-        time.sleep(0.15)  # long enough to finish, zero polling in between
+        assert returned.wait(10)
+        assert _wait_for(lambda: bg.get_status("t6")["status"] == "done", timeout=10)
         assert bg.get_status("t6")["status"] == "done"
         bg.clear_job("t6")
 
