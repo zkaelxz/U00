@@ -389,3 +389,18 @@ def test_move_clears_the_dramas_own_private_flag(isolated_db):
     did = db.create_drama(title_zh="x", owner_user_id=b_id, is_private=1)
     ds.update_drama_metadata(did, principal=b, series_id=sid)
     assert db.get_item_ownership("drama", did)["is_private"] == 0
+
+
+def test_new_series_refused_after_precheck_creates_nothing(isolated_db, monkeypatch):
+    # Security review LOW-A: the name can be taken (or made private) between
+    # the pre-check and the series step; the new drama must be undone.
+    from services import ownership_service
+    from services.service_errors import ConflictError
+
+    def refuse(principal, name):
+        raise ConflictError("That series name is taken")
+
+    monkeypatch.setattr(ownership_service, "get_or_create_series_for", refuse)
+    with pytest.raises(ConflictError):
+        ds.create_drama(source_language="zh", title_zh="x", new_series_name="Race")
+    assert db.list_dramas() == []

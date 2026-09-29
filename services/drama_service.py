@@ -153,10 +153,17 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     # Hardening H1: a NEW series is created only after the drama row exists
     # (as the Streamlit form does), so a failed create can't leave a stray
     # series behind (db has no delete_series to clean one up).
+    # The series step can still be refused (a name taken or made private
+    # between the pre-check and here); undo the new drama so a rejected call
+    # creates nothing and a retry can't leave a duplicate.
     if new_series_name is not None:
-        ownership_service.assign_drama_series(
-            principal, new_id,
-            ownership_service.get_or_create_series_for(principal, new_series_name))
+        try:
+            ownership_service.assign_drama_series(
+                principal, new_id,
+                ownership_service.get_or_create_series_for(principal, new_series_name))
+        except Exception:
+            db.delete_drama(new_id)
+            raise
 
     detail = library_service.get_library_drama(new_id)
     detail["preset_defaults"] = None if preset is None else {
