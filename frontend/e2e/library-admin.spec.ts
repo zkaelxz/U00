@@ -26,8 +26,10 @@ test.describe('selection bar (real API)', () => {
     await page.goto('/')
     await page.getByLabel('Search title or summary').fill('Admin E2E')
     await expect(page.getByTestId('drama-count')).toHaveText('2 dramas')
-    // List view keeps a checkbox column on desktop.
+    // List view: Select shows the checkbox column (select mode works in both views).
     await page.getByRole('radio', { name: 'List' }).check()
+    await expect(page.getByRole('checkbox', { name: 'Select Admin E2E One' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Select', exact: true }).click()
 
     await page.getByRole('checkbox', { name: 'Select Admin E2E One' }).check()
     await page.getByRole('checkbox', { name: 'Select Admin E2E Two' }).check()

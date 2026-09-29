@@ -131,10 +131,11 @@ export function LibraryList({
     setMore(NO_MORE_FILTERS)
   }
 
+  // Select mode works the same in both views: the cards turn into
+  // checkboxes, or the List view shows its checkbox column.
+  const checking = selecting && !!selectMode
   const selectControls = selecting && items && items.length > 0 && scope === 'titles' && (
-    // Desktop List view has its own checkbox column; everywhere else the
-    // cards turn into checkboxes in select mode.
-    !table && (selectMode ? (
+    selectMode ? (
       <>
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={toggleAll}>
           {allChecked ? 'Select none' : 'Select all'}
@@ -149,7 +150,7 @@ export function LibraryList({
       <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelectModeChange(true)}>
         Select
       </button>
-    ))
+    )
   )
 
   return (
@@ -237,7 +238,7 @@ export function LibraryList({
                   <table>
                     <thead>
                       <tr>
-                        {selecting && (
+                        {checking && (
                           <th className="check-col">
                             <label className="check-hit">
                               <input type="checkbox" aria-label="Select all visible" checked={allChecked} onChange={toggleAll} />
@@ -257,7 +258,7 @@ export function LibraryList({
                         const title = dramaName(d)
                         return (
                           <tr key={d.id} className={d.id === selectedId ? 'selected' : undefined}>
-                            {selecting && (
+                            {checking && (
                               <td className="check-col">
                                 <label className="check-hit">
                                   <input
