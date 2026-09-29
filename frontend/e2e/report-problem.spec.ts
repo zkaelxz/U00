@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 
+import { ME } from './authMocks'
+
 // "Report a problem" (desktop): the header dialog and Diagnostics > Bug
 // reports. Every /api request is fulfilled or aborted here: /api/meta and
 // the bug-report calls are mocked, any other GET gets a mocked 404 and any
@@ -27,6 +29,7 @@ async function guard(page: Page, local = true): Promise<string[]> {
     if (r.method() === 'GET' && path === '/api/meta') {
       return route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local } })
     }
+    if (r.method() === 'GET' && path === '/api/auth/me') return route.fulfill({ json: ME.authOff })
     if (r.method() === 'GET') return route.fulfill({ status: 404, json: NOT_MOCKED })
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
