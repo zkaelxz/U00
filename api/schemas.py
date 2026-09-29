@@ -2698,3 +2698,42 @@ class LibraryStorageCleanResult(BaseModel):
     preset: str
     freed_bytes: int
     results: List[LibraryBulkItem]
+
+
+# ---------------------------------------------------------------------------
+# Review parity R39/R10: activate a saved translation version
+# (services/translation_version_service.py) and retry a content-blocked line
+# (services/blocked_retry_service.py)
+# ---------------------------------------------------------------------------
+
+class TranslationVersionActivateRequest(BaseModel):
+    """Overwrites the current English, so `confirm: true` (strict) is required."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class TranslationVersionActivateResult(BaseModel):
+    drama_id: int
+    version_id: int
+    label: str
+    activated: bool
+    lines_changed: int
+
+
+class BlockedRetryRequest(BaseModel):
+    """Retry one content-blocked line. No keys/URLs; the key is resolved on the PC."""
+    model_config = ConfigDict(extra="forbid")
+    engine: str = Field("ollama", min_length=1, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+    gemini_free_tier: Optional[bool] = None  # None: the saved setting
+
+
+class BlockedRetryResult(BaseModel):
+    drama_id: int
+    line_id: int
+    engine: str
+    model: Optional[str] = None
+    retried: bool = Field(description="True: translated, flag cleared.")
+    blocked: bool = Field(description="True: this engine blocked it too; flag note updated.")
+    reason: Optional[str] = None
+    line: ReviewLinesLine

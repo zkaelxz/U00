@@ -1,8 +1,11 @@
-import { memo, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent } from 'react'
 
+import { retryBlockedLine } from '../../../../api/review'
+import { translateApi } from '../../../../api/translate'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import type { ReviewLine } from '../../../../types/review'
+import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi, type AiMode } from './LineAi'
 import { LineOrigin } from './LineOrigin'
 import { CONFLICT_MESSAGE, formatTime, JOB_RUNNING_MESSAGE, type LineDraft } from './reviewLogic'
@@ -270,6 +273,9 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
               Add note
             </button>
           </div>
+          {line.flag === BLOCKED_FLAG && (
+            <BlockedRetry dramaId={dramaId} lineId={line.id} onRetried={actions.reload} />
+          )}
           <LineOrigin dramaId={dramaId} lineId={line.id} />
         </div>
       )}
@@ -317,3 +323,74 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
 }
 
 export const LineRow = memo(LineRowImpl)
+
+const BLOCKED_FLAG = 'content_blocked'
+const RETRY_DEFAULT_ENGINE = 'ollama'
+
+// A line an engine's content filter refused: retry just this line with
+// another engine (default Ollama, local, no cloud moderation). The drama's
+// own engine is unchanged. Success reloads the lines (the flag clears); a
+// second block keeps the flag and shows that engine's reason here.
+function BlockedRetry({ dramaId, lineId, onRetried }: { dramaId: number; lineId: number; onRetried: () => void }) {
+  const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
+  const [engine, setEngine] = useState(RETRY_DEFAULT_ENGINE)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  const [blockedAgain, setBlockedAgain] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    translateApi.engines().then(
+      (items) => {
+        if (cancelled) return
+        setEngines(items)
+        if (!items.some((e) => e.name === RETRY_DEFAULT_ENGINE) && items[0]) setEngine(items[0].name)
+      },
+      () => !cancelled && setEngines([]),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const retry = () => {
+    setBusy(true)
+    setError(null)
+    setBlockedAgain(null)
+    retryBlockedLine(dramaId, lineId, engine)
+      .then(
+        (r) => {
+          if (r.retried) onRetried()
+          else setBlockedAgain(`${r.engine} also blocked this line${r.reason ? `: ${r.reason}` : '.'}`)
+        },
+        setError,
+      )
+      .finally(() => setBusy(false))
+  }
+
+  const options = engines && engines.length > 0 ? engines : [{ name: RETRY_DEFAULT_ENGINE, label: RETRY_DEFAULT_ENGINE, free: true }]
+  return (
+    <div className="review-retry" data-testid="blocked-retry">
+      <p className="muted">Blocked by the engine's content filter. Retry just this line with another engine:</p>
+      <div className="review-actions">
+        <select aria-label="Retry engine" value={engine} disabled={busy} onChange={(e) => setEngine(e.target.value)}>
+          {options.map((e) => (
+            <option key={e.name} value={e.name}>
+              {e.name}
+              {e.free ? ' (free)' : ''}
+            </option>
+          ))}
+        </select>
+        <button type="button" disabled={busy} aria-busy={busy || undefined} onClick={retry}>
+          {busy ? 'Retrying…' : 'Retry line'}
+        </button>
+      </div>
+      {blockedAgain && (
+        <p className="error" role="status" data-testid="blocked-again">
+          {blockedAgain}
+        </p>
+      )}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
+  )
+}
