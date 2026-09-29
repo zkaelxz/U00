@@ -30,6 +30,8 @@ baihe-subtitler/
 ├── constraints.txt               upper bounds for packages that have broken this app before
 ├── start.bat                     one-click Windows launcher
 ├── start.ps1                     PowerShell version of the launcher (start.bat is primary)
+├── start-react.bat               one-command Windows launcher for the React app: builds frontend/dist once,
+│                                 runs `python -m api`, opens http://127.0.0.1:8600/ (untested on Windows)
 ├── make_lock.bat                 snapshots installed package versions to constraints.lock.txt
 ├── make_shortcut.bat             creates a desktop shortcut to start.bat
 ├── uninstall.bat                 this app has no registry/Program Files footprint to clean up
@@ -265,7 +267,9 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/SERVE_FRONTEND
+│   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
+│   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/

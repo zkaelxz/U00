@@ -25,6 +25,10 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 - `BAIHE_API_CORS_ORIGINS` -- comma-separated origins allowed in
   development. Defaults to the Vite dev/preview servers on loopback.
   A literal `*` is refused, not honoured.
+- `BAIHE_API_SERVE_FRONTEND` (`1`/`0`, default on) -- serve the built
+  React app (`frontend/dist`) at `/` from the same process. Has no
+  effect when `frontend/dist/index.html` doesn't exist (API only).
+  Unrelated to CORS and to the host binding.
 """
 
 import os
@@ -44,6 +48,7 @@ class ApiSettings:
     port: int = DEFAULT_PORT
     environment: str = "production"
     cors_origins: tuple = field(default_factory=tuple)
+    serve_frontend: bool = True
 
     @property
     def is_development(self) -> bool:
@@ -77,4 +82,12 @@ def load_settings(environ=None) -> ApiSettings:
         if "*" in origins:
             raise ValueError("BAIHE_API_CORS_ORIGINS may not be '*'; list the real origins.")
         cors_origins = tuple(origins)
-    return ApiSettings(host=host, port=port, environment=environment, cors_origins=cors_origins)
+    serve_text = (env.get("BAIHE_API_SERVE_FRONTEND") or "1").strip().lower()
+    if serve_text in ("1", "true", "yes", "on"):
+        serve_frontend = True
+    elif serve_text in ("0", "false", "no", "off"):
+        serve_frontend = False
+    else:
+        raise ValueError(f"BAIHE_API_SERVE_FRONTEND must be 1 or 0, got {serve_text!r}")
+    return ApiSettings(host=host, port=port, environment=environment,
+                       cors_origins=cors_origins, serve_frontend=serve_frontend)

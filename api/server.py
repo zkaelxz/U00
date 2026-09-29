@@ -53,9 +53,10 @@ from api.routers import (
     translate_run_routes,
 )
 from api.schemas import API_VERSION
+from api.static_frontend import install_frontend
 
 
-def create_app(settings: ApiSettings = None) -> FastAPI:
+def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
     safe to call at import time and in tests; the library is opened
     lazily by the first request that needs it (`db._ensure_ready`)."""
@@ -105,6 +106,8 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
     app.include_router(restructure_routes.router)
+    if settings.serve_frontend:
+        install_frontend(app, frontend_dist)  # last: /api routes match first
     return app
 
 
