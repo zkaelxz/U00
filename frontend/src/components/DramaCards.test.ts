@@ -26,8 +26,8 @@ describe('DramaCards', () => {
 
   it('shows status badge and one type/lang line, no tags', () => {
     const out = html([drama({})])
-    expect(out).toContain('<span class="badge">translated</span>')
-    expect(out).toContain('audio drama · zh')
+    expect(out).toContain('<span class="badge">Translated</span>')
+    expect(out).toContain('Audio drama · Chinese')
     expect(out).not.toContain('fav')
   })
 
