@@ -750,6 +750,10 @@ def doctor_report(engines: list) -> list:
 _PATH_PATTERN = re.compile(
     r'(?:[A-Za-z]:)?[\\/](?:[^\s\\/:*?"<>|]+[\\/])+([^\s\\/:*?"<>|]+)')
 
+# ANSI escape sequences (CSI: colours, cursor moves), e.g. yt-dlp's
+# "\x1b[0;31mERROR:\x1b[0m" -- unreadable noise in a report or log view.
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
 
 def redact_for_support(text: str) -> str:
     """Same secret redaction the rest of the app already uses for stored
@@ -757,9 +761,11 @@ def redact_for_support(text: str) -> str:
     username replaced with [USER], and every absolute filesystem path
     (POSIX or Windows) collapsed to just its last path segment prefixed
     with ".../" -- enough to stay readable without exposing the folder
-    structure (or a username embedded in it) underneath."""
+    structure (or a username embedded in it) underneath. ANSI colour
+    codes are stripped first."""
     import translate_engines
-    text = translate_engines.redact_secrets(text or "")
+    text = _ANSI_PATTERN.sub("", text or "")
+    text = translate_engines.redact_secrets(text)
     username = getpass.getuser()
     if username:
         text = re.sub(re.escape(username), "[USER]", text, flags=re.IGNORECASE)
