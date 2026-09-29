@@ -11,9 +11,11 @@ import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
 import {
-  MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, groupHistory, showFold, validateCreate,
-  type CreateExtras,
+  MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
+  validateCreate, type CreateExtras,
 } from './libraryForm'
+import { savePresetStart } from './workspace/translateForm'
+import { lineNumber } from '../lineNumber'
 
 const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
   d.title_en || d.title_zh || `#${d.id ?? ''}`
@@ -171,7 +173,7 @@ function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
         {hits?.map((h) => (
           <li key={`${h.drama_id}-${h.idx}`}>
             <button type="button" className="link" onClick={() => onSelect(h.drama_id)}>
-              {name({ ...h, id: h.drama_id })} #{h.idx}
+              {name({ ...h, id: h.drama_id })} #{lineNumber(h.idx)}
             </button>{' '}
             {h.zh} {h.en && <span className="muted">{h.en}</span>}
           </li>
@@ -212,6 +214,7 @@ function CreateForm({ onCreated, reloadKey }: { onCreated: (id: number) => void;
         setForm({ ...form, title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '' })
         setExtras(NO_EXTRAS)
         setOpen(false)
+        savePresetStart(d.id, d.preset_defaults)
         onCreated(d.id)
       },
       (err: unknown) => setError(err),
@@ -274,7 +277,7 @@ function CreateForm({ onCreated, reloadKey }: { onCreated: (id: number) => void;
                 </Field>
               )}
               {!!presets.data?.items.length && (
-                <Field label="Preset" help="Applies the preset's translation engine to the new drama.">
+                <Field label="Preset" help="Saves the preset's translation engine on the new drama, and starts its Translate stage with the preset's style and locale.">
                   <select value={extras.preset} onChange={setExtra('preset')}>
                     <option value="">No preset</option>
                     {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -298,6 +301,7 @@ function CreateForm({ onCreated, reloadKey }: { onCreated: (id: number) => void;
 export default function LibraryPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [notice, setNotice] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
 
   return (
@@ -311,8 +315,14 @@ export default function LibraryPage() {
         <DramaDetailPanel
           key={selectedId}
           dramaId={selectedId}
-          onDeleted={() => { setSelectedId(null); reload() }}
+          onDeleted={(r) => { setNotice(deleteNotice(r)); setSelectedId(null); reload() }}
         />
+      )}
+      {notice && (
+        <p className="panel wide warn" role="status" data-testid="delete-notice">
+          {notice}{' '}
+          <button type="button" className="link" onClick={() => setNotice(null)}>Dismiss</button>
+        </p>
       )}
       <MoreSections reloadKey={reloadKey} />
       <LineSearch onSelect={setSelectedId} />

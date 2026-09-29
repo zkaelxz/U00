@@ -177,7 +177,7 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
 │   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
-│   ├── library_admin_service.py  E0 destructive/admin Library actions (no router yet): bulk status/
+│   ├── library_admin_service.py  E0 destructive/admin Library actions (router: library_admin_routes.py): bulk status/
 │   │                             tags/delete, bulk translate start, export-zip and backup jobs,
 │   │                             restore (validated first), storage scan/cleanup; typed confirms,
 │   │                             running-job refusal, per-drama results, never returns paths
@@ -272,6 +272,8 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
+│   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
+│   │                             text; delete version, series character, bug bundle, preset, voice bank
 │   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
@@ -317,6 +319,9 @@ baihe-subtitler/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta
 │       ├── library_routes.py     /api/library/dramas[/{id}]
+│       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
+│       │                         translate, export + backup jobs, artifacts[/info] download, restore
+│       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
@@ -367,6 +372,7 @@ baihe-subtitler/
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
+│       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
@@ -385,8 +391,17 @@ baihe-subtitler/
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
-│   ├── src/api/                   client.ts (all HTTP) + types.ts (mirrors api/schemas.py)
-│   ├── src/components/            LibraryList, DramaDetailPanel
+│   ├── src/api/                   client.ts (all HTTP) + types.ts (mirrors api/schemas.py); one <area>.ts per
+│   │                              API area, e.g. review.ts, restructure.ts (add/delete/merge/split/re-segment/
+│   │                              restore), media.ts (Range stream URLs); types in src/types/<area>.ts
+│   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
+│   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm)
+│   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
+│   │                              usePersistedState (per-viewer prefs in localStorage)
+│   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
+│   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
+│   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
+│   │                              reviewLogic.ts (pure, unit-tested)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

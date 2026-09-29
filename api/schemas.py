@@ -168,6 +168,13 @@ class JobRecord(BaseModel):
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     updated_at: float
+    # A redacted, allowlisted projection of the job's result dict
+    # (services/jobs_service.project_result) plus a normalised outcome
+    # (ok | failed | cancelled | partial | kept_existing), so a "done" job
+    # that actually failed or was cancelled does not look like a success.
+    result: Optional[Dict[str, Any]] = None
+    outcome: Optional[str] = None
+    outcome_message: Optional[str] = None
 
 
 class JobListResponse(BaseModel):
@@ -1079,6 +1086,8 @@ class MediaUploadResult(BaseModel):
     name: str
     size: int
     kind: str
+    # B-09: set for a video -- the background audio-extraction job to poll.
+    job_id: Optional[str] = None
 
 
 class NarrationEngineOption(BaseModel):
@@ -2373,6 +2382,60 @@ class ReaderAskRequest(ReaderEngineFields):
 
 
 # ---------------------------------------------------------------------------
+# PC-only delete routes (migration handoff "Next queue" item 2)
+# ---------------------------------------------------------------------------
+
+class DeleteConfirm(BaseModel):
+    """Body of every PC-only delete: the Streamlit buttons are gated by a
+    plain Confirm checkbox, so `confirm: true` (strict) is the whole bar."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class MediaRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    audio_file_removed: bool
+    video_file_removed: bool
+    has_audio: bool
+    has_video: bool
+
+
+class RawNovelRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    has_raw_novel_context: bool
+
+
+class TranslationVersionDeleteResult(BaseModel):
+    drama_id: int
+    version_id: int
+    deleted: bool
+    was_active: bool
+
+
+class SeriesCharacterDeleteResult(BaseModel):
+    series_id: int
+    character_id: int
+    deleted: bool
+
+
+class BugBundleDeleteResult(BaseModel):
+    bundle_id: int
+    deleted: bool
+
+
+class PresetDeleteResult(BaseModel):
+    preset_id: int
+    deleted: bool
+
+
+class VoiceBankDeleteResult(BaseModel):
+    entry_id: int
+    deleted: bool
+
+
+# ---------------------------------------------------------------------------
 # Route batch 2C: auto-tune speech splitting + glossary from novel
 # (imports kept local to this section so parallel slices don't collide on
 # the module's import line)
@@ -2460,3 +2523,165 @@ class NovelGlossaryApplyResult(BaseModel):
     overwritten: List[str]
     skipped_existing: List[str]
     unknown: List[str]
+
+
+# ---------------------------------------------------------------------------
+# Route batch 2A: library admin (bulk status/tags/delete/translate, export,
+# backup, artifacts, restore, storage) over services/library_admin_service.py
+# (imports kept local to this section so parallel slices don't collide on
+# the module's import line)
+# ---------------------------------------------------------------------------
+
+from enum import Enum  # noqa: E402
+from typing import Literal  # noqa: E402
+
+import db as _db  # noqa: E402
+import storage as _storage  # noqa: E402
+from services.library_admin_service import MAX_BULK_IDS as _MAX_BULK_IDS  # noqa: E402
+from services.library_admin_service import STATUSES as _LIBRARY_STATUSES  # noqa: E402
+
+LibraryDramaIds = Annotated[List[Annotated[StrictInt, Field(ge=1, le=2**31 - 1)]],
+                            Field(min_length=1, max_length=_MAX_BULK_IDS)]
+LibraryStatus = Literal[_LIBRARY_STATUSES]
+LibraryListTag = Literal[tuple(_db.ORGANIZATIONAL_TAGS)]
+LibraryStoragePreset = Literal[tuple(_storage.STORAGE_QUALITY_PRESETS)]
+
+
+class LibraryArtifactKind(str, Enum):
+    backup = "backup"
+    export = "export"
+    database = "database"
+
+
+class LibraryBulkStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    status: LibraryStatus
+
+
+class LibraryBulkTagRequest(BaseModel):
+    """Adds (present=true) or removes one organizational list tag."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    tag: LibraryListTag
+    present: StrictBool
+
+
+class LibraryBulkDeleteRequest(BaseModel):
+    """Needs confirm=true and confirm_text "DELETE"."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    confirm: StrictBool = False
+    confirm_text: str = Field("", max_length=32)
+
+
+class LibraryBulkTranslateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: LibraryDramaIds
+    default_locale: str = Field("en-US", max_length=5)
+
+
+class LibraryExportRequest(BaseModel):
+    """drama_ids omitted: every translated/dubbed/exported drama."""
+    model_config = ConfigDict(extra="forbid")
+    drama_ids: Optional[LibraryDramaIds] = None
+
+
+class LibraryBackupRequest(BaseModel):
+    """database_only=true: the database snapshot alone (fast, small)."""
+    model_config = ConfigDict(extra="forbid")
+    database_only: StrictBool = False
+
+
+class LibraryStorageCleanRequest(BaseModel):
+    """Needs confirm=true and confirm_text "CLEAN"."""
+    model_config = ConfigDict(extra="forbid")
+    preset: LibraryStoragePreset
+    confirm: StrictBool = False
+    confirm_text: str = Field("", max_length=32)
+
+
+class LibraryBulkItem(BaseModel):
+    """One requested drama's outcome. error: not_found, job_running,
+    delete_failed or not_translated."""
+    drama_id: int
+    ok: bool
+    error: Optional[str] = None
+    message: Optional[str] = None
+    warning: Optional[str] = None
+    freed_bytes: Optional[int] = None
+
+
+class LibraryBulkResult(BaseModel):
+    results: List[LibraryBulkItem]
+    updated: int
+
+
+class LibraryBulkDeleteResult(BaseModel):
+    results: List[LibraryBulkItem]
+    deleted: int
+
+
+class LibraryBulkTranslateSkip(BaseModel):
+    drama_id: int
+    reason: str
+
+
+class LibraryBulkTranslateStarted(BaseModel):
+    job_id: str
+    queued: List[int]
+    skipped: List[LibraryBulkTranslateSkip]
+
+
+class LibraryExportStarted(BaseModel):
+    job_id: str
+    drama_ids: List[int]
+    results: Optional[List[LibraryBulkItem]] = None
+
+
+class LibraryJobStarted(BaseModel):
+    job_id: str
+
+
+class LibraryArtifactInfo(BaseModel):
+    """The newest finished file of one kind. Never a path."""
+    kind: LibraryArtifactKind
+    name: str
+    size: int
+
+
+class LibraryRestoreDone(BaseModel):
+    restored: bool
+    sessions_revoked: int
+
+
+class LibraryStorageCategory(BaseModel):
+    key: str
+    label: str
+    note: str
+    bytes: int
+    selected: bool
+
+
+class LibraryStorageDrama(BaseModel):
+    drama_id: int
+    total_bytes: int
+    would_free_bytes: int
+    job_running: bool
+
+
+class LibraryStorageScan(BaseModel):
+    """Dry run: nothing is removed."""
+    preset: str
+    categories_to_clean: List[str]
+    total_bytes: int
+    reclaimable_bytes: int
+    would_free_bytes: int
+    categories: List[LibraryStorageCategory]
+    per_drama: List[LibraryStorageDrama]
+
+
+class LibraryStorageCleanResult(BaseModel):
+    preset: str
+    freed_bytes: int
+    results: List[LibraryBulkItem]
