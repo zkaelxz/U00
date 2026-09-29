@@ -89,6 +89,40 @@ export function saveSourceForm(dramaId: number, state: SourceFormState): void {
   }
 }
 
+// Values the API falls back to (services/transcribe_service.py _DEFAULT_TUNING);
+// the Advanced summary lists only what differs from them.
+export interface AdvancedValues {
+  beam_size: string
+  min_silence_ms: string
+  vad_threshold: string
+  hardsub_interval_sec: string
+  alignment_method: string
+  asr_backend_choice: string
+  separation_backend: string
+  separate_vocals_first: boolean
+  realign_long_segments: boolean
+  whisper_fast_mode: boolean
+  use_groq: boolean
+  prompt: string
+}
+
+export function advancedSummary(v: AdvancedValues): string {
+  const parts: string[] = []
+  if (Number(v.beam_size) !== 5) parts.push(`beam ${v.beam_size}`)
+  if (Number(v.min_silence_ms) !== 300) parts.push(`min silence ${v.min_silence_ms} ms`)
+  if (Number(v.vad_threshold) !== 0.5) parts.push(`VAD ${v.vad_threshold}`)
+  if (Number(v.hardsub_interval_sec) !== 1) parts.push(`hardsub every ${v.hardsub_interval_sec} s`)
+  if (v.alignment_method !== 'whisper_diff') parts.push(v.alignment_method)
+  if (v.asr_backend_choice !== 'whisper') parts.push(v.asr_backend_choice)
+  if (v.separation_backend !== 'auto') parts.push(`separation ${v.separation_backend}`)
+  if (v.separate_vocals_first) parts.push('separate vocals')
+  if (v.realign_long_segments) parts.push('realign')
+  if (v.whisper_fast_mode) parts.push('fast mode')
+  if (v.use_groq) parts.push('Groq')
+  if (v.prompt.trim()) parts.push('initial prompt')
+  return parts.length ? parts.join(' · ') : 'defaults'
+}
+
 // Job ids a Source-stage run can be reattached to (services/transcribe_service.py,
 // services/diarization_service.py).
 export const sourceJobIds = (dramaId: number) => [`transcribe_${dramaId}`, `diarize_${dramaId}`]

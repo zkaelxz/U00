@@ -1,0 +1,9 @@
+.source-panel { display: grid; gap: var(--space-3); }
+.source-panel > * { margin: 0; }
+.source-panel h3 { margin: 0; }
+.source-file { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; min-width: 0; }
+.source-file input[type='file'] { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-3); min-width: 0; }
+.source-checks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.source-panel .check { display: flex; align-items: center; gap: var(--space-2); }
+.source-summary { overflow-wrap: anywhere; }
