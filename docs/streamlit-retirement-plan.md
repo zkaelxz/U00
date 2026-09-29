@@ -115,3 +115,25 @@ Decisions needed (ranked): 1. Scanlate: port, defer past the removal date, or dr
 - **Frontend delivery:** a prebuilt release zip built locally (users need no Node). Actions minutes are exhausted, so CI cannot build it.
 - **Freeze (in force from 2026-09-29):** no new features, polish or tests in `tabs/`, `ui/`, `ui_theme.py`, `common.py`, `app.py`. Allowed: crash or data-loss fixes that block the migration (state the justification in the PR), deletions, and extraction to services. New logic is service-first.
 - **Still open (need the user):** approval of the prune list in section 3 (items 1-2 and the Live and Scanlate rows are decided above; the media types, export extras, Diagnostics extras, Sources leftovers and Discover D-2 extras are not), the default-pass rule for real-device checks, the LAN/phone gap (recommendation: do not expose an unauthenticated API), the extension-bridge interim (recommended: API-started `page_server`), profiles (26e), who owns the chapter scheduler, and whether the planning-branch roadmap is copied into `docs/history/`.
+
+## 9. Revised approach: delete early, rebuild in React (user, 2026-09-29)
+
+The user approved deleting the Streamlit UI as soon as the new app can be launched, instead of waiting for React parity and real-device checks. Nobody uses Streamlit; the React app is the only UI going forward, and gaps are fixed there. This supersedes the per-milestone "delete after parity and after the user's checks" gating in section 4.
+
+Guardrails:
+1. **Launcher first (M0-b).** One command starts the API and serves the prebuilt frontend; the API starts the extension bridge (`page_server`) and the chapter-check scheduler, which today only Streamlit starts (`settings_tab.py:450`, `sources_tab.py:975`). No tab is deleted before this works.
+2. **Archive.** Before the first deletion PR, tag the last commit that has Streamlit as `pre-streamlit-removal` and push a `legacy/streamlit` branch at that commit. Anyone can check it out to compare behaviour or lift code back.
+3. **Feature inventory.** `docs/streamlit-feature-inventory.md` lists, per tab and per Workspace stage, what the UI did, its source lines at the tag, the tests that covered it, and what React lacks. The missing items become the React backlog, ranked by use.
+4. **Keep logic tests.** Tests that check real logic are moved to run against services before their tab test file is deleted; only widget/render tests are deleted.
+5. **Real-device checks** become a React checklist in the handoff ("owed to the user") rather than a deletion gate.
+
+Sequence: step 133 and the three pending branches (B-04/B-05, slice 51, slice 52) merge; M0-b (startup hooks, single launcher, release zip); inventory, tag and test triage; one series of deletion PRs (all tabs, `app.py`, `common.py`, `ui_theme.py`, `ui/`, `.streamlit/`, the `streamlit`/`pandas`/canvas dependencies, launcher and doc references); then the React backlog. Expected removal: about 2026-10-05 to 10-08. The 2026-10-30 date now applies to closing the highest-ranked React gaps rather than to deletion.
+
+Until React catches up, these are unavailable: video URL import, Reader, the Sources and Discover screens, media playback, vertical/shorts and package export, Live (planned port) and Scanlate (held until after removal).
+
+## 10. Prune decisions (user, 2026-09-29)
+
+- **Vertical/shorts export and "package" export: dropped.** Not ported to React; they go with `tabs/workspace_tab.py` (~l.5971, ~l.6032). The feature inventory marks them DROPPED, not MISSING.
+- **Media types: `music` and `other` removed from the new-drama picker** (`frontend/src/pages/libraryForm.ts`). The API still accepts both (`services/drama_service.py` `MEDIA_TYPE_OPTIONS`) so existing dramas keep loading and saving, and Discover imports that map a `game` title to `other` keep working.
+- **Household profile picker (Step 26e): dropped.** Google sign-in (steps 133-134) replaces it for telling household members apart. The picker is not ported; per-profile data already in the database is left in place and not migrated. Reader and notes features in React are per library, not per profile, until per-user data is designed on top of the Google users.
+- Still open from section 3: Diagnostics extras (benchmark, bug bundles, App Assistant), the Sources leftovers, Discover D-2 extras, the default-pass rule, the LAN/phone gap, the extension-bridge interim, the chapter scheduler owner, the roadmap history copy.
