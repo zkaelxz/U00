@@ -554,7 +554,10 @@ class DramaCreateRequest(BaseModel):
 class DramaMetadataUpdate(BaseModel):
     """Partial metadata update: only fields present in the body are applied.
     Unknown keys (status, content_mode, *_filename, ...) are rejected. For
-    `chapter_count`/`episode_number`, 0 clears the value."""
+    `chapter_count`/`episode_number`, 0 clears the value; `series_id` 0
+    takes the drama out of its series. `new_series_name` ("+ New series")
+    moves it into the series of that name, created for the caller if none
+    exists; not together with `series_id`."""
     model_config = ConfigDict(extra="forbid")
     title_en: Optional[str] = Field(default=None, max_length=300)
     title_zh: Optional[str] = Field(default=None, max_length=300)
@@ -572,7 +575,8 @@ class DramaMetadataUpdate(BaseModel):
     episode_number: Optional[int] = Field(default=None, ge=0, le=2147483647)
     media_type: Optional[str] = None
     publication_status: Optional[str] = None
-    series_id: Optional[int] = Field(default=None, ge=1, le=2147483647)
+    series_id: Optional[int] = Field(default=None, ge=0, le=2147483647)
+    new_series_name: Optional[str] = Field(default=None, max_length=300)
 
 
 class DramaPresetDefaults(BaseModel):
