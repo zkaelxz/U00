@@ -1,55 +1,16 @@
-// Human labels for raw values the API returns (status, media type, language
-// code, engine id), so the UI never shows "streamer_vod" or "zh". Unknown
-// values fall back to a tidied form ("new_thing" -> "New thing").
+// Badge helpers over the shared label maps in src/labels.ts (one source of
+// truth for display labels). Unknown values fall back to a tidied form
+// ("new_thing" -> "New thing").
 
-const MEDIA_TYPE: Record<string, string> = {
-  audio_drama: 'Audio drama',
-  video_drama: 'Video drama',
-  anime: 'Anime',
-  novel: 'Novel',
-  novel_narration: 'Novel narration',
-  manhwa: 'Manhwa',
-  manga: 'Manga',
-  manhua: 'Manhua',
-  asmr: 'ASMR',
-  streamer_vod: 'Streamer VOD',
-  music: 'Music',
-  game: 'Game',
-  other: 'Other',
-}
-
-const LANGUAGE: Record<string, string> = {
-  zh: 'Chinese',
-  'zh-hans': 'Chinese (Simplified)',
-  'zh-hant': 'Chinese (Traditional)',
-  ja: 'Japanese',
-  ko: 'Korean',
-  en: 'English',
-}
-
-const ENGINE: Record<string, string> = {
-  claude: 'Claude',
-  deepseek: 'DeepSeek',
-  gemini: 'Gemini',
-  deepl: 'DeepL',
-  google: 'Google',
-  groq: 'Groq',
-  openai: 'OpenAI',
-  ollama: 'Ollama',
-  libretranslate: 'LibreTranslate',
-  hf_token: 'Hugging Face token',
-  ollama_url: 'Ollama URL',
-  libretranslate_url: 'LibreTranslate URL',
-  gpt_sovits_url: 'GPT-SoVITS URL',
-}
+import { ENGINE_LABELS, LANGUAGE_LABELS, MEDIA_TYPE_LABELS, STATUS_LABELS } from '../labels'
 
 export type LabelKind = 'status' | 'mediaType' | 'language' | 'engine'
 
 const MAPS: Record<LabelKind, Record<string, string>> = {
-  status: {},
-  mediaType: MEDIA_TYPE,
-  language: LANGUAGE,
-  engine: ENGINE,
+  status: STATUS_LABELS,
+  mediaType: MEDIA_TYPE_LABELS,
+  language: LANGUAGE_LABELS,
+  engine: ENGINE_LABELS,
 }
 
 // "not started" / "not_started" / "NOT-STARTED" -> "Not started"
