@@ -1,8 +1,11 @@
-// Pure logic and copy for the Sources page (docs spec ux-sources-diagnostics §1).
+// Pure logic and copy for the Sources page.
 // No React here, so everything is unit-tested in sourcesFormat.test.ts.
 import { ApiError } from '../../api/client'
 import { safeDetail } from '../../components/errorMessages'
+import type { DramaSummary } from '../../api/types'
+import { humanizeValue } from '../../components/labels'
 import type {
+  CheckResult,
   SeriesChapter,
   OpenSeries,
   SeriesInfo,
@@ -12,7 +15,9 @@ import type {
   SourcesSettings,
   SourcesSettingsUpdate,
   SourceSummary,
+  SourceTier,
   SourceTierResult,
+  TierTestResult,
 } from '../../types/sources'
 
 // Remote viewers may not search sources until step 133 (docs/remote-access-
@@ -139,14 +144,7 @@ export function healthText(light: string): string {
   if (light === 'green') return 'OK'
   if (light === 'yellow') return 'Failing'
   if (light === 'red') return 'Paused'
-  return humanize(light)
-}
-
-/** "UNTESTED" -> "Untested", "STATIC_HTTP" -> "Static http". */
-export function humanize(value: string | null | undefined): string {
-  if (!value) return '—'
-  const t = String(value).replace(/_/g, ' ').toLowerCase()
-  return t.charAt(0).toUpperCase() + t.slice(1)
+  return humanizeValue(light)
 }
 
 // ---------------------------------------------------------------- series
@@ -275,10 +273,10 @@ const TIER_LABELS: Record<string, string> = {
 
 export function tierLines(tiers: Record<string, SourceTierResult>): string[] {
   return Object.entries(tiers).map(([key, t]) => {
-    const label = TIER_LABELS[key] ?? humanize(key)
+    const label = TIER_LABELS[key] ?? humanizeValue(key)
     if (!t.tested) return `${label}: untested`
     if (t.ok) return `${label}: works`
-    const why = t.reason ? humanize(t.reason).toLowerCase() : ''
+    const why = t.reason ? humanizeValue(t.reason).toLowerCase() : ''
     return `${label}: failed${why ? ` (${why})` : ''}`
   })
 }
@@ -451,4 +449,66 @@ export function profileLine(v: {
     parts.push(`${v.failures} failure${v.failures === 1 ? '' : 's'}${v.last_failure_reason ? ` (${v.last_failure_reason})` : ''}`)
   }
   return parts.join(' · ')
+}
+
+// "Check now" (sources_chapter_check): one line for the finished run.
+export function checkSummary(r: CheckResult): string {
+  if (r.skipped) return 'Another check was already running, so this one checked nothing.'
+  const parts = [`Checked ${r.checked} series`]
+  parts.push(r.new ? `${r.new} new chapter${r.new === 1 ? '' : 's'}` : 'no new chapters')
+  if (r.queued.length) parts.push(`importing into ${r.queued.length} drama${r.queued.length === 1 ? '' : 's'}`)
+  const failed = Object.keys(r.errors).length
+  if (failed) parts.push(`${failed} failed`)
+  return parts.join(' · ') + '.'
+}
+
+// Which dramas a tracked series can auto-import into (same rule as an import).
+export function trackedDramaChoices(dramas: DramaSummary[], source: SourceSummary | undefined): DramaSummary[] {
+  if (!source) return []
+  const comic = source.supports.get_pages
+  const ok = comic ? ['manhua', 'manga', 'manhwa'] : ['novel']
+  return dramas.filter((d) => ok.includes((d.media_type ?? '').toLowerCase()))
+}
+
+// The per-tier "Test now" buttons, in ladder order.
+export const TIER_TESTS: { tier: SourceTier; key: string }[] = [
+  { tier: 'static', key: 'STATIC_HTTP' },
+  { tier: 'browser', key: 'RENDERED_BROWSER' },
+  { tier: 'signed_in', key: 'AUTHENTICATED_BROWSER' },
+]
+export const tierLabel = (tier: SourceTier) => TIER_LABELS[TIER_TESTS.find((t) => t.tier === tier)!.key]
+
+export function tierTestLine(r: TierTestResult): string {
+  const label = tierLabel(r.tier)
+  if (r.ok) return `${label}: works.`
+  const why = r.reason ? humanizeValue(r.reason).toLowerCase() : 'failed'
+  return `${label}: ${why}${r.detail ? ` (${r.detail})` : ''}.`
+}
+
+// A pasted page for sign-in / tests: a plain http(s) URL (the server checks the site).
+export function pageUrlProblem(text: string): string | null {
+  const t = text.trim()
+  if (!t) return null
+  try {
+    const u = new URL(t)
+    return u.protocol === 'http:' || u.protocol === 'https:' ? null : 'Use an http:// or https:// address.'
+  } catch {
+    return 'Paste a full address, starting with https://.'
+  }
+}
+
+// The proxy field: "" clears it; otherwise http(s)://host[:port], nothing after.
+export function proxyProblem(text: string): string | null {
+  const t = text.trim()
+  if (!t) return null
+  try {
+    const u = new URL(t)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'HTTP(S) proxies only.'
+    if (!u.hostname || (u.pathname !== '/' && u.pathname !== '') || u.search || u.hash) {
+      return 'Just the address and port, e.g. http://127.0.0.1:8080.'
+    }
+    return null
+  } catch {
+    return 'Use an address like http://127.0.0.1:8080.'
+  }
 }
