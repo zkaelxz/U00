@@ -215,16 +215,18 @@ AUTOMATED_TIERS = [AccessTier.STATIC_HTTP, AccessTier.RENDERED_BROWSER,
                    AccessTier.AUTHENTICATED_BROWSER]
 
 
-def _refused_address(url: str) -> bool:
+def _refused_address(url: str):
     """True when `url` itself is not http(s) with only public addresses.
-    A name that doesn't resolve is left to the tiers (an ordinary failure)."""
+    "unresolved" when the name doesn't resolve here: the static tier may
+    still run and fail normally, but the browser tiers are dropped (B-28:
+    with split-horizon DNS Chromium could resolve it to a private IP)."""
     from services import url_guard
     try:
         url_guard.resolve_public(_ascii_url(url))
     except (url_guard.UnsafeURLError, UnsafeRedirect):
         return True
     except url_guard.URLResolveError:
-        return False
+        return "unresolved"
     return False
 
 
@@ -236,9 +238,12 @@ def run_ladder(url: str, tiers: dict, source: str = None, log: bool = True) -> L
     OFFICIAL_API is tried last, before UNAVAILABLE.
     """
     result = LadderResult(url=url)
-    if _refused_address(url):
-        # B-25: the browser tiers follow redirects unchecked, so a URL that
-        # is not public is never handed to any tier at all.
+    refused = _refused_address(url)
+    if refused == "unresolved":
+        tiers = {t: fn for t, fn in tiers.items()
+                 if t not in (AccessTier.RENDERED_BROWSER, AccessTier.AUTHENTICATED_BROWSER)}
+    elif refused:
+        # B-25: a URL that is not public is never handed to any tier at all.
         result.attempts.append(AttemptRecord(
             tier=AccessTier.STATIC_HTTP.value, ok=False,
             reason=FailureReason.ACCESS_DENIED.value, detail=REDIRECT_REFUSED,

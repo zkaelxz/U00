@@ -75,6 +75,13 @@ class FakePage:
         return self.ctx.launcher.site(self.url, self.ctx.signed_in())
 
 
+@pytest.fixture(autouse=True)
+def _public_dns(monkeypatch):
+    # B-28: an unresolvable start URL drops the browser tiers; these fake
+    # `.invalid` hosts stand for public sites, so resolve them.
+    monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+
+
 class FakeContext:
     def __init__(self, launcher, profile_dir, headless):
         self.launcher, self.profile_dir, self.headless = launcher, profile_dir, headless
@@ -83,6 +90,9 @@ class FakeContext:
 
     def signed_in(self) -> bool:
         return os.path.exists(os.path.join(self.profile_dir, SIGNED_IN_FILE))
+
+    def route(self, pattern, handler):
+        self.routes = getattr(self, "routes", []) + [(pattern, handler)]   # B-28 request guard
 
     def new_page(self):
         p = FakePage(self)
@@ -106,6 +116,13 @@ class FakePlaywright:
         self.stopped = True
 
 
+class _FakeProxy:
+    proxied = 1
+
+    def stop(self):
+        pass
+
+
 class FakeLauncher:
     """launcher(profile_dir, headless) -> (playwright, context)."""
 
@@ -119,6 +136,9 @@ class FakeLauncher:
         self.launches.append((profile_dir, headless))
         ctx = FakeContext(self, profile_dir, headless)
         self.contexts.append(ctx)
+        # Stands in for _launch_persistent's pinning proxy (B-28): _goto fails
+        # closed without one. It reports traffic, as a real proxied load would.
+        page_fetch._PROXIES[id(ctx)] = _FakeProxy()
         return FakePlaywright(), ctx
 
     @property
