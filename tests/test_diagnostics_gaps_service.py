@@ -272,3 +272,48 @@ def test_reset_runs_when_confirmed(monkeypatch):
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append("clear"))
     assert svc.reset_library(confirm=True)["ok"] is True
     assert calls == ["reset", "clear"]
+
+
+def test_admin_refuses_during_exclusive_hold_or_maintenance(monkeypatch):
+    _no_jobs(monkeypatch)
+    monkeypatch.setattr(db, "reset_library", lambda: pytest.fail("must not run"))
+    monkeypatch.setattr(diagnostics, "_stream_process", lambda *a, **k: pytest.fail("must not run"))
+    assert background_jobs.acquire_exclusive("Library restore")
+    try:
+        for call in (lambda: svc.reset_library(confirm=True, confirm_text="RESET"),
+                     lambda: svc.install_dependency("edge_tts", confirm=True)):
+            with pytest.raises(svc.AdminActionJobsRunning):
+                call()
+    finally:
+        background_jobs.release_exclusive()
+    assert background_jobs.enter_maintenance()
+    try:
+        with pytest.raises(svc.AdminActionJobsRunning):
+            svc.reset_library(confirm=True, confirm_text="RESET")
+    finally:
+        background_jobs.exit_maintenance()
+
+
+def test_reset_holds_the_library_exclusively(monkeypatch):
+    _no_jobs(monkeypatch)
+    seen = {}
+
+    def fake_reset():
+        seen["exclusive"] = background_jobs.exclusive_active()
+        seen["started"] = background_jobs.start_job("m3_probe", lambda: None)
+    monkeypatch.setattr(db, "reset_library", fake_reset)
+    assert svc.reset_library(confirm=True, confirm_text="RESET")["ok"] is True
+    assert seen == {"exclusive": True, "started": False}
+    assert background_jobs.exclusive_active() is False
+    background_jobs.clear_job("m3_probe")
+
+
+def test_reset_releases_the_hold_when_it_fails(monkeypatch):
+    _no_jobs(monkeypatch)
+
+    def boom():
+        raise OSError("disk")
+    monkeypatch.setattr(db, "reset_library", boom)
+    with pytest.raises(OSError):
+        svc.reset_library(confirm=True, confirm_text="RESET")
+    assert background_jobs.exclusive_active() is False

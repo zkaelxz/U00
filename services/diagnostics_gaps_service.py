@@ -226,20 +226,28 @@ class AdminActionJobsRunning(AdminActionRefused, ConflictError):
     pass
 
 
+def _maintenance_active() -> bool:
+    # background_jobs has no public reader for the counter that
+    # enter_maintenance()/exit_maintenance() keep.
+    return bool(getattr(background_jobs, "_maintenance_count", 0))
+
+
 PIP_TIMEOUT_SECONDS = diagnostics.UPGRADE_CHECK_PIP_TIMEOUT
 _pip_lock = threading.Lock()
 
 
 def _guard(confirm: bool):
-    """confirm=True, and no job running or queued here or (fresh
-    job_records rows) in another process -- the same rule as the Library
-    admin actions (library_admin_service._any_job_running)."""
+    """confirm=True; no exclusive hold (a library restore or reset) and no
+    maintenance operation (bulk delete, storage cleanup) in progress; and
+    no job running or queued here or (fresh job_records rows) in another
+    process -- the same rule as the Library admin actions
+    (library_admin_service._any_job_running)."""
     if confirm is not True:
         raise AdminActionUnconfirmed("Confirmation required.")
     from services import library_admin_service
-    # TODO: also refuse while background_jobs.exclusive_active() or the
-    # maintenance counter is held, once fix-library-admin-restore lands
-    # (neither exists on the base yet).
+    if background_jobs.exclusive_active() or _maintenance_active():
+        raise AdminActionJobsRunning(
+            "A library restore, reset or cleanup is in progress; try again when it ends.")
     if library_admin_service._any_job_running():
         raise AdminActionJobsRunning(
             "A background job is running or queued; wait for it to finish.")
@@ -323,6 +331,18 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
         raise AdminActionUnconfirmed(
             f'Resetting the library needs confirm=true and confirm_text "{RESET_CONFIRM_TEXT}".')
     _guard(confirm)
-    db.reset_library()
-    background_jobs.clear_all_jobs()
+    # Hold the library exclusively for the reset, as a restore does, so no
+    # job can start mid-reset (start_job refuses while the hold is taken).
+    if not background_jobs.acquire_exclusive("Library reset"):
+        raise AdminActionJobsRunning(
+            "A job, restore or cleanup is in progress; try again when it ends.")
+    try:
+        from services import library_admin_service
+        if library_admin_service._any_job_running():     # re-check under the hold
+            raise AdminActionJobsRunning(
+                "A background job is running or queued; wait for it to finish.")
+        db.reset_library()
+        background_jobs.clear_all_jobs()
+    finally:
+        background_jobs.release_exclusive()
     return {"ok": True, "reset_at": time.time()}
