@@ -82,7 +82,7 @@ test('history shows the last 5 until Show all', async ({ page }) => {
   const list = page.getByTestId('translate-history').locator('li')
   await expect(list).toHaveCount(5)
   await expect(list.first()).toContainText('Japanese → English · DeepSeek')
-  await page.getByRole('button', { name: 'Show all (7)' }).click()
+  await page.getByRole('button', { name: 'Show all 7' }).click()
   await expect(list).toHaveCount(7)
   await page.getByRole('button', { name: 'Show fewer' }).click()
   await expect(list).toHaveCount(5)

@@ -19,8 +19,10 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
 import {
+  HISTORY_LIMIT,
   HISTORY_PREVIEW,
   engineOptionLabel,
+  historyCount,
   historyLabel,
   historyTime,
   isDirection,
@@ -55,7 +57,7 @@ export default function TranslatePage() {
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
 
-  const refreshHistory = useCallback(() => translateApi.history().then(setHistory, setError), [])
+  const refreshHistory = useCallback(() => translateApi.history(HISTORY_LIMIT).then(setHistory, setError), [])
 
   useEffect(() => {
     translateApi.engines().then(setEngines, setError)
@@ -271,11 +273,9 @@ export default function TranslatePage() {
                   {loading ? 'Translating…' : 'The translation appears here.'}
                 </p>
               )}
-              {copied === 'failed' && (
-                <p className="translate-warning" role="status">
-                  Couldn't copy. Select the text and copy it instead.
-                </p>
-              )}
+              <p className={copied === 'failed' ? 'translate-warning' : 'visually-hidden'} role="status">
+                {copied === 'ok' ? 'Copied to the clipboard.' : copied === 'failed' ? "Couldn't copy. Select the text and copy it instead." : ''}
+              </p>
             </div>
           </div>
         </form>
@@ -284,7 +284,7 @@ export default function TranslatePage() {
       <Card
         className="translate-history-card"
         title="History"
-        meta={history.length > 0 ? `${history.length} saved, newest first` : undefined}
+        meta={history.length > 0 ? historyCount(history.length, HISTORY_LIMIT) : undefined}
         actions={
           history.length > 0 &&
           (pc === 'remote' ? (
@@ -328,7 +328,7 @@ export default function TranslatePage() {
                   aria-expanded={showAll}
                   onClick={() => setShowAll(!showAll)}
                 >
-                  {showAll ? 'Show fewer' : `Show all (${history.length})`}
+                  {showAll ? 'Show fewer' : `Show ${history.length >= HISTORY_LIMIT ? 'last' : 'all'} ${history.length}`}
                 </button>
               </div>
             )}

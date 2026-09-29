@@ -4,6 +4,7 @@ import type { TranslateEngine } from '../types/translate'
 import {
   HISTORY_PREVIEW,
   engineOptionLabel,
+  historyCount,
   historyLabel,
   historyTime,
   isDirection,
@@ -78,9 +79,17 @@ describe('history', () => {
     expect(historyLabel({ source_language: 'pt_br', target_language: '', engine: 'new_engine' })).not.toContain('_')
   })
 
-  it('shows the time to the minute without the ISO T', () => {
-    expect(historyTime('2026-09-29T18:31:05.123')).toBe('2026-09-29 18:31')
-    expect(historyTime('2026-09-29 12:00:00')).toBe('2026-09-29 12:00')
+  it('reads zone-less times as UTC and shows local time', () => {
+    const utc = new Date(Date.UTC(2026, 8, 29, 18, 31)).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+    expect(historyTime('2026-09-29T18:31:05.123', 'en-GB')).toBe(utc)
+    expect(historyTime('2026-09-29 18:31:05', 'en-GB')).toBe(utc)
+    expect(historyTime('2026-09-29T18:31:05Z', 'en-GB')).toBe(utc)
+    expect(historyTime('not a date')).toBe('not a date')
+  })
+
+  it('does not claim a total past the fetch limit', () => {
+    expect(historyCount(3, 50)).toBe('3 saved, newest first')
+    expect(historyCount(50, 50)).toBe('Last 50, newest first')
   })
 
   it('shows the first few until Show all', () => {

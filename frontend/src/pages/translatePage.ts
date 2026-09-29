@@ -7,8 +7,9 @@ import { NON_ENGLISH_LANGUAGES, engineShortName, usableEngines } from '../api/tr
 import { humanize } from '../components/labels'
 import type { TranslateDirection, TranslateEngine, TranslateHistoryEntry } from '../types/translate'
 
-/** History rows shown before "Show all". */
+/** History rows shown before "Show all", and how many are fetched. */
 export const HISTORY_PREVIEW = 5
+export const HISTORY_LIMIT = 50
 
 /** Picker text: the short name, plus "(no key)" when the engine can't run yet. */
 export function engineOptionLabel(engine: Pick<TranslateEngine, 'name' | 'key_configured'>): string {
@@ -55,9 +56,21 @@ export function historyLabel(h: Pick<TranslateHistoryEntry, 'source_language' | 
   return `${src} → ${tgt} · ${engineShortName({ name: h.engine })}`
 }
 
-/** "2026-09-29T18:31:05" or "2026-09-29 18:31:05" -> "2026-09-29 18:31". */
-export function historyTime(createdAt: string): string {
-  return createdAt.replace('T', ' ').slice(0, 16)
+/**
+ * The API stores naive UTC timestamps (datetime.utcnow().isoformat()), so a
+ * value without a zone is read as UTC and shown in the viewer's local time.
+ * Unparseable values are shown as they came.
+ */
+export function historyTime(createdAt: string, locale?: string): string {
+  const iso = createdAt.trim().replace(' ', 'T')
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`)
+  if (Number.isNaN(d.getTime())) return createdAt
+  return d.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+/** "50 saved" is only true below the fetch limit; at the limit say "last N". */
+export function historyCount(count: number, limit: number): string {
+  return count >= limit ? `Last ${count}, newest first` : `${count} saved, newest first`
 }
 
 /** The rows to render: the first HISTORY_PREVIEW unless "Show all" is on. */
