@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from . import detect, generic_import, ladder, registry
+from .base import host_url_search
 from .models import ContentType, SourceError
 
 VIDEO = "video"
@@ -77,7 +78,7 @@ def _og(html: str, prop: str) -> str:
 
 
 def is_video_url(url: str) -> bool:
-    return bool(_VIDEO_URL.search(url or ""))
+    return host_url_search([_VIDEO_URL.pattern], url, re.I)
 
 
 def classify_html(url: str, html: str) -> Preview:

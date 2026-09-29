@@ -782,6 +782,45 @@ def init_db():
         jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
         if "cancel_requested" not in jr_cols:
             _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
+        # Step 133: API users, permissions, server-side sessions, audit log.
+        # Additive only; nothing above is touched. Session ids / CSRF tokens
+        # are stored as SHA-256 hashes only (see services/auth_service.py).
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            google_sub TEXT UNIQUE,
+            email TEXT NOT NULL,
+            display_name TEXT DEFAULT '',
+            is_admin INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE TABLE IF NOT EXISTS user_permissions (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            permission TEXT NOT NULL,
+            PRIMARY KEY (user_id, permission)
+        );
+        CREATE TABLE IF NOT EXISTS auth_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_hash TEXT NOT NULL UNIQUE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at REAL NOT NULL,
+            expires_at REAL NOT NULL,
+            last_seen_at REAL NOT NULL,
+            user_agent_short TEXT DEFAULT '',
+            ip_prefix TEXT DEFAULT '',
+            csrf_hash TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            detail_redacted TEXT DEFAULT ''
+        );
+        """)
         # Lightweight migrations for DBs created before these columns existed
         existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(lines)").fetchall()}
         if "speaker" not in existing_cols:
@@ -3381,3 +3420,145 @@ def reset_library():
         os.remove(cedict_path)
     os.makedirs(DRAMAS_DIR, exist_ok=True)
     init_db()
+
+
+# ---------------------------------------------------------------------------
+# Step 133: auth storage (users, permissions, sessions, audit log).
+# Plain data access only; policy lives in services/auth_service.py. Every
+# writable column is whitelisted here because the UPDATE is built from keys.
+# ---------------------------------------------------------------------------
+
+_USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active")
+
+
+def auth_create_user(email: str, display_name: str = "", is_admin: bool = False) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO users (email, display_name, is_admin, is_active, created_at) "
+            "VALUES (?, ?, ?, 1, ?)",
+            (email, display_name or "", int(bool(is_admin)),
+             time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())))
+        conn.commit()
+        return cur.lastrowid
+
+
+def auth_update_user(user_id: int, **fields) -> bool:
+    bad = set(fields) - set(_USER_WRITABLE)
+    if bad:
+        raise ValueError(f"not a writable user field: {sorted(bad)}")
+    if not fields:
+        return False
+    sets = ", ".join(f"{k} = ?" for k in fields)   # keys are whitelisted above
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(f"UPDATE users SET {sets} WHERE id = ?", (*fields.values(), user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def auth_get_user(user_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def auth_get_user_by_email(email: str):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        return dict(row) if row else None
+
+
+def auth_get_user_by_sub(google_sub: str):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM users WHERE google_sub = ?", (google_sub,)).fetchone()
+        return dict(row) if row else None
+
+
+def auth_list_users():
+    with contextlib.closing(get_conn()) as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM users ORDER BY id").fetchall()]
+
+
+def auth_get_permissions(user_id: int):
+    with contextlib.closing(get_conn()) as conn:
+        return sorted(r[0] for r in conn.execute(
+            "SELECT permission FROM user_permissions WHERE user_id = ?", (user_id,)).fetchall())
+
+
+def auth_grant_permission(user_id: int, permission: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("INSERT OR IGNORE INTO user_permissions (user_id, permission) VALUES (?, ?)",
+                     (user_id, permission))
+        conn.commit()
+
+
+def auth_revoke_permission(user_id: int, permission: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("DELETE FROM user_permissions WHERE user_id = ? AND permission = ?",
+                     (user_id, permission))
+        conn.commit()
+
+
+def auth_insert_session(id_hash: str, user_id: int, created_at: float, expires_at: float,
+                        user_agent_short: str, ip_prefix: str, csrf_hash: str) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO auth_sessions (id_hash, user_id, created_at, expires_at, last_seen_at, "
+            "user_agent_short, ip_prefix, csrf_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (id_hash, user_id, created_at, expires_at, created_at, user_agent_short,
+             ip_prefix, csrf_hash))
+        conn.commit()
+        return cur.lastrowid
+
+
+def auth_get_session_by_hash(id_hash: str):
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute("SELECT * FROM auth_sessions WHERE id_hash = ?", (id_hash,)).fetchone()
+        return dict(row) if row else None
+
+
+def auth_touch_session(session_id: int, now: float):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE auth_sessions SET last_seen_at = ? WHERE id = ?", (now, session_id))
+        conn.commit()
+
+
+def auth_delete_session(session_id: int, user_id: int = None) -> bool:
+    """`user_id`, when given, scopes the delete to that user's own session."""
+    sql, args = "DELETE FROM auth_sessions WHERE id = ?", [session_id]
+    if user_id is not None:
+        sql += " AND user_id = ?"
+        args.append(user_id)
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(sql, args)
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def auth_delete_user_sessions(user_id: int) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cur.rowcount
+
+
+def auth_list_sessions(user_id: int):
+    """Never selects id_hash or csrf_hash."""
+    with contextlib.closing(get_conn()) as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT id, user_id, created_at, expires_at, last_seen_at, user_agent_short, "
+            "ip_prefix FROM auth_sessions WHERE user_id = ? ORDER BY id", (user_id,)).fetchall()]
+
+
+def auth_insert_audit(user_id, action: str, detail_redacted: str):
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("INSERT INTO audit_log (ts, user_id, action, detail_redacted) "
+                     "VALUES (?, ?, ?, ?)",
+                     (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), user_id, action,
+                      detail_redacted))
+        conn.commit()
+
+
+def auth_list_audit(limit: int = 100):
+    with contextlib.closing(get_conn()) as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()]

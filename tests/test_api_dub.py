@@ -112,3 +112,27 @@ def test_h3_pacing_accepts_float_ms(client, isolated_db):
     resp = client.get(f"/api/dub/dramas/{did}/pacing")
     assert resp.status_code == 200, resp.text
     assert resp.json()["lines"][0]["clip_ms"] == 950.5
+
+
+def test_track_download(client, isolated_db, tmp_path):
+    import db
+    did = _seed(db)
+    assert client.get(f"/api/dub/dramas/{did}/track").status_code == 404
+    _assert_error(client.get(f"/api/dub/dramas/{did}/track"))
+    assert client.get("/api/dub/dramas/9999/track").status_code == 404
+    import os
+    with open(os.path.join(db.drama_dir(did), "dub_track.wav"), "wb") as f:
+        f.write(b"RIFFdata")
+    r = client.get(f"/api/dub/dramas/{did}/track")
+    assert r.status_code == 200 and r.content == b"RIFFdata"
+    assert r.headers["content-disposition"] == f'attachment; filename="drama_{did}_dub_track.wav"'
+
+
+def test_track_symlink_is_404(client, isolated_db, tmp_path):
+    import os
+    import db
+    did = _seed(db)
+    outside = tmp_path / "secret.wav"
+    outside.write_bytes(b"x")
+    os.symlink(outside, os.path.join(db.drama_dir(did), "dub_track.wav"))
+    assert client.get(f"/api/dub/dramas/{did}/track").status_code == 404

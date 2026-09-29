@@ -2,7 +2,7 @@
 name: codebase-analyst
 description: Maps existing Baihe behavior, architecture, data flow, and relevant tests for substantial tasks; use before planning changes or when implementation context is unclear.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 effort: low
 ---
 

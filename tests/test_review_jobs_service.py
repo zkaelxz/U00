@@ -37,7 +37,7 @@ class FakeEngine:
 @pytest.fixture(autouse=True)
 def _env(isolated_db, monkeypatch):
     background_jobs.clear_all_jobs()
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
     monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: FakeEngine())
     yield
     background_jobs.clear_all_jobs()
@@ -205,7 +205,7 @@ def test_validation_errors(monkeypatch):
         svc.start_flag_review(_seed((("你好", "", None),)), engine_name="claude")
     with pytest.raises(InvalidInputError):
         svc.start_fix_flagged(did, engine_name="claude", job_cost_cap_usd=-1)
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda name, env_path=None: None)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
     with pytest.raises(DependencyUnavailableError):
         svc.start_translation_notes(did, engine_name="claude")
 
@@ -223,6 +223,6 @@ def test_http_statuses(client, monkeypatch):
     assert client.post(f"/api/review-jobs/dramas/{did}/notes",
                        json={"key": "x"}).status_code == 422
     assert client.post(f"/api/review-jobs/dramas/{did}/fix-flagged", json={}).status_code == 400
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda name, env_path=None: None)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
     r = client.post(f"/api/review-jobs/dramas/{did}/emotion", json={"engine": "claude"})
     assert r.status_code == 503

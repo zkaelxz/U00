@@ -9,9 +9,11 @@ still owns every feature; this API exposes only what has been moved
 into `services/` so far.
 
 Run it with `python -m api` (reads `BAIHE_API_*`, see
-`api/api_config.py`), or `uvicorn api.server:app` directly. Interactive
-API docs are served at `/api/docs`; the OpenAPI schema at
-`/api/openapi.json`.
+`api/api_config.py`). With `BAIHE_API_AUTH=off` (the default) every
+non-loopback request is refused (`api.auth.LoopbackOnlyGate`), whatever
+address uvicorn was told to bind. Interactive API docs are served at
+`/api/docs` and the OpenAPI schema at `/api/openapi.json` with auth off
+only.
 """
 
 # Must run before any other app import -- same rule, and same reason, as
@@ -22,19 +24,22 @@ portable.activate_portable_mode()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.api_config import ApiSettings, load_settings
+from api.api_config import ApiSettings, check_bind_safety, load_settings
+from api.auth import EarlyAuthGate, LoopbackOnlyGate, local_only_matchers, public_api_paths
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     characters_routes,
     diagnostics_routes,
     diarization_routes,
+    discover_routes,
     drama_routes,
     dub_routes,
     export_routes,
     glossary_routes,
     jobs_routes,
     library_routes,
+    line_ai_routes,
     lines_routes,
     media_routes,
     metadata_routes,
@@ -43,11 +48,11 @@ from api.routers import (
     reader_routes,
     restructure_routes,
     review_jobs_routes,
-    line_ai_routes,
     review_lines_routes,
     review_records_routes,
     settings_routes,
     source_routes,
+    sources_catalog_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
@@ -66,12 +71,25 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
         title="Baihe Studio API",
         version=API_VERSION,
         description="HTTP API for Baihe Studio. Runs alongside the Streamlit app and "
-                    "shares its library. Local/trusted-network use only; no authentication.",
-        docs_url="/api/docs",
+                    "shares its library. Authentication is off by default (local use); "
+                    "set BAIHE_API_AUTH=on to enforce sessions and permissions.",
+        # With auth on, the interactive docs/schema would publish every route
+        # to anyone who can reach the port, so they are not served.
+        docs_url=None if settings.auth_enabled else "/api/docs",
         redoc_url=None,
-        openapi_url="/api/openapi.json",
+        openapi_url=None if settings.auth_enabled else "/api/openapi.json",
     )
     app.state.settings = settings
+    # Refuses a non-loopback BAIHE_API_HOST while auth is off (same check as
+    # `python -m api`); a bind given straight to uvicorn (--host) isn't
+    # visible here, which is why LoopbackOnlyGate refuses remote requests too.
+    check_bind_safety(settings)
+    if settings.auth_enabled:
+        # Added before CORS so CORS stays the outermost layer (dev preflight).
+        app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: public_api_paths(app),
+                           local_only_fn=lambda: local_only_matchers(app))
+    else:
+        app.add_middleware(LoopbackOnlyGate)
     if settings.is_development and settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
@@ -108,6 +126,8 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(review_jobs_routes.router)
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
+    app.include_router(discover_routes.router)
+    app.include_router(sources_catalog_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

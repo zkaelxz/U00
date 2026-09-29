@@ -2,7 +2,7 @@
 name: migration-architect
 description: Traces Baihe workflows and data contracts to plan a bounded UI, API, storage, or platform migration; use before migration implementation.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 effort: medium
 ---
 

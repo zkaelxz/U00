@@ -10,7 +10,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
-import { MEDIA_TYPES, SOURCE_LANGUAGES, groupHistory, validateCreate } from './libraryForm'
+import { MEDIA_TYPES, SOURCE_LANGUAGES, groupHistory, showFold, validateCreate } from './libraryForm'
 
 const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
   d.title_en || d.title_zh || `#${d.id ?? ''}`
@@ -40,12 +40,13 @@ function useLoad<T>(load: () => Promise<T>, reloadKey: number) {
 function Fold({ title, count, error, children }: {
   title: string; count?: number; error: unknown; children: ReactNode
 }) {
+  if (!showFold(count, error)) return null
   return (
     <details className="panel fold">
       <summary>{title}{count !== undefined && ` (${count})`}</summary>
       <section aria-label={title}>
         <ErrorBanner error={error} />
-        {count === 0 ? <p className="muted">Nothing yet</p> : children}
+        {children}
       </section>
     </details>
   )

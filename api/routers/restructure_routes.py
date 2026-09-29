@@ -11,8 +11,8 @@ translated/flagged/noted lines could be split.
 """
 from typing import List
 
-from fastapi import APIRouter, Path
-
+from fastapi import APIRouter, Path, Request
+from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, ResegmentPreview, ResegmentStart, ResegmentStarted,
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api/restructure", tags=["restructure"])
 _R = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 
 
-@router.post("/dramas/{drama_id}/lines/add", response_model=RestructureResult,
+@router.post("/dramas/{drama_id}/lines/add", dependencies=[require_permission("lines.edit")], response_model=RestructureResult,
              summary="Insert a new line after another (or at the start)", responses=_R)
 def post_add_line(body: RestructureAddLine, drama_id: int = Path(ge=1)):
     return svc.add_line(drama_id, body.expected_line_ids, after_line_id=body.after_line_id,
@@ -32,20 +32,20 @@ def post_add_line(body: RestructureAddLine, drama_id: int = Path(ge=1)):
                         speaker=body.speaker)
 
 
-@router.post("/dramas/{drama_id}/lines/{line_id}/delete", response_model=RestructureResult,
+@router.post("/dramas/{drama_id}/lines/{line_id}/delete", dependencies=[require_permission("lines.edit")], response_model=RestructureResult,
              summary="Delete one line (confirm=true required)", responses=_R)
 def post_delete_line(body: RestructureDeleteLine, drama_id: int = Path(ge=1),
                      line_id: int = Path(ge=1)):
     return svc.delete_line(drama_id, line_id, body.expected_line_ids, confirm=body.confirm)
 
 
-@router.post("/dramas/{drama_id}/merge", response_model=RestructureResult,
+@router.post("/dramas/{drama_id}/merge", dependencies=[require_permission("lines.edit")], response_model=RestructureResult,
              summary="Merge adjacent lines into the first", responses=_R)
 def post_merge(body: RestructureMerge, drama_id: int = Path(ge=1)):
     return svc.merge_lines(drama_id, body.line_ids, body.expected_line_ids)
 
 
-@router.post("/dramas/{drama_id}/lines/{line_id}/split", response_model=RestructureResult,
+@router.post("/dramas/{drama_id}/lines/{line_id}/split", dependencies=[require_permission("lines.edit")], response_model=RestructureResult,
              summary="Split one line at a character (and optional time) offset", responses=_R)
 def post_split(body: RestructureSplit, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return svc.split_line(drama_id, line_id, body.expected_line_ids, at_char=body.at_char,
@@ -53,29 +53,31 @@ def post_split(body: RestructureSplit, drama_id: int = Path(ge=1), line_id: int 
                           en_at_char=body.en_at_char)
 
 
-@router.get("/dramas/{drama_id}/resegment/preview", response_model=ResegmentPreview,
+@router.get("/dramas/{drama_id}/resegment/preview", dependencies=[require_permission("lines.read")], response_model=ResegmentPreview,
             summary="Rule-based re-segmentation preview (read-only)",
             responses={404: {"model": ErrorResponse}})
 def get_resegment_preview(drama_id: int = Path(ge=1)):
     return svc.preview_resegmentation(drama_id)
 
 
-@router.post("/dramas/{drama_id}/resegment", response_model=ResegmentStarted,
+@router.post("/dramas/{drama_id}/resegment", dependencies=[require_permission("lines.edit")], response_model=ResegmentStarted,
              summary="Start a job that re-segments and saves (poll /api/jobs/{job_id})",
              responses={**_R, 400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-def post_resegment(body: ResegmentStart, drama_id: int = Path(ge=1)):
+def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(ge=1)):
+    if body.use_llm:
+        require_engines_allowed(request, body.engine)
     return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
                                     use_llm=body.use_llm, engine=body.engine, model=body.model)
 
 
-@router.get("/dramas/{drama_id}/history", response_model=List[ReviewRecordsHistoryItem],
+@router.get("/dramas/{drama_id}/history", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsHistoryItem],
             summary="Version-history snapshots, newest first",
             responses={404: {"model": ErrorResponse}})
 def get_history(drama_id: int = Path(ge=1)):
     return svc.list_versions(drama_id)
 
 
-@router.post("/dramas/{drama_id}/history/{history_id}/restore",
+@router.post("/dramas/{drama_id}/history/{history_id}/restore", dependencies=[require_permission("lines.edit")],
              response_model=RestoreVersionResult,
              summary="Restore a snapshot (snapshots the current lines first)", responses=_R)
 def post_restore(body: RestoreVersionRequest, drama_id: int = Path(ge=1),

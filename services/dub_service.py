@@ -6,8 +6,8 @@ Streamlit Dub tab (`tabs/workspace_tab.py`'s `with tab_dub:` block, lines
 
 Migration Slice 25. Deliberately out of scope: the Generate job (Slice 26),
 voice/character CRUD (lives in the Translate tab, a separate slice),
-per-line preview/regenerate (a new feature), and downloading the track (a
-later binary-endpoint slice). Speakers and lines come from the database,
+per-line preview/regenerate (a new feature). Track download is Slice 53
+(`get_dub_track`). Speakers and lines come from the database,
 not the browser's unsaved session lines.
 
 No Streamlit or FastAPI import: plain dicts out. Nothing secret or
@@ -113,6 +113,21 @@ def get_dub_config(drama_id: int) -> dict:
                                 and _missing_separation_dependency(
                                     drama.get("separation_backend") or "auto") is None),
     }
+
+
+def get_dub_track(drama_id: int) -> dict:
+    """Server-side file lookup for the finished dub/narration track:
+    {path (never returned to clients), name}. Raises NotFoundError for an
+    unknown drama or when no track exists (symlinks/escapes count as missing)."""
+    drama = _get_drama(drama_id)
+    name = "narration_track.wav" if drama.get("content_mode") == "novel_narration" else "dub_track.wav"
+    root = _drama_path(drama_id)
+    path = os.path.join(root, name)
+    real_root = os.path.realpath(root)
+    if (os.path.islink(path) or not os.path.isfile(path)
+            or os.path.commonpath([real_root, os.path.realpath(path)]) != real_root):
+        raise NotFoundError("No dub track available.")
+    return {"path": path, "name": name}
 
 
 def get_dub_pacing(drama_id: int) -> dict:

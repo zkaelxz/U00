@@ -31,10 +31,10 @@ import diarize
 import dub as dub_module
 import resegment
 import translate_engines
-from tabs.workspace_tab import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
+from services.workspace_job_service import (run_transcribe_job, run_hardsub_ocr_job, run_flag_job,
                                  run_emotion_job, run_consistency_job, run_translation_notes_job,
-                                 run_fix_flagged_lines_job, run_translate_job,
-                                 _compute_workspace_stage_index)
+                                 run_fix_flagged_lines_job, run_translate_job)
+from tabs.workspace_tab import _compute_workspace_stage_index
 import video_download
 import core as core_module
 from core import Line

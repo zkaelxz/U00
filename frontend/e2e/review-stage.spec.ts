@@ -137,3 +137,80 @@ test('a finished review job refetches the lines', async ({ page }) => {
   await expect(page.getByTestId('job-status')).toContainText('done')
   await expect.poll(() => lineFetches).toBeGreaterThan(before)
 })
+
+const improveOut = (en: string) => ({
+  line_id: 1, current_en: en, suggestion: 'Hi there', changed: true, engine: 'x', model: null,
+})
+
+async function openAi(page: import('@playwright/test').Page, n: number, item: string) {
+  const row = page.locator('.review-line').nth(n)
+  await row.getByRole('button', { name: 'AI actions', exact: true }).click()
+  await row.getByRole('button', { name: item, exact: true }).click()
+  return row
+}
+
+test('improve, use this, and the row shows the saved value', async ({ page }) => {
+  await page.route('**/api/line-ai/dramas/3/lines/*/improve', async (route) => {
+    expect(route.request().postDataJSON().issue).toBe('too stiff')
+    await route.fulfill({ json: { ...improveOut('Hello there'), line_id: Number(route.request().url().split('/lines/')[1].split('/')[0]) } })
+  })
+  await page.goto('/#/drama/3/review')
+  const row = await openAi(page, 0, 'Improve')
+  await row.getByLabel('What to fix (optional)').fill('too stiff')
+  await row.getByRole('button', { name: 'Suggest' }).click()
+  await expect(row.getByTestId('line-ai-suggestion')).toHaveText('Hi there')
+  await expect(row.getByTestId('line-en')).toContainText('Hello there')
+  await row.getByRole('button', { name: 'Use this' }).click()
+  await expect(page.getByTestId('line-en').filter({ hasText: 'Hi there' })).toBeVisible()
+  await expect(page.getByTestId('line-ai-panel')).toHaveCount(0)
+
+  // Restore the seeded text.
+  const again = page.locator('.review-line').nth(0)
+  await again.getByTestId('line-en').click()
+  await again.getByLabel('Translation').fill('Hello there')
+  await again.getByLabel('Translation').press('Enter')
+  await expect(page.getByTestId('line-en').filter({ hasText: 'Hello there' })).toBeVisible()
+})
+
+test('a kept line says so, and why-this shows an explanation', async ({ page }) => {
+  await page.route('**/api/line-ai/dramas/3/lines/*/improve', (route) =>
+    route.fulfill({ json: { ...improveOut('Thanks, friend'), suggestion: 'Thanks, friend', changed: false } }))
+  await page.route('**/api/line-ai/dramas/3/lines/*/explain', (route) =>
+    route.fulfill({ json: { line_id: 1, explanation: 'Friendly register.', engine: 'x', model: null } }))
+  await page.goto('/#/drama/3/review')
+  const row = await openAi(page, 2, 'Improve')
+  await row.getByRole('button', { name: 'Suggest' }).click()
+  await expect(row.getByTestId('line-ai-result')).toContainText('kept this line')
+  await expect(row.getByRole('button', { name: 'Use this' })).toHaveCount(0)
+  await row.getByRole('button', { name: 'Close' }).click()
+
+  await openAi(page, 0, 'Why this?')
+  await expect(row.page().getByTestId('line-ai-explanation')).toHaveText('Friendly register.')
+  await page.getByRole('button', { name: 'Hide explanation' }).click()
+  await expect(page.getByTestId('line-ai-panel')).toHaveCount(0)
+})
+
+test('no configured key shows a short message pointing to Settings', async ({ page }) => {
+  await page.route('**/api/line-ai/dramas/3/lines/*/explain', (route) =>
+    route.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'no key' } } }))
+  await page.goto('/#/drama/3/review')
+  const row = await openAi(page, 0, 'Why this?')
+  await expect(row.getByTestId('line-ai-unavailable')).toContainText('Settings')
+})
+
+test('applying a suggestion over a concurrent edit shows the conflict', async ({ page }) => {
+  await page.route('**/api/line-ai/dramas/3/lines/*/improve', (route) =>
+    route.fulfill({ json: improveOut('Thanks, friend') }))
+  await page.route('**/api/lines/dramas/3/lines/*', (route) => {
+    expect(route.request().postDataJSON()).toEqual({ en: 'Hi there', expected: { en: 'Thanks, friend' } })
+    return route.fulfill({
+      status: 409,
+      json: { error: { code: 'conflict', message: 'This line changed since you loaded it.' } },
+    })
+  })
+  await page.goto('/#/drama/3/review')
+  const row = await openAi(page, 2, 'Improve')
+  await row.getByRole('button', { name: 'Suggest' }).click()
+  await row.getByRole('button', { name: 'Use this' }).click()
+  await expect(row.getByTestId('line-conflict')).toContainText('changed elsewhere')
+})

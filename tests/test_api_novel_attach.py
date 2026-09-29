@@ -81,7 +81,7 @@ def test_attach_text_errors(client, monkeypatch):
                        json={"text": "x", "mode": "zap"}).status_code == 422
     monkeypatch.setattr(svc, "MAX_TEXT_CHARS", 3)
     assert client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "abcd"}).status_code == 422
-    monkeypatch.setattr(svc.drama_service, "_job_running_for_drama", lambda d: True)
+    monkeypatch.setattr(svc.drama_service, "job_running_for_drama", lambda d: True)
     assert client.post(f"/api/novel/dramas/{did}/attach-text", json={"text": "a"}).status_code == 409
 
 
@@ -185,7 +185,7 @@ def test_ocr_chapter_errors(client, monkeypatch):
     monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: None)
     assert client.post(url, files=png).status_code == 503
     monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: object())
-    monkeypatch.setattr(svc.drama_service, "_job_running_for_drama", lambda d: True)
+    monkeypatch.setattr(svc.drama_service, "job_running_for_drama", lambda d: True)
     assert client.post(url, files=png).status_code == 409
     import db
     assert [n for n in os.listdir(db.drama_dir(did)) if n.startswith(".ocr_")] == []

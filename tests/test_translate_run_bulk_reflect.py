@@ -79,7 +79,7 @@ def _env(monkeypatch):
     background_jobs.clear_all_jobs()
     FakeProvider.submitted, FakeProvider.cancelled, FakeProvider._jobs = [], [], {}
     monkeypatch.setattr(bt, "POLL_INTERVAL_SECONDS", 0.02)
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda name: "sk-fake")
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "sk-fake")
     monkeypatch.setattr(svc, "_summary_engine", lambda: (None, None))
     yield
     background_jobs.clear_all_jobs()

@@ -11,6 +11,8 @@ import {
   validateTranslateInput,
 } from '../api/translate'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import './translate.css'
 import type { TranslateDirection, TranslateEngine, TranslateHistoryEntry } from '../types/translate'
 
 export default function TranslatePage() {
@@ -24,6 +26,9 @@ export default function TranslatePage() {
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [loading, setLoading] = useState(false)
+  const [sourceName, setSourceName] = useState<string | null>(null)
+  const [fileMessage, setFileMessage] = useState<string | null>(null)
+  const [resultTarget, setResultTarget] = useState('en')
 
   const refreshHistory = useCallback(() => translateApi.history().then(setHistory, setError), [])
 
@@ -48,15 +53,17 @@ export default function TranslatePage() {
     setError(null)
     setResult(null)
     setLoading(true)
+    const pair = languagePair(direction, other)
     try {
       setResult(
         await translateApi.translate({
           text,
           engine,
-          ...languagePair(direction, other),
+          ...pair,
           model: model || null,
         }),
       )
+      setResultTarget(pair.target_language)
       refreshHistory()
     } catch (err) {
       setError(err)
@@ -138,6 +145,11 @@ export default function TranslatePage() {
             ))}
           </ul>
         </details>
+        <OpenFileField
+          sourceName={sourceName}
+          message={fileMessage}
+          target={{ setText, setSourceName, setFileMessage }}
+        />
         <label className="field">
           <span>Text to translate</span>
         <textarea
@@ -159,6 +171,13 @@ export default function TranslatePage() {
           <pre data-testid="translate-result" className="result">
             {result}
           </pre>
+          <div className="actions">
+            <DownloadResultButton
+              result={result}
+              sourceName={sourceName}
+              targetLanguage={resultTarget}
+            />
+          </div>
         </div>
       )}
       <h3>History</h3>
