@@ -98,7 +98,8 @@ def _build_engine(engine_name: str):
     if not api_key:
         raise DependencyUnavailableError(
             f"No {engine_name} key is configured. Set one in Settings first.")
-    return translate_engines.get_engine(engine_name, api_key)
+    return translate_engines.get_engine(
+        engine_name, api_key, free_tier=settings_service.get_gemini_free_tier())
 
 
 # ----- input checks ---------------------------------------------------------
