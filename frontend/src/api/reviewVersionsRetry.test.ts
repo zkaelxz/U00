@@ -13,7 +13,7 @@ function fakeFetch(status: number, body: unknown, calls: { url: string; init?: R
 describe('activate a translation version (R39)', () => {
   it('posts confirm=true to the activate route', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    const out = { drama_id: 2, version_id: 5, label: 'v', activated: true, lines_changed: 3 }
+    const out = { drama_id: 2, version_id: 5, label: 'v', activated: true, lines_changed: 3, conflicts: [] }
     const r = await review.activateVersion(2, 5, fakeFetch(200, out, calls))
     expect(r.lines_changed).toBe(3)
     expect(calls[0].url).toBe('/api/review/dramas/2/versions/5/activate')

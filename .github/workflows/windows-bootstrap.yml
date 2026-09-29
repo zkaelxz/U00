@@ -22,6 +22,8 @@ on:
       - constraints.txt
       - check_setup.py
       - "api/**"
+      - "frontend/**"
+      - .github/workflows/windows-bootstrap.yml
   pull_request:
     branches: [baihe-subtitler]
     paths:
@@ -30,6 +32,8 @@ on:
       - constraints.txt
       - check_setup.py
       - "api/**"
+      - "frontend/**"
+      - .github/workflows/windows-bootstrap.yml
 
 # Cancel a still-running CI run for the same branch/PR once a newer push
 # supersedes it -- checked safe: this repo has no deployment/release
@@ -44,13 +48,14 @@ concurrency:
 
 jobs:
   # Real observed duration (GitHub Actions run history, 2026-09-28, 6
-  # runs): consistently ~1m08s-1m20s. 10 minutes gives real headroom for
+  # runs): consistently ~1m08s-1m20s before the frontend build was added
+  # (npm ci + build adds a few minutes). 15 minutes gives real headroom for
   # slower Windows-runner provisioning/startup without leaving a hung
   # `start.bat --ci` (which, unfixed, would otherwise wait on a server
   # that never answers) to run indefinitely on the more expensive runner.
   bootstrap:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -58,13 +63,29 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Built before start.bat so `python -m api` serves it. The Windows
+      # build is what catches filename-case collisions (2026-09-29), and the
+      # served bundle's Content-Type is checked below (Windows' registry
+      # maps .js to text/plain, which left the app window blank).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build the frontend
+        shell: pwsh
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
       - name: Run start.bat --ci
         shell: cmd
         run: start.bat --ci
 
       # start.bat --ci already waits for /api/health (`python -m api`);
-      # this re-checks it independently. A fresh checkout has no
-      # frontend/dist (it ships as a release zip), so this is API-only.
+      # this re-checks it independently.
       - name: Health check -- confirm /api/health answers
         shell: pwsh
         run: |
@@ -74,3 +95,21 @@ jobs:
             exit 1
           }
           Write-Host "/api/health answered on port 8600 with status $($response.StatusCode)"
+
+      - name: Frontend check -- the JS bundle is served as JavaScript
+        shell: pwsh
+        run: |
+          $index = Invoke-WebRequest -Uri http://127.0.0.1:8600/ -UseBasicParsing
+          if ($index.Headers['Content-Type'] -notlike 'text/html*') {
+            Write-Error "/ served as '$($index.Headers['Content-Type'])', expected text/html"
+            exit 1
+          }
+          $m = [regex]::Match($index.Content, '/assets/[^"'']+\.js')
+          if (-not $m.Success) { Write-Error "No /assets/*.js in index.html"; exit 1 }
+          $js = Invoke-WebRequest -Uri ("http://127.0.0.1:8600" + $m.Value) -UseBasicParsing
+          $ctype = [string]$js.Headers['Content-Type']
+          if (-not ($ctype.StartsWith('text/javascript') -or $ctype.StartsWith('application/javascript'))) {
+            Write-Error "$($m.Value) served as '$ctype', expected a JavaScript type"
+            exit 1
+          }
+          Write-Host "$($m.Value) served as $ctype"
