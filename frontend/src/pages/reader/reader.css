@@ -1,5 +1,6 @@
 /* Reader page (pages/Reader.tsx). Tokens only; phone rules at the end. */
-.reader { display: grid; gap: var(--space-3); min-width: 0; }
+/* minmax(0, 1fr): an auto track would grow to the nowrap phone title and overflow the page. */
+.reader { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .reader-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .reader-crumbs { min-width: 0; font-weight: 600; }
 .reader-crumbs a:first-child { font-weight: 400; }

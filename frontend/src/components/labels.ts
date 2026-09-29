@@ -13,10 +13,21 @@ const MAPS: Record<LabelKind, Record<string, string>> = {
   engine: ENGINE_LABELS,
 }
 
+// "kept_your_edit" / "STATIC-HTTP" -> "kept your edit" / "static http"
+export function words(raw: string): string {
+  return raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
 // "not started" / "not_started" / "NOT-STARTED" -> "Not started"
 export function tidy(raw: string): string {
-  const s = raw.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  const s = words(raw)
   return s ? s[0].toUpperCase() + s.slice(1) : ''
+}
+
+// A free-form code with no label map (e.g. a source's "STATIC_HTTP"):
+// tidied, or a dash when empty so a details row never looks blank.
+export function humanizeValue(raw: string | null | undefined): string {
+  return raw ? tidy(String(raw)) : '—'
 }
 
 export function humanize(kind: LabelKind, raw: string | null | undefined): string {
@@ -42,5 +53,5 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 }
 
 export function statusTone(raw: string | null | undefined): BadgeTone {
-  return STATUS_TONE[(raw ?? '').toLowerCase().replace(/_/g, ' ')] ?? 'neutral'
+  return STATUS_TONE[words(raw ?? '')] ?? 'neutral'
 }

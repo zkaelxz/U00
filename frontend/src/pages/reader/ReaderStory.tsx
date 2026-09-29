@@ -10,6 +10,7 @@ import { readerApi, wikiMarkdownUrl } from '../../api/reader'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { tidy } from '../../components/labels'
 import { Section } from '../../components/Section'
 import type {
   ReaderChatTurn,
@@ -260,7 +261,7 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
         <Field label="Show">
           <select value={type} onChange={(e) => setType(e.target.value)}>
             <option value="">Everything</option>
-            {wiki.entry_types.map((t) => <option key={t} value={t}>{t}</option>)}
+            {wiki.entry_types.map((t) => <option key={t} value={t}>{tidy(t)}</option>)}
           </select>
         </Field>
       )}
@@ -270,7 +271,7 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
           {entries.map((e, i) => (
             <li key={e.id ?? i}>
               <strong>{e.name}</strong>
-              {e.entry_type && <span className="badge">{e.entry_type}</span>}
+              {e.entry_type && <span className="badge">{tidy(e.entry_type)}</span>}
               {e.description && <div>{e.description}</div>}
             </li>
           ))}

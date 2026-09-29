@@ -5,6 +5,7 @@ import { getSeries, updateDramaMetadata } from '../../../api/library'
 import { getSourceConfig, updateSourceConfig } from '../../../api/source'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import type { LibrarySeries } from '../../../types/library'
 import type { SourceConfig } from '../../../types/workspace'
@@ -104,7 +105,7 @@ export function DetailsPanel() {
 
   return (
     <section className="panel" aria-label="Edit details">
-      <Section storageKey="source.details" title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${form.source_language}`}>
+      <Section storageKey="source.details" title="Edit details" summary={`${title} · ${modeLabel(form.media_type)} · ${humanize('language', form.source_language)}`}>
         <form
           className="source-panel"
           onSubmit={(e) => {
@@ -127,7 +128,7 @@ export function DetailsPanel() {
           <div className="source-grid">
             <Field label="Source language" error={errors.source_language}>
               <select value={form.source_language} onChange={set('source_language')}>
-                {SOURCE_LANGUAGES.map((l) => <option key={l}>{l}</option>)}
+                {SOURCE_LANGUAGES.map((l) => <option key={l} value={l}>{humanize('language', l)}</option>)}
               </select>
             </Field>
             <Field label="Media type" error={errors.media_type}>

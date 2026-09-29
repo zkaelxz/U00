@@ -1,6 +1,7 @@
 import type { DramaDetail } from '../../api/types'
 import type { DramaMetadataUpdate } from '../../types/library'
 import type { SourceConfig, SourceConfigUpdate } from '../../types/workspace'
+import { humanize } from '../../components/labels'
 import { MAX_NAME_LEN, MAX_SUMMARY_LEN, MEDIA_TYPES, SOURCE_LANGUAGES } from '../libraryForm'
 
 // Pure logic for the Source stage's "Edit details" form. Caps mirror
@@ -124,7 +125,14 @@ export function serverFieldErrors(details: unknown, message: string): DetailsErr
 // Source-stage content/transcript mode (services/source_service.py).
 export const CONTENT_MODES = ['audio_drama', 'streamer_vod', 'novel_narration']
 
-export const modeLabel = (m: string) => m.replace(/_/g, ' ')
+const TRANSCRIPT_MODE_LABELS: Record<string, string> = {
+  have_transcript: 'I have a transcript',
+  whisper: 'Whisper (speech to text)',
+  hardsub_ocr: 'Hardsub OCR (read burned-in subtitles)',
+}
+
+// Media type, content mode or transcript mode -> its display label.
+export const modeLabel = (m: string) => TRANSCRIPT_MODE_LABELS[m] ?? humanize('mediaType', m)
 
 // Only the modes that differ from the loaded config.
 export function modeUpdate(config: SourceConfig, content: string, transcript: string): SourceConfigUpdate {

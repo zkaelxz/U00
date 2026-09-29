@@ -2,6 +2,7 @@
 // batches panel (GET/POST /api/translate-run/dramas/{id}/bulk...).
 
 import { safeDetail } from '../../../components/errorMessages'
+import { words } from '../../../components/labels'
 import type { BulkJobEntry } from '../../../types/translateStage'
 
 const STATUS: Record<string, string> = {
@@ -67,7 +68,7 @@ export function summaryText(summary: Record<string, unknown> | null): string {
   if (!summary) return ''
   return Object.entries(summary)
     .filter(([, v]) => typeof v === 'number' && v !== 0)
-    .map(([k, v]) => `${k.replace(/_/g, ' ')} ${v}`)
+    .map(([k, v]) => `${words(k)} ${v}`)
     .join(' · ')
 }
 

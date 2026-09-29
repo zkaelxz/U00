@@ -4,7 +4,8 @@ import { getSource, listAttempts, resetSourceHealth } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import type { SourceAttempt, SourceDetail as Detail, SourceHealth } from '../../types/sources'
-import { ago, healthLine, humanize, isoTime, pausedFor, tierLines } from './sourcesFormat'
+import { humanizeValue as humanize } from '../../components/labels'
+import { ago, healthLine, isoTime, pausedFor, tierLines } from './sourcesFormat'
 
 type Props = {
   name: string

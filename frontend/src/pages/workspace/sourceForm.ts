@@ -17,11 +17,12 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
   return null
 }
 
+// Labels match the Transcribe stage's fields.
 const RANGES = {
-  beam_size: { min: 1, max: 10, integer: true },
-  min_silence_ms: { min: 300, max: 3000, integer: true },
-  vad_threshold: { min: 0.1, max: 0.9, integer: false },
-  hardsub_interval_sec: { min: 0.5, max: 3.0, integer: false },
+  beam_size: { label: 'Beam size', min: 1, max: 10, integer: true },
+  min_silence_ms: { label: 'Min silence (ms)', min: 300, max: 3000, integer: true },
+  vad_threshold: { label: 'VAD threshold', min: 0.1, max: 0.9, integer: false },
+  hardsub_interval_sec: { label: 'Hardsub interval (s)', min: 0.5, max: 3.0, integer: false },
 } as const
 
 // Returns the first out-of-range knob as a sentence, or null when valid.
@@ -30,7 +31,7 @@ export function validateConfig(update: TranscribeConfigUpdate): string | null {
     const v = update[key as keyof typeof RANGES]
     if (v === undefined) continue
     if (!Number.isFinite(v) || v < r.min || v > r.max || (r.integer && !Number.isInteger(v))) {
-      return `${key.replace(/_/g, ' ')} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
+      return `${r.label} must be ${r.integer ? 'a whole number ' : ''}between ${r.min} and ${r.max}.`
     }
   }
   return null

@@ -2,6 +2,7 @@
 // No React here, so everything is unit-tested in sourcesFormat.test.ts.
 import { ApiError } from '../../api/client'
 import { safeDetail } from '../../components/errorMessages'
+import { humanizeValue } from '../../components/labels'
 import type {
   SeriesChapter,
   OpenSeries,
@@ -139,14 +140,7 @@ export function healthText(light: string): string {
   if (light === 'green') return 'OK'
   if (light === 'yellow') return 'Failing'
   if (light === 'red') return 'Paused'
-  return humanize(light)
-}
-
-/** "UNTESTED" -> "Untested", "STATIC_HTTP" -> "Static http". */
-export function humanize(value: string | null | undefined): string {
-  if (!value) return '—'
-  const t = String(value).replace(/_/g, ' ').toLowerCase()
-  return t.charAt(0).toUpperCase() + t.slice(1)
+  return humanizeValue(light)
 }
 
 // ---------------------------------------------------------------- series
@@ -275,10 +269,10 @@ const TIER_LABELS: Record<string, string> = {
 
 export function tierLines(tiers: Record<string, SourceTierResult>): string[] {
   return Object.entries(tiers).map(([key, t]) => {
-    const label = TIER_LABELS[key] ?? humanize(key)
+    const label = TIER_LABELS[key] ?? humanizeValue(key)
     if (!t.tested) return `${label}: untested`
     if (t.ok) return `${label}: works`
-    const why = t.reason ? humanize(t.reason).toLowerCase() : ''
+    const why = t.reason ? humanizeValue(t.reason).toLowerCase() : ''
     return `${label}: failed${why ? ` (${why})` : ''}`
   })
 }
