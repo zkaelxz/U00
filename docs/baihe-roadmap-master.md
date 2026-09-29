@@ -8,7 +8,7 @@ Default model for every step below is Sonnet unless a row says otherwise (roadma
 
 ## 1. Status snapshot
 - Backend migration (services + FastAPI): every ungated slice is merged (PRs #220-#267, including Slices 41 and 45 built on Opus), plus Step 95 (BGM-preserving dub, #261) and Step 97b (fallback chain, #251). Full suite on the merged batch-1 state: 3805 passed; batch 2: 4028 passed + 1 error; final base: 4111 passed + the same 1 error (fixed by #259, see B-01/F-11; re-verification run pending).
-- Frontend (React): foundations (#254), Library (#258), Diagnostics (#257), Settings (#256), standalone Translate (#260) merged and wired into the router (#263); Workspace shell + Source (#265), Translate stage (#268), Export (#269), Dub (#270) and Review (#271) also merged, so every planned stage exists (`docs/migration-frontend-plan.md`).
+- Frontend (React): foundations (#254), Library (#258), Diagnostics (#257), Settings (#256), standalone Translate (#260) merged and wired into the router (#263); Workspace shell + Source (#265), Translate stage (#268), Export (#269), Dub (#270) and Review (#271) also merged, so every planned stage exists (`docs/migration-frontend-plan.md`). Since then: serving from `python -m api` (#287, 405 fix #294), GPU/CPU reporting (#283), Slice 24 key writes (#289, off by default), Slice 34 with fakes (#290), and the concise-UI pass on every page/stage (#293, #295-#302). Tests: vitest 138 / 23 files, Playwright 40 specs, pytest 4342 collected (2026-09-29; collection count, full pass not re-run).
 - CI on GitHub is red on every PR since #212 only because Actions minutes are exhausted; merges are gated on the local suite.
 
 ## 2. Bug tracker -- OPEN
@@ -65,8 +65,8 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 
 **Ready / in flight:**
 1. Step 95 BGM-preserving dub: **done (#261)**; needs the user's real-audio listening check.
-2. Frontend: every planned slice is done (#254-#271). Remaining: real-browser checks and the Streamlit retirement criteria (`docs/migration-frontend-plan.md`).
-3. Backend gaps the UI will hit: media playback endpoint with Range support; expose the workspace stage index; serve `frontend/dist` from FastAPI plus a launcher story; SSE/job push (needed for Live); E0 destructive library actions (bulk, backup/restore, storage clean) once a server-side typed-confirm + running-job refusal exists; the fix/cleanup steps 121-132 below.
+2. Frontend: every planned slice is done (#254-#271) and every page has the concise treatment (#295-#302). Remaining: real-browser checks and the Streamlit retirement criteria (`docs/migration-frontend-plan.md`).
+3. Backend gaps the UI will hit (also: a pending-batch list endpoint for Translate "Resume pending batches"; metadata auto-fill/media-analysis and OCR/EPUB UIs; per-line improve/why-this; dub download): media playback endpoint with Range support; expose the workspace stage index; serve `frontend/dist` from FastAPI plus a launcher story; SSE/job push (needed for Live); E0 destructive library actions (bulk, backup/restore, storage clean) once a server-side typed-confirm + running-job refusal exists; the fix/cleanup steps 121-132 below.
 4. Streamlit retirement, per `docs/migration-frontend-plan.md` (order: Diagnostics, Library, Settings, Translate, Workspace stage by stage).
 
 **Held roadmap steps (unchanged, not reopened here):** 43 soft-delete (plug into `drama_service._hard_delete_drama`), 100-105, 40b, 42, 60, 72.
