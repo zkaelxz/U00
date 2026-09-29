@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyAutotune,
+  applyLinesGlossary,
   applyNovelGlossary,
+  cancelLinesGlossary,
+  cancelNovelGlossary,
   getAutotune,
+  getLinesGlossary,
   getNovelGlossary,
   startAutotune,
+  startLinesGlossary,
   startNovelGlossary,
 } from './autotuneGlossary'
 import { ApiError } from './client'
@@ -42,6 +47,41 @@ describe('auto-tune + glossary-from-novel api', () => {
     expect(JSON.parse(String(calls[2].init?.body))).toEqual({ candidate_ms: 800 })
     expect(calls[4].init?.body).toBeUndefined()
     expect(JSON.parse(String(calls[5].init?.body))).toEqual({ terms: ['魏婴'] })
+  })
+
+  it('uses the from-lines routes and sends overrides keyed by term', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await getLinesGlossary(4, f)
+    await startLinesGlossary(4, f)
+    await applyLinesGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { translation: 'Wei Ying' } }, run_id: 'r1' }, f)
+    await applyNovelGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } }, f)
+    expect(calls.map((c) => [c.url, c.init?.method ?? 'GET'])).toEqual([
+      ['/api/glossary/dramas/4/from-lines', 'GET'],
+      ['/api/glossary/dramas/4/from-lines', 'POST'],
+      ['/api/glossary/dramas/4/from-lines/apply', 'POST'],
+      ['/api/glossary/dramas/4/from-novel/apply', 'POST'],
+    ])
+    expect(calls[1].init?.body).toBeUndefined()
+    expect(JSON.parse(String(calls[2].init?.body))).toEqual({
+      terms: ['魏婴'],
+      overrides: { 魏婴: { translation: 'Wei Ying' } },
+      run_id: 'r1',
+    })
+    expect(JSON.parse(String(calls[3].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } })
+  })
+
+  it('cancels a glossary run by its run_id, on the run-scoped routes', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await cancelNovelGlossary(4, 'r1', f)
+    await cancelLinesGlossary(4, 'r2', f)
+    expect(calls.map((c) => [c.url, c.init?.method])).toEqual([
+      ['/api/glossary/dramas/4/from-novel/cancel', 'POST'],
+      ['/api/glossary/dramas/4/from-lines/cancel', 'POST'],
+    ])
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ run_id: 'r1' })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ run_id: 'r2' })
   })
 
   it('surfaces a paid-engine 403 as an ApiError with the status', async () => {

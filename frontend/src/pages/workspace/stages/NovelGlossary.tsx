@@ -1,11 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { applyNovelGlossary, getNovelGlossary, startNovelGlossary } from '../../../api/autotuneGlossary'
 import { ApiError } from '../../../api/client'
-import { cancelJob } from '../../../api/jobs'
-import { getSourceConfig } from '../../../api/source'
 import { getGlossaryTerms } from '../../../api/translateStage'
-import { getNovelStatus } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { Section } from '../../../components/Section'
@@ -13,7 +9,6 @@ import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import { useStage } from '../StageContext'
 import {
-  ENGINE_CHANGED_TEXT,
   addTermsLabel,
   applySummary,
   chosenTerms,
@@ -21,32 +16,61 @@ import {
   defaultTermSelection,
   isActiveStatus,
   overwriteConfirmText,
-  novelGlossaryApplyErrorText,
   novelGlossaryBlocker,
-  novelGlossaryProgressText,
-  novelGlossaryStartErrorText,
   toggleTerm,
 } from './autotuneGlossary'
-import { useRunStatus } from './useRunStatus'
+import {
+  SOURCE_TEXT,
+  applyRequest,
+  buildOverrides,
+  editProposal,
+  extractionProgressText,
+  glossaryApplyErrorText,
+  missingTranslationText,
+  missingTranslations,
+  type Edits,
+  type GlossarySource,
+  type ProposalValues,
+} from './glossaryExtract'
+import { GlossaryProposals } from './GlossaryProposals'
+import {
+  GLOSSARY_API,
+  bumpGlossaryRun,
+  bumpGlossaryTerms,
+  startExtraction,
+  useGlossaryCatalogues,
+  useGlossaryRun,
+  useHasNovel,
+  useRunScoped,
+} from './useGlossaryRun'
 import './autotuneGlossary.css'
 
 interface Props {
-  // Called after terms were added so the glossary table reloads.
-  onApplied: () => void
+  source: GlossarySource
+  // Section title and remembered open state (defaults per source).
+  title?: string
+  storageKey?: string
 }
 
-// Glossary → "From novel": asks the drama's translation engine to propose
-// terms from the attached novel, then adds the checked ones to the series
-// glossary (matched by term text, never by position).
-export function NovelGlossary({ onApplied }: Props) {
+// Glossary → "From novel" / "From lines": asks the drama's translation
+// engine to propose terms from the attached novel or the source lines, then
+// adds the checked ones (with any edits) to the series glossary, matched by
+// term text, never by position. After adding, bumpGlossaryTerms() makes the
+// Glossary table re-read.
+export function GlossaryExtract({ source, title, storageKey }: Props) {
   const { dramaId, drama } = useStage()
+  const text = SOURCE_TEXT[source]
   const isPhone = useMediaQuery('(max-width: 640px)')
-  const { status, error: loadError, refresh, clearError } = useRunStatus(dramaId, getNovelGlossary)
-  const [hasNovel, setHasNovel] = useState<boolean | null>(null)
+  const { status, error: loadError, clearError } = useGlossaryRun(dramaId, source)
+  const hasNovel = useHasNovel(dramaId, drama, source === 'novel')
+  // Selection, edits and a pending overwrite confirm belong to the run whose
+  // proposals are shown; a new run (from any panel or tab) starts them over.
+  const run = status?.run_id ?? null
   // null = the default selection for the current proposals.
-  const [picked, setPicked] = useState<Set<string> | null>(null)
+  const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null)
+  const [edits, setEdits] = useRunScoped<Edits>(run, {})
   const [overwrite, setOverwrite] = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const [confirming, setConfirming] = useRunScoped(run, false)
   // Chosen terms already in the series glossary, re-read when confirming
   // an overwrite; null while reading or if the read failed.
   const [existing, setExisting] = useState<number | null>(null)
@@ -55,22 +79,13 @@ export function NovelGlossary({ onApplied }: Props) {
   const [problem, setProblem] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    Promise.all([
-      getNovelStatus(dramaId).then((s) => s.has_novel_text, () => false),
-      getSourceConfig(dramaId).then((c) => c.has_raw_novel_context, () => false),
-    ]).then(([text, raw]) => !cancelled && setHasNovel(text || raw))
-    return () => {
-      cancelled = true
-    }
-  }, [dramaId])
-
   const active = isActiveStatus(status?.status)
   const blocker = novelGlossaryBlocker(dramaId, drama.series_id, hasNovel !== false)
   const proposals: NovelGlossaryProposal[] = status?.status === 'done' ? status.proposals ?? [] : []
   const sel = picked ?? defaultTermSelection(proposals)
   const chosen = chosenTerms(proposals, sel)
+  const missing = missingTranslations(proposals, chosen, edits)
+  const catalogues = useGlossaryCatalogues(proposals.length > 0)
   const engine = drama.translation_engine || 'claude'
 
   const start = () => {
@@ -79,56 +94,51 @@ export function NovelGlossary({ onApplied }: Props) {
     setProblem(null)
     setNote(null)
     setPicked(null)
+    setEdits({})
     setConfirming(false)
-    startNovelGlossary(dramaId)
-      .then(
-        () => refresh(),
-        (e: unknown) => {
-          if (e instanceof ApiError && e.status === 409) {
-            // Either a run is already going (attach to it) or the engine changed.
-            return getNovelGlossary(dramaId).then(
-              (s) => (isActiveStatus(s.status) ? refresh() : setProblem(ENGINE_CHANGED_TEXT)),
-              () => setProblem(ENGINE_CHANGED_TEXT),
-            )
-          }
-          const text = novelGlossaryStartErrorText(e)
-          if (text) setProblem(text)
-          else setError(e)
-        },
-      )
+    startExtraction(dramaId, source)
+      .then((r) => {
+        setProblem(r.problem)
+        setError(r.error)
+      })
       .finally(() => setBusy(false))
   }
 
   // Cancel stays disabled after a press until the next poll brings new status.
   const [cancelSentFor, setCancelSentFor] = useState<object | null>(null)
   const cancel = () => {
-    if (!status) return
+    // Run-scoped: the server refuses (409) when a newer run is held.
+    if (!status?.run_id) return
     setCancelSentFor(status)
-    cancelJob(status.job_id).then(refresh, (e: unknown) => {
-      setCancelSentFor(null)
-      setError(e)
-    })
+    GLOSSARY_API[source].cancel(dramaId, status.run_id).then(
+      () => bumpGlossaryRun(source),
+      (e: unknown) => {
+        setCancelSentFor(null)
+        setError(e)
+      },
+    )
   }
 
   const apply = () => {
     setBusy(true)
     setConfirming(false)
     setProblem(null)
-    applyNovelGlossary(
-      dramaId,
-      overwrite ? { terms: chosen, overwrite_existing: true, confirm: true } : { terms: chosen },
-    )
+    const overrides = buildOverrides(proposals, chosen, edits)
+    GLOSSARY_API[source]
+      .apply(dramaId, applyRequest(chosen, run, overrides, overwrite))
       .then(
         (r) => {
           setError(null)
           setNote(applySummary(r))
           setPicked(new Set(chosen.filter((t) => !r.added.includes(t) && !r.overwritten.includes(t))))
-          onApplied()
+          bumpGlossaryTerms()
         },
         (e: unknown) => {
-          const text = novelGlossaryApplyErrorText(e)
-          if (text) setProblem(text)
+          const t = glossaryApplyErrorText(e)
+          if (t) setProblem(t)
           else setError(e)
+          // Replaced by another run: show that run's proposals to review.
+          if (e instanceof ApiError && e.status === 409) bumpGlossaryRun(source)
         },
       )
       .finally(() => setBusy(false))
@@ -148,6 +158,10 @@ export function NovelGlossary({ onApplied }: Props) {
     setConfirming(false)
     setPicked(toggleTerm(sel, term))
   }
+  const edit = <K extends keyof ProposalValues>(p: NovelGlossaryProposal, field: K, value: ProposalValues[K]) => {
+    setConfirming(false)
+    setEdits((cur) => editProposal(cur, p, field, value))
+  }
 
   const summary = active
     ? 'running'
@@ -155,22 +169,14 @@ export function NovelGlossary({ onApplied }: Props) {
       ? `${proposals.length} proposed`
       : `uses ${engine}`
 
-  const checkbox = (p: NovelGlossaryProposal) => (
-    <input type="checkbox" aria-label={`Select ${p.term}`} checked={sel.has(p.term)} onChange={() => toggle(p.term)} />
-  )
-  const inGlossary = <span className="badge">already in glossary</span>
-
   return (
-    <Section storageKey="translate.glossary.novel" title="From novel" summary={summary}>
-      <div className="novel-glossary" data-testid="novel-glossary">
-        <p className="muted">
-          Proposes names and terms from the attached novel using this drama's translation engine ({engine}). Nothing
-          is added until you choose.
-        </p>
+    <Section storageKey={storageKey ?? text.storageKey} title={title ?? text.title} summary={summary}>
+      <div className="novel-glossary" data-testid={text.testId}>
+        <p className="muted">{text.intro(engine)}</p>
         {active && status ? (
-          <p className="actions" role="status" data-testid="novel-glossary-running">
-            <span>{novelGlossaryProgressText(status.status, status.progress)}</span>
-            <button type="button" disabled={cancelSentFor === status} onClick={cancel}>
+          <p className="actions" role="status" data-testid={`${text.testId}-running`}>
+            <span>{extractionProgressText(source, status.status, status.progress)}</span>
+            <button type="button" disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
               Cancel
             </button>
           </p>
@@ -193,56 +199,18 @@ export function NovelGlossary({ onApplied }: Props) {
         )}
         {status?.status === 'cancelled' && <p className="muted">Extraction was cancelled.</p>}
         {status?.status === 'done' && proposals.length === 0 && <p className="muted">No new terms were found.</p>}
-        {proposals.length > 0 &&
-          (isPhone ? (
-            <ul className="novel-glossary-cards" data-testid="novel-glossary-proposals">
-              {proposals.map((p) => (
-                <li key={p.term}>
-                  <label>
-                    {checkbox(p)} <strong>{p.term}</strong> → {p.suggested_translation}
-                  </label>
-                  <div className="muted">
-                    {[p.category, p.policy].filter(Boolean).join(' · ')} {p.already_in_glossary && inGlossary}
-                  </div>
-                  {p.reason && <div className="muted novel-glossary-reason">{p.reason}</div>}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="table-scroll">
-              <table data-testid="novel-glossary-proposals">
-                <thead>
-                  <tr>
-                    <th />
-                    <th>Original</th>
-                    <th>Translation</th>
-                    <th>Category</th>
-                    <th>Policy</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {proposals.map((p) => (
-                    <tr key={p.term}>
-                      <td>
-                        <label className="novel-glossary-check">
-                          {checkbox(p)}
-                          <span className="visually-hidden">Select {p.term}</span>
-                        </label>
-                      </td>
-                      <td>
-                        {p.term} {p.already_in_glossary && inGlossary}
-                      </td>
-                      <td>{p.suggested_translation}</td>
-                      <td>{p.category ?? ''}</td>
-                      <td>{p.policy ?? ''}</td>
-                      <td className="novel-glossary-reason">{p.reason}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
+        {proposals.length > 0 && (
+          <GlossaryProposals
+            proposals={proposals}
+            selected={sel}
+            onToggle={toggle}
+            edits={edits}
+            onEdit={edit}
+            catalogues={catalogues}
+            isPhone={isPhone}
+            testId={text.testId}
+          />
+        )}
         {proposals.length > 0 && (
           <div className="novel-glossary-apply">
             <label className="check">
@@ -261,10 +229,16 @@ export function NovelGlossary({ onApplied }: Props) {
             )}
             {!confirming ? (
               <div className="actions">
-                <button type="button" className="primary" disabled={chosen.length === 0 || busy} onClick={onAdd}>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={chosen.length === 0 || missing.length > 0 || busy}
+                  onClick={onAdd}
+                >
                   {addTermsLabel(chosen.length)}
                 </button>
                 {chosen.length === 0 && <span className="muted">Select terms to add.</span>}
+                {missing.length > 0 && <span className="muted">{missingTranslationText(missing)}</span>}
               </div>
             ) : (
               <div className="actions" role="alert">
@@ -289,4 +263,16 @@ export function NovelGlossary({ onApplied }: Props) {
       </div>
     </Section>
   )
+}
+
+type PanelProps = Omit<Props, 'source'>
+
+// Glossary → "From novel" (also mounted on the Source stage, parity T02).
+export function NovelGlossary(props: PanelProps) {
+  return <GlossaryExtract source="novel" {...props} />
+}
+
+// Glossary → "From lines" (parity X10).
+export function LinesGlossary(props: PanelProps) {
+  return <GlossaryExtract source="lines" {...props} />
 }
