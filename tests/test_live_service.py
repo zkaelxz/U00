@@ -8,7 +8,7 @@ import pytest
 
 import background_jobs
 import live_translate
-from services import live_service, metadata_service, translate_service
+from services import live_service, translate_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -308,8 +308,29 @@ def test_list_sessions(live, monkeypatch):
     assert set(listed[0]) == {"session_id", "status", "engine", "cue_count"}
 
 
-def test_check_public_url_is_the_one_used(live, monkeypatch):
+def test_url_guard_is_the_one_policy(live, monkeypatch):
+    """Both the typed URL and the resolved stream URL go through
+    services.url_guard.resolve_public (the B-25 policy)."""
+    from services import url_guard
     called = []
-    monkeypatch.setattr(metadata_service, "_check_public_url", lambda u: called.append(u))
-    _start()
-    assert called
+    monkeypatch.setattr(url_guard, "resolve_public", lambda u: called.append(u) or "93.184.216.34")
+    sid = _start()
+    assert _wait(lambda: len(called) >= 2)
+    assert called[0] == "https://www.youtube.com/watch?v=abc" and called[1] == "http://media"
+    live_service.stop_session(sid)
+
+
+def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
+    """L3: between the reservation and start_job there is no job record;
+    a concurrent _reap must not remove that session's directory."""
+    real_start = background_jobs.start_job
+    seen = {}
+
+    def start_after_reap(job_id, *a, **k):
+        live_service._reap()                       # another request's reap, mid-start
+        seen["dir"] = live_service._sessions[job_id].get("dir")
+        return real_start(job_id, *a, **k)
+    monkeypatch.setattr(background_jobs, "start_job", start_after_reap)
+    sid = _start()
+    assert seen["dir"] and _wait(lambda: "out_dir" in live)
+    assert "starting" not in live_service._sessions[sid]

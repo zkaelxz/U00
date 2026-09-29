@@ -10,7 +10,7 @@ dir, use_gpu never passed), every start gets its own id and directory,
 use_gpu reaches the pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
-(host checked by metadata_service._check_public_url, no fetch here); no
+(host checked by services.url_guard.resolve_public, no fetch here); no
 browser cookies over the API; keys are resolved server-side, never taken
 from the caller. No Streamlit/FastAPI import.
 
@@ -25,12 +25,11 @@ import tempfile
 import threading
 import uuid
 from typing import Optional
-from urllib.parse import urlsplit
 
 import background_jobs
 import live_translate
 import translate_engines
-from services import metadata_service, settings_service, translate_service
+from services import settings_service, translate_service, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
@@ -41,6 +40,7 @@ OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 MAX_SESSIONS = 32
+MAX_URL_LEN = 2000
 STREAMLIT_JOB_ID = "live_capture"
 # ffmpeg input protocols for a resolved live stream (HLS over https needs
 # tcp, tls and crypto for encrypted segments); no file, pipe, data, etc.
@@ -135,23 +135,24 @@ def _active_session_locked():
 
 def check_stream_url(stream_url) -> None:
     """Run on the direct stream URL yt-dlp resolved, before ffmpeg opens
-    it: http(s) only, no credentials, and a host whose every address is
-    public (metadata_service._check_public_url on scheme+host, since a
-    signed stream URL can be longer than that check's URL cap). The error
-    never echoes the URL, which can carry a signed token."""
-    bad = InvalidInputError("The stream address the site returned is not a public "
-                            "http(s) address, so it was not opened.")
+    it: services.url_guard.resolve_public (http/https only, no userinfo,
+    every resolved address public), on the full URL (no length cap: a
+    signed stream URL can be long). The error never echoes the URL, which
+    can carry a signed token."""
+    _require_public(stream_url, "The stream address the site returned is not a public "
+                                "http(s) address, so it was not opened.")
+
+
+def _require_public(url, bad_message: str) -> None:
+    """url_guard.resolve_public, the one public-address policy (B-25),
+    mapped to service errors with fixed text."""
     try:
-        parts = urlsplit(stream_url if isinstance(stream_url, str) else "")
-        netloc = parts.netloc
-    except ValueError:
-        raise bad from None
-    if parts.scheme not in ("http", "https") or not netloc or "@" in netloc:
-        raise bad
-    try:
-        metadata_service._check_public_url(f"{parts.scheme}://{netloc}/")
-    except InvalidInputError:
-        raise bad from None
+        url_guard.resolve_public(url)
+    except url_guard.URLResolveError:
+        raise DependencyUnavailableError(
+            "The address could not be resolved. Check the URL and your connection.") from None
+    except url_guard.UnsafeURLError:
+        raise InvalidInputError(bad_message) from None
 
 
 def _make_target(session_id: str):
@@ -166,9 +167,11 @@ def _make_target(session_id: str):
 def _reap():
     """Removes the directory of any session whose job record is gone
     (cancelled while queued elsewhere, e.g. via the jobs router) --
-    a running job removes its own directory when it ends."""
+    a running job removes its own directory when it ends. A session still
+    being started ("starting": reserved, job not registered yet) is
+    skipped, or its fresh reservation would be torn down."""
     with _lock:
-        ids = [sid for sid, e in _sessions.items() if e.get("dir")]
+        ids = [sid for sid, e in _sessions.items() if e.get("dir") and not e.get("starting")]
     for sid in ids:
         job = background_jobs.get_status(sid)
         if job is None:
@@ -186,7 +189,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     if not isinstance(url, str) or not url.strip():
         raise InvalidInputError("url is required.")
     url = url.strip()
-    metadata_service._check_public_url(url)
+    if len(url) > MAX_URL_LEN:
+        raise InvalidInputError("url is too long.")
+    _require_public(url, "url must be a public http(s) web address.")
     if source_language not in SOURCE_LANGUAGES:
         raise InvalidInputError(f"source_language must be one of {', '.join(SOURCE_LANGUAGES)}.")
     if whisper_size not in WHISPER_SIZES:
@@ -219,7 +224,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-        _sessions[session_id] = {"dir": out_dir, "engine": engine_name}
+        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "starting": True}
     try:
         started = background_jobs.start_job(
             session_id, _make_target(session_id),
@@ -238,6 +243,10 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         with _lock:
             _sessions.pop(session_id, None)
         raise ServiceError("Could not start the live session.")
+    with _lock:
+        entry = _sessions.get(session_id)
+        if entry is not None:
+            entry.pop("starting", None)
     return {"session_id": session_id}
 
 
