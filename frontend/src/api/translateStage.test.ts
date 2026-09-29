@@ -4,8 +4,10 @@ import { ApiError } from './client'
 import {
   applyVoiceBankEntry,
   buildEstimateQuery,
+  cancelBulkTranslation,
   deleteGlossaryTerms,
   getTranslateEstimate,
+  listBulkTranslations,
   saveCharacter,
   saveGlossaryTerm,
   saveInstructions,
@@ -93,5 +95,24 @@ describe('translate stage api', () => {
     await applyVoiceBankEntry(7, 'SPEAKER 1', 5, fakeFetch(200, {}, calls))
     expect(calls[0].url).toBe('/api/characters/dramas/7/voice-bank/apply')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ speaker_label: 'SPEAKER 1', voice_bank_id: 5 })
+  })
+
+  it('lists bulk batches with GET and cancels one with POST', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, { drama_id: 3, jobs: [] }, calls)
+    const list = await listBulkTranslations(3, f)
+    await cancelBulkTranslation(3, 12, f)
+    expect(list.jobs).toEqual([])
+    expect(calls[0].url).toBe('/api/translate-run/dramas/3/bulk')
+    expect(calls[0].init?.method ?? 'GET').toBe('GET')
+    expect(calls[1].url).toBe('/api/translate-run/dramas/3/bulk/12/cancel')
+    expect(calls[1].init?.method).toBe('POST')
+  })
+
+  it('surfaces a 409 on cancel (batch already finished) as an ApiError', async () => {
+    const f = fakeFetch(409, { error: { code: 'conflict', message: 'Bulk job 4 is applied and cannot be cancelled.' } }, [])
+    const err = await cancelBulkTranslation(1, 4, f).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(409)
   })
 })

@@ -1,3 +1,5 @@
+import type { DramaDetail } from '../api/types'
+
 // Mirrors the Library* / DramaCreate* / DramaDelete* models in api/schemas.py.
 
 export interface LibraryUsage {
@@ -120,6 +122,22 @@ export interface DramaMetadataUpdate {
 export interface DramaDeleteResult {
   deleted: boolean
   drama_id: number
+  // Set when the drama is gone but some of its files could not be removed.
+  warning?: string | null
+}
+
+// api/schemas.py DramaPresetDefaults: a preset's session-only values, which
+// the client holds (only the preset's engine is saved on the drama).
+export interface DramaPresetDefaults {
+  style_preset: string | null
+  locale: string | null
+  default_female_pronouns: boolean
+  include_genre_notes: boolean
+}
+
+// api/schemas.py DramaCreateResult: the new drama plus its preset's values.
+export interface DramaCreateResult extends DramaDetail {
+  preset_defaults?: DramaPresetDefaults | null
 }
 
 interface Items<T> {

@@ -31,6 +31,22 @@ describe('library api', () => {
     expect(JSON.parse(init.body)).toEqual({ source_language: 'ja', title_en: 'X' })
   })
 
+  it('returns the leftover-files warning from a delete', async () => {
+    const { f } = reply(200, { deleted: true, drama_id: 4, warning: 'Some files could not be removed.' })
+    const r = await deleteDrama(4, f)
+    expect(r.warning).toBe('Some files could not be removed.')
+  })
+
+  it('returns the preset defaults from a create', async () => {
+    const preset_defaults = {
+      style_preset: 'wuxia', locale: 'en-GB', default_female_pronouns: true, include_genre_notes: false,
+    }
+    const { f } = reply(201, { id: 9, preset_defaults })
+    const d = await createDrama({ source_language: 'zh', title_en: 'X', preset_id: 1 }, f)
+    expect(d.id).toBe(9)
+    expect(d.preset_defaults).toEqual(preset_defaults)
+  })
+
   it('surfaces a 409 as ApiError', async () => {
     const { f } = reply(409, { error: { code: 'conflict', message: 'job running' } })
     await expect(deleteDrama(1, f)).rejects.toMatchObject({ status: 409 })

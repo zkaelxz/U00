@@ -355,6 +355,13 @@ def _tier(ok, reasons=(), html_text="", log=None, name=None, **kw):
 
 
 class TestLadder:
+
+    @pytest.fixture(autouse=True)
+    def _public_dns(self, monkeypatch):
+        # B-28: an unresolvable start URL drops the browser tiers; these
+        # fake `.invalid` hosts stand for public sites, so resolve them.
+        monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+
     def test_tries_each_level_in_order_and_stops_at_first_success(self, isolated_db):
         log = []
         tiers = {
@@ -455,6 +462,13 @@ class TestLadder:
 
 
 class TestRealCaseMatrix:
+
+    @pytest.fixture(autouse=True)
+    def _public_dns(self, monkeypatch):
+        # B-28: an unresolvable start URL drops the browser tiers; these
+        # fake `.invalid` hosts stand for public sites, so resolve them.
+        monkeypatch.setattr("services.url_guard.resolve_public", lambda url: "93.184.216.34")
+
     """Shapes of the real cases the roadmap's vetting actually hit."""
 
     def _static_only(self, source, routes, url, max_retries=0):
