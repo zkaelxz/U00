@@ -2,12 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Baihe Studio</title>
+    <!-- Styles for the static note below. Inline because the app's own CSS
+         may be what failed to load; it appears after a few seconds so a
+         normal start never flashes it (React replaces it on first render). -->
+    <style>
+      #boot-static {
+        max-width: 40rem; margin: 2rem auto; padding: 1rem;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        border: 1px solid GrayText; border-radius: 10px;
+        opacity: 0; animation: boot-static-show 0s linear 3s forwards !important;
+      }
+      @keyframes boot-static-show { to { opacity: 1; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot-static" role="alert"><p>Baihe's screens didn't load. Press Ctrl+Shift+I, check Console, or see Diagnostics.</p></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
