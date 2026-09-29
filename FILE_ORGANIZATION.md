@@ -312,9 +312,12 @@ baihe-subtitler/
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
-│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
-│                                 attempts, settings, profiles, tracked, notifications) and config
-│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│   │                             attempts, settings, profiles, tracked, notifications) and config
+│   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   └── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
+│                                 clip upload/remove (ffprobe-checked), extract candidates per speaker
+│                                 (job voiceref_<id>, files only), choose, save to voice bank, series link
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -413,6 +416,9 @@ baihe-subtitler/
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
+│       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
+│       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
 │       └── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
 │                                 /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
 │                                 key-write gate; Step 44)

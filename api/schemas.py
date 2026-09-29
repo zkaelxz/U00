@@ -403,6 +403,9 @@ class DubSpeaker(BaseModel):
     offline_voice: Optional[str] = None
     engine: str
     has_clone_ref: bool
+    # Voice-clone setup: why this speaker won't be cloned as configured
+    # (e.g. a clone engine with no clip or voice design falls back to plain TTS).
+    clone_warning: Optional[str] = None
 
 
 class DubDefaults(BaseModel):
@@ -611,6 +614,7 @@ class CharactersEntry(BaseModel):
     filename or path -- only the two booleans (D2)."""
     speaker_label: str
     character_name: str
+    voice_actor: str = ""
     pronouns: str
     tts_voice: str
     offline_voice: str
@@ -631,6 +635,7 @@ class CharactersUpdateRequest(BaseModel):
 
     speaker_label: str
     character_name: Optional[str] = None
+    voice_actor: Optional[str] = None
     pronouns: Optional[str] = None
     tts_voice: Optional[str] = None
     offline_voice: Optional[str] = None
@@ -2875,6 +2880,63 @@ class NotificationTestResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Voice-clone setup (parity audit blocker #7; inventory C01, C03, C09, C13):
+# services/voice_clone_service.py. No path, filename or URL anywhere.
+# ---------------------------------------------------------------------------
+
+class VoiceCloneExtractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    max_candidates: int = Field(3, ge=1, le=5)
+
+
+class VoiceCloneJobStarted(BaseModel):
+    job_id: str
+
+
+class VoiceCloneCandidate(BaseModel):
+    """An opaque candidate id (for preview/choose), its time window in the
+    drama's audio and the transcript line matched to it ("" if none)."""
+    id: str
+    start: float
+    end: float
+    duration: float
+    ref_text: str
+
+
+class VoiceCloneSpeakerCandidates(BaseModel):
+    """skip_reason ("too_short", "too_long", "no_segments") and
+    closest_duration explain an extraction that found nothing."""
+    speaker_label: str
+    candidates: List[VoiceCloneCandidate]
+    skip_reason: Optional[str] = None
+    closest_duration: Optional[float] = None
+
+
+class VoiceCloneCandidates(BaseModel):
+    drama_id: int
+    speakers: List[VoiceCloneSpeakerCandidates]
+
+
+class VoiceCloneRemoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    confirm: StrictBool = False
+
+
+class VoiceCloneBankSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=200)
+    notes: str = Field("", max_length=1000)
+
+
+class VoiceCloneSeriesLinkRequest(BaseModel):
+    """series_character_id is required; null unlinks."""
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    series_character_id: Optional[int] = Field(..., ge=1, le=2147483647)
+
 # Parity X15-X17: add and edit a series' people
 # (services/series_people_service.py). Responses reuse CharactersSeriesEntry.
 # ---------------------------------------------------------------------------
