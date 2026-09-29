@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { artifactUrl } from '../../../api/client'
 import { getArtifactInfo, getEpub, startAudiobook, startBurnedVideo } from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { ArtifactInfo, AssExportRequest, MediaExportStarted, MediaKind } from '../../../types/export'
 import { formatBytes } from '../exportForm'
@@ -26,18 +27,17 @@ export function ExportEpub() {
     }, setError)
 
   return (
-    <section className="panel" aria-label="EPUB">
-      <h3>EPUB (novel narration)</h3>
-      <label>
-        Text
+    <div className="export-block" role="group" aria-label="EPUB">
+      <h4>EPUB (novel narration)</h4>
+      <Field label="Language">
         <select value={field} onChange={(e) => setField(e.target.value as 'en' | 'zh')}>
           <option value="en">English</option>
           <option value="zh">Source language</option>
         </select>
-      </label>
+      </Field>
       <button type="button" onClick={download}>Download EPUB</button>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </section>
+    </div>
   )
 }
 
@@ -84,10 +84,9 @@ function MediaJobSection({ title, label, kind, start, note }: JobProps) {
   }
 
   return (
-    <section className="panel" aria-label={title}>
-      <h3>{title}</h3>
-      <p className="muted">{note}</p>
-      <button type="button" disabled={busy} onClick={run}>{label}</button>
+    <div className="export-block" role="group" aria-label={title}>
+      <h4>{title}</h4>
+      <button type="button" title={note} disabled={busy} onClick={run}>{label}</button>
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
@@ -97,7 +96,7 @@ function MediaJobSection({ title, label, kind, start, note }: JobProps) {
           <span className="muted">({formatBytes(artifact.size)})</span>
         </p>
       )}
-    </section>
+    </div>
   )
 }
 
@@ -116,10 +115,10 @@ export function ExportMediaJobs({ request }: { request: () => { request?: AssExp
         title="Burned-in video"
         label="Start burned-in video export"
         kind="video"
-        note="Burns the subtitles into the source video using the ASS style above. Needs an uploaded source video and ffmpeg. This can take a while."
+        note="Burns the subtitles into the source video using the ASS style. Needs an uploaded source video and ffmpeg. This can take a while."
         start={() => {
           const r = request()
-          return r.request ? startBurnedVideo(dramaId, r.request) : (r.error ?? 'Fix the style settings above first.')
+          return r.request ? startBurnedVideo(dramaId, r.request) : (r.error ?? 'Fix the ASS style settings first.')
         }}
       />
     </>

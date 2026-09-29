@@ -61,19 +61,15 @@ export function ExportFlags({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <section className="panel" aria-label="Flag lines">
-      <h3>Flag lines for review</h3>
-      <p className="muted">Nothing is flagged until you press a button. Review the flagged lines in the Review stage.</p>
+    <div className="export-block" aria-label="Flag lines">
+      <h4>Flag lines for review</h4>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      <ul className="export-flags">
-        {ACTIONS.map((a) => (
-          <li key={a.id}>
-            <button type="button" disabled={busy !== null} onClick={() => run(a)}>{a.label}</button>
-            <span className="muted">{a.writes}</span>
-            {results[a.id] && <span role="status" data-testid={`flag-result-${a.id}`}>{results[a.id]}</span>}
-          </li>
-        ))}
-      </ul>
-    </section>
+      {ACTIONS.map((a) => (
+        <div className="export-flag-row" key={a.id}>
+          <button type="button" title={a.writes} disabled={busy !== null} onClick={() => run(a)}>{a.label}</button>
+          {results[a.id] && <span role="status" data-testid={`flag-result-${a.id}`}>{results[a.id]}</span>}
+        </div>
+      ))}
+    </div>
   )
 }

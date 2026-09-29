@@ -1,32 +1,69 @@
 import { useState } from 'react'
 
-import { getSubtitleText } from '../../../api/export'
+import { getAssText, getSubtitleText } from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import type { SubtitleField, SubtitleFormat } from '../../../types/export'
-import { parseWrap } from '../exportForm'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
+import type { AssStyleOptions, SubtitleField } from '../../../types/export'
+import { buildAssRequest, parseWrap, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
 
-export function ExportSubtitles() {
+export type ExportFormat = 'srt' | 'vtt' | 'ass'
+
+const MIME: Record<ExportFormat, string> = { srt: 'application/x-subrip', vtt: 'text/vtt', ass: 'text/x-ssa' }
+
+interface Props {
+  fmt: ExportFormat
+  setFmt: (f: ExportFormat) => void
+  form: AssForm
+  setForm: (f: AssForm) => void
+  options: AssStyleOptions | null
+}
+
+// The one primary panel: Format, Language and a single Export (download) button.
+// Notes and line wrapping live in Advanced; the shared form also feeds ASS and burned-in video.
+export function ExportSubtitles({ fmt, setFmt, form, setForm, options }: Props) {
   const { dramaId } = useStage()
-  const [fmt, setFmt] = useState<SubtitleFormat>('srt')
-  const [field, setField] = useState<SubtitleField>('en')
-  const [notes, setNotes] = useState(false)
-  const [wrapEn, setWrapEn] = useState('')
-  const [wrapSource, setWrapSource] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [result, setResult] = useState<{ text: string; filename: string; fmt: SubtitleFormat } | null>(null)
+  const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
+  const set = <K extends keyof AssForm>(k: K, v: AssForm[K]) => setForm({ ...form, [k]: v })
 
-  const generate = () => {
-    const en = parseWrap(wrapEn)
-    const src = parseWrap(wrapSource)
+  const fetchText = (): Promise<string> | null => {
+    if (fmt === 'ass') {
+      if (!options) {
+        setProblem('The style options have not loaded yet.')
+        return null
+      }
+      const built = buildAssRequest(form, options)
+      setProblem(built.error ?? null)
+      return built.request ? getAssText(dramaId, built.request) : null
+    }
+    const en = parseWrap(form.wrapEn)
+    const src = parseWrap(form.wrapSource)
     setProblem(en.error ?? src.error ?? null)
-    if (en.error || src.error) return
-    getSubtitleText(dramaId, { fmt, field, includeNotes: notes, wrapEn: en.value, wrapSource: src.value }).then(
+    if (en.error || src.error) return null
+    return getSubtitleText(dramaId, {
+      fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
+    })
+  }
+
+  const exportFile = () => {
+    const p = fetchText()
+    if (!p) return
+    p.then(
       (text) => {
+        const filename = `drama_${dramaId}_${form.field}.${fmt}`
         setError(null)
-        setResult({ text, filename: `drama_${dramaId}_${field}.${fmt}`, fmt })
+        setResult({ text, filename, fmt })
+        if (!text.trim()) return
+        const url = URL.createObjectURL(new Blob([text], { type: `${MIME[fmt]};charset=utf-8` }))
+        const a = document.createElement('a')
+        a.href = url
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(url)
       },
       (e: unknown) => {
         setResult(null)
@@ -36,41 +73,43 @@ export function ExportSubtitles() {
   }
 
   return (
-    <section className="panel" aria-label="Subtitle file">
-      <h3>Subtitle file (SRT / VTT)</h3>
-      <div className="export-form">
-        <label>
-          Format
-          <select value={fmt} onChange={(e) => setFmt(e.target.value as SubtitleFormat)}>
+    <>
+      <div className="export-primary">
+        <Field label="Format">
+          <select value={fmt} onChange={(e) => setFmt(e.target.value as ExportFormat)}>
             <option value="srt">SRT</option>
             <option value="vtt">VTT</option>
+            <option value="ass">ASS</option>
           </select>
-        </label>
-        <label>
-          Text
-          <select value={field} onChange={(e) => setField(e.target.value as SubtitleField)}>
+        </Field>
+        <Field label="Language">
+          <select value={form.field} onChange={(e) => set('field', e.target.value as SubtitleField)}>
             <option value="en">English</option>
             <option value="zh">Source language</option>
             <option value="bilingual">Both</option>
           </select>
-        </label>
-        <label>
-          Wrap English at (characters)
-          <input inputMode="numeric" value={wrapEn} placeholder="no wrapping" onChange={(e) => setWrapEn(e.target.value)} />
-        </label>
-        <label>
-          Wrap source at (characters)
-          <input inputMode="numeric" value={wrapSource} placeholder="no wrapping" onChange={(e) => setWrapSource(e.target.value)} />
-        </label>
-        <label className="export-check">
-          <input type="checkbox" checked={notes} onChange={(e) => setNotes(e.target.checked)} />
-          Include translation notes inline
-        </label>
+        </Field>
+        <button type="button" className="primary" onClick={exportFile}>Export</button>
       </div>
-      <button type="button" onClick={generate}>Generate {fmt.toUpperCase()}</button>
+      <Section
+        title="Advanced"
+        summary={`${form.includeNotes ? 'with notes' : 'no notes'} · wrap ${form.wrapEn || 'off'}/${form.wrapSource || 'off'}`}
+      >
+        <div className="export-form">
+          <Field label="Wrap English" unit="chars" help="Break English lines longer than this. Blank means no wrapping.">
+            <input inputMode="numeric" value={form.wrapEn} placeholder="off" onChange={(e) => set('wrapEn', e.target.value)} />
+          </Field>
+          <Field label="Wrap source" unit="chars" help="Break source-language lines longer than this. Blank means no wrapping.">
+            <input inputMode="numeric" value={form.wrapSource} placeholder="off" onChange={(e) => set('wrapSource', e.target.value)} />
+          </Field>
+          <Field label="Include notes" help="Add translation notes inline in the exported text.">
+            <input type="checkbox" checked={form.includeNotes} onChange={(e) => set('includeNotes', e.target.checked)} />
+          </Field>
+        </div>
+      </Section>
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {result && <ExportTextResult text={result.text} filename={result.filename} mime={result.fmt === 'vtt' ? 'text/vtt' : 'application/x-subrip'} />}
-    </section>
+      {result && <ExportTextResult text={result.text} filename={result.filename} mime={MIME[result.fmt]} />}
+    </>
   )
 }
