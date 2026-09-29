@@ -47,7 +47,7 @@ import sensevoice_tags
 import subtitle_formats
 import translate_engines
 from services import (media_playback_service, restructure_service, settings_service,
-                      translate_service, workspace_job_service)
+                      translate_run_service, translate_service, workspace_job_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError, ServiceError,
                                       UnsupportedOperationError)
@@ -229,7 +229,9 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                 gemini_free_tier: bool = None) -> dict:
     """Analyzes every recorded edit (all dramas, as the tab does) and saves
     the learned preferences for this drama's scope. Keeps the profile's
-    apply toggle. Nothing is saved when no clear pattern is found."""
+    apply toggle. Nothing is saved when no clear pattern is found. Refused
+    before the LLM call when this month's spending cap is used up (capped
+    engines only)."""
     drama = _require_drama(drama_id)
     samples = db.list_edit_samples()
     if len(samples) < adaptive_style.MIN_SAMPLES_TO_LEARN:
@@ -237,6 +239,8 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
             f"Only {len(samples)} edit(s) recorded; at least "
             f"{adaptive_style.MIN_SAMPLES_TO_LEARN} are needed.")
     name, engine = _style_engine(drama, engine_name, model, gemini_free_tier)
+    translate_run_service.refuse_when_cap_spent(
+        name, settings_service.resolve_gemini_free_tier(gemini_free_tier))
     scope = _scope(drama)
     existing = (db.get_style_profile(scope) or {}).get("profile") or {}
 

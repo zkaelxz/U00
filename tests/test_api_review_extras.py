@@ -235,6 +235,23 @@ class TestLearnStyle:
         r = client.post(f"{BASE}/{did}/style/learn", json={})
         assert r.status_code == 500 and key not in r.text
 
+    def test_monthly_cap_used_up_refuses_paid_not_free(self, client, fake_engine, monkeypatch):
+        from services import settings_service
+        called = []
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: called.append(1) or {"preferences": ["Short"]})
+        monkeypatch.setattr(settings_service, "resolve_key",
+                            lambda k, *a: "5" if k == "monthly_cap_usd" else None)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a: 9.0)
+        did, sid = _style_drama()
+        msg = _error(client.post(f"{BASE}/{did}/style/learn", json={"engine": "claude"}), 400,
+                     "unsupported_operation")
+        assert "spending cap" in msg and called == []
+        assert db.get_style_profile(f"series:{sid}") is None
+        r = client.post(f"{BASE}/{did}/style/learn", json={"engine": "ollama"})
+        assert r.status_code == 200, r.text
+        assert called == [1]
+
     def test_translation_only_engine_refused(self, client, fake_engine):
         did, _ = _style_drama()
         _error(client.post(f"{BASE}/{did}/style/learn", json={"engine": "deepl"}), 400,
