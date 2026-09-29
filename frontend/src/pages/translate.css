@@ -1,0 +1,14 @@
+/* Translate page only: file open / download controls. */
+.translate-file {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+.translate-file input[type='file'] {
+  min-height: 44px;
+  max-width: 100%;
+}
+.translate-download {
+  min-height: 44px;
+}
