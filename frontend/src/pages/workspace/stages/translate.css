@@ -18,3 +18,10 @@
 .stage-translate .term-form { display: grid; gap: var(--space-2); grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .stage-translate .table-scroll { overflow-x: auto; max-width: 100%; }
 .stage-translate [role="region"][aria-label="Glossary"], .stage-translate [role="region"][aria-label="Characters"] { display: grid; gap: var(--space-3); min-width: 0; }
+.stage-translate .glossary-bulk { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.stage-translate .glossary-bulk .error { flex-basis: 100%; margin: 0; }
+.stage-translate .voice-details > summary { cursor: pointer; }
+.stage-translate .voice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2) var(--space-3); margin-top: var(--space-2); }
+.stage-translate .voice-grid .voice-wide { grid-column: 1 / -1; }
+.stage-translate .voice-bank-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.stage-translate .voice-bank-row select { flex: 1 1 12rem; min-width: 0; }

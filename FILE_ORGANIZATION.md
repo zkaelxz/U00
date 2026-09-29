@@ -177,6 +177,10 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
 │   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
+│   ├── library_admin_service.py  E0 destructive/admin Library actions (no router yet): bulk status/
+│   │                             tags/delete, bulk translate start, export-zip and backup jobs,
+│   │                             restore (validated first), storage scan/cleanup; typed confirms,
+│   │                             running-job refusal, per-drama results, never returns paths
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
@@ -254,6 +258,7 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
+│   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
@@ -343,7 +348,7 @@ baihe-subtitler/
 │       │                         notes (POST, DELETE .../{note_id}) (Migration Slice 43)
 │       ├── artifact_routes.py    GET /api/artifacts/dramas/{id}/{kind}[/info] (Migration Slice 28)
 │       ├── media_routes.py       POST /api/media/dramas/{id}/upload (multipart; returns name/size/kind
-│       │                         only) (Migration Slice 31)
+│       │                         only) (Migration Slice 31); GET/HEAD .../audio|video Range playback (Slice 52)
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)

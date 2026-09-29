@@ -33,6 +33,7 @@ or multi-process.
 """
 
 import multiprocessing
+import os
 import queue
 import threading
 import time
@@ -63,6 +64,42 @@ def _mirror_locked(job_id):
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
                                     exc_info=True)
+    _ensure_heartbeat()
+
+
+# B-04: while this process owns queued/running jobs, a daemon thread bumps
+# their job_records.updated_at every HEARTBEAT_INTERVAL seconds, so another
+# process's stale-record sweep (jobs_service.cancel_job) can tell a live job
+# that is simply not changing status from one whose owner process died.
+HEARTBEAT_INTERVAL = 60.0
+_heartbeat_thread = None
+
+
+def _heartbeat_once():
+    with _lock:
+        live = [j for j, job in _jobs.items() if job.get("status") in ("queued", "running")]
+    if live:
+        try:
+            import db
+            db.touch_job_records(live)
+        except Exception:
+            pass   # best-effort; never breaks a job
+
+
+def _heartbeat_loop():
+    while True:
+        time.sleep(HEARTBEAT_INTERVAL)
+        _heartbeat_once()
+
+
+def _ensure_heartbeat():
+    global _heartbeat_thread
+    if _heartbeat_thread is None or not _heartbeat_thread.is_alive():
+        _heartbeat_thread = threading.Thread(target=_heartbeat_loop, name="job-heartbeat",
+                                             daemon=True)
+        _heartbeat_thread.start()
+
+
 # RLock, not Lock: _promote_next_queued_gpu_job() is called from inside a
 # just-finished job's own runner thread, and needs to re-take the lock it
 # might already be inside of via a nested call path -- a plain Lock would
@@ -261,6 +298,11 @@ def _release_gpu_slot(job_id, gpu_touching):
         pass
 
 
+class JobCancelled(Exception):
+    """Raised by a thread job that noticed its cancel request and stopped;
+    _spawn records the job as "cancelled" (never "done"/"error")."""
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False):
     def runner():
         import applog
@@ -279,6 +321,13 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
             _notify_job_finished(_description, "done")
+        except JobCancelled:
+            with _lock:
+                if job_id in _jobs:
+                    _jobs[job_id]["status"] = "cancelled"
+                    _jobs[job_id]["finished_at"] = time.time()
+                    _mirror_locked(job_id)
+            logger.info(f"job {job_id} cancelled")
         except Exception as exc:
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
@@ -798,6 +847,57 @@ def is_cancel_requested(job_id: str) -> bool:
         if job and job.get("cancel_requested"):
             return True
     return _db_cancel_requested(job_id)
+
+
+def _kill_tree(proc):
+    """Kills proc and everything it started (it runs in its own process
+    group/session -- see run_cancellable), so a wrapper script's ffmpeg
+    grandchild can't keep the pipes open."""
+    import subprocess
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=10)
+        else:
+            import signal
+            os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:
+        pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2,
+                    kill_timeout: float = 10.0):
+    """Runs an external command (ffmpeg) for a thread job and kills it when
+    the job's cancel is requested, raising JobCancelled. The command gets
+    its own process group (POSIX session / Windows process group) and the
+    whole tree is killed; the post-kill pipe drain is bounded by
+    kill_timeout. A non-zero exit raises subprocess.CalledProcessError,
+    like subprocess.run(check=True)."""
+    import subprocess
+    if os.name == "nt":
+        group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    else:
+        group = {"start_new_session": True}
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            **group)
+    while True:
+        try:
+            out, err = proc.communicate(timeout=poll_interval)
+            break
+        except subprocess.TimeoutExpired:
+            if is_cancel_requested(job_id):
+                _kill_tree(proc)
+                try:
+                    proc.communicate(timeout=kill_timeout)
+                except subprocess.TimeoutExpired:
+                    pass   # a grandchild still holds a pipe; don't hang the job
+                raise JobCancelled(job_id) from None
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, output=out, stderr=err)
 
 
 def cancel_queued(job_id: str) -> bool:
