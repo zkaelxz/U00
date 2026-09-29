@@ -3856,16 +3856,6 @@ class TestDiarizationEstimateCaption:
     be shown live. This adds an honest estimated-duration caption, scaled
     off the audio's own length, next to it."""
 
-    def test_caption_scales_with_audio_length(self):
-        from tabs.workspace_tab import _diarization_estimate_caption
-        caption = _diarization_estimate_caption(754)  # 12:34
-        assert "12:34" in caption
-
-    def test_caption_has_a_generic_fallback_for_unknown_length(self):
-        from tabs.workspace_tab import _diarization_estimate_caption
-        caption = _diarization_estimate_caption(0)
-        assert caption
-
     def _drama_with_audio(self, isolated_db):
         did = isolated_db.create_drama(title_en="Test Drama", media_type="audio_drama",
                                         content_mode="audio_drama", status="aligned",

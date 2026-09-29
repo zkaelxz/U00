@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 import core as core_module
 from core import Line
-from tabs.workspace_tab import _line_audio_clip, _unsaved_line_count
+from tabs.workspace_tab import _unsaved_line_count
 
 
 def _fake_slicer(calls):
@@ -26,25 +26,6 @@ def _fake_slicer(calls):
             f.write(f"RIFF{start}-{end}".encode())
         return out_path
     return fake
-
-
-class TestLineAudioClip:
-    def test_cuts_the_given_range_and_cleans_up(self, monkeypatch, tmp_path):
-        calls = []
-        monkeypatch.setattr(core_module, "extract_audio_slice", _fake_slicer(calls))
-        audio = _line_audio_clip("/fake/audio.wav", 12.5, 14.25, str(tmp_path))
-        assert calls == [("/fake/audio.wav", 12.5, 14.25)]
-        assert audio == b"RIFF12.5-14.25"
-        assert not os.path.exists(tmp_path / "_play_slice.wav")
-
-    def test_temp_slice_is_removed_even_when_reading_fails(self, monkeypatch, tmp_path):
-        def failing(audio_path, start, end, out_path):
-            open(out_path, "wb").close()
-            raise RuntimeError("ffmpeg failed")
-        monkeypatch.setattr(core_module, "extract_audio_slice", failing)
-        with pytest.raises(RuntimeError):
-            _line_audio_clip("/fake/audio.wav", 0, 1, str(tmp_path))
-        assert not os.path.exists(tmp_path / "_play_slice.wav")
 
 
 class TestUnsavedLineCount:

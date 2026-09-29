@@ -1099,12 +1099,12 @@ Top-level UI/Streamlit imports: none
 
 ### `tests/test_media_preview.py` (34 tests: 23 LOGIC, 11 UI)
 
-Top-level UI/Streamlit imports: `streamlit.testing.v1 (AppTest)`, `tabs.workspace_tab (parse_timestamp, _burn_preview_ass, _unsaved_line_count, _player_state_key)`
+Top-level UI/Streamlit imports: `streamlit.testing.v1 (AppTest)`, `tabs.workspace_tab (_player_state_key)`
 
 | Line | Test | Class | Action | Note |
 |---|---|---|---|---|
-| 34 | `TestParseTimestamp::test_accepts_mm_ss_and_raw_seconds` | LOGIC | NEEDS EXTRACTION | parse_timestamp -> React player (TS) or a service (backlog R02) |
-| 39 | `TestParseTimestamp::test_rejects_anything_else` | LOGIC | NEEDS EXTRACTION | parse_timestamp -> React player (TS) or a service (backlog R02) |
+| 34 | `TestParseTimestamp::test_accepts_mm_ss_and_raw_seconds` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.parse_timestamp |
+| 39 | `TestParseTimestamp::test_rejects_anything_else` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.parse_timestamp |
 | 76 | `TestPlayerTimes::test_rounds_outward_to_whole_seconds` | UI | DROP (Streamlit-only helper) -> delete | _player_times works around Streamlit's whole-second player |
 | 85 | `TestReviewPlayer::test_starts_at_zero_without_autoplay` | UI | DELETE with tab | AppTest |
 | 93 | `TestReviewPlayer::test_typed_timestamp_seeks_the_player` | UI | DELETE with tab | AppTest |
@@ -1116,20 +1116,20 @@ Top-level UI/Streamlit imports: `streamlit.testing.v1 (AppTest)`, `tabs.workspac
 | 165 | `TestReviewPlayer::test_video_uses_st_video_and_offers_burned_preview` | UI | DELETE with tab | AppTest |
 | 173 | `TestReviewPlayer::test_audio_only_has_no_burned_preview` | UI | DELETE with tab | AppTest |
 | 183 | `TestRowClickSeeksInWorkspace::test_row_click_seeks_player` | UI | DELETE with tab | AppTest |
-| 216 | `TestBurnPreview::test_clip_is_padded_around_the_line_and_retimed` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass -> export/media service when the burn preview is built (backlog R03) |
-| 224 | `TestBurnPreview::test_captions_use_the_current_style_settings` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass -> export/media service when the burn preview is built (backlog R03) |
-| 231 | `TestBurnPreview::test_falls_back_to_clean_when_export_section_not_rendered` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass -> export/media service when the burn preview is built (backlog R03) |
-| 236 | `TestBurnPreview::test_clip_start_never_goes_negative` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass -> export/media service when the burn preview is built (backlog R03) |
-| 240 | `TestBurnPreview::test_render_preview_clip_trims_and_burns_the_ass_file` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass -> export/media service when the burn preview is built (backlog R03) |
-| 250 | `TestBurnPreview::test_ass_tempfile_is_cleaned_up_even_on_failure` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass -> export/media service when the burn preview is built (backlog R03) |
+| 216 | `TestBurnPreview::test_clip_is_padded_around_the_line_and_retimed` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass |
+| 224 | `TestBurnPreview::test_captions_use_the_current_style_settings` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass |
+| 231 | `TestBurnPreview::test_falls_back_to_clean_when_export_section_not_rendered` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass |
+| 236 | `TestBurnPreview::test_clip_start_never_goes_negative` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass |
+| 240 | `TestBurnPreview::test_render_preview_clip_trims_and_burns_the_ass_file` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass |
+| 250 | `TestBurnPreview::test_ass_tempfile_is_cleaned_up_even_on_failure` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass |
 | 269 | `TestSfxExport::test_sfx_cue_text` | LOGIC | KEEP (fix file import) |  |
 | 275 | `TestSfxExport::test_srt_brackets_and_italicises_sfx_only` | LOGIC | KEEP (fix file import) |  |
 | 280 | `TestSfxExport::test_bilingual_srt_brackets_both_languages` | LOGIC | KEEP (fix file import) |  |
 | 284 | `TestSfxExport::test_vtt_brackets_and_italicises_sfx` | LOGIC | KEEP (fix file import) |  |
 | 288 | `TestSfxExport::test_ass_uses_a_distinct_italic_sfx_style` | LOGIC | KEEP (fix file import) |  |
 | 303 | `TestSfxExport::test_wrapped_sfx_is_bracketed_once` | LOGIC | KEEP (fix file import) |  |
-| 308 | `TestSfxExport::test_burned_preview_carries_the_sfx_style` | LOGIC | NEEDS EXTRACTION | _burn_preview_ass, as above |
-| 314 | `TestSfxPersistence::test_round_trips_through_the_database` | LOGIC | NEEDS EXTRACTION | keep the db sfx round-trip in a db test; the _unsaved_line_count asserts are Streamlit page state |
+| 308 | `TestSfxExport::test_burned_preview_carries_the_sfx_style` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.burn_preview_ass (class TestSfxBurnPreview) |
+| 314 | `TestSfxPersistence::test_round_trips_through_the_database` | LOGIC | DONE (extracted) | moved to tests/test_review_lines_service.py with the db sfx round trip and asserts against services/review_lines_service.unsaved_line_count |
 | 327 | `TestSfxPersistence::test_restoring_a_snapshot_keeps_the_mark` | LOGIC | KEEP (fix file import) |  |
 | 335 | `TestSfxPersistence::test_resegment_split_keeps_the_mark` | LOGIC | KEEP (fix file import) |  |
 | 358 | `TestSfxAndNotesPositions::test_sfx_and_notes_get_their_own_positions` | LOGIC | KEEP (fix file import) |  |
@@ -1210,12 +1210,12 @@ Top-level UI/Streamlit imports: none
 
 ### `tests/test_review_workspace.py` (20 tests: 2 LOGIC, 18 UI)
 
-Top-level UI/Streamlit imports: `tabs.workspace_tab (_line_audio_clip, _unsaved_line_count)`
+Top-level UI/Streamlit imports: `tabs.workspace_tab (_unsaved_line_count)`
 
 | Line | Test | Class | Action | Note |
 |---|---|---|---|---|
-| 32 | `TestLineAudioClip::test_cuts_the_given_range_and_cleans_up` | LOGIC | NEEDS EXTRACTION | _line_audio_clip -> a per-line clip endpoint (backlog R22) |
-| 40 | `TestLineAudioClip::test_temp_slice_is_removed_even_when_reading_fails` | LOGIC | NEEDS EXTRACTION | _line_audio_clip -> a per-line clip endpoint (backlog R22) |
+| 32 | `TestLineAudioClip::test_cuts_the_given_range_and_cleans_up` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.line_audio_clip |
+| 40 | `TestLineAudioClip::test_temp_slice_is_removed_even_when_reading_fails` | LOGIC | DONE (extracted) | moved to tests/test_media_playback_service.py; function now services/media_playback_service.line_audio_clip |
 | 58 | `TestUnsavedLineCount::test_nothing_unsaved_right_after_loading` | UI | DROP (Streamlit-only helper) -> delete | _unsaved_line_count is Streamlit page state; React saves per line |
 | 62 | `TestUnsavedLineCount::test_timing_is_compared_at_the_boxes_two_decimals` | UI | DROP (Streamlit-only helper) -> delete | _unsaved_line_count is Streamlit page state; React saves per line |
 | 69 | `TestUnsavedLineCount::test_each_editable_field_counts_as_unsaved` | UI | DROP (Streamlit-only helper) -> delete | _unsaved_line_count is Streamlit page state; React saves per line |
@@ -1405,7 +1405,7 @@ Top-level UI/Streamlit imports: none
 
 ### `tests/test_step20_ux_polish.py` (18 tests: 10 LOGIC, 8 UI)
 
-Top-level UI/Streamlit imports: `tabs.workspace_tab (_page_for_line, _search_transcript, _adjacent_flagged_idx)`
+Top-level UI/Streamlit imports: `tabs.workspace_tab (_page_for_line, _search_transcript)`
 
 | Line | Test | Class | Action | Note |
 |---|---|---|---|---|
@@ -1413,10 +1413,10 @@ Top-level UI/Streamlit imports: `tabs.workspace_tab (_page_for_line, _search_tra
 | 32 | `TestPageForLine::test_later_page` | UI | DROP (Streamlit-only helper) -> delete | Streamlit page maths; server paging is review_lines_service.list_review_lines |
 | 37 | `TestPageForLine::test_uses_position_in_the_list_not_the_idx_value` | UI | DROP (Streamlit-only helper) -> delete | Streamlit page maths; server paging is review_lines_service.list_review_lines |
 | 48 | `TestPageForLine::test_missing_idx_defaults_to_first_page` | UI | DROP (Streamlit-only helper) -> delete | Streamlit page maths; server paging is review_lines_service.list_review_lines |
-| 60 | `TestAdjacentFlaggedIdx::test_forward_finds_the_next_flagged_line` | LOGIC | NEEDS EXTRACTION | _adjacent_flagged_idx -> review_lines_service if cross-page flagged navigation is built (backlog R08) |
-| 65 | `TestAdjacentFlaggedIdx::test_backward_finds_the_previous_flagged_line` | LOGIC | NEEDS EXTRACTION | _adjacent_flagged_idx -> review_lines_service if cross-page flagged navigation is built (backlog R08) |
-| 70 | `TestAdjacentFlaggedIdx::test_none_when_nothing_further_in_that_direction` | LOGIC | NEEDS EXTRACTION | _adjacent_flagged_idx -> review_lines_service if cross-page flagged navigation is built (backlog R08) |
-| 75 | `TestAdjacentFlaggedIdx::test_none_when_nothing_flagged_at_all` | LOGIC | NEEDS EXTRACTION | _adjacent_flagged_idx -> review_lines_service if cross-page flagged navigation is built (backlog R08) |
+| 60 | `TestAdjacentFlaggedIdx::test_forward_finds_the_next_flagged_line` | LOGIC | DONE (extracted) | moved to tests/test_review_lines_service.py; function now services/review_lines_service.adjacent_flagged_idx |
+| 65 | `TestAdjacentFlaggedIdx::test_backward_finds_the_previous_flagged_line` | LOGIC | DONE (extracted) | moved to tests/test_review_lines_service.py; function now services/review_lines_service.adjacent_flagged_idx |
+| 70 | `TestAdjacentFlaggedIdx::test_none_when_nothing_further_in_that_direction` | LOGIC | DONE (extracted) | moved to tests/test_review_lines_service.py; function now services/review_lines_service.adjacent_flagged_idx |
+| 75 | `TestAdjacentFlaggedIdx::test_none_when_nothing_flagged_at_all` | LOGIC | DONE (extracted) | moved to tests/test_review_lines_service.py; function now services/review_lines_service.adjacent_flagged_idx |
 | 82 | `TestSearchTranscript::test_finds_a_term_in_the_translated_text` | LOGIC | COVERED (equivalent service test exists) -> delete | test_review_lines_service (search_lines: case, zh/en, order, blank term) |
 | 88 | `TestSearchTranscript::test_finds_a_term_in_the_source_text` | LOGIC | COVERED (equivalent service test exists) -> delete | test_review_lines_service (search_lines: case, zh/en, order, blank term) |
 | 94 | `TestSearchTranscript::test_case_insensitive` | LOGIC | COVERED (equivalent service test exists) -> delete | test_review_lines_service (search_lines: case, zh/en, order, blank term) |
@@ -1742,8 +1742,8 @@ Top-level UI/Streamlit imports: none
 | 3824 | `TestFourMoreDestructiveActionsNeedConfirmation::test_bulk_delete_glossary_terms_removes_them_once_confirmed` | UI | DELETE with tab | AppTest |
 | 3834 | `TestFourMoreDestructiveActionsNeedConfirmation::test_remove_series_character_button_disabled_until_confirmed` | UI | DELETE with tab | AppTest |
 | 3839 | `TestFourMoreDestructiveActionsNeedConfirmation::test_remove_series_character_removes_it_once_confirmed` | UI | DELETE with tab | AppTest |
-| 3857 | `TestDiarizationEstimateCaption::test_caption_scales_with_audio_length` | LOGIC | NEEDS EXTRACTION | _diarization_estimate_caption: move to services/diarization_service if React shows the estimate (backlog D04); else drop |
-| 3862 | `TestDiarizationEstimateCaption::test_caption_has_a_generic_fallback_for_unknown_length` | LOGIC | NEEDS EXTRACTION | _diarization_estimate_caption: move to services/diarization_service if React shows the estimate (backlog D04); else drop |
+| 3857 | `TestDiarizationEstimateCaption::test_caption_scales_with_audio_length` | LOGIC | DONE (extracted) | moved to tests/test_diarization_service.py; function now services/diarization_service.diarization_estimate_caption |
+| 3862 | `TestDiarizationEstimateCaption::test_caption_has_a_generic_fallback_for_unknown_length` | LOGIC | DONE (extracted) | moved to tests/test_diarization_service.py; function now services/diarization_service.diarization_estimate_caption |
 | 3899 | `TestDiarizationEstimateCaption::test_estimate_caption_shown_before_rerunning_speaker_detection` | UI | DELETE with tab | AppTest |
 | 3992 | `TestSpeakerDetectionRealMidRunStop::test_clicking_the_button_starts_a_real_background_job_not_a_blocking_call` | UI | DELETE with tab | AppTest |
 | 4022 | `TestSpeakerDetectionRealMidRunStop::test_cancel_button_appears_while_running_and_actually_requests_a_stop` | UI | DELETE with tab | AppTest |

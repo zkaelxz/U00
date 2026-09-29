@@ -272,3 +272,17 @@ class TestOverwriteManual:
         assert r.status_code == 422 and captured == {}
         r = c.post(f"/api/diarization/dramas/{did}/run?overwrite_manual=true&confirm=true")
         assert r.status_code == 200
+
+
+class TestDiarizationEstimateCaption:
+    """Moved from tabs/workspace_tab.py: an honest estimated-duration
+    caption, scaled off the audio's own length, since pyannote exposes no
+    incremental progress."""
+
+    def test_caption_scales_with_audio_length(self):
+        caption = diarization_service.diarization_estimate_caption(754)  # 12:34
+        assert "12:34" in caption
+
+    def test_caption_has_a_generic_fallback_for_unknown_length(self):
+        caption = diarization_service.diarization_estimate_caption(0)
+        assert caption

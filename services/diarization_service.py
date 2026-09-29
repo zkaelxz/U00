@@ -155,3 +155,24 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     if not started:
         raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
     return {"job_id": job_id}
+
+
+def diarization_estimate_caption(audio_duration_seconds):
+    """pyannote's pipeline makes one call and only returns a result at the
+    end -- no incremental progress callback exists in its public API, so
+    unlike Whisper's segment-by-segment real progress bar, this is the best
+    honest estimate available: diarization runtime scales roughly linearly
+    with audio length, so a range scaled off the audio's own length (rather
+    than a fixed number that ignores it) is truthful without pretending to
+    more precision than a single st.spinner can back up."""
+    if not audio_duration_seconds or audio_duration_seconds <= 0:
+        return "Usually takes anywhere from under a minute to a few minutes, depending on audio length and hardware."
+
+    def _mmss(seconds):
+        m, s = divmod(int(round(seconds)), 60)
+        return f"{m}:{s:02d}"
+
+    return (f"For audio this long (~{_mmss(audio_duration_seconds)}), usually takes roughly "
+            f"{_mmss(audio_duration_seconds)}–{_mmss(audio_duration_seconds * 2)}, depending on "
+            f"your hardware -- there's no incremental progress to show here (pyannote's pipeline "
+            f"doesn't expose one), just this spinner until it finishes.")
