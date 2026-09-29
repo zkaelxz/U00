@@ -1,0 +1,11 @@
+/* Auto-tune + Glossary-from-novel panels (AutoTune.tsx, NovelGlossary.tsx). */
+.autotune, .novel-glossary { display: grid; gap: var(--space-3); min-width: 0; }
+.autotune > *, .novel-glossary > * { margin: 0; }
+.autotune-cards, .novel-glossary-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.autotune-cards > li, .novel-glossary-cards > li {
+  padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--field-bg); min-width: 0; overflow-wrap: anywhere;
+}
+.autotune-card-action { display: flex; justify-content: flex-end; margin-top: var(--space-2); }
+.novel-glossary-cards label { display: flex; align-items: center; gap: var(--space-2); }
+.novel-glossary-reason { font-size: var(--font-sm); }

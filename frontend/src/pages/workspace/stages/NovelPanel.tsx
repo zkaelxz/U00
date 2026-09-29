@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { getSourceConfig } from '../../../api/source'
+import { removeRawNovel } from '../../../api/stageDeletes'
 import { attachNovelEpub, attachNovelText, getNovelStatus, startNovelOcr } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { NovelMode, NovelStatus } from '../../../types/workspace'
+import { ConfirmButton } from '../pcOnly/ConfirmButton'
+import { PC_ONLY_NOTE, reportPcOnlyError, usePcOnly } from '../pcOnly/pcOnly'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 
@@ -42,6 +46,31 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
     }
   }, [dramaId, reloads, reloadKey])
 
+  // The original-language novel (raw_novel_context.txt), removable on the PC.
+  const [hasRaw, setHasRaw] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const isLocal = usePcOnly()
+  useEffect(() => {
+    let cancelled = false
+    getSourceConfig(dramaId).then((c) => !cancelled && setHasRaw(c.has_raw_novel_context), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, reloads, reloadKey])
+
+  const removeRaw = () => {
+    setProblem(null)
+    removeRawNovel(dramaId).then(
+      () => {
+        setError(null)
+        setNotice('Removed.')
+        setReloads((n) => n + 1)
+        refetchDrama()
+      },
+      (e: unknown) => reportPcOnlyError(e, setProblem, setError),
+    )
+  }
+
   const attached = useCallback(
     (chars: number) => {
       setError(null)
@@ -69,6 +98,27 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
             ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
             : 'No novel text attached.'}
         </p>
+        {(status?.has_novel_text || hasRaw) && (
+          <p className="muted">
+            <a href={`#/drama/${dramaId}/translate`}>Build a glossary from this novel →</a>
+          </p>
+        )}
+        {hasRaw && (
+          <div className="actions">
+            <span className="muted">Raw novel (original language) attached.</span>
+            {isLocal && (
+              <ConfirmButton
+                label="Remove raw novel"
+                confirmLabel="Confirm remove raw novel"
+                disabled={busy}
+                disabledReason="Wait for the running job to finish."
+                onConfirm={removeRaw}
+              />
+            )}
+            {isLocal === false && <span className="muted">{PC_ONLY_NOTE}</span>}
+          </div>
+        )}
+        {problem && <p className="error" role="alert">{problem}</p>}
         <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
           <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
             <option value="replace">Replace existing</option>

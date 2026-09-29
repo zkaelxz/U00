@@ -26,6 +26,7 @@ import {
   whisperModelWarning,
 } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { AutoTune } from './AutoTune'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
@@ -336,6 +337,16 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
           </div>
+          <AutoTune
+            hasAudio={!!media?.has_audio}
+            busy={busy}
+            prompt={prompt}
+            onApplied={(c) => {
+              setConfig(c)
+              // Keep any other unsaved edits; only min silence changed.
+              setCf((cur) => (cur ? { ...cur, min_silence_ms: String(c.min_silence_ms) } : formFromConfig(c)))
+            }}
+          />
           <Field label="Initial prompt" help="Names or terms that help the model spell things correctly.">
             <input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
           </Field>

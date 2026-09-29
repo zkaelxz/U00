@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { getJob } from '../../../api/jobs'
+import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
+import { ConfirmButton } from '../pcOnly/ConfirmButton'
+import { PC_ONLY_NOTE, reportPcOnlyError, usePcOnly } from '../pcOnly/pcOnly'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
@@ -25,6 +28,8 @@ export default function SourceStage() {
   const [reloads, setReloads] = useState(0)
   // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
   const [modeVersion, setModeVersion] = useState(0)
+  const isLocal = usePcOnly()
+  const [removeProblem, setRemoveProblem] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -96,6 +101,21 @@ export default function SourceStage() {
     )
   }
 
+  const hasMedia = !!media && (media.has_audio || media.has_source_video)
+  const remove = () => {
+    setUploaded(null)
+    setRemoveProblem(null)
+    removeMedia(dramaId).then(
+      () => {
+        setError(null)
+        setUploaded('Removed. Lines are untouched.')
+        setReloads((n) => n + 1)
+        onJobDone()
+      },
+      (e: unknown) => reportPcOnlyError(e, setRemoveProblem, setError),
+    )
+  }
+
   const mediaSlot = (
     <>
       {media && (
@@ -116,6 +136,17 @@ export default function SourceStage() {
           Upload
         </button>
       </div>
+      {hasMedia && isLocal && (
+        <ConfirmButton
+          label="Remove audio/video"
+          confirmLabel="Confirm remove audio/video"
+          disabled={busy}
+          disabledReason="Wait for the running job to finish."
+          onConfirm={remove}
+        />
+      )}
+      {hasMedia && isLocal === false && <p className="muted">{PC_ONLY_NOTE}</p>}
+      {removeProblem && <p className="error" role="alert">{removeProblem}</p>}
       {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
       {uploaded && <p role="status">{uploaded}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -129,7 +160,7 @@ export default function SourceStage() {
       <SourceModePanel onSaved={() => setModeVersion((n) => n + 1)} />
       <DetailsPanel />
       <AutofillPanel />
-      <AnalyzePanel hasMedia={!!media && (media.has_audio || media.has_source_video)} />
+      <AnalyzePanel hasMedia={hasMedia} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
     </div>
   )
