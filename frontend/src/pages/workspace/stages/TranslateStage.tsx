@@ -36,6 +36,7 @@ import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { JobPanel } from './JobPanel'
+import { NovelFilePanel } from './NovelFilePanel'
 import './translate.css'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
@@ -431,6 +432,7 @@ export default function TranslateStage() {
       {config && (
         <BulkBatchesPanel supported={config.bulk_supported_engines.length > 0} reloadKey={reloads} />
       )}
+      <NovelFilePanel kind="reference" busy={busy} onChanged={() => setReloads((n) => n + 1)} />
       <GlossaryPanel />
       <CharactersPanel />
     </div>

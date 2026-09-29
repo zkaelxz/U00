@@ -10,6 +10,7 @@ import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
 import type { JobRecord } from '../types/jobs'
+import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
 import { LogSection } from './diagnostics/LogSection'
@@ -151,6 +152,7 @@ export default function DiagnosticsPage() {
       <JobHistorySection items={history} />
       <LogSection />
       <SupportReportSection />
+      <BugReportsSection pc={pc} />
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
     </section>
