@@ -192,13 +192,23 @@ def _vtt_ts(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
 
 
-def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True):
+def _vtt_escape(text: str) -> str:
+    """WebVTT cue text is markup: a bare "<" starts a tag (so "I <3 you"
+    would be cut at "<") and "&" starts an entity. Escaping ">" as well
+    means no "-->" (however many dashes) can end a cue early."""
+    return html.escape(text, quote=False) if text else text
+
+
+def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True, escape=False):
     """italic_tags: whether an SFX cue gets <i> tags (VTT) or is left for
-    the caller to style (ASS's own "SFX" style)."""
+    the caller to style (ASS's own "SFX" style). escape: entity-escape the
+    line's own text for WebVTT, before any <i> tags are added (SRT and ASS
+    are not markup of this kind, so they get the text as it is)."""
+    esc = _vtt_escape if escape else (lambda s: s)
     sfx = getattr(ln, "sfx", False)
     if field == "bilingual":
-        en = wrap_text(ln.en, wrap_chars.get("en")) if wrap_chars else ln.en
-        zh = wrap_text(ln.zh, wrap_chars.get("zh")) if wrap_chars else ln.zh
+        en = esc(wrap_text(ln.en, wrap_chars.get("en")) if wrap_chars else ln.en)
+        zh = esc(wrap_text(ln.zh, wrap_chars.get("zh")) if wrap_chars else ln.zh)
         if sfx:
             en, zh = sfx_cue_text(en, italic_tags), sfx_cue_text(zh, italic_tags)
         text = f"{en}\n{zh}" if en else zh
@@ -206,9 +216,10 @@ def _cue_text(ln, field, notes_by_idx, wrap_chars, italic_tags=True):
         text = getattr(ln, field)
         if wrap_chars:
             text = wrap_text(text, wrap_chars.get(field))
+        text = esc(text)
         if sfx:
             text = sfx_cue_text(text, italic_tags)
-    return text + _notes_suffix(ln.idx, notes_by_idx)
+    return text + esc(_notes_suffix(ln.idx, notes_by_idx))
 
 
 def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars: dict = None) -> str:
@@ -216,9 +227,11 @@ def lines_to_vtt(lines, field: str = "en", notes_by_idx: dict = None, wrap_chars
     {"en": n, "zh": n} per-line character limits (see wrap_text)."""
     cues = ["WEBVTT\n"]
     for i, ln in enumerate(lines, start=1):
-        text = _cue_text(ln, field, notes_by_idx, wrap_chars)
-        # "-->" inside cue text would end the cue early in some players
-        cues.append(f"{i}\n{_vtt_ts(ln.start)} --> {_vtt_ts(ln.end)}\n{text.replace('-->', '->')}\n")
+        text = _cue_text(ln, field, notes_by_idx, wrap_chars, escape=True)
+        # A blank line ends a cue, so the rest of the text would be lost:
+        # keep only the lines that have something on them.
+        text = "\n".join(part for part in re.split(r"\r\n|\r|\n", text) if part.strip())
+        cues.append(f"{i}\n{_vtt_ts(ln.start)} --> {_vtt_ts(ln.end)}\n{text}\n")
     return "\n".join(cues)
 
 

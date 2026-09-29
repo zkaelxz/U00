@@ -44,7 +44,69 @@ class TestVtt:
         lines = _lines()
         lines[0].en = "a --> b"
         vtt = sf.lines_to_vtt(lines, "bilingual")
-        assert "a -> b\n你好" in vtt
+        # ">" is escaped, so the arrow can't end the cue and still reads "a --> b".
+        assert "a --&gt; b\n你好" in vtt
+
+    @staticmethod
+    def _cue_bodies(vtt):
+        """Each cue's text as a WebVTT parser reads it: the lines after the
+        timing line, up to the first blank line."""
+        bodies = []
+        for block in vtt.split("\n\n")[1:]:
+            rows = block.split("\n")
+            timing = next(i for i, r in enumerate(rows) if " --> " in r)
+            bodies.append("\n".join(rows[timing + 1:]).rstrip("\n"))
+        return bodies
+
+    def test_markup_characters_are_escaped_not_lost(self):
+        import html
+        lines = _lines()
+        lines[0].en = "I <3 you & him > her"
+        body = self._cue_bodies(sf.lines_to_vtt(lines, "en"))[0]
+        assert body == "I &lt;3 you &amp; him &gt; her"
+        assert html.unescape(body) == "I <3 you & him > her"
+
+    def test_every_arrow_is_neutralised(self):
+        import html
+        lines = _lines()
+        lines[0].en = "a ---> b ----> c --> d"
+        vtt = sf.lines_to_vtt(lines, "en")
+        cue_lines = vtt.split("\n")
+        assert sum("-->" in row for row in cue_lines) == 2   # only the two timing lines
+        body = self._cue_bodies(vtt)[0]
+        assert html.unescape(body) == "a ---> b ----> c --> d"
+
+    def test_blank_lines_inside_a_cue_are_collapsed(self):
+        lines = _lines()
+        lines[0].en = "first\n\n\nsecond\n \nthird"
+        vtt = sf.lines_to_vtt(lines, "en")
+        assert self._cue_bodies(vtt) == ["first\nsecond\nthird", "Goodbye."]
+        lines = _lines()
+        lines[0].en = "only English\n\n"
+        lines[0].zh = "\n你好"
+        assert self._cue_bodies(sf.lines_to_vtt(lines, "bilingual"))[0] == "only English\n你好"
+
+    def test_sfx_italics_survive_escaping(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="砰", en="glass <shatters> & falls", sfx=True)]
+        body = self._cue_bodies(sf.lines_to_vtt(lines, "en"))[0]
+        assert body == "<i>[glass &lt;shatters&gt; &amp; falls]</i>"
+        bi = self._cue_bodies(sf.lines_to_vtt(lines, "bilingual"))[0]
+        assert bi == "<i>[glass &lt;shatters&gt; &amp; falls]</i>\n<i>[砰]</i>"
+
+    def test_ordinary_text_is_unchanged(self):
+        vtt = sf.lines_to_vtt(_lines(), "bilingual")
+        assert self._cue_bodies(vtt) == ["Hello there.\n你好", "Goodbye.\n再见"]
+        notes = {0: [{"term": "Qijutang", "note": "lit. 'Hall of Sitting Together'"}]}
+        body = self._cue_bodies(sf.lines_to_vtt(_lines(), "en", notes_by_idx=notes))[0]
+        assert body == "Hello there.\n[Qijutang: lit. 'Hall of Sitting Together']"
+
+    def test_srt_and_ass_are_not_entity_escaped(self):
+        lines = _lines()
+        lines[0].en = "I <3 you & --> her"
+        assert "\nI <3 you & --> her\n" in lines_to_srt(lines, "en")
+        assert "\nI <3 you & --> her\n" in lines_to_bilingual_srt(lines)
+        ass = sf.lines_to_ass(lines, sf.ASS_PRESETS["Clean"], "en")
+        assert "I <3 you & --> her" in ass and "&lt;" not in ass and "&amp;" not in ass
 
 
 class TestAss:

@@ -18,7 +18,7 @@ function python(code: string) {
 test.beforeEach(() => {
   python(`
 from core import Line
-db.update_drama(3, audio_filename=None)
+db.update_drama(3, audio_filename=None, source_video_filename=None)
 db.save_lines(3, [
     Line(idx=0, start=0.0, end=1.5, zh='你好', en='Hello there'),
     Line(idx=1, start=1.5, end=3.0, zh='再见朋友', en='', flag='uncertain', flag_note='check'),
@@ -540,7 +540,7 @@ test('without media there are no play controls', async ({ page }) => {
   await expect(page.getByRole('button', { name: '▶ Play' })).toHaveCount(0)
 })
 
-test('with audio, Play line plays exactly the line', async ({ page }) => {
+function withAudio() {
   python(`
 import os, wave, struct, math
 p = os.path.join(db.drama_dir(3), 'e2e.wav')
@@ -549,6 +549,30 @@ with wave.open(p, 'wb') as w:
     w.writeframes(b''.join(struct.pack('<h', int(2000 * math.sin(i / 6))) for i in range(8000 * 6)))
 db.update_drama(3, audio_filename='e2e.wav')
 `)
+}
+
+// A 6-second WebM for drama 3's source video, written with OpenCV when it's
+// installed (it bundles an ffmpeg with a VP8 encoder); false otherwise.
+function withVideo(): boolean {
+  try {
+    python(`
+import os, cv2, numpy as np
+p = os.path.join(db.drama_dir(3), 'e2e.webm')
+w = cv2.VideoWriter(p, cv2.VideoWriter_fourcc(*'VP80'), 10, (160, 90))
+assert w.isOpened()
+for i in range(60):
+    w.write(np.full((90, 160, 3), (i * 4) % 255, np.uint8))
+w.release()
+db.update_drama(3, source_video_filename='e2e.webm')
+`)
+    return true
+  } catch {
+    return false
+  }
+}
+
+test('with audio, Play line plays exactly the line', async ({ page }) => {
+  withAudio()
   await open(page)
   await expect(page.getByRole('group', { name: 'Player' })).toBeVisible()
   await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
@@ -562,10 +586,181 @@ db.update_drama(3, audio_filename='e2e.wav')
   expect(t).toBeLessThan(3.3)
 })
 
+test('the player is open by default: seek bar, jump to time, go to the selected line', async ({ page }) => {
+  withAudio()
+  await open(page)
+  const player = page.getByRole('group', { name: 'Player' })
+  const audio = page.locator('.review-player audio')
+  const seek = player.getByRole('slider', { name: 'Seek' })
+  await expect(seek).toBeVisible()
+  await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
+  await expect(seek).toBeEnabled()
+
+  await player.getByLabel('Jump to time').fill('0:04.5')
+  await player.getByRole('button', { name: 'Jump' }).click()
+  await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime)).toBeCloseTo(4.5, 1)
+  await expect(page.getByTestId('player-time')).toContainText('0:04.50')
+
+  await player.getByLabel('Jump to time').fill('1:99')
+  await player.getByRole('button', { name: 'Jump' }).click()
+  await expect(player.getByRole('alert')).toContainText('Type a time like')
+
+  await activate(page, 1)
+  await player.getByRole('button', { name: 'Go to line #2' }).click()
+  await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime)).toBeCloseTo(1.5, 1)
+  await expect(page.getByTestId('player-line')).toHaveText('Line #2')
+
+  await seek.fill('3.2')
+  await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime)).toBeCloseTo(3.2, 1)
+
+  // Folding it away keeps the strip (and the sound); the choice is remembered.
+  await player.getByRole('button', { name: 'Hide player' }).click()
+  await expect(seek).toBeHidden()
+  await expect(player.getByRole('button', { name: 'Play', exact: true })).toBeVisible()
+  await page.reload()
+  await expect(player.getByRole('button', { name: 'Show player' })).toBeVisible()
+  await expect(seek).toBeHidden()
+})
+
+test('subtitles follow the playhead, switch language, and pick up an edit', async ({ page }) => {
+  withAudio()
+  await open(page)
+  const player = page.getByRole('group', { name: 'Player' })
+  const caption = page.getByTestId('player-caption')
+  const audio = page.locator('.review-player audio')
+  const seekTo = async (t: number) => {
+    await player.getByLabel('Jump to time').fill(String(t))
+    await player.getByRole('button', { name: 'Jump' }).click()
+  }
+  // Wait for the English track's cues before seeking into them.
+  await expect
+    .poll(() => audio.evaluate((a: HTMLAudioElement) => a.textTracks[0]?.cues?.length ?? 0))
+    .toBe(3)
+  await seekTo(0.5)
+  await expect(caption).toHaveText('Hello there')
+  await seekTo(3.5)
+  await expect(caption).toHaveText('Thanks, friend')
+
+  await player.getByLabel('Subtitles').selectOption({ label: 'Original' })
+  await expect(caption).toHaveText('谢谢')
+  // Both: the translation over the original, one cue per line.
+  await player.getByLabel('Subtitles').selectOption({ label: 'Both' })
+  await expect.poll(() => caption.evaluate((p) => p.textContent)).toBe('Thanks, friend\n谢谢')
+  await seekTo(0.5)
+  await expect.poll(() => caption.evaluate((p) => p.textContent)).toBe('Hello there\n你好')
+  await seekTo(3.5)
+  await player.getByLabel('Subtitles').selectOption({ label: 'English' })
+  await expect(caption).toHaveText('Thanks, friend')
+
+  const row = rows(page).nth(2)
+  await row.getByTestId('line-en').click()
+  await row.getByLabel('Translation').fill('Much obliged')
+  await row.getByLabel('Translation').press('Enter')
+  await expect(row.getByTestId('line-en')).toContainText('Much obliged')
+  await seekTo(3.6)
+  await expect(caption).toHaveText('Much obliged')
+
+  await player.getByLabel('Subtitles').selectOption({ label: 'Off' })
+  await expect(caption).toHaveCount(0)
+  await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.textTracks.length)).toBe(0)
+})
+
+test('with a source video, it shows by default with English subtitles drawn on it', async ({ page }) => {
+  test.skip(!withVideo(), 'OpenCV is not installed, so there is no test video')
+  await open(page)
+  const video = page.locator('.review-player video')
+  await expect(video).toBeVisible()
+  await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => ({ mode: v.textTracks[0]?.mode, cues: v.textTracks[0]?.cues?.length ?? 0 })))
+    .toEqual({ mode: 'showing', cues: 3 })
+  await expect(video.locator('track')).toHaveAttribute('src', /\/api\/reader\/dramas\/3\/captions\/English\?v=\d+$/)
+  const player = page.getByRole('group', { name: 'Player' })
+  await player.getByLabel('Jump to time').fill('0.5')
+  await player.getByRole('button', { name: 'Jump' }).click()
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.textTracks[0]?.activeCues?.length ?? 0)).toBe(1)
+  await page.screenshot({ path: 'test-results/review-player-desktop.png' })
+  await player.getByRole('button', { name: 'Hide player' }).click()
+  await expect(video).toBeHidden()
+})
+
+test('crossing the phone width keeps the same video, its position and its play state', async ({ page }) => {
+  test.skip(!withVideo(), 'OpenCV is not installed, so there is no test video')
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await open(page)
+  const video = page.locator('video.review-video')
+  const playButton = page.locator('.review-player button.review-play')
+  const jumpTo = async (t: number) => {
+    await page.getByLabel('Jump to time').fill(String(t))
+    await page.getByRole('button', { name: 'Jump' }).click()
+  }
+  await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
+  // Tag the element: a remount would give a fresh <video> without the tag.
+  await video.evaluate((v) => ((v as HTMLVideoElement & { e2eTag?: string }).e2eTag = 'first'))
+  const state = () =>
+    video.evaluate((v: HTMLVideoElement & { e2eTag?: string }) => ({
+      tag: v.e2eTag,
+      paused: v.paused,
+      time: v.currentTime,
+      docked: !!v.closest('.review-player-dock'),
+    }))
+
+  // Playing: turn to a phone; it keeps playing from where it was.
+  await jumpTo(1)
+  await playButton.click()
+  await expect.poll(async () => (await state()).time).toBeGreaterThan(1.2)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(async () => (await state()).docked).toBe(true)
+  const turned = await state()
+  expect(turned.tag).toBe('first')
+  expect(turned.paused).toBe(false)
+  expect(turned.time).toBeGreaterThan(1.2)
+  await expect(playButton).toHaveAccessibleName('Pause')
+
+  // Paused after a seek: back to the wide layout; still paused at that spot.
+  await playButton.click()
+  await expect.poll(async () => (await state()).paused).toBe(true)
+  await jumpTo(4)
+  await expect.poll(async () => (await state()).time).toBeCloseTo(4, 1)
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await expect.poll(async () => (await state()).docked).toBe(false)
+  const back = await state()
+  expect(back.tag).toBe('first')
+  expect(back.paused).toBe(true)
+  expect(back.time).toBeCloseTo(4, 1)
+  await expect(playButton).toHaveAccessibleName('Play')
+  await expect(page.getByTestId('player-time')).toContainText('0:04.00')
+  await expect(video).toBeVisible()
+})
+
 // ---- phone layout (390x844, touch) ----
 
 test.describe('phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+
+  test('the open player fits the width with 44px controls', async ({ page }) => {
+    withAudio()
+    withVideo()
+    await open(page)
+    await expect(page.getByRole('slider', { name: 'Seek' })).toBeVisible()
+    await page.screenshot({ path: 'test-results/review-player-phone.png' })
+    await activate(page, 0)
+    const { scroll, client } = await page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth,
+      client: document.documentElement.clientWidth,
+    }))
+    expect(scroll).toBeLessThanOrEqual(client)
+    const small = await page
+      .locator('.review-player button, .review-player select, .review-player input[type=text], .review-player input[type=range]')
+      .evaluateAll((els) =>
+        els
+          .filter((e) => (e as HTMLElement).offsetParent !== null)
+          .map((e) => ({ h: e.getBoundingClientRect().height, t: (e.textContent || e.getAttribute('aria-label') || '').trim() }))
+          .filter(({ h }) => h < 44),
+      )
+    expect(small).toEqual([])
+    await page.screenshot({ path: 'test-results/review-player-phone.png' })
+  })
 
   test('fits the width, keeps 44px targets, and edits from the bottom bar', async ({ page }) => {
     await open(page)
