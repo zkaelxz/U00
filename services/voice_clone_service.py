@@ -37,6 +37,14 @@ cancel kills it) instead of pydub.
 The job never writes the database (only files in voice_refs/); choosing a
 candidate is a field-scoped `db.upsert_character` of one speaker's row.
 
+Deleting a clip is PC-only: only upload (replace) and remove, both
+local_only routes, ever delete a file, and both refuse (ConflictError)
+while a dub, narration or audiobook job for the drama is running or
+queued, since such a job holds absolute paths to the clips it was started
+with. Choosing a candidate (lines.edit, reachable remotely) only repoints
+the speaker's field and never deletes the old clip, like
+`db.apply_voice_bank_entry`; a clip left unreferenced stays on disk.
+
 No Streamlit or FastAPI import.
 """
 import json
@@ -45,12 +53,13 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 
 import background_jobs
 import db
 import dub
-from services import characters_service
+from services import characters_service, drama_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -58,6 +67,13 @@ REFS_DIR = "voice_refs"
 CANDIDATES_DIR = "candidates"
 MANIFEST_NAME = "manifest.json"
 JOB_PREFIX = "voiceref_"
+# Jobs that read speakers' reference clips by absolute path while they run
+# (dub_service.start_dub_run builds the clone map up front). A clip must not
+# be deleted under them. Not drama_service.job_running_for_drama: that also
+# counts voiceref_ (an extraction for another speaker) and every other job.
+_CLIP_READING_JOB_PREFIXES = ("dub_", "narration_", "audiobook_")
+_CLIP_IN_USE = ("A dub, narration or audiobook job is running for this drama and may be "
+                "using this clip. Wait for it to finish or cancel it first.")
 
 # Upload caps (C09). The tab accepts wav/mp3/m4a; flac/ogg are also plain audio.
 CLIP_EXTENSIONS = (".wav", ".mp3", ".m4a", ".flac", ".ogg")
@@ -144,11 +160,27 @@ def _remove_owned_clip(drama_id: int, rel: str, keep_speaker: str):
         os.remove(path)
 
 
-def _set_clip(drama_id: int, speaker_label: str, rel: str, ref_text=None):
-    old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
-    db.upsert_character(drama_id, speaker_label, ref_audio_filename=rel, ref_text=ref_text)
-    if old != rel:
-        _remove_owned_clip(drama_id, old, speaker_label)
+def _clip_reading_job_active(drama_id: int) -> bool:
+    """True while a dub/narration/audiobook job for this drama is running
+    or queued: in this process, or a fresh job_records row written by
+    another process (as drama_service.job_running_for_drama checks)."""
+    job_ids = {f"{prefix}{drama_id}" for prefix in _CLIP_READING_JOB_PREFIXES}
+    for job_id in job_ids:
+        job = background_jobs.get_status(job_id)
+        if job and job.get("status") in ("running", "queued"):
+            return True
+    cutoff = time.time() - drama_service._STALE_JOB_RECORD_SECONDS
+    for job_id in job_ids:
+        rec = db.get_job_record(job_id)
+        if (rec and rec.get("status") in ("running", "queued")
+                and (rec.get("updated_at") or 0) >= cutoff):
+            return True
+    return False
+
+
+def _require_no_clip_reading_job(drama_id: int):
+    if _clip_reading_job_active(drama_id):
+        raise ConflictError(_CLIP_IN_USE)
 
 
 # --- C09: upload / remove ---------------------------------------------------------
@@ -196,10 +228,13 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
     stream, MIN..MAX_CLIP_SECONDS long), then renamed into place. The
     tab keeps the uploaded format (no transcode), and so does this.
     ref_text, when given, replaces the stored transcript. Returns the
-    speaker's characters_service entry."""
+    speaker's characters_service entry. ConflictError while a dub,
+    narration or audiobook job for the drama is running or queued (the
+    old clip it may be reading would be deleted)."""
     _require_drama(drama_id)
     _require_speaker(drama_id, speaker_label)
     ext = _clip_extension(client_filename)
+    _require_no_clip_reading_job(drama_id)
     if ref_text is not None:
         characters_service._check_len("ref_text", ref_text, characters_service.MAX_REF_TEXT_LEN)
     refs = os.path.join(db.drama_dir(drama_id), REFS_DIR)
@@ -223,25 +258,32 @@ def upload_reference_clip(drama_id: int, speaker_label, client_filename, fileobj
         if not (MIN_CLIP_SECONDS <= duration <= MAX_CLIP_SECONDS):
             raise InvalidInputError(
                 f"A reference clip must be {MIN_CLIP_SECONDS:g} to {MAX_CLIP_SECONDS:g} seconds long.")
+        _require_no_clip_reading_job(drama_id)  # again: the probe can take a while
         rel = f"{REFS_DIR}/clone_ref_{uuid.uuid4().hex}{ext}"
         os.replace(tmp, os.path.join(db.drama_dir(drama_id), rel))
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
         raise
-    _set_clip(drama_id, speaker_label, rel,
-              ref_text=None if ref_text is None else ref_text.strip())
+    old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
+    db.upsert_character(drama_id, speaker_label, ref_audio_filename=rel,
+                        ref_text=None if ref_text is None else ref_text.strip())
+    if old != rel:
+        _remove_owned_clip(drama_id, old, speaker_label)
     return characters_service._get_one(drama_id, speaker_label)
 
 
 def remove_reference_clip(drama_id: int, speaker_label, confirm: bool = False) -> dict:
     """Clears this speaker's clone reference (the transcript is kept, as
     it can be reused with a new clip). A clip file this module wrote is
-    deleted; any other file is left on disk. Needs confirm=True."""
+    deleted; any other file is left on disk. Needs confirm=True.
+    ConflictError while a dub, narration or audiobook job for the drama
+    is running or queued."""
     _require_drama(drama_id)
     _require_speaker(drama_id, speaker_label)
     if confirm is not True:
         raise InvalidInputError("Removing a reference clip needs confirm=true.")
+    _require_no_clip_reading_job(drama_id)
     old = _character_row(drama_id, speaker_label).get("ref_audio_filename") or ""
     if old:
         db.upsert_character(drama_id, speaker_label, ref_audio_filename="")
@@ -478,7 +520,9 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     to a generated name in voice_refs/ (so a later extraction can't pull
     it away) and the matched line's source text becomes ref_text, as the
     tab's auto-extract does; with no matched line the stored ref_text is
-    left alone. Field-scoped write of that one speaker's row."""
+    left alone. Field-scoped write of that one speaker's row. The previous
+    clip is never deleted (this route is reachable remotely; deleting is
+    PC-only), only no longer pointed at, like db.apply_voice_bank_entry."""
     _require_drama(drama_id)
     label, cand, path = _find_candidate(drama_id, candidate_id)
     if label not in characters_service._known_speakers(drama_id):
@@ -492,7 +536,7 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
             if ln.get("id") == line_id and (ln.get("zh") or "").strip():
                 ref_text = ln["zh"].strip()
                 break
-    _set_clip(drama_id, label, rel, ref_text=ref_text)
+    db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
     return characters_service._get_one(drama_id, label)
 
 

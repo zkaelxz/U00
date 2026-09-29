@@ -212,6 +212,51 @@ class TestUpload:
         assert os.path.exists(os.path.join(db.drama_dir(did), rel))
 
 
+class TestClipInUseByJob:
+    """Upload (replace) and remove delete a clip, so both refuse while a
+    job that reads clips by absolute path is running or queued."""
+
+    @pytest.mark.parametrize("prefix", ["dub_", "narration_", "audiobook_"])
+    @pytest.mark.parametrize("status", ["running", "queued"])
+    def test_upload_and_remove_409_while_clip_job_active(self, client, isolated_db, tools,
+                                                        prefix, status):
+        did = _drama()
+        _upload(client, did)
+        rel = _char(did, "A")["ref_audio_filename"]
+        background_jobs._jobs[f"{prefix}{did}"] = {"status": status}
+        r = _upload(client, did, name="new.wav")
+        assert r.status_code == 409, r.text
+        assert "job is running" in _error(r)["message"]
+        _no_leak(r.text, did)
+        r = client.post(f"{BASE}/{did}/reference-clip/remove",
+                        json={"speaker_label": "A", "confirm": True})
+        assert r.status_code == 409, r.text
+        assert _char(did, "A")["ref_audio_filename"] == rel
+        assert os.path.isfile(os.path.join(db.drama_dir(did), rel))
+        # nothing half-written: only the original clip is in voice_refs/
+        assert os.listdir(os.path.join(db.drama_dir(did), "voice_refs")) == [rel.split("/")[1]]
+
+    def test_409_from_another_process_job_record(self, client, isolated_db, tools):
+        did = _drama()
+        _upload(client, did)
+        db.save_job_record(f"dub_{did}", "running")
+        assert _upload(client, did, name="new.wav").status_code == 409
+        assert client.post(f"{BASE}/{did}/reference-clip/remove",
+                           json={"speaker_label": "A", "confirm": True}).status_code == 409
+        db.save_job_record(f"dub_{did}", "done")
+        assert _upload(client, did, name="new.wav").status_code == 200
+
+    def test_other_drama_or_unrelated_job_does_not_block(self, client, isolated_db, tools):
+        did = _drama()
+        other = _drama()
+        background_jobs._jobs[f"dub_{other}"] = {"status": "running"}
+        background_jobs._jobs[f"voiceref_{did}"] = {"status": "running"}
+        background_jobs._jobs[f"translate_{did}"] = {"status": "running"}
+        assert _upload(client, did).status_code == 200
+        assert client.post(f"{BASE}/{did}/reference-clip/remove",
+                           json={"speaker_label": "A", "confirm": True}).status_code == 200
+
+
 def _char_missing_or_no_clip(did, label):
     rows = [c for c in db.list_characters(did) if c["speaker_label"] == label]
     return not rows or not rows[0].get("ref_audio_filename")
@@ -241,6 +286,7 @@ class TestExtract:
         assert cands[0]["ref_text"] == "台词0"
         audio = client.get(f"{BASE}/{did}/reference-clips/candidates/{cands[0]['id']}/audio")
         assert audio.status_code == 200 and audio.content == b"RIFFcut"
+        assert audio.headers["x-content-type-options"] == "nosniff"
         assert "voice_refs" not in audio.headers.get("content-disposition", "")
         chosen = client.post(f"{BASE}/{did}/reference-clips/candidates/{cands[0]['id']}/choose",
                              headers=LOCAL_HDR)
@@ -493,6 +539,28 @@ class TestAuthOn:
         assert c.post(f"{BASE}/{did}/voice-bank/save", headers=h,
                       json={"speaker_label": "A", "name": "x"}).status_code == 403
         assert db.list_voice_bank_entries() == []
+
+    def test_remote_choose_never_deletes_a_pc_upload(self, isolated_db, tools):
+        did = _drama(speakers=("A",), durations=[6.0])
+        r = _local().post(f"{BASE}/{did}/reference-clip", headers=LOCAL_HDR,
+                          files={"file": ("a.wav", b"RIFFpc", "audio/wav")},
+                          data={"speaker_label": "A"})
+        assert r.status_code == 200, r.text
+        uploaded = _char(did, "A")["ref_audio_filename"]
+        c = _remote()
+        h = _household()
+        _wait(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
+                     json={"speaker_label": "A"}).json()["job_id"])
+        cid = c.get(f"{BASE}/{did}/reference-clips/candidates",
+                    headers=h).json()["speakers"][0]["candidates"][0]["id"]
+        assert c.post(f"{BASE}/{did}/reference-clips/candidates/{cid}/choose",
+                      headers=h).status_code == 200
+        chosen = _char(did, "A")["ref_audio_filename"]
+        assert chosen != uploaded
+        path = os.path.join(db.drama_dir(did), uploaded)
+        assert os.path.isfile(path)
+        with open(path, "rb") as f:
+            assert f.read() == b"RIFFpc"
 
     def test_media_stream_and_admin_grants(self, isolated_db, tools):
         c = _remote()

@@ -14,7 +14,8 @@ Permissions (docs/remote-access-decision.md):
   - preview a candidate: media.stream (audio bytes);
   - choose a candidate: lines.edit. It writes a file, but no client bytes:
     it copies a clip cut from the drama's own audio, like the existing
-    voice-bank apply (lines.edit), and sets one speaker's fields;
+    voice-bank apply (lines.edit), and sets one speaker's fields. It never
+    deletes the previous clip (deletes are PC-only);
   - save to the voice bank: admin.library (a library catalogue write,
     like the voice-bank rename);
   - series-character link: lines.edit (like the other character fields).
@@ -40,7 +41,7 @@ _CANDIDATE_ID = Path(min_length=32, max_length=32, pattern="^[0-9a-f]{32}$")
 @router.post("/dramas/{drama_id}/reference-clip", dependencies=[local_only()],
              response_model=CharactersEntry,
              summary="Upload (or replace) one speaker's clone reference clip",
-             responses={**_ERR, 503: {"model": ErrorResponse}})
+             responses={**_ERR, 409: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
 def post_reference_clip(drama_id: int = Path(ge=1), file: UploadFile = File(...),
                         speaker_label: str = Form(..., min_length=1, max_length=200),
                         ref_text: Optional[str] = Form(None, max_length=5000)):
@@ -51,7 +52,7 @@ def post_reference_clip(drama_id: int = Path(ge=1), file: UploadFile = File(...)
 @router.post("/dramas/{drama_id}/reference-clip/remove", dependencies=[local_only()],
              response_model=CharactersEntry,
              summary="Remove one speaker's clone reference clip (confirm=true)",
-             responses=_ERR)
+             responses={**_ERR, 409: {"model": ErrorResponse}})
 def post_remove_reference_clip(body: VoiceCloneRemoveRequest, drama_id: int = Path(ge=1)):
     return voice_clone_service.remove_reference_clip(drama_id, body.speaker_label,
                                                      confirm=body.confirm)
@@ -83,7 +84,8 @@ def get_candidate_audio(drama_id: int = Path(ge=1), candidate_id: str = _CANDIDA
     path = voice_clone_service.candidate_audio_path(drama_id, candidate_id)
     return FileResponse(path, media_type="audio/wav", filename=f"candidate_{drama_id}.wav",
                         content_disposition_type="inline",
-                        headers={"Cache-Control": "no-store"})
+                        headers={"Cache-Control": "no-store",
+                                 "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/dramas/{drama_id}/reference-clips/candidates/{candidate_id}/choose",
