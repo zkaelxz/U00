@@ -1,0 +1,92 @@
+import { describe, expect, it } from 'vitest'
+
+import type { TranslateEngine } from '../types/translate'
+import {
+  HISTORY_PREVIEW,
+  engineOptionLabel,
+  historyLabel,
+  historyTime,
+  isDirection,
+  orderEngines,
+  pickEngine,
+  pickLanguage,
+  pickModel,
+  swapDirection,
+  visibleHistory,
+} from './translatePage'
+
+const eng = (name: string, key_configured = true, models: string[] | null = null): TranslateEngine => ({
+  name,
+  label: `${name} engine.`,
+  free: false,
+  models,
+  key_configured,
+})
+
+describe('engine picker', () => {
+  const all = [eng('claude', false, ['a', 'b']), eng('test_offline'), eng('deepseek')]
+
+  it('labels engines by name and marks the ones with no key', () => {
+    expect(engineOptionLabel(eng('test_offline'))).toBe('Offline test')
+    expect(engineOptionLabel(eng('claude', false))).toBe('Claude (no key)')
+  })
+
+  it('lists usable engines first, keeping API order', () => {
+    expect(orderEngines(all).map((e) => e.name)).toEqual(['test_offline', 'deepseek', 'claude'])
+  })
+
+  it('restores a remembered engine the server still lists, else the first usable one', () => {
+    expect(pickEngine(all, 'deepseek')).toBe('deepseek')
+    expect(pickEngine(all, 'claude')).toBe('claude')
+    expect(pickEngine(all, 'gone')).toBe('test_offline')
+    expect(pickEngine(all, '')).toBe('test_offline')
+    expect(pickEngine([eng('claude', false)], '')).toBe('')
+    expect(pickEngine([], 'claude')).toBe('')
+  })
+
+  it('keeps a remembered model only if the engine offers it', () => {
+    expect(pickModel(all[0], 'b')).toBe('b')
+    expect(pickModel(all[0], 'z')).toBe('')
+    expect(pickModel(all[1], 'b')).toBe('')
+    expect(pickModel(undefined, 'b')).toBe('')
+  })
+})
+
+describe('languages', () => {
+  it('validates remembered direction and language', () => {
+    expect(isDirection('to_english')).toBe(true)
+    expect(isDirection('from_english')).toBe(true)
+    expect(isDirection('sideways')).toBe(false)
+    expect(pickLanguage('ko')).toBe('ko')
+    expect(pickLanguage('en')).toBe('zh')
+    expect(pickLanguage('')).toBe('zh')
+  })
+
+  it('swaps direction both ways', () => {
+    expect(swapDirection('to_english')).toBe('from_english')
+    expect(swapDirection('from_english')).toBe('to_english')
+  })
+})
+
+describe('history', () => {
+  it('humanizes languages and engine (no raw codes)', () => {
+    const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'test_offline' })
+    expect(label).toBe('Chinese → English · Offline test')
+    expect(historyLabel({ source_language: 'en', target_language: 'ja', engine: 'claude' })).toBe(
+      'English → Japanese · Claude',
+    )
+    expect(historyLabel({ source_language: 'pt_br', target_language: '', engine: 'new_engine' })).not.toContain('_')
+  })
+
+  it('shows the time to the minute without the ISO T', () => {
+    expect(historyTime('2026-09-29T18:31:05.123')).toBe('2026-09-29 18:31')
+    expect(historyTime('2026-09-29 12:00:00')).toBe('2026-09-29 12:00')
+  })
+
+  it('shows the first few until Show all', () => {
+    const items = Array.from({ length: HISTORY_PREVIEW + 3 }, (_, i) => i)
+    expect(visibleHistory(items, false)).toHaveLength(HISTORY_PREVIEW)
+    expect(visibleHistory(items, true)).toHaveLength(items.length)
+    expect(visibleHistory([1, 2], false)).toEqual([1, 2])
+  })
+})
