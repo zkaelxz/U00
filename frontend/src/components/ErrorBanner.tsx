@@ -1,8 +1,13 @@
-import { describeError } from './errorMessages'
+import { describeError, type DescribeOptions } from './errorMessages'
 
-export function ErrorBanner({ error, onDismiss }: { error: unknown; onDismiss?: () => void }) {
+export function ErrorBanner({ error, onDismiss, describe }: {
+  error: unknown
+  onDismiss?: () => void
+  // Opt-in copy: { pcOnly } for PC-only calls, { serverText } for admin/restore calls.
+  describe?: DescribeOptions
+}) {
   if (!error) return null
-  const { title, detail } = describeError(error)
+  const { title, detail } = describeError(error, describe)
   return (
     <div className="banner error-banner" role="alert">
       <div>
