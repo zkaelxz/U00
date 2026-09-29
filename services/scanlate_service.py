@@ -23,7 +23,10 @@ def add_uploaded_pages(drama_id: int, pages_dir: str, uploads, slice_strips: boo
 
     `uploads` is any iterable of objects with a `.name` (used only for its
     extension) and either `getbuffer()` (Streamlit's UploadedFile) or
-    `read()` returning bytes (e.g. a FastAPI/Starlette upload's file)."""
+    `read()` returning bytes. API callers must pass an object with the
+    client filename as `.name` and a synchronous `read()`/`getbuffer()`;
+    a future route must also enforce an extension allowlist
+    (png/jpg/jpeg/pdf) and a size cap."""
     import shutil
     import tempfile
     import scanlate
