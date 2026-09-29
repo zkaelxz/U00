@@ -5,12 +5,15 @@ may make one private (auth slice B1; plan section B).
 UI-free. A `principal` is the dict `api/auth.py` puts on
 `request.state.principal` (`user_id`, `is_admin`, `is_local_owner`), or
 None, which means auth is off (Streamlit, the CLI, an auth-off API) and
-everything is visible.
+everything is visible. With auth on, callers (B2 onward) must always pass
+the request's principal -- never None for a missing one, which would
+grant full visibility.
 
-The rule: a drama is visible when auth is off, or the principal is the
-local owner, an admin, or the drama's owner, or when neither the drama nor
-its series is private. A series is visible to the same people, or when it
-is not private. Existing rows carry `owner_user_id = NULL, is_private = 0`
+The rule: auth off, the local owner and admins see everything. Otherwise a
+series is visible to its owner, or when it is not private. A drama is
+visible to the owner of its series; else, if its series is private, to no
+one else (owning the drama doesn't override a private series); else to the
+drama's owner, or when the drama is not private. Existing rows carry `owner_user_id = NULL, is_private = 0`
 ("the PC owner / admins, shared").
 
 A denied read is always `NotFoundError` (404), never 403, so a private
@@ -26,6 +29,8 @@ User decisions applied (2026-09-29):
 - The private flag applies to whole series, and to dramas with no series
   only (avoids leaks via series glossary/TM/previous_episode_summary).
 """
+
+import sqlite3
 
 import db
 from services.service_errors import (ConflictError, ForbiddenError, InvalidInputError,
@@ -51,17 +56,35 @@ def _is_owner(principal, row) -> bool:
 
 
 def _visible(principal, kind: str, row: dict) -> bool:
-    if _sees_everything(principal) or _is_owner(principal, row):
+    """Must agree with the `visible_to` SQL in db.list_dramas/list_series."""
+    if _sees_everything(principal):
         return True
-    if row["is_private"]:
-        return False
-    return not (kind == "drama" and row.get("series_is_private"))
+    if kind == "drama":
+        uid = _user_id(principal)
+        if row.get("series_id") is not None and uid is not None \
+                and row.get("series_owner_user_id") == uid:
+            return True
+        if row.get("series_is_private"):
+            return False
+    return _is_owner(principal, row) or not row["is_private"]
+
+
+def _item_id(item_id) -> int:
+    """A malformed or out-of-range id (SQLite integers are 64-bit) is a 404,
+    like any other id that matches nothing."""
+    try:
+        value = int(item_id)
+    except (TypeError, ValueError, OverflowError):
+        raise NotFoundError("Not found.") from None
+    if not -2**63 <= value < 2**63:
+        raise NotFoundError("Not found.")
+    return value
 
 
 def can_see(principal, kind: str, item_id: int) -> bool:
     if kind not in _KINDS:
         raise InvalidInputError("Unknown item kind.")
-    row = db.get_item_ownership(kind, int(item_id))
+    row = db.get_item_ownership(kind, _item_id(item_id))
     return bool(row) and _visible(principal, kind, row)
 
 
@@ -100,7 +123,7 @@ def filter_visible_drama_ids(principal, drama_ids) -> list:
     Each id is checked individually -- never matched by position."""
     out, seen = [], set()
     for did in drama_ids:
-        did = int(did)
+        did = _item_id(did)
         if did in seen:
             continue
         seen.add(did)
@@ -140,7 +163,7 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     the principal can't see is a 404; a visible one they don't own is 403."""
     if kind not in _KINDS:
         raise InvalidInputError("Unknown item kind.")
-    item_id = int(item_id)
+    item_id = _item_id(item_id)
     row = db.get_item_ownership(kind, item_id)
     if not row or not _visible(principal, kind, row):
         raise NotFoundError("Drama not found." if kind == "drama" else "Series not found.")
@@ -149,6 +172,9 @@ def set_private(principal, kind: str, item_id: int, private: bool) -> dict:
     if kind == "drama" and private and row.get("series_id"):
         # User decision 3: only whole series, or dramas with no series.
         raise InvalidInputError("Make the series private instead.")
+    if kind == "series" and private and db.series_has_dramas_owned_by_others(item_id):
+        # Otherwise those dramas would vanish for the people who own them.
+        raise ConflictError("Move other people's dramas out of this series first.")
     db.set_item_private(kind, item_id, private)
     return {"kind": kind, "id": item_id, "is_private": bool(private)}
 
@@ -157,7 +183,9 @@ def get_or_create_series_for(principal, name: str) -> int:
     """Visibility-aware `db.get_or_create_series`: reuses an existing series
     only if the principal can see it; a name taken by a series they can't
     see is refused (user decision 2) rather than joined. A new series is
-    stamped with `new_item_defaults`."""
+    stamped with `new_item_defaults`. The create is insert-only, so a race
+    with another user creating the same name is refused too, never handed
+    their series id."""
     name = (name or "").strip()
     if not name:
         raise InvalidInputError("A series name is required.")
@@ -166,4 +194,7 @@ def get_or_create_series_for(principal, name: str) -> int:
         if can_see_series(principal, existing):
             return existing
         raise ConflictError("That series name is taken")
-    return db.get_or_create_series(name, **new_item_defaults(principal))
+    try:
+        return db.create_series(name, **new_item_defaults(principal))
+    except sqlite3.IntegrityError:
+        raise ConflictError("That series name is taken") from None

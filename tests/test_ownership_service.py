@@ -150,9 +150,101 @@ def test_series_name_collision_refused(people):
 def test_owner_fields_on_history_and_job_records(people):
     hid = db.save_translate_history("zh", "en", "x", "你好", "hi", user_id=people["a_id"])
     assert [r for r in db.list_translate_history() if r["id"] == hid][0]["user_id"] == people["a_id"]
-    db.save_job_record("j1", "running", owner_user_id=people["a_id"])
-    db.save_job_record("j1", "done")   # a later write without owner keeps it
+    db.save_job_record("j1", "queued", owner_user_id=people["a_id"])
+    db.save_job_record("j1", "running")   # later writes in the same run keep it
+    db.save_job_record("j1", "done")
+    assert _job_owner("j1") == people["a_id"]
+
+
+def _job_owner(job_id):
     with contextlib.closing(db.get_conn()) as conn:
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT owner_user_id FROM job_records WHERE job_id='j1'").fetchone()
-    assert row["owner_user_id"] == people["a_id"]
+        row = conn.execute("SELECT owner_user_id FROM job_records WHERE job_id=?",
+                           (job_id,)).fetchone()
+    return row["owner_user_id"]
+
+
+def test_reused_job_id_takes_the_new_runs_owner(people):
+    """background_jobs.start_job reuses ids like translate_<drama>: a new run
+    after a finished one belongs to whoever started it, not the first owner."""
+    db.save_job_record("translate_1", "running", owner_user_id=people["a_id"])
+    db.save_job_record("translate_1", "done")
+    db.save_job_record("translate_1", "queued", owner_user_id=people["b_id"])
+    assert _job_owner("translate_1") == people["b_id"]
+    db.save_job_record("translate_1", "running")
+    assert _job_owner("translate_1") == people["b_id"]
+    db.save_job_record("translate_1", "error")
+    db.save_job_record("translate_1", "running")   # a new run by auth-off / local owner
+    assert _job_owner("translate_1") is None
+
+
+def _visible_sql(uid):
+    return {d["id"] for d in db.list_dramas(visible_to=uid)}
+
+
+def _visible_py(principal, ids):
+    return {i for i in ids if own.can_see_drama(principal, i)}
+
+
+def test_mixed_owner_series_python_and_sql_agree(people):
+    a, b = people["a"], people["b"]
+    sid = db.get_or_create_series("A's", owner_user_id=people["a_id"])
+    a_ep = db.create_drama(title_zh="a1", series_id=sid, owner_user_id=people["a_id"])
+    b_ep = db.create_drama(title_zh="b1", series_id=sid, owner_user_id=people["b_id"],
+                           is_private=1)
+    b_solo = db.create_drama(title_zh="b2", owner_user_id=people["b_id"], is_private=1)
+    ids = [a_ep, b_ep, b_solo]
+    # The series owner sees every drama in their series, even another user's.
+    assert _visible_py(a, ids) == _visible_sql(people["a_id"]) == {a_ep, b_ep}
+    assert _visible_py(b, ids) == _visible_sql(people["b_id"]) == {a_ep, b_ep, b_solo}
+    # Refused while B's drama is inside; B keeps seeing it.
+    with pytest.raises(ConflictError, match="Move other people's dramas"):
+        own.set_private(a, "series", sid, True)
+    with pytest.raises(ConflictError):
+        own.set_private(people["admin"], "series", sid, True)
+    assert db.get_item_ownership("series", sid)["is_private"] == 0
+    # Legacy-owned (NULL) dramas don't block it.
+    db.create_drama(title_zh="legacy", series_id=sid)
+    db.update_drama(b_ep, series_id=None)
+    own.set_private(a, "series", sid, True)
+    ids = [d["id"] for d in db.list_dramas()]
+    assert _visible_py(a, ids) == _visible_sql(people["a_id"])
+    assert _visible_py(b, ids) == _visible_sql(people["b_id"]) == {b_ep, b_solo}
+
+
+def test_drama_ownership_does_not_override_a_private_series(people):
+    """If B's drama ends up in A's private series anyway (e.g. moved in
+    later), B loses it too -- the series' privacy wins, in both paths."""
+    sid = db.get_or_create_series("Hidden", owner_user_id=people["a_id"], is_private=True)
+    b_ep = db.create_drama(title_zh="b", series_id=sid, owner_user_id=people["b_id"])
+    assert not own.can_see_drama(people["b"], b_ep)
+    assert b_ep not in _visible_sql(people["b_id"])
+    assert own.can_see_drama(people["a"], b_ep) and b_ep in _visible_sql(people["a_id"])
+    assert own.can_see_drama(people["admin"], b_ep)
+
+
+def test_series_owned_by_local_owner_does_not_match_userless_principal(people):
+    sid = db.get_or_create_series("PC", is_private=True)
+    did = db.create_drama(title_zh="x", series_id=sid)
+    nobody = {"user_id": None, "is_admin": False, "is_local_owner": False}
+    assert not own.can_see_drama(nobody, did)
+    assert did not in _visible_sql(own.visible_to_filter(nobody))
+
+
+def test_series_name_race_never_returns_another_users_series(people, monkeypatch):
+    theirs = db.get_or_create_series("Raced", owner_user_id=people["a_id"], is_private=True)
+    # Simulate the race: the name lookup ran before A's insert landed.
+    monkeypatch.setattr(db, "get_series_id_by_name", lambda name: None)
+    with pytest.raises(ConflictError, match="That series name is taken"):
+        own.get_or_create_series_for(people["b"], "Raced")
+    assert db.get_item_ownership("series", theirs)["owner_user_id"] == people["a_id"]
+
+
+@pytest.mark.parametrize("bad", ["abc", "", None, 2**70, -2**70, float("inf")])
+def test_malformed_ids_are_not_found(people, bad):
+    with pytest.raises(NotFoundError):
+        own.can_see_drama(people["b"], bad)
+    with pytest.raises(NotFoundError):
+        own.set_private(people["admin"], "series", bad, True)
+    with pytest.raises(NotFoundError):
+        own.filter_visible_drama_ids(people["b"], [bad])

@@ -1310,17 +1310,23 @@ def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
                  media_type: str = "", visible_to: int = None):
     """`visible_to` (auth slice B1): a non-admin user id; when set, only
-    dramas that user may see are returned (their own, or neither the drama
-    nor its series private). None = unfiltered. The rule itself lives in
+    dramas that user may see are returned (any drama in a series they own;
+    otherwise, outside a private series, their own or non-private ones).
+    None = unfiltered. The rule itself lives in
     services/ownership_service.py; admins/local owner pass None."""
     with contextlib.closing(get_conn()) as conn:
         query = f"{_DRAMA_SELECT} WHERE 1=1"
         params = []
         if visible_to is not None:
-            query += (" AND (dramas.owner_user_id = ? OR (COALESCE(dramas.is_private, 0) = 0"
-                      " AND NOT EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id"
-                      " AND COALESCE(s.is_private, 0) = 1)))")
-            params.append(visible_to)
+            # Same rule as ownership_service._visible: the series owner sees
+            # every drama in their series; a private series hides its dramas
+            # from everyone else (drama ownership doesn't override it).
+            query += (" AND (EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id"
+                      " AND s.owner_user_id = ?)"
+                      " OR (NOT EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id"
+                      " AND COALESCE(s.is_private, 0) = 1)"
+                      " AND (dramas.owner_user_id = ? OR COALESCE(dramas.is_private, 0) = 0)))")
+            params.extend([visible_to, visible_to])
         if search:
             query += " AND (title_zh LIKE ? OR title_en LIKE ? OR summary LIKE ?)"
             like = f"%{search}%"
@@ -1938,6 +1944,18 @@ def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool 
         conn.commit()
         new_id = cur.lastrowid
     return new_id
+
+
+def create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
+    """Auth slice B1: insert-only. Raises sqlite3.IntegrityError when the
+    name is taken (series.name is UNIQUE) -- never returns an existing id."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute("INSERT INTO series (name, created_at, owner_user_id, is_private) "
+                           "VALUES (?, ?, ?, ?)",
+                           (name, datetime.datetime.utcnow().isoformat(), owner_user_id,
+                            int(bool(is_private))))
+        conn.commit()
+        return cur.lastrowid
 
 
 def get_series_id_by_name(name: str):
@@ -3021,7 +3039,11 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                 description = excluded.description, gpu_touching = excluded.gpu_touching,
                 started_at = excluded.started_at, finished_at = excluded.finished_at,
                 updated_at = excluded.updated_at, result_json = excluded.result_json,
-                owner_user_id = COALESCE(job_records.owner_user_id, excluded.owner_user_id),
+                owner_user_id = CASE
+                    WHEN excluded.status IN ('queued', 'running')
+                         AND job_records.status NOT IN ('queued', 'running')
+                    THEN excluded.owner_user_id
+                    ELSE COALESCE(job_records.owner_user_id, excluded.owner_user_id) END,
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
@@ -3587,19 +3609,34 @@ def auth_update_user(user_id: int, **fields) -> bool:
 
 def get_item_ownership(kind: str, item_id: int):
     """Auth slice B1: the ownership fields of one drama or series, or None
-    if it doesn't exist. For a drama, `series_is_private` is included."""
+    if it doesn't exist. For a drama, `series_is_private` and
+    `series_owner_user_id` are included."""
     with contextlib.closing(get_conn()) as conn:
         if kind == "drama":
             row = conn.execute(
                 "SELECT d.id, d.owner_user_id, COALESCE(d.is_private, 0) AS is_private, d.series_id, "
-                "COALESCE((SELECT s.is_private FROM series s WHERE s.id = d.series_id), 0) "
-                "AS series_is_private FROM dramas d WHERE d.id = ?", (item_id,)).fetchone()
+                "COALESCE(s.is_private, 0) AS series_is_private, "
+                "s.owner_user_id AS series_owner_user_id "
+                "FROM dramas d LEFT JOIN series s ON s.id = d.series_id WHERE d.id = ?",
+                (item_id,)).fetchone()
         elif kind == "series":
             row = conn.execute("SELECT id, owner_user_id, COALESCE(is_private, 0) AS is_private "
                                "FROM series WHERE id = ?", (item_id,)).fetchone()
         else:
             raise ValueError(f"unknown ownership kind: {kind!r}")
     return dict(row) if row else None
+
+
+def series_has_dramas_owned_by_others(series_id: int) -> bool:
+    """Auth slice B1: True when the series holds a drama whose owner is a
+    user other than the series owner (NULL-owned dramas belong to the PC
+    owner, who sees everything anyway)."""
+    with contextlib.closing(get_conn()) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM dramas d JOIN series s ON s.id = d.series_id WHERE s.id = ? "
+            "AND d.owner_user_id IS NOT NULL AND d.owner_user_id IS NOT s.owner_user_id "
+            "LIMIT 1", (series_id,)).fetchone()
+    return row is not None
 
 
 def set_item_private(kind: str, item_id: int, private: bool) -> bool:
