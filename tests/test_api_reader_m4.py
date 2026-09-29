@@ -552,3 +552,285 @@ def test_posts_need_csrf(on_client, path, body):
     bad = {**_h(s, csrf=False), api_auth.CSRF_HEADER: "nope"}
     assert on_client.post(url, json=payload, headers=bad).status_code == 403
     assert on_client.post(url, json=payload, headers=_h(s)).status_code == 404
+
+
+# --- security review M1: concurrency caps and per-request bounds -------------
+
+from api.routers import reader_routes  # noqa: E402
+
+
+@pytest.fixture
+def qa_fake(monkeypatch):
+    import qa
+    monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: "answer")
+
+
+def test_global_cap_gives_429(client, drama, fake_engine, qa_fake):
+    for _ in range(reader_routes.LLM_MAX_IN_FLIGHT):
+        assert reader_routes._SLOTS.acquire(blocking=False)
+    try:
+        r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})
+        assert r.status_code == 429 and _code(r) == "rate_limited"
+        r = client.post(f"{BASE}/{drama}/lookup", json={"page": 1, "use_llm": True})
+        assert r.status_code == 429
+    finally:
+        for _ in range(reader_routes.LLM_MAX_IN_FLIGHT):
+            reader_routes._SLOTS.release()
+    assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 200
+
+
+def test_per_caller_cap_gives_429(client, drama, fake_engine, qa_fake):
+    with reader_routes._ACTIVE_LOCK:
+        reader_routes._ACTIVE_CALLERS.add("local")
+    try:
+        r = client.post(f"{BASE}/{drama}/story/who", json={"name": "A"})
+        assert r.status_code == 429
+    finally:
+        with reader_routes._ACTIVE_LOCK:
+            reader_routes._ACTIVE_CALLERS.discard("local")
+    # another caller's running request doesn't block this one
+    with reader_routes._ACTIVE_LOCK:
+        reader_routes._ACTIVE_CALLERS.add("user:999")
+    try:
+        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 200
+    finally:
+        with reader_routes._ACTIVE_LOCK:
+            reader_routes._ACTIVE_CALLERS.discard("user:999")
+
+
+def test_concurrent_request_from_same_caller_is_429(client, drama, fake_engine, monkeypatch):
+    import threading
+    import qa
+    started, release = threading.Event(), threading.Event()
+
+    def slow(*a, **k):
+        started.set()
+        release.wait(10)
+        return "slow"
+    monkeypatch.setattr(qa, "ask_about_drama", slow)
+    result = {}
+    t = threading.Thread(target=lambda: result.update(
+        r=client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"})))
+    t.start()
+    try:
+        assert started.wait(10)
+        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 429
+    finally:
+        release.set()
+        t.join(10)
+    assert result["r"].status_code == 200
+    assert not reader_routes._ACTIVE_CALLERS
+
+
+def test_slot_released_after_exception(client, drama, fake_engine, monkeypatch):
+    import qa
+
+    def boom(*a, **k):
+        raise RuntimeError("engine fell over")
+    monkeypatch.setattr(qa, "ask_about_drama", boom)
+    for _ in range(3):
+        assert client.post(f"{BASE}/{drama}/ask", json={"question": "Q?"}).status_code == 500
+    assert not reader_routes._ACTIVE_CALLERS
+    got = [reader_routes._SLOTS.acquire(blocking=False)
+           for _ in range(reader_routes.LLM_MAX_IN_FLIGHT)]
+    for ok in got:
+        if ok:
+            reader_routes._SLOTS.release()
+    assert all(got)   # both global slots were free again
+    # unknown drama (raised inside the slot) releases it too
+    assert client.post(f"{BASE}/99999/ask", json={"question": "Q?"}).status_code == 404
+    assert not reader_routes._ACTIVE_CALLERS
+
+
+def test_lookup_without_llm_ignores_the_cap(client, lookup_drama):
+    with reader_routes._ACTIVE_LOCK:
+        reader_routes._ACTIVE_CALLERS.add("local")
+    try:
+        assert client.post(f"{BASE}/{lookup_drama}/lookup", json={"page": 1}).status_code == 200
+    finally:
+        with reader_routes._ACTIVE_LOCK:
+            reader_routes._ACTIVE_CALLERS.discard("local")
+
+
+def test_per_user_cap_keyed_on_user_id(on_client):
+    a = _session("a@example.com")
+    b = _session("b@example.com")
+    uid_a = auth_service.resolve_session(a["session_token"])["user_id"]
+    with reader_routes._ACTIVE_LOCK:
+        reader_routes._ACTIVE_CALLERS.add(f"user:{uid_a}")
+    try:
+        body = {"question": "Q?", "engine": "ollama"}
+        assert on_client.post(f"{BASE}/99999/ask", json=body, headers=_h(a)).status_code == 429
+        assert on_client.post(f"{BASE}/99999/ask", json=body, headers=_h(b)).status_code == 404
+    finally:
+        with reader_routes._ACTIVE_LOCK:
+            reader_routes._ACTIVE_CALLERS.discard(f"user:{uid_a}")
+
+
+def test_recap_input_is_bounded_by_lines(client, isolated_db, fake_engine, monkeypatch):
+    import story_context
+    did = db.create_drama(title_en="Long", source_language="zh")
+    db.save_lines(did, _lines(1000))
+    seen = {}
+    monkeypatch.setattr(story_context, "summarize_section",
+                        lambda lines, eng, section_label="": seen.update(
+                            n=len(lines), first=lines[0].idx, last=lines[-1].idx) or "s")
+    r = client.post(f"{BASE}/{did}/story/recap", json={"page": 25, "chapter_size": 40})
+    assert r.status_code == 200 and r.json()["truncated"] is True
+    assert seen == {"n": reader_service.MAX_RECAP_LINES, "first": 560, "last": 959}
+    r = client.post(f"{BASE}/{did}/story/recap", json={"page": 2, "chapter_size": 40})
+    assert r.json()["truncated"] is False and seen["n"] == 40
+
+
+def test_recap_input_is_bounded_by_characters(client, isolated_db, fake_engine, monkeypatch):
+    import story_context
+    did = db.create_drama(title_en="Wordy", source_language="zh")
+    db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh="z", en="e" * 1000)
+                        for i in range(200)])
+    seen = {}
+    monkeypatch.setattr(story_context, "summarize_section",
+                        lambda lines, eng, section_label="": seen.update(
+                            chars=sum(len(ln.en) for ln in lines), last=lines[-1].idx) or "s")
+    r = client.post(f"{BASE}/{did}/story/recap", json={"page": 4, "chapter_size": 50})
+    assert r.status_code == 200 and r.json()["truncated"] is True
+    assert seen["chars"] <= reader_service.MAX_RECAP_CHARS and seen["last"] == 149
+
+
+def test_wiki_update_is_bounded_per_call_and_resumable(client, isolated_db, fake_engine,
+                                                        monkeypatch):
+    import universe_wiki
+    did = db.create_drama(title_en="Novel", source_language="zh")
+    db.save_lines(did, _lines(2000))
+    calls = []
+
+    def fake_extract(lines, eng, up_to, meta, existing_entries=None):
+        calls.append((len(lines), lines[0].idx, up_to))
+        return [{"entry_type": "character", "name": f"C{len(calls)}",
+                 "first_seen_line_idx": lines[0].idx, "known_through_line_idx": up_to}]
+    monkeypatch.setattr(universe_wiki, "extract_wiki_entries", fake_extract)
+    cap = reader_service.MAX_WIKI_CHUNKS_PER_CALL * reader_service.WIKI_CHUNK_LINES
+    r = client.post(f"{BASE}/{did}/wiki/update", json={})
+    assert r.status_code == 200
+    assert r.json() == {"drama_id": did, "updated": 1, "remaining": 2000 - cap,
+                        "next_line_idx": cap}
+    assert calls[-1] == (cap, 0, cap - 1)
+    r = client.post(f"{BASE}/{did}/wiki/update", json={"from_line_idx": cap})
+    assert r.json() == {"drama_id": did, "updated": 1, "remaining": 0, "next_line_idx": None}
+    assert calls[-1] == (2000 - cap, cap, 1999)
+    assert len(client.get(f"{BASE}/{did}/wiki").json()["entries"]) == 2
+    # past the end: nothing to read, no engine call
+    r = client.post(f"{BASE}/{did}/wiki/update", json={"from_line_idx": 5000})
+    assert r.json()["updated"] == 0 and len(calls) == 2
+    assert client.post(f"{BASE}/{did}/wiki/update",
+                       json={"from_line_idx": -1}).status_code == 422
+
+
+# --- security review M2: rich .apkg audio needs media.stream, card cap -------
+
+@pytest.fixture
+def fake_sentence_deck(monkeypatch):
+    import vocab_export
+    seen = {}
+
+    def fake(vocab, lines, deck, out_path, audio_path=None, clip_timeout=None,
+             audio_budget_seconds=None):
+        seen.update(cards=len(vocab), audio_path=audio_path, clip_timeout=clip_timeout,
+                    budget=audio_budget_seconds)
+        with open(out_path, "wb") as f:
+            f.write(b"PKfake")
+    monkeypatch.setattr(vocab_export, "export_vocab_apkg_sentence", fake)
+    return seen
+
+
+def _rich_drama_with_audio(n_words=1):
+    did = _vocab_drama(title_en="Rich")
+    folder = db.drama_dir(did)
+    with open(os.path.join(folder, "audio.wav"), "wb") as f:
+        f.write(b"x")
+    db.update_drama(did, audio_filename="audio.wav")
+    for i in range(n_words):
+        db.save_vocab_lookup(did, f"w{i}", None, ["d"], "zh", 0)
+    for row in db.list_vocab_lookups(did):
+        db.set_vocab_export_rich(did, row["word"], True)
+    return did
+
+
+def test_rich_apkg_audio_needs_media_stream(on_client, fake_sentence_deck):
+    did = _rich_drama_with_audio()
+    url = f"{BASE}/{did}/vocab/export.apkg?rich=true"
+    household = _session("kid@example.com")
+    r = on_client.get(url, headers=_h(household))
+    assert r.status_code == 200 and r.headers["x-audio-omitted"] == "true"
+    assert fake_sentence_deck["audio_path"] is None
+    streamer = _session("stream@example.com",
+                        perms=list(auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS) + ["media.stream"])
+    r = on_client.get(url, headers=_h(streamer))
+    assert r.status_code == 200 and "x-audio-omitted" not in r.headers
+    assert fake_sentence_deck["audio_path"].endswith("audio.wav")
+    assert fake_sentence_deck["clip_timeout"] == reader_service.RICH_CLIP_TIMEOUT_SECONDS
+    assert fake_sentence_deck["budget"] == reader_service.RICH_AUDIO_BUDGET_SECONDS
+    assert "audio.wav" not in r.text + str(dict(r.headers))
+
+
+def test_rich_apkg_owner_gets_audio_and_no_media_no_header(client, isolated_db,
+                                                           fake_sentence_deck):
+    did = _rich_drama_with_audio()
+    r = client.get(f"{BASE}/{did}/vocab/export.apkg", params={"rich": True})
+    assert r.status_code == 200 and "x-audio-omitted" not in r.headers
+    assert fake_sentence_deck["audio_path"] is not None
+    plain = _vocab_drama(title_en="NoMedia")
+    client.post(f"{BASE}/{plain}/vocab/rich", json={"words": ["猫"]})
+    r = client.get(f"{BASE}/{plain}/vocab/export.apkg", params={"rich": True})
+    assert r.status_code == 200 and "x-audio-omitted" not in r.headers
+
+
+def test_rich_apkg_card_cap_and_slot(client, isolated_db, fake_sentence_deck):
+    did = _rich_drama_with_audio(n_words=reader_service.MAX_RICH_CARDS + 5)
+    url = f"{BASE}/{did}/vocab/export.apkg"
+    r = client.get(url, params={"rich": True})
+    assert r.status_code == 200
+    assert fake_sentence_deck["cards"] == reader_service.MAX_RICH_CARDS
+    assert r.headers["x-cards-capped"] == str(reader_service.MAX_RICH_CARDS)
+    with reader_routes._ACTIVE_LOCK:
+        reader_routes._ACTIVE_CALLERS.add("local")
+    try:
+        assert client.get(url, params={"rich": True}).status_code == 429
+        # the plain deck takes no slot (200 with genanki, 503 without)
+        assert client.get(url).status_code in (200, 503)
+    finally:
+        with reader_routes._ACTIVE_LOCK:
+            reader_routes._ACTIVE_CALLERS.discard("local")
+
+
+def test_extract_audio_slice_passes_timeout(monkeypatch, tmp_path):
+    import subprocess
+    import core
+    seen = {}
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: seen.update(kw))
+    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"), timeout=15)
+    assert seen["timeout"] == 15
+    core.extract_audio_slice("in.wav", 0.0, 1.0, str(tmp_path / "o.wav"))
+    assert seen["timeout"] is None
+
+
+def test_sentence_deck_passes_clip_timeout_and_respects_budget(tmp_path, monkeypatch):
+    pytest.importorskip("genanki")
+    import vocab_export
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"x")
+    seen = []
+
+    def fake_slice(a, s, e, out, **kw):
+        seen.append(kw)
+        open(out, "wb").write(b"clip")
+    monkeypatch.setattr(vocab_export, "_extract_audio_slice", fake_slice)
+    lines = [Line(idx=0, start=0.0, end=1.0, zh="z", en="e")]
+    rows = [{"id": i, "word": f"w{i}", "definitions": [], "first_seen_line_idx": 0}
+            for i in range(3)]
+    vocab_export.export_vocab_apkg_sentence(rows, lines, "D", str(tmp_path / "d.apkg"),
+                                            audio_path=str(audio), clip_timeout=7)
+    assert seen == [{"timeout": 7}] * 3
+    seen.clear()
+    vocab_export.export_vocab_apkg_sentence(rows, lines, "D", str(tmp_path / "e.apkg"),
+                                            audio_path=str(audio), audio_budget_seconds=0)
+    assert seen == []   # budget spent: text-only cards

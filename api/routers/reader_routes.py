@@ -20,12 +20,23 @@ on 2026-09-29):
   engine check.
 
 LLM routes are synchronous, as the service is: the request waits for
-the engine. Downloads use generic ASCII names (`drama_<id>_...`), never
+the engine. Because each one holds a server worker thread for as long as
+the engine takes, at most LLM_MAX_IN_FLIGHT of them (the six LLM routes,
+the lookup with use_llm, and the rich .apkg export, which cuts audio
+with ffmpeg) run at once server-wide, and at most one per caller (user
+id, or "local" with auth off); a request over either cap gets 429
+`rate_limited` at once rather than queueing. The service bounds the work
+inside one request (recap input, wiki chunks per call, rich cards and
+ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
+`media.stream` (media bytes need it); otherwise the deck is text-only and
+the response carries `X-Audio-Omitted: true`. Downloads use generic ASCII names (`drama_<id>_...`), never
 the drama title or a path. Media files themselves are played through
 /api/media and /api/dub; `media_file_path` is not exposed here, nor is
 the series glossary (the glossary routes cover it).
 """
 
+import threading
+from contextlib import contextmanager
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request, Response
@@ -37,9 +48,9 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
-                         ReaderWikiList, ReaderWikiUpdateResult)
+                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult)
 from services import reader_service
-from services.service_errors import ForbiddenError, NotFoundError
+from services.service_errors import ForbiddenError, NotFoundError, RateLimitedError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
 
@@ -48,7 +59,45 @@ Track = Literal["Source", "English", "Bilingual"]
 _READ_ERRS = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
 _LLM_ERRS = {400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
              404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-             500: {"model": ErrorResponse}, 503: {"model": ErrorResponse}}
+             429: {"model": ErrorResponse}, 500: {"model": ErrorResponse},
+             503: {"model": ErrorResponse}}
+
+# Long synchronous work (LLM calls, ffmpeg): global and per-caller caps.
+LLM_MAX_IN_FLIGHT = 2
+_SLOTS = threading.BoundedSemaphore(LLM_MAX_IN_FLIGHT)
+_ACTIVE_CALLERS = set()
+_ACTIVE_LOCK = threading.Lock()
+_BUSY = "The reader's AI tools are busy; try again in a moment."
+
+
+def _caller_key(request: Request) -> str:
+    principal = getattr(request.state, "principal", None) or {}
+    user_id = principal.get("user_id")
+    return f"user:{user_id}" if user_id is not None else "local"
+
+
+@contextmanager
+def _llm_slot(request: Request):
+    """Non-blocking: 429 when this caller already has one running or the
+    server-wide cap is reached. Always released, even on an exception."""
+    key = _caller_key(request)
+    with _ACTIVE_LOCK:
+        if key in _ACTIVE_CALLERS:
+            raise RateLimitedError(_BUSY)
+        if not _SLOTS.acquire(blocking=False):
+            raise RateLimitedError(_BUSY)
+        _ACTIVE_CALLERS.add(key)
+    try:
+        yield
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE_CALLERS.discard(key)
+            _SLOTS.release()
+
+
+def _holds(request: Request, permission: str) -> bool:
+    principal = getattr(request.state, "principal", None) or {}
+    return permission in principal.get("permissions", ())
 
 
 def _download(content, media_type: str, filename: str) -> Response:
@@ -60,8 +109,7 @@ def _download(content, media_type: str, filename: str) -> Response:
 def _require_llm_allowed(request: Request, engine: Optional[str]):
     """For a route whose declared permission isn't jobs.start (the lookup):
     an LLM call still needs jobs.start, then the paid-engine check."""
-    principal = getattr(request.state, "principal", None) or {}
-    if "jobs.start" not in principal.get("permissions", ()):
+    if not _holds(request, "jobs.start"):
         raise ForbiddenError("Not allowed.")
     require_engines_allowed(request, engine)
 
@@ -144,11 +192,13 @@ def get_caption_readout(track: Track, drama_id: int = Path(ge=1)):
              summary="Look up and save definitions for one page (LLM fallback only with use_llm)",
              responses=_LLM_ERRS)
 def post_lookup(body: ReaderLookupRequest, request: Request, drama_id: int = Path(ge=1)):
-    if body.use_llm:
-        _require_llm_allowed(request, body.engine)
-    return reader_service.lookup_page_definitions(
-        drama_id, body.page, body.chapter_size, use_llm=body.use_llm,
-        engine_name=body.engine, model=body.model)
+    if not body.use_llm:
+        return reader_service.lookup_page_definitions(drama_id, body.page, body.chapter_size)
+    _require_llm_allowed(request, body.engine)
+    with _llm_slot(request):
+        return reader_service.lookup_page_definitions(
+            drama_id, body.page, body.chapter_size, use_llm=True,
+            engine_name=body.engine, model=body.model)
 
 
 @router.get("/dramas/{drama_id}/vocab", dependencies=[require_permission("library.read")], response_model=ReaderVocabList,
@@ -173,13 +223,25 @@ def get_vocab_csv(drama_id: int = Path(ge=1)):
 
 
 @router.get("/dramas/{drama_id}/vocab/export.apkg", dependencies=[require_permission("lines.read")],
-            summary="Anki deck (download); rich=true builds the queued sentence cards",
+            summary="Anki deck (download); rich=true builds the queued sentence cards "
+                    "(audio clips only with media.stream)",
             responses={200: {"content": {"application/octet-stream": {}}},
-                       503: {"model": ErrorResponse}, **_READ_ERRS})
-def get_vocab_apkg(drama_id: int = Path(ge=1), rich: bool = Query(False)):
-    out = reader_service.export_vocab_apkg(drama_id, rich=rich)
+                       429: {"model": ErrorResponse}, 503: {"model": ErrorResponse},
+                       **_READ_ERRS})
+def get_vocab_apkg(request: Request, drama_id: int = Path(ge=1), rich: bool = Query(False)):
     name = f"drama_{drama_id}_vocab_sentence.apkg" if rich else f"drama_{drama_id}_vocab.apkg"
-    return _download(out["content"], "application/octet-stream", name)
+    if not rich:
+        out = reader_service.export_vocab_apkg(drama_id)
+        return _download(out["content"], "application/octet-stream", name)
+    with _llm_slot(request):
+        out = reader_service.export_vocab_apkg(
+            drama_id, rich=True, include_audio=_holds(request, "media.stream"))
+    resp = _download(out["content"], "application/octet-stream", name)
+    if out.get("audio_omitted"):
+        resp.headers["X-Audio-Omitted"] = "true"
+    if out.get("cards_capped"):
+        resp.headers["X-Cards-Capped"] = str(reader_service.MAX_RICH_CARDS)
+    return resp
 
 
 # --- story tools (LLM, synchronous) ---------------------------------------------
@@ -189,24 +251,27 @@ def get_vocab_apkg(drama_id: int = Path(ge=1), rich: bool = Query(False)):
              responses=_LLM_ERRS)
 def post_story_who(body: ReaderWhoRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
-    return reader_service.who_is_character(drama_id, body.name, body.up_to_line_idx,
-                                           engine_name=body.engine, model=body.model)
+    with _llm_slot(request):
+        return reader_service.who_is_character(drama_id, body.name, body.up_to_line_idx,
+                                               engine_name=body.engine, model=body.model)
 
 
 @router.post("/dramas/{drama_id}/story/explain", dependencies=[require_permission("jobs.start")], response_model=ReaderAnswer,
              summary="Explain a reference or phrase", responses=_LLM_ERRS)
 def post_story_explain(body: ReaderExplainRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
-    return reader_service.explain_reference(drama_id, body.phrase, body.up_to_line_idx,
-                                            engine_name=body.engine, model=body.model)
+    with _llm_slot(request):
+        return reader_service.explain_reference(drama_id, body.phrase, body.up_to_line_idx,
+                                                engine_name=body.engine, model=body.model)
 
 
 @router.post("/dramas/{drama_id}/story/recap", dependencies=[require_permission("jobs.start")], response_model=ReaderRecap,
              summary="Recap what came before a page", responses=_LLM_ERRS)
 def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
-    return reader_service.recap(drama_id, body.page, body.chapter_size,
-                                engine_name=body.engine, model=body.model)
+    with _llm_slot(request):
+        return reader_service.recap(drama_id, body.page, body.chapter_size,
+                                    engine_name=body.engine, model=body.model)
 
 
 @router.post("/dramas/{drama_id}/story/relationships", dependencies=[require_permission("jobs.start")], response_model=ReaderRelationshipMap,
@@ -214,8 +279,9 @@ def post_story_recap(body: ReaderRecapRequest, request: Request, drama_id: int =
 def post_story_relationships(body: ReaderScopedLlmRequest, request: Request,
                              drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
-    return reader_service.relationship_map(drama_id, body.up_to_line_idx,
-                                           engine_name=body.engine, model=body.model)
+    with _llm_slot(request):
+        return reader_service.relationship_map(drama_id, body.up_to_line_idx,
+                                               engine_name=body.engine, model=body.model)
 
 
 # --- universe wiki ---------------------------------------------------------------
@@ -232,10 +298,12 @@ def get_wiki(drama_id: int = Path(ge=1),
 @router.post("/dramas/{drama_id}/wiki/update", dependencies=[require_permission("jobs.start")], response_model=ReaderWikiUpdateResult,
              summary="Extract wiki entries from the lines up to the boundary (LLM)",
              responses=_LLM_ERRS)
-def post_wiki_update(body: ReaderScopedLlmRequest, request: Request, drama_id: int = Path(ge=1)):
+def post_wiki_update(body: ReaderWikiUpdateRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
-    return reader_service.update_wiki(drama_id, body.up_to_line_idx,
-                                      engine_name=body.engine, model=body.model)
+    with _llm_slot(request):
+        return reader_service.update_wiki(drama_id, body.up_to_line_idx,
+                                          engine_name=body.engine, model=body.model,
+                                          from_line_idx=body.from_line_idx)
 
 
 @router.post("/dramas/{drama_id}/wiki/clear", dependencies=[require_permission("lines.edit")], response_model=ReaderWikiClearResult,
@@ -264,5 +332,6 @@ def get_wiki_markdown(drama_id: int = Path(ge=1),
 def post_ask(body: ReaderAskRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
     history = [t.model_dump() for t in body.chat_history]
-    return reader_service.ask_about_drama(drama_id, body.question, history,
-                                          engine_name=body.engine, model=body.model)
+    with _llm_slot(request):
+        return reader_service.ask_about_drama(drama_id, body.question, history,
+                                              engine_name=body.engine, model=body.model)

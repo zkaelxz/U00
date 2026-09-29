@@ -1943,6 +1943,11 @@ class ReaderScopedLlmRequest(ReaderEngineFields):
     up_to_line_idx: Optional[int] = Field(None, ge=0)
 
 
+class ReaderWikiUpdateRequest(ReaderScopedLlmRequest):
+    """from_line_idx: resume point (the previous call's next_line_idx)."""
+    from_line_idx: int = Field(0, ge=0)
+
+
 class ReaderAnswer(BaseModel):
     drama_id: int
     answer: Optional[str] = None
@@ -1951,6 +1956,7 @@ class ReaderAnswer(BaseModel):
 class ReaderRecap(BaseModel):
     drama_id: int
     summary: Optional[str] = None
+    truncated: bool = False   # only the most recent lines before the page were used
 
 
 class ReaderRelationshipMap(BaseModel):
@@ -1978,8 +1984,12 @@ class ReaderWikiList(BaseModel):
 
 
 class ReaderWikiUpdateResult(BaseModel):
+    """One bounded batch. While `remaining` > 0, call again with
+    from_line_idx = next_line_idx."""
     drama_id: int
     updated: int
+    remaining: int = 0
+    next_line_idx: Optional[int] = None
 
 
 class ReaderWikiClearRequest(BaseModel):
