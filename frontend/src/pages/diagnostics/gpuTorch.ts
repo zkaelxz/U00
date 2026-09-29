@@ -62,3 +62,14 @@ export function verifyText(v: DiagnosticsTorchVerify): string {
     : v.cuda_build ? `CUDA ${v.cuda_build} build, but no GPU is available` : 'CPU-only build: CUDA not available'
   return `torch ${v.torch}: ${cuda}.`
 }
+
+/** The short badge next to the "GPU PyTorch" heading. */
+export function stateBadge(s: DiagnosticsGpuTorchStatus): { text: string; tone: 'ok' | 'warn' | 'neutral' } {
+  switch (s.state) {
+    case 'missing': return { text: 'Not installed', tone: 'neutral' }
+    case 'mismatched': return { text: 'Versions don\'t match', tone: 'warn' }
+    case 'cpu_on_gpu': return { text: 'CPU only', tone: 'warn' }
+    case 'recommended': return { text: 'Recommended set', tone: 'ok' }
+    case 'different': return { text: 'Not the recommended set', tone: 'neutral' }
+  }
+}

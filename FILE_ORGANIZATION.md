@@ -515,12 +515,14 @@ baihe-subtitler/
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
-│   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
+│   ├── src/pages/diagnostics/     Diagnostics: SetupSection (Setup card, OK/Problem badges), PackagesSection (PC-only
 │   │                              Install…/Update to X…, synchronous; installed versions, "Check for
 │   │                              updates" + packageUpdates.ts; "Install by task" presets, approx.
 │   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
 │   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
-│   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
+│   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection
+│   │                              ("Copy a report for a bug" card: copy, download .txt, preview rows
+│   │                              via supportReport.ts, pure, unit-tested),
 │   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size

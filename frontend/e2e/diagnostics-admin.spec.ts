@@ -70,14 +70,21 @@ test('keeps the testids, hides Jobs when empty, and opens Setup on a problem', a
   const unmocked = await guard(page)
   await mockPage(page, { setup: setup({ ffmpeg: { found: false, version: null } }) })
   await page.goto('/#/diagnostics')
-  await expect(page.getByTestId('diagnostics-summary')).toHaveText('1 setup problem · 2 of 4 packages')
-  await expect(page.getByTestId('system-summary')).toBeVisible() // core checks: always shown at the top
-  await expect(page.getByTestId('system-summary')).toContainText('Problem: ffmpeg not found')
+  const summary = page.getByTestId('diagnostics-summary')
+  await expect(summary.locator('.pill')).toHaveText(['1 setup problem', '2 of 4 packages', 'No jobs running'])
+  await expect(summary.locator('.pill').first()).toHaveClass(/pill-warn/)
+  // Setup is an always-open card; the problem sorts first with a Problem badge.
+  const setupRows = page.getByTestId('setup-rows')
+  await expect(setupRows).toBeVisible()
+  await expect(setupRows.locator('li').first()).toContainText('ffmpeg')
+  await expect(setupRows.locator('li').first()).toContainText('ffmpeg not found')
+  await expect(setupRows.locator('li').first().locator('.pill')).toHaveText('Problem')
+  await expect(page.getByTestId('setup-summary')).toHaveText('1 problem: ffmpeg')
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
   await expect(page.getByTestId('job-list')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Jobs' })).toHaveCount(0)
-  const header = await page.getByTestId('diagnostics-summary').boundingBox()
-  expect(header!.height).toBeLessThan(30) // one line
+  const header = await summary.boundingBox()
+  expect(header!.height).toBeLessThan(40) // one line of badges
   expect(unmocked).toEqual([])
 })
 
@@ -110,7 +117,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   expect(sent).toHaveLength(1)
   expect(sent[0].postDataJSON()).toEqual({ confirm: true })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
-  await expect(page.getByTestId('diagnostics-summary')).toContainText('· Installing yt-dlp')
+  await expect(page.getByTestId('diagnostics-summary')).toContainText('Installing yt-dlp')
   // The running line is the reason (the "Wait…" line is hidden meanwhile) and describes the disabled buttons.
   await expect(page.getByTestId('dependency-panel')).not.toContainText('Wait for the install to finish.')
   const runningId = await page.getByTestId('install-running').getAttribute('id')
@@ -291,6 +298,77 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   await expect(ext).toContainText("Couldn't confirm this is the main PC.")
   await page.waitForTimeout(300)
   expect(extensionCalls).toEqual([])
+  expect(unmocked).toEqual([])
+})
+
+const REPORT = [
+  'Python: 3.12.4',
+  'Library writable: True',
+  'Model/engine versions:',
+  '  - faster-whisper: 1.1.0',
+  'Recent errors:',
+  '  12:01 ERROR boom',
+].join('\n')
+
+test('support report: one press builds and copies it; the preview reads as rows', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  const unmocked = await guard(page)
+  await mockPage(page)
+  let builds = 0
+  await page.route('**/api/diagnostics/support-report', (r) => {
+    builds += 1
+    return r.fulfill({ json: { report: REPORT } })
+  })
+  await page.goto('/#/diagnostics')
+  const card = page.getByRole('region', { name: 'Copy a report for a bug' })
+  await expect(card.getByRole('heading', { name: 'Copy a report for a bug' })).toBeVisible()
+  expect(builds).toBe(0) // nothing is built until asked
+  await expect(card.locator('.btn-primary')).toHaveCount(1)
+
+  await card.getByRole('button', { name: 'Copy report' }).click()
+  await expect(card.getByTestId('report-note')).toHaveText('Copied. Paste it into your bug report.')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(REPORT)
+  expect(builds).toBe(1)
+
+  // The preview is a fold: rows, the engine list nested, errors in mono; plain text one press away.
+  await card.locator('summary', { hasText: "What's in it" }).click()
+  const list = card.getByTestId('report-list')
+  await expect(list.locator('.report-row', { hasText: 'Library writable' }).locator('dd')).toHaveText('Yes')
+  await expect(list.locator('.report-row', { hasText: 'Model/engine versions' })).toContainText('faster-whisper 1.1.0')
+  await expect(list.locator('.report-items.mono')).toHaveText('12:01 ERROR boom')
+  await card.getByRole('button', { name: 'Show plain text' }).click()
+  await expect(card.locator('pre')).toHaveText(REPORT)
+  await expect(card.getByRole('button', { name: 'Show as a list' })).toHaveAttribute('aria-pressed', 'true')
+
+  const download = page.waitForEvent('download')
+  await card.getByRole('button', { name: 'Download .txt' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^baihe-support-report-\d{4}-\d{2}-\d{2}\.txt$/)
+  expect(builds).toBe(2) // each copy or download is a fresh report
+  expect(unmocked).toEqual([])
+})
+
+test('support report: a failed build shows the error, and no clipboard falls back to selected text', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page)
+  let fail = true
+  await page.route('**/api/diagnostics/support-report', (r) => fail
+    ? r.fulfill({ status: 500, json: { error: { code: 'internal_error', message: 'boom' } } })
+    : r.fulfill({ json: { report: REPORT } }))
+  await page.addInitScript(() => {
+    // Plain http on another device: no clipboard API at all.
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+  })
+  await page.goto('/#/diagnostics')
+  const card = page.getByRole('region', { name: 'Copy a report for a bug' })
+  await card.getByRole('button', { name: 'Copy report' }).click()
+  await expect(card.getByRole('alert')).toBeVisible()
+  await expect(card.getByTestId('report-note')).toHaveText('')
+
+  fail = false
+  await card.getByRole('button', { name: 'Copy report' }).click()
+  await expect(card.getByTestId('report-note')).toHaveText('Press Ctrl+C to copy.')
+  await expect(card.locator('pre')).toHaveText(REPORT)
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(REPORT)
   expect(unmocked).toEqual([])
 })
 

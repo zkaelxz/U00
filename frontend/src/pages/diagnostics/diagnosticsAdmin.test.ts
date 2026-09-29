@@ -5,7 +5,7 @@ import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../.
 import {
   LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
-  headerParts, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
+  headerBadges, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
@@ -31,6 +31,7 @@ describe('setup rows', () => {
       'Python: 3.11.9', 'ffmpeg: 6.1', 'JS runtime: deno', 'GPU: No GPU.', 'App files: all present',
       'Library folder: writable',
     ])
+    expect(rows[0]).toMatchObject({ label: 'Python', value: '3.11.9', problem: false })
     expect(setupSummary(rows)).toBe('All 6 OK')
   })
 
@@ -52,6 +53,7 @@ describe('setup rows', () => {
       'Problem: 3 missing',
       "Problem: can't be written to",
     ])
+    expect(rows[1]).toMatchObject({ label: 'ffmpeg', value: 'ffmpeg not found' })
     expect(setupSummary(rows.slice(1, 3))).toBe('2 problems: ffmpeg, JS runtime')
     expect(setupSummary(rows.slice(1, 2))).toBe('1 problem: ffmpeg')
   })
@@ -84,11 +86,14 @@ describe('setup rows', () => {
 
 describe('header', () => {
   it('joins setup, packages and running jobs', () => {
-    expect(headerParts(0, 22, 25, 1)).toEqual({ setup: 'Setup OK', warn: false, rest: '22 of 25 packages · 1 job running' })
-    expect(headerParts(2, 22, 25, 0)).toEqual({ setup: '2 setup problems', warn: true, rest: '22 of 25 packages' })
-    expect(headerParts(null, null, null, 3)).toEqual({ setup: null, warn: false, rest: '3 jobs running' })
-    expect(headerParts(0, 22, 25, 0, { kind: 'install', name: 'yt-dlp' }).rest).toBe('22 of 25 packages · Installing yt-dlp')
-    expect(headerParts(0, 22, 25, 0, { kind: 'reset', name: 'library' }).rest).toBe('22 of 25 packages')
+    const texts = (...a: Parameters<typeof headerBadges>) => headerBadges(...a).map((b) => `${b.text} (${b.tone})`)
+    expect(texts(0, 22, 25, 1)).toEqual(['Setup OK (ok)', '22 of 25 packages (neutral)', '1 job running (info)'])
+    expect(texts(2, 22, 25, 0)).toEqual(['2 setup problems (warn)', '22 of 25 packages (neutral)', 'No jobs running (neutral)'])
+    expect(texts(1, null, null, 3)).toEqual(['1 setup problem (warn)', '3 jobs running (info)'])
+    expect(texts(null, null, null, null)).toEqual([])
+    expect(texts(0, 22, 25, 0, { kind: 'install', name: 'yt-dlp' })[3]).toBe('Installing yt-dlp (info)')
+    expect(texts(0, 22, 25, 0, { kind: 'upgrade', name: 'jieba' })[3]).toBe('Updating jieba (info)')
+    expect(texts(0, 22, 25, 0, { kind: 'reset', name: 'library' })).toHaveLength(3)
   })
 })
 

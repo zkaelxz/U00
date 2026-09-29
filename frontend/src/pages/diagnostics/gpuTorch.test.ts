@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
 import {
-  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateIsProblem, stateText, variantVersionsText,
+  driverText, packageVersionText, setupBlockedReason, setupConfirmLabel, stateBadge, stateIsProblem, stateText, variantVersionsText,
   verifyText,
 } from './gpuTorch'
 
@@ -54,5 +54,13 @@ describe('gpuTorch', () => {
     expect(verifyText({ ...v, cuda_available: false })).toContain('no GPU is available')
     expect(verifyText({ ...v, cuda_available: false, cuda_build: null })).toContain('CPU-only')
     expect(verifyText({ ...v, torch: null, error: 'ImportError: x' })).toBe("PyTorch didn't import: ImportError: x")
+  })
+
+  it('gives each state a short badge', () => {
+    expect(stateBadge(status())).toEqual({ text: 'Not installed', tone: 'neutral' })
+    expect(stateBadge(status({ state: 'mismatched' }))).toEqual({ text: "Versions don't match", tone: 'warn' })
+    expect(stateBadge(status({ state: 'cpu_on_gpu' })).tone).toBe('warn')
+    expect(stateBadge(status({ state: 'recommended' }))).toEqual({ text: 'Recommended set', tone: 'ok' })
+    expect(stateBadge(status({ state: 'different' })).tone).toBe('neutral')
   })
 })

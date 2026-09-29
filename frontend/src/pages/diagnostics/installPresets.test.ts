@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
   belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel,
-  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus,
+  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus, taskTone,
   type TaskRunResult,
 } from './installPresets'
 
@@ -51,6 +51,10 @@ describe('install presets helpers', () => {
     const t = (o: Partial<DiagnosticsInstallTask>) => task({ roles, required_missing: [], optional_missing: [], ...o })
     expect(taskStatus(t({ required_missing: ['a'], to_install: ['a', 'b'] }))).toBe('Needs 1 required package')
     expect(taskStatus(t({ to_install: ['b'] }))).toBe('Works; 1 recommended to add')
+    expect(taskTone(t({ required_missing: ['a'], to_install: ['a', 'b'] }))).toBe('warn')
+    expect(taskTone(t({ to_install: ['b'] }))).toBe('neutral')
+    expect(taskTone(t({ to_install: [] }))).toBe('ok')
+    expect(taskTone(task())).toBe('neutral')
     const ready = t({ to_install: [], optional_missing: ['c'] })
     expect(taskReady(ready)).toBe(true)
     expect(taskStatus(ready)).toBe('Ready')
