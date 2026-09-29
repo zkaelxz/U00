@@ -464,9 +464,9 @@ baihe-subtitler/
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_tools_routes.py  /api/sources/url/preflight|preview-pasted|import-pasted|identify-media(/resource)|
 │       │                            extractions; /api/discover/bulk-extract/pasted (capped pasted bodies, 413)
-│       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|

@@ -113,7 +113,8 @@ async def post_preview_pasted(request: Request):
 async def post_import_pasted(request: Request):
     body = await _capped_json(request, SourcesPastedImportRequest, _HTML_BODY_LIMIT)
     return await run_in_threadpool(svc.start_pasted_import, body.url, body.html,
-                                   body.drama_id, principal=request.state.principal)
+                                   body.drama_id, local=is_local_request(request),
+                                   principal=request.state.principal)
 
 
 @router.post("/sources/url/identify-media", dependencies=[require_permission("sources.import")],

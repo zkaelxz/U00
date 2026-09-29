@@ -12,14 +12,19 @@ the API (feature inventory §8: SO02, SO03, SO08, SO16).
        only; nothing is fetched (generic_import's USER_ASSISTED tier). The
        preview is synchronous (front_door.classify_html); the import is the
        drama's `sourceimport_<id>` job, like POST /api/sources/url/import.
+       One pasted preview parses at a time (409 otherwise). A paste from
+       another device saves no site profile, records no profile use or
+       ladder result and caches nothing (adaptive.import_novel
+       remember=False): it chooses both the URL's domain and the page, so it
+       could otherwise plant extraction rules for the owner's next import.
   SO08 `start_identify_media`: media resources on a page nothing else
        recognizes (adaptive.identify_media), as the fixed-id job
        `sources_url_identify`. It fetches the page (as above) unless the
        pasted page source is given. No AI engine is used (SO09 is separate):
        an ambiguous page lists every resource for the person to pick. A
-       resource's full URL is kept only for a job started at this PC (it is
-       what the PC-only video download then takes); another device sees
-       scheme+host+path.
+       resource's full URL is kept only for a job started at this PC, and
+       handed out only by `resource_url` (a PC-only route, like the video
+       download that takes it); the job result shows scheme+host+path.
   SO16 `recent_extractions`: the pasted-URL attempts from the shared
        access-attempt log, URLs reduced to scheme+host+path, text scrubbed.
 
@@ -31,8 +36,8 @@ import threading
 import uuid
 
 import background_jobs
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError)
+from services.service_errors import (ConflictError, DependencyUnavailableError,
+                                     InvalidInputError, NotFoundError)
 from services.sources_import_service import (NOVEL_MEDIA_TYPES, _require_drama, _require_idle,
                                              _url_fail, import_job_id)
 from services.sources_registry_service import _scrub, safe_url
@@ -126,23 +131,32 @@ def start_preflight(url, local: bool = True) -> dict:
 # SO03: continue from pasted page source
 # ---------------------------------------------------------------------------
 
+_PASTED_PREVIEW_LOCK = threading.Lock()
+
+
 def preview_pasted(url, html) -> dict:
     """What the pasted page is, as the URL preview's result shape. Parses
-    only: nothing is fetched and nothing is written."""
+    only: nothing is fetched and nothing is written. One at a time in the
+    process (409 while another pasted page is being read)."""
     url = check_public_url(url)
     html = _pasted_html(html)
-    p = front_door.classify_html(url, html)
+    if not _PASTED_PREVIEW_LOCK.acquire(blocking=False):
+        raise ConflictError("Another pasted page is being read. Try again in a moment.")
+    try:
+        p = front_door.classify_html(url, html)
+    finally:
+        _PASTED_PREVIEW_LOCK.release()
     view = preview_view(p, url)
     view["pasted"] = True
     return view
 
 
-def _pasted_import_job(job_id: str, url: str, html: str, drama_id: int):
+def _pasted_import_job(job_id: str, url: str, html: str, drama_id: int, local: bool):
     background_jobs.update_progress(job_id, 0.1, "Reading the pasted page...")
     try:
         res, report = adaptive.import_novel(url, engine=None, client=source_client(url, job_id),
                                             user_html=html, allow_signed_in=False,
-                                            allow_browser=False)
+                                            allow_browser=False, remember=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
     except generic_import.NoContentFound:
@@ -165,10 +179,11 @@ def _pasted_import_job(job_id: str, url: str, html: str, drama_id: int):
                                         "char_count": len(text)})
 
 
-def start_pasted_import(url, html, drama_id, principal=None) -> dict:
+def start_pasted_import(url, html, drama_id, local: bool = True, principal=None) -> dict:
     """Starts `sourceimport_<drama_id>`: the chapter text in the pasted page
     source, appended to a novel drama's raw-novel text (as
-    start_url_import, but read from the paste instead of the site)."""
+    start_url_import, but read from the paste instead of the site). Not
+    `local`: nothing but the text is kept (see the module docstring)."""
     url = check_public_url(url)
     html = _pasted_html(html)
     drama = _require_drama(drama_id, principal)
@@ -177,7 +192,7 @@ def start_pasted_import(url, html, drama_id, principal=None) -> dict:
                                 "or create one first.")
     _require_idle(drama_id)
     job_id = import_job_id(drama_id)
-    return _start(job_id, _pasted_import_job, job_id, url, html, drama_id,
+    return _start(job_id, _pasted_import_job, job_id, url, html, drama_id, bool(local),
                   description="Import novel text from a pasted page")
 
 
@@ -220,8 +235,9 @@ def identify_view(data, report, run_id: str) -> dict:
 
 # The last identify run's full resource URLs, by index: {"run_id", "urls"}.
 # Kept out of the job result (which any caller who can see the job reads,
-# with URLs cut to scheme+host+path); only resource_url() hands one out,
-# and its route is PC-only, like the video download it feeds.
+# with URLs cut to scheme+host+path), and only for a run started at this PC;
+# only resource_url() hands one out, and its route is PC-only, like the
+# video download it feeds.
 _RESOURCES = {"run_id": None, "urls": {}}
 _RESOURCES_LOCK = threading.Lock()
 
@@ -264,12 +280,13 @@ def _identify_job(job_id: str, url: str, html, local: bool):
         raise
     except Exception as e:
         fail_job(job_id, "media_identify", _error_view(e))
-    urls = {int(r.get("index") or 0): str(r.get("resource_url"))
-            for r in ((data or {}).get("resources") or [])
-            if r.get("kind") in _MEDIA_KINDS and r.get("kind") != "subtitle"
-            and _is_web(str(r.get("resource_url") or ""))}
-    with _RESOURCES_LOCK:
-        _RESOURCES.update(run_id=run_id, urls=urls)
+    if local:
+        urls = {int(r.get("index") or 0): str(r.get("resource_url"))
+                for r in ((data or {}).get("resources") or [])
+                if r.get("kind") in _MEDIA_KINDS and r.get("kind") != "subtitle"
+                and _is_web(str(r.get("resource_url") or ""))}
+        with _RESOURCES_LOCK:
+            _RESOURCES.update(run_id=run_id, urls=urls)
     background_jobs.set_result(job_id, identify_view(data, report, run_id))
 
 

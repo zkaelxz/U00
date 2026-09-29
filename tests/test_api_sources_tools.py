@@ -21,10 +21,11 @@ from api.server import create_app
 from services import auth_service, settings_service, url_guard
 from services import discover_lookup_service as discover_svc
 from services import sources_tools_service as svc
-from sources import generic_import, registry
+from sources import generic_import, ladder, pipeline, profiles, registry
 from sources.ladder import LadderResult
 from sources.models import AccessTier
 
+_REAL_FETCH_PAGE = generic_import.fetch_page
 SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 PAGE = f"https://novel.example/book/1/ch2.html?token={SECRET}"
 NOVEL_HTML = ("<html><head><title>第2章 春天</title></head><body><article>"
@@ -50,7 +51,8 @@ class FakeFetch:
         self.html, self.handoff, self.calls, self.pasted = html, handoff, [], []
 
     def __call__(self, url, client=None, rendered_fetch=None, user_html=None,
-                 authenticated_fetch=None, allow_signed_in=True, allow_browser=True):
+                 authenticated_fetch=None, allow_signed_in=True, allow_browser=True,
+                 record=True):
         lr = LadderResult(url)
         if user_html is not None:
             self.pasted.append(url)
@@ -188,9 +190,10 @@ def test_import_pasted_appends_text_without_fetching(client, env, monkeypatch):
     calls, saved = [], []
 
     def fake_import(url, engine=None, client=None, rendered_fetch=None, user_html=None,
-                    use_cache=True, allow_signed_in=True, allow_browser=True):
+                    use_cache=True, allow_signed_in=True, allow_browser=True, remember=True):
         calls.append({"url": url, "html": user_html, "engine": engine,
-                      "signed_in": allow_signed_in, "browser": allow_browser})
+                      "signed_in": allow_signed_in, "browser": allow_browser,
+                      "remember": remember})
         lr = generic_import.fetch_page(url, client, None, user_html)
         return (NovelImportResult(url, "第2章", "正文" * 300, "deterministic", ladder=lr),
                 SimpleNamespace(needs_review=False))
@@ -205,8 +208,9 @@ def test_import_pasted_appends_text_without_fetching(client, env, monkeypatch):
     assert r.status_code == 200
     assert r.json()["result"] == {"kind": "url_import", "needs_review": False, "char_count": 600}
     assert saved == [(did, "正文" * 300)]
+    # The test client is this PC: its paste may keep a site profile (Streamlit parity).
     assert calls == [{"url": PAGE, "html": NOVEL_HTML, "engine": None, "signed_in": False,
-                      "browser": False}]
+                      "browser": False, "remember": True}]
     assert env.calls == [] and env.pasted == [PAGE]
 
 
@@ -218,6 +222,59 @@ def test_import_pasted_refuses_a_non_novel_drama_and_a_missing_one(client, env):
     r = client.post("/api/sources/url/import-pasted",
                     json={"url": PAGE, "html": NOVEL_HTML, "drama_id": 9999})
     assert r.status_code == 404
+
+
+def test_remote_pasted_import_keeps_no_profile_or_capability_record(env, monkeypatch):
+    """Page source pasted from another device chooses both the domain and the
+    page, so it must not change that domain's site profile or the source's
+    capability record; the same paste at the PC does (Streamlit parity)."""
+    from tests.test_adaptive_extraction import DOMAIN, _page
+    monkeypatch.setattr(generic_import, "fetch_page", _REAL_FETCH_PAGE)
+    monkeypatch.setattr(pipeline, "save_novel_text", lambda *a, **k: None)
+    recorded = []
+    monkeypatch.setattr(ladder, "record_ladder_result", lambda *a, **k: recorded.append(a))
+    html, url = _page(12)
+    profiles.save_version(DOMAIN, "novel", {"content_selector": "div#gone"},
+                          {"valid": True, "overall": {"bucket": "HIGH"}, "problems": []},
+                          "correction", approved=True)
+    before = profiles.versions(DOMAIN, "novel")
+
+    did = db.create_drama(title_en="N", media_type="novel")
+    svc.start_pasted_import(url, html, did, local=False)
+    assert _wait(f"sourceimport_{did}")["status"] == "done"
+    assert profiles.versions(DOMAIN, "novel") == before
+    assert profiles.versions(DOMAIN, "novel")[0]["failures"] == 0
+    assert recorded == [] and env.calls == []
+
+    background_jobs.clear_job(f"sourceimport_{did}")
+    svc.start_pasted_import(url, html, did, local=True)
+    assert _wait(f"sourceimport_{did}")["status"] == "done"
+    after = profiles.versions(DOMAIN, "novel")
+    assert after != before and after[0]["failures"] == 1
+    assert len(recorded) == 1 and env.calls == []
+
+
+def test_pasted_preview_is_linear_on_hostile_markup(client, env):
+    """Unclosed tags repeated across a large paste: each regex in
+    classify_html stops at the next "<", so this takes about a second, not
+    minutes (it was quadratic)."""
+    for chunk in ("<video ", "<meta ", "<title>", '<meta property="og:title" '):
+        html = chunk * (1_500_000 // len(chunk))
+        start = time.monotonic()
+        r = client.post("/api/sources/url/preview-pasted", json={"url": PAGE, "html": html})
+        assert r.status_code == 200, chunk
+        assert time.monotonic() - start < 15, chunk
+
+
+def test_one_pasted_preview_at_a_time(env, monkeypatch):
+    from services.service_errors import ConflictError
+    assert svc._PASTED_PREVIEW_LOCK.acquire(blocking=False)
+    try:
+        with pytest.raises(ConflictError):
+            svc.preview_pasted(PAGE, NOVEL_HTML)
+    finally:
+        svc._PASTED_PREVIEW_LOCK.release()
+    assert svc.preview_pasted(PAGE, NOVEL_HTML)["pasted"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -254,13 +311,16 @@ def test_identify_media_lists_resources_full_url_only_at_the_pc(client, env):
         assert client.get("/api/sources/url/identify-media/resource",
                           params=params).status_code == 404
 
-    # A new run replaces the list: the old run id no longer resolves.
+    # A new run replaces the list: the old run id no longer resolves. A run
+    # started from another device keeps no full URLs at all.
     background_jobs.clear_job("sources_url_identify")
     svc.start_identify_media(MEDIA_URL, local=False)
-    _wait("sources_url_identify")
+    remote = _wait("sources_url_identify")["result"]
     assert env.calls[-1]["signed_in"] is False and env.calls[-1]["browser"] is False
     assert client.get("/api/sources/url/identify-media/resource",
                       params={"run_id": res["run_id"], "index": a["index"]}).status_code == 404
+    assert client.get("/api/sources/url/identify-media/resource",
+                      params={"run_id": remote["run_id"], "index": a["index"]}).status_code == 404
 
 
 def test_identify_media_from_pasted_source_does_not_fetch(client, env):
