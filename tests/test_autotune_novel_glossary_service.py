@@ -272,3 +272,19 @@ class TestNovelGlossary:
                 gs.apply_novel_glossary(did, bad)
         with pytest.raises(InvalidInputError):
             gs.apply_novel_glossary(did, ["x"], overwrite_existing="yes")
+
+
+def test_novel_glossary_job_blocks_drama_delete():
+    """A running paid glossary extraction must make a drama delete refuse."""
+    import background_jobs
+    from services import glossary_service
+
+    assert "novel_glossary_" in background_jobs.DRAMA_JOB_PREFIXES
+    job_id = glossary_service.novel_glossary_job_id(987654)
+    with background_jobs._lock:
+        background_jobs._jobs[job_id] = {"status": "running"}
+    try:
+        assert background_jobs.any_job_running_for_drama(987654)
+    finally:
+        with background_jobs._lock:
+            background_jobs._jobs.pop(job_id, None)
