@@ -171,6 +171,18 @@ button.link {
   text-underline-offset: 2px;
 }
 button.link:hover:not(:disabled) { background: none; }
+/* A navigation link that looks like a secondary button. */
+a.button-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+a.button-link:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 
 .filters { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
 .filters input { flex: 1 1 200px; width: auto; }
@@ -289,6 +301,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
   textarea { min-height: 44px; }
   button:not(.link, .field-help-btn, .review-hint) { padding-block: 10px; }
+  a.button-link { min-height: 44px; padding-block: 10px; }
   summary { min-height: 44px; padding-block: 10px; }
   .app-header nav a, .stage-tabs a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
   label:has(> input[type='checkbox']), label:has(> input[type='radio']),

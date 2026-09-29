@@ -4,7 +4,8 @@ import type {
   TranslateHistoryEntry,
   TranslateRequest,
 } from '../types/translate'
-import { getJson, postJson } from './client'
+import { deleteJson, getJson, postJson } from './client'
+import { pcOnlyFetch } from './pcOnly'
 
 type Fetch = typeof fetch
 
@@ -75,4 +76,7 @@ export const translateApi = {
     ),
   translate: (req: TranslateRequest, f?: Fetch) =>
     postJson<{ translated_text: string }>('/api/translate', req, f).then((r) => r.translated_text),
+  // PC only (local_only route); the server refuses without confirm=true.
+  clearHistory: (f?: Fetch) =>
+    deleteJson<{ cleared: boolean }>('/api/translate/history?confirm=true', pcOnlyFetch(f)),
 }
