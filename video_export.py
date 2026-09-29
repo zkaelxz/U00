@@ -102,6 +102,9 @@ def render_vertical_clip(video_path: str, ass_text: str, out_path: str,
 
 
 PREVIEW_CLIP_TIMEOUT_SECONDS = 120.0
+# ffmpeg stops writing the preview clip at this size (-fs), so a
+# pathological source can't fill the disk within the timeout.
+PREVIEW_CLIP_MAX_BYTES = 200 * 1024 * 1024
 
 
 def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: float, end: float,
@@ -113,15 +116,22 @@ def render_preview_clip(video_path: str, ass_text: str, out_path: str, start: fl
     render_vertical_clip, just without the 9:16 crop. Re-encoded at a fast
     preset since it's thrown away after viewing. ffmpeg is killed after
     `timeout` seconds and TimeoutError (fixed text, no paths) is raised, so
-    a hung ffmpeg can't keep a preview job running forever."""
+    a hung ffmpeg can't keep a preview job running forever. The input is
+    read with the file protocol only, and the output stops at
+    PREVIEW_CLIP_MAX_BYTES."""
     fd, ass_path = tempfile.mkstemp(suffix=".ass")
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(ass_text)
     try:
-        cmd = ["ffmpeg", "-y", "-ss", str(max(start, 0.0)), "-i", video_path,
+        # -protocol_whitelist file: the input is only ever read as a local
+        # file (never a playlist/concat reaching out over http or another
+        # protocol); -fs bounds the output size.
+        cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file",
+               "-ss", str(max(start, 0.0)), "-i", video_path,
                "-t", str(max(end - start, 0.1)),
                "-vf", f"subtitles='{_escape_filter_path(ass_path)}'",
-               "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", out_path]
+               "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
+               "-fs", str(PREVIEW_CLIP_MAX_BYTES), out_path]
         try:
             subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
         except subprocess.TimeoutExpired:
