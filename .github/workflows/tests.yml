@@ -22,8 +22,11 @@ concurrency:
 jobs:
   # Real observed duration (GitHub Actions run history, 2026-09-28, 3 runs):
   # install ~20-26s, `python run_tests.py` ~5m17s-5m34s, job total
-  # ~5m45s-6m13s. 15 minutes gives real headroom for a slow day without
-  # letting a genuinely hung job run indefinitely.
+  # ~5m45s-6m13s. By 2026-09-29 the suite had grown to 9-15 min serially
+  # and runs were hitting the timeout, so it now runs in parallel with
+  # pytest-xdist across the runner's CPUs (the suite is xdist-safe; the
+  # isolated_db fixture gives each worker its own library). 15 minutes
+  # still gives headroom without letting a hung job run indefinitely.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -35,10 +38,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements-core.txt pytest httpx -c constraints.txt
+        run: pip install -r requirements-core.txt pytest pytest-xdist httpx -c constraints.txt
 
       - name: Run tests
-        run: python run_tests.py
+        run: python run_tests.py -n auto
 
   # The React frontend: typecheck + production build, unit tests, lint, and
   # the end-to-end check (a real browser -> built React -> real FastAPI on a
