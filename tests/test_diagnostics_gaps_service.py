@@ -260,6 +260,28 @@ def test_gpu_torch_install_never_uninstalls_first(monkeypatch):
     assert all(t == svc.GPU_TORCH_TIMEOUT_SECONDS == 3600 for _c, t in seen)
 
 
+def test_torchaudio_follows_the_gpu_torch_path(monkeypatch):
+    """A plain `pip install torchaudio` could swap a CUDA torch for a CPU
+    one, so on an NVIDIA machine torchaudio installs like torch does."""
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/nvidia-smi")
+    cmds = svc._install_commands("torchaudio")
+    assert len(cmds) == 2
+    for cmd, timeout in cmds:
+        assert "--index-url" in cmd and "torch" in cmd and "torchaudio" in cmd
+        assert "uninstall" not in cmd
+        assert timeout == svc.GPU_TORCH_TIMEOUT_SECONDS
+
+
+def test_torchaudio_is_a_plain_install_without_a_gpu(monkeypatch):
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    ((cmd, timeout),) = svc._install_commands("torchaudio")
+    assert cmd[-2:] == ["install", "torchaudio"]
+    assert "--index-url" not in cmd
+    assert timeout == svc.PIP_TIMEOUT_SECONDS
+
+
 def test_gpu_torch_timeout_stops_before_the_second_step(monkeypatch):
     _no_jobs(monkeypatch)
     import shutil

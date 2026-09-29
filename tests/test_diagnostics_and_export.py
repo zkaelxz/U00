@@ -80,6 +80,19 @@ class TestDiagnostics:
         assert deps["demucs"][0] == "demucs"
         assert deps["audio-separator"][2] == deps["funasr"][2] == deps["demucs"][2] == "feature"
 
+    def test_requirements_optional_extras_are_registered(self):
+        """CLAUDE.md: every pip-installable extra in requirements-optional.txt
+        is registered under its pip name with the right import name."""
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        expected = {"yt-dlp": "yt_dlp", "torchaudio": "torchaudio", "uroman": "uroman",
+                    "sentencepiece": "sentencepiece",
+                    "opencc-python-reimplemented": "opencc",
+                    "sudachidict_core": "sudachidict_core", "piper-tts": "piper"}
+        for pip_name, import_name in expected.items():
+            assert pip_name in deps, pip_name
+            assert deps[pip_name][0] == import_name
+            assert deps[pip_name][2] == "feature"
+
     def test_media_only_deps_are_not_tagged_required(self):
         """Step 83: faster_whisper, cv2, and PIL are only in
         requirements-media.txt, not requirements-core.txt, so the Core

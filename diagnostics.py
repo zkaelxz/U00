@@ -87,7 +87,7 @@ OPTIONAL_DEPENDENCIES = {
     "PIL": ("PIL", "OCR, Scanlate rendering", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
-    "piper": ("piper", "offline TTS", "feature"),
+    "piper-tts": ("piper", "offline TTS", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
@@ -97,6 +97,16 @@ OPTIONAL_DEPENDENCIES = {
                                      "(Scanlate), PaddleOCR-VL-For-Manga", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "
                         "word-level realignment, several TTS/ASR backends", "feature"),
+    "torchaudio": ("torchaudio", "word-level realignment (MMS forced alignment, experimental)",
+                   "feature"),
+    "uroman": ("uroman", "word-level realignment (romanizing non-Latin text for MMS)", "feature"),
+    "sentencepiece": ("sentencepiece", "local NLLB-200 translation engine (tokenizer)", "feature"),
+    "yt-dlp": ("yt_dlp", "downloading video from YouTube and other sites, live translation, "
+                         "Bilibili source adapter", "feature"),
+    "opencc-python-reimplemented": ("opencc", "Traditional Chinese segmentation (Reader; "
+                                              "converts to Simplified for jieba)", "feature"),
+    "sudachidict_core": ("sudachidict_core", "Japanese word segmentation dictionary (sudachipy)",
+                         "feature"),
     "safetensors": ("safetensors", "ML inpainting (Scanlate, LaMa-manga checkpoint)", "feature"),
     "huggingface_hub": ("huggingface_hub", "ML bubble detection/inpainting, voice cloning model downloads",
                         "feature"),
