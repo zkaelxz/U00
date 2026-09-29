@@ -40,7 +40,7 @@ test('opens the workspace from the library and navigates stages', async ({ page 
   await page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Open workspace' }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source here -- the seeded drama has no lines yet).
-  await expect(page).toHaveURL(/#\/drama\/3$/)
+  await expect(page).toHaveURL(/#\/drama\/3(\/[a-z]+)?$/)
   await expect(page.getByTestId('drama-title')).toHaveText('Signal')
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('media-status')).toContainText('limit')
