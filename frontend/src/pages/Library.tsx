@@ -10,7 +10,10 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
-import { MEDIA_TYPES, SOURCE_LANGUAGES, groupHistory, showFold, validateCreate } from './libraryForm'
+import {
+  MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, groupHistory, showFold, validateCreate,
+  type CreateExtras,
+} from './libraryForm'
 
 const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
   d.title_en || d.title_zh || `#${d.id ?? ''}`
@@ -179,10 +182,18 @@ function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
   )
 }
 
-function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
+const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: '' }
+
+function CreateForm({ onCreated, reloadKey }: { onCreated: (id: number) => void; reloadKey: number }) {
   const [form, setForm] = useState<DramaCreateRequest>({
     source_language: 'zh', media_type: 'audio_drama', title_en: '', title_zh: '',
+    author: '', studio: '', director: '', voice_actors: '',
   })
+  const [extras, setExtras] = useState<CreateExtras>(NO_EXTRAS)
+  const series = useLoad(getSeries, reloadKey)
+  const presets = useLoad(getPresets, reloadKey)
+  const setExtra = (k: keyof CreateExtras) => (e: { target: { value: string } }) =>
+    setExtras({ ...extras, [k]: e.target.value })
   const [error, setError] = useState<unknown>(null)
   const [invalid, setInvalid] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -191,13 +202,15 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    const problem = validateCreate(form)
+    const body = buildCreateRequest(form, extras)
+    const problem = validateCreate(body)
     setInvalid(problem)
     if (problem) return
-    createDrama(form).then(
+    createDrama(body).then(
       (d) => {
         setError(null)
-        setForm({ ...form, title_en: '', title_zh: '' })
+        setForm({ ...form, title_en: '', title_zh: '', author: '', studio: '', director: '', voice_actors: '' })
+        setExtras(NO_EXTRAS)
         setOpen(false)
         onCreated(d.id)
       },
@@ -228,6 +241,49 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
             </select>
           </Field>
         </div>
+        <details className="fold">
+          <summary>Credits, series and preset</summary>
+          <div className="stack">
+            <div className="field-row">
+              <Field label="Author">
+                <input value={form.author} onChange={set('author')} />
+              </Field>
+              <Field label="Studio">
+                <input value={form.studio} onChange={set('studio')} />
+              </Field>
+            </div>
+            <div className="field-row">
+              <Field label="Director">
+                <input value={form.director} onChange={set('director')} />
+              </Field>
+              <Field label="Voice actors" help="Comma-separated.">
+                <input value={form.voice_actors} onChange={set('voice_actors')} />
+              </Field>
+            </div>
+            <div className="field-row">
+              <Field label="Series" help="Dramas in one series share characters and glossary.">
+                <select value={extras.series} onChange={setExtra('series')}>
+                  <option value="">No series</option>
+                  {series.data?.items.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+                  <option value={NEW_SERIES}>New series…</option>
+                </select>
+              </Field>
+              {extras.series === NEW_SERIES && (
+                <Field label="New series name">
+                  <input value={extras.newSeriesName} onChange={setExtra('newSeriesName')} />
+                </Field>
+              )}
+              {!!presets.data?.items.length && (
+                <Field label="Preset" help="Applies the preset's translation engine to the new drama.">
+                  <select value={extras.preset} onChange={setExtra('preset')}>
+                    <option value="">No preset</option>
+                    {presets.data.items.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                  </select>
+                </Field>
+              )}
+            </div>
+          </div>
+        </details>
         <div className="actions">
           <button type="submit" className="primary">Create drama</button>
         </div>
@@ -248,7 +304,7 @@ export default function LibraryPage() {
     <main className="library-grid">
       <StatsStrip reloadKey={reloadKey} />
       <div className="wide new-drama-slot">
-        <CreateForm onCreated={(id) => { setSelectedId(id); reload() }} />
+        <CreateForm reloadKey={reloadKey} onCreated={(id) => { setSelectedId(id); reload() }} />
       </div>
       <LibraryList selectedId={selectedId} onSelect={setSelectedId} reloadKey={reloadKey} />
       {selectedId !== null && (

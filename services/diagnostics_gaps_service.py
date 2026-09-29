@@ -18,7 +18,6 @@ bundles, App Assistant, and the source-access tests.
 """
 
 import os
-import re
 import time
 
 import background_jobs
@@ -42,14 +41,8 @@ _JOB_LABELS = {
 }
 
 
-# Hugging Face tokens: translate_engines.redact_secrets has no pattern
-# for them, so this service strips them itself.
-_HF_TOKEN_PATTERN = re.compile(r"\bhf_[A-Za-z0-9]{20,}\b")
-
-
 def _redact(text) -> str:
-    text = diagnostics.redact_for_support("" if text is None else str(text))
-    return _HF_TOKEN_PATTERN.sub("[REDACTED]", text)
+    return diagnostics.redact_for_support("" if text is None else str(text))
 
 
 def _project_root() -> str:
