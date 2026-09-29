@@ -22,9 +22,10 @@ describe('parseRoute', () => {
     expect(parseRoute('#/live/extra')).toEqual({ name: 'library' })
   })
 
-  it('parses drama id and stage, defaulting the stage', () => {
+  it('parses drama id and stage; no stage means null (the drama\'s current stage)', () => {
     expect(parseRoute('#/drama/12/review')).toEqual({ name: 'drama', id: 12, stage: 'review' })
-    expect(parseRoute('#/drama/12')).toEqual({ name: 'drama', id: 12, stage: 'source' })
+    expect(parseRoute('#/drama/12')).toEqual({ name: 'drama', id: 12, stage: null })
+    expect(routeHref({ name: 'drama', id: 12, stage: null })).toBe('#/drama/12')
     expect(parseRoute('#/drama/12/review?x=1')).toEqual({ name: 'drama', id: 12, stage: 'review' })
     expect(parseRoute('#/drama/1/%E0%A4%A')).toEqual({ name: 'library' })
   })
@@ -53,7 +54,7 @@ describe('parseRoute', () => {
   })
 
   it('round-trips through routeHref', () => {
-    for (const r of [{ name: 'library' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'sources' }, { name: 'discover' }, { name: 'drama', id: 4, stage: 'export' }] as const) {
+    for (const r of [{ name: 'library' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'sources' }, { name: 'discover' }, { name: 'drama', id: 4, stage: 'export' }, { name: 'drama', id: 4, stage: null }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)
     }
   })

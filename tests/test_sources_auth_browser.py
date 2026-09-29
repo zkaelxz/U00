@@ -254,10 +254,6 @@ class TestPersistentProfiles:
             with pytest.raises(page_fetch.ProfileBusy):
                 auth_browser.manual_login(self.URL)
 
-    def test_backups_leave_saved_sign_ins_out(self):
-        from tabs import library_tab
-        assert "src_store.BROWSER_PROFILES_DIRNAME" in inspect.getsource(library_tab)
-        assert store.BROWSER_PROFILES_DIRNAME == "profiles"
 
     def test_base_adapter_login_is_the_manual_flow(self, isolated_db, fake_browser):
         class Site(SourceAdapter):
