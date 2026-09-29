@@ -18,7 +18,8 @@ grammar) live in services/line_ai_service.py.
     compare-and-set UPDATE per line against the text the model was shown,
     so a line edited while the model ran is skipped as stale rather than
     overwritten. A line_history snapshot of the whole drama is saved before
-    the first overwrite, so the change can be undone from History.
+    the first overwrite, so the change can be undone from History. A paid
+    engine is refused once the monthly spending cap is used up.
 """
 import asyncio
 import os
@@ -109,7 +110,8 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
         return empty
     remaining = max(0, len(targets) - MAX_SHORTEN_LINES)
     targets = targets[:MAX_SHORTEN_LINES]
-    engine, name = line_ai_service._engine_for(drama, engine_name, model, gemini_free_tier)
+    engine, name = line_ai_service._engine_for(drama, engine_name, model, gemini_free_tier,
+                                               check_cap=True)
     model_name = getattr(engine, "model", model) or name
 
     def usage(inp, out):

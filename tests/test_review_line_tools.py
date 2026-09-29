@@ -320,6 +320,46 @@ class TestShorten:
 
 
 # ---------------------------------------------------------------------------
+# Monthly spending cap on the paid per-line tools
+# ---------------------------------------------------------------------------
+
+class TestMonthlyCap:
+    @pytest.fixture(autouse=True)
+    def _cap_used_up(self, monkeypatch):
+        from services import translate_run_service
+        monkeypatch.setattr(translate_run_service, "_monthly_cap", lambda: 5.0)
+        monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.5)
+        monkeypatch.setattr(line_tools, "alternative_translations",
+                            lambda *a, **k: [{"translation": "x"}])
+        monkeypatch.setattr(line_tools, "grammar_breakdown",
+                            lambda *a, **k: [{"word": "w", "meaning": "m"}])
+
+    @pytest.mark.parametrize("tool", ["alternatives", "grammar"])
+    def test_paid_engine_refused_when_cap_used_up(self, client, monkeypatch, tool):
+        did, ids = _seed()
+        called = []
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda *a, **k: called.append(1) or FakeEngine())
+        r = client.post(_ai(did, ids[0], tool), json={"engine": "claude"})
+        assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
+        assert called == []
+
+    @pytest.mark.parametrize("tool", ["alternatives", "grammar"])
+    def test_free_engine_allowed_when_cap_used_up(self, client, tool):
+        did, ids = _seed()
+        assert client.post(_ai(did, ids[0], tool), json={"engine": "ollama"}).status_code == 200
+
+    def test_shorten_paid_refused_free_allowed(self, client, monkeypatch):
+        did, _ = _overlong_drama()
+        _forbid_writes(monkeypatch)
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+                            lambda work, engine, usage_cb=None: work)
+        r = client.post(_shorten(did), json={"engine": "deepseek"})
+        assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
+        assert client.post(_shorten(did), json={"engine": "ollama"}).status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # R08 flagged navigation across pages
 # ---------------------------------------------------------------------------
 
