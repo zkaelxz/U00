@@ -16,7 +16,7 @@ export const SECRET_ENGINES: { engine: string; label: string }[] = [
 ]
 
 export const KEY_WRITES_REFUSED =
-  'Keys can only be set on the Baihe PC itself, with key writes turned on (start the API with BAIHE_API_ALLOW_KEY_WRITES=1).'
+  'Keys can only be set on the Baihe PC itself. start.bat turns key writes on; if you started the API another way, set BAIHE_API_ALLOW_KEY_WRITES=1.'
 
 // Plain one-line messages; never the server's raw text and never the key.
 export function keyErrorMessage(err: unknown): string {

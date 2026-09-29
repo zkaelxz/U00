@@ -65,7 +65,8 @@ export default function SettingsPage() {
           >
             <p className="muted">
               Keys are saved to .env on the Baihe PC and never shown again, only whether one is
-              configured. Setting keys works only on that PC with BAIHE_API_ALLOW_KEY_WRITES=1.
+              configured. Setting keys works only on that PC (on when started with start.bat; otherwise set
+              BAIHE_API_ALLOW_KEY_WRITES=1). You can also edit .env.
             </p>
             {SECRET_ENGINES.filter(({ engine }) => engine in settings.engine_keys).map(
               ({ engine, label }) => (
