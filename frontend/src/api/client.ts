@@ -9,6 +9,7 @@ import type {
   HealthResponse,
   MetaResponse,
 } from './types'
+import { recordFailedRequest } from '../report/capture'
 
 // Relative by default: the Vite dev/preview proxy (vite.config.ts) or a
 // same-origin deployment forwards /api to FastAPI. VITE_API_BASE_URL is
@@ -37,6 +38,7 @@ async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Pr
   try {
     resp = await fetchImpl(`${BASE}${path}`, init)
   } catch {
+    recordFailedRequest(init.method ?? 'GET', path, 0, 'network_error')
     throw new ApiError(0, {
       code: 'network_error',
       message: 'Could not reach the Baihe API. Is it running?',
@@ -50,6 +52,8 @@ async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Pr
   }
   if (!resp.ok) {
     const info = (body as { error?: ErrorInfo } | null)?.error
+    // Method, path (no query), status and code only: never bodies or headers.
+    recordFailedRequest(init.method ?? 'GET', path, resp.status, info?.code ?? 'internal_error')
     throw new ApiError(
       resp.status,
       info ?? { code: 'internal_error', message: `Request failed (${resp.status}).` },
