@@ -2,7 +2,7 @@
 name: roadmap-planner
 description: Analyzes a supplied Baihe roadmap step, dependencies, sequencing, scope, and exit criteria; use for planning or roadmap-impact questions.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 effort: medium
 ---
 
