@@ -28,6 +28,10 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const busyRef = useRef(false)
+  // Aborts the in-flight request when the panel closes; a late result or
+  // error is then ignored rather than set on an unmounted panel.
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => abortRef.current?.abort(), [])
 
   const fail = (e: unknown) => {
     if (e instanceof ApiError && e.status === 503) setUnavailable(true)
@@ -41,12 +45,19 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     setExplanation(null)
     setUnavailable(false)
     setError(null)
+    const ctl = new AbortController()
+    abortRef.current = ctl
+    const withSignal: typeof fetch = (input, init) => fetch(input, { ...init, signal: ctl.signal })
+    const live = <T,>(f: (v: T) => void) => (v: T) => {
+      if (!ctl.signal.aborted) f(v)
+    }
     const done = () => {
       busyRef.current = false
-      setBusy(false)
+      if (!ctl.signal.aborted) setBusy(false)
     }
-    if (m === 'improve') improveLine(dramaId, line.id, issue).then(setImprovement, fail).finally(done)
-    else explainLine(dramaId, line.id).then(setExplanation, fail).finally(done)
+    if (m === 'improve') {
+      improveLine(dramaId, line.id, issue, withSignal).then(live(setImprovement), live(fail)).finally(done)
+    } else explainLine(dramaId, line.id, withSignal).then(live(setExplanation), live(fail)).finally(done)
   }
 
   // Ask once on open for an explanation (the panel is keyed by line and mode).
@@ -122,6 +133,11 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
             <p className="review-ai-text" data-testid="line-ai-explanation">{explanation.explanation}</p>
           )}
           <div className="review-actions">
+            {!busy && error !== null && (
+              <button type="button" data-testid="line-ai-retry" onClick={() => run('explain')}>
+                Try again
+              </button>
+            )}
             <button type="button" className="link" disabled={busy} onClick={onClose}>
               Hide explanation
             </button>
