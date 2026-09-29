@@ -133,6 +133,88 @@ class TestJobResults:
         assert len(str(out)) <= 9000
 
 
+class TestFallbackAndBulkProjection:
+    SECRET = "sk-ABCDEFGHIJKLMNOP12345"
+
+    def test_fallbacks_projected_as_engine_names_and_counts_only(self):
+        events = [{"from": "claude", "to": "deepseek", "reason": "RateLimitError",
+                   "detail": f"429 with {self.SECRET}"}] * 2
+        out = jobs_service.project_result({"errors": [], "fallbacks": events})
+        assert out["fallbacks"] == [{"from": "claude", "to": "deepseek", "count": 2}]
+        assert self.SECRET not in str(out) and "429" not in str(out)
+        # Stable on re-projection (a stored row is re-projected on read).
+        assert jobs_service.project_result(out)["fallbacks"] == out["fallbacks"]
+
+    def test_fallback_shows_in_outcome_message(self):
+        out = jobs_service.project_result({"errors": [],
+                                           "fallbacks": [{"from": "claude", "to": "gemini"}]})
+        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        assert outcome == "ok" and "claude to gemini" in msg
+
+    def _bulk(self, **kw):
+        base = {"translated": [], "skipped_running": [], "skipped_no_key": [],
+                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
+                "errors": {}}
+        base.update(kw)
+        return base
+
+    def test_bulk_every_drama_failed_is_failed(self):
+        out = jobs_service.project_result(self._bulk(errors={3: f"bad key {self.SECRET}"}))
+        assert out["bulk"]["failed"][0]["drama_id"] == 3
+        assert self.SECRET not in str(out)
+        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
+
+    def test_bulk_all_skipped_is_failed(self):
+        out = jobs_service.project_result(self._bulk(skipped_no_key=[1, 2]))
+        assert out["bulk"]["skipped"]["no_key"] == {"count": 2, "drama_ids": [1, 2]}
+        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
+
+    def test_bulk_some_failed_is_partial(self):
+        out = jobs_service.project_result(self._bulk(translated=[1], errors={2: "boom"}))
+        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        assert outcome == "partial" and "1 failed" in msg
+
+    def test_bulk_all_translated_is_ok(self):
+        out = jobs_service.project_result(self._bulk(translated=[1, 2]))
+        assert jobs_service.derive_outcome("done", None, out)[0] == "ok"
+
+    def test_bulk_projection_is_bounded_and_survives_storage(self, isolated_db):
+        result = self._bulk(translated=list(range(100)),
+                            errors={i: "x" * 900 for i in range(100, 150)})
+        db.save_job_record("b1", status="done",
+                           result_json=jobs_service.project_result_json(result))
+        job = jobs_service.get_job("b1")
+        bulk = job["result"]["bulk"]
+        assert bulk["translated_count"] == 100 and len(bulk["translated_ids"]) <= 20
+        assert bulk["failed_count"] == 50
+        assert all(len(f["error"]) <= 120 for f in bulk["failed"])
+        assert job["outcome"] == "partial"
+
+    def test_bulk_with_chinese_errors_is_trimmed_never_dropped(self, isolated_db):
+        result = self._bulk(errors={i: "密钥已被撤销" * 20 for i in range(20)},
+                            skipped_no_key=list(range(100, 120)))
+        out = jobs_service.project_result(result)
+        import json
+        assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= 8000
+        assert out["bulk"]["failed_count"] == 20
+        assert all(len(f["error"].encode("utf-8")) <= 120 for f in out["bulk"]["failed"])
+        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
+        db.save_job_record("b2", status="done", result_json=jobs_service.project_result_json(result))
+        assert jobs_service.get_job("b2")["outcome"] == "failed"
+
+    def test_bulk_partly_translated_drama_is_partial(self):
+        out = jobs_service.project_result(self._bulk(partial={4: "batch errors"}))
+        assert out["bulk"]["partial"] == [{"drama_id": 4, "reason": "batch errors"}]
+        assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
+
+    def test_bulk_cancelled(self):
+        out = jobs_service.project_result(self._bulk(cancelled=True))
+        assert out["bulk"]["cancelled"] is True
+        assert jobs_service.derive_outcome("done", None, out)[0] == "cancelled"
+        out = jobs_service.project_result(self._bulk(translated=[1], cancelled=True))
+        assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
+
+
 class TestGetJob:
     def test_returns_a_recorded_job(self, isolated_db):
         db.save_job_record("j1", status="queued")
