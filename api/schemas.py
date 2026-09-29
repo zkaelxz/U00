@@ -3186,3 +3186,28 @@ class CharactersRememberResult(BaseModel):
     character: CharactersEntry
     series_character: CharactersSeriesEntry
     created: bool
+
+# Glossary helpers (parity X10/X28): glossary from the drama's source lines,
+# and per-term edits on applying either extraction's proposals.
+# ---------------------------------------------------------------------------
+
+class LinesGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    line_count: int
+
+
+class GlossaryProposalEdit(BaseModel):
+    """The user's edit of one proposal in review. A field left out keeps
+    the proposal's value; category/policy null means "none"."""
+    model_config = ConfigDict(extra="forbid")
+    translation: Optional[Annotated[str, Field(min_length=1, max_length=200)]] = None
+    category: Optional[Annotated[str, Field(max_length=50)]] = None
+    policy: Optional[Annotated[str, Field(max_length=50)]] = None
+
+
+class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
+    """NovelGlossaryApplyRequest plus optional edits keyed by term text
+    (never by position); edits for terms not in `terms` are ignored."""
+    overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
+        default_factory=dict, max_length=1000)

@@ -27,11 +27,20 @@ term); apply_novel_glossary adds the ones the caller names, by term text
 series glossary (possibly user-edited) is skipped unless
 overwrite_existing=True is passed explicitly. See PAID_ENGINE_FUNCTIONS.
 
+Glossary from the drama's own source lines (the tab's "Auto-extract terms
+from the source text", parity X10): start_lines_glossary_run is the same
+kind of background job calling `tguide.extract_terms_llm` on the saved
+lines' source text, with its own job id, status and apply. Both applies
+take optional per-term overrides (translation/category/policy the user
+edited in review), keyed by term text like the terms themselves.
+
+The pre-translate glossary review (parity X28) needs no service of its
+own: the client runs one of the two extractions, applies what the user
+keeps, then starts the translate run through translate_run_service.
+
 Deliberately NOT here:
-  - Dialogue-based LLM extraction (`extract_terms_llm`).
   - Presets CRUD (`db.save_preset` etc.), series/drama creation,
-    characters (services/characters_service.py), and the pre-translate
-    glossary review gate.
+    characters (services/characters_service.py).
 
 No Streamlit or FastAPI import.
 """
@@ -50,7 +59,7 @@ from services.service_errors import (
 
 # Functions that call an LLM engine (and so may spend on a paid one, i.e.
 # any engine outside translate_engines.FREE_ENGINES).
-PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run",)
+PAID_ENGINE_FUNCTIONS = ("start_novel_glossary_run", "start_lines_glossary_run")
 
 MAX_TERM_LEN = 200
 MAX_NOTES_LEN = 1000
@@ -286,6 +295,27 @@ def spends_on_paid_engine(engine_name: Optional[str]) -> bool:
     return (engine_name or "claude") not in translate_engines.FREE_ENGINES
 
 
+def _normalize_proposals(proposals, known_terms) -> list:
+    """Allowlisted proposal dicts keyed by term text (a repeated term keeps
+    the last one); already_in_glossary is the snapshot at extraction time."""
+    known = {t["term_original"] for t in known_terms}
+    out = {}
+    for p in proposals or []:
+        term = p.get("term") if isinstance(p, dict) else None
+        term = term.strip() if isinstance(term, str) else ""
+        if not term or len(term) > MAX_TERM_LEN:
+            continue
+        out[term] = {
+            "term": term,
+            "suggested_translation": str(p.get("suggested_translation") or "").strip()[:MAX_TERM_LEN],
+            "category": p.get("category") if p.get("category") in tguide.TERM_CATEGORIES else None,
+            "policy": p.get("policy") if p.get("policy") in tguide.TERM_POLICIES else None,
+            "reason": str(p.get("reason") or "")[:MAX_NOTES_LEN],
+            "already_in_glossary": term in known,
+        }
+    return list(out.values())
+
+
 def _run_novel_glossary_job(job_id, drama_id, engine, engine_name, src_text, en_text,
                             source_language, known_terms):
     try:
@@ -302,22 +332,32 @@ def _run_novel_glossary_job(job_id, drama_id, engine, engine_name, src_text, en_
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
             _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
-    known = {t["term_original"] for t in known_terms}
-    out = {}
-    for p in proposals or []:
-        term = p.get("term") if isinstance(p, dict) else None
-        term = term.strip() if isinstance(term, str) else ""
-        if not term or len(term) > MAX_TERM_LEN:
-            continue
-        out[term] = {
-            "term": term,
-            "suggested_translation": str(p.get("suggested_translation") or "").strip()[:MAX_TERM_LEN],
-            "category": p.get("category") if p.get("category") in tguide.TERM_CATEGORIES else None,
-            "policy": p.get("policy") if p.get("policy") in tguide.TERM_POLICIES else None,
-            "reason": str(p.get("reason") or "")[:MAX_NOTES_LEN],
-            "already_in_glossary": term in known,
-        }
-    background_jobs.set_result(job_id, {"proposals": list(out.values())})
+    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms)})
+
+
+def _glossary_engine(drama: dict, engine_name: Optional[str]):
+    """(engine_name, engine) for an extraction run on the drama's stored
+    translation_engine. engine_name is the one the caller's gate checked;
+    ConflictError if the stored engine changed since."""
+    from services import settings_service, translate_service
+
+    stored_engine = drama.get("translation_engine") or "claude"
+    if engine_name is not None and engine_name != stored_engine:
+        raise ConflictError("This drama's engine changed; check it and start again.")
+    engine_name = stored_engine
+    cls = translate_engines.ENGINES.get(engine_name)
+    if cls is None or not getattr(cls, "supports_reference", False):
+        raise UnsupportedOperationError("This drama's engine can't extract a glossary.")
+    api_key = translate_service.resolve_api_key(engine_name)
+    if not api_key:
+        raise DependencyUnavailableError(
+            f"No {engine_name} key is configured. Set one in Settings first.")
+    engine = translate_engines.get_engine(
+        engine_name, api_key,
+        free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),
+        base_url=(settings_service.resolve_key("ollama_url") or None)
+        if engine_name == "ollama" else None)
+    return engine_name, engine
 
 
 def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
@@ -339,8 +379,6 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     NotFoundError, UnsupportedOperationError (no series / no novel saved /
     engine can't do this), DependencyUnavailableError (no key),
     ConflictError (already running)."""
-    from services import settings_service, translate_service
-
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
     orig = _read_drama_file(drama_id, RAW_NOVEL_FILENAME)
@@ -350,23 +388,7 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     src_text = orig if orig.strip() else novel
     en_text = novel if orig.strip() else ""
 
-    stored_engine = drama.get("translation_engine") or "claude"
-    if engine_name is not None and engine_name != stored_engine:
-        raise ConflictError("This drama's engine changed; check it and start again.")
-    engine_name = stored_engine
-    cls =translate_engines.ENGINES.get(engine_name)
-    if cls is None or not getattr(cls, "supports_reference", False):
-        raise UnsupportedOperationError("This drama's engine can't extract a glossary.")
-    api_key = translate_service.resolve_api_key(engine_name)
-    if not api_key:
-        raise DependencyUnavailableError(
-            f"No {engine_name} key is configured. Set one in Settings first.")
-    engine = translate_engines.get_engine(
-        engine_name, api_key,
-        free_tier=engine_name == "gemini" and settings_service.get_gemini_free_tier(),
-        base_url=(settings_service.resolve_key("ollama_url") or None)
-        if engine_name == "ollama" else None)
-
+    engine_name, engine = _glossary_engine(drama, engine_name)
     job_id = novel_glossary_job_id(drama_id)
     started = background_jobs.start_job(
         job_id, _run_novel_glossary_job, job_id, drama_id, engine, engine_name, src_text,
@@ -382,15 +404,8 @@ _PROPOSAL_FIELDS = ("term", "suggested_translation", "category", "policy", "reas
                     "already_in_glossary")
 
 
-def get_novel_glossary_status(drama_id: int) -> dict:
-    """{job_id, status, progress, message, result} for this drama's
-    glossary-from-novel job; result is {"proposals": [...]} only when done
-    (else None). The message (or a failed job's error) is redacted; no key
-    is ever in a job result. NotFoundError when the drama doesn't exist or
-    no such job is resident in this process (results live only in
-    background_jobs memory)."""
+def _extraction_status(drama_id: int, job_id: str) -> dict:
     _drama(drama_id)
-    job_id = novel_glossary_job_id(drama_id)
     job = background_jobs.get_status(job_id)
     if not job:
         raise NotFoundError("No glossary extraction for this drama in this app session.")
@@ -406,15 +421,49 @@ def get_novel_glossary_status(drama_id: int) -> dict:
             "result": result}
 
 
-def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False) -> dict:
-    """Adds the named proposals (by term text, never list position) from
-    this drama's finished extraction to the series glossary. A term already
-    in the glossary is left untouched and reported in "skipped_existing"
-    unless overwrite_existing is True (then its translation/notes/category/
-    policy are replaced; its enforce_exact, aliases and banned list are
-    kept). Terms not among the proposals (or proposed with no translation)
-    are reported in "unknown". Returns {"added", "overwritten",
-    "skipped_existing", "unknown"} lists of terms."""
+def get_novel_glossary_status(drama_id: int) -> dict:
+    """{job_id, status, progress, message, result} for this drama's
+    glossary-from-novel job; result is {"proposals": [...]} only when done
+    (else None). The message (or a failed job's error) is redacted; no key
+    is ever in a job result. NotFoundError when the drama doesn't exist or
+    no such job is resident in this process (results live only in
+    background_jobs memory)."""
+    return _extraction_status(drama_id, novel_glossary_job_id(drama_id))
+
+
+_OVERRIDE_KEYS = ("translation", "category", "policy")
+
+
+def _clean_overrides(overrides) -> dict:
+    """{term: {translation?, category?, policy?}} -> validated copy. A key
+    present means "use this value"; an absent key keeps the proposal's."""
+    if overrides is None:
+        return {}
+    if not isinstance(overrides, dict) or len(overrides) > 1000:
+        raise InvalidInputError("overrides must be an object keyed by term.")
+    out = {}
+    for term, edit in overrides.items():
+        if not isinstance(term, str) or not isinstance(edit, dict) \
+                or not set(edit) <= set(_OVERRIDE_KEYS):
+            raise InvalidInputError("Each override must be {translation, category, policy}.")
+        clean = {}
+        if "translation" in edit:
+            clean["translation"] = _text(edit["translation"], "translation", MAX_TERM_LEN,
+                                         required=True)
+        if "category" in edit:
+            if edit["category"] is not None and edit["category"] not in tguide.TERM_CATEGORIES:
+                raise InvalidInputError("Unknown category.")
+            clean["category"] = edit["category"]
+        if "policy" in edit:
+            if edit["policy"] is not None and edit["policy"] not in tguide.TERM_POLICIES:
+                raise InvalidInputError("Unknown policy.")
+            clean["policy"] = edit["policy"]
+        out[term.strip()] = clean
+    return out
+
+
+def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existing: bool,
+                      overrides) -> dict:
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
     if not isinstance(overwrite_existing, bool):
@@ -422,7 +471,8 @@ def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = 
     if (not isinstance(terms, (list, tuple)) or not terms or len(terms) > 1000
             or not all(isinstance(t, str) for t in terms)):
         raise InvalidInputError("terms must be a non-empty list of term strings.")
-    job = background_jobs.get_status(novel_glossary_job_id(drama_id))
+    edits = _clean_overrides(overrides)
+    job = background_jobs.get_status(job_id)
     if not job or job.get("status") != "done":
         raise UnsupportedOperationError("No finished glossary extraction for this drama.")
     by_term = {p["term"]: p for p in (job.get("result") or {}).get("proposals") or []}
@@ -431,7 +481,9 @@ def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = 
     report = {"added": [], "overwritten": [], "skipped_existing": [], "unknown": []}
     for term in dict.fromkeys(t.strip() for t in terms):
         p = by_term.get(term)
-        if p is None or not p["suggested_translation"]:
+        edit = edits.get(term, {})
+        translation = edit.get("translation", p["suggested_translation"] if p else "")
+        if p is None or not translation:
             report["unknown"].append(term)
             continue
         current = existing.get(term)
@@ -439,8 +491,112 @@ def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = 
             report["skipped_existing"].append(term)
             continue
         db.upsert_glossary_term(
-            sid, term, p["suggested_translation"], notes=p["reason"],
-            category=p["category"], policy=p["policy"],
+            sid, term, translation, notes=p["reason"],
+            category=edit.get("category", p["category"]),
+            policy=edit.get("policy", p["policy"]),
             enforce_exact=bool(current.get("enforce_exact")) if current else False)
         report["overwritten" if current is not None else "added"].append(term)
     return report
+
+
+def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
+                         overrides: Optional[dict] = None) -> dict:
+    """Adds the named proposals (by term text, never list position) from
+    this drama's finished extraction to the series glossary. A term already
+    in the glossary is left untouched and reported in "skipped_existing"
+    unless overwrite_existing is True (then its translation/notes/category/
+    policy are replaced; its enforce_exact, aliases and banned list are
+    kept). Terms not among the proposals (or proposed with no translation
+    and none given in overrides) are reported in "unknown". overrides:
+    optional {term: {translation?, category?, policy?}} the user edited in
+    review; keys for terms not in `terms` are ignored. Returns {"added",
+    "overwritten", "skipped_existing", "unknown"} lists of terms."""
+    return _apply_extraction(drama_id, novel_glossary_job_id(drama_id), terms,
+                             overwrite_existing, overrides)
+
+
+# ---------------------------------------------------------------------------
+# Glossary from the drama's source lines (parity X10)
+# ---------------------------------------------------------------------------
+
+def lines_glossary_job_id(drama_id: int) -> str:
+    return f"lines_glossary_{drama_id}"
+
+
+def lines_glossary_engine(drama_id: int) -> str:
+    """The engine a lines extraction would use (the same rule as the novel
+    one: the drama's translation_engine, default claude)."""
+    return novel_glossary_engine(drama_id)
+
+
+def _run_lines_glossary_job(job_id, drama_id, engine, engine_name, source_lines,
+                            source_language, known_terms):
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled()
+    background_jobs.update_progress(job_id, 0.1, f"Scanning {len(source_lines)} lines...")
+    try:
+        proposals = tguide.extract_terms_llm(
+            source_lines, engine, source_language=source_language, known_terms=known_terms,
+            usage_cb=lambda inp, out: db.log_usage(
+                drama_id, engine_name, getattr(engine, "model", engine_name),
+                "extract_terms", inp, out,
+                translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    except Exception as exc:
+        raise RuntimeError(
+            _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
+    # One LLM call can't be interrupted; a cancel during it drops the result.
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled()
+    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms)})
+
+
+def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
+    """Starts proposing glossary terms from this drama's saved source lines
+    (`tguide.extract_terms_llm`, which samples up to 400 lines across the
+    whole drama). One LLM call on the drama's translation_engine; the
+    engine_name rule is start_novel_glossary_run's. Refused before starting
+    when this month's spending cap is already used up (capped engines only,
+    as translate_run_service). Paid-engine spend: yes, unless the engine is
+    in FREE_ENGINES.
+
+    Poll get_lines_glossary_status; apply with apply_lines_glossary.
+    NotFoundError, UnsupportedOperationError (no series / no source lines /
+    engine can't do this / monthly cap used up), DependencyUnavailableError
+    (no key), ConflictError (already running, or the engine changed)."""
+    from services import settings_service, translate_run_service
+
+    drama = _drama(drama_id)
+    sid = _series_id(drama, required=True)
+    source_lines = [r["zh"] for r in db.load_lines(drama_id) if (r.get("zh") or "").strip()]
+    if not source_lines:
+        raise UnsupportedOperationError(
+            "This drama has no source lines yet; transcribe or import them first.")
+    engine_name, engine = _glossary_engine(drama, engine_name)
+    if translate_run_service._cap_applies(engine_name, settings_service.get_gemini_free_tier()):
+        monthly = translate_run_service._monthly_cap()
+        _cap, refusal = translate_engines.resolve_cost_cap(
+            None, monthly, db.get_month_spend() if monthly else 0.0)
+        if refusal:
+            raise UnsupportedOperationError(refusal)
+
+    job_id = lines_glossary_job_id(drama_id)
+    started = background_jobs.start_job(
+        job_id, _run_lines_glossary_job, job_id, drama_id, engine, engine_name, source_lines,
+        drama.get("source_language") or "zh", db.list_glossary_terms(sid),
+        gpu_touching=engine_name == "ollama",
+        description=f"Glossary from lines (drama #{drama_id})")
+    if not started:
+        raise ConflictError("A glossary extraction is already running for this drama.")
+    return {"job_id": job_id, "engine": engine_name, "line_count": len(source_lines)}
+
+
+def get_lines_glossary_status(drama_id: int) -> dict:
+    """get_novel_glossary_status's contract, for the lines extraction."""
+    return _extraction_status(drama_id, lines_glossary_job_id(drama_id))
+
+
+def apply_lines_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
+                         overrides: Optional[dict] = None) -> dict:
+    """apply_novel_glossary's contract, for the lines extraction's proposals."""
+    return _apply_extraction(drama_id, lines_glossary_job_id(drama_id), terms,
+                             overwrite_existing, overrides)

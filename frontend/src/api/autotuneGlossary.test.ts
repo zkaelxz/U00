@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyAutotune,
+  applyLinesGlossary,
   applyNovelGlossary,
   getAutotune,
+  getLinesGlossary,
   getNovelGlossary,
   startAutotune,
+  startLinesGlossary,
   startNovelGlossary,
 } from './autotuneGlossary'
 import { ApiError } from './client'
@@ -42,6 +45,24 @@ describe('auto-tune + glossary-from-novel api', () => {
     expect(JSON.parse(String(calls[2].init?.body))).toEqual({ candidate_ms: 800 })
     expect(calls[4].init?.body).toBeUndefined()
     expect(JSON.parse(String(calls[5].init?.body))).toEqual({ terms: ['魏婴'] })
+  })
+
+  it('uses the from-lines routes and sends overrides keyed by term', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await getLinesGlossary(4, f)
+    await startLinesGlossary(4, f)
+    await applyLinesGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { translation: 'Wei Ying' } } }, f)
+    await applyNovelGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } }, f)
+    expect(calls.map((c) => [c.url, c.init?.method ?? 'GET'])).toEqual([
+      ['/api/glossary/dramas/4/from-lines', 'GET'],
+      ['/api/glossary/dramas/4/from-lines', 'POST'],
+      ['/api/glossary/dramas/4/from-lines/apply', 'POST'],
+      ['/api/glossary/dramas/4/from-novel/apply', 'POST'],
+    ])
+    expect(calls[1].init?.body).toBeUndefined()
+    expect(JSON.parse(String(calls[2].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { translation: 'Wei Ying' } } })
+    expect(JSON.parse(String(calls[3].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } })
   })
 
   it('surfaces a paid-engine 403 as an ApiError with the status', async () => {

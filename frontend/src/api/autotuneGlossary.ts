@@ -3,11 +3,11 @@ import type {
   AutotuneRunRequest,
   AutotuneRunResult,
   AutotuneStatus,
-  NovelGlossaryApplyRequest,
   NovelGlossaryApplyResult,
   NovelGlossaryRunResult,
   NovelGlossaryStatus,
 } from '../types/autotuneGlossary'
+import type { GlossaryProposalsApplyRequest, LinesGlossaryRunResult } from '../types/glossaryHelpers'
 import { getJson, postJson } from './client'
 
 type Fetch = typeof fetch
@@ -30,5 +30,16 @@ export const getNovelGlossary = (id: number, f?: Fetch) =>
 export const startNovelGlossary = (id: number, f?: Fetch) =>
   postJson<NovelGlossaryRunResult>(`/api/glossary/dramas/${id}/from-novel`, undefined, f)
 
-export const applyNovelGlossary = (id: number, body: NovelGlossaryApplyRequest, f?: Fetch) =>
+export const applyNovelGlossary = (id: number, body: GlossaryProposalsApplyRequest, f?: Fetch) =>
   postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-novel/apply`, body, f)
+
+// Glossary from the drama's source lines (glossary_routes.py, parity X10).
+// Same status/apply shapes as from-novel; GET is 404 when no run is held.
+export const getLinesGlossary = (id: number, f?: Fetch) =>
+  getJson<NovelGlossaryStatus>(`/api/glossary/dramas/${id}/from-lines`, f)
+
+export const startLinesGlossary = (id: number, f?: Fetch) =>
+  postJson<LinesGlossaryRunResult>(`/api/glossary/dramas/${id}/from-lines`, undefined, f)
+
+export const applyLinesGlossary = (id: number, body: GlossaryProposalsApplyRequest, f?: Fetch) =>
+  postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-lines/apply`, body, f)

@@ -15,7 +15,8 @@ import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateS
 import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage } from '../StageContext'
-import { NovelGlossary } from './NovelGlossary'
+import { LinesGlossary, NovelGlossary } from './NovelGlossary'
+import { useGlossaryTermsVersion } from './useGlossaryRun'
 
 interface TermForm {
   id?: number
@@ -150,6 +151,8 @@ export function GlossaryPanel() {
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  // Bumped when extracted proposals are added (From novel/lines, review).
+  const termsVersion = useGlossaryTermsVersion()
 
   useEffect(() => {
     let cancelled = false
@@ -164,7 +167,7 @@ export function GlossaryPanel() {
     return () => {
       cancelled = true
     }
-  }, [dramaId, reloads])
+  }, [dramaId, reloads, termsVersion])
 
   useEffect(() => {
     let cancelled = false
@@ -302,7 +305,8 @@ export function GlossaryPanel() {
         <button type="button" onClick={() => setEditing(EMPTY)}>Add term</button>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
-      <NovelGlossary onApplied={() => setReloads((n) => n + 1)} />
+      <NovelGlossary />
+      <LinesGlossary />
       {instructions && (
         <>
           <InstructionsEditor scope="project" initial={instructions.project} />

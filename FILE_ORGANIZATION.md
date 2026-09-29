@@ -258,7 +258,9 @@ baihe-subtitler/
 │   │                             list/apply; no paths returned; ref-audio upload stays out of scope
 │   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
 │   │                             CRUD, confirm-gated delete), project/series instructions, and
-│   │                             read-only option catalogues; LLM term extraction stays out
+│   │                             read-only option catalogues; glossary proposals from the novel
+│   │                             or (parity X10) the source lines, as jobs; apply by term text
+│   │                             with optional per-term edits
 │   ├── review_lines_service.py   Migration Slice 47 -- Review stage's READ-ONLY line views: paged/
 │   │                             filtered list, search, find-replace preview, coverage, pacing,
 │   │                             provenance, original text (by permanent line id; no writes)
@@ -397,7 +399,8 @@ baihe-subtitler/
 │       │                         (Migration Slice 42)
 │       ├── glossary_routes.py    /api/glossary/dramas/{id}/terms (GET/POST, DELETE .../{term_id}
 │       │                         ?confirm=true), .../instructions[/project|/series], /catalogues
-│       │                         (Migration Slice 46)
+│       │                         (Migration Slice 46); .../from-novel[/apply] (batch 2C) and
+│       │                         .../from-lines[/apply] (parity X10)
 │       ├── review_lines_routes.py /api/review/dramas/{id}/lines, .../search, POST .../find-replace/
 │       │                         preview (writes nothing), .../coverage, .../pacing-flags,
 │       │                         .../lines/{line_id}/provenance, .../original-text (Migration Slice 47)
@@ -508,8 +511,12 @@ baihe-subtitler/
 │   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters, SourceSettings, SourceDetail,
 │   │                              PacingForm, useSourcesJob (job-result polling + reattach), sourcesFormat.ts
 │   │                              (pure, unit-tested), sources.css
-│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
-│   │                              novel), SeriesCast (Characters > Series cast: list, add, inline edit of
+│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (GlossaryExtract:
+│   │                              Glossary > From novel / From lines, and the novel one on Source),
+│   │                              GlossaryProposals (editable proposal table/cards), GlossaryReview
+│   │                              (Translate: review glossary before translating), useGlossaryRun
+│   │                              (shared run state across mounts), glossaryExtract.ts (pure,
+│   │                              unit-tested; types in src/types/glossaryHelpers.ts), SeriesCast (Characters > Series cast: list, add, inline edit of
 │   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
 │   │                              unit-tested), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
