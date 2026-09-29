@@ -23,6 +23,18 @@ describe('parseRoute', () => {
     expect(parseRoute('#/drama/1/%E0%A4%A')).toEqual({ name: 'library' })
   })
 
+  it('parses the reader route with an optional page', () => {
+    expect(parseRoute('#/read/3')).toEqual({ name: 'read', id: 3, page: null })
+    expect(parseRoute('#/read/3?page=2')).toEqual({ name: 'read', id: 3, page: 2 })
+    expect(parseRoute('#/read/3?page=0')).toEqual({ name: 'read', id: 3, page: null })
+    expect(parseRoute('#/read/3?page=x')).toEqual({ name: 'read', id: 3, page: null })
+    for (const h of ['#/read', '#/read/0', '#/read/abc', '#/read/3/extra']) {
+      expect(parseRoute(h)).toEqual({ name: 'library' })
+    }
+    expect(routeHref({ name: 'read', id: 3, page: 2 })).toBe('#/read/3?page=2')
+    expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
+  })
+
   it('round-trips through routeHref', () => {
     for (const r of [{ name: 'library' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'drama', id: 4, stage: 'export' }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)
