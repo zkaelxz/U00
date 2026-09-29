@@ -525,8 +525,8 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
     seen, both_queued = [], threading.Event()
     real = ns.notify_job_finished
 
-    def recording(description, status):
-        real(description, status)
+    def recording(description, status, **kw):
+        real(description, status, **kw)
         if description in ours:
             seen.append((description, status))
             if len(seen) == len(ours):
@@ -543,7 +543,7 @@ def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, job_h
     assert background_jobs.get_status("notify_t1")["status"] == "done"
     job = background_jobs.get_status("notify_t2")
     assert job["status"] == "error" and "real job error" in job["error"]
-    queued = [(status, msg) for status, msg in ns._pending
+    queued = [(status, msg) for status, msg, *_ in ns._pending
               if msg in ("Finished: Translation", "Failed: Dub generation")]
     assert sorted(queued) == [("done", "Finished: Translation"),
                               ("error", "Failed: Dub generation")]
@@ -574,7 +574,7 @@ def test_status_is_booleans_only(env):
     r = _client().get("/api/settings/notifications")
     assert r.status_code == 200
     assert r.json() == {"discord_configured": True, "ntfy_configured": True,
-                        "ntfy_allow_local": False}
+                        "ntfy_allow_local": False, "send_jobs": True, "send_chapters": True}
     _no_secret(r.text)
 
 
@@ -711,3 +711,163 @@ def test_auth_on_writes_and_test_are_pc_only_even_for_admin(env, dns, posts):
     assert r.status_code == 200 and r.json()["configured"] is True
     r = local.post("/api/settings/notifications/test", json={})
     assert r.status_code == 200 and r.json()["results"]["discord"] == "sent"
+
+
+# --- categories, new chapters and the in-app list (item 5) --------------------
+
+def _texts(principal=None):
+    return [e["text"] for e in ns.list_recent(principal)]
+
+
+def test_event_reaches_the_in_app_list_with_no_channel_configured(env, posts, no_timer):
+    ns.notify_job_finished("Translation", "done", job_id="translate_1")
+    ns.notify_job_finished("Dub generation", "error", job_id="dub_1")
+    ns.notify_job_finished("Cancelled thing", "cancelled", job_id="x")
+    items = ns.list_recent(None)
+    assert [(e["kind"], e["text"]) for e in items] == [("job_failed", "Failed: Dub generation"),
+                                                      ("job_done", "Finished: Translation")]
+    assert items[0]["id"] > items[1]["id"] and set(items[0]) == {"id", "at", "kind", "text"}
+    assert no_timer == [] and ns._pending == [] and posts.calls == []
+
+
+def test_in_app_list_is_kept_when_automatic_sends_are_disabled(env, no_timer, monkeypatch):
+    _write(env, discord=DISCORD)
+    monkeypatch.setenv(ns.DISABLED_ENV, "1")
+    ns.notify_job_finished("Translation", "done", job_id="translate_1")
+    assert _texts() == ["Finished: Translation"] and ns._pending == []
+
+
+def test_in_app_list_is_bounded(env, no_timer):
+    for i in range(ns.RECENT_MAX + 5):
+        ns.notify_job_finished(f"Job {i}", "done", job_id=f"job_{i}")
+    texts = _texts()
+    assert len(texts) == ns.RECENT_MAX and texts[0] == f"Finished: Job {ns.RECENT_MAX + 4}"
+
+
+def test_in_app_list_follows_job_visibility(env, no_timer, monkeypatch):
+    from services import ownership_service
+    monkeypatch.setattr(ownership_service, "can_see_drama", lambda p, d: d == 1)
+    ns.notify_job_finished("Translation (drama #1)", "done", job_id="translate_1",
+                           owner_user_id=7)
+    ns.notify_job_finished("Translation (drama #2)", "done", job_id="translate_2",
+                           owner_user_id=8)
+    ns.notify_job_finished("Library backup", "done", job_id="library_backup", owner_user_id=8)
+    ns.notify_job_finished("Library backup", "error", job_id="library_backup2",
+                           owner_user_id=7)
+    background_jobs._jobs["sources_chapter_check"] = {"status": "done", "result": {"new": 2}}
+    try:
+        ns.notify_job_finished("Checking tracked series for new chapters", "done",
+                               job_id=ns.CHAPTER_CHECK_JOB_ID)
+    finally:
+        background_jobs._jobs.pop("sources_chapter_check", None)
+    kid = {"user_id": 7, "is_admin": False, "is_local_owner": False}
+    assert [e["kind"] for e in ns.list_recent(kid)] == ["chapters", "job_failed", "job_done"]
+    assert len(ns.list_recent(None)) == 5
+    assert len(ns.list_recent({"user_id": 1, "is_admin": True})) == 5
+
+
+def _chapter_check(result, status="done"):
+    background_jobs._jobs[ns.CHAPTER_CHECK_JOB_ID] = {"status": status, "result": result}
+    try:
+        ns.notify_job_finished("Checking tracked series for new chapters", status,
+                               job_id=ns.CHAPTER_CHECK_JOB_ID)
+    finally:
+        background_jobs._jobs.pop(ns.CHAPTER_CHECK_JOB_ID, None)
+
+
+def test_chapter_check_pushes_only_when_it_finds_new_chapters(env, no_timer):
+    _write(env, discord=DISCORD)
+    _chapter_check({"checked": 3, "new": 0, "errors": {}, "queued": []})
+    _chapter_check({"checked": 0, "new": 0, "errors": {}, "queued": [], "skipped": True})
+    _chapter_check(None)
+    assert ns._pending == [] and _texts() == [] and no_timer == []
+    _chapter_check({"checked": 3, "new": 1, "errors": {}, "queued": []})
+    _chapter_check({"checked": 3, "new": 4, "errors": {}, "queued": []})
+    assert [m for _s, m, _c in ns._pending] == ["1 new chapter found", "4 new chapters found"]
+    assert _texts() == ["4 new chapters found", "1 new chapter found"]
+    _chapter_check(None, status="error")
+    assert ns._pending[-1][:2] == ("error", "Failed: Checking tracked series for new chapters")
+
+
+def test_categories_switch_external_pushes_but_not_the_in_app_list(env, no_timer):
+    _write(env, discord=DISCORD)
+    assert ns.get_categories() == {"jobs": True, "chapters": True}
+    ns.set_categories(jobs=False)
+    ns.notify_job_finished("Translation", "done", job_id="translate_1")
+    _chapter_check({"new": 2})
+    assert [c for _s, _m, c in ns._pending] == ["chapters"]
+    ns.set_categories(jobs=True, chapters=False)
+    assert ns.get_categories() == {"jobs": True, "chapters": False}
+    _chapter_check({"new": 3})
+    ns.notify_job_finished("Dub generation", "error", job_id="dub_1")
+    assert [c for _s, _m, c in ns._pending] == ["chapters", "jobs"]
+    assert _texts() == ["Failed: Dub generation", "3 new chapters found",
+                        "2 new chapters found", "Finished: Translation"]
+
+
+def test_disabled_category_never_reaches_discord(env, dns, posts, no_timer):
+    _write(env, discord=DISCORD)
+    ns.set_categories(jobs=False)
+    ns.notify_job_finished("Translation", "done", job_id="translate_1")
+    assert ns.flush() == {} and posts.calls == []
+
+
+def test_translation_completed_reaches_discord_with_the_right_content(env, dns, posts, no_timer):
+    import json
+    _write(env, discord=DISCORD)
+    ns.notify_job_finished("Translation (drama #999)", "done", job_id="translate_999")
+    assert ns.flush() == {"discord": "sent", "ntfy": "not_configured"}
+    body = json.loads(posts.calls[0]["data"].decode("utf-8"))
+    assert body["content"] == "Baihe Subtitler: Finished: Translation"
+
+
+def test_mixed_burst_summary():
+    assert ns._summarize([("done", "Finished: Translation", "jobs"),
+                          ("done", "2 new chapters found", "chapters")]) == \
+        "Finished: Translation. 2 new chapters found."
+    assert ns._summarize([("done", "a", "jobs"), ("error", "b", "jobs"),
+                          ("done", "3 new chapters found", "chapters")]) == \
+        "2 background jobs ended: 1 finished, 1 failed. 3 new chapters found."
+
+
+def test_categories_route_is_pc_only(env):
+    r = _client(key_writes=False).post("/api/settings/notifications/categories",
+                                       json={"chapters": False})
+    assert r.status_code == 200
+    assert r.json()["send_chapters"] is False and r.json()["send_jobs"] is True
+    r = _client().post("/api/settings/notifications/categories", json={"jobs": "no"})
+    assert r.status_code == 422
+    r = _client().post("/api/settings/notifications/categories", json={"other": True})
+    assert r.status_code == 422
+    remote = TestClient(create_app(ApiSettings(auth_mode="on", allow_key_writes=True)),
+                        base_url=REMOTE, raise_server_exceptions=False)
+    admin = _session(True)
+    assert remote.post("/api/settings/notifications/categories", json={"jobs": False},
+                       headers=_h(admin)).status_code == 403
+    assert ns.get_categories() == {"jobs": True, "chapters": False}
+
+
+def test_recent_route_lists_events_without_job_ids(env, no_timer):
+    ns.notify_job_finished("Translation", "done", job_id="translate_1")
+    r = _client().get("/api/notifications")
+    assert r.status_code == 200
+    items = r.json()["items"]
+    assert [i["text"] for i in items] == ["Finished: Translation"]
+    assert "translate_1" not in r.text
+
+
+def test_auth_on_recent_route_needs_library_read_and_filters(env, no_timer):
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                   raise_server_exceptions=False)
+    assert c.get("/api/notifications").status_code == 401
+    kid = _session(False, "library.read")
+    kid_id = auth_service.find_user_by_email("kid@example.com")["id"]
+    ns.notify_job_finished("Library backup", "done", job_id="library_backup", owner_user_id=None)
+    ns.notify_job_finished("Discover extract", "done", job_id="discover_x",
+                           owner_user_id=kid_id)
+    r = c.get("/api/notifications", headers=_h(kid))
+    assert r.status_code == 200
+    assert [i["text"] for i in r.json()["items"]] == ["Finished: Discover extract"]
+    for p in ("library.read",):
+        auth_service.revoke_permission(kid_id, p)
+    assert c.get("/api/notifications", headers=_h(kid)).status_code == 403

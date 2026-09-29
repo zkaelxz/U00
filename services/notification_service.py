@@ -37,6 +37,21 @@ Every send connects to the address that was validated (no second DNS
 lookup), with no redirects, no proxy, a per-socket timeout and an overall
 SEND_DEADLINE; the reply body is never read (only the status code).
 
+In-app list (roadmap Step 44 item 5): every job that finishes or fails is
+also kept in a short in-memory list (the last RECENT_MAX events, lost on a
+restart), whether or not a channel is configured, for the header bell
+(`GET /api/notifications`). `list_recent(principal)` shows a job event only
+to someone who can see that job (`ownership_service.can_see_job`); new-
+chapter events are household-wide, like the Sources notifications list.
+
+Categories: "jobs" (a job finished or failed) and "chapters" (a tracked-
+series check found new chapters) can each be switched off for Discord and
+ntfy (`db.app_settings["notify_categories"]`, both on by default); the
+in-app list always gets both. The chapter check itself is a background job
+that runs on a schedule, so it never sends "Finished: ..."; it sends one
+"N new chapters found" when a check finds any (a failed check is still a
+failed job).
+
 `BAIHE_NOTIFY_DISABLED=1` turns automatic sends off (tests/conftest.py sets
 it so the suite never posts to a real webhook configured on the machine).
 """
@@ -53,6 +68,10 @@ from services import url_guard
 from services.service_errors import InvalidInputError, RateLimitedError
 
 CHANNELS = ("discord", "ntfy")
+CATEGORIES = ("jobs", "chapters")
+CATEGORY_SETTING = "notify_categories"
+CHAPTER_CHECK_JOB_ID = "sources_chapter_check"   # sources.chapter_check.CHECK_JOB_ID
+RECENT_MAX = 50
 ENV_VARS = {"discord": ("BAIHE_DISCORD_WEBHOOK_URL",), "ntfy": ("BAIHE_NTFY_TOPIC_URL",)}
 ALLOW_LOCAL_NTFY_ENV = "BAIHE_NTFY_ALLOW_LOCAL"
 DISABLED_ENV = "BAIHE_NOTIFY_DISABLED"
@@ -114,11 +133,36 @@ def configured_channels():
     return [c for c in CHANNELS if _channel_url(c)]
 
 
+def get_categories() -> dict:
+    """{"jobs": bool, "chapters": bool}; both on unless switched off."""
+    try:
+        import db
+        stored = db.get_app_setting(CATEGORY_SETTING, None)
+    except Exception:
+        stored = None
+    stored = stored if isinstance(stored, dict) else {}
+    return {c: stored.get(c) is not False for c in CATEGORIES}
+
+
+def set_categories(jobs=None, chapters=None) -> dict:
+    """Switches the external-push categories. None leaves one unchanged."""
+    import db
+    current = get_categories()
+    for name, value in (("jobs", jobs), ("chapters", chapters)):
+        if value is not None:
+            current[name] = bool(value)
+    db.set_app_setting(CATEGORY_SETTING, current)
+    return get_status()
+
+
 def get_status() -> dict:
     """Booleans only: never a URL, host or topic."""
+    categories = get_categories()
     return {"discord_configured": bool(_channel_url("discord")),
             "ntfy_configured": bool(_channel_url("ntfy")),
-            "ntfy_allow_local": allow_local_ntfy()}
+            "ntfy_allow_local": allow_local_ntfy(),
+            "send_jobs": categories["jobs"],
+            "send_chapters": categories["chapters"]}
 
 
 def _unmap(ip):
@@ -266,12 +310,25 @@ def build_message(description, status) -> str:
     return redact_secrets(text)
 
 
+def chapter_message(new_count) -> str:
+    n = int(new_count)
+    return f"{n} new chapter{'s' if n != 1 else ''} found"
+
+
 def _summarize(events) -> str:
+    """events: (status, message) or (status, message, category) tuples."""
     if len(events) == 1:
         return events[0][1]
-    done = sum(1 for status, _ in events if status == "done")
-    return (f"{len(events)} background jobs ended: {done} finished, "
-            f"{len(events) - done} failed.")
+    jobs = [e for e in events if (e[2] if len(e) > 2 else "jobs") == "jobs"]
+    parts = []
+    if len(jobs) == 1:
+        parts.append(f"{jobs[0][1]}.")
+    elif jobs:
+        done = sum(1 for e in jobs if e[0] == "done")
+        parts.append(f"{len(jobs)} background jobs ended: {done} finished, "
+                     f"{len(jobs) - done} failed.")
+    parts.extend(f"{e[1]}." for e in events if e not in jobs)
+    return " ".join(parts)
 
 
 # --- delivery --------------------------------------------------------------
@@ -472,17 +529,75 @@ def _schedule_flush():
     return timer
 
 
-def notify_job_finished(description, status):
-    """Queue a job-ended event. Never raises, never blocks on the network."""
+# --- in-app list ------------------------------------------------------------
+
+_recent = collections.deque(maxlen=RECENT_MAX)
+_recent_lock = threading.Lock()
+_next_id = 1
+
+
+def _record(kind, text, job_id, owner_user_id):
+    global _next_id
+    with _recent_lock:
+        _recent.append({"id": _next_id, "at": time.time(), "kind": kind, "text": text,
+                        "job_id": job_id, "owner_user_id": owner_user_id})
+        _next_id += 1
+
+
+def list_recent(principal=None, limit=RECENT_MAX) -> list:
+    """Newest first: {id, at, kind, text}. Job events only for a caller who
+    can see that job; new-chapter events for everyone (household-wide)."""
+    from services import ownership_service
+    with _recent_lock:
+        events = list(_recent)
+    out = []
+    for e in reversed(events):
+        if e["kind"] != "chapters":
+            try:
+                visible = ownership_service.can_see_job(principal, e["job_id"] or "",
+                                                        e["owner_user_id"])
+            except Exception:
+                visible = False
+            if not visible:
+                continue
+        out.append({k: e[k] for k in ("id", "at", "kind", "text")})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _chapter_count(job_id):
+    try:
+        import background_jobs
+        result = (background_jobs.get_status(job_id) or {}).get("result")
+        return int((result or {}).get("new") or 0) if isinstance(result, dict) else 0
+    except Exception:
+        return 0
+
+
+def notify_job_finished(description, status, job_id=None, owner_user_id=None):
+    """Record a job-ended event in the in-app list and queue a push for the
+    configured channels. Never raises, never blocks on the network."""
     global _timer
     try:
-        if status not in ("done", "error") or os.environ.get(DISABLED_ENV) == "1":
+        if status not in ("done", "error"):
+            return
+        if job_id == CHAPTER_CHECK_JOB_ID and status == "done":
+            new = _chapter_count(job_id)
+            if new <= 0:
+                return   # a routine scheduled check that found nothing
+            category, kind, message = "chapters", "chapters", chapter_message(new)
+        else:
+            category = "jobs"
+            kind = "job_done" if status == "done" else "job_failed"
+            message = build_message(description, status)
+        _record(kind, message, job_id, owner_user_id)
+        if os.environ.get(DISABLED_ENV) == "1" or not get_categories()[category]:
             return
         if not configured_channels():
             return
-        message = build_message(description, status)
         with _lock:
-            _pending.append((status, message))
+            _pending.append((status, message, category))
             if _timer is None:
                 _timer = _schedule_flush()
     except Exception as exc:
@@ -536,3 +651,5 @@ def reset_for_tests():
         _timer = None
         _pending.clear()
         _sent_at.clear()
+    with _recent_lock:
+        _recent.clear()

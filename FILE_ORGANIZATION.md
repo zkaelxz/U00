@@ -202,7 +202,9 @@ baihe-subtitler/
 │   │                             (persists page_server_enabled) and token reveal; for local_only routes
 │   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
 │   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
-│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
+│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises;
+│   │                             also the in-app list for the header bell (last 50 events, memory only,
+│   │                             filtered by job visibility) and the jobs/new-chapters push categories
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -379,6 +381,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── notification_schemas.py   Step 44 notification categories + in-app list models (apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -480,9 +483,11 @@ baihe-subtitler/
 │       │                         POST {id}/delete (local_only + confirm + folder stamp)
 │       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
 │       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
-│       └── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
-│                                 /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
-│                                 key-write gate; Step 44)
+│       ├── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
+│       │                         /categories, /{channel}, /{channel}/clear (POST, local_only; set/clear
+│       │                         also use the key-write gate; Step 44)
+│       └── notification_center_routes.py /api/notifications (GET, library.read): the header bell's recent
+│                                 job-ended and new-chapter events (Step 44 item 5)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
