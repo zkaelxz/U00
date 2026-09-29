@@ -260,7 +260,8 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     underneath (-20 dB). Output kind "dubbed_video", same container as the
     source. Raises NotFoundError, InvalidInputError (no source video, no
     dub track yet), DependencyUnavailableError (ffmpeg missing),
-    ConflictError (a video export already running). Returns {"job_id": ...}."""
+    ConflictError (a video export or the drama's dub job already running).
+    Returns {"job_id": ...}."""
     drama = _get_drama(drama_id)
     video_path = _source_video(drama, drama_id)
     dub_path = os.path.join(db.drama_dir(drama_id), "dub_track.wav")
@@ -269,6 +270,10 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     if not isinstance(keep_original, bool):
         raise InvalidInputError("keep_original must be true or false.")
     _require_ffmpeg()
+    # The dub job rewrites dub_track.wav in place, so wait for it to finish.
+    dub_job = background_jobs.get_status(f"dub_{drama_id}")
+    if dub_job and dub_job["status"] in ("running", "queued"):
+        raise ConflictError("The dub is still being generated; export the video when it finishes.")
     job_id = f"dubbed_video_{drama_id}"
     ext = os.path.splitext(video_path)[1].lower()
     if ext not in _VIDEO_EXTS:

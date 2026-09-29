@@ -521,3 +521,20 @@ def test_concurrent_video_starts_only_one_wins(client, drama, isolated_db, monke
         st = background_jobs.get_status(f"{job}{drama}")
         if st:
             _wait(f"{job}{drama}")
+
+
+# ---- L4: the dubbed video waits for the drama's dub job ----------------------
+
+@pytest.mark.parametrize("status", ["running", "queued"])
+def test_dubbed_refused_while_dub_job_runs(client, drama, isolated_db, fake_ffmpeg, status):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    with background_jobs._lock:
+        background_jobs._jobs[f"dub_{drama}"] = {"status": status}
+    r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
+    assert r.status_code == 409 and "dub" in _error(r)["message"]
+    assert background_jobs.get_status(f"dubbed_video_{drama}") is None
+    with background_jobs._lock:
+        background_jobs._jobs[f"dub_{drama}"] = {"status": "done"}
+    assert client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
+    assert _wait(f"dubbed_video_{drama}")["status"] == "done"
