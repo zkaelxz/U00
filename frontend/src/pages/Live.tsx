@@ -113,7 +113,11 @@ export default function LivePage() {
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)
   const urlReason = checkLiveUrl(url)
-  const blocker = urlReason ?? (engines && !engine ? 'Still needed: an engine with a key (see Settings).' : null)
+  // While the engine list loads there is no engine to send; never start then
+  // (a missing engine would fall back to the server default, a paid one).
+  const blocker = urlReason ?? (engines === null
+    ? 'Loading engines…'
+    : !engine ? 'Still needed: an engine with a key (see Settings).' : null)
 
   async function start(e: React.FormEvent) {
     e.preventDefault()

@@ -82,3 +82,21 @@ test('a refused start is explained', async ({ page }) => {
   await expect(live.getByRole('alert')).toContainText('import from a link')
   expect(m.unmocked).toEqual([])
 })
+
+test('Start stays disabled until the engine list has loaded', async ({ page }) => {
+  await mockLive(page)
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => { release = r })
+  // Hold the engines answer: a filled-in link must not enable Start yet.
+  await page.route('**/api/translate/engines', async (route) => {
+    await held
+    await route.fallback()
+  })
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
+  const start = live.getByRole('button', { name: 'Start', exact: true })
+  await expect(live.getByText('Loading engines…')).toBeVisible()
+  await expect(start).toBeDisabled()
+  release()
+  await expect(start).toBeEnabled()
+})
