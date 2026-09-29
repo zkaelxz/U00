@@ -424,3 +424,42 @@ def test_mark_exported_sets_status_only(client, drama, isolated_db):
 
 def test_mark_exported_unknown_drama_404(client):
     assert client.post("/api/export/dramas/999/mark-exported").status_code == 404
+
+
+# ---- L2: a failed write or move stores fixed text, never a path --------------
+
+@pytest.mark.parametrize("path,job", [("softsub-video", "softsub_video_"),
+                                      ("dubbed-video", "dubbed_video_"),
+                                      ("burned-video", "burned_video_"),
+                                      ("audiobook", "audiobook_")])
+def test_video_write_failure_stores_no_paths(client, drama, isolated_db, monkeypatch, path, job):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    _touch(isolated_db, drama, "narration_track.wav")
+    ddir = isolated_db.drama_dir(drama)
+
+    def broken_move(src, dst):
+        raise PermissionError(13, "Permission denied", dst)
+    monkeypatch.setattr(media_export_service.shutil, "move", broken_move)
+    assert client.post(f"/api/export/dramas/{drama}/{path}").status_code == 200
+    st = _wait(f"{job}{drama}")
+    assert st["status"] == "error" and "Could not write the export file." in st["error"]
+    assert ddir not in st["error"] and "Permission denied" not in st["error"]
+    listed = client.get("/api/jobs").text
+    assert ddir not in listed and "Permission denied" not in listed
+
+
+def test_softsub_srt_write_failure_stores_no_paths(client, drama, isolated_db, monkeypatch):
+    _add_video(isolated_db, drama)
+    real_open = open
+
+    def broken_open(file, mode="r", *a, **kw):
+        if str(file).endswith("subs.srt"):
+            raise OSError(28, "No space left on device", str(file))
+        return real_open(file, mode, *a, **kw)
+    monkeypatch.setattr("builtins.open", broken_open)
+    client.post(f"/api/export/dramas/{drama}/softsub-video")
+    st = _wait(f"softsub_video_{drama}")
+    monkeypatch.setattr("builtins.open", real_open)
+    assert st["status"] == "error" and "No space" not in st["error"]
+    assert "subs.srt" not in st["error"] and "tmp" not in st["error"]

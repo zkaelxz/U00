@@ -19,6 +19,7 @@ video_export.replace_audio_with_dub_cmd). All three video jobs write the
 "video" artifact kind, so only one of them may run per drama at a time;
 their ffmpeg runs are cancellable and time-limited.
 """
+import contextlib
 import os
 import shutil
 import subprocess
@@ -76,6 +77,17 @@ def _source_video(drama: dict, drama_id: int) -> str:
     return video_path
 
 
+@contextlib.contextmanager
+def _fixed_write_errors():
+    """Job errors are served on GET /api/jobs, so an OSError from writing the
+    temp files or moving the output (which names absolute paths) becomes
+    fixed text."""
+    try:
+        yield
+    except OSError:
+        raise RuntimeError("Could not write the export file.") from None
+
+
 def _run_video_ffmpeg(job_id, cmd, cwd):
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=cwd, timeout=_VIDEO_TIMEOUT_S)
@@ -87,7 +99,7 @@ def _run_video_ffmpeg(job_id, cmd, cwd):
 
 def _audiobook_job(job_id, drama_id, lines, ddir, title, narrate_original):
     background_jobs.update_progress(job_id, 0.1, "Encoding audiobook...")
-    with tempfile.TemporaryDirectory() as tmp:
+    with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         tmp_out = os.path.join(tmp, "audiobook.m4b")
         try:
             dub.export_narration_m4b(lines, ddir, title=title, out_path=tmp_out,
@@ -129,7 +141,7 @@ def start_audiobook_export(drama_id: int) -> dict:
 
 def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
     background_jobs.update_progress(job_id, 0.1, "Rendering video...")
-    with tempfile.TemporaryDirectory() as tmp:
+    with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         # A fixed, plain subtitle filename in the working folder means the
         # filter string needs no path escaping and holds nothing client-supplied.
         with open(os.path.join(tmp, "subs.ass"), "w", encoding="utf-8") as f:
@@ -180,7 +192,7 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
 
 def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language):
     background_jobs.update_progress(job_id, 0.1, "Adding the subtitle track...")
-    with tempfile.TemporaryDirectory() as tmp:
+    with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         with open(os.path.join(tmp, "subs.srt"), "w", encoding="utf-8") as f:
             f.write(srt_text)
         out_name = f"out{ext}"
@@ -228,7 +240,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
 
 def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original_at_db):
     background_jobs.update_progress(job_id, 0.1, "Rendering dubbed video...")
-    with tempfile.TemporaryDirectory() as tmp:
+    with _fixed_write_errors(), tempfile.TemporaryDirectory() as tmp:
         out_name = f"out{ext}"
         cmd = video_export.replace_audio_with_dub_cmd(video_path, dub_path, out_name,
                                                       keep_original_at_db)
