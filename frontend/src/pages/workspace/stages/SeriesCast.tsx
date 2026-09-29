@@ -4,18 +4,18 @@ import { deleteSeriesCharacter, listSeriesCharacters } from '../../../api/stageD
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Section } from '../../../components/Section'
 import type { SeriesCharacter } from '../../../types/autotuneGlossary'
-import { ConfirmButton } from '../pcOnly/ConfirmButton'
-import { PC_ONLY_NOTE, reportPcOnlyError, usePcOnly } from '../pcOnly/pcOnly'
-import '../pcOnly/pcOnly.css'
+import { ConfirmButton } from '../../../components/ConfirmButton'
+import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
+import './seriesCast.css'
 
 // Characters → "Series cast (n)": the series-level character list shared by
 // every drama in the series; removing one is PC-only.
 export function SeriesCast({ seriesId }: { seriesId: number }) {
   const [cast, setCast] = useState<SeriesCharacter[] | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [problem, setProblem] = useState<string | null>(null)
+  const [removeError, setRemoveError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const isLocal = usePcOnly()
+  const pc = usePcOnly()
 
   useEffect(() => {
     let cancelled = false
@@ -29,7 +29,7 @@ export function SeriesCast({ seriesId }: { seriesId: number }) {
   }, [seriesId])
 
   const remove = (c: SeriesCharacter) => {
-    setProblem(null)
+    setRemoveError(null)
     setNotice(null)
     deleteSeriesCharacter(seriesId, c.id).then(
       () => {
@@ -37,7 +37,7 @@ export function SeriesCast({ seriesId }: { seriesId: number }) {
         setNotice(`Removed ${c.character_name} from the series.`)
         setCast((cur) => cur && cur.filter((x) => x.id !== c.id))
       },
-      (e: unknown) => reportPcOnlyError(e, setProblem, setError),
+      setRemoveError,
     )
   }
 
@@ -59,10 +59,10 @@ export function SeriesCast({ seriesId }: { seriesId: number }) {
               {c.pronouns && <span className="muted"> · {c.pronouns}</span>}
               {c.aliases && <span className="muted"> · also {c.aliases}</span>}
             </span>
-            {isLocal && (
+            {pc === 'local' && (
               <ConfirmButton
-                label="Remove"
-                ariaLabel={`Remove ${c.character_name} from series`}
+                name={c.character_name}
+                label="Remove…"
                 confirmLabel={`Confirm remove ${c.character_name} from series`}
                 onConfirm={() => remove(c)}
               />
@@ -70,9 +70,9 @@ export function SeriesCast({ seriesId }: { seriesId: number }) {
           </li>
         ))}
       </ul>
-      {isLocal === false && <p className="muted">{PC_ONLY_NOTE}</p>}
+      {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
       {notice && <p role="status">{notice}</p>}
-      {problem && <p className="error" role="alert">{problem}</p>}
+      <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </Section>
   )

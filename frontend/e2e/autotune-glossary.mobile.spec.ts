@@ -133,9 +133,6 @@ test('with 30 proposals the apply row stays in reach at the bottom', async ({ pa
 })
 
 test('PC-only delete buttons are 44px and on their own line', async ({ page }) => {
-  await page.route('**/api/meta', (route) =>
-    route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: true } }),
-  )
   await page.route('**/api/review/dramas/1/versions', (route) =>
     route.fulfill({
       json: [{ id: 9, drama_id: 1, label: 'Claude pass 1', engine: 'claude', model: 'm', is_active: true, created_at: '2026-09-01' }],
@@ -144,8 +141,8 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
   await page.goto('/#/drama/1/review')
   await openSection(page, 'Records')
   const list = page.getByTestId('versions-list')
-  await expectTall(list.getByRole('button', { name: 'Delete Claude pass 1' }))
-  await list.getByRole('button', { name: 'Delete Claude pass 1' }).click()
+  await expectTall(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }))
+  await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
   await expectTall(list.getByRole('button', { name: 'Confirm delete Claude pass 1' }))
   await expectNoHorizontalOverflow(page)
   await list.scrollIntoViewIfNeeded()
@@ -155,7 +152,7 @@ test('PC-only delete buttons are 44px and on their own line', async ({ page }) =
     route.fulfill({ json: { drama_id: 1, has_audio: true, has_source_video: false, upload_max_mb: 500 } }),
   )
   await page.goto('/#/drama/1/source')
-  await expectTall(page.getByRole('button', { name: 'Remove audio/video…' }))
+  await expectTall(page.getByRole('button', { name: 'Remove audio/video', exact: true }))
   await expectNoHorizontalOverflow(page)
   await shot(page, 'source-remove-media-phone')
 })

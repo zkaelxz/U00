@@ -6,7 +6,6 @@ import {
   listSeriesCharacters,
   removeMedia,
   removeRawNovel,
-  withLocalHeader,
 } from './stageDeletes'
 
 type Call = { url: string; init?: RequestInit }
@@ -46,13 +45,5 @@ describe('PC-only stage deletes', () => {
     await listSeriesCharacters(5, fakeFetch(calls))
     expect(calls[0].url).toBe('/api/characters/series/5/characters')
     expect(new Headers(calls[0].init?.headers).get('X-Baihe-Local')).toBeNull()
-  })
-
-  it('withLocalHeader keeps existing headers', async () => {
-    const calls: Call[] = []
-    await withLocalHeader(fakeFetch(calls))('/x', { headers: { Accept: 'application/json' } })
-    const h = new Headers(calls[0].init?.headers)
-    expect(h.get('Accept')).toBe('application/json')
-    expect(h.get('X-Baihe-Local')).toBe('1')
   })
 })

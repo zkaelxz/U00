@@ -7,8 +7,8 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { NovelMode, NovelStatus } from '../../../types/workspace'
-import { ConfirmButton } from '../pcOnly/ConfirmButton'
-import { PC_ONLY_NOTE, reportPcOnlyError, usePcOnly } from '../pcOnly/pcOnly'
+import { ConfirmButton } from '../../../components/ConfirmButton'
+import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { checkOcrImages, ocrBackendOptions } from '../sourceForm'
 import { useStage } from '../StageContext'
 
@@ -48,8 +48,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
 
   // The original-language novel (raw_novel_context.txt), removable on the PC.
   const [hasRaw, setHasRaw] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-  const isLocal = usePcOnly()
+  const [removeError, setRemoveError] = useState<unknown>(null)
+  const pc = usePcOnly()
   useEffect(() => {
     let cancelled = false
     getSourceConfig(dramaId).then((c) => !cancelled && setHasRaw(c.has_raw_novel_context), () => undefined)
@@ -59,7 +59,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
   }, [dramaId, reloads, reloadKey])
 
   const removeRaw = () => {
-    setProblem(null)
+    setRemoveError(null)
     removeRawNovel(dramaId).then(
       () => {
         setError(null)
@@ -67,7 +67,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         setReloads((n) => n + 1)
         refetchDrama()
       },
-      (e: unknown) => reportPcOnlyError(e, setProblem, setError),
+      setRemoveError,
     )
   }
 
@@ -106,19 +106,20 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
         {hasRaw && (
           <div className="actions">
             <span className="muted">Raw novel (original language) attached.</span>
-            {isLocal && (
+            {pc === 'local' && (
               <ConfirmButton
-                label="Remove raw novel"
+                name="raw novel"
+                label="Remove…"
                 confirmLabel="Confirm remove raw novel"
                 disabled={busy}
-                disabledReason="Wait for the running job to finish."
                 onConfirm={removeRaw}
               />
             )}
-            {isLocal === false && <span className="muted">{PC_ONLY_NOTE}</span>}
+            {pc === 'local' && busy && <span className="muted">Wait for the running job to finish.</span>}
+            {pc === 'remote' && <span className="muted">{PC_ONLY_DELETE_NOTE}</span>}
           </div>
         )}
-        {problem && <p className="error" role="alert">{problem}</p>}
+        <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
         <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
           <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
             <option value="replace">Replace existing</option>

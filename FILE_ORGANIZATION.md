@@ -413,9 +413,7 @@ baihe-subtitler/
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
 │   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
-│   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes)
-│   ├── src/pages/workspace/pcOnly/  usePcOnly (/api/meta `local`) + two-step ConfirmButton; private stand-in
-│   │                              for the shared hooks/usePcOnly + components/ConfirmButton
+│   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

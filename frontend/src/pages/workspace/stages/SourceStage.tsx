@@ -7,8 +7,8 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
-import { ConfirmButton } from '../pcOnly/ConfirmButton'
-import { PC_ONLY_NOTE, reportPcOnlyError, usePcOnly } from '../pcOnly/pcOnly'
+import { ConfirmButton } from '../../../components/ConfirmButton'
+import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
@@ -28,8 +28,8 @@ export default function SourceStage() {
   const [reloads, setReloads] = useState(0)
   // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
   const [modeVersion, setModeVersion] = useState(0)
-  const isLocal = usePcOnly()
-  const [removeProblem, setRemoveProblem] = useState<string | null>(null)
+  const pc = usePcOnly()
+  const [removeError, setRemoveError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -104,7 +104,7 @@ export default function SourceStage() {
   const hasMedia = !!media && (media.has_audio || media.has_source_video)
   const remove = () => {
     setUploaded(null)
-    setRemoveProblem(null)
+    setRemoveError(null)
     removeMedia(dramaId).then(
       () => {
         setError(null)
@@ -112,7 +112,7 @@ export default function SourceStage() {
         setReloads((n) => n + 1)
         onJobDone()
       },
-      (e: unknown) => reportPcOnlyError(e, setRemoveProblem, setError),
+      setRemoveError,
     )
   }
 
@@ -136,17 +136,20 @@ export default function SourceStage() {
           Upload
         </button>
       </div>
-      {hasMedia && isLocal && (
-        <ConfirmButton
-          label="Remove audio/video"
-          confirmLabel="Confirm remove audio/video"
-          disabled={busy}
-          disabledReason="Wait for the running job to finish."
-          onConfirm={remove}
-        />
+      {hasMedia && pc === 'local' && (
+        <div className="actions">
+          <ConfirmButton
+            name="audio/video"
+            label="Remove…"
+            confirmLabel="Confirm remove audio/video"
+            disabled={busy}
+            onConfirm={remove}
+          />
+          {busy && <span className="muted">Wait for the running job to finish.</span>}
+        </div>
       )}
-      {hasMedia && isLocal === false && <p className="muted">{PC_ONLY_NOTE}</p>}
-      {removeProblem && <p className="error" role="alert">{removeProblem}</p>}
+      {hasMedia && pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+      <ErrorBanner error={removeError} describe={{ pcOnly: true }} onDismiss={() => setRemoveError(null)} />
       {fileProblem && <p className="error" role="alert">{fileProblem}</p>}
       {uploaded && <p role="status">{uploaded}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />

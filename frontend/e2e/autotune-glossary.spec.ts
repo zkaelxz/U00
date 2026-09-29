@@ -2,7 +2,8 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 
 // Auto-tune (Transcribe > Advanced), Glossary > From novel, and the PC-only
 // stage deletes. Drama reads hit the real seeded API; the auto-tune and
-// glossary jobs, /api/meta's `local` flag and the delete routes are mocked
+// glossary jobs and the delete routes are mocked; /api/meta is mocked only
+// for remote mode (the real API reports local: true on loopback)
 // (no GPU, no paid engine, and deletes must not touch the shared library).
 
 test.use({ viewport: { width: 1280, height: 800 } })
@@ -22,10 +23,10 @@ async function openSection(page: Page, title: string) {
   await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
 }
 
-async function mockMeta(page: Page, local: boolean | undefined) {
+async function mockRemote(page: Page) {
   await page.route('**/api/meta', (route) =>
     route.fulfill({
-      json: { app: 'baihe', api_version: '1', environment: 'development', ...(local === undefined ? {} : { local }) },
+      json: { app: 'baihe', api_version: '1', environment: 'development', local: false },
     }),
   )
 }
@@ -295,41 +296,39 @@ test.describe('PC-only stage deletes', () => {
   }
 
   test('version delete: first tap makes no call, the second sends confirm with the local header', async ({ page }) => {
-    await mockMeta(page, true)
     const calls = await mockVersions(page)
     await page.goto('/#/drama/1/review')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
-    await list.getByRole('button', { name: 'Delete Claude pass 1' }).click()
+    await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
     expect(calls).toHaveLength(0)
-    await expect(list).toContainText('Press again to delete Claude pass 1.')
+    await expect(list).toContainText('Press again to delete Claude pass 1')
     await shot(page, 'records-version-delete-armed-desktop')
     await list.getByRole('button', { name: 'Confirm delete Claude pass 1' }).click()
     await expect(list.locator('li')).toHaveCount(1)
     // Focus moves to the next row's Delete button.
-    await expect(list.getByRole('button', { name: 'Delete Claude pass 2' })).toBeFocused()
+    await expect(list.getByRole('button', { name: 'Delete Claude pass 2', exact: true })).toBeFocused()
     expect(calls).toHaveLength(1)
     expect(JSON.parse(calls[0].body)).toEqual({ confirm: true })
     expect(calls[0].local).toBe('1')
   })
 
   test('Escape cancels and the button reverts after 5 s', async ({ page }) => {
-    await mockMeta(page, true)
     const calls = await mockVersions(page)
     await page.goto('/#/drama/1/review')
     await openSection(page, 'Records')
     const list = page.getByTestId('versions-list')
-    await list.getByRole('button', { name: 'Delete Claude pass 1' }).click()
+    await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
     await page.keyboard.press('Escape')
-    await expect(list.getByRole('button', { name: 'Delete Claude pass 1' })).toBeVisible()
-    await list.getByRole('button', { name: 'Delete Claude pass 1' }).click()
+    await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible()
+    await list.getByRole('button', { name: 'Delete Claude pass 1', exact: true }).click()
     await expect(list.getByRole('button', { name: 'Confirm delete Claude pass 1' })).toBeVisible()
-    await expect(list.getByRole('button', { name: 'Delete Claude pass 1' })).toBeVisible({ timeout: 7000 })
+    await expect(list.getByRole('button', { name: 'Delete Claude pass 1', exact: true })).toBeVisible({ timeout: 7000 })
     expect(calls).toHaveLength(0)
   })
 
-  test('remote (meta without local): no delete buttons, one muted note', async ({ page }) => {
-    await mockMeta(page, undefined)
+  test('remote (meta local: false): no delete buttons, one muted note', async ({ page }) => {
+    await mockRemote(page)
     await mockVersions(page)
     await withAudio(page)
     await page.goto('/#/drama/1/review')
@@ -343,7 +342,6 @@ test.describe('PC-only stage deletes', () => {
   })
 
   test('remove audio/video and raw novel on the PC', async ({ page }) => {
-    await mockMeta(page, true)
     await withAudio(page)
     await page.route('**/api/source/dramas/1/config', async (route) => {
       if (route.request().method() !== 'GET') return route.fallback()
@@ -360,13 +358,13 @@ test.describe('PC-only stage deletes', () => {
       return route.fulfill({ json: { drama_id: 1, removed: true, has_raw_novel_context: false } })
     })
     await page.goto('/#/drama/1/source')
-    await page.getByRole('button', { name: 'Remove audio/video…' }).click()
+    await page.getByRole('button', { name: 'Remove audio/video', exact: true }).click()
     await shot(page, 'source-remove-media-armed-desktop')
     await page.getByRole('button', { name: 'Confirm remove audio/video' }).click()
     await expect(page.getByText('Removed. Lines are untouched.')).toBeVisible()
     await openSection(page, 'Novel text')
     await expect(page.getByRole('link', { name: 'Build a glossary from this novel (Translate → Glossary) →' })).toHaveAttribute('href', '#/drama/1/translate')
-    await page.getByRole('button', { name: 'Remove raw novel…' }).click()
+    await page.getByRole('button', { name: 'Remove raw novel', exact: true }).click()
     await page.getByRole('button', { name: 'Confirm remove raw novel' }).click()
     await expect(page.getByRole('status').filter({ hasText: 'Removed.' }).last()).toBeVisible()
     expect(posted.map((u) => new URL(u).pathname)).toEqual([
@@ -376,7 +374,6 @@ test.describe('PC-only stage deletes', () => {
   })
 
   test('series cast lists characters and removes one', async ({ page }) => {
-    await mockMeta(page, true)
     await inSeries(page)
     await page.route('**/api/characters/series/7/characters', (route) =>
       route.fulfill({
@@ -397,7 +394,7 @@ test.describe('PC-only stage deletes', () => {
     const cast = page.getByTestId('series-cast')
     await expect(cast.locator('li')).toHaveCount(2)
     await shot(page, 'series-cast-desktop')
-    await cast.getByRole('button', { name: 'Remove Wei Ying from series' }).click()
+    await cast.getByRole('button', { name: 'Remove Wei Ying', exact: true }).click()
     await cast.getByRole('button', { name: 'Confirm remove Wei Ying from series' }).click()
     await expect(cast.locator('li')).toHaveCount(1)
     expect(JSON.parse(body)).toEqual({ confirm: true })

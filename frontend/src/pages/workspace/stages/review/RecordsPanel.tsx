@@ -16,8 +16,8 @@ import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 import { JOB_RUNNING_MESSAGE, structureErrorText } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
-import { ConfirmButton } from '../../pcOnly/ConfirmButton'
-import { PC_ONLY_NOTE, reportPcOnlyError, usePcOnly } from '../../pcOnly/pcOnly'
+import { ConfirmButton } from '../../../../components/ConfirmButton'
+import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
   notes: ReviewNote[]
@@ -41,8 +41,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
   const [busy, setBusy] = useState(false)
   const [restored, setRestored] = useState<string | null>(null)
-  const isLocal = usePcOnly()
-  const [versionProblem, setVersionProblem] = useState<string | null>(null)
+  const pc = usePcOnly()
+  const [versionError, setVersionError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -85,7 +85,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
   }, [records])
 
   const removeVersion = (v: VersionItem) => {
-    setVersionProblem(null)
+    setVersionError(null)
     const list = records?.versions ?? []
     const i = list.findIndex((x) => x.id === v.id)
     const next = list[i + 1] ?? list[i - 1] ?? null
@@ -96,7 +96,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
         focusAfterDelete.current = { deletedId: v.id, nextId: next?.id ?? null, summary }
         onChanged()
       },
-      (e: unknown) => reportPcOnlyError(e, setVersionProblem, setError),
+      setVersionError,
     )
   }
 
@@ -188,21 +188,19 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
               <li key={v.id} data-version-id={v.id}>
                 {v.label ?? `Version ${v.id}`} · {v.engine} {v.model}
                 {v.is_active ? ' · active' : ''} <span className="muted">{v.created_at}</span>{' '}
-                {isLocal && (
+                {pc === 'local' && (
                   <ConfirmButton
-                    label="Delete"
-                    ariaLabel={`Delete ${v.label ?? `Version ${v.id}`}`}
-                    confirmLabel={`Confirm delete ${v.label ?? `Version ${v.id}`}`}
+                    name={v.label ?? `Version ${v.id}`}
                     disabled={jobRunning}
-                    disabledReason="Wait for the running job to finish."
                     onConfirm={() => removeVersion(v)}
                   />
                 )}
               </li>
             ))}
           </ul>
-          {isLocal === false && <p className="muted">{PC_ONLY_NOTE}</p>}
-          {versionProblem && <p className="error" role="alert">{versionProblem}</p>}
+          {pc === 'local' && jobRunning && <p className="muted">Wait for the running job to finish.</p>}
+          {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+          <ErrorBanner error={versionError} describe={{ pcOnly: true }} onDismiss={() => setVersionError(null)} />
         </>
       )}
       {history.length > 0 && (
