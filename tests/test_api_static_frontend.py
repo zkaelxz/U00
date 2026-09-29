@@ -74,6 +74,63 @@ class TestServing:
         assert _client(dist).post("/anything").status_code == 405
 
 
+class TestContentTypes:
+    """A Windows registry can map `.js` to text/plain; browsers then refuse
+    the module script and the app is blank. Types must not depend on it."""
+
+    @pytest.fixture
+    def windows_like_mimetypes(self, monkeypatch):
+        import mimetypes
+
+        import starlette.responses
+        plain = lambda *a, **k: ("text/plain", None)  # noqa: E731
+        monkeypatch.setattr(mimetypes, "guess_type", plain)
+        if hasattr(starlette.responses, "guess_type"):
+            monkeypatch.setattr(starlette.responses, "guess_type", plain)
+
+    def _assets(self, dist):
+        (dist / "assets" / "app.css").write_text("body{}")
+        (dist / "assets" / "icon.svg").write_text("<svg/>")
+        (dist / "assets" / "font.woff2").write_bytes(b"x")
+
+    @pytest.mark.parametrize("path,expected", [
+        ("/assets/app.js", "text/javascript"),
+        ("/assets/app.css", "text/css"),
+        ("/assets/icon.svg", "image/svg+xml"),
+        ("/assets/font.woff2", "font/woff2"),
+        ("/", "text/html"),
+        ("/index.html", "text/html"),
+        ("/some/deep/link", "text/html"),
+    ])
+    def test_types_ignore_registry(self, dist, windows_like_mimetypes, path, expected):
+        self._assets(dist)
+        r = _client(dist).get(path)
+        assert r.status_code == 200
+        assert r.headers["content-type"].split(";")[0] == expected
+
+
+def test_frontend_has_no_case_colliding_paths():
+    """Windows and macOS file systems ignore case: `Foo.tsx` next to
+    `foo.ts` makes `import './Foo'` resolve to the wrong module there."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parent.parent / "frontend" / "src"
+    if not src.is_dir():
+        pytest.skip("no frontend/src")
+    code = (".ts", ".tsx", ".js", ".jsx")
+    seen = {}
+    for f in src.rglob("*"):
+        # What an extension-less import names: a code file minus its
+        # extension. `sheet.css` is imported with its extension, and there
+        # are no index files, so a `reader/` folder can't shadow `Reader.tsx`.
+        if "node_modules" in f.parts or not f.is_file() or f.suffix not in code:
+            continue
+        name = f.name[: -len(f.suffix)]
+        key = (str(f.parent).lower(), name.lower())
+        seen.setdefault(key, set()).add(name)
+    clashes = {k: v for k, v in seen.items() if len(v) > 1}
+    assert not clashes, f"case-only name clashes: {clashes}"
+
+
 class TestTraversal:
     @pytest.mark.parametrize("path", [
         "/../secret.txt", "/..%2fsecret.txt", "/%2e%2e/secret.txt",

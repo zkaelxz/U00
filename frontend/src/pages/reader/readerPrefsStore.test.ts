@@ -17,7 +17,7 @@ import {
   savePrefs,
   spoilerBoundary,
   trimHistory,
-} from './readerPrefs'
+} from './readerPrefsStore'
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const data = { ...initial }
