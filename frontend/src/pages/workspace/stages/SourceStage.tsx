@@ -8,6 +8,7 @@ import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { DetailsPanel, SourceModePanel } from './DetailsPanel'
 import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
@@ -22,6 +23,8 @@ export default function SourceStage() {
   const [uploaded, setUploaded] = useState<string | null>(null)
   const [jobId, setJobId, runKey] = useJobRun()
   const [reloads, setReloads] = useState(0)
+  // Bumped when the transcript mode changes so the Transcribe panel re-reads its config.
+  const [modeVersion, setModeVersion] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -114,8 +117,10 @@ export default function SourceStage() {
 
   return (
     <div className="stage-source">
-      <TranscribeStage mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
+      <TranscribeStage key={modeVersion} mediaSlot={mediaSlot} media={media} file={file} busy={busy} onJobStarted={setJobId} />
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
+      <SourceModePanel onSaved={() => setModeVersion((n) => n + 1)} />
+      <DetailsPanel />
       <AutofillPanel />
       <AnalyzePanel hasMedia={!!media && (media.has_audio || media.has_source_video)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}

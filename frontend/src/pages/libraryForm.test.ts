@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest'
 
-import { MEDIA_TYPES, canConfirmDelete, groupHistory, validateCreate } from './libraryForm'
+import { MEDIA_TYPES, NEW_SERIES, buildCreateRequest, canConfirmDelete, groupHistory, validateCreate } from './libraryForm'
+
+describe('buildCreateRequest', () => {
+  const form = { source_language: 'zh', media_type: 'anime', title_en: ' A ', title_zh: '', author: '', director: 'D' }
+  it('drops blank text and sends no series by default', () => {
+    expect(buildCreateRequest(form, { series: '', newSeriesName: '', preset: '' })).toEqual({
+      source_language: 'zh', media_type: 'anime', title_en: 'A', director: 'D',
+    })
+  })
+  it('sends series_id or new_series_name, never both, plus preset', () => {
+    const a = buildCreateRequest(form, { series: '4', newSeriesName: 'x', preset: '2' })
+    expect(a.series_id).toBe(4)
+    expect(a.new_series_name).toBeUndefined()
+    expect(a.preset_id).toBe(2)
+    const b = buildCreateRequest(form, { series: NEW_SERIES, newSeriesName: 'Saga', preset: '' })
+    expect(b.new_series_name).toBe('Saga')
+    expect(b.series_id).toBeUndefined()
+  })
+  it('rejects a blank new series name', () => {
+    const b = buildCreateRequest(form, { series: NEW_SERIES, newSeriesName: ' ', preset: '' })
+    expect(validateCreate(b)).toMatch(/series/)
+  })
+})
 
 describe('groupHistory', () => {
   it('collapses consecutive rows of one drama and keeps the newest', () => {

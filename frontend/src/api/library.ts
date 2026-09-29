@@ -2,6 +2,7 @@ import type { DramaDetail } from './types'
 import type {
   DramaCreateRequest,
   DramaDeleteResult,
+  DramaMetadataUpdate,
   LibraryCostResponse,
   LibraryDashboard,
   LibraryHistoryResponse,
@@ -28,6 +29,10 @@ export const searchLines = (q: string, f?: Fetch) =>
 
 export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
   postJson<DramaDetail>('/api/dramas', body, f)
+
+// Partial update: send only the fields the user changed.
+export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: Fetch) =>
+  postJson<DramaDetail>(`/api/dramas/${id}/metadata`, body, f)
 
 // The API refuses unless both confirmation params match; the typed-word
 // check in the UI is a second gate on top of that.
