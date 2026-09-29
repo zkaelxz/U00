@@ -927,6 +927,8 @@ Real LLM/Whisper runs were not verified (tests stub the helpers).
 
 **Slice 30 -- Burned-in video export job.** `POST /api/export/dramas/{id}/burned-video` (optional body: the Slice 27 `AssExportRequest` -- field, preset, style overrides, speaker colours, notes, wrapping) starts thread job `burned_video_<id>` and returns `{job_id}`. The ASS text is generated and validated at start with `export_service.generate_ass_text` (Slice 27 helpers: ranges, colours, control characters rejected), then the job writes it to a temp folder as the fixed name `subs.ass` and runs `ffmpeg -y -i <stored source video> -vf subtitles=subs.ass -c:a copy out.<ext>` with that folder as the working directory, so the filter string holds nothing client-supplied and needs no path escaping. The result is moved to `artifact_service.output_path(id, "video", "burned_video_<id>.<ext>")` (source extension if mp4/mkv/mov/webm, else mp4); download via `GET /api/artifacts/dramas/{id}/video`. Errors: unknown drama 404; no lines, no stored source video (name re-checked as a bare filename) or bad style 422 (fixed text); ffmpeg missing 503; duplicate 409; job failures carry no paths. Softsub, the SRT hardsub with `force_style`, dub-audio replacement and the vertical clip stay out of scope. Real ffmpeg (including libass) was not verified.
 
+**Slice 45 -- restructure lines + version-history restore.** `services/restructure_service.py` + `/api/restructure/dramas/{id}/...`: `lines/add`, `lines/{line_id}/delete` (needs `confirm=true`, the tab's checkbox bar for deletes), `merge` (2-50 adjacent ids, in order; joined like `core.merge_adjacent_short_lines`), `lines/{line_id}/split` (character offset `at_char` + `expected_zh`, optional `at_time` strictly inside the line else proportional via `resegment.split_times`, optional `en_at_char`; the first piece keeps the id, flag, notes and emotion, the second is new with no flag), `GET resegment/preview` (read-only, rules only), `POST resegment` (job `resegment_<id>`, already in `DRAMA_JOB_PREFIXES`; re-segments AND saves; an Ollama LLM pass runs as a process job applied via the Slice 49 `on_done` hook, other engines/rules in a thread; duplicate start 409), `GET history` (Slice 48's `list_line_history`) and `history/{hid}/restore` (ownership 404; `core.restore_saved_lines`, so Step 25l's id-first matching applies). Every write takes `expected_line_ids` (the drama's ids in order) and returns 409 with nothing written on any difference, is refused 409 while any job runs on the drama (`drama_service._job_running_for_drama`; stricter than the tab, which does not check running jobs), loads lines fresh, takes a history snapshot of them FIRST ("before merge"/"before split"/"before add line"/"before delete line"/"before re-segment"/"before restore"), then does one `db.save_lines(fields=None)` over that fresh list, so ids carry flag/flag_note/speaker/notes/emotions: merged-away lines' notes/emotions are re-pointed via `merged_ids`, deleted/split lines' refs are deleted with their rows, and no orphan or duplicate rows remain (tests cover merge -> restore, delete, split, re-segment with a concurrent writer). Re-segmentation's `confirm` is required when any line LONG ENOUGH to be split (a superset of what a run changes) carries a translation, flag or note; the tab asks only for the lines actually split (deviation: it can't know an LLM run's result up front). Atomicity gap: snapshot, id re-check and `save_lines` are three transactions (db.py has no combined API); guarded by a per-drama in-process lock across load -> check -> snapshot -> save (also taken by the re-segment job's apply step) and an id-set re-read immediately before the save. A full sync from another process (Streamlit) between that re-read and the save is not prevented; a failure after the snapshot leaves only an extra snapshot. Pre-existing gap: history snapshots don't store flag/flag_note/sfx, so a restored line whose id no longer exists comes back unflagged. Add/delete/split have no tab equivalent yet.
+
 **Next candidates:** the
 
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
@@ -1077,6 +1079,39 @@ status/tags/delete and bulk translate, storage scan/clean, backup/restore (need 
 confirm and `drama_service._job_running_for_drama` refusal), and Continue reading (per-profile).
 
 **Step 95 -- BGM-preserving dub (service + API + CLI, 2026-09-28).** `DubRunRequest` gained `keep_background: bool = False` (edited in place; `DubConfig` gained a booleans-only `can_keep_background`, also in place). With it set on a video dub, `start_dub_run` binds the drama's stored audio and `separation_backend` into the worker (`functools.partial`, so the trailing result queue lands on the worker's `result_queue` parameter); after `build_dub_track` the worker calls `dub.mix_original_background`, which reuses `audio_preprocess.separate_vocals` (new `extract_background` subtracts the vocals stem from the original), caches `dub_background.wav` in the drama folder, and overlays it at -6 dB under the track. Narration or a drama with no audio is 422; missing soundfile/numpy/separation backend is 503 with fixed text. A separation failure keeps the plain dub and reports `background_mixed: false` with a fixed `background_error`. `cli dub --keep-background` does the same. Pre-existing bug found: the Streamlit Dub tab (and, before this step, Slice 26's service) passes `narrate_original, source_lang` positionally after which `background_jobs` appends `result_queue`, but the worker declares `result_queue` before them, so the queue lands in the wrong parameter; the service now binds them by keyword, the tab still has the old call. Real separation and mixing were not verified (tests fake them).
+
+**Slice 41 -- Translate Reflect + bulk (2026-09-28).** `POST
+/api/translate-run/dramas/{id}/run` gains `reflect` and `bulk` (both default
+false; `TranslateRunStart`/`TranslateRunStarted` edited in place). `reflect`
+alone passes `reflect=True` to the same `run_translate_job` the tab and `cli.py
+translate --reflect` use: Step 7's three passes (the code has three, not two),
+id-keyed at every pass, critiques saved as notes by line, field-scoped `en`
+writes, same force-retranslate snapshot. `bulk` starts job
+`bulk_translate_{id}`, which submits exactly what the tab's
+`_start_bulk_translation`/`_start_bulk_reflect` submit (Claude/Gemini batch
+API; DeepSeek off-peak schedule; with `reflect`, the bulk Reflect pipeline),
+then polls inside the job with `bulk_translate.run_bulk_poller` and follows each
+Reflect stage bulk_translate submits in turn, until applied, failed (job
+error, redacted text) or cancelled. Results are applied by line id by
+bulk_translate's existing apply step (dropped if deleted, flagged if the source
+changed, hand edits kept). Cancelling the job (`POST /api/jobs/{id}/cancel`)
+cancels the pending bulk job at the provider when it can. Resumability reuses
+what exists: `POST /api/translate-run/dramas/{id}/bulk/resume` calls
+`bulk_translate.resume_pending` (the Bulk jobs panel's call) with server-side
+keys; nothing new is persisted. Errors: unknown drama 404; a running job or a
+pending bulk job for the drama 409; no key 503; fallback chain with reflect or
+bulk, or `line_ids` with bulk, 422; Reflect on a translation-only engine, bulk
+on a non-bulk engine or Gemini free tier, bulk Reflect on DeepSeek, nothing to
+translate, a monthly-cap refusal, or a Claude/Gemini batch estimate above the
+cap 400 (a batch can't stop part-way; DeepSeek off-peak stops at the cap when it
+runs). The fallback chain is refused for both modes: Reflect goes through
+`call_llm_json`, which `FallbackEngine` does not wrap, and a batch is bound to
+one provider. Deliberate differences: bulk Reflect now gets the same cap
+refusal as bulk translation (the tab checks none); the API job, not a separate
+`bulkpoll_` job, polls, so a Streamlit tab calling `resume_pending` at the same
+time could start a second poller (`check_once` is locked, so results apply once).
+Paid-key and real batch runs were not verified (tests use a fake provider and a
+fake Reflect helper).
 
 **Next candidates:** the `chunk_and_tag` novel-narration path (needs its
 own scoping -- fully synchronous today, no natural job boundary), the

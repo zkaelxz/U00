@@ -41,6 +41,7 @@ from api.routers import (
     narration_routes,
     novel_routes,
     reader_routes,
+    restructure_routes,
     review_jobs_routes,
     review_lines_routes,
     review_records_routes,
@@ -103,6 +104,7 @@ def create_app(settings: ApiSettings = None) -> FastAPI:
     app.include_router(metadata_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
+    app.include_router(restructure_routes.router)
     return app
 
 
