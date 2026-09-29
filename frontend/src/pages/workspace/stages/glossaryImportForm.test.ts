@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { importSummary, MAX_IMPORT_CHARS, validateImportText } from './glossaryImport'
+import { importSummary, MAX_IMPORT_CHARS, validateImportText } from './glossaryImportForm'
 
 const empty = { added: [], overwritten: [], skipped_existing: [], invalid: [], warnings: [] }
 

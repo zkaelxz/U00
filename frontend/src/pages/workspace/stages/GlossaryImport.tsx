@@ -5,7 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import type { GlossaryImportResult } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
-import { GLOSSARY_FILE_ACCEPT, importSummary, validateImportText } from './glossaryImport'
+import { GLOSSARY_FILE_ACCEPT, importSummary, validateImportText } from './glossaryImportForm'
 
 // Parity T03/T04: Streamlit's "Import glossary file" and "Export glossary as CSV".
 // A file is read in the browser and its text is sent like a paste; nothing is uploaded as a file.
