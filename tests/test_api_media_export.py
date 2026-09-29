@@ -280,7 +280,7 @@ def test_softsub_runs_and_writes_artifact(client, drama, isolated_db, fake_ffmpe
     assert r.status_code == 200
     assert r.json() == {"job_id": f"softsub_video_{drama}"}
     assert _wait(f"softsub_video_{drama}")["status"] == "done"
-    assert artifact_service.get_artifact(drama, "video")["name"] == f"softsub_video_{drama}.mkv"
+    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mkv"
     cmd, kwargs = fake_ffmpeg.calls[0]
     assert cmd[0] == "ffmpeg" and "shell" not in kwargs and kwargs["cwd"]
     assert "subs.srt" in cmd and cmd[cmd.index("-c:s") + 1] == "srt"
@@ -291,7 +291,7 @@ def test_softsub_other_container_becomes_mp4(client, drama, isolated_db, fake_ff
     _add_video(isolated_db, drama, "source.webm")
     assert client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
     assert _wait(f"softsub_video_{drama}")["status"] == "done"
-    assert artifact_service.get_artifact(drama, "video")["name"] == f"softsub_video_{drama}.mp4"
+    assert artifact_service.get_artifact(drama, "softsub_video")["name"] == f"softsub_video_{drama}.mp4"
     cmd, _ = fake_ffmpeg.calls[0]
     assert cmd[cmd.index("-c:s") + 1] == "mov_text" and "language=eng" in cmd
 
@@ -353,14 +353,14 @@ def test_softsub_failure_and_timeout_no_artifact_no_paths(client, drama, isolate
     st = _wait(f"softsub_video_{drama}")
     assert st["status"] == "error" and "too long" in st["error"]
     assert isolated_db.drama_dir(drama) not in st["error"]
-    _no_artifact(drama, "video")
+    _no_artifact(drama, "softsub_video")
 
 
 def test_softsub_cancel(client, drama, isolated_db, fake_ffmpeg, cancelled_ffmpeg):
     _add_video(isolated_db, drama)
     client.post(f"/api/export/dramas/{drama}/softsub-video")
     assert _wait(f"softsub_video_{drama}")["status"] == "cancelled"
-    _no_artifact(drama, "video")
+    _no_artifact(drama, "softsub_video")
 
 
 # ---- Parity E19: dubbed video ------------------------------------------------
@@ -371,7 +371,7 @@ def test_dubbed_replace_runs_and_writes_artifact(client, drama, isolated_db, fak
     r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
     assert r.status_code == 200 and r.json() == {"job_id": f"dubbed_video_{drama}"}
     assert _wait(f"dubbed_video_{drama}")["status"] == "done"
-    assert artifact_service.get_artifact(drama, "video")["name"] == f"dubbed_video_{drama}.mp4"
+    assert artifact_service.get_artifact(drama, "dubbed_video")["name"] == f"dubbed_video_{drama}.mp4"
     cmd, kwargs = fake_ffmpeg.calls[0]
     assert "-filter_complex" not in cmd and "-shortest" in cmd and "shell" not in kwargs
     assert os.path.join(isolated_db.drama_dir(drama), "dub_track.wav") in cmd
@@ -408,7 +408,7 @@ def test_dubbed_failure_no_artifact_no_paths(client, drama, isolated_db, fake_ff
     st = _wait(f"dubbed_video_{drama}")
     assert st["status"] == "error"
     assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
-    _no_artifact(drama, "video")
+    _no_artifact(drama, "dubbed_video")
 
 
 # ---- Parity E22: mark as exported --------------------------------------------
@@ -463,3 +463,61 @@ def test_softsub_srt_write_failure_stores_no_paths(client, drama, isolated_db, m
     monkeypatch.setattr("builtins.open", real_open)
     assert st["status"] == "error" and "No space" not in st["error"]
     assert "subs.srt" not in st["error"] and "tmp" not in st["error"]
+
+
+# ---- L3: one video job at a time (atomically), each with its own download ---
+
+def test_each_video_job_has_its_own_download(client, drama, isolated_db):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    for path, job in (("burned-video", "burned_video_"), ("softsub-video", "softsub_video_"),
+                      ("dubbed-video", "dubbed_video_")):
+        assert client.post(f"/api/export/dramas/{drama}/{path}").status_code == 200
+        assert _wait(f"{job}{drama}")["status"] == "done"
+    assert client.get(f"/api/artifacts/dramas/{drama}/video/info").json()["name"] == \
+        f"burned_video_{drama}.mp4"
+    assert client.get(f"/api/artifacts/dramas/{drama}/softsub_video/info").json()["name"] == \
+        f"softsub_video_{drama}.mp4"
+    assert client.get(f"/api/artifacts/dramas/{drama}/dubbed_video/info").json()["name"] == \
+        f"dubbed_video_{drama}.mp4"
+    assert client.get(f"/api/artifacts/dramas/{drama}/softsub_video").status_code == 200
+
+
+def test_concurrent_video_starts_only_one_wins(client, drama, isolated_db, monkeypatch):
+    import threading as _t
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    release = _t.Event()
+    real_status = background_jobs.get_status
+    in_check = _t.Barrier(2, timeout=2)
+
+    def slow_status(job_id):
+        # Both requests reach the check before either starts its job; without the
+        # lock both would pass. With it the second waits (Barrier times out).
+        try:
+            in_check.wait()
+        except _t.BrokenBarrierError:
+            pass
+        return real_status(job_id)
+    monkeypatch.setattr(background_jobs, "get_status", slow_status)
+
+    def hold(job_id, cmd, cwd=None, **kw):
+        release.wait(5)
+        with open(os.path.join(cwd, cmd[-1]), "wb") as f:
+            f.write(b"media")
+    monkeypatch.setattr(background_jobs, "run_cancellable", hold)
+    codes = []
+    threads = [_t.Thread(target=lambda p=p: codes.append(
+        client.post(f"/api/export/dramas/{drama}/{p}").status_code))
+        for p in ("softsub-video", "dubbed-video")]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(10)
+    release.set()
+    monkeypatch.setattr(background_jobs, "get_status", real_status)
+    assert sorted(codes) == [200, 409], codes
+    for job in ("softsub_video_", "dubbed_video_"):
+        st = background_jobs.get_status(f"{job}{drama}")
+        if st:
+            _wait(f"{job}{drama}")

@@ -154,7 +154,7 @@ function SoftsubVideo() {
     <MediaJobSection
       title="Video with a subtitle track"
       label="Start subtitle-track video export"
-      kind="video"
+      kind="softsub_video"
       testId="softsub"
       note="Adds the subtitles as a track the viewer can turn on and off; the picture and sound are copied unchanged. MP4 and MKV keep their format, others become MP4. Needs an uploaded source video and ffmpeg."
       start={() => startSoftsubVideo(dramaId, { field })}
@@ -178,7 +178,7 @@ function DubbedVideo() {
     <MediaJobSection
       title="Video with the dub audio"
       label="Start dubbed video export"
-      kind="video"
+      kind="dubbed_video"
       testId="dubbed"
       note="Replaces the video's sound with the dub track from the Dub stage. Needs an uploaded source video, a finished dub and ffmpeg."
       start={() => startDubbedVideo(dramaId, { keep_original: keepOriginal })}

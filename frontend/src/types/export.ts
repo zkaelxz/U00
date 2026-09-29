@@ -82,7 +82,8 @@ export interface ArtifactInfo {
   kind: string
 }
 
-export type MediaKind = 'audio' | 'video'
+// Each video export has its own artifact kind, so each section downloads its own file.
+export type MediaKind = 'audio' | 'video' | 'softsub_video' | 'dubbed_video'
 
 // Parity E17: which subtitles go into the muxed track.
 export interface SoftsubVideoRequest {

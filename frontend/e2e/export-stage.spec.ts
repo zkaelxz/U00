@@ -112,8 +112,8 @@ test('a 422 from a job start is shown as a banner', async ({ page }) => {
 
 test('subtitle-track video sends the chosen subtitles and offers the artifact', async ({ page }) => {
   const { bodies, finish } = await mockJob(page, '/api/export/dramas/1/softsub-video', 'done')
-  await page.route('**/api/artifacts/dramas/1/video/info', (route) =>
-    route.fulfill({ json: { name: 'softsub_video_1.mkv', size: 1024, kind: 'video' } }),
+  await page.route('**/api/artifacts/dramas/1/softsub_video/info', (route) =>
+    route.fulfill({ json: { name: 'softsub_video_1.mkv', size: 1024, kind: 'softsub_video' } }),
   )
   await page.goto('/#/drama/1/export')
   await openMore(page)
@@ -122,18 +122,27 @@ test('subtitle-track video sends the chosen subtitles and offers the artifact', 
   await group.getByRole('button', { name: 'Start subtitle-track video export' }).click()
   await expect(group.getByTestId('job-status')).toContainText('running')
   finish()
-  await expect(page.getByTestId('artifact-softsub').getByRole('link')).toHaveText('Download softsub_video_1.mkv')
+  const link = page.getByTestId('artifact-softsub').getByRole('link')
+  await expect(link).toHaveText('Download softsub_video_1.mkv')
+  await expect(link).toHaveAttribute('href', /\/api\/artifacts\/dramas\/1\/softsub_video$/)
   expect(bodies[0]).toEqual({ field: 'bilingual' })
 })
 
-test('dubbed video sends the mix choice', async ({ page }) => {
-  const { bodies } = await mockJob(page, '/api/export/dramas/1/dubbed-video', 'done')
+test('dubbed video sends the mix choice and offers its own artifact', async ({ page }) => {
+  const { bodies, finish } = await mockJob(page, '/api/export/dramas/1/dubbed-video', 'done')
+  await page.route('**/api/artifacts/dramas/1/dubbed_video/info', (route) =>
+    route.fulfill({ json: { name: 'dubbed_video_1.mp4', size: 2048, kind: 'dubbed_video' } }),
+  )
   await page.goto('/#/drama/1/export')
   await openMore(page)
   const group = page.getByRole('group', { name: 'Video with the dub audio' })
   await group.getByLabel('Mix the original audio in quietly underneath').check()
   await group.getByRole('button', { name: 'Start dubbed video export' }).click()
   await expect(group.getByTestId('job-status')).toBeVisible()
+  finish()
+  const link = page.getByTestId('artifact-dubbed').getByRole('link')
+  await expect(link).toHaveText('Download dubbed_video_1.mp4')
+  await expect(link).toHaveAttribute('href', /\/api\/artifacts\/dramas\/1\/dubbed_video$/)
   expect(bodies[0]).toEqual({ keep_original: true })
 })
 

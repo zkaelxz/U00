@@ -15,15 +15,17 @@ is not exercised by the tests.
 Parity E17/E19 add the soft-subtitle video (a toggleable subtitle track
 muxed in, video_export.mux_soft_subtitles_cmd) and the dubbed video (the
 dub track replacing the audio, or mixed over the original at -20 dB,
-video_export.replace_audio_with_dub_cmd). All three video jobs write the
-"video" artifact kind, so only one of them may run per drama at a time;
-their ffmpeg runs are cancellable and time-limited.
+video_export.replace_audio_with_dub_cmd), written to their own artifact
+kinds ("softsub_video", "dubbed_video"; the burned-in video stays "video")
+so each download serves its own file. Only one video job runs per drama at
+a time; their ffmpeg runs are cancellable and time-limited.
 """
 import contextlib
 import os
 import shutil
 import subprocess
 import tempfile
+import threading
 
 import background_jobs
 import db
@@ -59,13 +61,21 @@ def _refuse_duplicate(job_id: str, label: str, drama_id: int):
         raise ConflictError(f"The {label} export is already running for drama {drama_id}.")
 
 
-def _refuse_video_jobs(drama_id: int):
-    """The video jobs share the "video" artifact folder (the download serves
-    the newest file), so a second one would race the first."""
-    for prefix in _VIDEO_JOB_PREFIXES:
-        job = background_jobs.get_status(f"{prefix}{drama_id}")
-        if job and job["status"] in ("running", "queued"):
+_video_start_lock = threading.Lock()
+
+
+def _start_video_job(drama_id: int, job_id: str, target, *args, description: str) -> dict:
+    """One video export per drama at a time (each is a long ffmpeg run over
+    the same source video). The check and the start happen under one lock,
+    so two requests at once can't both pass the check."""
+    with _video_start_lock:
+        for prefix in _VIDEO_JOB_PREFIXES:
+            job = background_jobs.get_status(f"{prefix}{drama_id}")
+            if job and job["status"] in ("running", "queued"):
+                raise ConflictError(f"A video export is already running for drama {drama_id}.")
+        if not background_jobs.start_job(job_id, target, *args, description=description):
             raise ConflictError(f"A video export is already running for drama {drama_id}.")
+    return {"job_id": job_id}
 
 
 def _source_video(drama: dict, drama_id: int) -> str:
@@ -173,17 +183,12 @@ def start_burned_video_export(drama_id: int, **ass_options) -> dict:
     ass_text = export_service.generate_ass_text(drama_id, **ass_options)
     _require_ffmpeg()
     job_id = f"burned_video_{drama_id}"
-    _refuse_duplicate(job_id, "burned-in video", drama_id)
-    _refuse_video_jobs(drama_id)
     ext = os.path.splitext(video_path)[1].lower()
     if ext not in _VIDEO_EXTS:
         ext = ".mp4"
-    started = background_jobs.start_job(
-        job_id, _burned_video_job, job_id, drama_id, video_path, ass_text, ext,
-        description=f"Burned-in video export (drama #{drama_id})")
-    if not started:
-        raise ConflictError(f"The burned-in video export is already running for drama {drama_id}.")
-    return {"job_id": job_id}
+    return _start_video_job(drama_id, job_id, _burned_video_job, job_id, drama_id, video_path,
+                            ass_text, ext,
+                            description=f"Burned-in video export (drama #{drama_id})")
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +203,8 @@ def _softsub_video_job(job_id, drama_id, video_path, srt_text, ext, language):
         out_name = f"out{ext}"
         cmd = video_export.mux_soft_subtitles_cmd(video_path, "subs.srt", out_name, language)
         _run_video_ffmpeg(job_id, cmd, tmp)
-        final = artifact_service.output_path(drama_id, "video", f"softsub_video_{drama_id}{ext}")
+        final = artifact_service.output_path(drama_id, "softsub_video",
+                                             f"softsub_video_{drama_id}{ext}")
         shutil.move(os.path.join(tmp, out_name), final)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
@@ -209,7 +215,7 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
     thread job `softsub_video_<drama_id>`: the SRT for `field` (en, zh or
     bilingual) is added as a selectable subtitle track, video and audio
     are stream-copied. .mp4/.mkv sources keep their container, anything
-    else becomes .mp4 (mov_text), as in the tab. Output kind "video".
+    else becomes .mp4 (mov_text), as in the tab. Output kind "softsub_video".
     Raises NotFoundError, InvalidInputError (no lines, no source video,
     bad field), DependencyUnavailableError (ffmpeg missing), ConflictError
     (a video export already running). Returns {"job_id": ...}."""
@@ -221,17 +227,13 @@ def start_softsub_video_export(drama_id: int, field: str = "en",
                                                      include_notes=include_notes)
     _require_ffmpeg()
     job_id = f"softsub_video_{drama_id}"
-    _refuse_video_jobs(drama_id)
     ext = os.path.splitext(video_path)[1].lower()
     if ext not in (".mp4", ".mkv"):
         ext = ".mp4"
     language = "eng" if field == "en" else "und"
-    started = background_jobs.start_job(
-        job_id, _softsub_video_job, job_id, drama_id, video_path, srt_text, ext, language,
-        description=f"Soft-subtitle video export (drama #{drama_id})")
-    if not started:
-        raise ConflictError(f"A video export is already running for drama {drama_id}.")
-    return {"job_id": job_id}
+    return _start_video_job(drama_id, job_id, _softsub_video_job, job_id, drama_id, video_path,
+                            srt_text, ext, language,
+                            description=f"Soft-subtitle video export (drama #{drama_id})")
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +247,8 @@ def _dubbed_video_job(job_id, drama_id, video_path, dub_path, ext, keep_original
         cmd = video_export.replace_audio_with_dub_cmd(video_path, dub_path, out_name,
                                                       keep_original_at_db)
         _run_video_ffmpeg(job_id, cmd, tmp)
-        final = artifact_service.output_path(drama_id, "video", f"dubbed_video_{drama_id}{ext}")
+        final = artifact_service.output_path(drama_id, "dubbed_video",
+                                             f"dubbed_video_{drama_id}{ext}")
         shutil.move(os.path.join(tmp, out_name), final)
     background_jobs.update_progress(job_id, 1.0, "Video ready.")
 
@@ -254,7 +257,7 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
     """Starts the Export tab's "Export video with dub audio" as thread job
     `dubbed_video_<drama_id>`: the drama's dub track replaces the video's
     audio, or with keep_original the original audio is mixed in quietly
-    underneath (-20 dB). Output kind "video", same container as the
+    underneath (-20 dB). Output kind "dubbed_video", same container as the
     source. Raises NotFoundError, InvalidInputError (no source video, no
     dub track yet), DependencyUnavailableError (ffmpeg missing),
     ConflictError (a video export already running). Returns {"job_id": ...}."""
@@ -267,14 +270,9 @@ def start_dubbed_video_export(drama_id: int, keep_original: bool = False) -> dic
         raise InvalidInputError("keep_original must be true or false.")
     _require_ffmpeg()
     job_id = f"dubbed_video_{drama_id}"
-    _refuse_video_jobs(drama_id)
     ext = os.path.splitext(video_path)[1].lower()
     if ext not in _VIDEO_EXTS:
         ext = ".mp4"
-    started = background_jobs.start_job(
-        job_id, _dubbed_video_job, job_id, drama_id, video_path, dub_path, ext,
-        _DUB_ORIGINAL_DB if keep_original else None,
-        description=f"Dubbed video export (drama #{drama_id})")
-    if not started:
-        raise ConflictError(f"A video export is already running for drama {drama_id}.")
-    return {"job_id": job_id}
+    return _start_video_job(drama_id, job_id, _dubbed_video_job, job_id, drama_id, video_path,
+                            dub_path, ext, _DUB_ORIGINAL_DB if keep_original else None,
+                            description=f"Dubbed video export (drama #{drama_id})")
