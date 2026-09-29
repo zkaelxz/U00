@@ -78,13 +78,19 @@ export default function DiagnosticsPage() {
             {deps.installed.length} installed, {deps.missing.length} missing.
           </p>
           {deps.missing.length > 0 && (
-            <ul aria-label="Missing packages">
-              {deps.missing.map((d) => (
-                <li key={d.name}>
-                  <strong>{d.name}</strong> is not installed, so this is unavailable: {d.powers}
-                </li>
-              ))}
-            </ul>
+            <Section
+              storageKey="diagnostics.missing"
+              title="Missing packages"
+              count={deps.missing.length}
+            >
+              <ul aria-label="Missing packages">
+                {deps.missing.map((d) => (
+                  <li key={d.name}>
+                    <strong>{d.name}</strong> is not installed, so this is unavailable: {d.powers}
+                  </li>
+                ))}
+              </ul>
+            </Section>
           )}
           {deps.installed.length > 0 && (
             <Section
