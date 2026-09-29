@@ -145,7 +145,7 @@ if (-not (Test-Path $Py)) {
 # make this skip the install step entirely and fail later with a much
 # less clear error (Step 53, applied here in Step 63). Keep this import
 # list in sync with requirements-core.txt's own packages.
-& $Py -c "import streamlit, pandas, requests, bs4, anthropic, fastapi, multipart, uvicorn" 2>$null
+& $Py -c "import streamlit, pandas, requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing dependencies -- this can take a few minutes the first time..."
     $constraints = if (Test-Path "constraints.lock.txt") { "constraints.lock.txt" } else { "constraints.txt" }

@@ -661,7 +661,7 @@ def _render_series_browser():
     drama_id = _drama_picker("Import into drama", "src_series_drama",
                              _COMIC_MEDIA if adapter.supports("get_pages") else ("novel",))
     c1, c2 = st.columns(2)
-    job_id = pipeline.import_job_id(source, series_id)
+    job_id = pipeline.import_job_id(drama_id) if drama_id else None
     if c1.button(f"📥 Import {len(selected)} selected chapter(s)", key="src_import_go",
                  disabled=not (selected and drama_id)):
         if pipeline.start_import(source, series_id, selected, drama_id):
@@ -670,7 +670,7 @@ def _render_series_browser():
                 watch.append(job_id)
             st.success("Import started -- follow it under Source Access below.")
         else:
-            st.warning("An import for this series is already running.")
+            st.warning("A job is already running for this drama.")
     tracked = any(r["source"] == source and r["series_id"] == series_id
                   for r in src_store.list_tracked_series())
     if not tracked and c2.button("🔔 Track for new chapters", key="src_track"):
@@ -679,14 +679,14 @@ def _render_series_browser():
         st.rerun()
     elif tracked:
         c2.caption("🔔 Tracked -- new chapters show up under New chapters.")
-    status = background_jobs.get_status(job_id)
+    status = background_jobs.get_status(job_id) if job_id else None
     if status:
         st.caption(f"Last import: {status['status']} — {status.get('message', '')}")
 
 
 def _render_access_status():
     jobs = [(jid, j) for jid, j in background_jobs.list_running_jobs().items()
-            if jid.startswith("source_import_") or jid == chapter_check.CHECK_JOB_ID]
+            if jid.startswith(pipeline.IMPORT_JOB_PREFIX) or jid == chapter_check.CHECK_JOB_ID]
     finished = list(st.session_state.get("src_watch_jobs", []))
     shown = False
     for jid, job in jobs:
