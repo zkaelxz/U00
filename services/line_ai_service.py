@@ -28,7 +28,8 @@ import adaptive_style
 import line_tools
 import translate_engines
 import translation_guide
-from services import settings_service, translate_run_service, translate_service
+from services import (engine_routing_service, settings_service, translate_run_service,
+                      translate_service)
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                       NotFoundError, ServiceError,
                                       UnsupportedOperationError)
@@ -38,13 +39,14 @@ MAX_ISSUE_CHARS = 500
 
 def tool_engine_name(drama_id: int, engine_name: str = None) -> str:
     """The engine an LLM tool on this drama will use: the named one, else
-    the drama's translation_engine, else the saved default engine. For the router's
+    the drama's translation_engine, else the engine Settings picks for
+    AI checks and line helpers (Step 36 capability "llm.instructions"). For the router's
     engines.paid gate, which passes this name on, so the call can't switch
     to an engine the gate didn't see."""
     if engine_name:
         return engine_name
     return (translate_run_service._require_drama(drama_id).get("translation_engine")
-            or settings_service.get_default_engine())
+            or engine_routing_service.resolve_capability("llm.instructions"))
 
 
 def refuse_if_over_monthly_cap(engine_name: str, gemini_free_tier: bool) -> None:
@@ -66,7 +68,8 @@ def _engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: bo
     here, never accepted from the caller. `check_cap` refuses a paid engine
     once the monthly spending cap is used up."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = (engine_name or drama.get("translation_engine")
+                   or engine_routing_service.resolve_capability("llm.instructions"))
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:

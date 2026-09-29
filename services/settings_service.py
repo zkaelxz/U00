@@ -194,6 +194,10 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
 # validates (e.g. an engine that was removed) reads back as the default.
 
 _PREF_PREFIX = "pref."
+PREF_PREFIX = _PREF_PREFIX  # for services/engine_routing_service.py
+# Step 36: the last "Test" result per engine (engine_routing_service). A key
+# or endpoint write forgets it, so a stale "working" never outlives the key.
+ENGINE_TEST_PREFIX = "engine_test."
 _MAX_PATH_LENGTH = 1024
 _MAX_STYLE_NOTE_LENGTH = 2000
 _MAX_NUM_CTX = 1_048_576
@@ -299,6 +303,10 @@ _PREFERENCES = {
     # A path only; the file's contents are never read or returned here.
     "cookies_file": ("", _check_text("cookies_file", _MAX_PATH_LENGTH)),
 }
+
+
+def preference_default(name: str):
+    return _PREFERENCES[name][0]
 
 
 def get_preference(name: str):
@@ -457,6 +465,7 @@ def set_endpoint_url(name: str, value: str, env_path: str = None) -> dict:
     value = validate_endpoint_url(value)
     env_path = env_path or _default_env_path()
     write_env_var(ENV_NAMES[name][0], value, env_path)
+    _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
             "configured": bool(resolve_key(name, env_path))}
 
@@ -467,6 +476,7 @@ def clear_endpoint_url(name: str, env_path: str = None) -> dict:
     _validate_endpoint_name(name)
     env_path = env_path or _default_env_path()
     remove_env_vars(ENV_NAMES[name], env_path)
+    _forget_engine_test(name)
     return {"name": name, "url": endpoint_values(env_path)[name],
             "configured": bool(resolve_key(name, env_path))}
 
@@ -554,6 +564,7 @@ def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
     value = _validate_key_value(value)
     env_path = env_path or _default_env_path()
     write_env_var(ENV_NAMES[engine][0], value, env_path)
+    _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
 
 
@@ -597,4 +608,13 @@ def clear_engine_key(engine: str, env_path: str = None) -> dict:
     _validate_engine(engine)
     env_path = env_path or _default_env_path()
     remove_env_vars(ENV_NAMES[engine], env_path)
+    _forget_engine_test(engine)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
+
+
+def _forget_engine_test(name: str):
+    """Drops the saved Test result for the engine a key or endpoint belongs
+    to (Step 36), e.g. "ollama_url" -> "ollama"."""
+    import db
+    engine = name[:-len("_url")] if name.endswith("_url") else name
+    db.set_app_setting(ENGINE_TEST_PREFIX + engine, None)

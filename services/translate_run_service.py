@@ -43,7 +43,8 @@ import db
 import emotion
 import translate_engines
 import translation_guide
-from services import library_service, settings_service, translate_service, workspace_job_service
+from services import (engine_routing_service, library_service, settings_service,
+                      translate_service, workspace_job_service)
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
@@ -109,7 +110,8 @@ def get_translate_config(drama_id: int) -> dict:
     free_tier = settings_service.get_gemini_free_tier()
     return {
         "drama_id": drama_id,
-        "translation_engine": drama.get("translation_engine") or settings_service.get_default_engine(),
+        "translation_engine": (drama.get("translation_engine")
+                               or engine_routing_service.resolve_capability("translation.cheap")),
         "engines": translate_service.list_engines(),
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
                           for k, v in translation_guide.STYLE_PRESETS.items()],
@@ -151,7 +153,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
                             job_cost_cap_usd: float = None) -> dict:
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = (engine_name or drama.get("translation_engine")
+                   or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
     if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -324,7 +327,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     running). gemini_free_tier None means the saved Settings value."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
-    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
+    engine_name = (engine_name or drama.get("translation_engine")
+                   or engine_routing_service.resolve_capability("translation.cheap"))
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown translate engine.")
     if locale not in LOCALES:
