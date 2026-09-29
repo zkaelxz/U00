@@ -125,4 +125,26 @@ export function advancedSummary(v: AdvancedValues): string {
 
 // Job ids a Source-stage run can be reattached to (services/transcribe_service.py,
 // services/diarization_service.py).
-export const sourceJobIds = (dramaId: number) => [`transcribe_${dramaId}`, `diarize_${dramaId}`]
+export const sourceJobIds = (dramaId: number) => [
+  `transcribe_${dramaId}`,
+  `diarize_${dramaId}`,
+  `ocrchapter_${dramaId}`,
+]
+
+// Chapter OCR (services/novel_attach_service.py _BACKENDS, MAX_IMAGES, _IMAGE_EXTENSIONS).
+const OCR_BACKENDS: Record<string, string[]> = {
+  zh: ['tesseract', 'paddle'],
+  ja: ['manga_ocr', 'tesseract'],
+  ko: ['tesseract'],
+}
+export const ocrBackendOptions = (language: string | null): string[] => OCR_BACKENDS[language ?? 'zh'] ?? ['tesseract']
+
+export const OCR_MAX_IMAGES = 200
+const OCR_EXTENSIONS = ['.png', '.jpg', '.jpeg']
+
+export function checkOcrImages(names: string[]): string | null {
+  if (names.length === 0) return null
+  if (names.length > OCR_MAX_IMAGES) return `Choose at most ${OCR_MAX_IMAGES} images.`
+  const bad = names.find((n) => !OCR_EXTENSIONS.includes(n.slice(n.lastIndexOf('.')).toLowerCase()))
+  return bad ? `${bad}: only PNG or JPG images are supported.` : null
+}

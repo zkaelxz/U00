@@ -68,3 +68,19 @@ export const attachNovelEpub = (id: number, file: File, mode: NovelMode, f?: Fet
   form.append('mode', mode)
   return postMultipart<NovelAttachResult>(`/api/novel/dramas/${id}/attach-epub`, form, f)
 }
+
+export const startNovelOcr = (
+  id: number,
+  files: File[],
+  backend: string,
+  mode: NovelMode,
+  tesseractCmd?: string,
+  f?: Fetch,
+) => {
+  const form = new FormData()
+  for (const file of files) form.append('files', file)
+  form.append('backend', backend)
+  form.append('mode', mode)
+  if (tesseractCmd?.trim()) form.append('tesseract_cmd', tesseractCmd.trim())
+  return postMultipart<JobStarted>(`/api/novel/dramas/${id}/ocr-chapter`, form, f)
+}
