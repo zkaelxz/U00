@@ -44,6 +44,11 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   `create_app`).
 - `BAIHE_API_COOKIE_SECURE` (`1` default) -- the session cookie is always
   `Secure` unless this is `0` AND the request is plain-http loopback (dev).
+- `BAIHE_API_BACKGROUND` (`1` default, or `0`) -- start the background
+  pieces Streamlit used to start (chapter-check scheduler; the extension
+  endpoint when its setting is on) when the API starts; see
+  `api/background.py`. `ApiSettings()` built directly defaults to off, and
+  tests/conftest.py sets `0`, so tests never start them.
 """
 
 import os
@@ -67,6 +72,7 @@ class ApiSettings:
     serve_frontend: bool = True
     auth_mode: str = "off"        # "off" | "on"
     cookie_secure: bool = True
+    background_services: bool = False   # load_settings: on unless BAIHE_API_BACKGROUND=0
 
     @property
     def auth_enabled(self) -> bool:
@@ -116,10 +122,14 @@ def load_settings(environ=None) -> ApiSettings:
     if auth_mode not in ("off", "on"):
         raise ValueError(f"BAIHE_API_AUTH must be 'off' or 'on', got {auth_mode!r}")
     cookie_secure = (env.get("BAIHE_API_COOKIE_SECURE") or "1").strip() != "0"
+    background_text = (env.get("BAIHE_API_BACKGROUND") or "1").strip().lower()
+    if background_text not in ("1", "0", "true", "false", "yes", "no", "on", "off"):
+        raise ValueError(f"BAIHE_API_BACKGROUND must be 1 or 0, got {background_text!r}")
+    background_services = background_text in ("1", "true", "yes", "on")
     return ApiSettings(host=host, port=port, environment=environment,
                        cors_origins=cors_origins, allow_key_writes=allow_key_writes,
                        serve_frontend=serve_frontend, auth_mode=auth_mode,
-                       cookie_secure=cookie_secure)
+                       cookie_secure=cookie_secure, background_services=background_services)
 
 
 def is_loopback_host(host: str) -> bool:

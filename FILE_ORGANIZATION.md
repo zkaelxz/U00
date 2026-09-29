@@ -290,7 +290,9 @@ baihe-subtitler/
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
 │   │                             `grant-admin <email>` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND
+│   ├── background.py             startup hook (lifespan): chapter-check scheduler + extension endpoint (if enabled);
+│   │                             off in tests (BAIHE_API_BACKGROUND=0); tests/test_api_background.py
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,

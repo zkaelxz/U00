@@ -21,6 +21,8 @@ only.
 import portable
 portable.activate_portable_mode()
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -62,6 +64,17 @@ from api.schemas import API_VERSION
 from api.static_frontend import install_frontend
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Starts the background pieces Streamlit used to start (chapter-check
+    scheduler, extension endpoint when enabled), only when
+    `settings.background_services` is on -- never in tests. Idempotent."""
+    if getattr(app.state.settings, "background_services", False):
+        from api.background import start_background_services
+        start_background_services()
+    yield
+
+
 def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     """Builds the app. Touches no database or optional package, so it's
     safe to call at import time and in tests; the library is opened
@@ -78,6 +91,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
         docs_url=None if settings.auth_enabled else "/api/docs",
         redoc_url=None,
         openapi_url=None if settings.auth_enabled else "/api/openapi.json",
+        lifespan=_lifespan,
     )
     app.state.settings = settings
     # Refuses a non-loopback BAIHE_API_HOST while auth is off (same check as
