@@ -574,6 +574,59 @@ class TestHttpCallsHaveTimeouts:
         assert problems == {}, f"call(s) missing timeout=: {problems}"
 
 
+_HTTPX_CLIENTS = ("OAuth2Client", "AsyncOAuth2Client", "Client", "AsyncClient")
+_HTTPX_CALLS = _HTTP_VERBS + ("stream", "fetch_token")
+
+
+def _find_httpx_calls_missing_timeout(path):
+    """(lineno list, number of calls checked) for httpx / Authlib client use
+    in `path`: every `OAuth2Client(...)`, `httpx.Client(...)`,
+    `httpx.<verb>(...)` and `<client>.<verb>/fetch_token(...)` on a name
+    bound by `with ... as <client>` must pass `timeout=`."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    clients = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.withitem) and isinstance(node.optional_vars, ast.Name):
+            clients.add(node.optional_vars.id)
+    problems, checked = [], 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+        owner = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else ""
+        is_client = (not owner and name in ("OAuth2Client", "AsyncOAuth2Client")) or \
+            (owner == "httpx" and name in _HTTPX_CLIENTS)
+        is_call = (owner == "httpx" and name in _HTTPX_CALLS) or \
+            (owner in clients and name in _HTTPX_CALLS)
+        if is_client or is_call:
+            checked += 1
+            if not any(kw.arg == "timeout" for kw in node.keywords):
+                problems.append(node.lineno)
+    return sorted(problems), checked
+
+
+class TestSignInHttpTimeouts:
+    """Step 134: Google sign-in talks to Google with Authlib's httpx
+    OAuth2Client and httpx, which the requests-based check above can't see."""
+
+    def test_oidc_service(self):
+        problems, checked = _find_httpx_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "services", "oidc_service.py"))
+        assert checked >= 4, "the checker no longer sees oidc_service's HTTP calls"
+        assert problems == [], f"httpx/Authlib call(s) missing timeout= at line(s): {problems}"
+
+    def test_checker_catches_missing_timeouts(self, tmp_path):
+        p = tmp_path / "mod.py"
+        p.write_text("import httpx\n"
+                     "with OAuth2Client(client_id=1) as c:\n"
+                     "    c.fetch_token(u, code=1)\n"
+                     "with httpx.Client(timeout=5) as h:\n"
+                     "    h.get(u, timeout=5)\n"
+                     "httpx.get(u)\n")
+        assert _find_httpx_calls_missing_timeout(str(p)) == ([2, 3, 6], 5)
+
+
 class TestTimeoutCheckerItself:
     def test_catches_a_call_with_no_timeout(self, tmp_path):
         src = "import requests\nrequests.post(url, json={})\n"

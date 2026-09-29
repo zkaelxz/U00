@@ -347,3 +347,60 @@ def test_delete_rename_failure_leaves_everything(isolated_db, monkeypatch):
     with pytest.raises(ServiceError):
         ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert _intact(did, folder)
+
+
+# --- Auth slice B1: series assignment goes through ownership_service ---
+
+def _user(email):
+    uid = db.auth_create_user(email)
+    return uid, {"user_id": uid, "is_admin": False, "is_local_owner": False}
+
+
+def test_create_and_move_respect_series_visibility(isolated_db):
+    from services.service_errors import ConflictError
+    a_id, a = _user("a@example.com")
+    b_id, b = _user("b@example.com")
+    secret = db.get_or_create_series("Secret", owner_user_id=a_id, is_private=True)
+    with pytest.raises(NotFoundError):
+        ds.create_drama(source_language="zh", title_zh="x", series_id=secret, principal=b)
+    with pytest.raises(ConflictError, match="That series name is taken"):
+        ds.create_drama(source_language="zh", title_zh="x", new_series_name="Secret",
+                        principal=b)
+    assert len(db.list_dramas()) == 0                       # refused before any write
+    did = ds.create_drama(source_language="zh", title_zh="x", series_id=secret,
+                          principal=a)["id"]
+    assert db.get_drama(did)["series_id"] == secret
+    # A tries to hide B's shared drama in A's private series: refused, untouched.
+    b_drama = db.create_drama(title_zh="b", owner_user_id=b_id)
+    with pytest.raises(ConflictError):
+        ds.update_drama_metadata(b_drama, principal=a, series_id=secret, title_en="t")
+    assert db.get_drama(b_drama)["series_id"] is None
+    assert db.get_drama(b_drama)["title_en"] in (None, "")
+    with pytest.raises(NotFoundError):
+        ds.update_drama_metadata(b_drama, principal=b, series_id=secret)
+    # Auth off (principal None) still sees everything, but the owner rule holds.
+    with pytest.raises(ConflictError):
+        ds.update_drama_metadata(b_drama, series_id=secret)
+
+
+def test_move_clears_the_dramas_own_private_flag(isolated_db):
+    b_id, b = _user("b@example.com")
+    sid = db.get_or_create_series("Open", owner_user_id=b_id)
+    did = db.create_drama(title_zh="x", owner_user_id=b_id, is_private=1)
+    ds.update_drama_metadata(did, principal=b, series_id=sid)
+    assert db.get_item_ownership("drama", did)["is_private"] == 0
+
+
+def test_new_series_refused_after_precheck_creates_nothing(isolated_db, monkeypatch):
+    # Security review LOW-A: the name can be taken (or made private) between
+    # the pre-check and the series step; the new drama must be undone.
+    from services import ownership_service
+    from services.service_errors import ConflictError
+
+    def refuse(principal, name):
+        raise ConflictError("That series name is taken")
+
+    monkeypatch.setattr(ownership_service, "get_or_create_series_for", refuse)
+    with pytest.raises(ConflictError):
+        ds.create_drama(source_language="zh", title_zh="x", new_series_name="Race")
+    assert db.list_dramas() == []

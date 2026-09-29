@@ -318,6 +318,11 @@ baihe-subtitler/
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
+│   ├── oidc_service.py           Step 134 (A1) -- Google sign-in: PKCE/state/nonce single-use login
+│   │                             transactions, id_token check against Google's JWKS (Authlib), user
+│   │                             resolution by sub then first-login email binding; tests/test_auth_login.py
+│   ├── ownership_service.py      Auth slice B1 -- drama/series visibility (owner, private flag,
+│   │                             admin/local owner see all; denied = 404), share-by-default setting
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
@@ -336,15 +341,17 @@ baihe-subtitler/
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings;
-│   │                             `grant-admin <email>` / `list-users` (local user admin)
+│   │                             `grant-admin` / `add-user` / `deactivate` / `grant` / `list-users` (local user admin)
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND/AUTH/COOKIE_SECURE/BACKGROUND,
+│   │                             BAIHE_GOOGLE_CLIENT_ID/SECRET + BAIHE_PUBLIC_URL (sign-in; also read from .env)
 │   ├── background.py             startup hook (lifespan): chapter-check scheduler + extension endpoint (if enabled);
 │   │                             off in tests (BAIHE_API_BACKGROUND=0); tests/test_api_background.py
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
-│   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
-│   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
+│   ├── auth.py                   Step 133 -- require_permission/public_route/local_only/authenticated (one per route,
+│   │                             tests/test_api_permissions.py), __Host- session + CSRF cookies (csrf_failed code),
+│   │                             client_ip (rightmost X-Forwarded-For behind a loopback proxy), EarlyAuthGate (auth on),
 │   │                             LoopbackOnlyGate (auth off: direct loopback requests only),
 │   │                             LocalOnlyCrossSiteGate (local_only routes refuse cross-site requests; #372)
 │   ├── llm_slots.py              shared cap for synchronous LLM/ffmpeg work in a request (2 server-wide,
@@ -355,6 +362,8 @@ baihe-subtitler/
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
+│       ├── auth_routes.py        /api/auth/login, /callback, /logout, /me -- Google sign-in (step 134, A1);
+│       │                         404 with auth off except /me (the local owner); tests/test_auth_login.py
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
