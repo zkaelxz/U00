@@ -155,4 +155,8 @@ button.review-en:hover:not(:disabled), button.review-en:focus-visible { backgrou
   .review-player-row .review-pager { margin-left: auto; }
   button.review-search-toggle { font-size: 1.3rem; line-height: 1; }
   .stage-review textarea, .stage-review input { scroll-margin-top: 9rem; scroll-margin-bottom: 5rem; }
+  .review-loop-word { display: none; }
+  .review-player-row:has(.review-pager) .review-duration { display: none; }
+  .review-player-row { gap: var(--space-1); }
+  .review-page-label { min-width: 2.5em; }
 }

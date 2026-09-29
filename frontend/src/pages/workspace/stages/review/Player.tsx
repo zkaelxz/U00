@@ -146,11 +146,12 @@ export function Player({ dramaId, kind, ref, trailing }: Props) {
           {playing ? '❚❚' : '▶'}
         </button>
         <span className="review-time" data-testid="player-time">
-          {formatTime(time)} / {formatDuration(duration)}
+          {formatTime(time)}
+          <span className="review-duration"> / {formatDuration(duration)}</span>
         </span>
         {segment && <span className="muted">Line #{segment.idx}</span>}
         <label className="review-check" title="Repeat the line being played (L)">
-          <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> Loop line
+          <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> Loop<span className="review-loop-word"> line</span>
         </label>
         {kind === 'video' && (
           <button type="button" className="link" aria-expanded={showVideo} onClick={() => setShowVideo(!showVideo)}>
