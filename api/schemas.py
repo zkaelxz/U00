@@ -592,6 +592,7 @@ class DramaCreateResult(DramaDetail):
 class TranslateRunStylePreset(BaseModel):
     key: str
     label: str
+    guidance: str = ""   # parity X04: what this style asks the translator for
 
 
 class TranslateRunWorkflowTier(BaseModel):
@@ -756,6 +757,37 @@ class GlossaryTermUpsert(BaseModel):
 
 class GlossaryDeleteResult(BaseModel):
     deleted: bool
+
+
+class GlossaryImportRequest(BaseModel):
+    """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
+    by the browser; filename only hints the format. overwrite_existing
+    needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=1_000_000)
+    filename: str = Field(default="", max_length=255)
+    overwrite_existing: StrictBool = False
+    confirm: StrictBool = False
+
+
+class GlossaryImportResult(BaseModel):
+    added: List[str]
+    overwritten: List[str]
+    skipped_existing: List[str]
+    invalid: List[str]
+    warnings: List[str]
+
+
+class GlossaryBulkDeleteRequest(BaseModel):
+    """Parity X13: term ids (never positions); needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    term_ids: List[StrictInt] = Field(min_length=1, max_length=1000)
+    confirm: StrictBool = False
+
+
+class GlossaryBulkDeleteResult(BaseModel):
+    deleted: List[int]
+    not_found: List[int]
 
 
 class GlossaryInstructions(BaseModel):
@@ -1469,6 +1501,26 @@ class MediaExportStarted(BaseModel):
     """Audiobook / burned-in video export job started (Migration Slices 29-30).
     Poll GET /api/jobs/{job_id}; download via GET /api/artifacts/dramas/{id}/{kind}."""
     job_id: str
+
+
+class SoftsubVideoRequest(BaseModel):
+    """Parity E17: which subtitles go into the muxed track."""
+    model_config = ConfigDict(extra="forbid")
+    field: str = Field(default="en", pattern="^(en|zh|bilingual)$")
+    include_notes: StrictBool = False
+
+
+class DubbedVideoRequest(BaseModel):
+    """Parity E19: keep_original mixes the original audio in at -20 dB
+    instead of replacing it."""
+    model_config = ConfigDict(extra="forbid")
+    keep_original: StrictBool = False
+
+
+class MarkExportedResult(BaseModel):
+    """Parity E22: the drama's status after "Mark as exported"."""
+    drama_id: int
+    status: str
 
 
 class TranslateBulkResumeEntry(BaseModel):
@@ -2983,6 +3035,25 @@ class WorkflowTierApplied(BaseModel):
     engine_model: Optional[str] = None
     reflect: bool
     auto_qc: bool
+
+
+class TranslatePresetApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preset_id: StrictInt = Field(ge=1, le=2**31 - 1)
+
+
+class TranslatePresetApplied(BaseModel):
+    """Parity X03: the preset's engine (when set) is saved on the drama; the
+    rest is for the form. Nothing is started."""
+    drama_id: int
+    preset_id: int
+    name: str
+    translation_engine: Optional[str] = None
+    engine_model: Optional[str] = None
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: bool
+    include_genre_notes: bool
 
 
 class TranslatePresetSave(BaseModel):

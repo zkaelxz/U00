@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  MEDIA_TYPES, NEW_SERIES, buildCreateRequest, canConfirmDelete, deleteNotice, groupHistory, validateCreate,
+  MEDIA_TYPES, NEW_SERIES, RENAME_MAX, buildCreateRequest, canConfirmDelete, deleteNotice, groupHistory,
+  validateCreate, validateRename,
 } from './libraryForm'
+
+describe('validateRename', () => {
+  it('needs a new, non-blank name within the limit', () => {
+    expect(validateRename('  ', 'Old')).toMatch(/name/)
+    expect(validateRename(' Old ', 'Old')).toMatch(/already/)
+    expect(validateRename('x'.repeat(RENAME_MAX + 1), 'Old')).toMatch(/at most/)
+    expect(validateRename(' New ', 'Old')).toBeNull()
+  })
+})
 
 describe('buildCreateRequest', () => {
   const form = { source_language: 'zh', media_type: 'anime', title_en: ' A ', title_zh: '', author: '', director: 'D' }
