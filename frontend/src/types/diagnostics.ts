@@ -36,3 +36,74 @@ export interface DiagnosticsOverview {
   model_engine_versions: ModelEngineVersion[]
   recent_log_lines: string[]
 }
+
+// Mirrors api/schemas.py Diagnostics* (API batch 1: /api/diagnostics/...).
+// Found/version/name only; never a path, a token or a key.
+
+export interface DiagnosticsSetupChecks {
+  python: { version: string | null; ok: boolean }
+  ffmpeg: { found: boolean; version: string | null }
+  js_runtime: { found: boolean; name: string | null }
+  cuda: { torch_installed: boolean; cuda_available: boolean | null }
+  files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
+  library_writable: boolean
+}
+
+export interface DiagnosticsHfCacheEntry {
+  repo_id: string
+  repo_type: string
+  revision: string
+  size_bytes: number
+}
+
+export interface DiagnosticsPiperVoice {
+  voice: string
+  size_bytes: number
+}
+
+export interface DiagnosticsModelCache {
+  hf_cache: DiagnosticsHfCacheEntry[]
+  hf_total_bytes: number
+  piper_voices: DiagnosticsPiperVoice[]
+  piper_total_bytes: number
+}
+
+export interface DiagnosticsPyannoteReadiness {
+  pyannote_installed: boolean
+  hf_token_configured: boolean
+  // null: not checked, or huggingface_hub is not installed.
+  models: { model: string; accessible: boolean }[] | null
+  ready: boolean
+}
+
+export interface DiagnosticsJobHistoryItem {
+  job_id: string
+  label: string
+  status: string | null
+  description: string | null
+  message: string
+  error: string | null
+  gpu_touching: boolean
+  started_at: number | null
+  finished_at: number | null
+  duration_seconds: number | null
+}
+
+export interface DiagnosticsLogTail {
+  lines: string[]
+}
+
+export interface DiagnosticsSupportReport {
+  report: string
+}
+
+export interface DiagnosticsInstallResult {
+  package: string
+  ok: boolean
+  output_tail: string[]
+}
+
+export interface DiagnosticsResetResult {
+  ok: boolean
+  reset_at: number
+}

@@ -415,6 +415,14 @@ baihe-subtitler/
 │   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
+│   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
+│   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
+│   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
+│   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
+│   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
+│   │                              src/api/diagnostics.ts
+│   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
+│   │                              the token lives in component state only); API in src/api/extension.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
