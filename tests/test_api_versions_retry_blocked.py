@@ -82,7 +82,7 @@ class TestActivateService:
         db.update_line_fields_if(did, ids[0], {"speaker": "B"}, {})
         out = tvs.activate_version(did, vid, confirm=True)
         assert out == {"drama_id": did, "version_id": vid, "label": "v-old", "activated": True,
-                       "lines_changed": 2}
+                       "lines_changed": 2, "conflicts": []}
         rows = {r["id"]: r for r in db.load_lines(did)}
         assert [rows[i]["en"] for i in ids] == ["Hi there", "Goodbye"]
         # untouched: speaker set after the version, flag, timing, ids
@@ -93,6 +93,31 @@ class TestActivateService:
         assert active[vid] == 1 and active[newer] == 0
         assert any(h["label"] == tvs.SNAPSHOT_LABEL for h in db.list_line_history(did))
 
+    def test_concurrent_edit_is_not_overwritten_and_is_reported(self, isolated_db, monkeypatch):
+        did, ids = _seed()
+        vid = _version_over_current(did, ["Hi there", "Goodbye"])
+        real_snap = db.save_line_history_snapshot
+
+        def snap_then_user_edits(d, lines, label):
+            real_snap(d, lines, label)
+            # a line edit lands between the service's read and its write
+            db.update_line_fields_if(d, ids[0], {"en": "User's fix"}, {})
+
+        monkeypatch.setattr(db, "save_line_history_snapshot", snap_then_user_edits)
+        out = tvs.activate_version(did, vid, confirm=True)
+        assert out["conflicts"] == [ids[0]] and out["lines_changed"] == 1
+        rows = {r["id"]: r["en"] for r in db.load_lines(did)}
+        assert rows[ids[0]] == "User's fix" and rows[ids[1]] == "Goodbye"
+
+    def test_conflicts_reach_the_api(self, client, monkeypatch):
+        did, ids = _seed()
+        vid = _version_over_current(did, ["Hi there", "Goodbye"])
+        real_snap = db.save_line_history_snapshot
+        monkeypatch.setattr(db, "save_line_history_snapshot", lambda d, lines, label: (
+            real_snap(d, lines, label), db.update_line_fields_if(d, ids[1], {"en": "Mine"}, {})))
+        r = client.post(_act(did, vid), json={"confirm": True})
+        assert r.status_code == 200 and r.json()["conflicts"] == [ids[1]]
+
     def test_uses_field_scoped_save_only(self, isolated_db, monkeypatch):
         did, _ids = _seed()
         vid = _version_over_current(did, ["X", "Y"])
@@ -102,7 +127,7 @@ class TestActivateService:
                             lambda d, lines, fields=None: (calls.append(fields),
                                                            real(d, lines, fields=fields)))
         tvs.activate_version(did, vid, confirm=True)
-        assert calls == [("en",)]
+        assert calls == []  # per-line compare-and-set, never a line sync
 
     def test_needs_confirm(self, isolated_db):
         did, _ = _seed()
