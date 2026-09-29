@@ -168,3 +168,13 @@ class TestStoryPanelAndCollapsibleSections:
         # heading should remain in Reader.
         src = open("tabs/reader_tab.py", encoding="utf-8").read()
         assert "Line tools" not in src
+
+
+class TestTabReExportsTheService:
+    """Moved from tests/test_reader_service.py: the tab re-exports the
+    service function rather than keeping a copy. Goes with the tab."""
+
+    def test_tab_uses_the_service_function(self):
+        import tabs.reader_tab as rt
+        from services import reader_service
+        assert rt.caption_tracks is reader_service.caption_tracks
