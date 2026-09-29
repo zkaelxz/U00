@@ -252,7 +252,10 @@ baihe-subtitler/
 │   ├── characters_service.py     Migration Slice 42 -- per-drama speakers' character/voice config:
 │   │                             list/update (None = leave alone, "" = clear), series-character
 │   │                             list, clone-engine picklist (Step 26c language rule), voice bank
-│   │                             list/apply; no paths returned; ref-audio upload stays out of scope
+│   │                             list/apply; no paths returned; ref-audio upload is voice_clone_service
+│   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
+│   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
+│   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
 │   ├── glossary_service.py       Migration Slice 46 -- series glossary terms (ownership-checked
 │   │                             CRUD, confirm-gated delete), project/series instructions, and
 │   │                             read-only option catalogues; LLM term extraction stays out
@@ -386,6 +389,9 @@ baihe-subtitler/
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
 │       ├── translation_version_routes.py /api/review/dramas/{id}/versions/{vid}/activate (POST, lines.edit, confirm=true; R39)
 │       ├── blocked_retry_routes.py /api/lines/dramas/{id}/lines/{lid}/retry-blocked (POST, jobs.start + engine gate; R10)
+│       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
+│       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
+│       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
@@ -449,7 +455,10 @@ baihe-subtitler/
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
 │   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
-│   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
+│   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch);
+│   │                              VoiceClonePanel (Dub > Voices and cloning: clip upload/extract/pick, voice
+│   │                              bank, voice actor, series link, clone warnings) + voiceClone.ts (pure,
+│   │                              unit-tested); API in src/api/voiceClone.ts, types in src/types/voiceClone.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

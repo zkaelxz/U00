@@ -1603,6 +1603,15 @@ def list_characters(drama_id: int):
     return [dict(r) for r in rows]
 
 
+def clear_character_series_link(drama_id: int, speaker_label: str):
+    """Unlinks one speaker from its series character (upsert_character's
+    COALESCE can't write NULL). The character keeps its own name."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute("UPDATE characters SET series_character_id = NULL "
+                     "WHERE drama_id = ? AND speaker_label = ?", (drama_id, speaker_label))
+        conn.commit()
+
+
 # ---------------------------------------------------------------------------
 # Series-level characters -- persist across every drama in a series (a
 # streamer's whole archive, or a book series), independent of any one
