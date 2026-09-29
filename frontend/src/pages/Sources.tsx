@@ -140,7 +140,7 @@ export default function SourcesPage() {
     }
   }
 
-  const seriesShown = !!open && (view.status !== 'idle' || cleared || !!series.startError)
+  const seriesShown = !!open && (view.status !== 'idle' || view.busyOther || cleared || !!series.startError)
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
     : null

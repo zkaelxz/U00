@@ -227,6 +227,32 @@ test('on load, a finished job for another series is not shown under the remember
   expect(s.unmocked).toEqual([])
 })
 
+test('on load, a running job for another series shows as busy, not as loading the remembered one', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a1', title: 'Heaven Book 2' }))
+  })
+  const s = await mockSources(page, { series: 'running', seriesId: 'a0', seriesHold: true })
+  await page.goto('/#/sources')
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByText('Another series from Alpha Comics is still loading.')).toBeVisible()
+  await expect(panel.getByText(/Loading the series/)).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Cancel it' }).click()
+  await expect.poll(() => posted(s, '/api/jobs/sources_series_alpha/cancel').length).toBe(1)
+  expect(s.unmocked).toEqual([])
+})
+
+test('on load, a running job for the remembered series shows its loading line', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a1', title: 'Heaven Book 2' }))
+  })
+  const s = await mockSources(page, { series: 'running', seriesId: 'a1', seriesHold: true })
+  await page.goto('/#/sources')
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByText(/Loading the series/)).toBeVisible()
+  await expect(panel.getByText(/Another series/)).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
 test('source settings: health text, On rollback, save only changes, 422, clear cache', async ({ page }) => {
   const s = await mockSources(page)
   let enabledStatus = 500
