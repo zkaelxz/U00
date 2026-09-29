@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from './client'
 import {
   applyVoiceBankEntry,
+  applyWorkflowTier,
   buildEstimateQuery,
   cancelBulkTranslation,
   deleteGlossaryTerms,
@@ -11,6 +12,7 @@ import {
   saveCharacter,
   saveGlossaryTerm,
   saveInstructions,
+  saveTranslatePreset,
   startTranslateRun,
 } from './translateStage'
 import type { TranslateRunStartBody } from '../types/translateStage'
@@ -112,6 +114,33 @@ describe('translate stage api', () => {
   it('surfaces a 409 on cancel (batch already finished) as an ApiError', async () => {
     const f = fakeFetch(409, { error: { code: 'conflict', message: 'Bulk job 4 is applied and cannot be cancelled.' } }, [])
     const err = await cancelBulkTranslation(1, 4, f).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(409)
+  })
+})
+
+describe('workflow tier and preset writes', () => {
+  it('posts the tier and the preset body to their routes', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, {}, calls)
+    await applyWorkflowTier(6, 'release', f)
+    await saveTranslatePreset({
+      name: 'Mine', translation_engine: 'claude', engine_model: null, style_preset: null,
+      locale: 'en-US', default_female_pronouns: false, include_genre_notes: true,
+    }, f)
+    expect(calls[0].url).toBe('/api/translate-run/dramas/6/workflow-tier')
+    expect(calls[0].init?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ tier: 'release' })
+    expect(calls[1].url).toBe('/api/translate-run/presets')
+    expect(JSON.parse(String(calls[1].init?.body)).name).toBe('Mine')
+  })
+
+  it('surfaces a 409 for a taken preset name', async () => {
+    const f = fakeFetch(409, { error: { code: 'conflict', message: 'taken' } }, [])
+    const err = await saveTranslatePreset({
+      name: 'Mine', translation_engine: 'claude', engine_model: null, style_preset: null,
+      locale: null, default_female_pronouns: false, include_genre_notes: true,
+    }, f).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(409)
   })

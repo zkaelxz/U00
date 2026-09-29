@@ -1,6 +1,7 @@
 // Hand-written mirrors of api/schemas.py (Translate stage: translate-run,
 // glossary and characters models). Booleans and numbers only, never keys.
 
+import type { LibraryPreset } from './library'
 import type { TranslateEngine } from './translate'
 
 export interface TranslateRunConfig {
@@ -10,6 +11,7 @@ export interface TranslateRunConfig {
   style_presets: { key: string; label: string }[]
   default_style_preset: string
   locales: string[]
+  workflow_tiers: WorkflowTier[]
   defaults: { context_window: number; context_window_ahead: number; batch_size: number }
   project_instructions: string | null
   series_instructions: string | null
@@ -175,4 +177,39 @@ export interface VoiceBankEntry {
   language: string
   notes: string
   ref_text_present: boolean
+}
+
+// Parity X02: translate_engines.WORKFLOW_TIERS (Draft / Standard / Release).
+export interface WorkflowTier {
+  key: string
+  label: string
+  translation_engine: string
+  engine_model: string | null
+  reflect: boolean
+  auto_qc: boolean
+}
+
+// POST /api/translate-run/dramas/{id}/workflow-tier: the engine is saved on
+// the drama; the rest fills the form. Nothing is started.
+export interface WorkflowTierApplied extends Omit<WorkflowTier, 'key'> {
+  drama_id: number
+  tier: string
+}
+
+// Parity X22: POST /api/translate-run/presets. A taken name is a 409 unless
+// overwrite is true.
+export interface TranslatePresetBody {
+  name: string
+  translation_engine: string
+  engine_model: string | null
+  style_preset: string | null
+  locale: string | null
+  default_female_pronouns: boolean
+  include_genre_notes: boolean
+  overwrite?: boolean
+}
+
+export interface TranslatePresetSaved {
+  preset: LibraryPreset
+  replaced: boolean
 }
