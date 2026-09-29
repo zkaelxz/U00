@@ -2,7 +2,8 @@
 api/routers/restructure_routes.py -- structural line changes for one drama
 (Migration Slice 45): add, delete, merge, split, re-segmentation
 (read-only preview + a job that re-segments and saves; parity R47 adds an
-LLM preview job, read back with GET .../resegment/preview-llm), and Version
+LLM preview job, read back with GET .../resegment/preview-llm and applied
+as shown with `use_preview: true`), and Version
 history list/restore. Thin wrapper over services/restructure_service.py.
 
 Every write carries `expected_line_ids` (409 when the drama's lines changed),
@@ -87,7 +88,8 @@ def post_resegment(body: ResegmentStart, request: Request, drama_id: int = Path(
     if body.use_llm:
         require_engines_allowed(request, body.engine)
     return svc.start_resegmentation(drama_id, body.expected_line_ids, confirm=body.confirm,
-                                    use_llm=body.use_llm, engine=body.engine, model=body.model)
+                                    use_llm=body.use_llm, engine=body.engine, model=body.model,
+                                    use_preview=body.use_preview)
 
 
 @router.get("/dramas/{drama_id}/history", dependencies=[require_permission("review.use")], response_model=List[ReviewRecordsHistoryItem],

@@ -1635,6 +1635,8 @@ class ResegmentPreview(BaseModel):
 class ResegmentStart(_RestructureBase):
     confirm: StrictBool = False
     use_llm: StrictBool = False
+    # Parity R47: commit the stored LLM preview as shown (no LLM call).
+    use_preview: StrictBool = False
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
 

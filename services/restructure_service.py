@@ -359,14 +359,24 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
 
 def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False,
                          use_llm: bool = False, engine: Optional[str] = None,
-                         model: Optional[str] = None) -> dict:
+                         model: Optional[str] = None, use_preview: bool = False) -> dict:
     """Starts a `resegment_<drama_id>` job that re-segments AND saves (with
     a "before re-segment" snapshot). Split lines lose their translation,
     flag, notes and emotion tag (Step 6c); confirm=true is required when
     any line long enough to be split carries one. A local Ollama LLM pass
-    runs in a subprocess (cancellable) and saves via on_done."""
+    runs in a subprocess (cancellable) and saves via on_done.
+
+    use_preview=true (parity R47) commits the drama's stored LLM preview
+    (start_llm_resegment_preview) as shown, with no second LLM call; it
+    can't be combined with use_llm/engine/model, and is refused if any
+    line changed since the preview."""
     drama = _require_drama(drama_id)
     expected_line_ids = _id_list("expected_line_ids", expected_line_ids)
+    if use_preview:
+        if use_llm or engine or model:
+            raise InvalidInputError("use_preview applies the stored preview; don't pass use_llm, "
+                                    "engine or model with it.")
+        return _start_preview_apply(drama_id, expected_line_ids, confirm)
     language, script, segments = _reseg_inputs(drama_id, drama)
     engine_name, eng = _build_engine(drama, engine, model) if use_llm else (None, None)
     _refuse_if_job_running(drama_id)
@@ -402,8 +412,19 @@ _llm_previews = {}
 _llm_previews_lock = threading.Lock()
 
 
+def _line_fingerprint(lines) -> list:
+    """What a stored preview was computed from: each line's id plus every
+    compared Line field (text, translation, timing, speaker, flag...). Any
+    edit since the preview changes it, so applying the preview can't
+    overwrite that edit."""
+    return [(ln.id, dataclasses.replace(ln, orig=None, merged_ids=[])) for ln in lines]
+
+
 def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, engine_name):
-    """changed: [(line_id, idx, zh, pieces), ...] as the subprocess returns it."""
+    """changed: [(line_id, idx, zh, pieces), ...] as the subprocess returns it.
+    Keeps the new lines themselves too (private), so Apply with
+    use_preview=true commits exactly what was shown without a second LLM
+    call."""
     changed_ids = {c[0] for c in changed}
     need = _affected_counts(drama_id, source_lines, _candidate_ids(source_lines, language))
     preview = {
@@ -414,6 +435,7 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
                     for lid, idx, zh, pieces in changed],
         **_affected_counts(drama_id, source_lines, changed_ids),
         "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"])}
+    preview["_apply"] = {"lines": list(new_lines), "fingerprint": _line_fingerprint(source_lines)}
     with _llm_previews_lock:
         _llm_previews[drama_id] = preview
 
@@ -480,7 +502,53 @@ def get_llm_resegment_preview(drama_id: int) -> dict:
         preview = _llm_previews.get(drama_id)
     if preview is None:
         raise NotFoundError("No LLM re-segmentation preview is ready for this drama.")
-    return dict(preview)
+    return {k: v for k, v in preview.items() if not k.startswith("_")}
+
+
+def _apply_llm_preview_job(job_id, drama_id, preview):
+    """Commits a stored LLM preview's lines (no LLM call). Refused, with
+    nothing written, if any line changed since the preview was made."""
+    state = preview["_apply"]
+    if not preview["changed"]:
+        background_jobs.set_result(job_id, {"changed": 0})
+        return
+    with _drama_lock(drama_id):
+        current = db.load_line_objects(drama_id)
+        if _line_fingerprint(current) != state["fingerprint"]:
+            raise RuntimeError("This drama's lines changed since the preview -- nothing was "
+                               "changed; run the preview again.")
+        new_lines = [dataclasses.replace(ln, merged_ids=list(ln.merged_ids))
+                     for ln in state["lines"]]
+        _commit(drama_id, current, new_lines, "before re-segment")
+    with _llm_previews_lock:
+        if _llm_previews.get(drama_id) is preview:
+            _llm_previews.pop(drama_id, None)   # applied: it can't be applied twice
+    background_jobs.set_result(job_id, {"changed": len(preview["changed"]),
+                                        "line_count": len(new_lines)})
+
+
+def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) -> dict:
+    with _llm_previews_lock:
+        preview = _llm_previews.get(drama_id)
+    if preview is None:
+        raise NotFoundError("No LLM re-segmentation preview is ready for this drama -- run the "
+                            "preview first.")
+    _refuse_if_job_running(drama_id)
+    lines = db.load_line_objects(drama_id)
+    _check_expected(lines, expected_line_ids)
+    if _line_fingerprint(lines) != preview["_apply"]["fingerprint"]:
+        raise ConflictError("This drama's lines changed since the preview -- run the preview "
+                            "again.")
+    if preview["needs_confirm"] and confirm is not True:
+        raise InvalidInputError("Re-segmenting would clear translations, flags or notes on the "
+                                "lines being split -- pass confirm=true.")
+    job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
+    started = background_jobs.start_job(
+        job_id, _apply_llm_preview_job, job_id, drama_id, preview,
+        description=f"Applying re-segmentation preview (drama #{drama_id})")
+    if not started:
+        raise ConflictError("A re-segmentation is already running for this drama.")
+    return {"job_id": job_id, "drama_id": drama_id}
 
 
 # ---------------------------------------------------------------------------

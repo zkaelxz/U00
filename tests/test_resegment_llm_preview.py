@@ -161,3 +161,94 @@ def test_api_routes(monkeypatch):
     assert c.post(base, json={"engine": "claude", "bogus": 1}).status_code == 422
     assert c.post("/api/restructure/dramas/99999/resegment/preview-llm",
                   json={"engine": "claude"}).status_code == 404
+
+
+# --- Apply the stored preview (use_preview=true): no second LLM call ---
+
+def _preview(monkeypatch, did):
+    seen = []
+    _fake_llm_split(monkeypatch, seen)
+    _wait(svc.start_llm_resegment_preview(did, engine="claude")["job_id"])
+    return seen
+
+
+def test_apply_commits_the_preview_without_calling_the_llm(monkeypatch):
+    did = _seed()
+    seen = _preview(monkeypatch, did)
+    p = svc.get_llm_resegment_preview(did)
+    calls = len(seen)
+    out = svc.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
+    job = _wait(out["job_id"])
+    assert job["status"] == "done", job
+    assert len(seen) == calls                               # no second LLM pass
+    rows = db.load_lines(did)
+    assert len(rows) == p["line_count_after"]
+    assert [r["zh"] for r in rows[1:]] == p["changed"][0]["pieces"]
+    assert rows[0]["zh"] == "短" and rows[0]["en"] == "short"
+    with pytest.raises(NotFoundError):                     # consumed: can't apply twice
+        svc.get_llm_resegment_preview(did)
+
+
+def test_apply_refused_after_an_edit_since_the_preview(monkeypatch):
+    did = _seed()
+    _preview(monkeypatch, did)
+    ids = svc.get_llm_resegment_preview(did)["source_line_ids"]
+    # the user edits the short line's translation after previewing
+    db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="短", en="edited")],
+                  fields=("en",))
+    before = _snapshot(did)
+    with pytest.raises(ConflictError):
+        svc.start_resegmentation(did, ids, confirm=True, use_preview=True)
+    assert _snapshot(did) == before
+
+
+def test_apply_edit_racing_the_job_writes_nothing(monkeypatch):
+    did = _seed()
+    _preview(monkeypatch, did)
+    preview = svc._llm_previews[did]
+    ids = preview["source_line_ids"]
+    db.save_lines(did, [Line(id=ids[0], idx=0, start=0.0, end=1.0, zh="改", en="short")],
+                  fields=("zh",))
+    before = _snapshot(did)
+    background_jobs.start_job("resegment_x", svc._apply_llm_preview_job, "resegment_x", did,
+                              preview)
+    assert _wait("resegment_x")["status"] == "error"
+    assert _snapshot(did) == before
+
+
+def test_apply_needs_confirm_and_a_preview(monkeypatch):
+    did = _seed()
+    ids = [r["id"] for r in db.load_lines(did)]
+    with pytest.raises(NotFoundError):
+        svc.start_resegmentation(did, ids, use_preview=True)
+    _preview(monkeypatch, did)
+    from services.service_errors import InvalidInputError
+    with pytest.raises(InvalidInputError):                  # the long line is translated+flagged
+        svc.start_resegmentation(did, ids, use_preview=True)
+    with pytest.raises(InvalidInputError):
+        svc.start_resegmentation(did, ids, confirm=True, use_preview=True, use_llm=True)
+    with pytest.raises(ConflictError):
+        svc.start_resegmentation(did, ids[:1], confirm=True, use_preview=True)
+
+
+def test_api_apply_preview(monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    did = _seed()
+    seen = _preview(monkeypatch, did)
+    calls = len(seen)
+    p = c.get(f"/api/restructure/dramas/{did}/resegment/preview-llm").json()
+    r = c.post(f"/api/restructure/dramas/{did}/resegment",
+               json={"expected_line_ids": p["source_line_ids"], "confirm": True,
+                     "use_preview": True})
+    assert r.status_code == 200, r.text
+    assert _wait(r.json()["job_id"])["status"] == "done"
+    assert len(db.load_lines(did)) == p["line_count_after"] and len(seen) == calls
+    assert c.get(f"/api/restructure/dramas/{did}/resegment/preview-llm").status_code == 404
+    r = c.post(f"/api/restructure/dramas/{did}/resegment",
+               json={"expected_line_ids": [], "use_preview": "yes"})
+    assert r.status_code == 422
