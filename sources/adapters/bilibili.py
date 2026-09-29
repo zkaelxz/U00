@@ -39,7 +39,7 @@ import re
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from ..base import SourceAdapter
+from ..base import SourceAdapter, host_url_search
 from ..models import (AccessTier, CapabilityStatus, ContentType, FailureReason,
                       SourceError, TechnicalStatus)
 from ..registry import register
@@ -181,7 +181,7 @@ class BilibiliSource(SourceAdapter):
         """Resolves a b23.tv short link, strips tracking params, and
         keeps only an explicit ?p=N part selector (item 1, item 3)."""
         url = (url or "").strip()
-        if "b23.tv" in url:
+        if host_url_search([r"b23\.tv/"], url):
             url = self._url_resolver(url)
         parts = urlsplit(url)
         kept = [(k, v) for k, v in parse_qsl(parts.query) if k == "p"]

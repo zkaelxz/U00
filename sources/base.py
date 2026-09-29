@@ -26,10 +26,36 @@ adapter automatically -- an adapter can't forget them.
 """
 
 import re
+from urllib.parse import urlsplit
 
 from . import store
 from .http import PacingPolicy, SourceClient
 from .models import (NotSupportedError, Requirement, SourceCapabilities)
+
+
+
+def host_url_search(patterns, url, flags=0):
+    """True if `url` is an http(s) URL whose *parsed host* is matched by one of
+    the host+path regexes in `patterns` (B-25).
+
+    The regex runs on ``hostname + path [+ ?query]`` and must start at the
+    beginning of the host or right after a dot inside it (so ``www.``/``m.``
+    subdomains match, ``evilbilibili.com`` / ``x.com/?b23.tv/`` /
+    ``bilibili.com@evil.com`` / ``bilibili.com.evil.com`` do not)."""
+    try:
+        parts = urlsplit((url or "").strip())
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return False
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        return False
+    cand = host + (parts.path or "/") + ("?" + parts.query if parts.query else "")
+    for p in patterns:
+        for m in re.finditer(p, cand, flags):
+            if m.start() < len(host) and m.end() >= len(host) and \
+                    (m.start() == 0 or cand[m.start() - 1] == "." or cand[m.start()] == "."):
+                return True
+    return False
 
 
 class SourceAdapter:
@@ -140,7 +166,7 @@ class SourceAdapter:
 
     @classmethod
     def matches_url(cls, url: str) -> bool:
-        return any(re.search(p, url or "") for p in cls.url_patterns)
+        return host_url_search(cls.url_patterns, url)
 
     def parse_url(self, url: str):
         """Optional: map a pasted URL to ("series", series_id) or
