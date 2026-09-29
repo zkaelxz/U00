@@ -26,6 +26,11 @@ VIDEO_EXTENSIONS = (".mp4", ".mkv", ".mov", ".webm")
 _CHUNK = 1024 * 1024
 _DEFAULT_MAX_MB = 2048
 _TOO_LARGE = "The uploaded file is too large."
+# Streamlit offers the audio/video upload only when content_mode is one of
+# these (tabs/workspace_tab.py `has_audio_pipeline`); keep in sync by hand.
+_UPLOAD_CONTENT_MODES = ("audio_drama", "streamer_vod")
+_NO_UPLOAD_MODE = ("This drama has no audio to upload (it is set to work from a novel). "
+                   "Change what you are working from to Audio drama or Streamer/VOD first.")
 _BAD_TYPE = "Unsupported file type. Upload an audio or video file."
 
 
@@ -51,8 +56,11 @@ def _safe_extension(client_filename) -> str:
 
 def upload_media(drama_id, client_filename, fileobj) -> dict:
     ext = _safe_extension(client_filename)
-    if db.get_drama(drama_id) is None:
+    drama = db.get_drama(drama_id)
+    if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in _UPLOAD_CONTENT_MODES:
+        raise InvalidInputError(_NO_UPLOAD_MODE)
     if drama_service._job_running_for_drama(drama_id):
         raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
     limit = max_upload_bytes()
