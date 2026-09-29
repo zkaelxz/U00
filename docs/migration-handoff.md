@@ -1,12 +1,14 @@
 # Migration handoff (Streamlit -> React + FastAPI)
 
 Durable status for the next session. Repo docs and code are the source of truth; this file is the index.
-Last updated 2026-09-28. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
+Last updated 2026-09-29. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
 
 ## Verified status
 - Merged slices: 19-23, 25-33, 35-49 (+ earlier 1-18), plus E0 (Library remainder), Step 95 (BGM-preserving dub) and Step 97b (translate fallback chain, API level). Slices 41 and 45 were built on Opus at the user's request (#266, #267).
 - Frontend (React): every planned slice is merged (F, A, B, C, I, D, E, G, H, F2; PRs #254-#271), see `docs/migration-frontend-plan.md`.
-- Serving (branch `migration-serve-frontend`, not merged): `python -m api` serves `frontend/dist` at `/` (`api/static_frontend.py`, `BAIHE_API_SERVE_FRONTEND`); `start-react.bat` launches it on Windows (written without a Windows machine, untested).
+- Serving (merged, #287; 405 fix #294): `python -m api` serves `frontend/dist` at `/` (`api/static_frontend.py`, `BAIHE_API_SERVE_FRONTEND`); `start-react.bat` launches it on Windows (written without a Windows machine, untested).
+- Concise UI (merged): shared Section/Field blocks (#293), then Dub #295, Export #296, Translate #297, Review #298, Source #299, Translate Reflect/Bulk/Resume pending batches #300, Settings + Diagnostics #301, NovelPanel + Library new-drama form #302 (Library table-first #285). Every React page/stage now has the concise treatment (collapsible Section, Field with tooltips, remembered state). Also merged: GPU/CPU reporting and job progress messages (#283), Slice 24 key writes (#289), Slice 34 with fakes (#290), bug batches (#286, #291).
+- Tests: frontend vitest 138 tests / 23 files; Playwright 40 specs; `pytest --collect-only` = 4342 tests collected (2026-09-29; collection only, not a pass count).
 - Hardening merged: H1 (drama, characters), H2 (glossary, ASS), H3 (read-only services).
 - Full suite: batch 1 = 3805 passed, 86 skipped. Batch 2 (base through PR #244) = 4028 passed, 86 skipped, 1 setup error
   (`test_run_already_running_is_409`, `sqlite3 database is locked`). That turned out to be an order-dependent race, not a load flake; fixed in #259 (the test now waits for the job thread).
@@ -35,7 +37,8 @@ Job-apply: job does everything. Tuning knobs: persisted (columns added in init_d
 Uploads/exports: multipart + drama-folder outputs. `use_gpu`: persisted, default off. Process-job results: `on_done` hook (Slice 49).
 
 ## Queue (not yet built)
-24 API-key writes (user requirement 2026-09-29: keys stay on the main PC and are never sent to other devices; remote devices use server-side keys) -- **built, OFF by default** (`BAIHE_API_ALLOW_KEY_WRITES=1` to enable): write-only `POST /api/settings/keys/{engine}` (body `{value, confirm:true}`) and `POST /api/settings/keys/{engine}/clear`; response is only `{engine, configured}`. Guards (all must hold, else a generic 403): flag on; TCP peer is loopback; Host header is 127.0.0.1/localhost/[::1]; none of X-Forwarded-For/Host/Proto, Forwarded, X-Real-IP, Tailscale-User-Login, Cf-Connecting-Ip, Cf-Ray, Via present; Origin, if present, is loopback; then `confirm=true`, a known secret engine, and a clean value (no whitespace/quotes/control chars, max 512). **Honest limit: this is a safeguard, not authentication** -- a header/peer check can be defeated by a proxy that strips headers or a local process; real admin isolation is the separate admin listener (D5), still to be built.; 34 qwen3 backends (gated on a real-model check).
+24 API-key writes (user requirement 2026-09-29: keys stay on the main PC and are never sent to other devices; remote devices use server-side keys) -- **built, OFF by default** (`BAIHE_API_ALLOW_KEY_WRITES=1` to enable): write-only `POST /api/settings/keys/{engine}` (body `{value, confirm:true}`) and `POST /api/settings/keys/{engine}/clear`; response is only `{engine, configured}`. Guards (all must hold, else a generic 403): flag on; TCP peer is loopback; Host header is 127.0.0.1/localhost/[::1]; none of X-Forwarded-For/Host/Proto, Forwarded, X-Real-IP, Tailscale-User-Login, Cf-Connecting-Ip, Cf-Ray, Via present; Origin, if present, is loopback; then `confirm=true`, a known secret engine, and a clean value (no whitespace/quotes/control chars, max 512). **Honest limit: this is a safeguard, not authentication** -- a header/peer check can be defeated by a proxy that strips headers or a local process; real admin isolation is the separate admin listener (D5), still to be built.; 34 qwen3 backends -- **built with fakes (#290)**, real-model check still owed by the user.
+Next (React and API gaps): metadata auto-fill and media-analysis UI; OCR/EPUB import UI; per-line improve/why-this; media playback with Range; dub download; SSE/job push; a pending-batch list endpoint (none exists, so the Translate "Resume pending batches" control cannot list batches with poll/cancel until one is added); B-04/B-05 job-cancel staleness; B-09 part 2 (async extraction); B-08 SSRF pinning; frontend phases 7-10; deferred roadmap steps 106-132 per the master doc.
 Small bug/cleanup steps 121-132: see `docs/baihe-roadmap-master.md` section 2 (bug tracker).
 Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);
 transcribe/narration docs and docstrings that still say chunk_and_tag or audiobook/auto-fill are out of scope are stale (cosmetic cleanup step).
@@ -43,6 +46,7 @@ Held-roadmap fold-ins: Step 43 (soft-delete) stays held (plug into `_hard_delete
 After the service queue: frontend (React) slices and Streamlit retirement -- not yet planned in this repo; ask the migration-architect.
 
 ## Owed to the user (cannot verify here)
+Not blocking: GPU check output from the user's PC (venv python: ctranslate2 CUDA device count, `torch.cuda.is_available()`); phone-access choice (home Wi-Fi only / Cloudflare Tunnel with login / Tailscale; the user questioned the VPN, unresolved, reopens D6); Slice 34 real-model check; real-hardware checks.
 Real TTS, ffmpeg, Whisper on GPU, paid LLM keys, and a gated-access HF token for pyannote diarization.
 Also for the planning session: candidate notes on Fanjiao/GLify/YuriAudio2Notion, and `sources/` gaps (ETag revalidation in
 `chapter_check.py`, partial-import retry state).
