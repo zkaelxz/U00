@@ -128,6 +128,24 @@ class TestStart:
         # _resolve_initial_prompt: automatic prompt plus extra names (#393)
         assert a["initial_prompt"] == "苏杉、沈清疑。"
 
+    def test_planted_whisper_size_falls_back_to_default(self, isolated_db, captured):
+        import applog
+        planted = "someone/evil-repo"
+        did, ids = _drama(isolated_db)
+        isolated_db.update_drama(did, whisper_size=planted)
+        transcribe_service.start_retranscribe_line(did, ids[1])
+        assert captured["args"]["whisper_size"] == core.DEFAULT_WHISPER_SIZE
+        logged = "\n".join(applog.tail(20))
+        assert "whisper_size" in logged and planted not in logged
+
+    @pytest.mark.parametrize("stored,expected", [
+        (None, core.DEFAULT_WHISPER_SIZE), ("", core.DEFAULT_WHISPER_SIZE),
+        ("small", "small"), ("../models/x", core.DEFAULT_WHISPER_SIZE),
+        ("org/model", core.DEFAULT_WHISPER_SIZE)])
+    def test_stored_whisper_size(self, isolated_db, stored, expected):
+        assert transcribe_service.stored_whisper_size(
+            {"id": 1, "whisper_size": stored}) == expected
+
     def test_explicit_prompt_overrides(self, isolated_db, captured):
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0], initial_prompt="人名")
