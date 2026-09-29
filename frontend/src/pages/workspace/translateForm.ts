@@ -277,3 +277,37 @@ export function buildPresetBody(
     ...(overwrite ? { overwrite: true } : {}),
   }
 }
+
+// X01: Streamlit's notice for the last run's failed batches. Line numbers
+// are 1-based and de-duplicated; tolerant of a malformed stored record
+// (the API passes the stored JSON through as-is).
+export interface FailedBatches {
+  batches: number
+  lineNumbers: number[]
+  reasons: string[]
+}
+
+export function failedBatches(errors: unknown): FailedBatches | null {
+  if (!Array.isArray(errors) || errors.length === 0) return null
+  const nums = new Set<number>()
+  const reasons: string[] = []
+  for (const e of errors) {
+    if (!e || typeof e !== 'object') continue
+    const { lines, error } = e as { lines?: unknown; error?: unknown }
+    if (Array.isArray(lines)) for (const i of lines) if (Number.isInteger(i) && i >= 0) nums.add(i + 1)
+    if (typeof error === 'string' && error.trim() && !reasons.includes(error.trim())) reasons.push(error.trim())
+  }
+  return { batches: errors.length, lineNumbers: [...nums].sort((a, b) => a - b), reasons }
+}
+
+// "1-3, 7, 9-10" so a long failure list stays one short line.
+export function lineRanges(nums: number[]): string {
+  const out: string[] = []
+  for (let i = 0; i < nums.length; ) {
+    let j = i
+    while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++
+    out.push(j === i ? String(nums[i]) : `${nums[i]}-${nums[j]}`)
+    i = j + 1
+  }
+  return out.join(', ')
+}

@@ -38,8 +38,11 @@ test('opens the workspace from the library and navigates stages', async ({ page 
   await page.goto('/')
   await page.getByRole('row').filter({ hasText: 'Signal' }).click()
   await page.getByRole('link', { name: 'Open workspace' }).click()
-  await expect(page).toHaveURL(/#\/drama\/3\/source$/)
+  // No stage in the link: the workspace opens the drama's current stage
+  // (Source here -- the seeded drama has no lines yet).
+  await expect(page).toHaveURL(/#\/drama\/3$/)
   await expect(page.getByTestId('drama-title')).toHaveText('Signal')
+  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('media-status')).toContainText('limit')
 
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
@@ -47,6 +50,37 @@ test('opens the workspace from the library and navigates stages', async ({ page 
 
   await page.goto('/#/drama/3/not-a-stage')
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+})
+
+const progress = (stage: string, states: Record<string, string>) => ({
+  drama_id: 1, stage_index: stage === 'review' ? 4 : 3, stage, line_count: 12, untranslated_count: 2,
+  flagged_count: 1, has_audio: true, has_dub_track: false, exported: false,
+  stages: Object.entries(states).map(([key, state]) => ({ key, state })),
+})
+
+test('opens on the reported stage and marks progress in the stepper (P16/P17)', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/1/progress', (route) =>
+    route.fulfill({ json: progress('review', { source: 'done', translate: 'done', review: 'current', dub: 'optional', export: 'pending' }) }))
+  await page.goto('/#/drama/1')
+  const nav = page.getByRole('navigation', { name: 'Stages' })
+  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
+  await expect(nav.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('data-state', 'done')
+  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: next step')
+  await expect(nav.getByRole('link', { name: 'Dub', exact: true })).toHaveAttribute('data-state', 'optional')
+  await expect(page.getByTestId('stage-counts')).toHaveText('12 lines · 2 untranslated · 1 flagged')
+
+  // A stage named in the URL wins over the reported one.
+  await page.goto('/#/drama/1/export')
+  await expect(nav.getByRole('link', { name: 'Export', exact: true })).toHaveAttribute('aria-current', 'page')
+})
+
+test('falls back to Source when progress cannot be read', async ({ page }) => {
+  await page.route('**/api/workflow/dramas/2/progress', (route) =>
+    route.fulfill({ status: 500, json: { error: { code: 'internal', message: 'boom' } } }))
+  await page.goto('/#/drama/2')
+  await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByTestId('stage-counts')).toHaveCount(0)
 })
 
 test('rejects an unsupported upload before sending it', async ({ page }) => {
@@ -95,12 +129,12 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Beam size', { exact: true }).fill('11')
   await page.getByRole('button', { name: 'Save options' }).click()
-  await expect(page.getByRole('alert')).toContainText('beam size')
+  await expect(page.getByRole('alert')).toContainText('Beam size')
   // Running with the bad value is caught too, and nothing is sent.
   const draft = page.getByLabel('Transcript text', { exact: true })
   if (await draft.count()) await draft.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('beam size')
+  await expect(page.getByRole('alert')).toContainText('Beam size')
   await page.getByLabel('Beam size', { exact: true }).fill('5')
 
   const transcript = page.getByLabel('Transcript text', { exact: true })
