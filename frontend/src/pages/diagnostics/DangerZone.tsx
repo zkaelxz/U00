@@ -10,7 +10,7 @@ import { getStats } from '../../api/library'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import { TypedConfirm } from '../../components/TypedConfirm'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, type PcMode } from '../../hooks/usePcOnly'
+import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { LibraryDashboard } from '../../types/library'
 import { adminErrorText, libraryStatsLine, resetBlockedReason, useDetailsOpen, type AdminBusy } from './diagnosticsAdmin'
@@ -23,6 +23,16 @@ export function DangerZone({ pc, jobsActive, busy, onBusy, onReset, onOpenChange
   onReset: () => void
   onOpenChange: (open: boolean) => void
 }) {
+  const pending = usePcPendingNote(pc)
+  if (pending) {
+    return (
+      <div className="danger-zone">
+        <Section title="Danger zone" summary="Reset library">
+          <p className="muted" data-testid="pc-pending">{pending}</p>
+        </Section>
+      </div>
+    )
+  }
   if (pc === 'remote') {
     return (
       <div className="danger-zone">
