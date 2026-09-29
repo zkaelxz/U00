@@ -157,7 +157,10 @@ def _burned_video_job(job_id, drama_id, video_path, ass_text, ext):
         with open(os.path.join(tmp, "subs.ass"), "w", encoding="utf-8") as f:
             f.write(ass_text)
         out_name = f"out{ext}"
-        cmd = ["ffmpeg", "-y", "-i", video_path, "-vf", "subtitles=subs.ass",
+        # -protocol_whitelist file: a source named .mp4 could really be an HLS
+        # playlist naming network URLs; ffmpeg may only open local files.
+        cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path,
+               "-vf", "subtitles=subs.ass",
                "-c:a", "copy", out_name]
         try:
             background_jobs.run_cancellable(job_id, cmd, cwd=tmp)

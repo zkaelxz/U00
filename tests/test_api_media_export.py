@@ -538,3 +538,20 @@ def test_dubbed_refused_while_dub_job_runs(client, drama, isolated_db, fake_ffmp
         background_jobs._jobs[f"dub_{drama}"] = {"status": "done"}
     assert client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
     assert _wait(f"dubbed_video_{drama}")["status"] == "done"
+
+
+# ---- hardening: ffmpeg may only open local files -----------------------------
+
+@pytest.mark.parametrize("path,body", [("burned-video", None), ("softsub-video", None),
+                                       ("dubbed-video", None),
+                                       ("dubbed-video", {"keep_original": True})])
+def test_video_ffmpeg_inputs_are_file_only(client, drama, isolated_db, fake_ffmpeg, path, body):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    assert client.post(f"/api/export/dramas/{drama}/{path}", json=body).status_code == 200
+    assert _wait(f"{path.replace('-', '_')}_{drama}")["status"] == "done"
+    cmd, _ = fake_ffmpeg.calls[0]
+    inputs = [i for i, a in enumerate(cmd) if a == "-i"]
+    assert inputs
+    for i in inputs:
+        assert cmd[i - 2:i] == ["-protocol_whitelist", "file"], cmd

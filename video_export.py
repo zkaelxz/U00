@@ -184,6 +184,11 @@ def burn_ass(video_path: str, ass_text: str, out_path: str):
     return out_path
 
 
+# An input option, so it goes before each -i: a file named .mp4 could really
+# be an HLS playlist naming network URLs; ffmpeg may only open local files.
+_FILE_ONLY = ("-protocol_whitelist", "file")
+
+
 def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
                            language: str = "eng") -> list:
     """The ffmpeg argument list mux_soft_subtitles runs (also used by the
@@ -191,7 +196,7 @@ def mux_soft_subtitles_cmd(video_path: str, srt_path: str, out_path: str,
     ext = os.path.splitext(out_path)[1].lower()
     sub_codec = "mov_text" if ext == ".mp4" else "srt"
     return [
-        "ffmpeg", "-y", "-i", video_path, "-i", srt_path,
+        "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", srt_path,
         "-map", "0:v", "-map", "0:a", "-map", "1:s",
         "-c:v", "copy", "-c:a", "copy", "-c:s", sub_codec,
         "-metadata:s:s:0", f"language={language}",
@@ -217,13 +222,13 @@ def replace_audio_with_dub_cmd(video_path: str, dub_audio_path: str, out_path: s
     the API's dubbed-video export job)."""
     if keep_original_at_db is not None:
         return [
-            "ffmpeg", "-y", "-i", video_path, "-i", dub_audio_path,
+            "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", dub_audio_path,
             "-filter_complex",
             f"[0:a]volume={float(keep_original_at_db)}dB[orig];[orig][1:a]amix=inputs=2:duration=first[aout]",
             "-map", "0:v", "-map", "[aout]", "-c:v", "copy", out_path,
         ]
     return [
-        "ffmpeg", "-y", "-i", video_path, "-i", dub_audio_path,
+        "ffmpeg", "-y", *_FILE_ONLY, "-i", video_path, *_FILE_ONLY, "-i", dub_audio_path,
         "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-shortest", out_path,
     ]
 
