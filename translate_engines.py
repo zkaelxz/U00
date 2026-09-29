@@ -1936,12 +1936,41 @@ def is_fallback_error(e: Exception) -> bool:
                for cls in type(e).__mro__ for hint in _FALLBACK_NAME_HINTS)
 
 
+# Bug B-06 (Step 124): transient errors (rate limit, timeout, connection)
+# retry the SAME engine with a short capped backoff before the chain moves
+# on; auth errors still switch immediately (waiting cannot fix a bad key).
+FALLBACK_TRANSIENT_RETRIES = 2
+FALLBACK_BACKOFF_BASE_SECONDS = 1.0
+FALLBACK_BACKOFF_CAP_SECONDS = 8.0
+_fallback_sleep = time.sleep  # patchable so tests never really sleep
+_TRANSIENT_NAME_HINTS = ("timeout", "connectionerror", "apiconnection")
+
+
+def is_transient_fallback_error(e: Exception) -> bool:
+    """True for the is_fallback_error cases where retrying the same engine
+    can help: rate limit, timeout, connection error. Never auth (401/403)."""
+    if not is_fallback_error(e):
+        return False
+    status = getattr(e, "status_code", None)
+    resp = getattr(e, "response", None)
+    if resp is not None:
+        status = status or getattr(resp, "status_code", None)
+    if status in (401, 403):
+        return False
+    if _is_rate_limit_error(e):
+        return True
+    return any(hint in cls.__name__.lower()
+               for cls in type(e).__mro__ for hint in _TRANSIENT_NAME_HINTS)
+
+
 class FallbackEngine:
     """Wraps an ordered chain of engines of the SAME class (all
     instruction-following, or all in TRANSLATION_ONLY_ENGINES -- the caller
     enforces that, so glossary/style adherence is never silently dropped).
-    translate_batch tries the active engine; on an is_fallback_error it
-    switches -- for the rest of the run -- to the next one, recording the
+    translate_batch tries the active engine; on a transient error it first
+    retries that engine up to FALLBACK_TRANSIENT_RETRIES times with a capped
+    backoff, and only then (or at once for an auth error) on an
+    is_fallback_error it switches -- for the rest of the run -- to the next one, recording the
     switch in `events`. Everything else (name/model/free_tier/last_usage/
     supports_reference...) reads through to the active engine so cost and
     usage logging stay correct per engine. Each engine has its own cost
@@ -1971,13 +2000,22 @@ class FallbackEngine:
         return cap is not None and self.spent[self.active] >= cap
 
     def translate_batch(self, zh_lines, context):
+        retries = 0
         while True:
             engine = self.engines[self.active]
             try:
                 result = engine.translate_batch(zh_lines, context)
             except Exception as e:
-                if not is_fallback_error(e) or self.active + 1 >= len(self.engines):
+                if not is_fallback_error(e):
                     raise
+                if is_transient_fallback_error(e) and retries < FALLBACK_TRANSIENT_RETRIES:
+                    _fallback_sleep(min(FALLBACK_BACKOFF_CAP_SECONDS,
+                                        FALLBACK_BACKOFF_BASE_SECONDS * (2 ** retries)))
+                    retries += 1
+                    continue
+                if self.active + 1 >= len(self.engines):
+                    raise
+                retries = 0
                 self.events.append({"from": self.choices[self.active],
                                     "to": self.choices[self.active + 1],
                                     "reason": type(e).__name__,
