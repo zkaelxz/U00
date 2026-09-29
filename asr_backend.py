@@ -58,6 +58,13 @@ SEGMENT_DURATION_WARNING_SECONDS = 300.0
 
 _asr_model_cache = {}
 
+# Step 103: the qwen-asr release whose transcribe(list) contract (one result
+# per input, in input order) the batching code was written against. Batching
+# stays off by default until a real before/after run on the user's GPU
+# confirms it doesn't change the text on varied-length audio.
+QWEN_ASR_BATCH_VALIDATED_VERSION = "0.0.6"
+QWEN_ASR_MAX_BATCH_SIZE = 16
+
 
 class WhisperBackend:
     """Wraps the existing Whisper transcription path unchanged -- a pure
@@ -130,11 +137,16 @@ class Qwen3ASRBackend:
     def __init__(self, model_size: str = "1.7B"):
         self.model_size = model_size
 
-    def transcribe(self, audio_path, language, whisper_segments, use_gpu=False):
+    def transcribe(self, audio_path, language, whisper_segments, use_gpu=False, batch_size=1):
         """whisper_segments: the segmentation from WhisperBackend.transcribe()
         (or core.transcribe_for_timing() directly) -- see module docstring
         for why this backend needs Whisper's boundaries rather than
-        producing its own."""
+        producing its own.
+
+        batch_size (Step 103, experimental): how many segments go to Qwen3-ASR
+        in one call. 1 (the default) is the original one-segment-at-a-time
+        behaviour. Timing is Whisper's either way; only throughput changes.
+        Not yet validated on real audio -- see QWEN_ASR_BATCH_VALIDATED_VERSION."""
         if language not in LANGUAGE_NAMES:
             raise ValueError(
                 f"Qwen3-ASR doesn't cover language={language!r} in this project's usage "
@@ -148,23 +160,47 @@ class Qwen3ASRBackend:
 
         model = load_qwen3_asr(use_gpu=use_gpu, model_size=self.model_size)
         language_name = LANGUAGE_NAMES[language]
-        out = []
+        batch_size = max(1, int(batch_size or 1))
+        out = list(whisper_segments)
         with tempfile.TemporaryDirectory(prefix="baihe_qwen3_asr_") as tmp_dir:
-            for i, seg in enumerate(whisper_segments):
-                if seg["end"] - seg["start"] > SEGMENT_DURATION_WARNING_SECONDS:
-                    # See SEGMENT_DURATION_WARNING_SECONDS -- almost certainly a
-                    # VAD-merge artifact; keep Whisper's own text for just this
-                    # one segment rather than failing (or mis-transcribing) the
-                    # whole run over it.
-                    out.append(seg)
-                    continue
-                slice_path = os.path.join(tmp_dir, f"seg_{i}.wav")
-                extract_audio_slice(audio_path, seg["start"], seg["end"], slice_path)
-                try:
-                    results = model.transcribe(audio=slice_path, language=language_name)
-                    text = results[0].text if results else ""
-                finally:
-                    if os.path.exists(slice_path):
-                        os.unlink(slice_path)
-                out.append({"start": seg["start"], "end": seg["end"], "text": text})
+            # See SEGMENT_DURATION_WARNING_SECONDS -- an oversized segment is
+            # almost certainly a VAD-merge artifact; it keeps Whisper's own
+            # text (already in `out`) rather than failing the whole run.
+            todo = [i for i, seg in enumerate(whisper_segments)
+                    if seg["end"] - seg["start"] <= SEGMENT_DURATION_WARNING_SECONDS]
+            for pos in range(0, len(todo), batch_size):
+                batch = todo[pos:pos + batch_size]
+                texts = self._transcribe_batch(model, audio_path, whisper_segments, batch,
+                                               language_name, tmp_dir)
+                for i, text in texts.items():
+                    seg = whisper_segments[i]
+                    out[i] = {"start": seg["start"], "end": seg["end"], "text": text}
         return out
+
+    def _transcribe_batch(self, model, audio_path, segments, indices, language_name, tmp_dir):
+        """{segment index: text} for one batch. Step 103: with more than one
+        index, qwen-asr's transcribe() gets a list of slices and returns one
+        result per input in input order (checked against qwen-asr 0.0.6's
+        own code); results are keyed back by segment index, and a batch whose
+        result count doesn't match falls back to one call per segment rather
+        than guessing which text belongs to which line."""
+        paths = {}
+        try:
+            for i in indices:
+                paths[i] = os.path.join(tmp_dir, f"seg_{i}.wav")
+                extract_audio_slice(audio_path, segments[i]["start"], segments[i]["end"], paths[i])
+            if len(indices) > 1:
+                results = model.transcribe(audio=[paths[i] for i in indices],
+                                           language=language_name)
+                if results is not None and len(results) == len(indices):
+                    return {i: (r.text if r is not None else "")
+                            for i, r in zip(indices, results)}
+            texts = {}
+            for i in indices:
+                results = model.transcribe(audio=paths[i], language=language_name)
+                texts[i] = results[0].text if results else ""
+            return texts
+        finally:
+            for path in paths.values():
+                if os.path.exists(path):
+                    os.unlink(path)

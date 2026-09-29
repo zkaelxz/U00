@@ -789,11 +789,15 @@ class TestQwen3Backends:
         calls = []
 
         class FakeQwen3ASR:
-            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False):
-                calls.append((language, whisper_segments, use_gpu))
+            def transcribe(self, audio_path, language, whisper_segments, use_gpu=False,
+                           batch_size=1):
+                calls.append((language, whisper_segments, use_gpu, batch_size))
                 return [{"start": s["start"], "end": s["end"], "text": "qwen text"}
                         for s in whisper_segments]
         monkeypatch.setattr(asr_backend, "Qwen3ASRBackend", FakeQwen3ASR)
+        # Step 103: the saved batch size reaches the backend.
+        from services import asr_options_service
+        asr_options_service.set_asr_options(qwen_asr_batch_size=4)
         messages = []
         real_update = background_jobs.update_progress
         monkeypatch.setattr(background_jobs, "update_progress",
@@ -802,6 +806,7 @@ class TestQwen3Backends:
         job_id = self._run(did, ddir, "whisper", asr_backend_choice="qwen3_asr", use_gpu=True)
 
         assert len(calls) == 1 and calls[0][0] == "zh" and calls[0][2] is True
+        assert calls[0][3] == 4
         saved = isolated_db.load_lines(did)
         assert [(r["zh"], r["start"], r["end"]) for r in saved] == [("qwen text", 0.0, 1.5)]
         raw = self._raw(ddir)

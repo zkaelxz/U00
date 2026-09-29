@@ -72,7 +72,7 @@ import core as core_module
 import db
 import raw_transcript
 from core import Line, align_transcript_to_timing, split_user_transcript, transcribe_for_timing
-from services import diarization_service, settings_service, source_service
+from services import asr_options_service, diarization_service, settings_service, source_service
 from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, UnsupportedOperationError)
 from translate_engines import redact_secrets
@@ -643,7 +643,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 try:
                     import asr_backend
                     segments = asr_backend.Qwen3ASRBackend().transcribe(
-                        audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu)
+                        audio_path, source_language, whisper_segments=segments, use_gpu=use_gpu,
+                        batch_size=asr_options_service.get_qwen_asr_batch_size())
                 except ImportError as exc:
                     background_jobs.set_result(job_id, {
                         "failed_reason": "dependency_missing",

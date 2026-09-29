@@ -8,6 +8,7 @@ import { ApiKeysCard } from './settings/ApiKeysCard'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { NotificationsSection } from './settings/NotificationsSection'
 import { AdvancedCard, AppearanceCard, DefaultsCard, SpendingCard } from './settings/PreferencesSections'
+import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 import './settings/settings.css'
 
@@ -69,6 +70,7 @@ export default function SettingsPage() {
           <DefaultsCard {...prefProps} />
           <SpendingCard {...prefProps} />
           <NotificationsSection />
+          <TranscriptionExperimentsCard />
           <ExtensionSection />
           <AppearanceCard />
           <AdvancedCard {...prefProps} />
