@@ -208,13 +208,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     // Save the open draft; true when nothing is left unsaved. One save at a
     // time: a second request (a double Ctrl+S) waits, then re-checks the draft
     // against the saved line instead of sending a stale compare-and-set.
-    let inflight: Promise<boolean> | null = null
+    const saving: { current: Promise<boolean> | null } = { current: null }
     const saveEdit = (): Promise<boolean> => {
-      if (inflight) return inflight.then(() => saveEdit())
+      if (saving.current) return saving.current.then(() => saveEdit())
       const run = saveDraft().finally(() => {
-        inflight = null
+        saving.current = null
       })
-      inflight = run
+      saving.current = run
       return run
     }
     const saveDraft = async (): Promise<boolean> => {
