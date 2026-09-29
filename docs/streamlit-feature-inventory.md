@@ -132,7 +132,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 
 | ID | Feature | Source | Calls | React | API | Tests |
 |---|---|---|---|---|---|---|
-| X01 | Notice about the last run's failed batches, with Dismiss | 2399-2414 | `db.update_drama(last_translate_errors=None)` | MISSING (config returns the errors; React doesn't show them) | `GET /api/translate-run/dramas/{id}/config`; dismiss: no API | — |
+| X01 | Notice about the last run's failed batches, with Dismiss | 2399-2414 | `db.update_drama(last_translate_errors=None)` | DONE `stages/TranslateStage.tsx` FailedBatchesNotice (batch count, 1-based line ranges, distinct reasons; Dismiss notice) | `GET /api/translate-run/dramas/{id}/config`; `POST /api/translate-run/dramas/{id}/errors/dismiss` (lines.edit, `translate_run_service.dismiss_translate_errors`) | test_api_translate_errors_dismiss |
 | X02 | Starting tier (Draft/Standard/Release sets engine, model, Reflect and Auto QC) | 2416-2428, `apply_workflow_tier` 117 | `translate_engines.WORKFLOW_TIERS`; `translate_run_service.apply_workflow_tier` | `stages/TranslateStage.tsx` "Starting tier" + "Apply tier" (fills engine, model, Reflect and refreshes the form's Default engine; Auto QC has no React flag, so the status line only says the tier recommends it) | `POST /api/translate-run/dramas/{id}/workflow-tier` (`lines.edit`) | test_project_instructions TestWorkflowTiers; test_api_translate_presets_tiers |
 | X03 | Apply a saved preset | 2430-2447 | `apply_preset_to_session` | MISSING | no API (presets list only) | wt TestPresetsInWorkspaceUI |
 | X04 | Translation style and its guidance text | 2455-2467 | `tguide.STYLE_PRESETS` | `stages/TranslateStage.tsx` Style (guidance text MISSING) | run `style_preset` | — |
