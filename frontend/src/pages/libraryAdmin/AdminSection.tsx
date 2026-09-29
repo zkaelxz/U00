@@ -12,13 +12,18 @@ import {
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
 import { anyJobActive, describeClean, describeScan, formatBytes } from './libraryAdmin'
-import { useAdminJob } from './useAdminJob'
+import { useAdminJob, type AdminJob } from './useAdminJob'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 const JOB_POLL_MS = 3000
 
 /** "Backup & storage": export, backup, restore and storage cleanup. PC only. */
-export function AdminSection({ pc, exportable }: { pc: PcMode; exportable: number }) {
+export function AdminSection({ pc, exportable, exporter }: {
+  pc: PcMode
+  exportable: number
+  // The page-level export job (shared with the selection bar).
+  exporter: AdminJob
+}) {
   if (pc === 'remote') {
     return (
       <Section title="Backup & storage" summary={PC_ONLY_SUMMARY} storageKey="library.admin">
@@ -28,7 +33,7 @@ export function AdminSection({ pc, exportable }: { pc: PcMode; exportable: numbe
   }
   return (
     <Section title="Backup & storage" summary="Export, back up, restore, free space" storageKey="library.admin">
-      <ExportBlock exportable={exportable} />
+      <ExportBlock exportable={exportable} job={exporter} />
       <BackupBlock />
       <RestoreBlock />
       <StorageBlock />
@@ -36,8 +41,7 @@ export function AdminSection({ pc, exportable }: { pc: PcMode; exportable: numbe
   )
 }
 
-function ExportBlock({ exportable }: { exportable: number }) {
-  const job = useAdminJob(ADMIN_JOB_IDS.export, 'export')
+function ExportBlock({ exportable, job }: { exportable: number; job: AdminJob }) {
   return (
     <div className="admin-block">
       <h3>Export</h3>
@@ -83,9 +87,10 @@ function RestoreBlock() {
   const [done, setDone] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  // While a file is picked, check every 3 s whether any job is queued or running.
+  // While a file is picked (and until a restore succeeds), check every 3 s
+  // whether any job is queued or running.
   useEffect(() => {
-    if (!file) return
+    if (!file || done) return
     let cancelled = false
     const check = () =>
       listJobs().then(
@@ -98,7 +103,7 @@ function RestoreBlock() {
       cancelled = true
       clearInterval(timer)
     }
-  }, [file])
+  }, [file, done])
 
   const restore = () => {
     if (!file) return
@@ -108,6 +113,7 @@ function RestoreBlock() {
       () => {
         setBusy(false)
         setDone(true)
+        setFile(null)
       },
       (e: unknown) => {
         setBusy(false)
@@ -149,6 +155,7 @@ function RestoreBlock() {
             <TypedConfirm
               word="RESTORE"
               exact
+              autoFocus
               action="Restore"
               busy={busy}
               blocked={jobsBusy && !busy ? 'Wait for the running job to finish.' : null}
@@ -175,10 +182,13 @@ function StorageBlock() {
   const [cleaning, setCleaning] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
+  // Scan is admin.library (default copy); Clean up is PC-only.
+  const [scanError, setScanError] = useState<unknown>(null)
   const [error, setError] = useState<unknown>(null)
 
   const runScan = () => {
     setBusy(true)
+    setScanError(null)
     setError(null)
     setResult(null)
     scanStorage(preset).then(
@@ -188,7 +198,7 @@ function StorageBlock() {
       },
       (e: unknown) => {
         setBusy(false)
-        setError(e)
+        setScanError(e)
       },
     )
   }
@@ -213,7 +223,7 @@ function StorageBlock() {
   return (
     <div className="admin-block">
       <h3>Storage</h3>
-      <div className="field-row">
+      <div className="field-row preset-row">
         <Field label="Cleanup preset" help="Scan is a dry run: nothing is removed until Clean up.">
           <select
             value={preset}
@@ -233,6 +243,7 @@ function StorageBlock() {
           Clean up…
         </button>
       </div>
+      {!scan && <p className="muted">Scan first.</p>}
       {scan && (
         <>
           <p data-testid="storage-scan">{describeScan(scan)}</p>
@@ -247,11 +258,12 @@ function StorageBlock() {
         </>
       )}
       {scan && cleaning && (
-        <TypedConfirm word="CLEAN" exact action="Clean up" busy={busy} onConfirm={clean} onCancel={() => setCleaning(false)}>
+        <TypedConfirm word="CLEAN" exact autoFocus action="Clean up" busy={busy} onConfirm={clean} onCancel={() => setCleaning(false)}>
           <p>Removes the files this preset drops from every drama. Dramas with a running job are skipped.</p>
         </TypedConfirm>
       )}
       {result && <p role="status">{result}</p>}
+      <ErrorBanner error={scanError} />
       <ErrorBanner error={error} describe={SERVER} />
     </div>
   )

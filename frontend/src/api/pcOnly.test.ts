@@ -33,6 +33,29 @@ describe('PC-only mode', () => {
     expect(m).toHaveBeenCalledTimes(1)
   })
 
+  it('a 403 this page load wins over meta local: true', async () => {
+    markRemote()
+    await loadPcMode(() => Promise.resolve(meta(true)))
+    expect(getPcMode()).toBe('remote')
+  })
+
+  it('meta local: true on a later page load clears a remembered 403', () => {
+    const store = new Map<string, string>([['baihe.pcOnly', 'remote']])
+    vi.stubGlobal('window', { sessionStorage: {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    } })
+    try {
+      resetPcModeForTests('remote') // a new page load that remembered remote
+      applyMeta(meta(true))
+      expect(getPcMode()).toBe('local')
+      expect(store.has('baihe.pcOnly')).toBe(false)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('markRemote notifies subscribers', () => {
     const l = vi.fn()
     subscribePcMode(l)

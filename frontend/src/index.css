@@ -314,7 +314,11 @@ ul.drama-cards > li.selected { border-color: var(--accent); }
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .list-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
 .list-head p { margin: 0; }
-th.check-col, td.check-col { width: 2.5rem; cursor: default; }
+th.check-col, td.check-col { width: 2.5rem; padding: 0; cursor: default; }
+.check-hit { display: flex; justify-content: center; align-items: flex-start; padding: 10px 10px 8px; cursor: pointer; }
+.preset-row { max-width: 28rem; }
+input[type='file']::file-selector-button { font: inherit; padding: 6px 12px; margin-right: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
+input[type='file'] { color: var(--muted); max-width: 100%; }
 .check-col input { width: 1.1rem; height: 1.1rem; margin: 0; }
 .selection-bar { position: sticky; z-index: 4; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); padding: var(--space-2) var(--space-3); display: grid; gap: var(--space-2); min-width: 0; }
 .selection-bar.wide { top: 0; }
@@ -325,11 +329,12 @@ th.check-col, td.check-col { width: 2.5rem; cursor: default; }
 .bar-group select { width: auto; }
 .selection-bar.phone { grid-column: 1 / -1; bottom: env(safe-area-inset-bottom, 0); box-shadow: 0 -2px 8px color-mix(in srgb, var(--text) 14%, transparent); }
 .selection-bar.phone .bar-row { flex-wrap: nowrap; justify-content: space-between; }
-.bar-menu { position: relative; }
+/* The menu body is placed against the bar (sticky is already a positioned box), so it never overflows the screen. */
+.selection-bar.phone .bar-menu { position: static; }
 .bar-menu > summary { list-style: none; cursor: pointer; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
 .bar-menu > summary::-webkit-details-marker { display: none; }
 .bar-menu > summary::after { content: ' \25B4'; }
-.bar-menu-body { position: absolute; bottom: calc(100% + var(--space-2)); left: 50%; transform: translateX(-50%); width: min(22rem, calc(100vw - 2 * var(--space-4))); max-height: 70vh; overflow-y: auto; padding: var(--space-3); display: grid; gap: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 -2px 12px color-mix(in srgb, var(--text) 18%, transparent); }
+.bar-menu-body { position: absolute; bottom: calc(100% + var(--space-2)); left: 0; right: 0; width: auto; transform: none; max-height: 70vh; overflow-y: auto; padding: var(--space-3); display: grid; gap: var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 -2px 12px color-mix(in srgb, var(--text) 18%, transparent); }
 .bar-menu-body .bar-actions, .bar-menu-body .bar-group { flex-direction: column; align-items: stretch; }
 .bar-menu-body .bar-group select { width: 100%; }
 .bar-menu-body button:not(.link), .bar-menu-body select { min-height: 48px; }
@@ -344,6 +349,9 @@ ul.drama-cards.selecting > li { cursor: pointer; }
 .admin-block h3 { margin: 0; }
 .admin-block p { margin: 0; }
 .storage-cats { margin: 0; }
+@media (pointer: coarse), (max-width: 640px) {
+  input[type='file']::file-selector-button { min-height: 44px; }
+}
 @media (max-width: 640px) {
   .confirm-button { display: flex; flex: 1 1 100%; justify-content: flex-end; }
 }

@@ -16,6 +16,8 @@ type TypedConfirmProps = {
   word: string
   // Letter case must match (default false: case-insensitive).
   exact?: boolean
+  // Focus the word input when it appears (e.g. opened from a menu).
+  autoFocus?: boolean
   action: string
   busy?: boolean
   // A reason the action cannot run right now; shown and the button disabled.
@@ -25,7 +27,7 @@ type TypedConfirmProps = {
   children?: ReactNode
 }
 
-export function TypedConfirm({ word, exact, action, busy, blocked, onConfirm, onCancel, children }: TypedConfirmProps) {
+export function TypedConfirm({ word, exact, autoFocus, action, busy, blocked, onConfirm, onCancel, children }: TypedConfirmProps) {
   const [typed, setTyped] = useState('')
   const id = useId()
   const ready = typedMatches(typed, word, exact) && !busy && !blocked
@@ -50,7 +52,9 @@ export function TypedConfirm({ word, exact, action, busy, blocked, onConfirm, on
             id={id}
             value={typed}
             autoComplete="off"
-            autoCapitalize="none"
+            autoFocus={autoFocus}
+            // An all-capitals word (DELETE) gets a capitals keyboard on phones.
+            autoCapitalize={word === word.toUpperCase() && word !== word.toLowerCase() ? 'characters' : 'none'}
             spellCheck={false}
             onChange={(e) => setTyped(e.target.value)}
           />

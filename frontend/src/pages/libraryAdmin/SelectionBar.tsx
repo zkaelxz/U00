@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { ApiError } from '../../api/client'
 import { bulkDelete, bulkSetStatus, bulkSetTag, bulkTranslate, startExport } from '../../api/libraryAdmin'
@@ -11,10 +11,10 @@ import {
 } from '../../types/libraryAdmin'
 import { AdminJobLine } from './AdminJobLine'
 import {
-  TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeTranslateSkips, exportableIds,
-  titleOf, translatableIds,
+  EXPORT_NEEDS, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeTranslateSkips,
+  exportableIds, titleOf, translatableIds,
 } from './libraryAdmin'
-import { useAdminJob } from './useAdminJob'
+import { useAdminJob, type AdminJob } from './useAdminJob'
 
 type Props = {
   selected: DramaSummary[]
@@ -22,12 +22,18 @@ type Props = {
   items: DramaSummary[]
   pc: PcMode
   phone: boolean
+  // The page-level export job (shared with Backup & storage).
+  exporter: AdminJob
   onClear: () => void
   // Phone: leave select mode.
   onDone: () => void
   // Something changed server-side: reload the list.
   onChanged: () => void
   onDeleted: (ids: number[]) => void
+  // The last bulk result line; the page keeps it after the bar unmounts.
+  onResult: (text: string | null) => void
+  // Phone: the page's result line, shown inside the bar while it is open.
+  result?: string | null
 }
 
 const translateError = (e: unknown): string | null => {
@@ -37,17 +43,27 @@ const translateError = (e: unknown): string | null => {
   return null
 }
 
+const PC_ONLY_NOTE = 'Delete and export are PC only.'
+// PC-only calls (delete, export): a 403 means "not at the main PC".
+const PC_ONLY_ERR = { pcOnly: true, serverText: true } as const
+
 /** The sticky bar shown while at least one drama is selected (desktop), or in select mode (phone). */
-export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onChanged, onDeleted }: Props) {
+export function SelectionBar({
+  selected, items, pc, phone, exporter, onClear, onDone, onChanged, onDeleted, onResult, result,
+}: Props) {
   const [status, setStatus] = useState<LibraryStatus>('translated')
   const [tag, setTag] = useState<LibraryListTag>('Favorite')
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
-  const [error, setError] = useState<unknown>(null)
+  // admin.library calls (status, lists): default error copy.
+  const [adminError, setAdminError] = useState<unknown>(null)
+  // local_only calls (delete): PC-only copy.
+  const [deleteError, setDeleteError] = useState<unknown>(null)
   const [deleting, setDeleting] = useState(false)
   const [skips, setSkips] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDetailsElement>(null)
+  const summaryRef = useRef<HTMLElement>(null)
   const translate = useAdminJob(ADMIN_JOB_IDS.translate)
-  const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
 
   const ids = selected.map((d) => d.id)
   const toTranslate = translatableIds(selected)
@@ -58,19 +74,38 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
     return d ? titleOf(d) : `#${id}`
   }
 
+  const closeMenu = (refocus: boolean) => {
+    setMenuOpen(false)
+    if (refocus) summaryRef.current?.focus()
+  }
+
+  // Phone menu: an outside tap closes it and returns focus to Actions.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) {
+        setMenuOpen(false)
+        summaryRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onDown)
+    return () => document.removeEventListener('pointerdown', onDown)
+  }, [menuOpen])
+
   const run = <T,>(call: () => Promise<T>, done: (r: T) => string) => {
+    closeMenu(false)
     setBusy(true)
-    setError(null)
-    setResult(null)
+    setAdminError(null)
+    onResult(null)
     call().then(
       (r) => {
         setBusy(false)
-        setResult(done(r))
+        onResult(done(r))
         onChanged()
       },
       (e: unknown) => {
         setBusy(false)
-        setError(e)
+        setAdminError(e)
       },
     )
   }
@@ -84,24 +119,30 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
 
   const remove = () => {
     setBusy(true)
-    setError(null)
+    setDeleteError(null)
     bulkDelete(ids).then(
       (r) => {
         setBusy(false)
         setDeleting(false)
-        setResult(describeDeleteResult(r, name))
+        onResult(describeDeleteResult(r, name))
         onDeleted(r.results.filter((x) => x.ok).map((x) => x.drama_id))
         onChanged()
       },
       (e: unknown) => {
         setBusy(false)
-        setError(e)
+        setDeleteError(e)
       },
     )
   }
 
   const n = selected.length
   const translateMsg = translateError(translate.startError)
+  // Reasons sit under their buttons in the phone menu, in the bar's lines on desktop.
+  const reason = (show: boolean, id: string, text: string): ReactNode =>
+    show ? <p className="muted" id={id}>{text}</p> : null
+  const translateReason = reason(!toTranslate.length && n > 0, 'translate-needs', TRANSLATE_NEEDS)
+  const exportReason = reason(local && !toExport.length && n > 0, 'export-needs', EXPORT_NEEDS)
+  const pcReason = reason(!local, 'pc-only-note', PC_ONLY_NOTE)
 
   const actions = (
     <div className="bar-actions">
@@ -110,7 +151,7 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
           {LIBRARY_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetStatus(ids, status), describeBulkResult)}>
-          Apply
+          Set status
         </button>
       </div>
       <div className="bar-group">
@@ -118,10 +159,10 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
           {LIBRARY_LIST_TAGS.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, true), describeBulkResult)}>
-          Add
+          Add to list
         </button>
         <button type="button" disabled={busy || !n} onClick={() => run(() => bulkSetTag(ids, tag, false), describeBulkResult)}>
-          Remove
+          Remove from list
         </button>
       </div>
       <div className="bar-group">
@@ -133,37 +174,51 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
         >
           Translate {toTranslate.length}
         </button>
+        {phone && translateReason}
         {local && (
           <button
             type="button"
             disabled={!toExport.length || exporter.active}
+            aria-describedby={!toExport.length ? 'export-needs' : undefined}
             onClick={() => void exporter.start(() => startExport(toExport))}
           >
             Export .zip ({toExport.length})
           </button>
         )}
+        {phone && exportReason}
         {local && (
-          <button type="button" className="danger" disabled={busy || !n} onClick={() => setDeleting(true)}>
+          <button
+            type="button"
+            className="danger"
+            disabled={busy || !n}
+            onClick={() => {
+              closeMenu(false)
+              setDeleting(true)
+            }}
+          >
             Delete…
           </button>
         )}
+        {phone && pcReason}
       </div>
     </div>
   )
 
   const statusLines = (
     <>
-      {!toTranslate.length && n > 0 && <p className="muted" id="translate-needs">{TRANSLATE_NEEDS}</p>}
-      {!local && <p className="muted">Delete and export are PC only.</p>}
+      {!phone && translateReason}
+      {!phone && exportReason}
+      {!phone && pcReason}
       <AdminJobLine job={translate} busyText="Translating…" />
       {translateMsg ? <p className="error" role="alert">{translateMsg}</p> : <ErrorBanner error={translate.startError} />}
       {skips && <p className="muted">{skips}</p>}
-      <AdminJobLine job={exporter} busyText="Exporting…" artifact="export" showLink={exporter.done} />
-      <ErrorBanner error={exporter.startError} describe={{ pcOnly: true, serverText: true }} />
+      {local && <AdminJobLine job={exporter} busyText="Exporting…" artifact="export" showLink={exporter.done} />}
+      {local && <ErrorBanner error={exporter.startError} describe={PC_ONLY_ERR} />}
       {deleting && local && (
         <TypedConfirm
           word="DELETE"
           exact
+          autoFocus
           action={`Delete ${n}`}
           busy={busy}
           onConfirm={remove}
@@ -172,10 +227,9 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
           <p>Permanently deletes {n} drama{n === 1 ? '' : 's'} with their lines and files. No undo.</p>
         </TypedConfirm>
       )}
-      <p role="status" data-testid="bulk-result" className={result ? undefined : 'visually-hidden'}>
-        {result}
-      </p>
-      <ErrorBanner error={error} describe={{ pcOnly: true, serverText: true }} />
+      {result && <p role="status" data-testid="bulk-result">{result}</p>}
+      <ErrorBanner error={adminError} />
+      <ErrorBanner error={deleteError} describe={PC_ONLY_ERR} />
     </>
   )
 
@@ -184,11 +238,22 @@ export function SelectionBar({ selected, items, pc, phone, onClear, onDone, onCh
       <section className="selection-bar phone" aria-label="Selection">
         <div className="bar-row">
           <strong data-testid="selected-count">{n} selected</strong>
-          <details className="bar-menu">
-            <summary>Actions</summary>
+          <details
+            ref={menuRef}
+            className="bar-menu"
+            open={menuOpen}
+            onToggle={(e) => setMenuOpen(e.currentTarget.open)}
+            onKeyDown={(e) => {
+              if (menuOpen && e.key === 'Escape') {
+                e.stopPropagation()
+                closeMenu(true)
+              }
+            }}
+          >
+            <summary ref={summaryRef}>Actions</summary>
             <div className="bar-menu-body">
               {actions}
-              <button type="button" className="link" onClick={onClear}>Clear</button>
+              <button type="button" className="link" onClick={() => { closeMenu(true); onClear() }}>Clear</button>
             </div>
           </details>
           <button type="button" onClick={onDone}>Done</button>

@@ -7,23 +7,24 @@
  *              optimistically (the server still enforces).
  *   'local'    GET /api/meta said local: true.
  *   'remote'   /api/meta said local: false, or a PC-only call got a 403.
- *              The 403 switch is kept in sessionStorage for this tab.
+ *              The 403 switch is kept in sessionStorage for this tab until
+ *              the next page load's /api/meta says local: true.
  *
  * Every PC-only mutating call goes through `pcOnlyFetch()`:
  *
  *   postJson('/api/.../delete', { confirm: true }, pcOnlyFetch(f))
  *   postMultipart('/api/.../restore', form, pcOnlyFetch(f))
  *
- * It adds `X-Baihe-Local: 1` (required on local_only POST/PUT/PATCH once
- * #372 lands; harmless before) and flips the mode to 'remote' on a 403.
+ * It adds `X-Baihe-Local: 1` (client.ts LOCAL_HEADER; the server requires
+ * JSON or this header on local_only POST/PUT/PATCH) and flips the mode to
+ * 'remote' on a 403.
  * This is only a UI hint: the routes enforce PC-only themselves.
  */
-import { api } from './client'
+import { LOCAL_HEADER, api } from './client'
 import type { MetaResponse } from './types'
 
 export type PcMode = 'local' | 'remote' | 'unknown'
 
-export const LOCAL_HEADER = 'X-Baihe-Local'
 const SESSION_KEY = 'baihe.pcOnly'
 
 type Fetch = typeof fetch
@@ -45,6 +46,8 @@ function readRemembered(): PcMode {
 }
 
 let mode: PcMode = readRemembered()
+// A 403 seen during this page load: stays remote even if meta says local.
+let refusedThisLoad = false
 const listeners = new Set<() => void>()
 
 function set(next: PcMode) {
@@ -64,6 +67,7 @@ export function subscribePcMode(listener: () => void): () => void {
 
 /** A PC-only call was refused: hide PC-only controls for the rest of this tab. */
 export function markRemote(): void {
+  refusedThisLoad = true
   try {
     session()?.setItem(SESSION_KEY, 'remote')
   } catch {
@@ -72,11 +76,22 @@ export function markRemote(): void {
   set('remote')
 }
 
-/** Apply /api/meta. A 403 seen in this tab wins over local: true. */
+/**
+ * Apply /api/meta. local: true clears a remote remembered from a 403 on an
+ * earlier page load (so one stray 403 doesn't stick), but not one seen
+ * during this page load.
+ */
 export function applyMeta(meta: Pick<MetaResponse, 'local'>): void {
   if (typeof meta.local !== 'boolean') return
   if (!meta.local) set('remote')
-  else if (readRemembered() !== 'remote') set('local')
+  else if (!refusedThisLoad) {
+    try {
+      session()?.removeItem(SESSION_KEY)
+    } catch {
+      // Storage blocked: nothing remembered anyway.
+    }
+    set('local')
+  }
 }
 
 let metaLoad: Promise<void> | null = null
@@ -91,7 +106,7 @@ export function loadPcMode(meta: () => Promise<MetaResponse> = () => api.meta())
 export function pcOnlyFetch(f: Fetch = fetch): Fetch {
   return async (input, init) => {
     const headers = new Headers(init?.headers)
-    headers.set(LOCAL_HEADER, '1')
+    for (const [k, v] of Object.entries(LOCAL_HEADER)) headers.set(k, v)
     const resp = await f(input, { ...init, headers })
     if (resp.status === 403) markRemote()
     return resp
@@ -101,6 +116,7 @@ export function pcOnlyFetch(f: Fetch = fetch): Fetch {
 /** Test-only: forget the mode and the cached meta load. */
 export function resetPcModeForTests(next: PcMode = 'unknown'): void {
   metaLoad = null
+  refusedThisLoad = false
   mode = next
   listeners.clear()
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DramaSummary } from '../../api/types'
 import { AdminSection } from './AdminSection'
+import type { AdminJob } from './useAdminJob'
 import { SelectionBar } from './SelectionBar'
 import {
   MAX_SELECTION, TRANSLATE_NEEDS, anyJobActive, describeBulkResult, describeClean, describeDeleteResult,
@@ -96,10 +97,15 @@ describe('result lines', () => {
   })
 })
 
-const bar = (pc: 'local' | 'remote', selected: DramaSummary[], phone = false) =>
+const idleJob = (over: Partial<AdminJob> = {}): AdminJob => ({
+  job: null, pollError: null, startError: null, active: false, done: false, info: null,
+  start: () => Promise.resolve(null), cancel: () => {}, clearError: () => {}, ...over,
+})
+
+const bar = (pc: 'local' | 'remote', selected: DramaSummary[], phone = false, exporter = idleJob()) =>
   renderToStaticMarkup(createElement(SelectionBar, {
-    selected, items: selected, pc, phone,
-    onClear: () => {}, onDone: () => {}, onChanged: () => {}, onDeleted: () => {},
+    selected, items: selected, pc, phone, exporter,
+    onClear: () => {}, onDone: () => {}, onChanged: () => {}, onDeleted: () => {}, onResult: () => {},
   }))
 
 describe('SelectionBar', () => {
@@ -115,6 +121,23 @@ describe('SelectionBar', () => {
     const out = bar('local', [d(2, 'translated')])
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Translate 0<\/button>/)
     expect(out).toContain(TRANSLATE_NEEDS.replace(/'/g, '&#x27;'))
+  })
+
+  it('disabled Export .zip explains itself', () => {
+    const out = bar('local', [d(1, 'aligned')])
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*aria-describedby="export-needs"[^>]*>Export .zip \(0\)/)
+    expect(out).toContain('id="export-needs"')
+  })
+
+  it('relabelled list and status actions', () => {
+    const out = bar('local', [d(1)])
+    for (const l of ['>Set status<', '>Add to list<', '>Remove from list<']) expect(out).toContain(l)
+  })
+
+  it('remote: hides the export job line and download link', () => {
+    const exporter = idleJob({ done: true, info: { kind: 'export', name: 'x.zip', size: 10 } })
+    expect(bar('local', [d(2, 'translated')], false, exporter)).toContain('Download x.zip')
+    expect(bar('remote', [d(2, 'translated')], false, exporter)).not.toContain('Download')
   })
 
   it('remote: no Delete or Export, a muted note instead', () => {
@@ -133,16 +156,16 @@ describe('SelectionBar', () => {
 
 describe('AdminSection', () => {
   it('remote: keeps the title, says PC only, renders no buttons', () => {
-    const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'remote', exportable: 3 }))
+    const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'remote', exportable: 3, exporter: idleJob() }))
     expect(out).toContain('Backup &amp; storage')
     expect(out).toContain('Run this on the main PC.')
     expect(out).not.toContain('<button')
   })
 
   it('on the PC: export, backup, restore and storage blocks', () => {
-    const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'local', exportable: 3 }))
+    const out = renderToStaticMarkup(createElement(AdminSection, { pc: 'local', exportable: 3, exporter: idleJob() }))
     for (const text of ['Export all translated (3)', 'Back up library', 'Database only',
-      'Site sign-ins are never included.', 'accept=".zip"', '>Scan</button>']) {
+      'Site sign-ins are never included.', 'accept=".zip"', '>Scan</button>', 'Scan first.']) {
       expect(out).toContain(text)
     }
   })

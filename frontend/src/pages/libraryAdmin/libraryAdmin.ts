@@ -56,6 +56,8 @@ export const exportableCount = (byStatus: Record<string, number> | undefined) =>
   EXPORTABLE.reduce((n, s) => n + (byStatus?.[s] ?? 0), 0)
 
 export const TRANSLATE_NEEDS = "Still needed: a selected drama with status 'aligned'."
+export const EXPORT_NEEDS =
+  "Still needed: a selected drama with status 'translated', 'dubbed' or 'exported'."
 
 const ERROR_WORDS: Record<string, string> = {
   not_found: 'not found',

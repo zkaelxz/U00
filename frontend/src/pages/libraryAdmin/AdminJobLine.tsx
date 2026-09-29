@@ -4,9 +4,7 @@ import { safeDetail } from '../../components/errorMessages'
 import { jobFailed } from '../../types/jobs'
 import type { ArtifactKind } from '../../types/libraryAdmin'
 import { formatBytes, percent } from './libraryAdmin'
-import type { useAdminJob } from './useAdminJob'
-
-type AdminJob = ReturnType<typeof useAdminJob>
+import type { AdminJob } from './useAdminJob'
 
 /** "Working… 40% · Cancel" while running; the failure or download link after. */
 export function AdminJobLine({ job, busyText, artifact, showLink = true }: {

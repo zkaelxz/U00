@@ -71,3 +71,5 @@ export function useAdminJob(jobId: string, artifact?: ArtifactKind) {
   const active = starting || (!!runId && !done && !pollError)
   return { job, pollError, startError, active, done, info, start, cancel, clearError: () => setStartError(null) }
 }
+
+export type AdminJob = ReturnType<typeof useAdminJob>

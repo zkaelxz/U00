@@ -109,6 +109,14 @@ export function LibraryList({
                 Select
               </button>
             )}
+            {selecting && phone && items.length > 0 && selectMode && (
+              <button
+                type="button"
+                onClick={() => onCheckedChange?.(allChecked ? new Set() : selectAllVisible(items).ids)}
+              >
+                {allChecked ? 'Select none' : 'Select all'}
+              </button>
+            )}
           </div>
           {selecting && items.length > MAX_SELECTION && (
             <p className="muted">At most {MAX_SELECTION} at a time.</p>
@@ -129,12 +137,14 @@ export function LibraryList({
                 <tr>
                   {selecting && (
                     <th className="check-col">
-                      <input
-                        type="checkbox"
-                        aria-label="Select all visible"
-                        checked={allChecked}
-                        onChange={() => onCheckedChange?.(allChecked ? new Set() : selectAllVisible(items).ids)}
-                      />
+                      <label className="check-hit">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visible"
+                          checked={allChecked}
+                          onChange={() => onCheckedChange?.(allChecked ? new Set() : selectAllVisible(items).ids)}
+                        />
+                      </label>
                     </th>
                   )}
                   <th>Title</th>
@@ -153,12 +163,14 @@ export function LibraryList({
                   >
                     {selecting && (
                       <td className="check-col" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${d.title_en || d.title_zh || `#${d.id}`}`}
-                          checked={!!checked?.has(d.id)}
-                          onChange={() => toggle(d.id)}
-                        />
+                        <label className="check-hit">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${d.title_en || d.title_zh || `#${d.id}`}`}
+                            checked={!!checked?.has(d.id)}
+                            onChange={() => toggle(d.id)}
+                          />
+                        </label>
                       </td>
                     )}
                     <td>

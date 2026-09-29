@@ -52,6 +52,30 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
     els.filter((e) => (e as HTMLElement).offsetParent !== null).length)
   expect(filled).toBeLessThanOrEqual(1)
 
+  // The menu stays inside the screen.
+  const menuBox = await page.locator('.bar-menu-body').boundingBox()
+  expect(menuBox && menuBox.x >= 0 && menuBox.x + menuBox.width <= 390).toBeTruthy()
+
+  // Esc closes it and returns focus to Actions.
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.bar-menu-body')).toBeHidden()
+  await expect(page.locator('.bar-menu > summary')).toBeFocused()
+
+  // Delete… closes the menu and focuses the typed-word input.
+  await bar.getByText('Actions', { exact: true }).click()
+  await bar.getByRole('button', { name: 'Delete…' }).click()
+  await expect(page.locator('.bar-menu-body')).toBeHidden()
+  await expect(bar.getByLabel(/Type DELETE to confirm/)).toBeFocused()
+  await bar.getByRole('button', { name: 'Cancel' }).click()
+
+  // An outside tap closes the menu.
+  await bar.getByText('Actions', { exact: true }).click()
+  await bar.getByTestId('selected-count').tap()
+  await expect(page.locator('.bar-menu-body')).toBeHidden()
+
+  await page.getByRole('button', { name: 'Select all' }).click()
+  await expect(bar.getByTestId('selected-count')).toHaveText('3 selected')
+
   await bar.getByRole('button', { name: 'Done' }).click()
   await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
 import { ConfirmButton } from './ConfirmButton'
-import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep } from './confirmButton'
+import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep, replay } from './confirmButton'
 import { PC_ONLY_FORBIDDEN, describeError } from './errorMessages'
 
 describe('confirmStep', () => {
@@ -13,8 +13,19 @@ describe('confirmStep', () => {
     expect(confirmStep(true, 'press')).toEqual({ armed: false, run: true })
   })
 
-  it.each(['cancel', 'timeout', 'blur', 'escape', 'done'] as const)('%s disarms without running', (ev) => {
+  it.each(['cancel', 'timeout', 'blur', 'escape', 'blocked'] as const)('%s disarms without running', (ev) => {
     expect(confirmStep(true, ev)).toEqual({ armed: false, run: false })
+  })
+
+  it('arm, disable, enable, press once: no call', () => {
+    expect(replay([
+      { event: 'press' },
+      { event: 'blocked', blocked: true },
+      { event: 'press' },
+    ])).toBe(0)
+    // A press while blocked never runs either.
+    expect(replay([{ event: 'press' }, { event: 'press', blocked: true }])).toBe(0)
+    expect(replay([{ event: 'press' }, { event: 'press' }])).toBe(1)
   })
 
   it('labels and timing', () => {
@@ -31,6 +42,12 @@ describe('ConfirmButton', () => {
     expect(out).toContain('aria-label="Delete Voice B"')
     expect(out).toContain('aria-live="polite"')
     expect(out).not.toContain('Confirm delete')
+  })
+
+  it('busy: disabled first step, Working…, aria-busy', () => {
+    const out = renderToStaticMarkup(createElement(ConfirmButton, { name: 'V', busy: true, onConfirm: () => {} }))
+    expect(out).toContain('aria-busy="true"')
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Working…<\/button>/)
   })
 })
 

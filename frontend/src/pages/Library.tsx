@@ -14,10 +14,12 @@ import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
 import { AdminSection } from './libraryAdmin/AdminSection'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
-import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
+import { useAdminJob } from './libraryAdmin/useAdminJob'
+import type { DramaCreateRequest, LibraryDashboard, LibrarySearchHit } from '../types/library'
 import {
   MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, type CreateExtras,
@@ -65,8 +67,7 @@ function Fold({ title, count, error, children }: {
   )
 }
 
-function StatsStrip({ reloadKey }: { reloadKey: number }) {
-  const stats = useLoad(getStats, reloadKey)
+function StatsStrip({ stats }: { stats: { data: LibraryDashboard | null; error: unknown } }) {
   const s = stats.data
   return (
     <section className="wide stats-strip" aria-label="Stats">
@@ -354,6 +355,10 @@ export default function LibraryPage() {
   const pc = usePcOnly()
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
+  // One export job for the page: the selection bar and Backup & storage share it.
+  const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
+  // The last bulk result stays after the bar closes (like `notice`).
+  const [bulkResult, setBulkResult] = useState<string | null>(null)
   const reload = () => setReloadKey((k) => k + 1)
 
   // Prune the selection on every reload so it only holds dramas still listed.
@@ -371,6 +376,9 @@ export default function LibraryPage() {
       items={items}
       pc={pc}
       phone={phone}
+      exporter={exporter}
+      result={phone ? bulkResult : null}
+      onResult={setBulkResult}
       onClear={clear}
       onDone={() => { setSelectMode(false); clear() }}
       onChanged={reload}
@@ -381,13 +389,21 @@ export default function LibraryPage() {
     />
   )
 
+  const resultLine = bulkResult && (
+    <p className="panel wide" role="status" data-testid="bulk-result">
+      {bulkResult}{' '}
+      <button type="button" className="link" onClick={() => setBulkResult(null)}>Dismiss</button>
+    </p>
+  )
+
   return (
     <main className="library-grid">
-      <StatsStrip reloadKey={reloadKey} />
+      <StatsStrip stats={stats} />
       <div className="wide new-drama-slot">
         <CreateForm reloadKey={reloadKey} onCreated={(id) => { setSelectedId(id); reload() }} />
       </div>
       {!phone && bar}
+      {!(phone && bar) && resultLine}
       <LibraryList
         selectedId={selectedId}
         onSelect={setSelectedId}
@@ -404,6 +420,7 @@ export default function LibraryPage() {
           key={selectedId}
           dramaId={selectedId}
           onDeleted={pc === 'remote' ? undefined : (r) => { setNotice(deleteNotice(r)); setSelectedId(null); reload() }}
+          deleteNote={pc === 'remote' ? PC_ONLY_DELETE_NOTE : undefined}
         />
       )}
       {notice && (
@@ -415,7 +432,7 @@ export default function LibraryPage() {
       <MoreSections reloadKey={reloadKey} pc={pc} onChanged={reload} />
       <LineSearch onSelect={setSelectedId} />
       <div className="wide">
-        <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} />
+        <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} exporter={exporter} />
       </div>
     </main>
   )

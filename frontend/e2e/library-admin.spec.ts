@@ -32,8 +32,8 @@ test.describe('selection bar (real API)', () => {
     await expect(page.getByRole('region', { name: 'Admin E2E One' })).toHaveCount(0)
 
     await bar.getByLabel('New status').selectOption('translated')
-    await bar.getByRole('button', { name: 'Apply' }).click()
-    await expect(bar.getByTestId('bulk-result')).toHaveText('Updated 2.')
+    await bar.getByRole('button', { name: 'Set status' }).click()
+    await expect(page.getByTestId('bulk-result')).toContainText('Updated 2.')
     await expect(page.locator('tbody tr', { hasText: 'Admin E2E' }).filter({ hasText: 'translated' })).toHaveCount(2)
 
     await expect(bar.getByRole('button', { name: 'Translate 0' })).toBeDisabled()
@@ -48,6 +48,8 @@ test.describe('selection bar (real API)', () => {
     await confirm.click()
     await expect(page.getByTestId('drama-count')).toHaveText('0 drama(s)')
     await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
+    // The result outlives the bar.
+    await expect(page.getByTestId('bulk-result')).toContainText('Deleted 2.')
   })
 })
 
@@ -159,6 +161,11 @@ test.describe('Backup & storage (mocked)', () => {
     await expect(bar.getByRole('button', { name: 'Delete…' })).toHaveCount(0)
     await expect(bar.getByRole('button', { name: /Export \.zip/ })).toHaveCount(0)
     await expect(bar).toContainText('Delete and export are PC only.')
+    // The detail panel shows the note where its delete button would be.
+    await page.getByRole('button', { name: 'Signal', exact: true }).click()
+    const detail = page.getByRole('region', { name: 'Signal' })
+    await expect(detail).toContainText('Deleting is PC only.')
+    await expect(detail.getByRole('button', { name: 'Delete drama…' })).toHaveCount(0)
   })
 })
 
@@ -201,4 +208,30 @@ test('an armed delete reverts after 5 s', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Confirm delete Narrator' })).toHaveCount(0, { timeout: 7000 })
   await expect(page.getByRole('button', { name: 'Delete Narrator' })).toBeVisible()
+})
+
+test('a failed delete re-enables the first step with focus; one press then only arms', async ({ page }) => {
+  let calls = 0
+  await page.route('**/api/library/presets', (r) => r.fulfill({ json: {
+    items: [{ id: 9, name: 'Slow preset', translation_engine: 'claude', engine_model: null,
+      style_preset: null, locale: null }],
+  } }))
+  await page.route('**/api/library/presets/9/delete', async (r) => {
+    calls += 1
+    await new Promise((res) => setTimeout(res, 400))
+    return r.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is running.' } } })
+  })
+  await page.goto('/')
+  await page.getByText(/^Presets \(1\)/).click()
+  await page.getByRole('button', { name: 'Delete Slow preset' }).click()
+  await page.getByRole('button', { name: 'Confirm delete Slow preset' }).click()
+  const first = page.getByRole('button', { name: 'Delete Slow preset' })
+  await expect(page.locator('.confirm-button[aria-busy="true"]')).toHaveCount(1)
+  await expect(first).toBeEnabled()
+  await expect(first).toBeFocused()
+  await expect(page.getByText('A job is running.')).toBeVisible()
+  expect(calls).toBe(1)
+  await first.click()
+  await expect(page.getByRole('button', { name: 'Confirm delete Slow preset' })).toBeVisible()
+  expect(calls).toBe(1)
 })
