@@ -55,12 +55,12 @@ describe('diagnostics api', () => {
   it('install and upgrade post confirm with the PC-only header, name encoded', async () => {
     const { mock, f } = reply(200, { package: 'pyannote.audio', ok: true, output_tail: [] })
     await installDependency('pyannote.audio', f)
-    await upgradeDependency('yt-dlp', f)
+    await upgradeDependency('yt-dlp', '2026.9.1', f)
     const [[u1, i1], [u2, i2]] = mock.mock.calls
     expect(u1).toBe('/api/diagnostics/dependencies/pyannote.audio/install')
     expect(u2).toBe('/api/diagnostics/dependencies/yt-dlp/upgrade')
     expect(JSON.parse(i1.body)).toEqual({ confirm: true })
-    expect(JSON.parse(i2.body)).toEqual({ confirm: true })
+    expect(JSON.parse(i2.body)).toEqual({ confirm: true, target: '2026.9.1' })
     expect(i1.method).toBe('POST')
     expect(localHeader(i1)).toBe('1')
   })

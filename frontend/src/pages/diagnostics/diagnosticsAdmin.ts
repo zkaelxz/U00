@@ -13,7 +13,7 @@ import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { describeGpu, formatSeconds, statusLabel } from '../diagnosticsFormat'
 
-// Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Upgrade.
+// Mirrors diagnostics.py INSTALLABLE_TIERS: only these get Install/Update.
 export const INSTALLABLE_TIERS: readonly string[] = ['feature', 'engine']
 export const isInstallable = (tier: string) => INSTALLABLE_TIERS.includes(tier)
 
@@ -27,7 +27,7 @@ export const installConfirmLabel = (name: string): string | undefined =>
 export type AdminAction = 'install' | 'upgrade' | 'reset'
 export type AdminBusy = { kind: AdminAction; name: string } | null
 
-/** Why Install/Upgrade can't run now, or null. */
+/** Why Install/Update can't run now, or null. */
 export function installBlockedReason(jobsActive: boolean, busy: AdminBusy): string | null {
   if (busy?.kind === 'reset') return 'Wait for the reset to finish.'
   if (busy) return 'Wait for the install to finish.'
@@ -45,13 +45,13 @@ export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string
 /** The aria-live line while an install or upgrade runs. */
 export function busyLine(busy: AdminBusy): string | null {
   if (!busy || busy.kind === 'reset') return null
-  const verb = busy.kind === 'install' ? 'Installing' : 'Upgrading'
+  const verb = busy.kind === 'install' ? 'Installing' : 'Updating'
   return `${verb} ${busy.name}… this can take several minutes. Keep this tab open.`
 }
 
 export function installResultText(kind: 'install' | 'upgrade', name: string, ok: boolean): string {
-  if (!ok) return `${kind === 'install' ? 'Install' : 'Upgrade'} failed for ${name}.`
-  return kind === 'install' ? `Installed ${name}.` : `Upgraded ${name}. Restart Baihe to load the new version.`
+  if (!ok) return `${kind === 'install' ? 'Install' : 'Update'} failed for ${name}.`
+  return kind === 'install' ? `Installed ${name}.` : `Updated ${name}. Restart Baihe to load the new version.`
 }
 
 export const LOST_CONTACT_INSTALL =
@@ -124,7 +124,7 @@ export function headerParts(
   const rest: string[] = []
   if (installed != null && total != null) rest.push(`${installed} of ${total} packages`)
   if (running > 0) rest.push(`${running} ${running === 1 ? 'job' : 'jobs'} running`)
-  if (busy && busy.kind !== 'reset') rest.push(`${busy.kind === 'install' ? 'Installing' : 'Upgrading'} ${busy.name}`)
+  if (busy && busy.kind !== 'reset') rest.push(`${busy.kind === 'install' ? 'Installing' : 'Updating'} ${busy.name}`)
   return { setup, warn: !!setupProblems, rest: rest.join(' · ') }
 }
 

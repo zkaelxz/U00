@@ -77,6 +77,11 @@ def fakes(isolated_db, monkeypatch):
         yield {"returncode": 0, "timed_out": False}
 
     monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    monkeypatch.setattr(diagnostics, "nvidia_driver_info",
+                        lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
+    monkeypatch.setattr(svc, "verify_torch", lambda blocking=True: {
+        "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128",
+        "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
     monkeypatch.setattr(background_jobs, "clear_all_jobs", lambda: calls.append(("clear",)))
     return calls
@@ -108,6 +113,26 @@ def test_reads(client):
     assert len(_clean(client.get("/api/diagnostics/log"))["lines"]) == svc.LOG_TAIL_DEFAULT
     rep = _clean(client.get("/api/diagnostics/support-report"))
     assert rep["report"].startswith("Report")
+
+
+def test_install_presets(client):
+    b = _clean(client.get("/api/diagnostics/install-presets"))
+    ids = [t["id"] for t in b["tasks"]]
+    assert "transcribe" in ids and "scanlate" in ids
+    cv2 = b["packages"]["cv2"]
+    assert cv2["dist"] == "opencv-python" and cv2["installed"] is True   # fakes: all installed
+    assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
+    assert b["packages"]["streamlit_drawable_canvas"]["not_offered_reason"]
+
+
+def test_install_failure_hint(client, monkeypatch):
+    def fake_stream(cmd, timeout):
+        yield {"line": "ERROR: [Errno 13] Permission denied: "
+                       "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
+        yield {"returncode": 1, "timed_out": False}
+    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    b = client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True}).json()
+    assert b["ok"] is False and "pip\\cache" in b["hint"]
 
 
 def test_log_bounds_422(client):
@@ -167,10 +192,40 @@ def _h(s):
 
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote", "/api/diagnostics/job-history",
-         "/api/diagnostics/log", "/api/diagnostics/support-report")
+         "/api/diagnostics/log", "/api/diagnostics/support-report",
+         "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch")
 WRITES = (("/api/diagnostics/dependencies/edge_tts/install", {"confirm": True}),
+          ("/api/diagnostics/gpu-torch/setup", {"confirm": True, "variant": "cu128"}),
           ("/api/diagnostics/dependencies/edge_tts/upgrade", {"confirm": True}),
           ("/api/diagnostics/reset-library", {"confirm": True, "confirm_text": "RESET"}))
+
+
+def test_gpu_torch_status_and_setup(client, fakes):
+    b = _clean(client.get("/api/diagnostics/gpu-torch"))
+    assert b["nvidia"]["found"] is True and b["nvidia"]["status"] == "ok"
+    assert b["recommended"]["variant"] == "cu128" and b["probe"] is None
+    assert b["recommended"]["index_url"] == "https://download.pytorch.org/whl/cu128"
+    assert _clean(client.get("/api/diagnostics/gpu-torch?probe=true"))["probe"] is None
+    assert _clean(client.post("/api/diagnostics/gpu-torch/check", json={}))["probe"]["cuda_available"]
+    RUNNING["on"] = True        # the CUDA check takes VRAM: not while a job runs
+    assert client.post("/api/diagnostics/gpu-torch/check", json={}).status_code == 409
+    RUNNING["on"] = False
+    r = client.post("/api/diagnostics/gpu-torch/setup", json={"confirm": True})
+    out = _clean(r)
+    assert r.status_code == 200 and out["ok"] is True and out["variant"] == "cu128"
+    assert out["verify"]["torch"] == "2.11.0+cu128"
+    assert len(fakes) == 2        # force-reinstall --no-deps, then the deps pass
+
+
+def test_gpu_torch_setup_refusals(client, fakes):
+    url = "/api/diagnostics/gpu-torch/setup"
+    for body in ({}, {"confirm": False}, {"confirm": True, "variant": "cu130"},
+                 {"confirm": True, "index_url": "https://evil.example/simple"},
+                 {"confirm": True, "variant": "cu128", "version": "2.14.0"}):
+        assert client.post(url, json=body).status_code == 422, body
+    RUNNING["on"] = True
+    assert client.post(url, json={"confirm": True}).status_code == 409
+    assert fakes == []
 
 
 def test_auth_on_reads_need_admin(fakes):
@@ -209,3 +264,41 @@ def test_auth_on_writes_are_pc_only(fakes):
     for path, body in WRITES:
         assert local.post(path, json=body).status_code == 200, path
     assert ("reset",) in fakes
+
+
+def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monkeypatch):
+    asked = []
+    monkeypatch.setattr(diagnostics, "pypi_release_versions",
+                        lambda dist: asked.append(dist) or ["99.0.0"])
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
+    svc._UPDATES.update(checked_at=None, packages={})
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                   raise_server_exceptions=False)
+    url = "/api/diagnostics/package-updates/check"
+    admin = _admin_session()
+    c.get("/api/diagnostics/install-presets", headers=_h(admin))
+    assert asked == []                                     # page load never asks PyPI
+    assert c.post(url, json={}).status_code in (401, 403)
+    r = c.post(url, json={}, headers=_h(admin))
+    b = _clean(r)
+    assert r.status_code == 200 and asked
+    assert b["packages"]["edge_tts"]["status"] == "update"
+    assert b["packages"]["edge_tts"]["target"] == "99.0.0"
+    assert c.post("/api/diagnostics/gpu-torch/check", json={}).status_code in (401, 403)
+    svc._UPDATES.update(checked_at=None, packages={})
+
+
+def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
+    monkeypatch.setattr(diagnostics, "pypi_release_versions", lambda dist: ["1.0.0", "2.0.0"])
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
+    svc._UPDATES.update(checked_at=None, packages={})
+    assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
+    url = "/api/diagnostics/dependencies/edge_tts/upgrade"
+    for bad in ("--index-url=x", "1.0 --pre", "", "a" * 65):
+        assert client.post(url, json={"confirm": True, "target": bad}).status_code == 422, bad
+    r = client.post(url, json={"confirm": True, "target": "1.5.0"})
+    assert r.status_code == 409 and fakes == []
+    r = client.post(url, json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 200
+    assert "edge_tts==2.0.0" in fakes[0][1] or "edge-tts==2.0.0" in fakes[0][1]
+    svc._UPDATES.update(checked_at=None, packages={})

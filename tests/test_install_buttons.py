@@ -47,7 +47,8 @@ class TestStreamPipInstall:
         monkeypatch.setattr(diagnostics.sys, "executable", "/venv/bin/python3.14")
 
         list(diagnostics.stream_pip_install(["bar"]))
-        assert captured["cmd"] == ["/venv/bin/python3.14", "-m", "pip", "install", "bar"]
+        assert captured["cmd"] == ["/venv/bin/python3.14", "-m", "pip", "install",
+                                   "--no-cache-dir", "--disable-pip-version-check", "bar"]
 
     def test_explicit_interpreter_overrides_sys_executable(self, monkeypatch):
         captured = {}

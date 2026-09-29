@@ -12,8 +12,8 @@ Streamlit-only, gated by D5's admin-action rules in
 docs/migration-review.md). Every check here is local (imports,
 filesystem, GPU driver, in-process job state) -- never a network call,
 matching this service's own "diagnostics overview" scope; version
-freshness checks (`check_dependency_versions`, which does hit PyPI) are
-deliberately left out of this first read-only slice.
+freshness checks hit PyPI, so they live in diagnostics_gaps_service.
+check_package_updates, behind an explicit click.
 
 No Streamlit import, no HTTP types: takes no arguments, returns a plain
 dict, so `cli.py` or a script could call it too.

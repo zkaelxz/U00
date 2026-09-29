@@ -1592,6 +1592,30 @@ if you'd rather not chase it down. See `docs/technical-notes.md` for
 what was actually wrong in the fallback code that made this surface as
 a crash instead of a quiet retry.
 
+### GPU PyTorch (NVIDIA)
+
+`pip install torch` from PyPI gives a CPU-only build on Windows, and
+installing torch, torchvision or torchaudio one at a time can leave them
+built for different torch versions ("torchvision 0.29.0 requires
+torch==2.14.0, but you have torch 2.11.0+cu128"). In the React app,
+**Diagnostics -> Packages -> GPU PyTorch** shows your GPU, driver and the
+installed torch/torchvision/torchaudio, and **Set up GPU PyTorch** (on
+the PC only) installs the matched set the app is tested with: torch
+2.11.0, torchvision 0.26.0 and torchaudio 2.11.0 from
+`https://download.pytorch.org/whl/cu128` (NVIDIA driver 570.65 or newer
+on Windows, 570.26 on Linux), then imports it in a fresh Python to check
+that CUDA works. The by-hand equivalent, from the venv:
+
+```
+python -m pip install --no-cache-dir --force-reinstall --no-deps torch==2.11.0+cu128 torchvision==0.26.0+cu128 torchaudio==2.11.0+cu128 --index-url https://download.pytorch.org/whl/cu128 -c constraints.txt
+python -m pip install --no-cache-dir torch==2.11.0+cu128 torchvision==0.26.0+cu128 torchaudio==2.11.0+cu128 --index-url https://download.pytorch.org/whl/cu128 -c constraints.txt
+```
+
+After that, every Install/Update in Diagnostics pins the installed
+torch family, so a voice or ASR package that wants a different torch is
+refused with a plain message instead of replacing your CUDA build. The
+versions live in `diagnostics.TORCH_VARIANTS`, with their sources.
+
 ### If your exported subtitles are blank
 
 A `.srt` with real, correct timestamps but no text is not a rendering

@@ -25,8 +25,10 @@ pyannote.audio<5     # 4.x changed pipeline(audio)'s return type (DiarizeOutput
                       # already handles both shapes, but a future 5.x could
                       # change just as much again with no warning.
 transformers<6        # backs the local NLLB-200 engine and Qwen3-ASR/ForcedAligner.
-torch<3
-torchaudio<3
+torch<3               # the tested GPU set is torch 2.11.0 / torchvision 0.26.0 /
+torchaudio<3          # torchaudio 2.11.0 from the cu128 index (diagnostics.TORCH_VARIANTS;
+                      # Diagnostics > GPU PyTorch installs it). Every Diagnostics install
+                      # also pins whatever torch family is installed, exactly.
 streamlit<2           # this app targets Streamlit's current widget API
                        # (width='stretch', st.dialog, AppTest, etc.) -- a 2.x
                        # could remove or rename any of it.

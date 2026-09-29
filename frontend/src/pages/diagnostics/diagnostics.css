@@ -12,6 +12,30 @@
 .pkg-list { list-style: none; padding: 0 !important; margin: 0; display: grid; gap: var(--space-2); }
 .pkg-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .pkg-list > li > span:first-child { flex: 1 1 16rem; min-width: 0; }
+/* Name + purpose, then "approx. size · Source ↗" and any caveat, stacked. */
+.pkg-text { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.pkg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-sm); }
+.pkg-source { white-space: nowrap; }
+.pkg-text .warn { font-size: var(--font-sm); }
+/* Installed version and the "Check for updates" result. */
+.pkg-version { font-size: var(--font-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pkg-text .ok { font-size: var(--font-sm); color: var(--ok); }
+
+/* Install by task: a group heading, then task rows like package rows. */
+.task-group { margin: var(--space-2) 0 0; font-size: var(--font-sm); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.task-list > li { padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+.task-pkgs { display: flex; flex-wrap: wrap; gap: var(--space-1); font-size: var(--font-sm); }
+.task-pkg { padding: 0 var(--space-1); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.task-pkg.installed { color: var(--ok); border-color: transparent; }
+/* Role for the task: required stays solid, recommended/optional are lighter. */
+.task-role, .task-min { color: var(--muted); }
+.task-pkg.role-recommended { border-style: dashed; }
+.task-pkg.role-optional { border-style: dotted; }
+.pkg-meta .ok { color: var(--ok); }
+/* "Source ↗" is a small inline link: a 44 px target on touch and phones. */
+@media (pointer: coarse), (max-width: 640px) {
+  .pkg-source { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-1); }
+}
 
 /* Log, support report and install output. */
 .diag-pre {
@@ -60,3 +84,6 @@
   .bug-report-list .actions { margin-left: auto; justify-content: flex-end; }
   .bug-report-list .confirm-button { display: inline-flex; flex: 0 0 auto; }
 }
+
+/* GPU PyTorch: the index URL wraps on phones. */
+.gpu-torch code { overflow-wrap: anywhere; }
