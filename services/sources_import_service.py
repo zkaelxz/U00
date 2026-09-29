@@ -1,6 +1,7 @@
 """
 services/sources_import_service.py -- importing from a source into an
-existing drama for the API (Discover/Sources/Live spec S-4, chapter import).
+existing drama for the API (Discover/Sources/Live spec S-4, chapter import;
+S-5, novel text from a pasted URL).
 
 `start_chapter_import` takes chapter IDS only, never chapter objects or
 URLs from the client: the job re-fetches the series' chapter list itself
@@ -16,6 +17,13 @@ file. No `db.save_lines`. The job id is per drama (`sourceimport_<id>`),
 which serialises the pipeline's unlocked page-index and append writes, and
 is in background_jobs.DRAMA_JOB_PREFIXES so a delete refuses while it runs.
 
+`start_url_import` (S-5, thin slice: novel text only) checks the pasted URL
+in the request (sources_url_service.check_public_url), then the job runs
+adaptive.import_novel with no LLM engine and appends the text to the
+drama's raw-novel file. When the extraction needs review nothing is
+written. From another device the signed-in profile and the browser tier
+are off.
+
 Results live in this process only; read them with
 sources_search_service.get_job_result (GET /api/sources/jobs/{id}/result).
 Text is scrubbed, URLs reduced to scheme+host+path.
@@ -30,7 +38,9 @@ from services.sources_registry_service import _import_supported, _scrub, safe_ur
 from services.sources_search_service import (IMPORT_JOB_PREFIX, MAX_ID_LEN, _enabled_source,
                                              _error_view, _JobFailed, _plain_text, _series_id,
                                              _start)
-from sources import chapter_order, ladder, pipeline, registry, store
+from services.sources_url_service import (check_public_url, fail_job, handoff_error,
+                                          source_client)
+from sources import adaptive, chapter_order, generic_import, ladder, pipeline, registry, store
 from sources.http import Cancelled
 
 MAX_CHAPTERS = 200
@@ -184,3 +194,57 @@ def start_chapter_import(name, series_id, chapter_ids, drama_id) -> dict:
     job_id = import_job_id(drama_id)
     return _start(job_id, _chapter_import_job, job_id, name, series_id, ids, drama_id,
                   description=f"Import {len(ids)} chapter(s) from {name}")
+
+
+# ---------------------------------------------------------------------------
+# Novel text from a pasted URL (S-5)
+# ---------------------------------------------------------------------------
+
+_NO_TEXT = "No chapter text was found on that page."
+
+
+def _url_fail(job_id: str, err: dict):
+    fail_job(job_id, "url_import", err)
+
+
+def _url_import_job(job_id: str, url: str, drama_id: int, local: bool):
+    background_jobs.update_progress(job_id, 0.1, "Reading the page...")
+    try:
+        res, report = adaptive.import_novel(url, engine=None, client=source_client(url, job_id),
+                                            allow_signed_in=local, allow_browser=local)
+    except Cancelled:
+        raise background_jobs.JobCancelled(job_id) from None
+    except generic_import.NoContentFound:
+        _url_fail(job_id, {"status": 422, "code": InvalidInputError.code, "message": _NO_TEXT,
+                           "details": {"reason": "NO_CONTENT"}})
+    except Exception as e:
+        _url_fail(job_id, _error_view(e))
+    if res.ladder is not None and getattr(res.ladder, "handoff", None):
+        _url_fail(job_id, handoff_error(res.ladder.handoff, url))
+    text = res.text or ""
+    if report.needs_review or not text.strip():
+        background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": True,
+                                            "char_count": len(text)})
+        return
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
+    background_jobs.update_progress(job_id, 0.9, "Saving the text...")
+    pipeline.save_novel_text(drama_id, text, append=True, heading=res.title)
+    background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": False,
+                                        "char_count": len(text)})
+
+
+def start_url_import(url, drama_id, local: bool = True) -> dict:
+    """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
+    appended to a novel drama's raw-novel text. 422 bad/private URL or not
+    a novel drama; 503 the host doesn't resolve; 404 no drama; 409 while a
+    job runs for the drama."""
+    url = check_public_url(url)
+    drama = _require_drama(drama_id)
+    if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
+        raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
+                                "or create one first.")
+    _require_idle(drama_id)
+    job_id = import_job_id(drama_id)
+    return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local),
+                  description="Import novel text from a pasted URL")

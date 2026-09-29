@@ -35,6 +35,8 @@ SEARCH_JOB_ID = "sources_search"
 SERIES_JOB_PREFIX = "sources_series_"
 # Chapter import (S-4) and pasted-URL novel import (S-5), one per drama.
 IMPORT_JOB_PREFIX = "sourceimport_"
+# Paste-a-URL preview (S-5), one at a time in the process.
+URL_PREVIEW_JOB_ID = "sources_url_preview"
 MAX_QUERY_LEN = 200
 MAX_ID_LEN = 200
 
@@ -264,7 +266,7 @@ def start_series(name, series_id) -> dict:
 # ---------------------------------------------------------------------------
 
 def _is_ours(job_id: str) -> bool:
-    if job_id == SEARCH_JOB_ID:
+    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID):
         return True
     if job_id.startswith(SERIES_JOB_PREFIX):
         return len(job_id) > len(SERIES_JOB_PREFIX)

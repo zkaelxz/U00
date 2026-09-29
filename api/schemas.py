@@ -2843,3 +2843,21 @@ class SourcesChapterImportRequest(BaseModel):
     series_id: str = Field(min_length=1, max_length=200)
     chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
     drama_id: int = Field(ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Sources S-5 paste-a-URL preview and novel import
+# (services/sources_url_service.py, services/sources_import_service.py).
+# Results are read with GET /api/sources/jobs/{job_id}/result.
+# ---------------------------------------------------------------------------
+
+class SourcesUrlPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+
+
+class SourcesUrlImportRequest(BaseModel):
+    """Novel text only (thin slice). The drama must be a novel drama."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    drama_id: int = Field(ge=1)

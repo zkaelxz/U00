@@ -386,13 +386,13 @@ The API covers the registry and settings (56a/56b) and search/series jobs (S-3, 
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
-| SO01 | Paste any URL: preview (type, platform, chapter, language, count) | 64-80, 129-140 | `front_door.preview` | no API (S-5) | test_sources_tab |
+| SO01 | Paste any URL: preview (type, platform, chapter, language, count) | 64-80, 129-140 | `front_door.preview` | `POST /api/sources/url/preview` + job result (S-5) | test_sources_tab |
 | SO02 | "Will this site work?" preflight | 82-99 | `preflight.preflight` | no API | test_sources_preflight |
 | SO03 | Verification hand-off: open in browser, retry, cancel, continue from pasted page source | 42-61, 101-128 | `front_door.classify_html` | no API | test_sources_tab |
 | SO04 | Open the series browser from a URL | 143-146 | — | no API | — |
 | SO05 | Import video into a drama (audio only, overwrite confirm, cookies) | 147-178 | `front_door.import_video` | no API (S-5) | test_sources_tab |
 | SO06 | Import comic pages into Scanlate (with skipped-image list) | 179-206 | `adaptive.import_comic`, `pipeline.add_page_images` | no API (S-4) | test_adaptive_extraction TestSourcesTabReview |
-| SO07 | Import novel text (append, download .txt) | 207-235 | `adaptive.import_novel`, `pipeline.save_novel_text` | no API (S-4) | same |
+| SO07 | Import novel text (append, download .txt) | 207-235 | `adaptive.import_novel`, `pipeline.save_novel_text` | `POST /api/sources/url/import` (append; no LLM fallback, no review step: needs-review writes nothing) | same |
 | SO08 | Identify media on an unknown page and pick a resource | 545-571 | `adaptive.identify_media` | no API | — |
 | SO09 | AI-assisted fallback engine (optional) | 334-359 | `translate_engines.get_engine` | no API | test_adaptive_extraction TestLlmOnlyAsFallback |
 | SO10 | Review extraction: confidence, pick containers, title, next/prev links, re-run, save profile, approve, import; comic roles and order | 362-543 | `ai_extract.*`, `profiles.*` | no API (plan section 3 item 8 prune candidate) | test_adaptive_extraction |
