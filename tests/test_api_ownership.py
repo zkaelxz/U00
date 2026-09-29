@@ -86,7 +86,7 @@ def _login(email, admin=False):
 def world(isolated_db):
     a_id, a = _login("a@example.com")
     b_id, b = _login("b@example.com")
-    _adm_id, adm = _login("admin@example.com", admin=True)
+    adm_id, adm = _login("admin@example.com", admin=True)
     private = db.create_drama(title_en="A private", source_language="zh",
                               owner_user_id=a_id, is_private=1)
     shared = db.create_drama(title_en="A shared", source_language="zh",
@@ -94,7 +94,7 @@ def world(isolated_db):
     pseries = db.create_series("A private series", owner_user_id=a_id, is_private=True)
     in_pseries = db.create_drama(title_en="In A's series", source_language="zh",
                                  series_id=pseries, owner_user_id=a_id)
-    return {"a": a, "b": b, "admin": adm, "a_id": a_id, "b_id": b_id,
+    return {"a": a, "b": b, "admin": adm, "a_id": a_id, "b_id": b_id, "admin_id": adm_id,
             "private": private, "shared": shared, "pseries": pseries,
             "in_pseries": in_pseries}
 
@@ -291,3 +291,57 @@ class TestTranslateHistory:
         assert texts("admin") == {"a-text", "b-text", "pc-text"}
         off = _local(_app("off")).get("/api/translate/history").json()["items"]
         assert len(off) == 3
+
+
+class TestNewItemsAreStamped:
+    def _row(self, did):
+        return db.get_item_ownership("drama", did)
+
+    def test_api_create_stamps_creator_and_share_default(self, world):
+        client = _client(_app())
+        r = client.post("/api/dramas", headers=world["admin"],
+                        json={"source_language": "zh", "title_en": "Mine"})
+        assert r.status_code == 201, r.text
+        row = self._row(r.json()["id"])
+        assert row["owner_user_id"] == world["admin_id"]
+        assert row["is_private"] == 0                   # shares by default
+
+    def test_service_create_uses_share_by_default(self, world):
+        from services import drama_service, ownership_service
+        a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
+        ownership_service.set_share_by_default(a, False)
+        d = drama_service.create_drama(source_language="zh", title_en="Hidden", principal=a)
+        row = self._row(d["id"])
+        assert (row["owner_user_id"], row["is_private"]) == (world["a_id"], 1)
+        b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
+        assert not ownership_service.can_see_drama(b, d["id"])
+
+    def test_new_series_and_drama_in_it_owned_by_creator(self, world):
+        from services import drama_service
+        a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
+        d = drama_service.create_drama(source_language="zh", title_en="Ep1",
+                                       new_series_name="A's new series", principal=a)
+        row = self._row(d["id"])
+        assert row["owner_user_id"] == world["a_id"]
+        s = db.get_item_ownership("series", row["series_id"])
+        assert s["owner_user_id"] == world["a_id"]
+
+    def test_own_drama_into_own_private_series(self, world):
+        from services import drama_service
+        a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
+        d = drama_service.create_drama(source_language="zh", title_en="Ep2",
+                                       series_id=world["pseries"], principal=a)
+        assert self._row(d["id"])["series_id"] == world["pseries"]
+
+    def test_auth_off_create_is_pc_owned(self, isolated_db):
+        from services import drama_service
+        d = drama_service.create_drama(source_language="zh", title_en="PC")
+        row = self._row(d["id"])
+        assert (row["owner_user_id"], row["is_private"]) == (None, 0)
+
+    def test_discover_import_stamps_owner(self, world):
+        from services import discover_catalog_service as svc
+        a = {"user_id": world["a_id"], "is_admin": False, "is_local_owner": False}
+        tid = db.create_known_title(title_en="Known", language="zh", media_type="audio_drama")
+        d = svc.import_to_library(tid, principal=a)
+        assert self._row(d["id"])["owner_user_id"] == world["a_id"]

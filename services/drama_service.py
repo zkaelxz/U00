@@ -112,7 +112,9 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
     detail plus `preset_defaults` (dict or None). All validation happens
     before anything is written, so a rejected call creates nothing.
     `principal` (None = auth off) goes through ownership_service: a series
-    the caller can't see is a 404, as is a name taken by one (409)."""
+    the caller can't see is a 404, as is a name taken by one (409). The
+    new drama is stamped with `new_item_defaults(principal)` (auth B2): its
+    creator (None = the PC owner) and private unless they share by default."""
     if source_language not in _SOURCE_LANGUAGES:
         raise InvalidInputError("source_language is required and must be one of zh, ja, ko.",
                                 details={"allowed": list(_SOURCE_LANGUAGES)})
@@ -124,11 +126,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
 
     if series_id is not None and new_series_name is not None:
         raise InvalidInputError("Pass series_id or new_series_name, not both.")
+    owned = ownership_service.new_item_defaults(principal)
     if series_id is not None:
         _check_id("series_id", series_id)
-        # The new drama isn't stamped with an owner here yet (auth B2), so
-        # it passes as PC-owned; B2 must pass the owner it stamps.
-        ownership_service.check_series_assignment(principal, series_id, None)
+        ownership_service.check_series_assignment(principal, series_id, owned["owner_user_id"])
     if new_series_name is not None:
         new_series_name = _check_text("new_series_name", new_series_name).strip()
         if not new_series_name:
@@ -144,7 +145,7 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         if preset is None:
             raise NotFoundError("No preset with that id.")
 
-    fields = dict(texts, media_type=media_type, source_language=source_language)
+    fields = dict(texts, media_type=media_type, source_language=source_language, **owned)
     if series_id is not None:
         fields["series_id"] = series_id
     if preset and preset.get("translation_engine"):
