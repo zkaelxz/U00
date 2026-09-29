@@ -16,6 +16,8 @@ describe('dashboard numbers (parity L01)', () => {
   it('usage line: API calls, and the cache share only once tokens are logged', () => {
     expect(usageLine(usage)).toBe('318 API calls · 30% cache hits')
     expect(usageLine({ ...usage, input_tokens: 0, call_count: 1 })).toBe('1 API call')
+    // An older or partial stats payload without call_count still renders.
+    expect(usageLine({ estimated_cost_usd: 0 } as unknown as typeof usage)).toBe('0 API calls')
   })
   it('counts by status and type use the humanized labels', () => {
     expect(countsLine({ transcribed: 2, translated: 1 }, 'status')).toBe('Transcribed 2 · Translated 1')

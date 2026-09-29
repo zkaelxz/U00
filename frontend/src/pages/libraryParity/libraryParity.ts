@@ -10,7 +10,8 @@ export function cacheHitShare(u: Pick<LibraryUsage, 'input_tokens' | 'cache_read
 
 export const percent = (share: number) => `${Math.round(share * 100)}%`
 
-const plural = (n: number, one: string) => `${n.toLocaleString()} ${one}${n === 1 ? '' : 's'}`
+// A count the API left out reads as 0 rather than crashing the page.
+const plural = (n: number | undefined, one: string) => `${(n ?? 0).toLocaleString()} ${one}${n === 1 ? '' : 's'}`
 
 // Parity L01: "318 API calls · 30% cache hits"; the cache share only once
 // input tokens have been logged.
@@ -22,7 +23,7 @@ export function usageLine(u: LibraryUsage): string {
 
 // Parity L01: "Transcribed 2 · Translated 1", in the API's order.
 export function countsLine(counts: Record<string, number>, kind: 'status' | 'mediaType'): string {
-  return Object.entries(counts).map(([k, n]) => `${humanize(kind, k)} ${n}`).join(' · ')
+  return Object.entries(counts ?? {}).map(([k, n]) => `${humanize(kind, k)} ${n}`).join(' · ')
 }
 
 // Token counts in a narrow row: 540000 -> "540k", 1250000 -> "1.3M".
