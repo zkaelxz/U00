@@ -555,6 +555,7 @@ class DramaCreateResult(DramaDetail):
 class TranslateRunStylePreset(BaseModel):
     key: str
     label: str
+    guidance: str = ""   # parity X04: what this style asks the translator for
 
 
 class TranslateRunWorkflowTier(BaseModel):
@@ -2874,6 +2875,25 @@ class WorkflowTierApplied(BaseModel):
     engine_model: Optional[str] = None
     reflect: bool
     auto_qc: bool
+
+
+class TranslatePresetApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preset_id: StrictInt = Field(ge=1, le=2**31 - 1)
+
+
+class TranslatePresetApplied(BaseModel):
+    """Parity X03: the preset's engine (when set) is saved on the drama; the
+    rest is for the form. Nothing is started."""
+    drama_id: int
+    preset_id: int
+    name: str
+    translation_engine: Optional[str] = None
+    engine_model: Optional[str] = None
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: bool
+    include_genre_notes: bool
 
 
 class TranslatePresetSave(BaseModel):

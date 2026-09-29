@@ -8,7 +8,8 @@ export interface TranslateRunConfig {
   drama_id: number
   translation_engine: string
   engines: TranslateEngine[]
-  style_presets: { key: string; label: string }[]
+  // guidance: what the style asks the translator for (parity X04)
+  style_presets: { key: string; label: string; guidance?: string }[]
   default_style_preset: string
   locales: string[]
   workflow_tiers: WorkflowTier[]
@@ -216,6 +217,20 @@ export interface WorkflowTier {
 
 // POST /api/translate-run/dramas/{id}/workflow-tier: the engine is saved on
 // the drama; the rest fills the form. Nothing is started.
+// Parity X03: POST /api/translate-run/dramas/{id}/apply-preset. The engine
+// (when the preset has one) is saved on the drama; the rest fills the form.
+export interface TranslatePresetApplied {
+  drama_id: number
+  preset_id: number
+  name: string
+  translation_engine: string | null
+  engine_model: string | null
+  style_preset: string | null
+  locale: string | null
+  default_female_pronouns: boolean
+  include_genre_notes: boolean
+}
+
 export interface WorkflowTierApplied extends Omit<WorkflowTier, 'key'> {
   drama_id: number
   tier: string

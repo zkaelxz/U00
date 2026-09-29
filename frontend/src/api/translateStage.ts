@@ -20,6 +20,7 @@ import type {
   TranslateRunStartBody,
   TranslateRunStarted,
   VoiceBankEntry,
+  TranslatePresetApplied,
   WorkflowTierApplied,
 } from '../types/translateStage'
 import { apiUrl, getJson, postJson } from './client'
@@ -46,6 +47,8 @@ export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: F
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
+export const applyTranslatePreset = (id: number, presetId: number, f?: Fetch) =>
+  postJson<TranslatePresetApplied>(`/api/translate-run/dramas/${id}/apply-preset`, { preset_id: presetId }, f)
 export const saveTranslatePreset = (body: TranslatePresetBody, f?: Fetch) =>
   postJson<TranslatePresetSaved>('/api/translate-run/presets', body, f)
 export const resumeBulkTranslations = (id: number, f?: Fetch) =>
