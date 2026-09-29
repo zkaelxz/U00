@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { ApiError } from '../../../api/client'
 import { getTranslateConfig, getTranslateEstimate, startTranslateRun } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
@@ -10,30 +12,44 @@ import { buildEstimateParams, buildRunBody, initialForm, MAX_FALLBACKS, validate
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { JobPanel } from './JobPanel'
-import './translateStage.css'
+import './translate.css'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const cost = e.free ? 'free' : e.estimated_usd === null ? 'unknown' : `about $${e.estimated_usd.toFixed(2)}`
+  const cap = e.effective_cap_usd !== null ? ` · cap $${e.effective_cap_usd.toFixed(2)}` : ''
   return (
-    <div data-testid="estimate">
-      <p>
-        {e.target_line_count} line(s) to translate with {e.engine}
-        {e.model ? ` (${e.model})` : ''}: {cost}.
-      </p>
-      {e.effective_cap_usd !== null && <p className="muted">Cap in effect: ${e.effective_cap_usd.toFixed(2)}</p>}
+    <span className="translate-estimate" data-testid="estimate">
+      {e.target_line_count} line(s) with {e.engine}
+      {e.model ? ` (${e.model})` : ''}: {cost}
+      {cap}
       {e.monthly_refusal && (
-        <p className="error" role="alert">The monthly cap would be exceeded, so this run would be refused.</p>
+        <span className="error" role="alert">The monthly cap would be exceeded, so this run would be refused.</span>
       )}
       {e.estimate_above_cap && !e.monthly_refusal && (
-        <p className="error" role="alert">The estimate is above the cap, so the run would stop early.</p>
+        <span className="error" role="alert">The estimate is above the cap, so the run would stop early.</span>
       )}
-    </div>
+    </span>
   )
+}
+
+// One line naming only the Advanced values that differ from their defaults.
+function advancedSummary(f: RunForm, base: RunForm): string {
+  const parts: string[] = []
+  if (f.style_note.trim()) parts.push('style note')
+  if (f.batch_size !== base.batch_size) parts.push(`batch ${f.batch_size}`)
+  if (f.context_window !== base.context_window || f.context_window_ahead !== base.context_window_ahead) {
+    parts.push(`context ${f.context_window}/${f.context_window_ahead}`)
+  }
+  if (f.cost_cap.trim()) parts.push(`cap $${f.cost_cap.trim()}`)
+  if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
+  if (f.force) parts.push('re-translate existing')
+  return parts.length ? parts.join(' · ') : 'defaults'
 }
 
 function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onStarted: (id: string) => void; busy: boolean }) {
   const { dramaId } = useStage()
-  const [f, setF] = useState<RunForm>(() => initialForm(config))
+  const [base] = useState<RunForm>(() => initialForm(config))
+  const [f, setF] = useState<RunForm>(base)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [estimate, setEstimate] = useState<TranslateRunEstimate | null>(null)
@@ -44,8 +60,9 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
   const models = engine?.models ?? []
   const engineLabel = (name: string) => {
     const e = config.engines.find((x) => x.name === name)
-    return e ? `${e.label} (key ${e.key_configured ? 'configured' : 'not configured'})` : name
+    return e ? `${e.label}${e.key_configured ? '' : ' (no key)'}` : name
   }
+  const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
 
   const runEstimate = () => {
     const params = buildEstimateParams(f)
@@ -74,119 +91,119 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
   return (
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
-      <p className="muted" data-testid="translate-counts">
-        {config.untranslated_count} of {config.line_count} lines have no English yet. Spend this month: $
-        {config.month_spend.toFixed(2)} of ${config.monthly_cap_usd.toFixed(2)}.
-      </p>
-      <fieldset className="form-grid">
-        <legend>Options</legend>
-        <label>
-          Engine
-          <select
-            aria-label="Engine"
-            value={f.engine}
-            onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '' }))}
-          >
+      <div className="translate-basics">
+        <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
+          <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '' }))}>
             <option value="">Default ({engineLabel(config.translation_engine)})</option>
             {config.engines.map((e) => (
               <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>
             ))}
           </select>
-        </label>
+        </Field>
         {models.length > 0 && (
-          <label>
-            Model
+          <Field label="Model">
             <select value={f.model} onChange={(e) => set('model', e.target.value)}>
               <option value="">Engine default</option>
               {models.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
-          </label>
+          </Field>
         )}
-        <label>
-          Style preset
+        <Field label="Style" help="Style preset: what the translator is asked to sound like.">
           <select value={f.style_preset} onChange={(e) => set('style_preset', e.target.value)}>
             {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
           </select>
-        </label>
-        <label>
-          Locale
+        </Field>
+        <Field label="Locale" help="English variant, for example en-US or en-GB spelling.">
           <select value={f.locale} onChange={(e) => set('locale', e.target.value)}>
             {config.locales.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
-        </label>
-        <label>
-          Style note (optional)
-          <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />
-        </label>
-        <label>
-          Batch size (1-200)
-          <input type="number" value={f.batch_size} onChange={(e) => set('batch_size', e.target.value)} />
-        </label>
-        <label>
-          Context window before (0-100)
-          <input type="number" value={f.context_window} onChange={(e) => set('context_window', e.target.value)} />
-        </label>
-        <label>
-          Context window ahead (0-100)
-          <input type="number" value={f.context_window_ahead} onChange={(e) => set('context_window_ahead', e.target.value)} />
-        </label>
-        <label>
-          Cost cap for this run in dollars (blank = none)
-          <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
-        </label>
-        <div>
-          <strong>Fallback engines</strong> <span className="muted">(tried in order if the engine fails, up to {MAX_FALLBACKS})</span>
-          {f.fallbacks.map((fb, i) => (
-            <div className="fallback-row" key={i}>
-              <select
-                aria-label={`Fallback engine ${i + 1}`}
-                value={fb}
-                onChange={(e) => set('fallbacks', f.fallbacks.map((x, j) => (j === i ? e.target.value : x)))}
-              >
-                <option value="">Choose an engine</option>
-                {config.engines.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
-              </select>
-              <button type="button" onClick={() => set('fallbacks', f.fallbacks.filter((_, j) => j !== i))}>
-                Remove
-              </button>
-            </div>
-          ))}
-          {f.fallbacks.length < MAX_FALLBACKS && (
-            <div>
-              <button type="button" onClick={() => set('fallbacks', [...f.fallbacks, ''])}>Add fallback engine</button>
-            </div>
-          )}
-        </div>
-        <label className="inline">
-          <input
-            type="checkbox"
-            checked={f.force}
-            onChange={(e) => setF((s) => ({ ...s, force: e.target.checked, forceConfirmed: false }))}
-          />{' '}
-          Re-translate lines that already have English
-        </label>
-        {f.force && (
-          <label className="inline">
-            <input
-              type="checkbox"
-              checked={f.forceConfirmed}
-              onChange={(e) => set('forceConfirmed', e.target.checked)}
-            />{' '}
-            I understand this replaces existing English text (a snapshot is saved first)
-          </label>
-        )}
-      </fieldset>
-      {problem && <p className="error" role="alert">{problem}</p>}
-      <div className="actions">
-        <button type="button" onClick={runEstimate}>Estimate cost</button>
-        <button type="button" disabled={busy} onClick={start}>Start translation</button>
+        </Field>
       </div>
-      {estimate && <EstimateView e={estimate} />}
+      <div className="translate-go">
+        <button type="button" className="primary" disabled={busy} onClick={start}>
+          Translate {lineCount} line{lineCount === 1 ? '' : 's'}
+        </button>
+        <button type="button" className="link" onClick={runEstimate}>Estimate cost</button>
+        {estimate && <EstimateView e={estimate} />}
+      </div>
+      {busy && <p className="muted">A translate job is running. Progress is shown below.</p>}
+      {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />
       {error instanceof ApiError && error.status === 409 && (
         <p className="error" role="alert">A translate job is already running for this drama.</p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <Section storageKey="translate.advanced" title="Advanced" summary={advancedSummary(f, base)}>
+        <div className="advanced-grid">
+          <div className="advanced-wide">
+            <Field label="Style note" help="Optional extra instruction for this run only.">
+              <textarea rows={2} value={f.style_note} onChange={(e) => set('style_note', e.target.value)} />
+            </Field>
+          </div>
+          <Field label="Batch size" unit="lines" help="Lines sent per request, 1 to 200.">
+            <input type="number" value={f.batch_size} onChange={(e) => set('batch_size', e.target.value)} />
+          </Field>
+          <Field label="Context before" unit="lines" help="Earlier lines sent as context, 0 to 100.">
+            <input type="number" value={f.context_window} onChange={(e) => set('context_window', e.target.value)} />
+          </Field>
+          <Field label="Context ahead" unit="lines" help="Following lines sent as context, 0 to 100.">
+            <input type="number" value={f.context_window_ahead} onChange={(e) => set('context_window_ahead', e.target.value)} />
+          </Field>
+          <Field
+            label="Cost cap"
+            unit="$"
+            help={`Stop this run at this many dollars; blank means no cap. Spend this month: $${config.month_spend.toFixed(2)} of $${config.monthly_cap_usd.toFixed(2)}.`}
+          >
+            <input type="number" min={0} step="0.01" value={f.cost_cap} onChange={(e) => set('cost_cap', e.target.value)} />
+          </Field>
+          <div className="advanced-wide">
+            <div className="field-label-row">
+              <strong>Fallback engines</strong>
+              <span className="muted">tried in order if the engine fails, up to {MAX_FALLBACKS}</span>
+            </div>
+            {f.fallbacks.map((fb, i) => (
+              <div className="fallback-row" key={i}>
+                <select
+                  aria-label={`Fallback engine ${i + 1}`}
+                  value={fb}
+                  onChange={(e) => set('fallbacks', f.fallbacks.map((x, j) => (j === i ? e.target.value : x)))}
+                >
+                  <option value="">Choose an engine</option>
+                  {config.engines.map((e) => <option key={e.name} value={e.name}>{engineLabel(e.name)}</option>)}
+                </select>
+                <button type="button" onClick={() => set('fallbacks', f.fallbacks.filter((_, j) => j !== i))}>
+                  Remove
+                </button>
+              </div>
+            ))}
+            {f.fallbacks.length < MAX_FALLBACKS && (
+              <div className="fallback-row">
+                <button type="button" onClick={() => set('fallbacks', [...f.fallbacks, ''])}>Add fallback engine</button>
+              </div>
+            )}
+          </div>
+          <div className="advanced-wide check-row">
+            <label className="inline">
+              <input
+                type="checkbox"
+                checked={f.force}
+                onChange={(e) => setF((s) => ({ ...s, force: e.target.checked, forceConfirmed: false }))}
+              />{' '}
+              Re-translate existing
+            </label>
+            {f.force && (
+              <label className="inline">
+                <input
+                  type="checkbox"
+                  checked={f.forceConfirmed}
+                  onChange={(e) => set('forceConfirmed', e.target.checked)}
+                />{' '}
+                I understand this replaces existing English (a snapshot is saved first)
+              </label>
+            )}
+          </div>
+        </div>
+      </Section>
     </section>
   )
 }
