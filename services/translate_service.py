@@ -48,8 +48,10 @@ def list_engines(env_path: Optional[str] = None) -> list:
     whether it's free (translate_engines.FREE_ENGINES), its selectable
     model keys (or None if the engine has no model picker), and whether a
     key/endpoint is configured for it (never the key value itself -- see
-    services.settings_service.key_status)."""
+    services.settings_service.key_status). The Gemini label reflects the
+    persisted "Gemini free tier" setting (translate_engines.engine_picker_label)."""
     key_status = settings_service.key_status(env_path)
+    gemini_free_tier = settings_service.get_gemini_free_tier()
     engines = []
     for name in translate_engines.ENGINES:
         model_dict = _ENGINE_MODEL_DICTS.get(name)
@@ -59,7 +61,7 @@ def list_engines(env_path: Optional[str] = None) -> list:
             key_configured = bool(key_status.get(name, False))
         engines.append({
             "name": name,
-            "label": translate_engines.engine_picker_label(name),
+            "label": translate_engines.engine_picker_label(name, gemini_free_tier),
             "free": name in translate_engines.FREE_ENGINES,
             "models": list(model_dict.keys()) if model_dict is not None else None,
             "key_configured": key_configured,
