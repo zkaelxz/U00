@@ -870,6 +870,14 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
 )
 
 
+def count_active_jobs(prefix: str) -> int:
+    """How many jobs whose id starts with `prefix` are running or queued,
+    for a server-wide cap on one kind of job."""
+    with _lock:
+        return sum(1 for jid, job in _jobs.items()
+                   if jid.startswith(prefix) and job["status"] in ("running", "queued"))
+
+
 def any_job_running_for_drama(drama_id) -> bool:
     """True if any job scoped to this drama is currently running or
     queued -- for warning before a destructive, whole-drama action (e.g.

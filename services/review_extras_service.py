@@ -382,6 +382,10 @@ MAX_CLIP_SECONDS = 30.0
 MAX_PAD_SECONDS = 5.0
 DEFAULT_PAD_SECONDS = 2.0
 BURN_PREVIEW_TIMEOUT_SECONDS = 120.0   # ffmpeg is killed after this (a hung one would block delete)
+# At most this many preview clips render at once, server-wide (each is an
+# ffmpeg re-encode); a start beyond it is a 409.
+MAX_CONCURRENT_BURN_PREVIEWS = 2
+_BURN_PREVIEW_START_LOCK = threading.Lock()
 
 
 def _ffmpeg_available() -> bool:
@@ -423,7 +427,8 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
                        preset: str = None) -> dict:
     """Renders a short clip of the source video around one line with its
     subtitles burned in (an ASS preset, default Clean). The clip is capped at
-    MAX_CLIP_SECONDS and replaces any earlier preview of this drama."""
+    MAX_CLIP_SECONDS and replaces any earlier preview of this drama. At
+    most MAX_CONCURRENT_BURN_PREVIEWS render at once, server-wide (409)."""
     _require_drama(drama_id)
     if isinstance(line_id, bool) or not isinstance(line_id, int):
         raise InvalidInputError("line_id must be an integer.")
@@ -447,9 +452,15 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float = None,
     meta = {"line_id": line.id, "idx": line.idx, "start": start, "end": end, "preset": preset,
             "created_at": datetime.datetime.utcnow().isoformat()}
     job_id = f"{BURN_PREVIEW_JOB_PREFIX}{drama_id}"
-    started = background_jobs.start_job(
-        job_id, _run_burn_preview_job, job_id, drama_id, video, ass, start, end, meta,
-        description=f"Burned-subtitle preview (drama #{drama_id})")
+    with _BURN_PREVIEW_START_LOCK:   # the count and the start, together
+        if background_jobs.is_running(job_id):
+            raise ConflictError("A preview clip is already rendering for this drama.")
+        if background_jobs.count_active_jobs(BURN_PREVIEW_JOB_PREFIX) >= \
+                MAX_CONCURRENT_BURN_PREVIEWS:
+            raise ConflictError("Other preview clips are rendering; try again in a moment.")
+        started = background_jobs.start_job(
+            job_id, _run_burn_preview_job, job_id, drama_id, video, ass, start, end, meta,
+            description=f"Burned-subtitle preview (drama #{drama_id})")
     if not started:
         raise ConflictError("A preview clip is already rendering for this drama.")
     return {"job_id": job_id, "drama_id": drama_id, "line_id": line.id,

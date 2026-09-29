@@ -585,6 +585,37 @@ class TestBurnPreview:
         assert part.status_code == 206 and part.content == b"CLIP"
         assert not os.path.exists(os.path.join(db.drama_dir(did), "_burn_preview.part.mp4"))
 
+    def test_server_wide_cap_on_concurrent_renders(self, client, fake_ffmpeg, monkeypatch):
+        import threading
+        import video_export
+        gate = threading.Event()
+
+        def slow(video, ass, out, start, end, timeout=None):
+            gate.wait(10)
+            with open(out, "wb") as f:
+                f.write(b"x")
+            return out
+        monkeypatch.setattr(video_export, "render_preview_clip", slow)
+        dramas = [_video_drama() for _ in range(svc.MAX_CONCURRENT_BURN_PREVIEWS + 1)]
+        jobs = []
+        try:
+            for did, lid in dramas[:-1]:
+                r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid})
+                assert r.status_code == 200, r.text
+                jobs.append(r.json()["job_id"])
+            did, lid = dramas[-1]
+            msg = _error(client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid}), 409,
+                         "conflict")
+            assert "Other preview clips" in msg
+            assert background_jobs.get_status(f"{svc.BURN_PREVIEW_JOB_PREFIX}{did}") is None
+        finally:
+            gate.set()
+            for j in jobs:
+                _wait(j)
+        r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid})
+        assert r.status_code == 200, r.text
+        _wait(r.json()["job_id"])
+
     def test_clip_length_is_capped(self, client, fake_ffmpeg):
         did, lid = _video_drama(long_line=True)
         r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid})
