@@ -45,6 +45,11 @@ ENV_NAMES = {
 _ENGINE_KEY_NAMES = tuple(k for k in ENV_NAMES if k != "monthly_cap_usd")
 
 
+def _default_env_path() -> str:
+    return os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+
+
 def _read_env_file(env_path: str = None) -> dict:
     """Parses the project's .env file the same way tabs/settings_tab.py's
     _load_env_defaults() does: utf-8-sig (BOM-safe, since Notepad-saved
@@ -54,8 +59,7 @@ def _read_env_file(env_path: str = None) -> dict:
     """
     env = {}
     if env_path is None:
-        env_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        env_path = _default_env_path()
     if os.path.exists(env_path):
         try:
             with open(env_path, encoding="utf-8-sig") as fh:
@@ -149,3 +153,106 @@ def set_settings(updates: dict, env_path: str = None) -> dict:
     for key, value in updates.items():
         _WRITABLE_SETTINGS[key](value)
     return get_settings_overview(env_path)
+
+
+# Slice 24: write-only secret keys. URL settings and the numeric cap are
+# not secrets and stay out; only real keys/tokens can be set here.
+KEY_WRITE_ENGINES = ("claude", "deepseek", "gemini", "deepl", "google", "groq", "hf_token")
+_MAX_KEY_LENGTH = 512
+
+
+def _validate_engine(engine: str):
+    if engine not in KEY_WRITE_ENGINES:
+        raise InvalidInputError("Unknown engine.")
+
+
+def _validate_key_value(value) -> str:
+    """Returns the stripped key or raises InvalidInputError. Messages never
+    echo the value. Rejects anything that could inject another .env line
+    or be mangled by the .env reader (control characters, inner
+    whitespace, quotes)."""
+    if not isinstance(value, str):
+        raise InvalidInputError("The key must be text.")
+    value = value.strip()
+    if not value:
+        raise InvalidInputError("The key is empty.")
+    if len(value) > _MAX_KEY_LENGTH:
+        raise InvalidInputError("The key is too long.")
+    if any(ord(c) < 33 or ord(c) == 127 or c in "\"'" or c.isspace() for c in value):
+        raise InvalidInputError("The key contains characters that are not allowed.")
+    return value
+
+
+def _rewrite_env(env_path: str, transform):
+    """Atomically rewrites the .env file: `transform(lines)` returns the
+    new line list. Temp file in the same folder + os.replace; keeps the
+    existing file's permission bits (new files get 0600)."""
+    import tempfile
+    lines = []
+    mode = 0o600
+    if os.path.exists(env_path):
+        mode = os.stat(env_path).st_mode & 0o777
+        with open(env_path, encoding="utf-8-sig") as fh:
+            lines = fh.readlines()
+    new_lines = transform(lines)
+    folder = os.path.dirname(os.path.abspath(env_path))
+    fd, tmp = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.writelines(new_lines)
+        try:
+            os.chmod(tmp, mode)
+        except OSError:
+            pass
+        os.replace(tmp, env_path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _line_var(line: str) -> str:
+    return line.strip().split("=", 1)[0].strip()
+
+
+def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
+    """Writes `value` to .env under the engine's canonical name (same name
+    tabs/settings_tab.save_key_to_env uses), preserving other lines.
+    Returns {engine, configured} only -- never the value."""
+    _validate_engine(engine)
+    value = _validate_key_value(value)
+    env_path = env_path or _default_env_path()
+    var_name = ENV_NAMES[engine][0]
+
+    def transform(lines):
+        new_line = f"{var_name}={value}\n"
+        out, done = [], False
+        for line in lines:
+            if _line_var(line) == var_name:
+                if not done:
+                    out.append(new_line)
+                    done = True
+                continue
+            out.append(line)
+        if not done:
+            if out and not out[-1].endswith("\n"):
+                out[-1] += "\n"
+            out.append(new_line)
+        return out
+
+    _rewrite_env(env_path, transform)
+    return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
+
+
+def clear_engine_key(engine: str, env_path: str = None) -> dict:
+    """Removes the engine's key lines from .env (every accepted name for
+    it). A key that also comes from a real environment variable stays
+    configured -- `configured` reports the truth."""
+    _validate_engine(engine)
+    env_path = env_path or _default_env_path()
+    names = set(ENV_NAMES[engine])
+    if os.path.exists(env_path):
+        _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
+    return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}

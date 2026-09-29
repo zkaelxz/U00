@@ -25,6 +25,12 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 - `BAIHE_API_CORS_ORIGINS` -- comma-separated origins allowed in
   development. Defaults to the Vite dev/preview servers on loopback.
   A literal `*` is refused, not honoured.
+- `BAIHE_API_ALLOW_KEY_WRITES` (`1` to enable, default off) -- turns on
+  the write-only engine-key endpoints (`POST /api/settings/keys/...`,
+  Migration Slice 24). Off: they return 403. On: they still refuse any
+  request that looks remote (non-loopback peer/Host, proxy or identity
+  headers, cross-origin) and need `confirm=true`. That is a safeguard,
+  not authentication -- see docs/migration-review.md.
 """
 
 import os
@@ -44,6 +50,7 @@ class ApiSettings:
     port: int = DEFAULT_PORT
     environment: str = "production"
     cors_origins: tuple = field(default_factory=tuple)
+    allow_key_writes: bool = False
 
     @property
     def is_development(self) -> bool:
@@ -77,4 +84,6 @@ def load_settings(environ=None) -> ApiSettings:
         if "*" in origins:
             raise ValueError("BAIHE_API_CORS_ORIGINS may not be '*'; list the real origins.")
         cors_origins = tuple(origins)
-    return ApiSettings(host=host, port=port, environment=environment, cors_origins=cors_origins)
+    allow_key_writes = (env.get("BAIHE_API_ALLOW_KEY_WRITES") or "").strip() == "1"
+    return ApiSettings(host=host, port=port, environment=environment,
+                       cors_origins=cors_origins, allow_key_writes=allow_key_writes)
