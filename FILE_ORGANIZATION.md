@@ -315,6 +315,10 @@ baihe-subtitler/
 │   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
 │   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
 │   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
+│   ├── bug_report_service.py     "Report a problem" reports stored as files in <library>/bug_reports/
+│   │                             <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
+│   │                             (secrets, tokens, user names, paths), image metadata stripped
+│   │                             (router: bug_report_routes.py)
 │   └── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
 │                                 (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
 │                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
@@ -420,6 +424,9 @@ baihe-subtitler/
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
 │       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
 │       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
+│       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
+│       │                         screenshot PC only), GET list and GET {id} (admin.diagnostics),
+│       │                         POST {id}/delete (local_only + confirm + folder stamp)
 │       └── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
 │                                 /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
 │
@@ -436,6 +443,11 @@ baihe-subtitler/
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note)
+│   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
+│   │                              errors, failed API calls (method/path/status/code only) and route history;
+│   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),
+│   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
+│   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
@@ -477,13 +489,13 @@ baihe-subtitler/
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   │                              + src/api/seriesPeople.ts (add/edit series people)
+│   │                              VoiceClonePanel (Dub > Voices and cloning: clip upload/extract/pick, voice
+│   │                              bank, voice actor, series link, clone warnings) + voiceClone.ts (pure,
+│   │                              unit-tested); API in src/api/voiceClone.ts, types in src/types/voiceClone.ts
 │   │                              NovelFilePanel (novel reference in Translate, raw novel in Transcribe;
 │   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
 │   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
 │   │                              types/novelFiles.ts
-│   │                              VoiceClonePanel (Dub > Voices and cloning: clip upload/extract/pick, voice
-│   │                              bank, voice actor, series link, clone warnings) + voiceClone.ts (pure,
-│   │                              unit-tested); API in src/api/voiceClone.ts, types in src/types/voiceClone.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
