@@ -1,0 +1,203 @@
+import type { Page, Route } from '@playwright/test'
+
+// Shared page.route mocks for the Sources specs. A real search or series
+// fetch would hit the internet (paced), and every spec shares one seeded
+// library, so every job start, job result and settings write is mocked
+// here; a guard fails any unmocked search/series POST.
+
+export const SOURCES = [
+  {
+    name: 'alpha', display_name: 'Alpha Comics', content_types: ['manhua'], languages: ['zh'],
+    supports: { search: true, get_series: true, get_chapters: true, get_pages: true, download_page: true, get_chapter_text: false, get_audio_url: false, login: false },
+    import_supported: true, auth_supported: false, supports_adult_toggle: true, enabled: true, adult_enabled: false,
+    health: 'green', has_saved_signin: false,
+  },
+  {
+    name: 'beta', display_name: 'Beta Novels', content_types: ['novel'], languages: ['zh'],
+    supports: { search: true, get_series: true, get_chapters: true, get_pages: false, download_page: false, get_chapter_text: true, get_audio_url: false, login: false },
+    import_supported: true, auth_supported: true, supports_adult_toggle: false, enabled: true, adult_enabled: false,
+    health: 'yellow', has_saved_signin: true,
+  },
+  {
+    name: 'gamma', display_name: 'Gamma Video', content_types: ['video'], languages: ['zh'],
+    supports: { search: false, get_series: false, get_chapters: false, get_pages: false, download_page: false, get_chapter_text: false, get_audio_url: false, login: false },
+    import_supported: false, auth_supported: false, supports_adult_toggle: false, enabled: true, adult_enabled: false,
+    health: 'red', has_saved_signin: false,
+  },
+]
+
+export const SETTINGS = {
+  pace_min_delay: 3, pace_max_delay: 8, max_concurrent: 1, max_retries: 3,
+  session_break_min_requests: 8, session_break_max_requests: 20,
+  session_break_min_delay: 30, session_break_max_delay: 90,
+  cache_mode: 'keep_originals', check_interval_hours: 24,
+  auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
+  proxy_configured: false,
+  cache_modes: ['none', 'temporary', 'keep_originals', 'keep_translated', 'keep_both'],
+  cache: { entries: 120, bytes: 45_200_000 },
+}
+
+export function searchResult(n = 3) {
+  return {
+    kind: 'search',
+    query: 'Heaven',
+    cancelled: false,
+    results: Array.from({ length: n }, (_, i) => ({
+      title: `Heaven Book ${i + 1}`,
+      key: `k${i}`,
+      sources: i === 0 ? ['alpha', 'beta'] : ['alpha'],
+      entries: [
+        { source: 'alpha', series_id: `a${i}`, title: `Heaven Book ${i + 1}`, url: 'https://alpha.example/a', cover_url: 'https://alpha.example/c.jpg' },
+        ...(i === 0 ? [{ source: 'beta', series_id: 'b0', title: 'Heaven Book 1', url: 'https://beta.example/b', cover_url: '' }] : []),
+      ],
+    })),
+    errors: {
+      beta: { status: 503, code: 'dependency_unavailable', message: 'x', details: { reason: 'UNAVAILABLE', retry_after: 240 } },
+      alpha: { status: 400, code: 'unsupported_operation', message: 'x', details: { reason: 'CONTENT_HIDDEN' } },
+    },
+    per_source_counts: { alpha: n, beta: 1 },
+  }
+}
+
+export function seriesResult(chapters = 124) {
+  return {
+    kind: 'series',
+    source: 'alpha',
+    series_id: 'a0',
+    info: {
+      title: 'Heaven Book 1', url: 'https://alpha.example/a', cover_url: 'https://alpha.example/c.jpg',
+      authors: ['Mo Xiang'], description: 'A long description. '.repeat(20), genres: ['xianxia'],
+      status: 'ongoing', content_type: 'manhua', language: 'zh',
+    },
+    chapters: Array.from({ length: chapters }, (_, i) => ({
+      chapter_id: `c${i + 1}`, title: `Chapter ${i + 1}`, group: i < chapters - 2 ? 'Main' : 'Extras', url: 'https://alpha.example/c',
+    })),
+  }
+}
+
+export function sourceDetail(summary: (typeof SOURCES)[number]) {
+  const tier = { tested: false, ok: false, reason: null, detail: '', at: null }
+  return {
+    ...summary,
+    status: 'UNTESTED', technical_status: 'UNRESOLVED', access_method: null, content_access_status: 'IMAGES',
+    authentication_required: 'UNKNOWN', purchase_required: 'UNKNOWN', technical_protection: 'UNKNOWN',
+    automation_permission: 'UNKNOWN', ai_ml_use: 'UNKNOWN',
+    tiers: { STATIC_HTTP: { ...tier, tested: true, ok: true }, RENDERED_BROWSER: tier },
+    technical: {},
+    terms: { robots_txt: 'Crawl-delay: 10.', tos: 'Not reviewed.', tos_prohibited: false },
+    terms_enforced: false,
+    health_detail: {
+      light: summary.health, consecutive_failures: 0, last_success: null, last_failure: null, last_error_type: null,
+      last_error: null, last_latency: null, unavailable_until: null, retry_after: summary.health === 'red' ? 240 : null,
+    },
+  }
+}
+
+const json = (route: Route, body: unknown, status = 200) =>
+  route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+
+export interface MockState {
+  calls: { method: string; path: string; body: unknown }[]
+  search: 'none' | 'running' | 'done'
+  searchBody: unknown
+  series: 'none' | 'running' | 'done'
+  seriesBody: unknown
+  tracked: unknown[]
+  notifications: unknown[]
+  local: boolean
+  // Non-GET Sources calls nothing mocked: must stay empty.
+  unmocked: string[]
+}
+
+export async function mockSources(page: Page, over: Partial<MockState> = {}): Promise<MockState> {
+  const s: MockState = {
+    calls: [], search: 'none', searchBody: searchResult(), series: 'none', seriesBody: seriesResult(),
+    tracked: [], notifications: [], local: true, unmocked: [], ...over,
+  }
+  const record = (route: Route) => {
+    const req = route.request()
+    const url = new URL(req.url())
+    let body: unknown = undefined
+    try {
+      body = req.postDataJSON()
+    } catch {
+      body = req.postData()
+    }
+    s.calls.push({ method: req.method(), path: url.pathname + url.search, body })
+    return url
+  }
+
+  // Guard first: later routes take precedence, so this only catches what nothing else mocks.
+  await page.route(/\/api\/sources\/.*/, (route) => {
+    const req = route.request()
+    record(route)
+    if (req.method() !== 'GET') {
+      s.unmocked.push(`${req.method()} ${req.url()}`)
+      return route.abort()
+    }
+    return route.fallback()
+  })
+  await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: s.local }))
+  await page.route(/\/api\/sources(\?.*)?$/, (route) => {
+    record(route)
+    return json(route, SOURCES)
+  })
+  await page.route(/\/api\/sources\/tracked$/, (route) => {
+    record(route)
+    return json(route, s.tracked)
+  })
+  await page.route(/\/api\/sources\/notifications(\?.*)?$/, (route) => {
+    record(route)
+    return json(route, s.notifications)
+  })
+  await page.route(/\/api\/sources\/settings$/, (route) => {
+    record(route)
+    return json(route, SETTINGS)
+  })
+  await page.route(/\/api\/sources\/profiles$/, (route) => {
+    record(route)
+    return json(route, [])
+  })
+  await page.route(/\/api\/sources\/(alpha|beta|gamma)$/, (route) => {
+    const url = record(route)
+    const name = url.pathname.split('/').pop()
+    return json(route, sourceDetail(SOURCES.find((x) => x.name === name)!))
+  })
+  await page.route(/\/api\/sources\/(alpha|beta|gamma)\/attempts(\?.*)?$/, (route) => {
+    record(route)
+    return json(route, [])
+  })
+  await page.route(/\/api\/sources\/search$/, (route) => {
+    record(route)
+    s.search = 'running'
+    return json(route, { job_id: 'sources_search' })
+  })
+  await page.route(/\/api\/sources\/[^/]+\/series$/, (route) => {
+    record(route)
+    s.series = 'running'
+    return json(route, { job_id: 'sources_series_alpha' })
+  })
+  await page.route(/\/api\/sources\/jobs\/sources_search\/result$/, (route) => {
+    record(route)
+    if (s.search === 'none') return json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
+    if (s.search === 'running') return json(route, { job_id: 'sources_search', status: 'running', progress: 0.1, message: null, result: null })
+    return json(route, { job_id: 'sources_search', status: 'done', progress: 1, message: null, result: s.searchBody })
+  })
+  await page.route(/\/api\/sources\/jobs\/sources_series_[^/]+\/result$/, (route) => {
+    record(route)
+    if (s.series === 'none') return json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
+    if (s.series === 'running') {
+      s.series = 'done' // the next poll finishes
+      return json(route, { job_id: 'sources_series_alpha', status: 'running', progress: 0.2, message: 'Loading the series...', result: null })
+    }
+    return json(route, { job_id: 'sources_series_alpha', status: 'done', progress: 1, message: null, result: s.seriesBody })
+  })
+  await page.route(/\/api\/jobs\/sources_search\/cancel$/, (route) => {
+    record(route)
+    s.search = 'done'
+    return json(route, { job_id: 'sources_search', cancel_requested: true })
+  })
+  return s
+}
+
+export const posted = (s: MockState, path: string) => s.calls.filter((c) => c.method === 'POST' && c.path === path)

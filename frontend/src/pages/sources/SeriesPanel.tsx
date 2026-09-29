@@ -1,0 +1,158 @@
+import { useEffect, useRef, useState } from 'react'
+
+import { ErrorBanner } from '../../components/ErrorBanner'
+import { ConfirmButton } from '../../components/ConfirmButton'
+import { Section } from '../../components/Section'
+import type { OpenSeries, SeriesResult, TrackedSeries } from '../../types/sources'
+import { SourceErrorLine } from './SearchPanel'
+import { CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, seriesExtra, seriesMeta } from './sourcesFormat'
+import type { SourcesJob } from './useSourcesJob'
+
+type Props = {
+  open: OpenSeries
+  display: string
+  job: SourcesJob<SeriesResult>
+  tracked: TrackedSeries | null
+  remote: boolean
+  // Chapter list dropped after the source's Adult works switch changed.
+  cleared: boolean
+  // Changes each time a series is opened: focus moves to the heading.
+  focusKey: number
+  // Phone/tablet: the panel replaces the results and starts with "‹ Results".
+  showBack: boolean
+  onReload: () => void
+  onClose: () => void
+  onUntrack: (t: TrackedSeries) => void
+  untrackBusy: boolean
+}
+
+// A long description is clamped to 3 lines with More/Less.
+const LONG_DESCRIPTION = 180
+
+export function SeriesPanel({
+  open, display, job, tracked, remote, cleared, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
+}: Props) {
+  const headRef = useRef<HTMLHeadingElement>(null)
+  const [more, setMore] = useState(false)
+  const [shown, setShown] = useState(CHAPTERS_PAGE)
+
+  useEffect(() => {
+    if (focusKey) headRef.current?.focus({ preventScroll: false })
+  }, [focusKey])
+
+  const result = !cleared && job.status === 'done' ? job.result : null
+  const info = result?.info ?? null
+  const chapters = result?.chapters ?? []
+  const groups = groupChapters(chapters)
+  const title = info?.title || open.title || open.series_id
+  const running = job.status === 'running'
+  const description = info?.description?.trim() ?? ''
+  const extra = seriesExtra(info)
+
+  return (
+    <section className="panel sources-series" aria-label="Series">
+      {showBack && (
+        <button type="button" className="link sources-back" onClick={onClose}>
+          ‹ Results
+        </button>
+      )}
+      <div className="sources-series-head">
+        <h3 ref={headRef} tabIndex={-1}>
+          {title}
+        </h3>
+        {tracked && <span className="badge">Tracked</span>}
+      </div>
+
+      <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
+
+      <div aria-live="polite">
+        {running && (
+          <p>
+            {job.message || 'Loading the series…'}
+            {percent(job.progress)} ·{' '}
+            <button type="button" className="link" onClick={job.cancel}>
+              Cancel
+            </button>
+          </p>
+        )}
+      </div>
+
+      {cleared && <p className="muted">Chapter list cleared; reload it to use the new setting.</p>}
+
+      {!cleared && job.status === 'error' && job.error && (
+        <SourceErrorLine copy={{ ...describeSourceError(job.error, display, remote), retry: true }} onRetry={onReload} />
+      )}
+
+      {result && (
+        <>
+          <p className="sources-meta">{seriesMeta(display, info, chapters.length)}</p>
+          {extra && <p className="muted">{extra}</p>}
+          {description && (
+            <div className="sources-description">
+              <p className={more ? '' : 'clamp'}>{description}</p>
+              {description.length > LONG_DESCRIPTION && (
+                <button type="button" className="sources-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
+                  {more ? 'Less' : 'More'}
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="actions">
+        {info?.url && (
+          <a href={info.url} target="_blank" rel="noopener noreferrer">
+            Open on site ↗
+          </a>
+        )}
+        {!running && (result || cleared) && (
+          <button type="button" onClick={onReload}>
+            Reload
+          </button>
+        )}
+        {tracked && (
+          <ConfirmButton
+            label="Stop tracking…"
+            verb="stop tracking"
+            name={tracked.title || title}
+            busy={untrackBusy}
+            onConfirm={() => onUntrack(tracked)}
+          />
+        )}
+        <button type="button" className="link" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      {result && chapters.length > 0 && (
+        <Section title="Chapters" count={chapters.length} defaultOpen storageKey="sources.chapters">
+          <ChapterList groups={groups} shown={shown} />
+          {chapters.length > shown && (
+            <button type="button" onClick={() => setShown(chapters.length)}>
+              Show all {chapters.length}
+            </button>
+          )}
+        </Section>
+      )}
+    </section>
+  )
+}
+
+function ChapterList({ groups, shown }: { groups: ReturnType<typeof groupChapters>; shown: number }) {
+  const many = groups.length > 1
+  return (
+    <div className="sources-chapters">
+      {limitGroups(groups, shown).map((g) => (
+        <div key={g.group || '-'}>
+          {many && <h4>{g.group || 'Other'}</h4>}
+          <ul>
+            {g.chapters.map((c) => (
+              <li key={c.chapter_id}>{c.title || c.chapter_id}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  )
+}
