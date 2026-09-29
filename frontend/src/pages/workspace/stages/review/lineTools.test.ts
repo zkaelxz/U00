@@ -53,6 +53,13 @@ describe('per-line tool api', () => {
     expect(JSON.parse(String(calls[1].init?.body))).toEqual({ line_ids: [4, 5], confirm: true })
   })
 
+  it('accepts a translation-memory entry against the English it saw', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await review.acceptTm(2, 9, 11, 'Old text', fakeFetch(200, {}, calls))
+    expect(calls[0].url).toBe('/api/lines/dramas/2/lines/9/accept-tm')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ entry_id: 11, expected_en: 'Old text' })
+  })
+
   it('asks for the nearest flagged line with the view it is in', async () => {
     const calls: { url: string }[] = []
     await review.flaggedAdjacent(2, 'next', 7, 40, 'untranslated', fakeFetch(200, {}, calls))

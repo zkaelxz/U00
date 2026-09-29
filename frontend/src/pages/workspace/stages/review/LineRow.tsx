@@ -54,7 +54,7 @@ export interface RowActions {
   dismissFlag: (id: number) => void
   applyLine: (saved: ReviewLine, closeEdit: boolean) => void
   playLine: (line: ReviewLine) => void
-  acceptTm: (id: number, entryId: number) => void
+  acceptTm: (id: number, entryId: number, expectedEn: string) => void
   dismissTm: (s: TmSuggestion) => void
   clearIssue: () => void
   reload: () => void
@@ -198,7 +198,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             {tm.suggestion}
           </span>
           <span className="review-actions">
-            <button type="button" onClick={() => actions.acceptTm(line.id, tm.entry_id)}>Use</button>
+            <button type="button" onClick={() => actions.acceptTm(line.id, tm.entry_id, line.en ?? '')}>Use</button>
             <button type="button" onClick={() => actions.dismissTm(tm)}>Dismiss</button>
           </span>
         </div>

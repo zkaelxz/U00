@@ -1063,8 +1063,10 @@ class LinesFindReplaceApplyResult(BaseModel):
 
 
 class LinesAcceptTmRequest(BaseModel):
+    """expected_en: the line's English the client saw (409 if it changed)."""
     model_config = ConfigDict(extra="forbid")
     entry_id: int = Field(ge=1)
+    expected_en: str = Field(max_length=20000)
 
 
 class LinesNoteCreate(BaseModel):

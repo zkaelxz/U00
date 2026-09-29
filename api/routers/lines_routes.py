@@ -52,10 +52,11 @@ def post_find_replace_apply(body: LinesFindReplaceApplyRequest, drama_id: int = 
 
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/accept-tm", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,
-             summary="Accept a translation-memory suggestion for one line", responses=_404_422)
+             summary="Accept a translation-memory suggestion for one line (409 if its English changed)",
+             responses=_404_409_422)
 def post_accept_tm(body: LinesAcceptTmRequest, drama_id: int = Path(ge=1),
                    line_id: int = Path(ge=1)):
-    return lines_service.accept_tm_suggestion(drama_id, line_id, body.entry_id)
+    return lines_service.accept_tm_suggestion(drama_id, line_id, body.entry_id, body.expected_en)
 
 
 @router.post("/dramas/{drama_id}/notes", dependencies=[require_permission("lines.edit")], response_model=LinesNote,

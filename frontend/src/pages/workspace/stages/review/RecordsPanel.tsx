@@ -214,7 +214,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                   <button
                     type="button"
                     className="link"
-                    onClick={() => act(acceptTm(dramaId, s.line_id as number, s.entry_id))}
+                    onClick={() => act(acceptTm(dramaId, s.line_id as number, s.entry_id, s.en))}
                   >
                     Accept
                   </button>

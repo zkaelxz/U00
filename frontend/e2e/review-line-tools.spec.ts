@@ -149,7 +149,7 @@ test('translation memory: dismiss one on its line, use another', async ({ page }
   await page.route('**/api/review/dramas/3/tm-suggestions*', (route) =>
     route.fulfill({ json: [tm(0, 'Remembered zero', 11), tm(2, 'Remembered two', 12)] }))
   await page.route('**/api/lines/dramas/3/lines/*/accept-tm', (route) => {
-    expect(route.request().postDataJSON()).toEqual({ entry_id: 12 })
+    expect(route.request().postDataJSON()).toEqual({ entry_id: 12, expected_en: 'Line 2' })
     return route.fulfill({ json: {
       id: ids[2], idx: 2, start: 4, end: 5.5, zh: '句子2', en: 'Remembered two', speaker: null,
       speaker_manual: false, sfx: false, flag: null, flag_note: null, dub_filename: null,

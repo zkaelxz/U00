@@ -525,8 +525,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         st.current.onChanged()
       },
       playLine: (line) => player.current?.playLine(line),
-      acceptTm: (id, entryId) => {
-        acceptTmSuggestion(dramaId, id, entryId).then((saved) => {
+      acceptTm: (id, entryId, expectedEn) => {
+        acceptTmSuggestion(dramaId, id, entryId, expectedEn).then((saved) => {
           // A clean edit of this line now has a stale base: close it.
           if (st.current.edit?.lineId === id && !stillDirty(id)) setEditNow(null)
           replaceLine(saved)

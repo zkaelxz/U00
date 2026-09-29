@@ -61,8 +61,9 @@ export const patchLine = (id: number, lineId: number, patch: LinePatch, f?: Fetc
 export const dismissFlag = (id: number, lineId: number, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/dismiss-flag`, undefined, f)
 
-export const acceptTm = (id: number, lineId: number, entryId: number, f?: Fetch) =>
-  postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/accept-tm`, { entry_id: entryId }, f)
+// expectedEn: the line's English as shown; the server refuses (409) if it changed.
+export const acceptTm = (id: number, lineId: number, entryId: number, expectedEn: string, f?: Fetch) =>
+  postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/accept-tm`, { entry_id: entryId, expected_en: expectedEn }, f)
 
 export const listNotes = (id: number, f?: Fetch) => getJson<ReviewNote[]>(`${review(id)}/notes`, f)
 
