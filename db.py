@@ -3638,9 +3638,12 @@ def reset_library():
 
     _close_leaked_connections()
     for suffix in ("", "-wal", "-shm", "-journal"):
-        p = DB_PATH + suffix
-        if os.path.exists(p):
-            os.remove(p)
+        # A job thread closing its last connection can checkpoint and delete
+        # the -wal/-shm files between a check and the remove, so just try.
+        try:
+            os.remove(DB_PATH + suffix)
+        except FileNotFoundError:
+            pass
     if os.path.isdir(DRAMAS_DIR):
         shutil.rmtree(DRAMAS_DIR)
     cedict_path = os.path.join(LIBRARY_DIR, "cedict.txt")
