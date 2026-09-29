@@ -236,6 +236,12 @@ def require_paid_engines(request: Request):
         raise ForbiddenError(_GENERIC_403)
 
 
+def holds_paid_engines(request: Request) -> bool:
+    """Whether the caller holds `engines.paid` (always, with auth off), for
+    a route that skips a paid extra step rather than refusing the request."""
+    return _holds(request, "engines.paid")
+
+
 def _holds(request: Request, permission: str) -> bool:
     principal = getattr(request.state, "principal", None) or {}
     return permission in principal.get("permissions", ())

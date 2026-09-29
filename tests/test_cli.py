@@ -1190,6 +1190,23 @@ class TestCliServiceParity:
         self.out = out.getvalue()
         return [e for e in engines if e[0] != "ollama"], seen
 
+    def test_translate_passes_the_monthly_cap_for_the_summary_engine(self, isolated_db, monkeypatch):
+        """Security review (PR #439): a paid episode-summary call is checked
+        against the monthly cap (--monthly-cap, else Settings)."""
+        import bulk_translate
+        seen_caps = []
+        real_finish = bulk_translate.finish_translation_run
+        monkeypatch.setattr(bulk_translate, "finish_translation_run",
+                            lambda *a, **k: seen_caps.append(k.get("summary_monthly_cap_usd"))
+                            or real_finish(*a, **k))
+        self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                        api_key=None, monthly_cap=4.5)
+        assert seen_caps == [4.5], self.out
+        monkeypatch.setattr(cli, "_monthly_cap_setting", lambda: 8.0)
+        self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                        api_key=None, monthly_cap=None)
+        assert seen_caps[-1] == 8.0
+
     def test_translate_uses_the_dramas_saved_engine_and_its_own_key(self, isolated_db, monkeypatch):
         engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
                                         api_key=None, model="claude-x")

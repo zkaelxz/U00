@@ -9,14 +9,18 @@ Parity X02/X22 add "Apply tier" (lines.edit: per-drama stage config) and
 write; a new name deletes nothing. Replacing a preset of the same name
 needs overwrite=true, else 409, and overwrite is PC-only like other
 deletes: refused with 403 from a non-loopback client when auth is on).
+Parity X03 adds "Apply a preset" to an existing drama (lines.edit, like
+"Apply tier": it saves only the engine on the drama and starts nothing).
 """
 
 from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Request
-from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
+from api.auth import (_auth_enabled, holds_paid_engines, is_local_request,
+                      require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
+                         TranslatePresetApplied, TranslatePresetApply,
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply)
@@ -71,7 +75,10 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         if body.fallback_chain else None,
         reflect=body.reflect, bulk=body.bulk,
         default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes)
+        include_genre_notes=body.include_genre_notes,
+        # The Settings episode-summary engine may be a cloud one: skipped
+        # for a caller without engines.paid rather than refusing the run.
+        allow_paid_summary=holds_paid_engines(request))
 
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,
@@ -114,6 +121,14 @@ def dismiss_translate_errors(request: Request, drama_id: int = Path(ge=1, le=2**
              responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
     return translate_run_service.apply_workflow_tier(drama_id, body.tier)
+
+
+@router.post("/dramas/{drama_id}/apply-preset", dependencies=[require_permission("lines.edit")],
+             response_model=TranslatePresetApplied,
+             summary="Apply a saved preset: saves its engine on the drama, returns the form values",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def apply_translate_preset(body: TranslatePresetApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return translate_run_service.apply_translate_preset(drama_id, body.preset_id)
 
 
 @router.post("/presets", dependencies=[require_permission("admin.library")],
