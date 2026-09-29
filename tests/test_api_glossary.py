@@ -313,3 +313,42 @@ class TestImportExportBulk:
     def test_bulk_delete_bad_body(self, client, isolated_db, body):
         did = _drama(isolated_db)
         assert client.post(_url(did, "terms/bulk-delete"), json=body).status_code == 422
+
+
+# ---- M2: overwriting on import is PC-only until network zones exist ---------
+
+def _household_headers():
+    from api import auth as api_auth
+    from services import auth_service
+    u = auth_service.add_user("kid@example.com")
+    assert "lines.edit" in auth_service.effective_permissions(u["id"])
+    s = auth_service.create_session(u["id"])
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+            api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+def test_import_overwrite_is_pc_only_when_auth_on(isolated_db):
+    did = _drama(isolated_db)
+    isolated_db.upsert_glossary_term(isolated_db.get_drama(did)["series_id"], "沈清疑", "Old")
+    h = _household_headers()
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")),
+                        base_url="https://baihe.example.com", raise_server_exceptions=False)
+    text = "term,translation\n沈清疑,Changed\n师姐,Senior Sister\n"
+    r = remote.post(_url(did, "import"), headers=h,
+                    json={"text": text, "overwrite_existing": True, "confirm": True})
+    assert r.status_code == 403
+    assert [t["term_original"] for t in isolated_db.list_glossary_terms(
+        isolated_db.get_drama(did)["series_id"])] == ["沈清疑"]
+    # pasting new terms stays allowed for lines.edit away from the PC
+    r = remote.post(_url(did, "import"), headers=h, json={"text": text})
+    assert r.status_code == 200, r.text
+    assert r.json()["added"] == ["师姐"] and r.json()["skipped_existing"] == ["沈清疑"]
+    local = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="http://127.0.0.1:8600",
+                       client=("127.0.0.1", 5000), raise_server_exceptions=False)
+    r = local.post(_url(did, "import"), headers=h,
+                   json={"text": text, "overwrite_existing": True, "confirm": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["overwritten"] == ["沈清疑", "师姐"]
+    sid = isolated_db.get_drama(did)["series_id"]
+    assert {t["term_original"]: t["term_translation"]
+            for t in isolated_db.list_glossary_terms(sid)}["沈清疑"] == "Changed"

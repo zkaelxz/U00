@@ -3,14 +3,18 @@ import { useState } from 'react'
 import { glossaryCsvUrl, importGlossary } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { GlossaryImportResult } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import { GLOSSARY_FILE_ACCEPT, importSummary, validateImportText } from './glossaryImportForm'
 
 // Parity T03/T04: Streamlit's "Import glossary file" and "Export glossary as CSV".
 // A file is read in the browser and its text is sent like a paste; nothing is uploaded as a file.
+// Away from the PC only pasting new terms is offered: choosing a file and replacing existing
+// terms are PC-only until network zones exist (the server refuses a remote overwrite with 403).
 export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; onImported: () => void }) {
   const { dramaId } = useStage()
+  const remote = usePcOnly() === 'remote'
   const [text, setText] = useState('')
   const [filename, setFilename] = useState('')
   const [overwrite, setOverwrite] = useState(false)
@@ -40,10 +44,11 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
     }
     setProblem(null)
     setPending(true)
+    const replace = overwrite && !remote
     importGlossary(dramaId, {
       text,
       ...(filename ? { filename } : {}),
-      ...(overwrite ? { overwrite_existing: true, confirm: true } : {}),
+      ...(replace ? { overwrite_existing: true, confirm: true } : {}),
     })
       .then(
         (r) => {
@@ -64,10 +69,12 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
     <details className="glossary-import">
       <summary>Import or export</summary>
       <p className="muted">CSV, TSV or JSON. A two-column term, translation sheet works.</p>
-      <Field label="Glossary file">
-        <input type="file" accept={GLOSSARY_FILE_ACCEPT} onChange={(e) => load(e.target.files?.[0])} />
-      </Field>
-      <Field label="Or paste the glossary">
+      {!remote && (
+        <Field label="Glossary file">
+          <input type="file" accept={GLOSSARY_FILE_ACCEPT} onChange={(e) => load(e.target.files?.[0])} />
+        </Field>
+      )}
+      <Field label={remote ? 'Paste the glossary' : 'Or paste the glossary'}>
         <textarea
           rows={4}
           value={text}
@@ -77,19 +84,23 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
           }}
         />
       </Field>
-      <label className="inline">
-        <input
-          type="checkbox"
-          checked={overwrite}
-          onChange={(e) => {
-            setOverwrite(e.target.checked)
-            setConfirming(false)
-          }}
-        />{' '}
-        Replace terms that are already in the glossary
-      </label>
+      {remote ? (
+        <p className="muted">Choosing a file and replacing existing terms are PC only; existing terms are skipped.</p>
+      ) : (
+        <label className="inline">
+          <input
+            type="checkbox"
+            checked={overwrite}
+            onChange={(e) => {
+              setOverwrite(e.target.checked)
+              setConfirming(false)
+            }}
+          />{' '}
+          Replace terms that are already in the glossary
+        </label>
+      )}
       <div className="glossary-bulk">
-        {overwrite && confirming ? (
+        {overwrite && !remote && confirming ? (
           <>
             <span role="alert">Existing terms with the same original text will be replaced.</span>
             <button type="button" className="danger" disabled={pending} onClick={run}>
@@ -98,7 +109,7 @@ export function GlossaryImport({ hasTerms, onImported }: { hasTerms: boolean; on
             <button type="button" disabled={pending} onClick={() => setConfirming(false)}>Cancel</button>
           </>
         ) : (
-          <button type="button" disabled={pending} onClick={() => (overwrite ? setConfirming(true) : run())}>
+          <button type="button" disabled={pending} onClick={() => (overwrite && !remote ? setConfirming(true) : run())}>
             {pending ? 'Importing…' : 'Import'}
           </button>
         )}

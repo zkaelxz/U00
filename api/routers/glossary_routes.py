@@ -11,20 +11,21 @@ drama's engine), status with the proposals, and apply by term text.
 
 Parity T03/T04/X13: import a glossary file's text (JSON body, nothing
 stored as a file, so lines.edit like the other term writes; overwriting
-existing terms needs confirm=true), export as CSV, and bulk delete by id.
+existing terms needs confirm=true and, until network zones exist, the PC),
+export as CSV, and bulk delete by id.
 """
 
 from typing import List
 
 from fastapi import APIRouter, Path, Query, Request, Response
-from api.auth import require_engines_allowed, require_permission
+from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryBulkDeleteRequest, GlossaryBulkDeleteResult,
                          GlossaryCatalogues, GlossaryDeleteResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, GlossaryTerm,
                          GlossaryTermUpsert, NovelGlossaryApplyRequest, NovelGlossaryApplyResult,
                          NovelGlossaryRunResult, NovelGlossaryStatus)
 from services import glossary_service
-from services.service_errors import InvalidInputError
+from services.service_errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
 
@@ -71,9 +72,14 @@ def post_bulk_delete_terms(payload: GlossaryBulkDeleteRequest, drama_id: int = P
 @router.post("/dramas/{drama_id}/import", dependencies=[require_permission("lines.edit")],
              response_model=GlossaryImportResult,
              summary="Import glossary text (CSV, TSV or JSON) into the series glossary",
-             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
-def post_import_glossary(payload: GlossaryImportRequest, drama_id: int = Path(ge=1)):
+             responses={400: {"model": ErrorResponse}, 403: {"model": ErrorResponse},
+                        404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_import_glossary(payload: GlossaryImportRequest, request: Request,
+                         drama_id: int = Path(ge=1)):
+    # Overwriting is the LAN exception in docs/remote-access-decision.md; with
+    # no LAN zone yet (only PC vs not-PC) it stays at the PC.
+    if payload.overwrite_existing and _auth_enabled(request.app) and not is_local_request(request):
+        raise ForbiddenError("Replacing existing glossary terms is only allowed at the PC.")
     if payload.overwrite_existing and not payload.confirm:
         raise InvalidInputError("Overwriting existing terms needs confirm=true.")
     return glossary_service.import_glossary_text(

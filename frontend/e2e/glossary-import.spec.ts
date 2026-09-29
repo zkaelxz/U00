@@ -65,6 +65,27 @@ test('a loaded file sends its text and name', async ({ page }) => {
   expect(bodies[0]).toEqual({ text: 'x\tX\n', filename: 'terms.tsv' })
 })
 
+test('away from the PC only pasting is offered and nothing is replaced', async ({ page }) => {
+  await page.route('**/api/meta', (route) =>
+    route.fulfill({ json: { app: 'baihe', api_version: '1', environment: 'development', local: false } }),
+  )
+  await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: TERMS }))
+  const bodies: unknown[] = []
+  await page.route('**/api/glossary/dramas/1/import', (route) => {
+    bodies.push(route.request().postDataJSON())
+    return route.fulfill({ json: { added: ['a'], overwritten: [], skipped_existing: ['师姐'], invalid: [], warnings: [] } })
+  })
+  const glossary = await openGlossary(page)
+  await glossary.getByText('Import or export').click()
+  await expect(glossary.getByText('Choosing a file and replacing existing terms are PC only')).toBeVisible()
+  await expect(glossary.getByLabel('Glossary file')).toHaveCount(0)
+  await expect(glossary.getByLabel('Replace terms that are already in the glossary')).toHaveCount(0)
+  await glossary.getByLabel('Paste the glossary').fill('a,A\n师姐,Sis')
+  await glossary.getByRole('button', { name: 'Import', exact: true }).click()
+  await expect(glossary.getByTestId('glossary-import-result')).toContainText('Added 1 term, kept 1 existing.')
+  expect(bodies).toEqual([{ text: 'a,A\n师姐,Sis' }])
+})
+
 test('bulk delete sends the chosen ids in one request', async ({ page }) => {
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: TERMS }))
   const bodies: unknown[] = []
