@@ -107,9 +107,10 @@ def get_translate_config(drama_id: int) -> dict:
     lines = db.load_lines(drama_id)
     monthly_cap = _monthly_cap()
     free_tier = settings_service.get_gemini_free_tier()
+    engine_name = drama.get("translation_engine") or settings_service.get_default_engine()
     return {
         "drama_id": drama_id,
-        "translation_engine": drama.get("translation_engine") or settings_service.get_default_engine(),
+        "translation_engine": engine_name,
         "engines": translate_service.list_engines(),
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
                           for k, v in translation_guide.STYLE_PRESETS.items()],
@@ -137,7 +138,8 @@ def get_translate_config(drama_id: int) -> dict:
                                   for name in translate_engines.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
                                    if not (e == "gemini" and free_tier)],
-        "ollama_reachable": ollama_reachable(),
+        # Probed only when the drama translates with Ollama; None = not checked.
+        "ollama_reachable": ollama_reachable() if engine_name == "ollama" else None,
     }
 
 

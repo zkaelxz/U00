@@ -639,7 +639,9 @@ class TranslateRunConfig(BaseModel):
     month_spend: float
     cap_applies_by_engine: Dict[str, bool]
     bulk_supported_engines: List[str]
-    ollama_reachable: bool = False   # parity X24; never the URL
+    # parity X24; never the URL. None when the drama's engine isn't Ollama
+    # (not probed).
+    ollama_reachable: Optional[bool] = None
 
 
 class TranslateRunEstimate(BaseModel):
