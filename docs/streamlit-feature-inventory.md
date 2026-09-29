@@ -319,7 +319,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G13 | Ollama context window override | 373-381 | — | MISSING | no API | — |
 | G14 | Monthly spending cap | 383-395 | — | MISSING (read from `BAIHE_MONTHLY_CAP_USD` server side, UNK) | no API | wt TestSpendingCapUI |
 | G15 | yt-dlp cookies from a browser or a cookies.txt | 397-413 | `video_download.COOKIE_BROWSERS` | MISSING | no API | test_settings_tab TestCookieBasedLoginSettings; test_live_tab |
-| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | PARTIAL `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s; PC only). Engine for extension pages MISSING (no API) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372) | test_page_server_settings |
+| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | DONE `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s, engine and model for extension pages saved as an app setting and hooked into page_server at API startup; PC only) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372); `GET /api/extension/engine` (admin.settings), `POST /api/extension/engine` (local_only) | test_page_server_settings |
 
 ## 5. Diagnostics (`tabs/diagnostics_tab.py`, 987 lines)
 
