@@ -7,7 +7,10 @@ Last updated 2026-09-29. Base branch: `baihe-subtitler`. Slice detail lives in `
 Everything the old session left pushed is merged: `reader-service` #358, `transcribe-autotune-glossary-service` #361, `fix-b27-retry-engine` #362 (B-27 marked fixed), `api-routes-batch-1` #372 (incl. Sources S-3 and Diagnostics admin routes, extension control, `LocalOnlyCrossSiteGate`).
 Queue below: item 1 done (route batch 2C #365, 2B #370, 2A #376; library admin hardening #369); item 2 done (#374); item 3 partly done (Review editor #377; Workspace shell not yet; progress endpoint merged in #372).
 Also merged: #363 B-25 redirect hops, #364 Range tests, #366 idx tests, #367/#368 tab-to-service extraction, #371 B-29, #373 B-28, #375 B-09 part 2, #378 job results, #379 React bulk batches panel, #380 React parity, #381 Gemini free tier outside Streamlit, #382 CLI parity, #383 xdist test isolation.
-Open, not merged: `react-library-admin`, `react-reader-page`, `react-autotune-glossary-deletes`, `fix-reader-html-escaping`.
+~~Open, not merged: `react-library-admin`, `react-reader-page`, `react-autotune-glossary-deletes`, `fix-reader-html-escaping`~~ (merged: #385, #388, #387, #386).
+
+## Status after #402 (docs sync, 2026-09-29, base f48ec58)
+Merged since the #384 sync: React Library admin #385, B-30 #386, React Workspace Auto-tune / Glossary from novel / PC-only deletes #387, React Reader #388, optional deps #389, translate parity #390 #395 #397, job results #391, React Review AI checks #392, auto Whisper prompt #393, off-mode cross-site gate on every `/api` mutation #394, test races #396, retry-blocked + translation versions #398, single-line re-transcribe #399, follow-ups #400, React Sources page #401, React Diagnostics admin + extension settings #402. Route table re-verified at f48ec58 (`docs/remote-access-decision.md`).
 
 ## Session handoff (2026-09-29, late): read this first
 The previous lead session handed over to a new session so that the new project agents can load
