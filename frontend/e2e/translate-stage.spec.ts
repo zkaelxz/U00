@@ -33,7 +33,7 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await expect(run.getByLabel('Engine', { exact: true })).toBeVisible()
   // Options live in a collapsed Advanced section with a summary of non-default values.
   await expect(run.getByText('defaults', { exact: true })).toBeVisible()
-  await expect(run.getByLabel('Batch size')).toBeHidden()
+  await expect(run.getByLabel('Batch size', { exact: true })).toBeHidden()
 
   await run.getByRole('button', { name: 'Estimate cost' }).click()
   await expect(page.getByTestId('estimate').or(page.getByRole('alert'))).toBeVisible()
@@ -41,13 +41,13 @@ test('shows config, estimates, and starts a run with the chosen options', async 
   await run.getByText('Advanced', { exact: true }).click()
 
   // Out-of-range values are caught before any request.
-  await run.getByLabel('Batch size').fill('500')
+  await run.getByLabel('Batch size', { exact: true }).fill('500')
   await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
   await expect(run.getByRole('alert')).toContainText('Batch size')
   expect(bodies).toEqual([])
 
-  await run.getByLabel('Batch size').fill('10')
-  await run.getByLabel('Cost cap').fill('2.5')
+  await run.getByLabel('Batch size', { exact: true }).fill('10')
+  await run.getByLabel('Cost cap', { exact: true }).fill('2.5')
   await run.getByRole('button', { name: 'Add fallback engine' }).click()
   await run.getByLabel('Fallback engine 1').selectOption(other)
   await run.getByLabel('Re-translate existing').check()
