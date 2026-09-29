@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import type { KnownPlatform, MediaAnalysis } from '../../../types/workspace'
 import {
@@ -37,7 +38,7 @@ function KnownPlatforms() {
             <li key={p.url}>
               <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a>
               {p.content_types?.length ? (
-                <span className="muted"> · {p.content_types.map((t) => t.replace(/_/g, ' ')).join(', ')}</span>
+                <span className="muted"> · {p.content_types.map((t) => humanize('mediaType', t)).join(', ')}</span>
               ) : null}
             </li>
           ))}

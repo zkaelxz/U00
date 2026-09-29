@@ -247,7 +247,7 @@ test.describe('Glossary from novel', () => {
     await openSection(page, 'Glossary')
     await openSection(page, 'From novel')
     await page.getByTestId('novel-glossary-proposals').getByLabel('Select 江澄').check()
-    await page.getByLabel('Overwrite existing terms').check()
+    await page.getByRole('switch', { name: 'Overwrite existing terms' }).click()
     await expect(page.getByText('Tick terms marked "already in glossary" to replace them.')).toBeVisible()
     await page.getByRole('button', { name: 'Add 1 term to series glossary' }).click()
     await expect(page.getByText('Replace 1 existing term in the series glossary?')).toBeVisible()
@@ -338,7 +338,7 @@ test.describe('PC-only stage deletes', () => {
     await expect(page.getByRole('button', { name: /Delete Claude pass 1/ })).toHaveCount(0)
     await expect(page.getByText('Deleting is PC only.')).toBeVisible()
     await page.goto('/#/drama/1/source')
-    await expect(page.getByTestId('media-status')).toContainText('Audio: attached')
+    await expect(page.getByTestId('media-status')).toContainText('Audio attached')
     await expect(page.getByRole('button', { name: /Remove audio\/video/ })).toHaveCount(0)
   })
 

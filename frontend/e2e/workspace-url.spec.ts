@@ -55,7 +55,7 @@ test('From a URL: toggle, checks, download starts the urlmedia job', async ({ pa
   await expect(download).toBeDisabled()
   await link.fill('https://video.example/watch?v=1')
   // Audio drama: audio only starts on. The drama has audio, so replacing needs a tick.
-  await expect(page.getByRole('checkbox', { name: 'Audio only' })).toBeChecked()
+  await expect(page.getByRole('switch', { name: 'Audio only' })).toBeChecked()
   await expect(page.getByText('Still needed: tick “Replace the current audio”.')).toBeVisible()
   await page.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await download.click()

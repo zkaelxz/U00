@@ -6,6 +6,7 @@ import {
 } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
 import type { NovelAttachResult, NovelMode, NovelStatus } from '../../../types/workspace'
 import { attachNotice, epubRange } from '../preambleForm'
@@ -20,6 +21,10 @@ interface Props {
   // Bumped by the parent when a job finishes, so the status line reloads.
   reloadKey?: number
 }
+
+// OCR backend ids ("manga_ocr") as readable names; the option value stays raw.
+const OCR_LABELS: Record<string, string> = { manga_ocr: 'Manga OCR', paddle: 'PaddleOCR', tesseract: 'Tesseract' }
+const ocrLabel = (b: string) => OCR_LABELS[b] ?? humanizeValue(b)
 
 export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -147,7 +152,7 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
             <p className="muted">The original-language chapters saved for this drama (from Sources or Transcribe), using the Mode above.</p>
           </div>
         )}
-        <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrBackend}` : ocrBackend}>
+        <Section storageKey="source.novel.ocr" title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
           <Field label="Page images" help="PNG or JPG pages in reading order (up to 200). The text is read in the background and added using the Mode above.">
             <input
               type="file"
@@ -157,10 +162,10 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0 }: Props)
             />
           </Field>
           {imageProblem && <p className="error" role="alert">{imageProblem}</p>}
-          <Field label="OCR engine" help="manga_ocr suits Japanese speech-bubble crops; paddle is heavier but more accurate for Chinese.">
+          <Field label="OCR engine" help="Manga OCR suits Japanese speech-bubble crops; PaddleOCR is heavier but more accurate for Chinese.">
             <select value={ocrBackend} onChange={(e) => setBackend(e.target.value)}>
               {backends.map((b) => (
-                <option key={b} value={b}>{b}</option>
+                <option key={b} value={b}>{ocrLabel(b)}</option>
               ))}
             </select>
           </Field>

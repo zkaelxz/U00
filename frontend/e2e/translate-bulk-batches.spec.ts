@@ -48,7 +48,7 @@ test('lists pending batches, resumes, and cancels one after confirming', async (
   await expect(panel.getByTestId('bulk-batch')).toHaveCount(2)
   await expect(panel.getByText('Waiting for the provider')).toBeVisible()
   await expect(panel.getByText('runs 2026-09-29 16:30')).toBeVisible()
-  await panel.getByLabel(/Show finished/).check()
+  await panel.getByRole('switch', { name: /Show finished/ }).click()
   await expect(panel.getByTestId('bulk-batch')).toHaveCount(3)
   await expect(panel.getByText('applied 238 · missing 2')).toBeVisible()
 
@@ -112,17 +112,15 @@ test('a list read still in flight when a cancel succeeds cannot bring the old st
   await panel.getByRole('button', { name: 'Yes, cancel it' }).click()
   await expect(panel.getByRole('status')).toHaveText('#7: Cancelled.')
   await page.waitForTimeout(2000) // let the late read arrive
-  await panel.getByLabel(/Show finished/).check()
+  await panel.getByRole('switch', { name: /Show finished/ }).click()
   await expect(panel.getByText('Cancelled', { exact: true })).toBeVisible()
   await expect(panel.getByText('Waiting for the provider')).toHaveCount(0)
 })
 
-test('empty state with no batches (real seeded API)', async ({ page }) => {
-  const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
-  test.skip(config.bulk_supported_engines.length === 0, 'no bulk-capable engine in this build')
+test('no batches: the Bulk batches section is not rendered (real seeded API)', async ({ page }) => {
   await page.goto('/#/drama/1/translate')
-  await page.locator('details.section', { hasText: 'Bulk batches' }).locator('summary').click()
-  const panel = page.getByRole('region', { name: 'Bulk batches' })
-  await expect(panel.getByText(/No bulk batches yet/)).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Translate run' })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await expect(page.locator('details.section', { hasText: 'Bulk batches' })).toHaveCount(0)
   if (shots) await page.screenshot({ path: `${shots}/desktop-empty.png`, fullPage: true })
 })

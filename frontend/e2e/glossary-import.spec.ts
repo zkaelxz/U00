@@ -40,7 +40,7 @@ test('imports pasted text, asks before replacing, and offers the CSV', async ({ 
   await expect(glossary.getByTestId('glossary-import-result')).toContainText('No header row detected.')
   expect(bodies[0]).toEqual({ text: 'a,A\n师姐,Sis' })
 
-  await glossary.getByLabel('Replace terms that are already in the glossary').check()
+  await glossary.getByRole('switch', { name: 'Replace terms that are already in the glossary' }).click()
   await glossary.getByRole('button', { name: 'Import', exact: true }).click()
   expect(bodies).toHaveLength(1)
   await glossary.getByRole('button', { name: 'Yes, import and replace' }).click()

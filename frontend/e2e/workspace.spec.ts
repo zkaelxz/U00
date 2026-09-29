@@ -112,6 +112,7 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
+  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
@@ -237,7 +238,7 @@ test('the primary action is Transcribe, options are collapsed and changed option
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
   // Collapsed: the tuning fields are not visible until Advanced is opened.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
-  await expect(region.locator('details.section > summary').first()).toContainText('defaults')
+  await expect(region.locator('details.section > summary').filter({ hasText: 'Advanced' }).first()).toContainText('defaults')
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('7')
   const transcript = page.getByLabel('Transcript text', { exact: true })

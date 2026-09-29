@@ -4,7 +4,6 @@
 .source-file { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; min-width: 0; }
 .source-file input[type='file'] { flex: 1 1 14rem; min-width: 0; max-width: 100%; }
 .source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-3); min-width: 0; }
-.source-checks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 .source-panel .check { display: flex; align-items: center; gap: var(--space-2); }
 .source-summary { overflow-wrap: anywhere; }
 .source-suggestions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
@@ -13,6 +12,20 @@
 .source-analysis dd { margin: 0; }
 .source-analysis > div { display: block; min-width: 0; }
 
-/* Source media: "Upload a file | From a URL" (the link form is urlDownload.css). */
-.source-from { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
-.source-from label { display: inline-flex; align-items: center; gap: var(--space-2); }
+/* Source media: "Upload a file | From a URL" as a segmented control (the link form is urlDownload.css).
+   Native radios stay (arrow keys, radio semantics), visually hidden; the label is the segment. */
+.source-media-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.segmented { display: inline-flex; max-width: 100%; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.segmented label { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 4px 14px; border-radius: calc(var(--radius-md) - 2px); color: var(--muted); font-weight: var(--weight-medium); cursor: pointer; white-space: nowrap; transition: background var(--ease), color var(--ease); }
+.segmented label:hover { color: var(--text); }
+.segmented label.segmented-on { background: var(--accent-soft); color: var(--accent-text); }
+.segmented input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (pointer: coarse), (max-width: 640px) {
+  .segmented { display: flex; }
+  .segmented label { flex: 1 1 0; min-height: 44px; padding-inline: var(--space-2); }
+}
+
+/* Transcribe's blocker line: the reason plus a one-tap fix (rule 22). */
+.source-needed { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.source-panel .setting-list { margin: 0; }

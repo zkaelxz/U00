@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import { getJob } from '../../../api/jobs'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
+import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
@@ -20,6 +22,7 @@ import { NovelGlossary } from './NovelGlossary'
 import { NovelPanel } from './NovelPanel'
 import TranscribeStage from './TranscribeStage'
 import { UrlDownload } from './UrlDownload'
+import { mediaFileInputId } from './stageBlockers'
 
 export default function SourceStage() {
   const { dramaId, drama, onJobDone } = useStage()
@@ -126,17 +129,20 @@ export default function SourceStage() {
   const mediaSlot = (
     <>
       {media && (
-        <p className="muted" data-testid="media-status">
-          Audio: {media.has_audio ? 'attached' : 'none'} · Source video:{' '}
-          {media.has_source_video ? 'attached' : 'none'} · limit {media.upload_max_mb} MB
+        <p className="source-media-status" data-testid="media-status">
+          <Badge tone={media.has_audio ? 'ok' : 'neutral'}>{media.has_audio ? 'Audio attached' : 'No audio'}</Badge>
+          <Badge tone={media.has_source_video ? 'ok' : 'neutral'}>
+            {media.has_source_video ? 'Source video attached' : 'No source video'}
+          </Badge>
+          <span className="muted">limit {media.upload_max_mb} MB</span>
         </p>
       )}
-      <div className="source-from" role="radiogroup" aria-label="Get audio or video">
-        <label>
+      <div className="segmented source-from" role="radiogroup" aria-label="Get audio or video">
+        <label className={!fromUrl ? 'segmented-on' : undefined}>
           <input type="radio" name={`source-from-${dramaId}`} checked={!fromUrl} onChange={() => setFrom('file')} />
           Upload a file
         </label>
-        <label>
+        <label className={fromUrl ? 'segmented-on' : undefined}>
           <input type="radio" name={`source-from-${dramaId}`} checked={fromUrl} onChange={() => setFrom('url')} />
           From a URL
         </label>
@@ -159,12 +165,13 @@ export default function SourceStage() {
         <div className="source-file">
           <input
             type="file"
+            id={mediaFileInputId(dramaId)}
             aria-label="Audio or video file"
             accept=".mp3,.wav,.m4a,.flac,.ogg,.mp4,.mkv,.mov,.webm"
             disabled={!media}
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
-          <button type="button" disabled={!file || busy} onClick={upload}>
+          <button type="button" className={buttonClass('secondary')} disabled={!file || busy} onClick={upload}>
             Upload
           </button>
         </div>

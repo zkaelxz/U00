@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test'
 
 import { ME } from './authMocks'
+import { withTranslateLines } from './stageLineMocks'
 
 // Glossary helpers: Glossary → From lines (parity X10), Review glossary
 // before translating (X28) and the novel glossary on the Source stage (T02).
@@ -77,6 +78,7 @@ function mockRun(
 
 async function mockTranslateRun(page: Page) {
   const bodies: unknown[] = []
+  await withTranslateLines(page)
   await page.route('**/api/translate-run/dramas/1/run', (route) => {
     bodies.push(route.request().postDataJSON())
     return route.fulfill({ json: { job_id: 'tr-job', drama_id: 1, engine: 'claude', model: null, target_line_count: 0, fallback_engines: [] } })
