@@ -4,6 +4,8 @@ import {
   applyAutotune,
   applyLinesGlossary,
   applyNovelGlossary,
+  cancelLinesGlossary,
+  cancelNovelGlossary,
   getAutotune,
   getLinesGlossary,
   getNovelGlossary,
@@ -67,6 +69,19 @@ describe('auto-tune + glossary-from-novel api', () => {
       run_id: 'r1',
     })
     expect(JSON.parse(String(calls[3].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } })
+  })
+
+  it('cancels a glossary run by its run_id, on the run-scoped routes', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await cancelNovelGlossary(4, 'r1', f)
+    await cancelLinesGlossary(4, 'r2', f)
+    expect(calls.map((c) => [c.url, c.init?.method])).toEqual([
+      ['/api/glossary/dramas/4/from-novel/cancel', 'POST'],
+      ['/api/glossary/dramas/4/from-lines/cancel', 'POST'],
+    ])
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ run_id: 'r1' })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ run_id: 'r2' })
   })
 
   it('surfaces a paid-engine 403 as an ApiError with the status', async () => {

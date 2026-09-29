@@ -24,8 +24,8 @@ from fastapi import APIRouter, Path, Query, Request
 from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryCatalogues, GlossaryDeleteResult,
                          GlossaryInstructions, GlossaryInstructionsUpdate,
-                         GlossaryProposalsApplyRequest, GlossaryTerm, GlossaryTermUpsert,
-                         LinesGlossaryApplyRequest, LinesGlossaryRunResult,
+                         GlossaryProposalsApplyRequest, GlossaryRunCancelRequest, GlossaryTerm,
+                         GlossaryTermUpsert, JobCancelResult, LinesGlossaryApplyRequest, LinesGlossaryRunResult,
                          NovelGlossaryApplyResult, NovelGlossaryRunResult, NovelGlossaryStatus)
 from services import glossary_service
 from services.service_errors import InvalidInputError
@@ -118,6 +118,15 @@ def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: 
     return _apply(glossary_service.apply_novel_glossary, drama_id, payload)
 
 
+@router.post("/dramas/{drama_id}/from-novel/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult,
+             summary="Cancel this drama's novel extraction, only if it is still run run_id",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_cancel_novel_glossary(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_novel_glossary_run(drama_id, payload.run_id)
+
+
 def _status_body(s: dict) -> dict:
     return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
             "message": s.get("message") or "",
@@ -161,3 +170,12 @@ def get_lines_glossary(drama_id: int = Path(ge=1)):
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int = Path(ge=1)):
     return _apply(glossary_service.apply_lines_glossary, drama_id, payload)
+
+
+@router.post("/dramas/{drama_id}/from-lines/cancel", dependencies=[require_permission("jobs.cancel")],
+             response_model=JobCancelResult,
+             summary="Cancel this drama's lines extraction, only if it is still run run_id",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}})
+def post_cancel_lines_glossary(payload: GlossaryRunCancelRequest, drama_id: int = Path(ge=1)):
+    return glossary_service.cancel_lines_glossary_run(drama_id, payload.run_id)

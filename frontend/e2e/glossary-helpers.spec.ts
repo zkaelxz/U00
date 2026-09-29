@@ -195,6 +195,42 @@ test.describe('desktop', () => {
     expect(applied).toBe(false)
   })
 
+  test('Review glossary first: Cancel during a run cancels that run by run_id only', async ({ page }) => {
+    await base(page, { novel: false })
+    let started = false
+    await page.route('**/api/glossary/dramas/1/from-lines', (route) => {
+      if (route.request().method() === 'POST') {
+        started = true
+        return route.fulfill({ json: { job_id: 'lines_glossary_1', engine: 'claude', line_count: 12 } })
+      }
+      if (!started) return notFound(route)
+      return route.fulfill({ json: { job_id: 'lines_glossary_1', status: 'running', progress: 0.1, message: '', proposals: null, run_id: 'run-7' } })
+    })
+    const cancels: unknown[] = []
+    await page.route('**/api/glossary/dramas/1/from-lines/cancel', (route) => {
+      cancels.push(route.request().postDataJSON())
+      return route.fulfill({ json: { job_id: 'lines_glossary_1', cancel_requested: true, status: 'running' } })
+    })
+    let jobCancel = false
+    await page.route('**/api/jobs/*/cancel', (route) => {
+      jobCancel = true
+      return route.fulfill({ json: { job_id: 'x', cancel_requested: true, status: 'running' } })
+    })
+    const runs = await mockTranslateRun(page)
+
+    await page.goto('/#/drama/1/translate')
+    const run = page.getByRole('region', { name: 'Translate run' })
+    await run.getByRole('switch', { name: 'Review glossary before translating' }).click()
+    await run.getByRole('button', { name: /^Translate \d+ lines?$/ }).click()
+    const review = page.getByTestId('glossary-review')
+    await expect(review).toBeVisible()
+    await expect.poll(() => started).toBe(true)
+    await review.getByRole('button', { name: 'Cancel' }).click()
+    await expect.poll(() => cancels).toEqual([{ run_id: 'run-7' }])
+    expect(jobCancel).toBe(false)
+    expect(runs).toHaveLength(0)
+  })
+
   test('Review glossary first: a paid-engine 403 still lets the run start without adding', async ({ page }) => {
     await base(page, { novel: false })
     await page.route('**/api/glossary/dramas/1/from-lines', (route) =>

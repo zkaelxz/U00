@@ -474,6 +474,47 @@ def _session(email="kid@example.com", *extra):
             api_auth.CSRF_HEADER: s["csrf_token"]}
 
 
+class TestRunScopedCancel:
+    @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
+    def test_cancel_only_stops_the_named_run(self, client, isolated_db, kind):
+        import threading
+        did, _ = _lines_drama(isolated_db)
+        job_id = f"{kind.replace('from-', '')}_glossary_{did}"
+        release = threading.Event()
+
+        def target(jid, run_id):
+            for _ in range(200):
+                if release.is_set() or background_jobs.is_cancel_requested(jid):
+                    return
+                time.sleep(0.02)
+        path = f"/api/glossary/dramas/{did}/{kind}"
+        try:
+            assert gs._start_extraction_job(job_id, target)
+            run = gs._current_run_id(job_id, background_jobs.get_status(job_id))
+            # a Cancel pressed for an older run leaves the current one running
+            r = client.post(f"{path}/cancel", json={"run_id": "older-run"})
+            assert r.status_code == 409, r.text
+            assert not background_jobs.is_cancel_requested(job_id)
+            r = client.post(f"{path}/cancel", json={"run_id": run})
+            assert r.status_code == 200, r.text
+            assert r.json()["cancel_requested"] is True
+            assert background_jobs.is_cancel_requested(job_id)
+        finally:
+            release.set()
+            _wait(job_id)
+        # finished: nothing left to cancel
+        assert client.post(f"{path}/cancel", json={"run_id": run}).status_code == 409
+
+    @pytest.mark.parametrize("body", [{}, {"run_id": ""}, {"run_id": "x" * 65},
+                                      {"run_id": "a", "extra": 1}])
+    def test_cancel_needs_a_run_id(self, client, isolated_db, body):
+        did, _ = _lines_drama(isolated_db)
+        assert client.post(_gl(did, "/cancel"), json=body).status_code == 422
+
+    def test_unknown_drama_404(self, client, isolated_db):
+        assert client.post(_gl(999, "/cancel"), json={"run_id": "r"}).status_code == 404
+
+
 class TestAuthOn:
     def test_no_session_401(self, isolated_db):
         c = _remote()

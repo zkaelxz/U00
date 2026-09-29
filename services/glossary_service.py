@@ -355,20 +355,56 @@ _run_ids_lock = threading.Lock()
 
 def _start_extraction_job(job_id: str, target, *args, **kwargs) -> bool:
     run_id = uuid.uuid4().hex
-    started = background_jobs.start_job(job_id, target, job_id, run_id, *args, **kwargs)
-    if started:
-        with _run_ids_lock:
+    # Start and record the run_id under one lock, so a run-scoped cancel
+    # (_cancel_extraction) never sees the new job with the old run_id.
+    with _run_ids_lock:
+        started = background_jobs.start_job(job_id, target, job_id, run_id, *args, **kwargs)
+        if started:
             _run_ids[job_id] = run_id
     return started
 
 
-def _current_run_id(job_id: str, job: Optional[dict]) -> Optional[str]:
+def _cancel_extraction(drama_id: int, job_id: str, run_id) -> dict:
+    """Cancels this drama's extraction only when the held run is `run_id`
+    (the one the caller is looking at), so a stale Cancel can't stop a newer
+    run. ConflictError when another run is held or the run has finished."""
+    _drama(drama_id)
+    if not isinstance(run_id, str) or not run_id or len(run_id) > 64:
+        raise InvalidInputError("run_id must be the run_id from the extraction's status.")
+    from services import jobs_service
+    with _run_ids_lock:
+        job = background_jobs.get_status(job_id)
+        if _current_run_id_locked(job_id, job) != run_id:
+            raise ConflictError("That extraction was replaced by a newer run; nothing was "
+                                "cancelled.")
+        if not job or job.get("status") not in ("running", "queued"):
+            raise ConflictError("That extraction has already finished.")
+        return jobs_service.cancel_job(job_id)
+
+
+def cancel_novel_glossary_run(drama_id: int, run_id: str) -> dict:
+    """Cancel this drama's glossary-from-novel run `run_id` (see
+    _cancel_extraction). Returns jobs_service.cancel_job's result."""
+    return _cancel_extraction(drama_id, novel_glossary_job_id(drama_id), run_id)
+
+
+def cancel_lines_glossary_run(drama_id: int, run_id: str) -> dict:
+    """Cancel this drama's glossary-from-lines run `run_id`."""
+    return _cancel_extraction(drama_id, lines_glossary_job_id(drama_id), run_id)
+
+
+def _current_run_id_locked(job_id: str, job: Optional[dict]) -> Optional[str]:
+    """_current_run_id for a caller already holding _run_ids_lock."""
     if not job:
         return None
     if job.get("status") == "done":
         return (job.get("result") or {}).get("run_id") or None
+    return _run_ids.get(job_id)
+
+
+def _current_run_id(job_id: str, job: Optional[dict]) -> Optional[str]:
     with _run_ids_lock:
-        return _run_ids.get(job_id)
+        return _current_run_id_locked(job_id, job)
 
 
 def _glossary_engine(drama: dict, engine_name: Optional[str]):

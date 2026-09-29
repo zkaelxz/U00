@@ -1,7 +1,6 @@
 import { useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { cancelJob } from '../../../api/jobs'
 import { getGlossaryTerms } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
@@ -108,9 +107,10 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
   // Cancel stays disabled after a press until the next poll brings new status.
   const [cancelSentFor, setCancelSentFor] = useState<object | null>(null)
   const cancel = () => {
-    if (!status) return
+    // Run-scoped: the server refuses (409) when a newer run is held.
+    if (!status?.run_id) return
     setCancelSentFor(status)
-    cancelJob(status.job_id).then(
+    GLOSSARY_API[source].cancel(dramaId, status.run_id).then(
       () => bumpGlossaryRun(source),
       (e: unknown) => {
         setCancelSentFor(null)
@@ -176,7 +176,7 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
         {active && status ? (
           <p className="actions" role="status" data-testid={`${text.testId}-running`}>
             <span>{extractionProgressText(source, status.status, status.progress)}</span>
-            <button type="button" disabled={cancelSentFor === status} onClick={cancel}>
+            <button type="button" disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
               Cancel
             </button>
           </p>

@@ -3238,6 +3238,12 @@ class LinesGlossaryApplyRequest(GlossaryProposalsApplyRequest):
     """GlossaryProposalsApplyRequest with run_id required (from-lines)."""
     run_id: Annotated[str, Field(min_length=1, max_length=64)]
 
+
+class GlossaryRunCancelRequest(BaseModel):
+    """The run_id from the extraction's status: only that run is cancelled."""
+    model_config = ConfigDict(extra="forbid")
+    run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
 # Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
 # learn my style, SenseVoice audio tags, burned-subtitle preview clip.
 # services/review_extras_service.py; no key, URL or path is accepted or returned.

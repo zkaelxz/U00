@@ -8,6 +8,7 @@ import type {
   NovelGlossaryStatus,
 } from '../types/autotuneGlossary'
 import type { GlossaryProposalsApplyRequest, LinesGlossaryRunResult } from '../types/glossaryHelpers'
+import type { JobCancelResult } from '../types/jobs'
 import { getJson, postJson } from './client'
 
 type Fetch = typeof fetch
@@ -43,3 +44,11 @@ export const startLinesGlossary = (id: number, f?: Fetch) =>
 
 export const applyLinesGlossary = (id: number, body: GlossaryProposalsApplyRequest, f?: Fetch) =>
   postJson<NovelGlossaryApplyResult>(`/api/glossary/dramas/${id}/from-lines/apply`, body, f)
+
+// Run-scoped cancel: the server stops the extraction only while it is still
+// run `runId` (409 otherwise), so a stale Cancel can't stop a newer run.
+export const cancelNovelGlossary = (id: number, runId: string, f?: Fetch) =>
+  postJson<JobCancelResult>(`/api/glossary/dramas/${id}/from-novel/cancel`, { run_id: runId }, f)
+
+export const cancelLinesGlossary = (id: number, runId: string, f?: Fetch) =>
+  postJson<JobCancelResult>(`/api/glossary/dramas/${id}/from-lines/cancel`, { run_id: runId }, f)

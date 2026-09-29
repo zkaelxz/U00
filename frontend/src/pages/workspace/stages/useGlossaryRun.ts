@@ -9,6 +9,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   applyLinesGlossary,
   applyNovelGlossary,
+  cancelLinesGlossary,
+  cancelNovelGlossary,
   getLinesGlossary,
   getNovelGlossary,
   startLinesGlossary,
@@ -25,8 +27,8 @@ import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 
 export const GLOSSARY_API = {
-  novel: { get: getNovelGlossary, start: startNovelGlossary, apply: applyNovelGlossary },
-  lines: { get: getLinesGlossary, start: startLinesGlossary, apply: applyLinesGlossary },
+  novel: { get: getNovelGlossary, start: startNovelGlossary, apply: applyNovelGlossary, cancel: cancelNovelGlossary },
+  lines: { get: getLinesGlossary, start: startLinesGlossary, apply: applyLinesGlossary, cancel: cancelLinesGlossary },
 } as const
 
 const versions: Record<GlossarySource, number> = { novel: 0, lines: 0 }

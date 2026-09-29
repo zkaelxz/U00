@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { cancelJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
@@ -108,7 +107,8 @@ function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySou
 
   const cancel = () => {
     // Stop a paid extraction nobody is waiting for.
-    if (active && cur) cancelJob(cur.job_id).then(() => bumpGlossaryRun(source), () => undefined)
+    // Run-scoped: a newer run started meanwhile is refused (409), not cancelled.
+    if (active && cur?.run_id) GLOSSARY_API[source].cancel(dramaId, cur.run_id).then(() => bumpGlossaryRun(source), () => undefined)
     onCancel()
   }
 
