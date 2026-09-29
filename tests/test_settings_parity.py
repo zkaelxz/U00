@@ -276,6 +276,27 @@ def test_remote_read_needs_admin_and_writes_are_pc_only(isolated_db, env_file):
     assert not env_file.exists()
 
 
+def test_remote_read_gets_path_flags_not_paths(isolated_db, env_file):
+    """Security review (PR #439): absolute paths on the PC are returned only
+    to the PC itself; a remote admin learns only whether each one is set."""
+    settings_service.set_settings({"whisper_model_path": r"D:\models\whisper",
+                                   "tesseract_cmd": r"C:\Tesseract\tesseract.exe"})
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                   raise_server_exceptions=False)
+    r = c.get("/api/settings", headers=_h(_session(True)))
+    prefs = r.json()["preferences"]
+    assert r.status_code == 200 and "models" not in r.text and "Tesseract" not in r.text
+    assert prefs["whisper_model_path"] == prefs["tesseract_cmd"] == prefs["cookies_file"] == ""
+    assert prefs["whisper_model_path_configured"] is True
+    assert prefs["tesseract_cmd_configured"] is True
+    assert prefs["cookies_file_configured"] is False
+    local = TestClient(create_app(ApiSettings()), base_url=LOCAL, client=("127.0.0.1", 50000),
+                       raise_server_exceptions=False)
+    prefs = local.get("/api/settings").json()["preferences"]
+    assert prefs["tesseract_cmd"] == r"C:\Tesseract\tesseract.exe"
+    assert prefs["tesseract_cmd_configured"] is True and prefs["cookies_file_configured"] is False
+
+
 # --- consumers ------------------------------------------------------------------
 
 def _seed(isolated_db, texts=(("你好", ""),), **fields):

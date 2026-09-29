@@ -188,7 +188,8 @@ class JobListResponse(BaseModel):
 class SettingsPreferences(BaseModel):
     """Persisted PC-side preferences (settings parity G05, G08, G09, G13,
     G14, G15). Paths are paths only: a cookies file's contents are never
-    read or returned."""
+    read or returned. The three paths are returned only to the PC itself;
+    any other caller gets "" there and only the *_configured booleans."""
     default_engine: str
     default_locale: str
     default_style_note: str
@@ -201,6 +202,9 @@ class SettingsPreferences(BaseModel):
     tesseract_cmd: str
     cookies_browser: Optional[str] = None
     cookies_file: str
+    whisper_model_path_configured: bool = False
+    tesseract_cmd_configured: bool = False
+    cookies_file_configured: bool = False
 
 
 class SettingsChoices(BaseModel):

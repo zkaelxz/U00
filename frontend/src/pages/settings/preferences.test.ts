@@ -24,6 +24,9 @@ const saved: SettingsPreferences = {
   tesseract_cmd: '',
   cookies_browser: null,
   cookies_file: '',
+  whisper_model_path_configured: false,
+  tesseract_cmd_configured: false,
+  cookies_file_configured: false,
 }
 
 describe('settings preferences', () => {

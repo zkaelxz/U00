@@ -21,7 +21,7 @@ the separate admin listener (D5), not built yet.
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from api.auth import local_only, require_permission
+from api.auth import is_local_request, local_only, require_permission
 from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
                          EngineKeyResult, EngineKeySetRequest, SettingsOverview,
                          SettingsUpdateRequest)
@@ -30,17 +30,33 @@ from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
+_PATH_PREFERENCES = ("whisper_model_path", "tesseract_cmd", "cookies_file")
+
 
 @router.get("", dependencies=[require_permission("admin.settings")], response_model=SettingsOverview,
             summary="Read-only settings overview (engine key presence, job toggles)")
-def get_overview():
-    return settings_service.get_settings_overview()
+def get_overview(request: Request):
+    return _with_path_flags(settings_service.get_settings_overview(),
+                            is_local_request(request))
 
 
 @router.post("", dependencies=[local_only()], response_model=SettingsOverview,
              summary="Update non-secret toggles and preferences (never keys or endpoint URLs)")
 def update_settings(body: SettingsUpdateRequest):
-    return settings_service.set_settings(body.model_dump(exclude_unset=True))
+    return _with_path_flags(settings_service.set_settings(body.model_dump(exclude_unset=True)),
+                            local=True)
+
+
+def _with_path_flags(overview: dict, local: bool) -> dict:
+    """Adds <path>_configured for each path preference and, for a caller
+    that isn't the PC itself, blanks the path: absolute paths on the PC stay
+    on the PC, other devices only learn whether one is set."""
+    prefs = overview["preferences"]
+    for name in _PATH_PREFERENCES:
+        prefs[f"{name}_configured"] = bool(prefs.get(name))
+        if not local:
+            prefs[name] = ""
+    return overview
 
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "[::1]", "::1")
