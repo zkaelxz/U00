@@ -413,7 +413,8 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     suggested_translation, category, policy, reason, already_in_glossary}]}.
 
     NotFoundError, UnsupportedOperationError (no series / no novel saved /
-    engine can't do this), DependencyUnavailableError (no key),
+    engine can't do this / monthly cap used up, capped engines only, as
+    start_lines_glossary_run), DependencyUnavailableError (no key),
     ConflictError (already running)."""
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
@@ -425,6 +426,9 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
     en_text = novel if orig.strip() else ""
 
     engine_name, engine = _glossary_engine(drama, engine_name)
+    from services import settings_service, translate_run_service
+    translate_run_service.refuse_when_cap_spent(engine_name,
+                                                settings_service.get_gemini_free_tier())
     job_id = novel_glossary_job_id(drama_id)
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
@@ -623,12 +627,8 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
         raise UnsupportedOperationError(
             "This drama has no source lines yet; transcribe or import them first.")
     engine_name, engine = _glossary_engine(drama, engine_name)
-    if translate_run_service._cap_applies(engine_name, settings_service.get_gemini_free_tier()):
-        monthly = translate_run_service._monthly_cap()
-        _cap, refusal = translate_engines.resolve_cost_cap(
-            None, monthly, db.get_month_spend() if monthly else 0.0)
-        if refusal:
-            raise UnsupportedOperationError(refusal)
+    translate_run_service.refuse_when_cap_spent(engine_name,
+                                                settings_service.get_gemini_free_tier())
 
     job_id = lines_glossary_job_id(drama_id)
     started = _start_extraction_job(

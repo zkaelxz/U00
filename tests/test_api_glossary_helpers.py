@@ -191,6 +191,28 @@ class TestLinesGlossaryService:
         free, _ = _lines_drama(isolated_db, engine="ollama")
         assert gs.start_lines_glossary_run(free)["engine"] == "ollama"
 
+    def test_novel_run_monthly_cap_used_up_refuses_paid_not_free(self, isolated_db, monkeypatch,
+                                                                 fake_engine):
+        import os
+        started = []
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda *a, **k: started.append(a) or True)
+        monkeypatch.setattr(settings_service, "resolve_key",
+                            lambda k, *a: "5" if k == "monthly_cap_usd" else None)
+        monkeypatch.setattr(isolated_db, "get_month_spend", lambda *a: 9.0)
+
+        def novel_drama(engine):
+            did, _ = _lines_drama(isolated_db, engine=engine)
+            with open(os.path.join(isolated_db.drama_dir(did), gs.RAW_NOVEL_FILENAME), "w",
+                      encoding="utf-8") as f:
+                f.write("沈清来了。青云宗的师尊。")
+            return did
+        with pytest.raises(UnsupportedOperationError, match="spending cap"):
+            gs.start_novel_glossary_run(novel_drama("claude"))
+        assert started == []
+        assert gs.start_novel_glossary_run(novel_drama("ollama"))["engine"] == "ollama"
+        assert len(started) == 1
+
     def test_duplicate_run_conflict(self, isolated_db, monkeypatch, fake_engine):
         did, _ = _lines_drama(isolated_db)
         monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: False)

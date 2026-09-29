@@ -72,6 +72,19 @@ def _cap_applies(engine_name: str, gemini_free_tier: bool = False) -> bool:
     return engine_name in _CAP_ENGINES and not (engine_name == "gemini" and gemini_free_tier)
 
 
+def refuse_when_cap_spent(engine_name: str, gemini_free_tier: bool = False) -> None:
+    """For a one-off LLM run with no per-run budget (glossary extraction,
+    learn my style): UnsupportedOperationError when this month's spending
+    cap is already used up and the engine is a capped one."""
+    if not _cap_applies(engine_name, gemini_free_tier):
+        return
+    monthly = _monthly_cap()
+    _cap, refusal = translate_engines.resolve_cost_cap(
+        None, monthly, db.get_month_spend() if monthly else 0.0)
+    if refusal:
+        raise UnsupportedOperationError(refusal)
+
+
 def _parse_errors(raw) -> Optional[list]:
     if not raw:
         return None
