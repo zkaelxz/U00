@@ -7,8 +7,8 @@ folds them into roadmap §2/§4). Migration detail: `docs/migration-handoff.md`,
 Default model for every step below is Sonnet unless a row says otherwise (roadmap §4 model table decides; Opus rows need the user's confirmation first).
 
 ## 1. Status snapshot
-- Backend migration (services + FastAPI): every ungated slice is merged (PRs #220-#252), plus Step 95 (BGM-preserving dub, #261) and Step 97b (fallback chain, #251). Full suite on the merged batch-1 state: 3805 passed; batch 2: 4028 passed + 1 error; final base: 4111 passed + the same 1 error (fixed by #259, see B-01/F-11; re-verification run pending).
-- Frontend (React): foundations (#254), Library (#258), Diagnostics (#257), Settings (#256), standalone Translate (#260) merged and wired into the router (#263); slice D (Workspace shell + Source stage) building; E (Translate stage), F2 (Review), G (Export), H (Dub) queued behind D's stage registry (`docs/migration-frontend-plan.md`).
+- Backend migration (services + FastAPI): every ungated slice is merged (PRs #220-#267, including Slices 41 and 45 built on Opus), plus Step 95 (BGM-preserving dub, #261) and Step 97b (fallback chain, #251). Full suite on the merged batch-1 state: 3805 passed; batch 2: 4028 passed + 1 error; final base: 4111 passed + the same 1 error (fixed by #259, see B-01/F-11; re-verification run pending).
+- Frontend (React): foundations (#254), Library (#258), Diagnostics (#257), Settings (#256), standalone Translate (#260) merged and wired into the router (#263); Workspace shell + Source (#265), Translate stage (#268), Export (#269), Dub (#270) and Review (#271) also merged, so every planned stage exists (`docs/migration-frontend-plan.md`).
 - CI on GitHub is red on every PR since #212 only because Actions minutes are exhausted; merges are gated on the local suite.
 
 ## 2. Bug tracker -- OPEN
@@ -59,14 +59,13 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 
 ## 4. To-do queue (in order)
 **Waiting on the user (cannot proceed):**
-- Slice 41 (translate bulk/batch + Reflect; roadmap Steps 9/9d) and Slice 45 (restructure + version restore; Step 6c): **need the user's OK to run on Opus**.
 - Slice 24 (API-key writes): needs the D5 loopback/admin policy decision.
 - Slice 34 (qwen3_asr / qwen3_forced_align): needs a real-model check by the user.
 - Real-run checks only the user can do: real TTS, ffmpeg/libass, Whisper on GPU, paid LLM keys, real OCR and EPUBs, a gated-access HF token for pyannote diarization, mobile/real-device checks for Streamlit retirement.
 
 **Ready / in flight:**
 1. Step 95 BGM-preserving dub: **done (#261)**; needs the user's real-audio listening check.
-2. Frontend: A, B, C, I are done and wired; D (Workspace shell + Source stage) is building; then E (Translate stage), F2 (Review), G (Export), H (Dub) in parallel, each replacing one line of D's stage registry (`docs/migration-frontend-plan.md`).
+2. Frontend: every planned slice is done (#254-#271). Remaining: real-browser checks and the Streamlit retirement criteria (`docs/migration-frontend-plan.md`).
 3. Backend gaps the UI will hit: media playback endpoint with Range support; expose the workspace stage index; serve `frontend/dist` from FastAPI plus a launcher story; SSE/job push (needed for Live); E0 destructive library actions (bulk, backup/restore, storage clean) once a server-side typed-confirm + running-job refusal exists; the fix/cleanup steps 121-132 below.
 4. Streamlit retirement, per `docs/migration-frontend-plan.md` (order: Diagnostics, Library, Settings, Translate, Workspace stage by stage).
 

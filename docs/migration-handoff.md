@@ -4,12 +4,12 @@ Durable status for the next session. Repo docs and code are the source of truth;
 Last updated 2026-09-28. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
 
 ## Verified status
-- Merged slices: 19-23, 25-33, 35-40, 42-44, 46-49 (+ earlier 1-18), plus E0 (Library remainder) and Step 97b (translate fallback chain, API level).
+- Merged slices: 19-23, 25-33, 35-49 (+ earlier 1-18), plus E0 (Library remainder), Step 95 (BGM-preserving dub) and Step 97b (translate fallback chain, API level). Slices 41 and 45 were built on Opus at the user's request (#266, #267).
+- Frontend (React): every planned slice is merged (F, A, B, C, I, D, E, G, H, F2; PRs #254-#271), see `docs/migration-frontend-plan.md`.
 - Hardening merged: H1 (drama, characters), H2 (glossary, ASS), H3 (read-only services).
 - Full suite: batch 1 = 3805 passed, 86 skipped. Batch 2 (base through PR #244) = 4028 passed, 86 skipped, 1 setup error
-  (`test_run_already_running_is_409`, `sqlite3 database is locked` while a real `transcribe_1` thread lingered; did not reproduce in 3 isolated
-  and 2 wider re-runs, so treated as a load flake -- if it recurs, make that test wait for/mock the job thread). Slices merged after #244 (29-30, 32, 37, 38, 44, E0, 97b)
-  ran focused tests only (each 177-346 passed); run the full suite before the next big merge.
+  (`test_run_already_running_is_409`, `sqlite3 database is locked`). That turned out to be an order-dependent race, not a load flake; fixed in #259 (the test now waits for the job thread).
+  Later slices ran focused tests only; the full-suite result on the current base is recorded in `docs/baihe-roadmap-master.md` section 1 (snapshot).
 - CI is red on every PR since #212 because GitHub Actions minutes are exhausted (fails within seconds). Standing rule from the user: merge once the local suite passes.
 
 ## Slice pattern (keep using it)
@@ -34,9 +34,8 @@ Job-apply: job does everything. Tuning knobs: persisted (columns added in init_d
 Uploads/exports: multipart + drama-folder outputs. `use_gpu`: persisted, default off. Process-job results: `on_done` hook (Slice 49).
 
 ## Queue (not yet built)
-24 API-key writes (gated on loopback policy D5); 34 qwen3 backends (gated on a real-model check);
-41 translate bulk/batch + Reflect (needs Opus confirmation: Steps 9/9d); 45 restructure + version restore (needs Opus confirmation: Step 6c);
-Step 95 BGM-preserving dub (held roadmap step; adjacent to Slice 26, now unblocked).
+24 API-key writes (gated on loopback policy D5); 34 qwen3 backends (gated on a real-model check).
+Small bug/cleanup steps 121-132: see `docs/baihe-roadmap-master.md` section 2 (bug tracker).
 Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);
 transcribe/narration docs and docstrings that still say chunk_and_tag or audiobook/auto-fill are out of scope are stale (cosmetic cleanup step).
 Held-roadmap fold-ins: Step 43 (soft-delete) stays held (plug into `_hard_delete_drama`); Steps 100-105, 40b, 42, 60, 72 stay held.
