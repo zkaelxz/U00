@@ -137,7 +137,16 @@ def get_translate_config(drama_id: int) -> dict:
                                   for name in translate_engines.ENGINES},
         "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
                                    if not (e == "gemini" and free_tier)],
+        "ollama_reachable": ollama_reachable(),
     }
+
+
+def ollama_reachable() -> bool:
+    """Parity X24: whether the configured Ollama server answers (the tab's
+    "Can't reach Ollama" warning). A boolean only; the URL never leaves
+    the server. Cached briefly by translate_engines."""
+    return bool(translate_engines.check_ollama_reachable(
+        settings_service.resolve_key("ollama_url") or "http://localhost:11434"))
 
 
 def _default_model(engine_name: str) -> Optional[str]:
