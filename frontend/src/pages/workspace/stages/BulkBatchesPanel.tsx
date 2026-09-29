@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { cancelBulkTranslation, listBulkTranslations, resumeBulkTranslations } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -44,6 +44,13 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
   const [resumed, setResumed] = useState<string | null>(null)
   const [resuming, setResuming] = useState(false)
   const refresh = useCallback(() => setReloads((n) => n + 1), [])
+  // Focus for the two-step cancel: "Yes, cancel it" while asking; back to
+  // the row's Cancel button (or the note, or the panel) once it closes.
+  const yesRef = useRef<HTMLButtonElement>(null)
+  const cancelButtons = useRef(new Map<number, HTMLButtonElement>())
+  const noteRef = useRef<HTMLParagraphElement>(null)
+  const regionRef = useRef<HTMLDivElement>(null)
+  const [returnFocusTo, setReturnFocusTo] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -68,6 +75,16 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     return () => window.clearInterval(t)
   }, [hasPending, refresh])
 
+  useEffect(() => {
+    if (confirmId !== null) yesRef.current?.focus()
+  }, [confirmId])
+  useEffect(() => {
+    if (returnFocusTo === null || confirmId !== null) return
+    const target = cancelButtons.current.get(returnFocusTo) ?? noteRef.current ?? regionRef.current
+    target?.focus()
+    setReturnFocusTo(null)
+  }, [returnFocusTo, confirmId, jobs, note])
+
   if (jobs === null && !error) return null
   if (!supported && jobs !== null && jobs.length === 0) return null
 
@@ -89,6 +106,9 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
         setActionError(null)
         setJobs((cur) => (cur ? replaceJob(cur, r.bulk_job) : cur))
         setNote(`#${id}: ${plainServerText(r.message, 'Cancelled.')}`)
+        // Also re-read: bumping reloads drops any list GET still in flight
+        // from before the cancel, so it can't put the old status back.
+        refresh()
       }, (e: unknown) => {
         setActionError(e)
         refresh()
@@ -96,6 +116,7 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
       .finally(() => {
         setCancelling(false)
         setConfirmId(null)
+        setReturnFocusTo(id)
       })
   }
 
@@ -104,6 +125,10 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     if (confirmId !== j.bulk_job_id) {
       return (
         <button type="button" className="danger" aria-label={`Cancel batch ${j.bulk_job_id}`}
+          ref={(el) => {
+            if (el) cancelButtons.current.set(j.bulk_job_id, el)
+            else cancelButtons.current.delete(j.bulk_job_id)
+          }}
           disabled={cancelling} onClick={() => { setNote(null); setActionError(null); setConfirmId(j.bulk_job_id) }}>
           Cancel batch
         </button>
@@ -112,10 +137,10 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     return (
       <span className="bulk-confirm">
         <span role="alert">Cancel batch #{j.bulk_job_id}? Results that arrive later are ignored.</span>
-        <button type="button" className="danger" disabled={cancelling} onClick={() => cancel(j.bulk_job_id)}>
+        <button type="button" className="danger" ref={yesRef} disabled={cancelling} onClick={() => cancel(j.bulk_job_id)}>
           {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
         </button>
-        <button type="button" disabled={cancelling} onClick={() => setConfirmId(null)}>Keep it</button>
+        <button type="button" disabled={cancelling} onClick={() => { setConfirmId(null); setReturnFocusTo(j.bulk_job_id) }}>Keep it</button>
       </span>
     )
   }
@@ -141,7 +166,7 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
       defaultOpen={hasPending}
       summary={jobs ? (hasPending ? `${pending.length} pending` : 'none pending') : undefined}
     >
-      <div role="region" aria-label="Bulk batches" className="bulk-batches">
+      <div role="region" aria-label="Bulk batches" className="bulk-batches" ref={regionRef} tabIndex={-1}>
         <div className="bulk-actions">
           <button type="button" disabled={resuming} onClick={resume}
             title="After a restart, starts checking each pending batch with its provider again.">
@@ -156,7 +181,7 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
           )}
         </div>
         {resumed && <p className="muted" data-testid="bulk-resume">{resumed}</p>}
-        {note && <p className="muted" role="status">{note}</p>}
+        {note && <p className="muted" role="status" ref={noteRef} tabIndex={-1}>{note}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         <ErrorBanner error={actionError} onDismiss={() => setActionError(null)} />
         {jobs && shown.length === 0 && (
