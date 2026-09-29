@@ -54,6 +54,7 @@ Status: step 133 (users, sessions, permissions, static test) is built, see "Step
 - Cloudflare's current terms, if that route is ever revisited.
 - Mobile extension support, Web Share Target on iOS, and PWA push limits.
 - Whether the app can use a separate capped key for household jobs, and what the monthly cap enforces.
+- Sources fetches through a configured or environment proxy (B-25, `fix-b25-redirect-hops`): every hop's target is validated by name only and cannot be pinned, so a DNS answer that changes between the check and the proxy's own lookup is not caught.
 
 ## Rejected or deferred
 
