@@ -22,6 +22,7 @@ chosen engine is not in `translate_engines.FREE_ENGINES`; `spends_on_paid_engine
 answers that for a given engine name.
 """
 import threading
+import uuid
 from typing import Optional
 from urllib.parse import urlsplit
 
@@ -250,6 +251,7 @@ def _clean_entry(e) -> Optional[dict]:
 
 def _run_bulk_extract(job_id, urls, source_label, engine):
     rows, entries, seen, full_urls = [], [], set(), {}
+    run = uuid.uuid4().hex[:12]   # ids from an earlier run never match this one's
     for i, url in enumerate(urls):
         if background_jobs.is_cancel_requested(job_id):
             break
@@ -266,7 +268,7 @@ def _run_bulk_extract(job_id, urls, source_label, engine):
                     if e is None or e["title"] in seen:
                         continue
                     seen.add(e["title"])
-                    e["entry_id"] = f"e{len(entries)}"
+                    e["entry_id"] = f"{run}-{len(entries)}"
                     e["source_url"] = _display_url(url)      # display only
                     full_urls[e["entry_id"]] = url          # what commit stores
                     entries.append(e)

@@ -121,6 +121,31 @@ def test_user_urls_come_back_without_query_or_fragment(client):
     assert "_source_urls" not in b
 
 
+def test_ids_from_an_earlier_extraction_never_match_a_later_one(client, monkeypatch):
+    """Extraction A, then B with the same shape, then committing A's ids:
+    422 and nothing stored (not silently B's URLs)."""
+    titles = {"https://a.example/1": "A book", "https://b.example/1": "B book"}
+    monkeypatch.setattr(safe_fetch, "fetch_public_text",
+                        lambda url: safe_fetch.FetchResult(titles[url], False))
+    monkeypatch.setattr(bulk_import, "extract_listing_entries_llm",
+                        lambda text, eng, source_name="": [{"title": text}])
+    client.post("/api/discover/bulk-extract", json={"urls": ["https://a.example/1"],
+                                                    "engine": "claude"})
+    _wait(svc.BULK_JOB_ID)
+    a_entries = client.get("/api/discover/bulk-extract/result").json()["result"]["entries"]
+    client.post("/api/discover/bulk-extract", json={"urls": ["https://b.example/1"],
+                                                    "engine": "claude"})
+    _wait(svc.BULK_JOB_ID)
+    b_entries = client.get("/api/discover/bulk-extract/result").json()["result"]["entries"]
+    assert a_entries[0]["entry_id"] != b_entries[0]["entry_id"]
+    r = client.post("/api/discover/bulk-commit", json={"entries": a_entries})
+    assert r.status_code == 422
+    assert db.list_known_titles() == []
+    assert client.post("/api/discover/bulk-commit",
+                       json={"entries": b_entries}).json()["added"] == 1
+    assert [t["source_url"] for t in db.list_known_titles()] == ["https://b.example/1"]
+
+
 def test_urls_differing_only_by_query_stay_distinct(client, monkeypatch):
     """Display strips the query; commit stores (and dedupes on) the full URL
     the server kept, looked up by entry_id -- never the client's copy."""

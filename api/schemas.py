@@ -1972,7 +1972,7 @@ class DiscoverBulkEntry(BaseModel):
     language: str = Field("zh", max_length=10)
     # From the bulk-extract result: the server stores its own full URL for
     # it and ignores source_url (which the result shows without a query).
-    entry_id: Optional[str] = Field(None, max_length=20)
+    entry_id: Optional[str] = Field(None, max_length=40)
 
 
 class DiscoverBulkCommitRequest(BaseModel):
