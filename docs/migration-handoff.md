@@ -3,6 +3,29 @@
 Durable status for the next session. Repo docs and code are the source of truth; this file is the index.
 Last updated 2026-09-29. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
 
+## Session handoff (2026-09-29, late): read this first
+The previous lead session handed over to a new session so that the new project agents can load
+(`.claude/agents/`: merge-integrator, api-slice-builder, react-page-builder, security-reviewer,
+security-auditor, parity-auditor, bug-investigator, test-author, docs-steward, source-vetter; skill `/merge-slice`).
+
+**Merged today (newest first):** #354 agents 2 + FILE_ORGANIZATION hook + xdist in cloud setup; #353 invariant tests 2 (logs B-27);
+#352 slices 51+52 (bulk batch list/cancel, media playback with Range, `media.stream`); #351 agents + `/merge-slice`;
+#350 B-04/B-05 job cancel; #349 service invariant tests; #348 React Source details/modes; #347 B-26; #339 step 133 auth.
+
+**Still in flight in the OLD session** (it finishes and merges these; don't start duplicates, and check `git log origin/baihe-subtitler` and the open PRs before touching these areas):
+- merge-integrator landing, in order: `library-admin-service`, `reader-service`, `transcribe-autotune-glossary-service`, `fix-b27-retry-engine` (B-27: a line-scoped retry no longer overwrites the drama's engine), then one full parallel suite run.
+- `api-routes-batch-1` (one writer of `api/`): API startup hook, `GET /api/workflow/dramas/{id}/progress`, Live routes, Discover D-2, Sources S-3, Diagnostics gaps routes. Pushed without a PR, for review and merge.
+- Read-only audits, reports in the old session's scratchpad (their findings are summarized to the user, not committed): whole-system security audit (required before household access) and parity audit (before Streamlit deletions).
+
+**Next queue for the new session:**
+1. Once the old session's items are merged: route batch 2 over the new services: library admin (bulk delete, restore and storage clean are `local_only`; downloads of backups and exports are `local_only`), Reader (the permission contract is in the reader-service merge PR), auto-tune and glossary-from-novel (`jobs.start`, plus `engines.paid` when the engine is paid).
+2. Delete routes that have no API yet (all PC-only, `local_only` plus confirm): remove audio, remove raw novel, delete version, series character, bug bundle, preset, voice bank. Their Streamlit tests stay until these exist.
+3. Workspace shell + Review editor rebuild (spec `docs/specs/ux-workspace-shell-and-review.md`), after the progress endpoint merges; then the React pages for the new routes (react-page-builder).
+4. Act on the security-audit and parity-audit findings; then extract the 36 tab functions (`docs/streamlit-test-triage.md`); then the `pre-streamlit-removal` tag + `legacy/streamlit` branch + the deletion PRs.
+5. Standalone / app packaging: see the user's question in the old session. Not decided and not started.
+
+**Test gate:** `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` gives the full suite in about 4 minutes (4686 passed, 86 skipped on #352).
+
 ## Verified status
 - Merged slices: 19-23, 25-33, 35-49 (+ earlier 1-18), plus E0 (Library remainder), Step 95 (BGM-preserving dub) and Step 97b (translate fallback chain, API level). Slices 41 and 45 were built on Opus at the user's request (#266, #267).
 - Frontend (React): every planned slice is merged (F, A, B, C, I, D, E, G, H, F2; PRs #254-#271), see `docs/migration-frontend-plan.md`.
