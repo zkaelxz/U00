@@ -70,7 +70,9 @@ export function postJson<T>(path: string, body?: unknown, fetchImpl: Fetch = fet
     {
       method: 'POST',
       headers:
-        body === undefined ? JSON_ACCEPT : { ...JSON_ACCEPT, 'Content-Type': 'application/json' },
+        body === undefined
+          ? { ...JSON_ACCEPT, ...LOCAL_HEADER }
+          : { ...JSON_ACCEPT, ...LOCAL_HEADER, 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     },
     fetchImpl,
@@ -78,13 +80,13 @@ export function postJson<T>(path: string, body?: unknown, fetchImpl: Fetch = fet
 }
 
 export function deleteJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
-  return request<T>(path, { method: 'DELETE', headers: JSON_ACCEPT }, fetchImpl)
+  return request<T>(path, { method: 'DELETE', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER } }, fetchImpl)
 }
 
-// The uploads are PC-only (local_only) routes. multipart/form-data is a
-// CORS "simple" type, so the server also requires this custom header: it
-// forces a preflight, which stops a page on another local port from
-// posting an upload with a no-cors form.
+// Sent on every mutating request. With auth off the server refuses a
+// POST/PUT/PATCH that is neither JSON nor carries this header (bodyless
+// POSTs and multipart are CORS "simple" requests); the custom header forces
+// a preflight, which stops a page on another local port from posting.
 export const LOCAL_HEADER = { 'X-Baihe-Local': '1' }
 
 // Multipart upload. No Content-Type header: the browser sets it with the boundary.

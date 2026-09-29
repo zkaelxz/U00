@@ -51,7 +51,8 @@ def _put_job(job_id, status="done", result=None, message="", error=None, progres
 
 @pytest.fixture
 def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 def _error(resp):

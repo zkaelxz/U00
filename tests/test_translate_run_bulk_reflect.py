@@ -201,7 +201,7 @@ def test_api_reflect_and_bulk_codes(isolated_db, monkeypatch):
     did = _seed([("一", "")])
     _current["did"] = did
     _fake_engines(monkeypatch)
-    client = TestClient(create_app())
+    client = TestClient(create_app(), headers={"X-Baihe-Local": "1"})
     r = client.post(f"/api/translate-run/dramas/{did}/run",
                     json={"engine": "deepl", "reflect": True})
     assert r.status_code == 400

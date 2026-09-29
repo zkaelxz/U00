@@ -168,8 +168,10 @@ class TestAuthOff:
         assert ApiSettings().auth_mode == "off"
         c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
         assert c.get("/api/library/dramas").status_code == 200
-        # POST with no session and no CSRF reaches the handler (404: no drama).
-        assert c.post("/api/export/dramas/999/flag-overlaps").status_code == 404
+        # POST with no session and no CSRF reaches the handler (404: no drama),
+        # given the X-Baihe-Local header (a bodyless POST is a simple request).
+        assert c.post("/api/export/dramas/999/flag-overlaps",
+                      headers={"X-Baihe-Local": "1"}).status_code == 404
         assert c.get("/api/docs").status_code == 200
 
     @pytest.mark.parametrize("headers", [

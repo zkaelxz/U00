@@ -13,7 +13,7 @@ test('diagnostics and jobs endpoints match what the page reads', async ({ reques
   const jobs = await (await request.get('/api/jobs')).json()
   expect(jobs).toEqual({ items: [], count: 0 })
 
-  const cancel = await request.post('/api/jobs/nope/cancel')
+  const cancel = await request.post('/api/jobs/nope/cancel', { headers: { 'X-Baihe-Local': '1' } })
   expect(cancel.status()).toBe(404)
   expect((await cancel.json()).error.code).toBe('not_found')
 })

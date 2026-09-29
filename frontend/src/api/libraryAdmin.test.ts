@@ -16,7 +16,7 @@ const localHeader = (init: RequestInit) => new Headers(init.headers).get('X-Baih
 afterEach(() => resetPcModeForTests())
 
 describe('library admin api', () => {
-  it('bulk status and tags send only ids and the change, no PC-only header', async () => {
+  it('bulk status and tags send the ids and the change, with the local header', async () => {
     const { mock, f } = reply(200, { results: [], updated: 0 })
     await bulkSetStatus([1, 2], 'translated', f)
     await bulkSetTag([3], 'On Hold', false, f)
@@ -25,7 +25,7 @@ describe('library admin api', () => {
     expect(JSON.parse(i1.body)).toEqual({ drama_ids: [1, 2], status: 'translated' })
     expect(u2).toBe('/api/library/admin/bulk/tags')
     expect(JSON.parse(i2.body)).toEqual({ drama_ids: [3], tag: 'On Hold', present: false })
-    expect(localHeader(i1)).toBeNull()
+    expect(localHeader(i1)).toBe('1')
   })
 
   it('bulk translate posts the ids', async () => {

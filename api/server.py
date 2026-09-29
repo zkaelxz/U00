@@ -121,9 +121,11 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
                            local_only_fn=lambda: local_only_matchers(app))
     else:
         app.add_middleware(LoopbackOnlyGate)
-    # Both modes: refuse a simple (no-preflight) POST to a local_only route
-    # before its body is read (see api.auth._cross_site_safe).
-    app.add_middleware(LocalOnlyCrossSiteGate, local_only_fn=lambda: local_only_matchers(app))
+    # Refuse a simple (no-preflight) POST before its body is read (see
+    # api.auth._cross_site_safe): local_only routes in both modes, and every
+    # /api POST/PUT/PATCH with auth off (no CSRF token there).
+    app.add_middleware(LocalOnlyCrossSiteGate, local_only_fn=lambda: local_only_matchers(app),
+                       all_api=not settings.auth_enabled)
     if settings.is_development and settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
