@@ -84,3 +84,27 @@ test('EPUB chapter range and chapters from Sources', async ({ page }) => {
   await expect(novel.getByRole('status')).toHaveText('Attached 10 characters.')
   expect(fromSources).toEqual([{ mode: 'replace' }])
 })
+
+test('Edit details can take a drama out of its series (series_id 0)', async ({ page }) => {
+  let inSeries = true
+  const bodies: unknown[] = []
+  await page.route('**/api/library/dramas/2', async (r) => {
+    const res = await r.fetch()
+    const json = await res.json()
+    return r.fulfill({ response: res, json: { ...json, series_id: inSeries ? 7 : null } })
+  })
+  await page.route('**/api/dramas/2/metadata', async (r) => {
+    bodies.push(r.request().postDataJSON())
+    inSeries = false
+    const res = await r.fetch({ url: r.request().url().replace('/api/dramas/2/metadata', '/api/library/dramas/2'), method: 'GET' })
+    return r.fulfill({ json: { ...(await res.json()), series_id: null } })
+  })
+  await page.goto('/#/drama/2/source')
+  await page.locator('.section-title', { hasText: 'Edit details' }).click()
+  const series = page.getByLabel('Series', { exact: true })
+  await expect(series).toHaveValue('7')
+  await series.selectOption('')
+  await page.getByRole('button', { name: 'Save details' }).click()
+  await expect.poll(() => bodies).toEqual([{ series_id: 0 }])
+  await expect(series).toHaveValue('')
+})
