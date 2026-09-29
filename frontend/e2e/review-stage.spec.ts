@@ -29,6 +29,26 @@ const job = (status: string) => ({
   gpu_touching: false, started_at: 1, finished_at: status === 'running' ? null : 2, updated_at: 1,
 })
 
+test('Esc cancels, details are lazy, Alt+Down jumps to flagged lines', async ({ page }) => {
+  await page.goto('/#/drama/3/review')
+  const row = page.locator('.review-line').nth(0)
+  await row.getByTestId('line-en').click()
+  await row.getByLabel('Translation').fill('discard me')
+  await row.getByLabel('Translation').press('Escape')
+  await expect(row.getByTestId('line-en')).toContainText('Hello there')
+
+  await expect(page.getByLabel('Speaker')).toHaveCount(0)
+  await row.getByRole('button', { name: 'Edit details' }).click()
+  await expect(row.getByLabel('Speaker')).toBeVisible()
+  await expect(page.getByLabel('Speaker')).toHaveCount(1)
+  await row.getByRole('button', { name: 'Edit details' }).click()
+  await expect(page.getByLabel('Speaker')).toHaveCount(0)
+
+  await page.locator('body').click({ position: { x: 1, y: 1 } })
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(page.locator('.review-line[data-flagged="true"]')).toBeFocused()
+})
+
 test('lists, filters, searches and edits a line against the real API', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(page.getByTestId('line-counts')).toContainText('3 in this view · 1 flagged · 1 untranslated')
@@ -46,17 +66,18 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
 
   await page.screenshot({ path: 'e2e/screenshots-tmp/review-after.png', fullPage: true })
 
+  // Click the English text, type, Enter saves.
   const row = page.locator('.review-line').nth(0)
-  await row.getByRole('button', { name: 'Edit' }).click()
+  await row.getByTestId('line-en').click()
   await row.getByLabel('Translation').fill('Hello, you')
-  await row.getByRole('button', { name: 'Save line' }).click()
+  await row.getByLabel('Translation').press('Enter')
   await expect(page.getByTestId('line-en').filter({ hasText: 'Hello, you' })).toBeVisible()
 
-  // Restore the original text.
+  // Restore the original text with Ctrl+S.
   const edited = page.locator('.review-line').nth(0)
-  await edited.getByRole('button', { name: 'Edit' }).click()
+  await edited.getByTestId('line-en').click()
   await edited.getByLabel('Translation').fill('Hello there')
-  await edited.getByRole('button', { name: 'Save line' }).click()
+  await edited.getByLabel('Translation').press('Control+s')
   await expect(page.getByTestId('line-en').filter({ hasText: 'Hello there' })).toBeVisible()
 
   // Dismiss the flag.
@@ -73,7 +94,7 @@ test('a stale edit shows the changed-elsewhere message', async ({ page }) => {
   )
   await page.goto('/#/drama/3/review')
   const row = page.locator('.review-line').nth(2)
-  await row.getByRole('button', { name: 'Edit' }).click()
+  await row.getByTestId('line-en').click()
   await row.getByLabel('Translation').fill('Thank you')
   await row.getByRole('button', { name: 'Save line' }).click()
   await expect(row.getByTestId('line-conflict')).toContainText('changed elsewhere')
@@ -85,6 +106,7 @@ test('find and replace previews then applies and shows stale ids', async ({ page
     await route.fulfill({ json: { applied: 0, stale: 1, applied_ids: [], stale_ids: [id] } })
   })
   await page.goto('/#/drama/3/review')
+  await page.locator('summary', { hasText: 'Find and replace' }).click()
   await page.getByLabel('Find', { exact: true }).fill('friend')
   await page.getByLabel('Replace with').fill('pal')
   await page.getByRole('button', { name: 'Preview' }).click()
@@ -108,6 +130,7 @@ test('a finished review job refetches the lines', async ({ page }) => {
   await page.goto('/#/drama/3/review')
   await expect(page.locator('.review-line')).toHaveCount(3)
   const before = lineFetches
+  await page.locator('summary', { hasText: 'AI review' }).click()
   await page.getByRole('button', { name: 'Flag lines for a second look' }).click()
   await expect(page.getByTestId('job-status')).toContainText('running')
   done = true
