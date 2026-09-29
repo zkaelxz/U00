@@ -63,6 +63,7 @@ only on a side branch.
 - **`migration-handoff.md`** — durable migration status, recipe and
   queue for the next session.
 - **`migration-frontend-plan.md`** — the React frontend slice plan.
+- **`react-ui-guidelines.md`** — concise-UI rules for the React app and a per-screen change list.
 - **`baihe-roadmap-master.md`** — master index: status snapshot, bug
   tracker, to-do queue, deferred/review-later steps.
 - **`engineering-standards.md`** — shared principles: precedence, scope,
