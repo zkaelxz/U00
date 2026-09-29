@@ -87,7 +87,7 @@ OPTIONAL_DEPENDENCIES = {
     "PIL": ("PIL", "OCR, Scanlate rendering", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
-    "piper": ("piper", "offline TTS", "feature"),
+    "piper-tts": ("piper", "offline TTS", "feature"),
     "jieba": ("jieba", "Chinese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),
     "pypinyin": ("pypinyin", "Chinese pinyin (Reader)", "feature"),
     "sudachipy": ("sudachipy", "Japanese word segmentation (Reader, meaning-based line re-segmentation)", "feature"),

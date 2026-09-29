@@ -87,7 +87,7 @@ class TestDiagnostics:
         expected = {"yt-dlp": "yt_dlp", "torchaudio": "torchaudio", "uroman": "uroman",
                     "sentencepiece": "sentencepiece",
                     "opencc-python-reimplemented": "opencc",
-                    "sudachidict_core": "sudachidict_core"}
+                    "sudachidict_core": "sudachidict_core", "piper-tts": "piper"}
         for pip_name, import_name in expected.items():
             assert pip_name in deps, pip_name
             assert deps[pip_name][0] == import_name
