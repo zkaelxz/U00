@@ -1643,6 +1643,17 @@ class ResegmentStarted(BaseModel):
     drama_id: int
 
 
+class ResegmentLlmPreviewStart(BaseModel):
+    """Parity R47: start an LLM re-segmentation preview (writes no lines)."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+
+
+class ResegmentLlmPreview(ResegmentPreview):
+    engine: str
+
+
 class RestoreVersionRequest(_RestructureBase):
     pass
 

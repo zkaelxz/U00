@@ -1,7 +1,8 @@
 """
 api/routers/restructure_routes.py -- structural line changes for one drama
 (Migration Slice 45): add, delete, merge, split, re-segmentation
-(read-only preview + a job that re-segments and saves), and Version
+(read-only preview + a job that re-segments and saves; parity R47 adds an
+LLM preview job, read back with GET .../resegment/preview-llm), and Version
 history list/restore. Thin wrapper over services/restructure_service.py.
 
 Every write carries `expected_line_ids` (409 when the drama's lines changed),
@@ -13,7 +14,8 @@ from typing import List
 
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
-from api.schemas import (ErrorResponse, ResegmentPreview, ResegmentStart, ResegmentStarted,
+from api.schemas import (ErrorResponse, ResegmentLlmPreview, ResegmentLlmPreviewStart,
+                         ResegmentPreview, ResegmentStart, ResegmentStarted,
                          RestoreVersionRequest, RestoreVersionResult, RestructureAddLine,
                          RestructureDeleteLine, RestructureMerge, RestructureResult,
                          RestructureSplit, ReviewRecordsHistoryItem)
@@ -58,6 +60,24 @@ def post_split(body: RestructureSplit, drama_id: int = Path(ge=1), line_id: int 
             responses={404: {"model": ErrorResponse}})
 def get_resegment_preview(drama_id: int = Path(ge=1)):
     return svc.preview_resegmentation(drama_id)
+
+
+@router.post("/dramas/{drama_id}/resegment/preview-llm", dependencies=[require_permission("jobs.start")],
+             response_model=ResegmentStarted,
+             summary="Start an LLM re-segmentation preview job (writes no lines)",
+             responses={**_R, 400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_resegment_llm_preview(body: ResegmentLlmPreviewStart, request: Request,
+                               drama_id: int = Path(ge=1)):
+    require_engines_allowed(request, body.engine)
+    return svc.start_llm_resegment_preview(drama_id, engine=body.engine, model=body.model)
+
+
+@router.get("/dramas/{drama_id}/resegment/preview-llm", dependencies=[require_permission("lines.read")],
+            response_model=ResegmentLlmPreview,
+            summary="The finished LLM re-segmentation preview (404 until one is ready)",
+            responses={404: {"model": ErrorResponse}})
+def get_resegment_llm_preview(drama_id: int = Path(ge=1)):
+    return svc.get_llm_resegment_preview(drama_id)
 
 
 @router.post("/dramas/{drama_id}/resegment", dependencies=[require_permission("lines.edit")], response_model=ResegmentStarted,

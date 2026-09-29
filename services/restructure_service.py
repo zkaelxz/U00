@@ -392,6 +392,97 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     return {"job_id": job_id, "drama_id": drama_id}
 
 
+# Parity R47: the LLM re-segmentation as a preview. A job (the local Ollama
+# pass in its own process, as for the apply job) works out the split and
+# keeps the result here, in memory; nothing is written to the drama's lines.
+# The preview carries line text, so it is read back through
+# get_llm_resegment_preview (lines.read), never through the job's result.
+RESEGMENT_PREVIEW_JOB_PREFIX = "resegpreview_"   # in background_jobs.DRAMA_JOB_PREFIXES
+_llm_previews = {}
+_llm_previews_lock = threading.Lock()
+
+
+def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, engine_name):
+    """changed: [(line_id, idx, zh, pieces), ...] as the subprocess returns it."""
+    changed_ids = {c[0] for c in changed}
+    need = _affected_counts(drama_id, source_lines, _candidate_ids(source_lines, language))
+    preview = {
+        "drama_id": drama_id, "engine": engine_name,
+        "source_line_ids": [ln.id for ln in source_lines],
+        "line_count_before": len(source_lines), "line_count_after": len(new_lines),
+        "changed": [{"line_id": lid, "idx": idx, "zh": zh, "pieces": list(pieces)}
+                    for lid, idx, zh, pieces in changed],
+        **_affected_counts(drama_id, source_lines, changed_ids),
+        "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"])}
+    with _llm_previews_lock:
+        _llm_previews[drama_id] = preview
+
+
+def _run_llm_preview_job(job_id, drama_id, lines, language, engine, engine_name, segments,
+                         script):
+    new_lines, changed = resegment.resegment_lines(
+        [dataclasses.replace(ln) for ln in lines], language, engine=engine, segments=segments,
+        chinese_script=script, usage_cb=_usage_logger(drama_id, engine_name, engine))
+    _store_llm_preview(drama_id, lines, language, new_lines,
+                       [(ln.id, ln.idx, ln.zh, p) for ln, p in changed], engine_name)
+    background_jobs.set_result(job_id, {"line_count": len(new_lines)})
+
+
+def _make_preview_on_done(drama_id, lines, language, engine_name, engine):
+    def on_done(job_id, result):
+        for inp, out in (result or {}).get("usage_calls", []):
+            _usage_logger(drama_id, engine_name, engine)(inp, out)
+        _store_llm_preview(drama_id, lines, language, (result or {}).get("lines") or [],
+                           (result or {}).get("changed") or [], engine_name)
+    return on_done
+
+
+def start_llm_resegment_preview(drama_id: int, engine: Optional[str] = None,
+                                model: Optional[str] = None) -> dict:
+    """Starts a `resegpreview_<drama_id>` job that asks the LLM where to
+    split the lines the rules can't, and keeps the result as a preview
+    (get_llm_resegment_preview). Writes nothing to the lines; the LLM's
+    usage is logged like any other paid call, and a spent monthly cap
+    refuses it. Applying still goes through start_resegmentation."""
+    from services import translate_run_service   # lazy: it imports many services
+    drama = _require_drama(drama_id)
+    language, script, segments = _reseg_inputs(drama_id, drama)
+    engine_name, eng = _build_engine(drama, engine, model)
+    translate_run_service.refuse_when_cap_spent(engine_name,
+                                                settings_service.get_gemini_free_tier())
+    lines = db.load_line_objects(drama_id)
+    job_id = f"{RESEGMENT_PREVIEW_JOB_PREFIX}{drama_id}"
+    if background_jobs.is_running(job_id):
+        raise ConflictError("A re-segmentation preview is already running for this drama.")
+    with _llm_previews_lock:
+        _llm_previews.pop(drama_id, None)
+    desc = f"Re-segmentation preview (drama #{drama_id})"
+    if engine_name == "ollama":
+        started = background_jobs.start_process_job(
+            job_id, resegment.resegment_subprocess_worker,
+            args=(lines, language, eng, segments, script), gpu_touching=True, description=desc,
+            on_done=_make_preview_on_done(drama_id, lines, language, engine_name, eng))
+    else:
+        started = background_jobs.start_job(
+            job_id, _run_llm_preview_job, job_id, drama_id, lines, language, eng, engine_name,
+            segments, script, description=desc)
+    if not started:
+        raise ConflictError("A re-segmentation preview is already running for this drama.")
+    return {"job_id": job_id, "drama_id": drama_id}
+
+
+def get_llm_resegment_preview(drama_id: int) -> dict:
+    """The last finished LLM preview for this drama (same shape as
+    preview_resegmentation, plus the engine). NotFoundError when none is
+    ready: none was started, it is still running, or it failed."""
+    _require_drama(drama_id)
+    with _llm_previews_lock:
+        preview = _llm_previews.get(drama_id)
+    if preview is None:
+        raise NotFoundError("No LLM re-segmentation preview is ready for this drama.")
+    return dict(preview)
+
+
 # ---------------------------------------------------------------------------
 # Version history
 # ---------------------------------------------------------------------------
