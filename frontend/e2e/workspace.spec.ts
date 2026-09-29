@@ -72,14 +72,14 @@ test('starts a transcription with the right body, polls the job and cancels it',
   // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
-  await page.getByLabel('Initial prompt', { exact: true }).fill('names: Wei')
+  await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
 
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.getByTestId('job-status')).toContainText('running')
-  expect(run.bodies[0]).toMatchObject({ initial_prompt: 'names: Wei', expected_speakers: 2, run_diarize: false })
+  expect(run.bodies[0]).toMatchObject({ extra_names: 'names: Wei', expected_speakers: 2, run_diarize: false })
 
   await page.getByRole('button', { name: 'Cancel job' }).click()
   await expect(page.getByTestId('job-status')).toContainText('cancelled')
@@ -115,7 +115,7 @@ test('switching dramas does not leak stage state', async ({ page }) => {
   // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
-  await page.getByLabel('Initial prompt', { exact: true }).fill('leaky prompt')
+  await page.getByLabel('Extra names to expect', { exact: true }).fill('leaky prompt')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
@@ -124,7 +124,7 @@ test('switching dramas does not leak stage state', async ({ page }) => {
 
   await page.goto('/#/drama/2/source')
   await expect(page.getByTestId('drama-title')).not.toHaveText(firstTitle)
-  await expect(page.getByLabel('Initial prompt', { exact: true })).toHaveValue('')
+  await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('')
   await expect(page.getByTestId('job-panel')).toHaveCount(0)
 })
 
@@ -151,11 +151,11 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
   await page.goto('/#/drama/1/source')
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
-  await page.getByLabel('Initial prompt', { exact: true }).fill('keep me')
+  await page.getByLabel('Extra names to expect', { exact: true }).fill('keep me')
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Review' }).click()
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await page.getByRole('navigation', { name: 'Stages' }).getByRole('link', { name: 'Source', exact: true }).click()
-  await expect(page.getByLabel('Initial prompt', { exact: true })).toHaveValue('keep me')
+  await expect(page.getByLabel('Extra names to expect', { exact: true })).toHaveValue('keep me')
   await expect(page.getByTestId('job-status')).toContainText('running')
   await expect(page.getByTestId('job-percent')).toHaveText('40%')
   await expect(page.getByRole('button', { name: 'Transcribe', exact: true })).toBeDisabled()

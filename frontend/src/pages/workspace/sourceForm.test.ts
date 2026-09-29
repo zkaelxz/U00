@@ -13,7 +13,7 @@ describe('advancedSummary', () => {
     expect(advancedSummary(base)).toBe('defaults')
   })
   it('lists only the values that differ', () => {
-    expect(advancedSummary({ ...base, beam_size: '8', use_groq: true, prompt: ' x ' })).toBe('beam 8 · Groq · initial prompt')
+    expect(advancedSummary({ ...base, beam_size: '8', use_groq: true, prompt: ' x ' })).toBe('beam 8 · Groq · replacement prompt')
   })
 })
 

@@ -54,6 +54,24 @@ def test_upload_then_run_with_use_gpu(client, monkeypatch):
     assert captured["source_language"] == "ja"
 
 
+def test_upload_passes_extra_names(client, monkeypatch):
+    import db
+    sid = db.get_or_create_series("S")
+    db.upsert_glossary_term(sid, "苏杉", "Su Shan")
+    did = _drama(series_id=sid)
+    captured = {}
+
+    def fake_start_job(job_id, target, *a, **k):
+        captured.update(dict(zip(inspect.signature(target).parameters, a)))
+        return True
+    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    r = _post(client, did, {"extra_names": "沈清疑"})
+    assert r.status_code == 200, r.text
+    assert captured["initial_prompt"] == "苏杉、沈清疑。"
+    r = _post(client, did, {"extra_names": "x" * 1001})
+    assert r.status_code in (400, 422)
+
+
 def test_run_failure_keeps_upload(client, monkeypatch):
     import db
     did = _drama()

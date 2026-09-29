@@ -42,6 +42,8 @@ export interface TranscribeConfig {
   has_video_source: boolean
   hardsub_ocr_backend: string
   hardsub_interval_sec: number
+  // Whisper prompt from the series glossary and raw-novel excerpt; a run with an empty prompt uses it.
+  auto_initial_prompt: string
 }
 
 // Every field optional: only what is sent is validated and written.
@@ -64,6 +66,7 @@ export interface TranscribeRunRequest {
   run_diarize?: boolean
   expected_speakers?: number | null
   initial_prompt?: string
+  extra_names?: string
   tesseract_cmd?: string | null
 }
 

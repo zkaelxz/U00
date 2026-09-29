@@ -47,8 +47,7 @@ import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
-    DEFAULT_WHISPER_SIZE, build_initial_prompt, combine_initial_prompt,
-    extract_novel_excerpt_for_prompt, ModelDownloadError,
+    DEFAULT_WHISPER_SIZE, ModelDownloadError,
 )
 import translate_engines
 import translation_guide as tguide
@@ -321,13 +320,8 @@ def cmd_align(args):
         # never applies here and there's nothing to read for it.)
         whisper_size = args.whisper_size or d.get("whisper_size") or DEFAULT_WHISPER_SIZE
         alignment_method = d.get("alignment_method") or "whisper_diff"
-        glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else []
-        initial_prompt = build_initial_prompt(glossary_terms)
-        raw_novel_path = os.path.join(ddir, "raw_novel_context.txt")
-        if os.path.exists(raw_novel_path):
-            with open(raw_novel_path, "r", encoding="utf-8") as f:
-                initial_prompt = combine_initial_prompt(
-                    initial_prompt, extract_novel_excerpt_for_prompt(f.read()))
+        # Glossary names plus raw-novel excerpt, shared with the API path.
+        initial_prompt = transcribe_service.build_auto_initial_prompt(d["id"])
         # Same saved tuning the service's transcribe job uses
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])

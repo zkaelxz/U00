@@ -59,7 +59,8 @@ export interface SourceFormState {
   transcriptText: string
   runDiarize: boolean
   speakers: string
-  prompt: string
+  // Extra names added to the automatic Whisper prompt.
+  extraNames: string
 }
 
 const formKey = (dramaId: number) => `baihe.sourceForm.${dramaId}`
@@ -71,7 +72,7 @@ export function loadSourceForm(dramaId: number): Partial<SourceFormState> {
     if (!v || typeof v !== 'object') return {}
     const o = v as Record<string, unknown>
     const out: Partial<SourceFormState> = {}
-    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'prompt'] as const) {
+    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'extraNames'] as const) {
       if (typeof o[k] === 'string') out[k] = o[k]
     }
     if (typeof o.runDiarize === 'boolean') out.runDiarize = o.runDiarize
@@ -119,7 +120,7 @@ export function advancedSummary(v: AdvancedValues): string {
   if (v.realign_long_segments) parts.push('realign')
   if (v.whisper_fast_mode) parts.push('fast mode')
   if (v.use_groq) parts.push('Groq')
-  if (v.prompt.trim()) parts.push('initial prompt')
+  if (v.prompt.trim()) parts.push('replacement prompt')
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 

@@ -77,7 +77,7 @@ describe('source form persistence', () => {
     const m = new Map<string, string>()
     return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) }
   }
-  const state = { language: 'ja', script: '', transcriptText: 'x', runDiarize: true, speakers: '2', prompt: 'p' }
+  const state = { language: 'ja', script: '', transcriptText: 'x', runDiarize: true, speakers: '2', extraNames: 'p' }
 
   it('round-trips per drama without leaking across dramas', () => {
     vi.stubGlobal('sessionStorage', memory())
@@ -86,8 +86,8 @@ describe('source form persistence', () => {
     expect(loadSourceForm(2)).toEqual({})
   })
   it('ignores corrupt data and survives throwing storage', () => {
-    vi.stubGlobal('sessionStorage', { getItem: () => '{"language":5,"prompt":"ok"}', setItem: () => undefined })
-    expect(loadSourceForm(1)).toEqual({ prompt: 'ok' })
+    vi.stubGlobal('sessionStorage', { getItem: () => '{"language":5,"extraNames":"ok"}', setItem: () => undefined })
+    expect(loadSourceForm(1)).toEqual({ extraNames: 'ok' })
     const boom = () => {
       throw new Error('blocked')
     }

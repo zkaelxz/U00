@@ -53,7 +53,8 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,
         expected_speakers=payload.expected_speakers,
-        initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd)
+        initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd,
+        extra_names=payload.extra_names)
 
 
 # --- Route batch 2C: auto-tune speech-splitting sensitivity -----------------
@@ -67,7 +68,8 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_start_autotune(payload: AutotuneRunRequest, drama_id: int = Path(ge=1)):
     return transcribe_service.start_autotune_run(
-        drama_id, candidates=payload.candidates, initial_prompt=payload.initial_prompt)
+        drama_id, candidates=payload.candidates, initial_prompt=payload.initial_prompt,
+        extra_names=payload.extra_names)
 
 
 @router.get("/dramas/{drama_id}/autotune", dependencies=[require_permission("library.read")], response_model=AutotuneStatus,

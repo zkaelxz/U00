@@ -336,6 +336,9 @@ class TranscribeConfig(BaseModel):
     has_video_source: bool
     hardsub_ocr_backend: str
     hardsub_interval_sec: float
+    # Whisper prompt built from the series glossary and raw-novel excerpt;
+    # a run with an empty initial_prompt uses this.
+    auto_initial_prompt: str = ""
 
 
 class TranscribeConfigUpdate(BaseModel):
@@ -368,7 +371,10 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    # Non-empty: replaces the automatic prompt entirely. Empty: the server
+    # builds glossary names + extra_names + raw-novel excerpt.
     initial_prompt: str = ""
+    extra_names: str = Field("", max_length=1000)
     tesseract_cmd: Optional[str] = None
 
 
@@ -2460,6 +2466,7 @@ class AutotuneRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     candidates: Optional[List[AutotuneCandidateMs]] = Field(None, min_length=1, max_length=6)
     initial_prompt: str = Field("", max_length=1000)
+    extra_names: str = Field("", max_length=1000)
 
 
 class AutotuneRunResult(BaseModel):

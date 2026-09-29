@@ -81,6 +81,7 @@ class TestGetTranscribeConfig:
             "has_video_source": False,
             "hardsub_ocr_backend": "paddle",
             "hardsub_interval_sec": 1.0,
+            "auto_initial_prompt": "",
         }
 
     def test_reflects_persisted_values(self, isolated_db):
