@@ -1,13 +1,17 @@
 """
 api/routers/metadata_routes.py -- Media analysis and metadata auto-fill
 (Migration Slice 37). See services/metadata_service.py: autofill returns a
-suggestion only; apply writes whitelisted fields.
+suggestion only; apply writes whitelisted fields. Romanize credits
+(inventory P13) writes only the *_romanized fields; it is admin.library plus
+engines.paid for a paid engine, and takes a slot from the shared LLM cap
+(api/llm_slots.py; 429 when busy).
 """
 
 from fastapi import APIRouter, Path, Request
 from api.auth import require_engines_allowed, require_permission
+from api.llm_slots import llm_slot
 from api.schemas import (AutofillApply, AutofillRequest, AutofillSuggestion, ErrorResponse,
-                         MediaAnalysis)
+                         MediaAnalysis, RomanizeCreditsRequest, RomanizeCreditsResult)
 from services import metadata_service
 
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
@@ -30,6 +34,18 @@ def autofill(payload: AutofillRequest, request: Request, drama_id: int = Path(ge
     require_engines_allowed(request, payload.engine)
     return metadata_service.autofill_suggestion(
         drama_id, url=payload.url, page_text=payload.page_text, engine_name=payload.engine)
+
+
+@router.post("/dramas/{drama_id}/romanize-credits", dependencies=[require_permission("admin.library")],
+             response_model=RomanizeCreditsResult,
+             summary="Romanize the credits with an LLM and store them beside the originals",
+             responses={**_ERRS, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse}})
+def romanize_credits(payload: RomanizeCreditsRequest, request: Request, drama_id: int = Path(ge=1)):
+    # A drama-metadata write (admin.library) that also calls an engine: a
+    # paid one needs engines.paid, checked against the engine that will run.
+    require_engines_allowed(request, metadata_service.romanize_engine_name(drama_id, payload.engine))
+    with llm_slot(request):
+        return metadata_service.romanize_credits(drama_id, payload.engine)
 
 
 @router.post("/dramas/{drama_id}/autofill/apply", dependencies=[require_permission("admin.library")],

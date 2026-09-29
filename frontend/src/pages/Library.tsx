@@ -6,6 +6,7 @@ import {
   getSeries, getStats, getVoiceBank, searchLines,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
@@ -133,6 +134,7 @@ function ContinueStrip({ items }: { items: LibraryContinueEntry[] | null }) {
           const title = name({ ...d, id: d.drama_id })
           return (
             <li key={d.drama_id}>
+              {d.has_cover_art && <img className="continue-cover" src={coverUrl(d.drama_id)} alt="" loading="lazy" />}
               <span className="continue-title">{title}</span>
               <progress max={100} value={pct} aria-label={`${title}: ${pct}% read`} />
               <span className="muted">{pct}%{d.last_page ? ` · page ${d.last_page}` : ''}</span>

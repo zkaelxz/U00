@@ -282,7 +282,10 @@ baihe-subtitler/
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
-│   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields),
+│   │                             romanize credits (writes only the *_romanized fields)
+│   ├── cover_art_service.py      Drama cover art (P14): checked PNG/JPEG/WebP upload re-encoded without
+│   │                             metadata, stored as cover.<ext>; resolves the file to serve
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
 │   │                             text; delete version, series character, bug bundle, preset, voice bank
@@ -299,7 +302,8 @@ baihe-subtitler/
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
-│   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
+│   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text (optional chapter
+│   │                             range), chapters imported in Sources as narration text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
@@ -389,7 +393,8 @@ baihe-subtitler/
 │       │                         (Migration Slice 20), .../autotune, POST/GET .../lines/{line_id}/retranscribe, POST .../retranscribe/apply
 │       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only), .../track (Slice 53, WAV download)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
-│       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
+│       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36), POST|GET
+│       │                         /api/dramas/{id}/cover (upload local_only, read library.read)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate
 │       │                         (Migration Slice 39, read-only)
 │       ├── characters_routes.py  /api/characters/dramas/{id}[/clone-engines], POST .../character,
@@ -413,8 +418,9 @@ baihe-subtitler/
 │       │                         only) (Migration Slice 31); GET/HEAD .../audio|video Range playback (Slice 52)
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
-│       │                         (Migration Slice 37)
-│       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
+│       │                         (Migration Slice 37), .../romanize-credits (admin.library + engines check)
+│       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|attach-from-sources|ocr-chapter,
+│       │                         GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
@@ -524,6 +530,9 @@ baihe-subtitler/
 │   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
 │   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
 │   │                              types/novelFiles.ts
+│   │                              CreditsCoverPanel (Source > Credits & cover: bilingual credits, Romanize,
+│   │                              PC-only cover upload) + ../preambleForm.ts (pure, unit-tested; also the
+│   │                              EPUB chapter range NovelPanel uses) + preamble.css
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

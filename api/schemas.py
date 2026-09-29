@@ -1370,6 +1370,15 @@ class NovelAttachTextRequest(BaseModel):
 
 class NovelAttachResult(BaseModel):
     char_count: int
+    # EPUB attach only: the chapters found and the range that was used (1-based, inclusive).
+    epub_chapters: Optional[int] = None
+    chapter_from: Optional[int] = None
+    chapter_to: Optional[int] = None
+
+
+class NovelAttachFromSourcesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: str = Field(default="replace", max_length=10)
 
 
 class NovelOcrResult(BaseModel):
@@ -3207,3 +3216,28 @@ class DiagnosticsBugBundle(BaseModel):
     created_at: Optional[str] = None
 
 
+
+# ---------------------------------------------------------------------------
+# Workspace preamble parity (react-misc-parity): romanize credits (P13) and
+# cover art (P14). No filename or path is returned.
+# ---------------------------------------------------------------------------
+
+class RomanizeCreditsRequest(BaseModel):
+    """`engine` defaults to the drama's translation engine."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(default=None, max_length=40)
+
+
+class RomanizeCreditsResult(BaseModel):
+    drama_id: int
+    romanized: Dict[str, str]
+    updated: bool
+
+
+class CoverArtResult(BaseModel):
+    drama_id: int
+    has_cover_art: bool
+    format: str
+    width: int
+    height: int
+    size_bytes: int

@@ -84,7 +84,7 @@ OPTIONAL_DEPENDENCIES = {
                           "Community License; can't share an install with OmniVoice/Chatterbox)",
                   "feature"),
     "pytesseract": ("pytesseract", "OCR (Tesseract backend)", "feature"),
-    "PIL": ("PIL", "OCR, Scanlate rendering", "feature"),
+    "PIL": ("PIL", "OCR, Scanlate rendering, cover art upload", "feature"),
     "paddleocr": ("paddleocr", "OCR (PaddleOCR backend)", "feature"),
     "manga_ocr": ("manga_ocr", "OCR (Japanese manga backend)", "feature"),
     "piper-tts": ("piper", "offline TTS", "feature"),

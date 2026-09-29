@@ -79,12 +79,21 @@ export const getNovelStatus = (id: number, f?: Fetch) =>
 export const attachNovelText = (id: number, text: string, mode: NovelMode, f?: Fetch) =>
   postJson<NovelAttachResult>(`/api/novel/dramas/${id}/attach-text`, { text, mode }, f)
 
-export const attachNovelEpub = (id: number, file: File, mode: NovelMode, f?: Fetch) => {
+// `range`: 1-based, inclusive chapter numbers; either end may be left out.
+export const attachNovelEpub = (
+  id: number, file: File, mode: NovelMode, f?: Fetch, range: { from?: number; to?: number } = {},
+) => {
   const form = new FormData()
   form.append('file', file)
   form.append('mode', mode)
+  if (range.from) form.append('chapter_from', String(range.from))
+  if (range.to) form.append('chapter_to', String(range.to))
   return postMultipart<NovelAttachResult>(`/api/novel/dramas/${id}/attach-epub`, form, f)
 }
+
+// The chapters imported in Sources (raw_novel_context.txt) become the narration text.
+export const attachNovelFromSources = (id: number, mode: NovelMode, f?: Fetch) =>
+  postJson<NovelAttachResult>(`/api/novel/dramas/${id}/attach-from-sources`, { mode }, f)
 
 export const startNovelOcr = (
   id: number,

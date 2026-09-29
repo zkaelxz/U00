@@ -12,6 +12,7 @@ import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { CreditsCoverPanel } from './CreditsCoverPanel'
 import { DetailsPanel, SourceModePanel } from './DetailsPanel'
 import { AnalyzePanel, AutofillPanel } from './MetadataPanel'
 import { JobPanel } from './JobPanel'
@@ -193,6 +194,7 @@ export default function SourceStage() {
       <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} />
       <SourceModePanel onSaved={() => setModeVersion((n) => n + 1)} />
       <DetailsPanel />
+      <CreditsCoverPanel />
       <AutofillPanel />
       <AnalyzePanel hasMedia={hasMedia} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
