@@ -2698,3 +2698,49 @@ class LibraryStorageCleanResult(BaseModel):
     preset: str
     freed_bytes: int
     results: List[LibraryBulkItem]
+
+
+# ---------------------------------------------------------------------------
+# Parity X02/X22: apply a workflow tier, save translate settings as a preset
+# (services/translate_run_service.py apply_workflow_tier / save_translate_preset).
+# ---------------------------------------------------------------------------
+
+import translate_engines as _translate_engines  # noqa: E402
+
+WorkflowTierKey = Literal[tuple(_translate_engines.WORKFLOW_TIERS)]
+
+
+class WorkflowTierApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tier: WorkflowTierKey
+
+
+class WorkflowTierApplied(BaseModel):
+    """The tier's engine is saved on the drama; the rest is for the form.
+    Nothing is started."""
+    drama_id: int
+    tier: str
+    label: str
+    translation_engine: str
+    engine_model: Optional[str] = None
+    reflect: bool
+    auto_qc: bool
+
+
+class TranslatePresetSave(BaseModel):
+    """The Translate form's current settings. A taken name is a 409 unless
+    overwrite is true."""
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=100)
+    translation_engine: str = Field(max_length=40)
+    engine_model: Optional[str] = Field(None, max_length=100)
+    style_preset: Optional[str] = Field(None, max_length=40)
+    locale: Optional[str] = Field(None, max_length=10)
+    default_female_pronouns: StrictBool = False
+    include_genre_notes: StrictBool = True
+    overwrite: StrictBool = False
+
+
+class TranslatePresetSaved(BaseModel):
+    preset: LibraryPreset
+    replaced: bool

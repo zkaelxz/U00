@@ -1,15 +1,23 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getTranslateConfig, getTranslateEstimate, startTranslateRun } from '../../../api/translateStage'
+import {
+  applyWorkflowTier,
+  getTranslateConfig,
+  getTranslateEstimate,
+  saveTranslatePreset,
+  startTranslateRun,
+} from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { useJob, useJobRun } from '../../../hooks/useJob'
-import type { TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
+import type { TranslateRunConfig, TranslateRunEstimate, WorkflowTierApplied } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import {
+  applyTierToForm,
   buildEstimateParams,
+  buildPresetBody,
   buildRunBody,
   bulkAvailable,
   bulkReflectAvailable,
@@ -18,7 +26,11 @@ import {
   MAX_FALLBACKS,
   monthSpendText,
   reflectAvailable,
-  validateRun, type RunForm,
+  PRESET_NAME_MAX,
+  validatePresetName,
+  validateRun,
+  withSavedEngine,
+  type RunForm,
 } from '../translateForm'
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
@@ -62,7 +74,127 @@ function advancedSummary(f: RunForm, base: RunForm): string {
   return parts.length ? parts.join(' · ') : 'defaults'
 }
 
-function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onStarted: (id: string) => void; busy: boolean }) {
+function appliedText(t: WorkflowTierApplied): string {
+  const model = t.engine_model ? ` (${t.engine_model})` : ''
+  const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
+  const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
+  return `Applied ${t.label}: ${t.translation_engine}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
+}
+
+// Parity X02: Streamlit's "Starting tier" + "Apply tier". Saves the tier's
+// engine on the drama and fills the form; never starts a run.
+function TierPicker({ config, onApplied }: { config: TranslateRunConfig; onApplied: (t: WorkflowTierApplied) => void }) {
+  const { dramaId } = useStage()
+  const tiers = config.workflow_tiers ?? []
+  const [tier, setTier] = useState(() => (tiers.some((t) => t.key === 'standard') ? 'standard' : (tiers[0]?.key ?? '')))
+  const [applied, setApplied] = useState<WorkflowTierApplied | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  if (!tiers.length) return null
+  const apply = () => {
+    setPending(true)
+    applyWorkflowTier(dramaId, tier).then(
+      (t) => {
+        setError(null)
+        setApplied(t)
+        onApplied(t)
+      },
+      setError,
+    ).finally(() => setPending(false))
+  }
+  return (
+    <div className="check-row translate-tier">
+      <Field label="Starting tier" help="Sets the engine, model and Reflect together. Draft: DeepSeek, no Reflect. Standard: Claude Sonnet, no Reflect. Release: Claude Opus, Reflect on, Auto QC on. Everything stays editable afterward, and nothing starts until you press Translate.">
+        <select value={tier} onChange={(e) => setTier(e.target.value)}>
+          {tiers.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+        </select>
+      </Field>
+      <button type="button" disabled={pending || !tier} onClick={apply}>Apply tier</button>
+      {applied && <span className="muted" role="status">{appliedText(applied)}</span>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
+  )
+}
+
+// Parity X22: Streamlit's "Save as preset". Captures engine, model, style,
+// locale and the two toggles. A taken name asks before replacing it.
+function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [problem, setProblem] = useState<string | null>(null)
+  const [taken, setTaken] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  const save = (overwrite: boolean) => {
+    const bad = validatePresetName(name)
+    setProblem(bad)
+    if (bad) return
+    setPending(true)
+    setSaved(null)
+    saveTranslatePreset(buildPresetBody(f, defaultEngine, name, overwrite)).then(
+      (r) => {
+        setError(null)
+        setTaken(null)
+        setSaved(`${r.replaced ? 'Replaced' : 'Saved'} preset "${r.preset.name}".`)
+        setOpen(false)
+        setName('')
+      },
+      (e: unknown) => {
+        if (e instanceof ApiError && e.status === 409) {
+          setError(null)
+          setTaken(name.trim())
+        } else setError(e)
+      },
+    ).finally(() => setPending(false))
+  }
+  return (
+    <div className="advanced-wide">
+      {!open ? (
+        <div className="check-row">
+          <button type="button" onClick={() => { setOpen(true); setSaved(null) }}>Save as preset…</button>
+          <span className="muted">Saves the engine, model, style, locale and the two guidance toggles for any drama.</span>
+          {saved && <span role="status">{saved}</span>}
+        </div>
+      ) : (
+        <div className="fallback-row">
+          <Field label="Preset name">
+            <input
+              type="text"
+              maxLength={PRESET_NAME_MAX}
+              value={name}
+              autoFocus
+              onChange={(e) => { setName(e.target.value); setTaken(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') save(false) }}
+            />
+          </Field>
+          <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save preset</button>
+          <button type="button" onClick={() => { setOpen(false); setTaken(null); setProblem(null) }}>Cancel</button>
+        </div>
+      )}
+      {open && problem && <p className="error" role="alert">{problem}</p>}
+      {open && taken && (
+        <p className="error" role="alert">
+          A preset named "{taken}" already exists.{' '}
+          <button type="button" disabled={pending} onClick={() => save(true)}>Replace it</button>
+        </p>
+      )}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
+  )
+}
+
+function RunPanel({
+  config,
+  onStarted,
+  onTierApplied,
+  busy,
+}: {
+  config: TranslateRunConfig
+  onStarted: (id: string) => void
+  onTierApplied: (t: WorkflowTierApplied) => void
+  busy: boolean
+}) {
   const { dramaId } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
   const [f, setF] = useState<RunForm>(base)
@@ -110,6 +242,13 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
   return (
     <section className="panel" aria-label="Translate run">
       <h3>Translate</h3>
+      <TierPicker
+        config={config}
+        onApplied={(t) => {
+          setF((s) => applyTierToForm(s, t, config))
+          onTierApplied(t)
+        }}
+      />
       <div className="translate-basics">
         <Field label="Engine" help="Which service translates. The default comes from Settings; engines marked (no key) cannot run.">
           <select value={f.engine} onChange={(e) => setF((s) => ({ ...s, engine: e.target.value, model: '', reflect: false, bulk: false }))}>
@@ -243,6 +382,7 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
               </label>
             )}
           </div>
+          <SavePreset f={f} defaultEngine={config.translation_engine} />
         </div>
       </Section>
     </section>
@@ -279,7 +419,14 @@ export default function TranslateStage() {
   return (
     <div className="stage-translate">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {config && <RunPanel config={config} busy={busy} onStarted={setJobId} />}
+      {config && (
+        <RunPanel
+          config={config}
+          busy={busy}
+          onStarted={setJobId}
+          onTierApplied={(t) => setConfig((c) => (c ? withSavedEngine(c, t) : c))}
+        />
+      )}
       {jobId && <JobPanel job={job} pollError={pollError} />}
       {config && (
         <BulkBatchesPanel supported={config.bulk_supported_engines.length > 0} reloadKey={reloads} />
