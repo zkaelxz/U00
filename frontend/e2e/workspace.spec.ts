@@ -36,8 +36,8 @@ async function openAdvanced(page: Page) {
 
 test('opens the workspace from the library and navigates stages', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('row').filter({ hasText: 'Signal' }).click()
-  await page.getByRole('link', { name: 'Open workspace' }).click()
+  await page.getByRole('button', { name: 'Details: Signal' }).click()
+  await page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Open workspace' }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source here -- the seeded drama has no lines yet).
   await expect(page).toHaveURL(/#\/drama\/3$/)
