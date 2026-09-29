@@ -261,9 +261,8 @@ baihe-subtitler/
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
-│   ├── sources_search_service.py     Sources S-3 -- search and series jobs with error mapping, scrubbed res
-│   │                             ults, known-chapter helper (no router yet)
-
+│   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
+│   │                             results, known-chapter helper (no router yet)
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
 │   │                              bulk extract/commit, navigation help (safe_fetch only; no router yet)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
