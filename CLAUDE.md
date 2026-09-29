@@ -130,7 +130,7 @@ policy (task packets, file ownership, what a read-only agent must be handed,
 reporting) lives in [`.claude/CLAUDE.md`](.claude/CLAUDE.md); it complements
 this file, and this file and the roadmap win where they overlap. The project
 agents (`codebase-analyst`, `migration-architect`, `roadmap-planner`,
-`implementer`, `code-reviewer`, `qa-runner`) are defined in `.claude/agents/`.
+`implementer`, `code-reviewer`, `qa-runner`, `ux-designer`) are defined in `.claude/agents/`.
 Delegation never widens the user's requested scope.
 
 ## If you were spawned directly by the planning session
