@@ -65,3 +65,18 @@ class ConflictError(ServiceError):
     HTTP 409 `conflict`."""
 
     code = "conflict"
+
+
+class ForbiddenError(ServiceError):
+    """The caller is understood but this action is not allowed for them
+    (e.g. a local-only operation asked for remotely). HTTP 403 `forbidden`.
+    Keep the message generic so it leaks no reason."""
+
+    code = "forbidden"
+
+
+class RateLimitedError(ServiceError):
+    """Too many requests of this kind right now (e.g. a burst of network
+    job starts). HTTP 429 `rate_limited`."""
+
+    code = "rate_limited"

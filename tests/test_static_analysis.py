@@ -442,20 +442,36 @@ class TestUndefinedNameCheckerItself:
 _HTTP_VERBS = ("post", "get", "put", "patch", "delete", "head", "request")
 
 
-def _find_requests_calls_missing_timeout(path):
+def _find_requests_calls_missing_timeout(path, session_verbs=False):
     """Every network call in `path` that has no `timeout=` keyword:
     requests.<verb>() / session.request(), and urllib's urlopen().
     A hung server on one of these leaves a background job stuck at
     "running" forever -- a real, shipped gap this checks for directly
     rather than trusting every call site to remember it. Only
     unambiguous names are matched (`requests.<verb>`, `session.request`,
-    `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't."""
+    `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't.
+    With `session_verbs=True` (used for services/), `session.<verb>` and
+    `<name>.<verb>` on a name assigned from `requests.Session()` are
+    checked too."""
     tree = ast.parse(open(path, encoding="utf-8").read(), path)
     problems = []
+    session_names = set()
+    if session_verbs:
+        session_names.add("session")
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                    and isinstance(node.value.func, ast.Attribute)
+                    and node.value.func.attr == "Session"):
+                session_names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         f = node.func
+        if (session_verbs and isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
+                and f.value.id in session_names and f.attr in _HTTP_VERBS):
+            if not any(kw.arg == "timeout" for kw in node.keywords):
+                problems.append(node.lineno)
+            continue
         is_http = (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
                    and ((f.value.id == "requests" and f.attr in _HTTP_VERBS)
                         or (f.value.id == "session" and f.attr == "request")))
@@ -533,7 +549,8 @@ class TestHttpCallsHaveTimeouts:
         # fetch, etc.) and api/ must never make an untimed HTTP call.
         files = _py_files_under("services") + _py_files_under("api")
         assert files, "services/ and api/ were not found"
-        problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
+        problems = {os.path.relpath(f, PROJECT_ROOT):
+                    _find_requests_calls_missing_timeout(f, session_verbs=True)
                     for f in files}
         problems = {k: v for k, v in problems.items() if v}
         assert problems == {}, f"call(s) missing timeout=: {problems}"
@@ -571,6 +588,20 @@ class TestTimeoutCheckerItself:
         p = tmp_path / "mod.py"
         p.write_text(src)
         assert _find_requests_calls_missing_timeout(str(p)) == []
+
+
+class TestSessionVerbTimeouts:
+    def test_flags_session_verbs_in_strict_mode_only(self, tmp_path):
+        p = tmp_path / "mod.py"
+        p.write_text("import requests\ns = requests.Session()\ns.get(u)\n"
+                     "session.post(u)\ns.get(u, timeout=3)\nd.get('k')\n")
+        assert _find_requests_calls_missing_timeout(str(p), session_verbs=True) == [3, 4]
+        assert _find_requests_calls_missing_timeout(str(p)) == []
+
+    def test_safe_fetch_module_is_scanned(self):
+        path = os.path.join(PROJECT_ROOT, "services", "safe_fetch.py")
+        assert path in _py_files_under("services")
+        assert _find_requests_calls_missing_timeout(path, session_verbs=True) == []
 
 
 class TestConstraintsFile:
