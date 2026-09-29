@@ -281,6 +281,8 @@ dd { margin: 0; }
 
 /* ---- Section (components/Section.tsx) ---- */
 details.section { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); min-width: 0; }
+/* A Section inside a Card is drawn flat (no box-in-box); spec section 1. */
+.card details.section { border: 0; padding-inline: 0; }
 details.section > summary { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; cursor: pointer; min-width: 0; }
 .section-title { font-weight: 600; }
 .section-summary { color: var(--muted); font-size: var(--font-sm); min-width: 0; flex: 1 1 12rem; }
@@ -412,12 +414,18 @@ button.toggle {
   height: 24px;
   min-height: 0;
   padding: 0;
-  border: 1px solid var(--border);
+  /* Off state: --muted keeps the white thumb and the track at >= 3:1 against
+     the row in the light theme; the dark theme overrides it below. */
+  border: 1px solid var(--muted);
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text) 18%, var(--surface));
+  background: var(--muted);
   transition: background var(--ease), border-color var(--ease);
 }
-button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
+button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--text)); border-color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
+  button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
+}
 button.toggle[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
 button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--text)); border-color: var(--accent); }
 .toggle-thumb {
@@ -437,7 +445,7 @@ button.toggle:disabled { border-style: solid; opacity: 0.55; }
 button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 
 /* Settings-style rows: label (+ help) on the left, control on the right. */
-.setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.setting-list { display: grid; margin: 0 0 var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); }
 .setting-list > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
 .setting-list > .field-item + .field-item { border-top: 1px solid var(--border); }
 .setting-list .field-label-row { font-size: var(--text-md); color: var(--text); }
@@ -475,9 +483,6 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .btn.btn-danger { background: transparent; color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
 .btn.btn-danger:hover:not(:disabled) { background: var(--bad-soft); border-color: var(--bad); }
 .btn:disabled { opacity: 0.6; border-style: solid; }
-a.btn:visited { color: inherit; }
-a.btn.btn-primary:visited { color: var(--on-accent); }
-a.btn.btn-ghost:visited { color: var(--accent-text); }
 
 /* Pills (Badge): a soft tinted background per tone. */
 .pill {
@@ -515,5 +520,5 @@ a.btn.btn-ghost:visited { color: var(--accent-text); }
   .setting-list > .field-item { padding-inline: var(--space-3); }
   .btn { min-height: 44px; }
   .btn.btn-sm { min-height: 44px; }
-  .card { padding: var(--space-4); border-radius: var(--radius); }
+  .card { padding: var(--space-4); border-radius: var(--radius-lg); }
 }
