@@ -1982,3 +1982,34 @@ class DiscoverBulkCommitResult(BaseModel):
     added: int
     skipped: int
     ids: List[int]
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Sources search / series (spec S-3) -- /api/sources/...
+# ---------------------------------------------------------------------------
+
+class SourcesSearchRequest(BaseModel):
+    """Names and text only, never URLs (adapters build their own)."""
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(max_length=200)
+    sources: Optional[List[str]] = Field(None, max_length=100)
+
+
+class SourcesSeriesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(max_length=200)
+
+
+class SourcesJobStarted(BaseModel):
+    job_id: str
+
+
+class SourcesJobResult(BaseModel):
+    """`result` (only once done): search {kind, query, cancelled, results,
+    errors, per_source_counts} or series {kind, source, series_id, info,
+    chapters}. URLs are scheme+host+path only; text is scrubbed."""
+    job_id: str
+    status: Optional[str] = None
+    progress: Optional[float] = None
+    message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
