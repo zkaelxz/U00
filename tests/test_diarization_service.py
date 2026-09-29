@@ -48,7 +48,8 @@ class TestGetDiarizationConfig:
         assert result == {
             "drama_id": did,
             "hf_token_configured": False,
-            "expected_speakers": None, "last_device": None,
+            "expected_speakers": None, "min_speakers": None, "max_speakers": None,
+            "last_device": None,
             "audio_available": False,
         }
 
@@ -133,7 +134,7 @@ class TestStartDiarizationRun:
         call = calls[0]
         assert call["job_id"] == f"diarize_{did}"
         assert call["target"] is diarize.diarize_subprocess_worker
-        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False})
+        assert call["args"] == (os.path.join(ddir, "audio.wav"), "hf-token", 3, {"use_gpu": False, "min_speakers": None, "max_speakers": None})
         assert call["gpu_touching"] is True
         assert call["description"] == f"Diarization (drama #{did})"
 

@@ -73,6 +73,28 @@ def load_pipeline(hf_token: str):
     raise last_error
 
 
+def validate_speaker_hints(num_speakers=None, min_speakers=None, max_speakers=None):
+    """Step 105: checks the speaker-count hints and returns the cleaned
+    (num_speakers, min_speakers, max_speakers), each None when unset.
+    0/None means "not set" for all three (0 is the existing "auto-detect"
+    value for the exact count). An exact count and a range are mutually
+    exclusive -- pyannote lets num_speakers override the range, so
+    accepting both would silently ignore half of what the user typed.
+    Raises ValueError with a plain-English message on a bad combination."""
+    num = int(num_speakers) if num_speakers else None
+    lo = int(min_speakers) if min_speakers else None
+    hi = int(max_speakers) if max_speakers else None
+    for name, value in (("Exact speaker count", num), ("Minimum speakers", lo),
+                        ("Maximum speakers", hi)):
+        if value is not None and value < 1:
+            raise ValueError(f"{name} must be at least 1.")
+    if lo is not None and hi is not None and lo > hi:
+        raise ValueError("Minimum speakers can't be more than maximum speakers.")
+    if num is not None and (lo is not None or hi is not None):
+        raise ValueError("Use either an exact speaker count or a min/max range, not both.")
+    return num, lo, hi
+
+
 def select_device(use_gpu: bool = False) -> str:
     """Step 101: "cuda" when use_gpu is on and torch sees a CUDA device,
     else "cpu". Never raises -- a torch without CUDA support means CPU."""
@@ -107,7 +129,8 @@ def _place_pipeline(pipeline, use_gpu: bool) -> str:
 
 
 def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_model: bool = False,
-           return_embeddings: bool = False, use_gpu: bool = False, run_info: dict = None):
+           return_embeddings: bool = False, use_gpu: bool = False,
+           min_speakers: int = None, max_speakers: int = None, run_info: dict = None):
     """
     Returns a list of {"start": float, "end": float, "speaker": str}
     covering who spoke when, e.g. "SPEAKER_00", "SPEAKER_01", ... --
@@ -117,9 +140,13 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     every existing call keeps its exact current return shape.
 
     use_gpu (Step 101): place the pipeline on CUDA when available.
-    run_info: an optional dict this fills with {"device": "cuda"|"cpu"},
-    the device actually used.
+    min_speakers/max_speakers (Step 105): a speaker-count range passed to
+    pyannote's own min_speakers/max_speakers; mutually exclusive with
+    num_speakers (validate_speaker_hints). run_info: an optional dict this
+    fills with {"device": "cuda"|"cpu"}, the device actually used.
     """
+    num_speakers, min_speakers, max_speakers = validate_speaker_hints(
+        num_speakers, min_speakers, max_speakers)
     pipeline, model = load_pipeline(hf_token)
     device = _place_pipeline(pipeline, use_gpu)
     if run_info is not None:
@@ -130,7 +157,12 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int = None, return_mod
     import torch
     waveform, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
     waveform = torch.from_numpy(waveform.T)  # (frames, channels) -> (channels, frames)
-    result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, num_speakers=num_speakers)
+    hints = {"num_speakers": num_speakers}
+    if min_speakers is not None:
+        hints["min_speakers"] = min_speakers
+    if max_speakers is not None:
+        hints["max_speakers"] = max_speakers
+    result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, **hints)
     # pyannote.audio 4.x's pipeline(audio) returns a DiarizeOutput dataclass
     # (its .speaker_diarization attribute holds the actual Annotation)
     # instead of an Annotation directly, so .itertracks() would otherwise
@@ -166,7 +198,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
     Called as (audio_path, hf_token, num_speakers, result_queue) -- the
     original shape, still used by the frozen Streamlit tab -- or as
     (audio_path, hf_token, num_speakers, options, result_queue), where
-    options is a plain dict with use_gpu (Step 101). The result also carries "device", the device the
+    options is a plain dict with any of use_gpu/min_speakers/max_speakers
+    (Steps 101/105). The result also carries "device", the device the
     pipeline actually ran on.
     """
     result_queue = rest[-1]
@@ -176,7 +209,8 @@ def diarize_subprocess_worker(audio_path: str, hf_token: str, num_speakers, *res
         segments, model, embeddings = diarize(
             audio_path, hf_token, num_speakers=num_speakers,
             return_model=True, return_embeddings=True,
-            use_gpu=bool(options.get("use_gpu")), run_info=run_info)
+            use_gpu=bool(options.get("use_gpu")), min_speakers=options.get("min_speakers"),
+            max_speakers=options.get("max_speakers"), run_info=run_info)
         result_queue.put(("ok", {"segments": segments, "model": model, "embeddings": embeddings,
                                  "device": run_info.get("device", "cpu")}))
     except Exception as exc:
@@ -247,7 +281,8 @@ def merge_speakers(lines, turns, overwrite_manual: bool = False) -> dict:
 
 
 def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
-              embeddings: dict = None, device: str = None) -> str:
+              embeddings: dict = None, min_speakers: int = None, max_speakers: int = None,
+              device: str = None) -> str:
     """Stores pyannote's output next to the drama, so speakers can be
     re-merged (or voice clips extracted) later without re-running it --
     it used to live only in st.session_state and vanish on a refresh.
@@ -261,7 +296,8 @@ def save_turns(drama_dir: str, turns, num_speakers: int = None, model: str = "",
     os.makedirs(drama_dir, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"created_at": datetime.datetime.utcnow().isoformat(), "model": model,
-                   "num_speakers": num_speakers, "device": device, "turns": list(turns),
+                   "num_speakers": num_speakers, "min_speakers": min_speakers,
+                   "max_speakers": max_speakers, "device": device, "turns": list(turns),
                    "embeddings": embeddings or {}}, f, indent=2)
     return path
 
@@ -289,14 +325,14 @@ def load_last_speaker_count(drama_dir: str):
 
 
 def load_last_run_info(drama_dir: str) -> dict:
-    """{"device"} from the last detection run (Step 101), None if unset,
-    no run yet, or an older file."""
+    """{"min_speakers", "max_speakers", "device"} from the last detection
+    run (Steps 101/105), each None if unset, no run yet, or an older file."""
     path = os.path.join(drama_dir, TURNS_FILE)
     data = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    return {k: data.get(k) for k in ("device",)}
+    return {k: data.get(k) for k in ("min_speakers", "max_speakers", "device")}
 
 
 def load_embeddings(drama_dir: str) -> dict:

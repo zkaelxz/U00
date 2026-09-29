@@ -58,6 +58,8 @@ def get_diarization_config(drama_id: int) -> dict:
         "drama_id": drama_id,
         "hf_token_configured": bool(settings_service.resolve_key("hf_token")),
         "expected_speakers": diarize.load_last_speaker_count(ddir),
+        "min_speakers": last_run["min_speakers"],
+        "max_speakers": last_run["max_speakers"],
         # Step 101: the device the last run's pyannote pipeline actually
         # ran on ("cuda"/"cpu"), None before any run that recorded it.
         "last_device": last_run["device"],
@@ -67,7 +69,9 @@ def get_diarization_config(drama_id: int) -> dict:
 
 def apply_diarization_result(drama_id: int, result: dict,
                              expected_speakers: Optional[int] = None,
-                             overwrite_manual: bool = False) -> None:
+                             overwrite_manual: bool = False,
+                             min_speakers: Optional[int] = None,
+                             max_speakers: Optional[int] = None) -> None:
     """UI-free port of the DB half of tabs/workspace_tab.py's
     _apply_diarization_job_result/_apply_speaker_turns (Migration Slice
     49), used as the process job's on_done hook so an API-started
@@ -95,6 +99,7 @@ def apply_diarization_result(drama_id: int, result: dict,
         return
     diarize.save_turns(db.drama_dir(drama_id), turns, num_speakers=expected_speakers or None,
                        model=result.get("model"), embeddings=result.get("embeddings", {}),
+                       min_speakers=min_speakers or None, max_speakers=max_speakers or None,
                        device=result.get("device"))
     lines = db.load_line_objects(drama_id)
     diarize.merge_speakers(lines, turns, overwrite_manual=overwrite_manual)
@@ -104,21 +109,27 @@ def apply_diarization_result(drama_id: int, result: dict,
 
 
 def make_apply_on_done(drama_id: int, expected_speakers: Optional[int] = None,
-                       overwrite_manual: bool = False):
+                       overwrite_manual: bool = False, min_speakers: Optional[int] = None,
+                       max_speakers: Optional[int] = None):
     """The on_done hook for a diarize_<drama_id> process job."""
     def _on_done(job_id, result):
-        apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual)
+        apply_diarization_result(drama_id, result, expected_speakers, overwrite_manual,
+                                 min_speakers=min_speakers, max_speakers=max_speakers)
     return _on_done
 
 
-def worker_options() -> dict:
+def worker_options(min_speakers: Optional[int] = None,
+                   max_speakers: Optional[int] = None) -> dict:
     """The options dict diarize.diarize_subprocess_worker takes: the
-    persisted use_gpu setting (Step 101)."""
-    return {"use_gpu": settings_service.get_use_gpu()}
+    persisted use_gpu setting (Step 101) and the speaker range (Step 105)."""
+    return {"use_gpu": settings_service.get_use_gpu(),
+            "min_speakers": min_speakers or None, "max_speakers": max_speakers or None}
 
 
 def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None,
-                          overwrite_manual: bool = False, confirm: bool = False) -> dict:
+                          overwrite_manual: bool = False, confirm: bool = False,
+                          min_speakers: Optional[int] = None,
+                          max_speakers: Optional[int] = None) -> dict:
     """Starts a real background job to re-detect speakers from this
     drama's stored audio -- the same action as the Diarize tab's own
     "Re-run speaker detection" button (_render_speaker_rerun). The
@@ -130,6 +141,9 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     overwrite_manual=True lets the result replace hand-corrected speakers
     (destructive), so it needs confirm=True too, else InvalidInputError
     (HTTP 422). Default False keeps manual speakers.
+    min_speakers/max_speakers (Step 105): an optional speaker-count range
+    for pyannote; InvalidInputError if min > max, either is below 1, or it
+    is combined with an exact expected_speakers.
     Returns {"job_id": ...} -- poll it via the existing GET /api/jobs/
     {job_id}."""
     drama = db.get_drama(drama_id)
@@ -139,6 +153,11 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     if overwrite_manual and confirm is not True:
         raise InvalidInputError("overwrite_manual=true replaces speakers you corrected by hand "
                                 "and needs confirm=true as well.")
+    try:
+        expected_speakers, min_speakers, max_speakers = diarize.validate_speaker_hints(
+            expected_speakers, min_speakers, max_speakers)
+    except ValueError as exc:
+        raise InvalidInputError(str(exc)) from exc
 
     hf_token = settings_service.resolve_key("hf_token")
     if not hf_token:
@@ -161,9 +180,10 @@ def start_diarization_run(drama_id: int, expected_speakers: Optional[int] = None
     started = background_jobs.start_process_job(
         job_id, diarize.diarize_subprocess_worker,
         args=(audio_path, hf_token, expected_speakers or None,
-              worker_options()),
+              worker_options(min_speakers, max_speakers)),
         gpu_touching=True, description=f"Diarization (drama #{drama_id})",
-        on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual))
+        on_done=make_apply_on_done(drama_id, expected_speakers, overwrite_manual,
+                                   min_speakers, max_speakers))
     if not started:
         raise ConflictError(f"A diarization job is already running for drama {drama_id}.")
     return {"job_id": job_id}
