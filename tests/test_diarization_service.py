@@ -15,7 +15,8 @@ import pytest
 import background_jobs
 import diarize
 from services import diarization_service, settings_service
-from services.service_errors import (ConflictError, DependencyUnavailableError, NotFoundError,
+from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
+                                      NotFoundError,
                                       UnsupportedOperationError)
 
 
@@ -218,4 +219,56 @@ class TestApplyDiarizationResult:
                             lambda *a: applied.append(a))
         diarization_service.start_diarization_run(did, expected_speakers=4)
         captured["on_done"]("j", {"segments": []})
-        assert applied == [(did, {"segments": []}, 4)]
+        assert applied == [(did, {"segments": []}, 4, False)]
+
+
+class TestOverwriteManual:
+    """B-13: explicit, confirmed overwrite_manual on the API diarization run."""
+
+    TURNS = {"segments": [{"start": 0.0, "end": 2.5, "speaker": "SPEAKER_00"},
+                          {"start": 2.5, "end": 6.0, "speaker": "SPEAKER_01"}], "model": "m"}
+
+    def _setup(self, isolated_db, monkeypatch):
+        from core import Line
+        monkeypatch.setattr(settings_service, "resolve_key", lambda key, env_path=None: "hf-token")
+        did, _ = _drama_with_audio(isolated_db)
+        a = Line(idx=0, start=0.0, end=2.0, zh="a", en="", speaker="X")
+        b = Line(idx=1, start=3.0, end=5.0, zh="b", en="", speaker="Manual")
+        b.speaker_manual = True
+        isolated_db.save_lines(did, [a, b])
+        captured = {}
+        monkeypatch.setattr(background_jobs, "start_process_job",
+                            lambda *a, **k: captured.update(k) or True)
+        return did, captured
+
+    def _run(self, isolated_db, monkeypatch, **kw):
+        did, captured = self._setup(isolated_db, monkeypatch)
+        diarization_service.start_diarization_run(did, **kw)
+        captured["on_done"]("j", self.TURNS)
+        return isolated_db.load_line_objects(did)
+
+    def test_default_preserves_manual_speakers(self, isolated_db, monkeypatch):
+        rows = self._run(isolated_db, monkeypatch)
+        assert rows[0].speaker == "SPEAKER_00"
+        assert rows[1].speaker == "Manual" and rows[1].speaker_manual
+
+    def test_overwrite_manual_with_confirm_overwrites(self, isolated_db, monkeypatch):
+        rows = self._run(isolated_db, monkeypatch, overwrite_manual=True, confirm=True)
+        assert rows[1].speaker == "SPEAKER_01"
+
+    def test_overwrite_manual_without_confirm_raises_and_starts_nothing(self, isolated_db, monkeypatch):
+        did, captured = self._setup(isolated_db, monkeypatch)
+        with pytest.raises(InvalidInputError):
+            diarization_service.start_diarization_run(did, overwrite_manual=True)
+        assert captured == {}
+
+    def test_api_overwrite_without_confirm_is_422(self, isolated_db, monkeypatch):
+        pytest.importorskip("fastapi")
+        from fastapi.testclient import TestClient
+        from api.server import app
+        did, captured = self._setup(isolated_db, monkeypatch)
+        c = TestClient(app)
+        r = c.post(f"/api/diarization/dramas/{did}/run?overwrite_manual=true")
+        assert r.status_code == 422 and captured == {}
+        r = c.post(f"/api/diarization/dramas/{did}/run?overwrite_manual=true&confirm=true")
+        assert r.status_code == 200
