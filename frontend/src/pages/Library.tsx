@@ -9,10 +9,14 @@ import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { LibraryList } from '../components/LibraryList'
 import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
-import { MEDIA_TYPES, SOURCE_LANGUAGES, validateCreate } from './libraryForm'
+import { MEDIA_TYPES, SOURCE_LANGUAGES, groupHistory, validateCreate } from './libraryForm'
 
 const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
   d.title_en || d.title_zh || `#${d.id ?? ''}`
+
+// The API stores naive UTC timestamps (datetime.utcnow().isoformat()).
+const readTime = (iso: string) =>
+  new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`).toLocaleString()
 
 // Loads once; a failed panel shows its own banner instead of blanking the page.
 function useLoad<T>(load: () => Promise<T>, reloadKey: number) {
@@ -84,8 +88,15 @@ function Summaries({ reloadKey }: { reloadKey: number }) {
       </Panel>
       <Panel title="Reading history" error={history.error}>
         <ul>
-          {history.data?.items.map((h) => (
-            <li key={`${h.drama_id}-${h.accessed_at}`}>{name({ ...h, id: h.drama_id })}</li>
+          {groupHistory(history.data?.items ?? []).map(({ entry: h, count }) => (
+            <li key={`${h.drama_id}-${h.accessed_at}`}>
+              {name({ ...h, id: h.drama_id })}
+              {count > 1 && <span className="badge"> ×{count}</span>}
+              <span className="muted">
+                {h.percent_complete != null && ` ${Math.round(h.percent_complete)}%`}
+                {h.accessed_at && ` · last read ${readTime(h.accessed_at)}`}
+              </span>
+            </li>
           ))}
         </ul>
       </Panel>
@@ -125,15 +136,20 @@ function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
   return (
     <section className="panel" aria-label="Search lines">
       <h2>Search lines</h2>
-      <form onSubmit={submit}>
-        <input
-          type="search"
-          aria-label="Search all lines"
-          maxLength={200}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <button type="submit">Search</button>
+      <form onSubmit={submit} className="stack">
+        <label className="field">
+          <span>Search all lines</span>
+          <input
+            type="search"
+            aria-label="Search all lines"
+            maxLength={200}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </label>
+        <div className="actions">
+          <button type="submit">Search</button>
+        </div>
       </form>
       <ErrorBanner error={error} />
       {hits && <p className="muted" data-testid="search-count">{hits.length} match(es)</p>}
@@ -178,16 +194,32 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   return (
     <section className="panel" aria-label="New drama">
       <h2>New drama</h2>
-      <form onSubmit={submit}>
-        <input aria-label="English title" value={form.title_en} onChange={set('title_en')} />
-        <input aria-label="Original title" value={form.title_zh} onChange={set('title_zh')} />
-        <select aria-label="Source language" value={form.source_language} onChange={set('source_language')}>
-          {SOURCE_LANGUAGES.map((l) => <option key={l}>{l}</option>)}
-        </select>
-        <select aria-label="Media type" value={form.media_type} onChange={set('media_type')}>
-          {MEDIA_TYPES.map((m) => <option key={m}>{m}</option>)}
-        </select>
-        <button type="submit">Create drama</button>
+      <form onSubmit={submit} className="stack">
+        <label className="field">
+          <span>English title</span>
+          <input value={form.title_en} onChange={set('title_en')} />
+        </label>
+        <label className="field">
+          <span>Original title</span>
+          <input value={form.title_zh} onChange={set('title_zh')} />
+        </label>
+        <div className="field-row">
+          <label className="field">
+            <span>Source language</span>
+            <select value={form.source_language} onChange={set('source_language')}>
+              {SOURCE_LANGUAGES.map((l) => <option key={l}>{l}</option>)}
+            </select>
+          </label>
+          <label className="field">
+            <span>Media type</span>
+            <select value={form.media_type} onChange={set('media_type')}>
+              {MEDIA_TYPES.map((m) => <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="actions">
+          <button type="submit" className="primary">Create drama</button>
+        </div>
       </form>
       {invalid && <p className="error" role="alert">{invalid}</p>}
       <ErrorBanner error={error} />
@@ -201,7 +233,7 @@ export default function LibraryPage() {
   const reload = () => setReloadKey((k) => k + 1)
 
   return (
-    <main>
+    <main className="library-grid">
       <Summaries reloadKey={reloadKey} />
       <LineSearch onSelect={setSelectedId} />
       <CreateForm onCreated={(id) => { setSelectedId(id); reload() }} />
