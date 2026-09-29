@@ -1389,7 +1389,7 @@ def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: d
     """Compare-and-set for one line: ONE conditional UPDATE that writes
     `values` (column -> new value) only if every `expected` column still
     holds the value the caller saw (start/end within 1e-6, sfx as a bool,
-    text/speaker with NULL equal to ""). Returns True if the row changed,
+    text/speaker/flag/flag_note with NULL equal to ""). Returns True if the row changed,
     False if it no longer matches (or no longer exists) -- nothing is
     written then. Never inserts or deletes."""
     sets, args = [], []
@@ -1406,7 +1406,7 @@ def update_line_fields_if(drama_id: int, line_id: int, values: dict, expected: d
         elif col == "sfx":
             conds.append("COALESCE(sfx, 0) = ?")
             cargs.append(int(bool(val)))
-        elif col in ("zh", "en", "speaker"):
+        elif col in ("zh", "en", "speaker", "flag", "flag_note"):
             conds.append(f"COALESCE({col}, '') = ?")
             cargs.append(val or "")
         else:
