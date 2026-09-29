@@ -2065,6 +2065,8 @@ class DiagnosticsSetupPython(BaseModel):
 class DiagnosticsSetupFfmpeg(BaseModel):
     found: bool
     version: Optional[str] = None
+    libass: Optional[bool] = Field(default=None, description=(
+        "Built with libass (burned-in subtitles); null when ffmpeg is missing or unknown."))
 
 
 class DiagnosticsSetupJsRuntime(BaseModel):
@@ -3177,4 +3179,31 @@ class LibraryFilterOptions(BaseModel):
 class ReadingHistoryClearResult(BaseModel):
     cleared: bool
     removed: int
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics parity (react-misc-parity): model-cache delete (Q14) and the
+# saved bug-reproduction bundles list.
+# ---------------------------------------------------------------------------
+
+class DiagnosticsCacheDeleteResult(BaseModel):
+    deleted: bool
+    name: str
+
+
+class DiagnosticsBugBundle(BaseModel):
+    """A saved "What happened here?" snapshot; the frozen input is not returned."""
+    id: int
+    drama_id: int
+    drama_title: Optional[str] = None
+    line_id: Optional[int] = None
+    label: str
+    engine: Optional[str] = None
+    model: Optional[str] = None
+    produced_output: str
+    replayed: bool
+    replay_output: Optional[str] = None
+    reproduced: Optional[bool] = None
+    created_at: Optional[str] = None
+
 

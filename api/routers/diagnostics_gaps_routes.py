@@ -11,8 +11,11 @@ the server-side token and returns booleans only), finished-job history
 Writes are `local_only()` plus `confirm=true`: dependency install and
 upgrade (Q06, package names from the service's whitelist only) and the
 library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
-background job runs (409). Model-cache delete, bug bundles, benchmark and
-the App Assistant are not exposed.
+background job runs (409). Deleting a cached model or Piper voice is also
+`local_only()` + `confirm=true`, refused while a job runs, and takes only a
+name the cache scan lists. The saved bug bundles are listed here
+(`admin.diagnostics`); their delete is in delete_routes.py. Bundle replay,
+benchmark and the App Assistant are not exposed.
 """
 
 from typing import List
@@ -20,7 +23,8 @@ from typing import List
 from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsInstallResult,
+from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsBugBundle,
+                         DiagnosticsCacheDeleteResult, DiagnosticsInstallResult,
                          DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
@@ -102,3 +106,29 @@ def post_upgrade(body: DiagnosticsAdminConfirm,
              responses=_ERRS)
 def post_reset_library(body: DiagnosticsResetRequest):
     return svc.reset_library(confirm=body.confirm, confirm_text=body.confirm_text)
+
+
+@router.post("/model-cache/hf/{revision}/delete", dependencies=[local_only()],
+             response_model=DiagnosticsCacheDeleteResult,
+             summary="PC only: delete one cached Hugging Face model revision (confirm=true)",
+             responses=_ERRS)
+def post_delete_hf_revision(body: DiagnosticsAdminConfirm,
+                            revision: str = Path(pattern=r"^[0-9a-f]{40}$")):
+    return svc.delete_hf_revision(revision, confirm=body.confirm)
+
+
+@router.post("/model-cache/piper/{voice}/delete", dependencies=[local_only()],
+             response_model=DiagnosticsCacheDeleteResult,
+             summary="PC only: delete one downloaded Piper voice (confirm=true)",
+             responses=_ERRS)
+def post_delete_piper_voice(body: DiagnosticsAdminConfirm,
+                            voice: str = Path(min_length=1, max_length=120,
+                                              pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")):
+    return svc.delete_piper_voice(voice, confirm=body.confirm)
+
+
+@router.get("/bug-bundles", dependencies=[require_permission("admin.diagnostics")],
+            response_model=List[DiagnosticsBugBundle],
+            summary="Saved bug-reproduction bundles, newest first (no frozen input; redacted)")
+def get_bug_bundles():
+    return svc.list_bug_bundles()

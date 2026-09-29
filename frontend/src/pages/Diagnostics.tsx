@@ -10,6 +10,7 @@ import type {
   DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsOverview, DiagnosticsSetupChecks,
 } from '../types/diagnostics'
 import type { JobRecord } from '../types/jobs'
+import { BugBundlesSection } from './diagnostics/BugBundlesSection'
 import { BugReportsSection } from './diagnostics/BugReportsSection'
 import { DangerZone } from './diagnostics/DangerZone'
 import { JobHistorySection } from './diagnostics/JobHistorySection'
@@ -64,12 +65,16 @@ export default function DiagnosticsPage() {
     getJobHistory().then(setHistory, () => undefined)
   }, [])
 
+  const refreshCache = useCallback(() => {
+    getModelCache().then(setCache, () => undefined)
+  }, [])
+
   useEffect(() => {
     refreshSetup()
     listJobs().then((r) => setJobs(r.items), setError)
     refreshHistory()
-    getModelCache().then(setCache, () => undefined)
-  }, [refreshSetup, refreshHistory])
+    refreshCache()
+  }, [refreshSetup, refreshHistory, refreshCache])
 
   const active = jobs !== null && jobs.some((j) => isActive(j.status))
   const running = jobs?.filter((j) => isActive(j.status)).length ?? 0
@@ -118,8 +123,7 @@ export default function DiagnosticsPage() {
       </header>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      {jobs && jobs.length > 0 && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
-
+      {/* Core checks first (Python, ffmpeg with libass, JS runtime), then jobs. */}
       {setup ? (
         <SetupSection
           checks={setup}
@@ -135,6 +139,8 @@ export default function DiagnosticsPage() {
         <p className="muted">Loading…</p>
       )}
 
+      {jobs && jobs.length > 0 && <JobsBlock jobs={jobs} now={now} onCancel={(id) => void cancel(id)} />}
+
       {overview && (
         <PackagesSection
           overview={overview}
@@ -148,11 +154,12 @@ export default function DiagnosticsPage() {
       )}
 
       <PyannoteSection />
-      <ModelCacheSection cache={cache} />
+      <ModelCacheSection cache={cache} pc={pc} onChanged={refreshCache} />
       <JobHistorySection items={history} />
       <LogSection />
       <SupportReportSection />
       <BugReportsSection pc={pc} />
+      <BugBundlesSection pc={pc} />
 
       <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset} onOpenChange={setDangerOpen} />
     </section>

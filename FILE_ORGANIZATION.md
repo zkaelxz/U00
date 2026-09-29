@@ -437,8 +437,9 @@ baihe-subtitler/
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
-│       │                         reset-library (POST, local_only + confirm; API batch 1)
+│       │                         support-report|bug-bundles (GET, admin.diagnostics); dependencies/{pkg}/
+│       │                         install|upgrade, reset-library, model-cache/hf|piper/{name}/delete (POST,
+│       │                         local_only + confirm; API batch 1, react-misc-parity)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
 │       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
@@ -481,6 +482,7 @@ baihe-subtitler/
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
 │   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
+│   │                              BugBundlesSection (saved bug bundles, PC-only delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts

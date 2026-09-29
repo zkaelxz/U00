@@ -13,8 +13,9 @@ diagnostics.redact_for_support (which applies
 translate_engines.redact_secrets first); nothing here returns a path.
 
 Not ported (Streamlit-only by decision, see
-docs/streamlit-retirement-plan.md): accuracy benchmark, bug-reproduction
-bundles, App Assistant, and the source-access tests.
+docs/streamlit-retirement-plan.md): accuracy benchmark, bug-bundle replay
+(the saved bundles are listed, and deleted through delete_service), App
+Assistant, and the source-access tests.
 """
 
 import os
@@ -85,7 +86,8 @@ def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
     return {
         "python": {"version": py.get("version"), "ok": bool(py.get("ok"))},
         "ffmpeg": {"found": bool(ff.get("found")),
-                   "version": _redact(ff["version"]) if ff.get("version") else None},
+                   "version": _redact(ff["version"]) if ff.get("version") else None,
+                   "libass": ff.get("libass") if ff.get("found") else None},
         "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
         "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
                  "cuda_available": cuda.get("cuda_available")},
@@ -427,3 +429,55 @@ def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:
     finally:
         background_jobs.release_exclusive()
     return {"ok": True, "reset_at": time.time()}
+
+
+# ---------------------------------------------------------------------------
+# Model cache delete (Q14) and saved bug bundles (list only; delete is
+# services/delete_service.delete_bug_bundle)
+# ---------------------------------------------------------------------------
+
+def delete_hf_revision(revision: str, confirm: bool = False) -> dict:
+    """Deletes one cached Hugging Face revision, named by a commit hash the
+    cache scan lists (anything else is NotFoundError, so a caller can only
+    ever delete what the scan shows). Refuses while a job runs, since a
+    job may be loading that model."""
+    if not isinstance(revision, str) or not any(
+            e["revision"] == revision for e in diagnostics.scan_hf_cache()):
+        raise NotFoundError("No cached model with that revision.")
+    _guard(confirm)
+    if not diagnostics.delete_hf_cache_revision(revision):
+        raise ServiceError("Couldn't delete that model; see the log for details.")
+    return {"deleted": True, "name": revision}
+
+
+def delete_piper_voice(voice: str, confirm: bool = False) -> dict:
+    """Deletes one downloaded Piper voice (its .onnx and .onnx.json). Only a
+    name the scan lists is accepted, so no path can be built from input."""
+    if not isinstance(voice, str) or not any(
+            e["voice"] == voice for e in diagnostics.scan_piper_voices()):
+        raise NotFoundError("No downloaded voice with that name.")
+    _guard(confirm)
+    if not diagnostics.delete_piper_voice(voice):
+        raise ServiceError("Couldn't delete that voice; see the log for details.")
+    return {"deleted": True, "name": voice}
+
+
+def list_bug_bundles() -> list:
+    """Saved bug-reproduction bundles (a line's "What happened here?"
+    snapshot), newest first. The frozen input is not returned; outputs are
+    redacted."""
+    out = []
+    for b in db.list_bug_reports():
+        drama = db.get_drama(b["drama_id"])
+        title = (drama.get("title_en") or drama.get("title_zh")) if drama else None
+        out.append({
+            "id": b["id"], "drama_id": b["drama_id"], "drama_title": title,
+            "line_id": b.get("line_id"), "label": _redact(b.get("label") or ""),
+            "engine": b.get("engine"), "model": b.get("model"),
+            "produced_output": _redact(b.get("produced_output") or ""),
+            "replayed": bool(b.get("replayed")),
+            "replay_output": _redact(b["replay_output"]) if b.get("replay_output") else None,
+            "reproduced": bool(b.get("reproduced")) if b.get("replayed") else None,
+            "created_at": b.get("created_at"),
+        })
+    return out

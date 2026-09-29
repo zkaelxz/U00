@@ -156,13 +156,17 @@ def check_python_version():
 def check_ffmpeg():
     path = shutil.which("ffmpeg")
     if not path:
-        return {"found": False, "path": None, "version": None}
+        return {"found": False, "path": None, "version": None, "libass": None}
     try:
         result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
         version_line = result.stdout.splitlines()[0] if result.stdout else "unknown version"
-        return {"found": True, "path": path, "version": version_line}
+        # Burned-in (hardsub) export and the styled preview need ffmpeg built
+        # with libass; `-version` prints the build's configure flags.
+        libass = "--enable-libass" in result.stdout if result.stdout else None
+        return {"found": True, "path": path, "version": version_line, "libass": libass}
     except Exception:
-        return {"found": True, "path": path, "version": "found but version check failed"}
+        return {"found": True, "path": path, "version": "found but version check failed",
+                "libass": None}
 
 
 # In yt-dlp's own preference order -- Deno is its default; the others
