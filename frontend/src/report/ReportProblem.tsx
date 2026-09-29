@@ -15,7 +15,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 
 import { submitBugReport } from '../api/bugReports'
 import { api } from '../api/client'
-import { getPcMode } from '../api/pcOnly'
+import { applyMeta, getPcMode } from '../api/pcOnly'
 import type { MetaResponse } from '../api/types'
 import { Sheet } from '../components/Sheet'
 import { describeError } from '../components/errorMessages'
@@ -29,10 +29,11 @@ import './reportProblem.css'
 export function ReportProblemButton() {
   const open = useSyncExternalStore(subscribeReportDialog, isReportDialogOpen, isReportDialogOpen)
   const buttonRef = useRef<HTMLButtonElement>(null)
-  // The dialog unmounts on close, so focus is handed back here explicitly.
+  // The dialog unmounts on close, so focus is handed back here explicitly —
+  // after the unmount, since the page is inert while the modal is still open.
   const close = () => {
     closeReportDialog()
-    buttonRef.current?.focus()
+    requestAnimationFrame(() => buttonRef.current?.focus())
   }
   return (
     <>
@@ -71,18 +72,29 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<Result | null>(null)
   const [report, setReport] = useState<BugReportClient | null>(null)
   const meta = useRef<MetaResponse | null>(null)
+  const metaLoaded = useRef<Promise<void>>(Promise.resolve())
   const ids = useId()
   const shotError = screenshotProblem(shot)
 
   useEffect(() => {
     let live = true
-    api.meta().then((m) => {
+    // Also feeds the shared PC-only mode: a page that never loaded it would
+    // otherwise report mode "unknown".
+    metaLoaded.current = api.meta().then((m) => {
+      applyMeta(m)
       if (live) meta.current = m
     }, () => undefined)
     return () => {
       live = false
     }
   }, [])
+
+  // Sheet calls showModal() in its own (later-running) effect, which moves
+  // focus to the first focusable control; hand it to the textarea after that.
+  useEffect(() => {
+    const t = requestAnimationFrame(() => document.getElementById(`${ids}-what`)?.focus())
+    return () => cancelAnimationFrame(t)
+  }, [ids])
 
   const submit = async () => {
     if (!what.trim()) {
@@ -92,6 +104,7 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
     }
     if (shotError) return
     setSending(true)
+    await metaLoaded.current
     const r = buildReport({ whatHappened: what, expected, includeServerLog: includeLog }, captureSnapshot(),
       meta.current, environment(), getPcMode())
     setReport(r)
@@ -125,7 +138,6 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
               rows={4}
               maxLength={5000}
               required
-              autoFocus
               value={what}
               aria-invalid={missing && !what.trim() ? true : undefined}
               aria-describedby={missing && !what.trim() ? `${ids}-what-err` : undefined}
