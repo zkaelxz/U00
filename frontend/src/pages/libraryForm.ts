@@ -30,6 +30,10 @@ export function validateCreate(form: DramaCreateRequest): string | null {
 
 export const canConfirmDelete = (typed: string) => typed === 'DELETE'
 
+// A Library "More" section with nothing in it renders nothing (react-ui-guidelines rule 8);
+// an error keeps it visible so a failed load is not silently hidden.
+export const showFold = (count: number | undefined, error: unknown): boolean => !(count === 0 && !error)
+
 export interface HistoryGroup<T> {
   entry: T // the most recent row of the run
   count: number

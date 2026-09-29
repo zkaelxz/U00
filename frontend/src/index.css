@@ -135,7 +135,16 @@ textarea {
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
-:disabled { opacity: 0.55; cursor: not-allowed; }
+:disabled,
+button.primary:disabled,
+button.danger:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--text) 7%, var(--surface));
+  border-color: var(--border);
+  border-style: dashed;
+}
+button.link:disabled { background: none; border: none; text-decoration: none; }
 
 button {
   font: inherit;
@@ -257,6 +266,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .field-help { position: relative; display: inline-flex; }
 .field-help-btn { width: 1.4rem; height: 1.4rem; padding: 0; border-radius: 999px; font-size: 0.75rem; line-height: 1; font-style: italic; color: var(--muted); }
 .field-help-text { position: absolute; z-index: 5; top: calc(100% + var(--space-1)); left: 0; width: max-content; max-width: min(18rem, 80vw); padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: var(--font-sm); font-weight: 400; box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 18%, transparent); }
+.panel:has(.field-help-text:not([hidden])) { overflow: visible; }
 .field-help-text[hidden] { display: none; }
 .field-error { margin: 0; font-size: var(--font-sm); }
 
@@ -267,3 +277,37 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 .toggle-list input[type='checkbox'] { margin: 0; }
 .table-scroll { overflow-x: auto; }
 .table-scroll table { min-width: 28rem; }
+
+/* ---- touch / phone pass: 44px targets, one-row nav, scrollable stage tabs ---- */
+.field-help-btn, .review-hint, button.link { position: relative; }
+.field-help-btn::after, .review-hint::after, button.link::after { content: ''; position: absolute; inset: -12px -8px; }
+@media (pointer: coarse), (max-width: 640px) {
+  button:not(.link, .field-help-btn, .review-hint),
+  select,
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
+  textarea { min-height: 44px; }
+  button:not(.link, .field-help-btn, .review-hint) { padding-block: 10px; }
+  summary { min-height: 44px; padding-block: 10px; }
+  .app-header nav a, .stage-tabs a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+  label:has(> input[type='checkbox']), label:has(> input[type='radio']),
+  .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
+  .toggle-list .field-item { display: flex; }
+  .field-help-btn::after, .review-hint::after { inset: -12px; }
+}
+@media (max-width: 640px) {
+  .app-header .badge.ok { display: none; }
+  .app-header nav { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; }
+  .app-header nav a { flex: 1 1 auto; padding-inline: var(--space-2); white-space: nowrap; }
+  .stage-tabs { overflow-x: auto; flex-wrap: nowrap; scroll-snap-type: x proximity; scrollbar-width: thin; }
+  .stage-tabs a { flex: 0 0 auto; scroll-snap-align: start; padding-inline: var(--space-2); white-space: nowrap; }
+}
+/* Library drama cards (phone layout of LibraryList) */
+ul.drama-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+ul.drama-cards > li { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
+ul.drama-cards > li.selected { border-color: var(--accent); }
+.drama-card-title { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.drama-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1); }
+.drama-card-meta button { margin-left: auto; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}

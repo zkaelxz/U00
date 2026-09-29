@@ -61,6 +61,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
     ['Genre', drama.genre],
     ['Chapters', drama.chapter_count],
     ['Translation engine', drama.translation_engine],
+    ['Tags', drama.custom_tags.join(', ')],
     ['Source media', drama.has_audio ? 'attached' : 'none'],
   ]
 

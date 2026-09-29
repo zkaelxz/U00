@@ -65,7 +65,13 @@ export function Field({ label, unit, help, error, children }: FieldProps) {
             >
               i
             </button>
-            <span id={ids.helpId} role="tooltip" className="field-help-text" hidden={!helpOpen}>
+            <span
+              id={ids.helpId}
+              role="tooltip"
+              className="field-help-text"
+              hidden={!helpOpen}
+              onMouseDown={(e) => e.preventDefault()}
+            >
               {help}
             </span>
           </span>

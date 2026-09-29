@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { api, ApiError } from '../api/client'
 import type { DramaSummary } from '../api/types'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import { DramaCards } from './DramaCards'
 
 // Same choices the Streamlit Library tab offers.
 const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exported']
@@ -20,6 +22,7 @@ export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
   const [quickFilter, setQuickFilter] = useState('')
   const [items, setItems] = useState<DramaSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const phone = useMediaQuery('(max-width: 640px)')
 
   useEffect(() => {
     let cancelled = false
@@ -81,7 +84,10 @@ export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
           <p className="muted" data-testid="drama-count">
             {items.length} drama(s)
           </p>
-          {items.length > 0 && (
+          {items.length > 0 && phone && (
+            <DramaCards items={items} selectedId={selectedId} onSelect={onSelect} />
+          )}
+          {items.length > 0 && !phone && (
             <table>
               <thead>
                 <tr>

@@ -192,11 +192,11 @@ function LineRowImpl({ dramaId, line, onChanged }: Props) {
             </label>
             <label>
               Start (s)
-              <input value={draft.start} onChange={(e) => set('start', e.target.value)} />
+              <input inputMode="decimal" value={draft.start} onChange={(e) => set('start', e.target.value)} />
             </label>
             <label>
               End (s)
-              <input value={draft.end} onChange={(e) => set('end', e.target.value)} />
+              <input inputMode="decimal" value={draft.end} onChange={(e) => set('end', e.target.value)} />
             </label>
           </div>
           {problem && <p className="error" role="alert">{problem}</p>}
