@@ -15,7 +15,7 @@ import {
 } from './diagnosticsAdmin'
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
-import { canUpdate, markUpdated, updateLine, updatesSummary, versionLabel } from './packageUpdates'
+import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import {
   belowMinText, firstHint, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
   sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus,
@@ -99,9 +99,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     try {
       const r = await (kind === 'install' ? installDependency(name) : upgradeDependency(name, target ?? ''))
       setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint })
-      if (r.ok && kind === 'upgrade') setUpdates((u) => (u ? markUpdated(u, name) : u))
-      // A new package can hold back (or allow) others: the server dropped its check too.
-      if (kind === 'install') setUpdates(null)
+      // An install or update can move other packages too: the server dropped its check, so does this.
+      setUpdates(null)
       if (r.ok) changed()
     } catch (e) {
       setOutcome({ kind, name, error: e })

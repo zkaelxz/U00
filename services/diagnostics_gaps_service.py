@@ -514,10 +514,13 @@ def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> 
         else:
             args = diagnostics.upgrade_pip_args(dist, _project_root())
         return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
-    result = _run_pip(name, confirm, cmds)
-    if result["ok"] and checked is not None:
-        _mark_upgraded(name, checked["target"])
-    return result
+    try:
+        return _run_pip(name, confirm, cmds)
+    finally:
+        # pip may have moved other packages too (a dependency pulled up or
+        # capped), so no cached target is safe any more: the next Update
+        # needs a new check, as after an install.
+        _clear_update_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -535,7 +538,7 @@ _UPDATES = {"checked_at": None, "packages": {}, "generation": 0}
 
 
 def _clear_update_cache() -> None:
-    """After an install or a PyTorch setup the installed set changed, so a
+    """After an install, an upgrade or a PyTorch setup the installed set changed, so a
     cached target may no longer be safe: the next Update needs a new check.
     The generation bump stops a check that started before from storing its
     (now stale) answer."""
@@ -549,17 +552,6 @@ def _cached_update(name: str):
         entry = _UPDATES["packages"].get(name)
         return dict(entry) if entry else None
 
-
-def _mark_upgraded(name: str, version: str) -> None:
-    with _UPDATES_LOCK:
-        entry = _UPDATES["packages"].get(name)
-        if not entry:
-            return
-        entry.update(installed_version=version, target=None)
-        if entry.get("latest") == version:
-            entry.update(status="up_to_date", reason=None)
-        else:
-            entry["status"] = "held_back"
 
 
 def check_package_updates(force: bool = False) -> dict:

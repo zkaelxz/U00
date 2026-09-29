@@ -5,6 +5,8 @@ only when a newer release is allowed by constraints.txt, the installed
 packages that depend on it and the known limitations. PyPI and pip are
 faked; no network, no install.
 """
+import json
+
 import pytest
 
 import diagnostics
@@ -17,9 +19,15 @@ class _Resp:
     def __init__(self, status, data):
         self.status_code = status
         self._data = data
+        self.closed = False
 
-    def json(self):
-        return self._data
+    def iter_content(self, size):
+        body = json.dumps(self._data).encode()
+        for i in range(0, len(body), size):
+            yield body[i:i + size]
+
+    def close(self):
+        self.closed = True
 
 
 def _file(yanked=False):
@@ -48,6 +56,16 @@ def test_pypi_release_versions_filters_and_uses_a_fixed_url(monkeypatch):
     assert sorted(diagnostics.pypi_release_versions("Sudachidict_Core")) == ["1.0.0", "1.2.0"]
     assert seen["url"] == "https://pypi.org/pypi/sudachidict-core/json"
     assert seen["timeout"] == diagnostics.PYPI_JSON_TIMEOUT
+    assert seen["allow_redirects"] is False and seen["stream"] is True
+
+
+def test_pypi_release_versions_stops_reading_past_the_size_cap(monkeypatch):
+    import requests
+    resp = _Resp(200, {"releases": {"1.0.0": _file()}, "pad": "x" * 200})
+    monkeypatch.setattr(diagnostics, "PYPI_JSON_MAX_BYTES", 100)
+    monkeypatch.setattr(requests, "get", lambda *a, **k: resp)
+    assert diagnostics.pypi_release_versions("jieba") is None
+    assert resp.closed
 
 
 @pytest.mark.parametrize("bad", ["", "../x", "a b", "x/../../y", "-e"])
@@ -183,7 +201,8 @@ def test_upgrade_installs_exactly_the_checked_target(monkeypatch):
     (cmd,) = seen
     assert "jieba==0.42.1" in cmd and "--upgrade" not in cmd
     assert cmd[cmd.index("-c") + 1].endswith("constraints.txt")
-    assert svc._cached_update("jieba")["status"] == "up_to_date"
+    # pip may have moved other packages too: every cached target is dropped
+    assert svc._cached_update("jieba") is None
 
 
 def test_upgrade_refused_when_the_check_found_nothing_allowed(monkeypatch):

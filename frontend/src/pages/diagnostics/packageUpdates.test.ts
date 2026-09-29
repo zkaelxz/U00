@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsPackageUpdate } from '../../types/diagnostics'
-import { canUpdate, markUpdated, updateLine, updatesSummary, versionLabel } from './packageUpdates'
+import { canUpdate, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 
 const u = (o: Partial<DiagnosticsPackageUpdate>): DiagnosticsPackageUpdate => ({
   name: 'jieba', dist: 'jieba', installed_version: '0.42.0', status: 'up_to_date', latest: '0.42.0',
@@ -43,9 +43,6 @@ describe('packageUpdates', () => {
       },
     }
     expect(updatesSummary(r)).toBe('1 update available, 1 held back')
-    const after = markUpdated(r, 'a')
-    expect(after.packages.a).toMatchObject({ status: 'up_to_date', installed_version: '2', target: null })
-    expect(updatesSummary(after)).toBe('1 held back')
     expect(updatesSummary({ checked_at: 1, packages: { c: u({}) } })).toBe('Everything is up to date')
   })
 })

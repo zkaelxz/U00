@@ -1989,6 +1989,7 @@ PIP_DIST_ALTERNATES = {
 }
 
 PYPI_JSON_TIMEOUT = 10.0
+PYPI_JSON_MAX_BYTES = 20 * 1024 * 1024   # the largest project JSON is a few MB
 _DIST_NAME_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
 
 
@@ -2017,17 +2018,27 @@ def installed_dist_version(name: str):
 def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
     """Final (non-pre-release), non-yanked releases PyPI lists for `dist`
     that have at least one file, as version strings; None on any failure.
-    One GET to https://pypi.org/pypi/<dist>/json, with a timeout."""
+    One GET to https://pypi.org/pypi/<dist>/json, with a timeout, no
+    redirects and at most PYPI_JSON_MAX_BYTES read."""
     if not _DIST_NAME_RE.fullmatch(dist or ""):
         return None
     import requests
     version_mod, _s, _r = _packaging()
     try:
         resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
-                            timeout=timeout, headers={"Accept": "application/json"})
-        if resp.status_code != 200:
-            return None
-        releases = resp.json().get("releases") or {}
+                            timeout=timeout, headers={"Accept": "application/json"},
+                            stream=True, allow_redirects=False)
+        try:
+            if resp.status_code != 200:
+                return None
+            body = bytearray()
+            for chunk in resp.iter_content(65536):
+                body += chunk
+                if len(body) > PYPI_JSON_MAX_BYTES:
+                    return None
+        finally:
+            resp.close()
+        releases = json.loads(bytes(body)).get("releases") or {}
     except Exception:
         return None
     out = []

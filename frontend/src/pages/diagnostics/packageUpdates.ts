@@ -44,12 +44,3 @@ export function updatesSummary(r: DiagnosticsPackageUpdates): string {
   return parts.length ? parts.join(', ') : 'Everything is up to date'
 }
 
-/** After a successful Update: the row is now at the target (and up to date unless newer is held back). */
-export function markUpdated(r: DiagnosticsPackageUpdates, name: string): DiagnosticsPackageUpdates {
-  const u = r.packages[name]
-  if (!u?.target) return r
-  const next: DiagnosticsPackageUpdate = u.latest === u.target
-    ? { ...u, installed_version: u.target, target: null, status: 'up_to_date', reason: null }
-    : { ...u, installed_version: u.target, target: null, status: 'held_back' }
-  return { ...r, packages: { ...r.packages, [name]: next } }
-}
