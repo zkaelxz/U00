@@ -32,6 +32,7 @@ Security rules kept here:
 
 import base64
 import hmac
+import ipaddress
 import json
 import secrets
 import threading
@@ -60,10 +61,14 @@ CLOCK_LEEWAY_SECONDS = 60
 MAX_RETURN_TO = 512
 _MAX_PARAM = 4096
 
-# (max events, window seconds)
-LOGIN_RATE = (20, 600)            # per client address
-CALLBACK_RATE = (20, 600)         # per client address
-CALLBACK_GLOBAL_RATE = (200, 600)  # callbacks that carry a live transaction only
+# (max events, window seconds). Login and callback each pass three tiers: the
+# client's bucket (IPv4 address / IPv6 /64), its IPv6 /56 (one home delegation)
+# and its wide net (IPv4 /24 / IPv6 /48). There is no global cap, so no number
+# of networks can use up sign-in for everyone else.
+LOGIN_RATE = (20, 600)            # per bucket
+CALLBACK_RATE = (20, 600)         # per bucket
+NET56_RATE = (40, 600)            # per IPv6 /56, login and callback each
+NET_RATE = (200, 600)             # per IPv4 /24 or IPv6 /48, login and callback each
 _AUDIT_RATE_LIMITED = (30, 600)   # cap on login.rate_limited audit rows
 
 # The only values a failed sign-in redirect carries (`/?login_error=<code>`).
@@ -183,6 +188,19 @@ def _bounded(value) -> str:
     return value if isinstance(value, str) and len(value) <= _MAX_PARAM else ""
 
 
+def _net56_key(ip: str) -> str:
+    """The IPv6 /56 of a client address; "" for IPv4 or unparseable."""
+    addr = auth_service._parse_ip(ip)
+    if addr is None or addr.version == 4:
+        return ""
+    return str(ipaddress.ip_network(f"{addr}/56", strict=False))
+
+
+def _net_key(ip: str) -> str:
+    """The wide net of a client address (IPv4 /24, IPv6 /48); "" if unparseable."""
+    return auth_service._ip_prefix(ip)
+
+
 class SignIn:
     """Per-app sign-in state. `clock` is monotonic (transactions, JWKS cache,
     rate limits); `wall` is epoch seconds (token exp/iat). Both injectable."""
@@ -197,27 +215,26 @@ class SignIn:
         self._jwks_lock = threading.Lock()
         limiter = auth_service.SlidingWindowRateLimiter
         self._limiters = {
-            "login": limiter(*LOGIN_RATE, clock=clock),
-            "callback": limiter(*CALLBACK_RATE, clock=clock),
-            "callback_global": limiter(*CALLBACK_GLOBAL_RATE, clock=clock),
+            kind: [(auth_service.rate_limit_key, limiter(*rate, clock=clock)),
+                   (_net56_key, limiter(*NET56_RATE, clock=clock)),
+                   (_net_key, limiter(*NET_RATE, clock=clock))]
+            for kind, rate in (("login", LOGIN_RATE), ("callback", CALLBACK_RATE))
         }
         self._audit_limiter = limiter(*_AUDIT_RATE_LIMITED, clock=clock)
 
     # --- rate limiting -------------------------------------------------------
 
     def check_rate(self, kind: str, client_ip: str):
-        """Per-source limit ("login" or "callback"), keyed by
-        auth_service.rate_limit_key. Raises RateLimitedError (429). The global
-        callback cap is charged separately, in complete(), and only for a
-        callback that carries a live transaction -- so junk callbacks can't
-        use it up for everyone."""
-        self._limit(kind, auth_service.rate_limit_key(client_ip), client_ip)
-
-    def _limit(self, kind: str, key: str, client_ip: str):
-        """Rate-limited attempts are audited, themselves capped so a flood
-        can't grow the audit table."""
+        """Limits "login" or "callback" per tier, finest first (see NET_RATE);
+        a request refused by one tier isn't charged to the wider ones, so a
+        single /64 flooding past its own limit doesn't use up its /56 or /48.
+        Raises RateLimitedError (429). Rate-limited attempts are audited,
+        themselves capped so a flood can't grow the audit table."""
         try:
-            self._limiters[kind].hit(key)
+            for key_of, tier in self._limiters[kind]:
+                key = key_of(client_ip)
+                if key:
+                    tier.hit(key)
         except RateLimitedError:
             try:
                 self._audit_limiter.hit("*")
@@ -229,11 +246,12 @@ class SignIn:
 
     # --- pending transactions -------------------------------------------------
 
-    def _store(self, record: dict, source: str = "") -> str:
+    def _store(self, record: dict, source: str = "", net: str = "") -> str:
         """Keeps at most MAX_PENDING_PER_SOURCE per source and
-        MAX_PENDING_TRANSACTIONS overall. When full, the oldest transaction of
-        the source holding the most is dropped, so one source flooding /login
-        evicts its own transactions, not other people's."""
+        MAX_PENDING_TRANSACTIONS overall. When full, the wide net (IPv4 /24,
+        IPv6 /48) holding the most is picked, and the oldest transaction of its
+        busiest source is dropped, so a flood from one source, or spread one
+        per /64 across a /48, evicts its own transactions, not other people's."""
         txn_id = secrets.token_urlsafe(32)
         now = self._clock()
         with self._pending_lock:
@@ -242,15 +260,24 @@ class SignIn:
                 if now - oldest["created"] < TRANSACTION_TTL_SECONDS:
                     break
                 self._pending.popitem(last=False)
-            counts = {}
-            for rec in self._pending.values():
-                counts[rec["source"]] = counts.get(rec["source"], 0) + 1
-            if counts.get(source, 0) >= MAX_PENDING_PER_SOURCE:
+            if sum(rec["source"] == source
+                   for rec in self._pending.values()) >= MAX_PENDING_PER_SOURCE:
                 self._evict_oldest_of(source)
             elif len(self._pending) >= MAX_PENDING_TRANSACTIONS:
-                self._evict_oldest_of(max(counts, key=counts.get))
-            self._pending[txn_id] = dict(record, created=now, source=source)
+                self._evict_oldest_of(self._busiest_source())
+            self._pending[txn_id] = dict(record, created=now, source=source,
+                                         net=net or source)
         return txn_id
+
+    def _busiest_source(self) -> str:
+        nets, sources = {}, {}
+        for rec in self._pending.values():
+            nets[rec["net"]] = nets.get(rec["net"], 0) + 1
+        net = max(nets, key=nets.get)
+        for rec in self._pending.values():
+            if rec["net"] == net:
+                sources[rec["source"]] = sources.get(rec["source"], 0) + 1
+        return max(sources, key=sources.get)
 
     def _evict_oldest_of(self, source: str):
         for key, rec in self._pending.items():
@@ -258,10 +285,8 @@ class SignIn:
                 del self._pending[key]
                 return
 
-    def _take(self, txn_id, charge=None):
-        """Single use: removed whether or not it is still valid. `charge` is
-        called only for a live transaction, before it is removed; if it raises
-        (a rate limit), the transaction is kept and the error propagates."""
+    def _take(self, txn_id):
+        """Single use: removed whether or not it is still valid."""
         if not isinstance(txn_id, str) or not txn_id or len(txn_id) > 200:
             return None
         with self._pending_lock:
@@ -271,8 +296,6 @@ class SignIn:
             if self._clock() - record["created"] >= TRANSACTION_TTL_SECONDS:
                 del self._pending[txn_id]
                 return None
-            if charge is not None:
-                charge()
             return self._pending.pop(txn_id)
 
     def pending_count(self) -> int:
@@ -289,7 +312,8 @@ class SignIn:
         _jose()   # fail before redirecting if the callback couldn't verify
         txn_id = self._store({"state": state, "nonce": nonce, "verifier": verifier,
                               "return_to": safe_return_to(return_to)},
-                             source=auth_service.rate_limit_key(client_ip))
+                             source=auth_service.rate_limit_key(client_ip),
+                             net=_net_key(client_ip))
         query = urlencode({
             "response_type": "code", "client_id": config["client_id"],
             "redirect_uri": config["redirect_uri"], "scope": "openid email profile",
@@ -307,8 +331,7 @@ class SignIn:
         ip = auth_service._ip_prefix(client_ip)
         email = None
         try:
-            record = self._take(txn_id, charge=lambda: self._limit(
-                "callback_global", "*", client_ip))
+            record = self._take(txn_id)
             state = _bounded(state)
             if record is None or not state or not hmac.compare_digest(record["state"], state):
                 raise LoginError("expired", "login.error", "state")

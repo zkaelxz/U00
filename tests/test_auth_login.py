@@ -140,6 +140,13 @@ def _client(app, base=PUBLIC, peer=("203.0.113.9", 1000)):
                       follow_redirects=False)
 
 
+def _via_caddy(app, xff):
+    """A client behind Caddy whose address (rightmost X-Forwarded-For) is `xff`."""
+    return TestClient(app, base_url=PUBLIC, client=("127.0.0.1", 5000),
+                      raise_server_exceptions=False, follow_redirects=False,
+                      headers={"X-Forwarded-For": xff})
+
+
 def _start(c, return_to="/library"):
     r = c.get("/api/auth/login", params={"return_to": return_to})
     assert r.status_code == 302, r.text
@@ -309,6 +316,22 @@ class TestStateAndTransaction:
         assert s.pending_count() == 4
         assert s._take(other) is not None
         assert s._take(flood[0]) is None and s._take(flood[-1]) is not None
+
+    def test_flood_spread_across_64s_of_one_48_keeps_other_users_transaction(
+            self, isolated_db):
+        """A-M1: one transaction per /64 makes every /64 count 1; eviction must
+        count by /48 (IPv4 /24) so the flood evicts itself, not the oldest."""
+        s = oidc_service.SignIn(provider=FakeGoogle(), clock=lambda: 0.0)
+        cfg = {"client_id": CLIENT_ID, "redirect_uri": PUBLIC + "/api/auth/callback"}
+        victims = [s.begin(cfg, "/", client_ip=ip)[0]
+                   for ip in ("203.0.113.9", "2001:db8:ffff::1")]
+        flood = [s.begin(cfg, "/", client_ip=f"2001:db8:5:{i:x}::1")[0]
+                 for i in range(oidc_service.MAX_PENDING_TRANSACTIONS)]
+        v4_flood = [s.begin(cfg, "/", client_ip=f"198.51.100.{i}")[0] for i in range(200)]
+        assert s.pending_count() == oidc_service.MAX_PENDING_TRANSACTIONS
+        assert all(s._take(v) is not None for v in victims)
+        assert s._take(flood[0]) is None and s._take(flood[-1]) is not None
+        assert s._take(v4_flood[-1]) is not None
 
 
 class TestTokenValidation:
@@ -536,26 +559,51 @@ class TestRateLimits:
         assert c.get("/api/auth/login").status_code == 302
         assert _audit("login.rate_limited")
 
-    def test_callback_per_ip_and_global(self, isolated_db, app, fake, monkeypatch):
+    def test_callback_per_ip(self, isolated_db, app):
         c = _client(app)
         codes = [c.get("/api/auth/callback").status_code for _ in range(21)]
         assert codes[:20] == [302] * 20 and codes[20] == 429
+
+    def test_live_callbacks_from_many_64s_dont_lock_out_other_users(self, isolated_db,
+                                                                     app, fake):
+        """A-M1: an attacker owns the transactions it starts, so its callbacks are
+        live. Ten /64s of one /56 hit the /56 cap, ten /48s hit nothing shared;
+        either way other users still sign in."""
         _add()
-        # The global cap counts only callbacks that carry a live transaction.
-        monkeypatch.setattr(oidc_service, "CALLBACK_GLOBAL_RATE", (3, 600))
-        app.state.sign_in = None
-        users = [_client(app, peer=(f"198.51.100.{i}", 1)) for i in range(4)]
-        for i, u in enumerate(users[:3]):
-            assert _sign_in(u, fake, code=f"g{i}").headers["location"] == "/library"
-        r = _sign_in(users[3], fake, code="g3")
-        assert r.status_code == 429
+
+        def flood(xff):
+            c = _via_caddy(app, xff)
+            codes = []
+            for _ in range(20):
+                r = c.get("/api/auth/login")
+                if r.status_code != 302:
+                    codes.append(r.status_code)
+                    continue
+                q = parse_qs(urlsplit(r.headers["location"]).query)
+                codes.append(c.get("/api/auth/callback", params={
+                    "state": q["state"][0], "code": "junk"}).status_code)
+            return codes
+        one_56 = [code for i in range(10) for code in flood(f"2001:db8:1:ab{i:02x}::1")]
+        assert one_56.count(302) == oidc_service.NET56_RATE[0] and 429 in one_56
+        spread = [code for i in range(10) for code in flood(f"2001:db8:{0x100 + i:x}::1")]
+        assert spread == [302] * 200
+        for i, xff in enumerate(("2001:db8:1:cd00::1", "2001:db8:99::1", "198.51.100.7")):
+            r = _sign_in(_via_caddy(app, xff), fake, code=f"v{i}")
+            assert r.status_code == 302 and r.headers["location"] == "/library", xff
+        assert _sign_in(_client(app), fake, code="v9").headers["location"] == "/library"
+
+    def test_48_cap_bounds_one_network(self, isolated_db, app):
+        codes = [_via_caddy(app, f"2001:db8:7:{i:x}00::1").get("/api/auth/login").status_code
+                 for i in range(oidc_service.NET_RATE[0] + 1)]
+        assert codes[:-1] == [302] * oidc_service.NET_RATE[0] and codes[-1] == 429
+        assert _via_caddy(app, "2001:db8:8::1").get("/api/auth/login").status_code == 302
 
     def test_junk_callbacks_from_many_addresses_dont_block_a_real_one(self, isolated_db,
                                                                        app, fake):
         _add()
         via_caddy = _client(app, peer=("127.0.0.1", 5000))
         seen = {via_caddy.get("/api/auth/callback", params={"state": "junk", "code": "x"},
-                              headers={"X-Forwarded-For": f"198.51.{i // 250}.{i % 250}"}
+                              headers={"X-Forwarded-For": f"198.{51 + i // 200}.{i % 200}.1"}
                               ).status_code for i in range(300)}
         assert seen == {302}
         r = _sign_in(_client(app), fake)
@@ -583,9 +631,9 @@ class TestRateLimits:
         victim = _client(app)
         _r, q = _start(victim)
         via_caddy = _client(app, peer=("127.0.0.1", 5000))
-        for net in range(3):    # three /64s, flooding until rate-limited
+        for net in range(3):    # three /64s in separate /48s, flooding until rate-limited
             codes = [via_caddy.get("/api/auth/login", headers={
-                "X-Forwarded-For": f"2001:db8:0:{net}::{i:x}"}).status_code
+                "X-Forwarded-For": f"2001:db8:{net}::{i:x}"}).status_code
                 for i in range(25)]
             assert codes.count(302) == 20 and codes[-1] == 429
         sign_in = app.state.sign_in
