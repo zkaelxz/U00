@@ -6,6 +6,7 @@ import DiagnosticsPage from './pages/Diagnostics'
 import LibraryPage from './pages/Library'
 import ReaderPage from './pages/Reader'
 import SettingsPage from './pages/Settings'
+import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import { routeHref, useRoute } from './router'
@@ -32,6 +33,7 @@ function ApiStatus() {
 const NAV: [string, Route, Route['name'][]][] = [
   ['Library', { name: 'library' }, ['library', 'drama', 'read']],
   ['Translate', { name: 'translate' }, ['translate']],
+  ['Sources', { name: 'sources' }, ['sources']],
   ['Settings', { name: 'settings' }, ['settings']],
   ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
 ]
@@ -61,6 +63,7 @@ export default function App() {
       {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'settings' && <SettingsPage />}
       {route.name === 'translate' && <TranslatePage />}
+      {route.name === 'sources' && <SourcesPage />}
       {route.name === 'diagnostics' && <DiagnosticsPage />}
     </>
   )

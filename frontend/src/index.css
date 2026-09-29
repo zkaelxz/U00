@@ -297,8 +297,9 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
 }
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
-  .app-header nav { flex: 1 1 100%; flex-wrap: nowrap; overflow-x: auto; }
-  .app-header nav a { flex: 1 1 auto; padding-inline: var(--space-2); white-space: nowrap; }
+  /* Phones: every page in view, 3 per row (no sideways-scrolling nav). */
+  .app-header nav { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .app-header nav a { min-width: 0; padding-inline: var(--space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .stage-tabs { overflow-x: auto; flex-wrap: nowrap; scroll-snap-type: x proximity; scrollbar-width: thin; }
   .stage-tabs a { flex: 0 0 auto; scroll-snap-align: start; padding-inline: var(--space-2); white-space: nowrap; }
 }

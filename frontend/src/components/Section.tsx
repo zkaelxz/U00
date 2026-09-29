@@ -13,6 +13,8 @@
  *   defaultOpen  initial state when nothing is remembered (default false)
  *   storageKey   remember open/closed per viewer under localStorage
  *                "baihe.section.<storageKey>"; omit to not remember
+ *   onToggle     optional; called with the new open state when the viewer
+ *                opens or closes it (e.g. to load the body on first open)
  *   children     the body
  *
  * localStorage may throw or be missing (private window, blocked site data);
@@ -35,10 +37,11 @@ type SectionProps = {
   count?: number
   defaultOpen?: boolean
   storageKey?: string
+  onToggle?: (open: boolean) => void
   children: ReactNode
 }
 
-export function Section({ title, summary, count, defaultOpen = false, storageKey, children }: SectionProps) {
+export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, children }: SectionProps) {
   const [open, setOpen] = useState(() =>
     storageKey ? readSectionOpen(browserStorage(), storageKey, defaultOpen) : defaultOpen,
   )
@@ -52,6 +55,7 @@ export function Section({ title, summary, count, defaultOpen = false, storageKey
         if (next === open) return
         setOpen(next)
         if (storageKey) writeSectionOpen(browserStorage(), storageKey, next)
+        onToggle?.(next)
       }}
     >
       <summary>
