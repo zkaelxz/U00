@@ -285,8 +285,11 @@ test('installed packages show versions; Update appears only after a check, with 
   await expect(page.getByTestId('install-result')).toContainText('Updated pypinyin.')
   expect(new URL(sent[1].url()).pathname).toBe('/api/diagnostics/dependencies/pypinyin/upgrade')
   expect(sent[1].postDataJSON()).toEqual({ confirm: true, target: '0.55.0' })
-  await expect(pinyin.getByTestId('pkg-update')).toHaveText('Up to date')
-  await expect(pinyin.getByTestId('pkg-version')).toHaveText('v0.55.0')
+  // An update can move other packages too, so the whole check is dropped:
+  // no stale targets or Update buttons stay on the page until the next check.
+  // (The version shown comes from the page's reload of Diagnostics.)
+  await expect(list.getByTestId('pkg-update')).toHaveCount(0)
+  await expect(list.getByRole('button')).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
 
