@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { api, ApiError } from '../api/client'
+import { getFilterOptions } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
+import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
+import type { LibraryFilterOptions } from '../types/library'
 import { DramaCards } from './DramaCards'
+import './libraryParity.css'
+import {
+  NO_MORE_FILTERS, languageName, listQuery, mediaTypeName, moreFilterCount, toggleTag, withCurrent,
+  type MoreFilters,
+} from './libraryFilters'
 
 // Same choices the Streamlit Library tab offers.
 const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exported']
@@ -31,6 +39,7 @@ export function LibraryList({
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [quickFilter, setQuickFilter] = useState('')
+  const [more, setMore] = useState<MoreFilters>(NO_MORE_FILTERS)
   const [items, setItems] = useState<DramaSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const phone = useMediaQuery('(max-width: 640px)')
@@ -47,7 +56,7 @@ export function LibraryList({
     // Debounced so typing in the search box doesn't send a request per key.
     const timer = setTimeout(() => {
       api
-        .listDramas({ search, status, quick_filter: quickFilter })
+        .listDramas(listQuery(search, status, quickFilter, more))
         .then((resp) => {
           if (!cancelled) {
             setItems(resp.items)
@@ -63,7 +72,7 @@ export function LibraryList({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [search, status, quickFilter, reloadKey])
+  }, [search, status, quickFilter, more, reloadKey])
 
   return (
     <section className="panel wide" aria-labelledby="library-heading">
@@ -95,6 +104,7 @@ export function LibraryList({
           ))}
         </select>
       </div>
+      <MoreFiltersFold value={more} onChange={setMore} reloadKey={reloadKey} />
 
       {error && <p className="error" role="alert">{error}</p>}
       {!error && items === null && <p className="muted">Loading…</p>}
@@ -191,5 +201,88 @@ export function LibraryList({
         </>
       )}
     </section>
+  )
+}
+
+// Studio, author, voice actor, language, type and custom tags. The data-driven
+// choices load when the fold is first opened (and again after a create/delete).
+function MoreFiltersFold({ value, onChange, reloadKey }: {
+  value: MoreFilters
+  onChange: (next: MoreFilters) => void
+  reloadKey: number
+}) {
+  const [open, setOpen] = useState(false)
+  const [options, setOptions] = useState<LibraryFilterOptions | null>(null)
+  const [error, setError] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    getFilterOptions().then(
+      (o) => {
+        if (!cancelled) {
+          setOptions(o)
+          setError(false)
+        }
+      },
+      () => !cancelled && setError(true),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [open, reloadKey])
+
+  const n = moreFilterCount(value)
+  const set = (key: Exclude<keyof MoreFilters, 'tags'>) => (e: { target: { value: string } }) =>
+    onChange({ ...value, [key]: e.target.value })
+  const pick = (label: string, key: 'studio' | 'author' | 'voice_actor', choices: string[] | undefined) => (
+    <select aria-label={label} value={value[key]} onChange={set(key)}>
+      <option value="">Any {label.toLowerCase()}</option>
+      {withCurrent(choices ?? [], value[key]).map((c) => (
+        <option key={c} value={c}>{c}</option>
+      ))}
+    </select>
+  )
+  return (
+    <details className="more-filters" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>More filters{n > 0 && ` (${n})`}</summary>
+      <div className="filters">
+        {pick('Studio', 'studio', options?.studios)}
+        {pick('Author', 'author', options?.authors)}
+        {pick('Voice actor', 'voice_actor', options?.voice_actors)}
+        <select aria-label="Language" value={value.source_language} onChange={set('source_language')}>
+          <option value="">Any language</option>
+          {SOURCE_LANGUAGES.map((l) => (
+            <option key={l} value={l}>{languageName(l)}</option>
+          ))}
+        </select>
+        <select aria-label="Type" value={value.media_type} onChange={set('media_type')}>
+          <option value="">Any type</option>
+          {withCurrent(MEDIA_TYPES, value.media_type).map((t) => (
+            <option key={t} value={t}>{mediaTypeName(t)}</option>
+          ))}
+        </select>
+      </div>
+      {options && options.custom_tags.length > 0 && (
+        <fieldset className="tag-filter">
+          <legend>Custom tags (all must match)</legend>
+          {options.custom_tags.map((t) => (
+            <label key={t} className="check">
+              <input
+                type="checkbox"
+                checked={value.tags.includes(t)}
+                onChange={() => onChange({ ...value, tags: toggleTag(value.tags, t) })}
+              />
+              {t}
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {error && <p className="muted">Couldn't load the studio, author, voice actor and tag choices.</p>}
+      {n > 0 && (
+        <button type="button" className="link" onClick={() => onChange(NO_MORE_FILTERS)}>
+          Clear these filters
+        </button>
+      )}
+    </details>
   )
 }

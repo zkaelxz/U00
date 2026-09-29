@@ -460,7 +460,7 @@ baihe-subtitler/
 │   │                              restore), media.ts (Range stream URLs), libraryAdmin.ts (Library admin +
 │   │                              preset/voice-bank deletes), pcOnly.ts (PC-only mode store + pcOnlyFetch:
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
-│   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
+│   ├── src/components/            LibraryList (+ libraryFilters.ts: the More filters, pure), DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
 │   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +

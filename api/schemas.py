@@ -3146,3 +3146,35 @@ class NovelFileTextRequest(BaseModel):
     the body itself, capped at 32 MB, before this is validated."""
     model_config = ConfigDict(extra="forbid")
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Library parity (react-misc-parity): Continue reading shelf, the data-driven
+# "All dramas" filter choices, and the PC-only reading-history clear.
+# ---------------------------------------------------------------------------
+
+class LibraryContinueEntry(BaseModel):
+    drama_id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    percent_complete: Optional[float] = None
+    last_page: Optional[int] = None
+    last_accessed_at: Optional[str] = None
+    has_cover_art: bool
+
+
+class LibraryContinueResponse(BaseModel):
+    items: List[LibraryContinueEntry]
+
+
+class LibraryFilterOptions(BaseModel):
+    studios: List[str]
+    authors: List[str]
+    voice_actors: List[str]
+    custom_tags: List[str]
+
+
+class ReadingHistoryClearResult(BaseModel):
+    cleared: bool
+    removed: int
+

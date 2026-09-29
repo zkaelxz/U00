@@ -18,7 +18,7 @@ from fastapi import APIRouter, Path, Query
 from api.auth import require_permission
 from api.schemas import (
     DramaDetail, DramaListResponse, DramaSummary, ErrorResponse, LibraryCostResponse,
-    LibraryDashboard, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
+    LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse)
 from services import library_service
@@ -109,6 +109,18 @@ def search(q: str = Query(min_length=1, max_length=200), limit: int = Query(50, 
             summary="Reading history (default profile)")
 def get_history(limit: int = Query(25, ge=1, le=100)):
     return {"items": library_service.list_history(limit)}
+
+
+@router.get("/continue", dependencies=[require_permission("library.read")], response_model=LibraryContinueResponse,
+            responses=_ERR, summary="Continue reading: partly-read dramas, most recent first")
+def get_continue(limit: int = Query(8, ge=1, le=50)):
+    return {"items": library_service.list_continue_reading(limit)}
+
+
+@router.get("/filter-options", dependencies=[require_permission("library.read")], response_model=LibraryFilterOptions,
+            summary="Studios, authors, voice actors and custom tags in use (the list filters' choices)")
+def get_filter_options():
+    return library_service.get_filter_options()
 
 
 @router.get("/presets", dependencies=[require_permission("library.read")], response_model=LibraryPresetsResponse, summary="Saved presets")

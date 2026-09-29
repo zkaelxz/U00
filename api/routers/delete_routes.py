@@ -15,7 +15,7 @@ from fastapi import APIRouter, Path
 
 from api.auth import local_only
 from api.schemas import (BugBundleDeleteResult, DeleteConfirm, ErrorResponse,
-                         MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult,
+                         MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult, ReadingHistoryClearResult,
                          SeriesCharacterDeleteResult, TranslationVersionDeleteResult,
                          VoiceBankDeleteResult)
 from services import delete_service as svc
@@ -77,3 +77,10 @@ def delete_preset(body: DeleteConfirm, preset_id: int = _id()):
              summary="Delete a voice bank entry and its clip (confirm=true)")
 def delete_voice_bank_entry(body: DeleteConfirm, entry_id: int = _id()):
     return svc.delete_voice_bank_entry(entry_id, confirm=body.confirm)
+
+
+@router.post("/library/history/clear", dependencies=[local_only()],
+             response_model=ReadingHistoryClearResult, responses={422: {"model": ErrorResponse}},
+             summary="Clear the reading history (confirm=true; reading progress is kept)")
+def clear_reading_history(body: DeleteConfirm):
+    return svc.clear_reading_history(confirm=body.confirm)
