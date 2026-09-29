@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { attachNovelEpub, attachNovelText, getNovelStatus } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import type { NovelMode, NovelStatus } from '../../../types/workspace'
 import { useStage } from '../StageContext'
 
@@ -40,26 +42,27 @@ export function NovelPanel() {
     setError(e)
   }
 
+  const summary = status?.has_novel_text
+    ? `${status.char_count.toLocaleString()} chars · ${status.chapters} chapters`
+    : 'none attached'
+
   return (
     <section className="panel" aria-label="Novel text">
-      <h3>Novel text</h3>
-      <p className="muted" data-testid="novel-status">
-        {status?.has_novel_text
-          ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
-          : 'No novel text attached.'}
-      </p>
-      <label>
-        Mode{' '}
-        <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
-          <option value="replace">Replace existing</option>
-          <option value="append">Append</option>
-        </select>
-      </label>
-      <div>
-        <label>
-          Paste novel text
+      <Section storageKey="source.novel" title="Novel text" summary={summary}>
+        <p className="muted" data-testid="novel-status">
+          {status?.has_novel_text
+            ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
+            : 'No novel text attached.'}
+        </p>
+        <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
+          <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
+            <option value="replace">Replace existing</option>
+            <option value="append">Append</option>
+          </select>
+        </Field>
+        <Field label="Paste text" help="Paste the novel text, then attach it to this drama.">
           <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
-        </label>
+        </Field>
         <button
           type="button"
           disabled={!text.trim()}
@@ -72,16 +75,9 @@ export function NovelPanel() {
         >
           Attach text
         </button>
-      </div>
-      <div>
-        <label>
-          EPUB file
-          <input
-            type="file"
-            accept=".epub"
-            onChange={(e) => setEpub(e.target.files?.[0] ?? null)}
-          />
-        </label>
+        <Field label="EPUB file" help="Or attach an .epub file instead of pasting.">
+          <input type="file" accept=".epub" onChange={(e) => setEpub(e.target.files?.[0] ?? null)} />
+        </Field>
         <button
           type="button"
           disabled={!epub}
@@ -89,9 +85,9 @@ export function NovelPanel() {
         >
           Attach EPUB
         </button>
-      </div>
-      {notice && <p role="status">{notice}</p>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {notice && <p role="status">{notice}</p>}
+        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      </Section>
     </section>
   )
 }
