@@ -16,7 +16,9 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { trackSeries } from '../../api/sourcesImport'
+import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { buttonClass } from '../../components/uiClasses'
 import type { SeriesChapter, TrackedSeries } from '../../types/sources'
 import { DramaPicker } from './DramaPicker'
 import type { ChapterImportState } from './useChapterImport'
@@ -79,7 +81,9 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
               {imp.dramaId && (
                 <>
                   {' · '}
-                  <a href={`#/drama/${imp.dramaId}/source`}>Open workspace</a>
+                  <ButtonLink href={`#/drama/${imp.dramaId}/source`} size="sm">
+                    Open workspace
+                  </ButtonLink>
                 </>
               )}
             </p>
@@ -116,14 +120,14 @@ export function ImportBar({ imp, chapters, selected, phone }: BarProps) {
     <div className={`sources-import-bar${phone ? ' phone' : ''}`} data-testid="import-bar">
       <button
         type="button"
-        className="primary"
+        className={buttonClass('primary')}
         disabled={!!reason || imp.running}
         onClick={() => imp.start(chapters, selected)}
       >
         {imp.running ? 'Importing…' : importLabel(count)}
       </button>
       {imp.running ? (
-        <button type="button" onClick={() => void imp.job.cancel()}>
+        <button type="button" className={buttonClass('secondary')} onClick={() => void imp.job.cancel()}>
           Cancel
         </button>
       ) : (
@@ -161,7 +165,7 @@ export function TrackRow({ source, seriesId, dramaId, onTracked }: TrackProps) {
   return (
     <>
       <div className="actions">
-        <button type="button" disabled={busy} onClick={track}>
+        <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={track}>
           {busy ? 'Tracking…' : 'Track for new chapters'}
         </button>
         <span className="muted">New chapters are listed under New chapters.</span>

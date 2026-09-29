@@ -3,7 +3,7 @@
 import { ApiError } from '../../api/client'
 import { safeDetail } from '../../components/errorMessages'
 import type { DramaSummary } from '../../api/types'
-import { humanizeValue } from '../../components/labels'
+import { humanize, humanizeValue } from '../../components/labels'
 import type {
   CheckResult,
   SeriesChapter,
@@ -57,8 +57,9 @@ export function searchSourcesParam(searchable: string[], selected: string[]): st
 }
 
 export function searchInSummary(selected: number, total: number): string {
-  if (selected === total) return `All ${total} source${total === 1 ? '' : 's'}`
-  return `${selected} of ${total} sources`
+  const noun = `searchable source${total === 1 ? '' : 's'}`
+  if (selected === total) return `All ${total} ${noun}`
+  return `${selected} of ${total} ${noun}`
 }
 
 /** Why Search is disabled, or null when it can run. */
@@ -134,10 +135,16 @@ export function describeSourceError(err: unknown, source: string, remote = false
 
 // ---------------------------------------------------------------- header
 
-export function pageSummary(sources: SourceSummary[]): { on: string; paused: string | null } {
+/** Page-head meta: "3 sources on · 2 searchable"; paused (red) is shown apart, as a warn badge. */
+export function pageSummary(sources: SourceSummary[]): { on: string; paused: number } {
   const on = sources.filter((s) => s.enabled).length
+  const searchable = searchableSources(sources).length
   const paused = sources.filter((s) => s.health === 'red').length
-  return { on: `${on} on`, paused: paused ? `${paused} paused` : null }
+  return { on: `${on} source${on === 1 ? '' : 's'} on · ${searchable} searchable`, paused }
+}
+
+export function healthTone(light: string): 'ok' | 'warn' | 'bad' {
+  return light === 'green' ? 'ok' : light === 'yellow' ? 'warn' : 'bad'
 }
 
 export function healthText(light: string): string {
@@ -151,8 +158,8 @@ export function healthText(light: string): string {
 
 export function seriesMeta(display: string, info: SeriesInfo | null, chapters: number): string {
   const parts = [display, `${chapters} chapter${chapters === 1 ? '' : 's'}`]
-  if (info?.status) parts.push(info.status)
-  if (info?.language) parts.push(info.language)
+  if (info?.status) parts.push(humanizeValue(info.status))
+  if (info?.language) parts.push(humanize('language', info.language))
   return parts.join(' · ')
 }
 
@@ -308,7 +315,7 @@ export const CACHE_LABELS: Record<string, string> = {
   keep_both: 'Keep both',
 }
 
-export const cacheLabel = (mode: string) => CACHE_LABELS[mode] ?? mode
+export const cacheLabel = (mode: string) => CACHE_LABELS[mode] ?? humanizeValue(mode)
 
 const fmtNum = (n: number) => String(Number.isInteger(n) ? n : Number(n.toFixed(2)))
 
@@ -317,7 +324,7 @@ export function gapText(s: Pick<SourcesSettings, 'pace_min_delay' | 'pace_max_de
 }
 
 export function settingsSummary(s: SourcesSettings | null, sources: SourceSummary[]): string {
-  const on = `${sources.filter((x) => x.enabled).length} of ${sources.length} on`
+  const on = `${sources.filter((x) => x.enabled).length} of ${sources.length} sources on`
   if (!s) return on
   return `${on} · ${gapText(s)} · cache: ${cacheLabel(s.cache_mode)}`
 }

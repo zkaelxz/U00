@@ -534,7 +534,9 @@ baihe-subtitler/
 │   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
 │   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
 │   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
-│   │                              <html data-theme>, applied in main.tsx)
+│   │                              <html data-theme>, applied in main.tsx). ApiKeysCard (Settings > API
+│   │                              keys: one Set/Missing row per engine, SettingsKeyForm opens in place);
+│   │                              settings.css (the page's Card stack and status rows)
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
@@ -559,7 +561,7 @@ baihe-subtitler/
 │   ├── src/pages/Live.tsx         Live page (#/live): paste a stream link, start a live capture session, poll
 │   │                              its transcript + translation, stop; api/live.ts (client + pure helpers,
 │   │                              unit-tested), types/live.ts, pages/live.css; e2e/live*.spec.ts + liveMocks.ts
-│   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
+│   ├── src/pages/sources/         FindModeSwitch (search | link), SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
 │   │                              sourcesFormat.ts (pure, unit-tested), sources.css

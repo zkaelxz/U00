@@ -4,13 +4,49 @@
 .sources-page > * { min-width: 0; }
 .sources-page h2 { margin: 0; }
 .sources-page h3, .sources-page h4 { margin: 0; }
-.sources-summary { margin: 0 0 var(--space-3); }
-.sources-main { display: grid; gap: var(--space-3); align-content: start; }
-.sources-main > * { margin: 0; }
+.sources-main { align-content: start; }
+.sources-find[hidden] { display: none; }
+.sources-find { display: grid; gap: var(--space-3); min-width: 0; }
+
+/* Page head: title, one meta line (paused sources as a warn badge). */
+.sources-head { display: grid; gap: var(--space-1); }
+.sources-head h2 { font-size: var(--text-2xl); font-weight: 600; }
+.sources-head .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+
+/* "Search by title | Paste a link": two segments, native radios inside. */
+.segmented {
+  display: inline-flex;
+  justify-self: start;
+  max-width: 100%;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+.segmented label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--ease), color var(--ease);
+}
+.segmented label:hover { color: var(--text); }
+.segmented input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.segmented label.on { background: var(--accent); color: var(--on-accent); }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Desktop: search + results left, the open series right (sticky). */
 .sources-page.wide.has-series { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
-.sources-page.wide .sources-wide { grid-column: 1 / -1; }
+.sources-page.wide.has-series > :not(.sources-main):not(.sources-series) { grid-column: 1 / -1; }
 .sources-page.wide .sources-series {
   position: sticky;
   top: var(--space-3);
@@ -31,8 +67,6 @@
 .sources-search-row input { flex: 1 1 auto; }
 .sources-search-row button { flex: 0 0 auto; }
 .sources-reason { margin: 0; }
-.sources-checks { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
-.sources-checks label { display: inline-flex; align-items: center; gap: var(--space-2); }
 .sources-running:empty { display: none; }
 .sources-running p { margin: 0; }
 .sources-results { display: grid; gap: var(--space-2); }
@@ -73,11 +107,10 @@ ul.source-results > li {
 .sources-rows > li > span:first-child { min-width: 0; flex: 1 1 14rem; }
 
 /* Source settings */
-.source-health { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
-.source-health .dot { width: 0.6rem; height: 0.6rem; border-radius: 999px; background: currentColor; }
-.source-health.ok { color: var(--ok); }
-.source-health.warn { color: var(--warn); }
-.source-health.bad { color: var(--bad); }
+.sources-subsection { display: grid; gap: var(--space-2); min-width: 0; margin-block: var(--space-3); }
+.sources-subsection > h4 + p { margin: 0; }
+.source-on { display: inline-flex; align-items: center; gap: var(--space-2); }
+.source-on label { cursor: pointer; }
 .sources-table { width: 100%; border-collapse: collapse; }
 .sources-table th, .sources-table td { text-align: left; padding: var(--space-1) var(--space-2); border-bottom: 1px solid var(--border); vertical-align: middle; }
 .sources-table th { font-size: var(--font-sm); color: var(--muted); font-weight: 600; }
@@ -105,16 +138,18 @@ ul.source-cards > li {
   gap: var(--space-1);
 }
 .source-card-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
-.source-card-line label { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; }
 .source-card-line .toggle-list { margin: 0; }
 
 /* Touch: 44 px targets for the page's own links and toggles. */
 @media (pointer: coarse), (max-width: 640px) {
   .sources-back, .sources-more { min-height: 44px; }
-  .sources-checks label { min-height: 44px; }
+  .segmented label { min-height: 44px; }
+  .source-on { min-height: 44px; }
   .sources-series a, .source-error a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 @media (max-width: 640px) {
+  .segmented { display: flex; justify-self: stretch; }
+  .segmented label { flex: 1 1 0; padding-inline: var(--space-2); }
   .sources-search-row { flex-wrap: wrap; }
   .sources-search-row input { flex: 1 1 12rem; }
 }
@@ -178,7 +213,6 @@ ul.source-cards > li {
 .sources-outcome-list .muted { color: var(--muted); }
 @media (pointer: coarse), (max-width: 640px) {
   .sources-pick label, .sources-select-all { min-height: 44px; }
-  .sources-preview a, .sources-handoff a, .sources-outcomes a, .sources-url .link, .drama-new .link { display: inline-flex; align-items: center; min-height: 44px; }
 }
 @media (max-width: 640px) {
   .sources-url-row { flex-wrap: wrap; }
@@ -189,6 +223,7 @@ ul.source-cards > li {
 /* Check now, tracked series' auto-import drama, access tests and sign-in, proxy. */
 .sources-check { display: grid; gap: var(--space-1); }
 .sources-check details ul { margin: 0; padding-left: 1.2rem; }
+.sources-check p, .sources-auto-help { margin: 0; }
 .sources-autoimport { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--font-sm); min-width: 0; }
 .sources-autoimport select { max-width: 14rem; min-width: 0; }
 .source-access, .source-signin, .sources-proxy { display: grid; gap: var(--space-2); min-width: 0; }
@@ -196,10 +231,11 @@ ul.source-cards > li {
 .source-access input[type='url'], .sources-proxy input[type='url'] { width: 100%; }
 .source-signin h4 { margin: 0; }
 @media (pointer: coarse), (max-width: 640px) {
-  .sources-autoimport, .source-signin .link, .sources-proxy .link { min-height: 44px; }
+  .sources-autoimport { min-height: 44px; }
 }
 @media (max-width: 640px) {
   .sources-autoimport { flex: 1 1 100%; justify-content: space-between; }
   .sources-autoimport select { flex: 1 1 auto; max-width: none; }
   .source-access .actions > button, .source-signin .actions > button { flex: 1 1 100%; }
 }
+.sources-find details.section { margin-bottom: 0; }

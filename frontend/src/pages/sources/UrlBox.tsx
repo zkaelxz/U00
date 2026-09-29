@@ -16,8 +16,11 @@ import { useEffect, useState } from 'react'
 import { ApiError } from '../../api/client'
 import { sourceImportJobId, startUrlImport, startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
 import { getMediaStatus } from '../../api/workspace'
+import { Badge } from '../../components/Badge'
+import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { OpenSeries } from '../../types/sources'
@@ -84,7 +87,8 @@ export function UrlBox({ display, onOpenSeries }: Props) {
             onChange={(e) => setText(e.target.value)}
           />
         </Field>
-        <button type="submit" disabled={!!reason || running}>
+        {/* The card's one primary, until a preview's own action takes over. */}
+        <button type="submit" className={buttonClass(preview ? 'secondary' : 'primary')} disabled={!!reason || running}>
           Preview
         </button>
       </form>
@@ -97,7 +101,7 @@ export function UrlBox({ display, onOpenSeries }: Props) {
             <p>
               {job.message || 'Checking the link…'}
               {percent(job.progress)} ·{' '}
-              <button type="button" className="link" onClick={() => void job.cancel()}>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => void job.cancel()}>
                 Cancel
               </button>
             </p>
@@ -127,12 +131,12 @@ function HandoffCard({ error, onRetry }: { error: unknown; onRetry?: () => void 
       <p className="muted">Open the page in your own browser, get past the check there, then try again.</p>
       <div className="actions">
         {copy.openUrl && (
-          <a href={copy.openUrl} target="_blank" rel="noopener noreferrer">
+          <ButtonLink href={copy.openUrl} target="_blank" rel="noopener noreferrer">
             Open in your browser ↗
-          </a>
+          </ButtonLink>
         )}
         {onRetry && (
-          <button type="button" onClick={onRetry}>
+          <button type="button" className={buttonClass('secondary')} onClick={onRetry}>
             Try again
           </button>
         )}
@@ -156,7 +160,7 @@ function PreviewCard({ preview: p, url, display, onOpenSeries }: {
     <article className="sources-card sources-preview" aria-label="Link preview" data-testid="url-preview">
       <div className="sources-series-head">
         <h3>{title}</h3>
-        <span className="badge">{contentTypeLabel(p.content_type)}</span>
+        <Badge tone="info">{contentTypeLabel(p.content_type)}</Badge>
       </div>
       {facts.length > 0 && <p className="sources-meta">{facts.join(' · ')}</p>}
       {p.notes.length > 0 && (
@@ -172,7 +176,7 @@ function PreviewCard({ preview: p, url, display, onOpenSeries }: {
         <div className="actions">
           <button
             type="button"
-            className="primary"
+            className={buttonClass('primary')}
             onClick={() => onOpenSeries({ source: p.adapter!, series_id: p.series_id!, title: p.title ?? '' }, p.chapter_id)}
           >
             Open series
@@ -219,11 +223,11 @@ function NovelImport({ url, title, language }: { url: string; title: string; lan
       />
       <ErrorBanner error={dramas.error} />
       <div className="actions">
-        <button type="button" className="primary" disabled={!dramaId || running} onClick={start}>
+        <button type="button" className={buttonClass('primary')} disabled={!dramaId || running} onClick={start}>
           {running ? 'Importing…' : 'Import text'}
         </button>
         {running && (
-          <button type="button" onClick={() => void job.cancel()}>
+          <button type="button" className={buttonClass('secondary')} onClick={() => void job.cancel()}>
             Cancel
           </button>
         )}
@@ -236,7 +240,11 @@ function NovelImport({ url, title, language }: { url: string; title: string; lan
         {result && (
           <p className={result.needs_review ? 'warn' : undefined} data-testid="url-import-result">
             {urlImportText(result)}{' '}
-            {dramaId && <a href={`#/drama/${dramaId}/source`}>Open workspace</a>}
+            {dramaId && (
+              <ButtonLink href={`#/drama/${dramaId}/source`} size="sm">
+                Open workspace
+              </ButtonLink>
+            )}
           </p>
         )}
       </div>
@@ -302,7 +310,9 @@ function VideoImport({ url }: { url: string }) {
       {jobId && (
         <>
           <JobPanel job={job} pollError={pollError} />
-          {drama && done && <a href={`#/drama/${drama.id}/source`}>Open {dramaLabel(drama)} in the workspace</a>}
+          {drama && done && (
+            <ButtonLink href={`#/drama/${drama.id}/source`}>Open {dramaLabel(drama)} in the workspace</ButtonLink>
+          )}
         </>
       )}
     </div>
