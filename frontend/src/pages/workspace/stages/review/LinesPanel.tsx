@@ -126,6 +126,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
   const player = useRef<PlayerHandle>(null)
+  // Phones: the player's video and tools sit here, under the sticky toolbar.
+  const [playerDock, setPlayerDock] = useState<HTMLDivElement | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const pending = useRef<Pending | null>(null)
@@ -908,12 +910,17 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               ref={player}
               dramaId={dramaId}
               kind={mediaKind}
+              lines={shown}
+              selected={active}
+              captionVersion={reloads}
+              panelHost={isPhone ? playerDock : undefined}
               trailing={pagerInPlayer ? <Pager page={page} pages={pages} onPage={(p) => void ctl.goPage(p, 'first')} labelled /> : null}
             />
           ) : null
         }
       />
       )}
+      {isPhone && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
       {data && (
         <p className="sr-only" data-testid="line-counts">
           {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
