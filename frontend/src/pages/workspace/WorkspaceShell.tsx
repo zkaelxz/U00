@@ -107,6 +107,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
                 </span>
               )}
               <span className="stage-label">{STAGE_LABELS[s]}</span>
+              {st === 'blocked' && <span className="visually-hidden"> (blocked)</span>}
               {count && (
                 <span className="stage-count" aria-hidden="true">
                   · {count}

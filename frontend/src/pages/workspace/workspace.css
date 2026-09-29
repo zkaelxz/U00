@@ -40,6 +40,10 @@
 .stage-tabs a[data-state='current'] .stage-mark { color: var(--accent-text); }
 .stage-tabs .stage-count { color: var(--muted); font-weight: normal; font-size: var(--text-sm); }
 
+@media (pointer: coarse) {
+  .stage-tabs a { min-height: 44px; }
+}
+
 @media (max-width: 640px) {
   /* Phone header: 44px "‹" back, the title on one line, then the status badge. */
   .workspace-header { flex-wrap: nowrap; gap: var(--space-2); }
