@@ -260,3 +260,116 @@ def test_writes_are_pc_only(isolated_db):
     assert local.post(_ref(did) + "/remove", json={"confirm": True}).status_code == 200
     proxied = _up(local, _ref(did), b"x", headers={"X-Forwarded-For": "1.2.3.4"})
     assert proxied.status_code == 403
+
+
+# --- pasted text (reference and raw novel) -----------------------------------
+
+def test_reference_paste_sets_and_replaces(client):
+    did = _drama()
+    r = client.post(_ref(did) + "/text", json={"text": "  Pasted\r\nreference  "})
+    assert r.status_code == 200, r.text
+    _no_leak(r.json())
+    assert r.json()["replaced"] is False and r.json()["char_count"] == len("Pasted\nreference")
+    assert _file(did, "novel_reference.txt") == "Pasted\nreference"
+    assert db.get_drama(did)["novel_reference_filename"] == "novel_reference.txt"
+    r = client.post(_ref(did) + "/text", json={"text": "Second"})
+    assert r.json()["replaced"] is True
+    assert client.get(_ref(did)).json()["char_count"] == 6
+
+
+def test_raw_novel_paste(client):
+    did = _drama()
+    r = client.post(_raw(did) + "/text", json={"text": "云隐宗"})
+    assert r.status_code == 200 and r.json()["char_count"] == 3
+    assert _file(did, "raw_novel_context.txt") == "云隐宗"
+
+
+def test_paste_errors(client, monkeypatch):
+    did = _drama()
+    for url in (_ref(did) + "/text", _raw(did) + "/text"):
+        assert client.post(url, json={"text": ""}).status_code == 422
+        assert client.post(url, json={"text": " \n\t "}).status_code == 422
+        assert client.post(url, json={"text": 5}).status_code == 422
+        assert client.post(url, json={"text": "x", "extra": 1}).status_code == 422
+        assert client.post(url, json={}).status_code == 422
+        bad = client.post(url, content=b"not json secret-ish",
+                          headers={"Content-Type": "application/json"})
+        assert bad.status_code == 422 and "secret-ish" not in bad.text
+    assert client.post(_ref(999) + "/text", json={"text": "x"}).status_code == 404
+    assert client.post(_raw(999) + "/text", json={"text": "x"}).status_code == 404
+    monkeypatch.setattr(svc, "MAX_TEXT_CHARS", 5)
+    assert client.post(_ref(did) + "/text", json={"text": "123456"}).status_code == 422
+    monkeypatch.setattr(svc, "MAX_TEXT_BYTES", 20)
+    r = client.post(_raw(did) + "/text", json={"text": "x" * 30})
+    assert r.status_code == 422 and "too large" in r.json()["error"]["message"]
+    assert db.get_drama(did)["novel_reference_filename"] is None
+    assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(did), "raw_novel_context.txt"))
+
+
+def test_paste_refused_while_job_runs(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(background_jobs, "any_job_running_for_drama", lambda d: d == did)
+    assert client.post(_ref(did) + "/text", json={"text": "x"}).status_code == 409
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
+
+
+def test_raw_novel_writes_refused_during_any_source_import(client, monkeypatch):
+    did = _drama()
+    monkeypatch.setattr(background_jobs, "list_all_jobs",
+                        lambda: {"source_import_demo_42": {"status": "running"}})
+    assert _up(client, _raw(did), b"x").status_code == 409
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
+    # an import never writes the reference, so that stays allowed
+    assert client.post(_ref(did) + "/text", json={"text": "x"}).status_code == 200
+    monkeypatch.setattr(background_jobs, "list_all_jobs",
+                        lambda: {"source_import_demo_42": {"status": "done"}})
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
+
+
+def test_source_import_in_another_process_blocks_raw_novel(client):
+    did = _drama()
+    db.save_job_record("source_import_demo_7", "running")
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 409
+    db.save_job_record("source_import_demo_7", "done")
+    assert client.post(_raw(did) + "/text", json={"text": "x"}).status_code == 200
+
+
+def test_paste_routes_are_pc_only(isolated_db):
+    did = _drama()
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                        raise_server_exceptions=False)
+    admin = auth_service.grant_admin_local("admin@example.com")
+    s = auth_service.create_session(admin["id"], "pytest", "203.0.113.9")
+    for url in (_ref(did) + "/text", _raw(did) + "/text"):
+        assert remote.post(url, json={"text": "x"}).status_code in (401, 403)
+        assert remote.post(url, json={"text": "x"}, headers=_h(s)).status_code == 403
+    # a text/plain "simple" POST (another local page, no preflight) is refused
+    off = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    r = off.post(_ref(did) + "/text", content=b'{"text": "x"}',
+                 headers={"Content-Type": "text/plain"})
+    assert r.status_code == 403
+    assert db.get_drama(did)["novel_reference_filename"] is None
+
+
+# --- corrupt EPUB entries (security review LOW-3) ----------------------------
+
+def _corrupt_epub():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.writestr("OEBPS/a.xhtml", "<html><body><p>" + "第一章 " * 400 + "</p></body></html>")
+    data = bytearray(buf.getvalue())
+    info = zipfile.ZipFile(io.BytesIO(bytes(data))).infolist()[0]
+    start = info.header_offset + 30 + len(info.filename.encode()) + 10
+    for i in range(start, start + 40):
+        data[i] ^= 0xFF
+    return bytes(data)
+
+
+def test_corrupt_epub_entry_is_422_not_500(client):
+    did = _drama()
+    r = _up(client, _raw(did), _corrupt_epub(), name="b.epub")
+    assert r.status_code == 422, r.text
+    assert "not a valid EPUB" in r.json()["error"]["message"]
+    r = client.post(f"/api/novel/dramas/{did}/attach-epub",
+                    files={"file": ("b.epub", _corrupt_epub(), "application/epub+zip")})
+    assert r.status_code == 422, r.text

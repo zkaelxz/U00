@@ -291,7 +291,8 @@ baihe-subtitler/
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
 │   │                             (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
-│   │                             removal; encoding fallback, 409 while a job runs (router: novel_files_routes.py)
+│   │                             removal; upload or pasted text; encoding fallback; 409 while a drama job or
+│   │                             (raw novel) any Sources import runs (router: novel_files_routes.py)
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
@@ -384,7 +385,8 @@ baihe-subtitler/
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
-│       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../remove) and /raw-novel (GET/POST)
+│       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
+│       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
@@ -455,7 +457,9 @@ baihe-subtitler/
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   │                              NovelFilePanel (novel reference in Translate, raw novel in Transcribe;
-│   │                              PC-only upload/remove) + novelFile.ts; src/api/novelFiles.ts, types/novelFiles.ts
+│   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
+│   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
+│   │                              types/novelFiles.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

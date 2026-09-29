@@ -14,6 +14,9 @@ Streamlit deletion:
     reference for glossary building. Streamlit accepted .txt/.md/.epub and
     wrote core.load_novel_text_for_context's plain text.
 
+Both can also be set from pasted text (save_reference_text /
+save_raw_novel_text; Streamlit had a paste box for the reference only).
+
 Removal of the raw novel already exists (delete_service.remove_raw_novel,
 POST /api/novel/dramas/{id}/raw-novel/remove); removal of the reference is
 here, with the same confirm/404/409 order.
@@ -31,9 +34,14 @@ Safety:
     errors="ignore", which silently dropped a GBK novel to nothing.
   - Writes are atomic (temp file in the drama folder + os.replace), so a
     reader never sees a half-written file.
-  - A running job for the drama (translate, transcribe, ...) refuses the
-    upload/removal with ConflictError (409), like the other drama-scoped
-    file writes (novel_attach_service, delete_service).
+  - A running drama job (the per-drama job ids in
+    background_jobs.DRAMA_JOB_PREFIXES: translate, transcribe, ...)
+    refuses the upload/paste/removal with ConflictError (409), like the
+    other drama-scoped file writes (novel_attach_service, delete_service).
+    A Sources chapter import (`source_import_<source>_<series>`,
+    sources/pipeline.py) appends to raw_novel_context.txt but its id names
+    no drama, so raw-novel writes are also refused while ANY source import
+    is running or queued (conservative: it may be for another drama).
 
 No Streamlit or FastAPI import: takes a binary file-like object.
 """
@@ -42,7 +50,9 @@ import io
 import logging
 import os
 import tempfile
+import time
 
+import background_jobs
 import db
 from services import drama_service
 from services.novel_attach_service import MAX_EPUB_BYTES, extract_epub_text
@@ -59,6 +69,12 @@ MAX_TEXT_CHARS = 10_000_000
 _BOMS = ((codecs.BOM_UTF8, "utf-8-sig"), (codecs.BOM_UTF16_LE, "utf-16"),
          (codecs.BOM_UTF16_BE, "utf-16"))
 _BUSY = "A job is running for this drama. Wait for it to finish or cancel it."
+_IMPORT_BUSY = ("A Sources chapter import is running and may be adding to the raw novel. "
+                "Wait for it to finish or cancel it.")
+SOURCE_IMPORT_PREFIX = "source_import_"  # sources/pipeline.import_job_id
+# Same freshness window as drama_service.job_running_for_drama.
+_STALE_JOB_RECORD_SECONDS = 6 * 60 * 60
+_ACTIVE = ("running", "queued")
 
 
 def _require_drama(drama_id: int) -> dict:
@@ -71,6 +87,27 @@ def _require_drama(drama_id: int) -> dict:
 def _require_idle(drama_id: int):
     if drama_service.job_running_for_drama(drama_id):
         raise ConflictError(_BUSY)
+
+
+def _source_import_running() -> bool:
+    """Any Sources import job, in this process or (via fresh job_records
+    rows) another one. Its id carries no drama id, so this can't be
+    narrowed to one drama."""
+    for job_id, job in background_jobs.list_all_jobs().items():
+        if job_id.startswith(SOURCE_IMPORT_PREFIX) and job.get("status") in _ACTIVE:
+            return True
+    cutoff = time.time() - _STALE_JOB_RECORD_SECONDS
+    for rec in db.list_job_records():
+        if (str(rec.get("job_id") or "").startswith(SOURCE_IMPORT_PREFIX)
+                and rec.get("status") in _ACTIVE and (rec.get("updated_at") or 0) >= cutoff):
+            return True
+    return False
+
+
+def _require_raw_novel_idle(drama_id: int):
+    _require_idle(drama_id)
+    if _source_import_running():
+        raise ConflictError(_IMPORT_BUSY)
 
 
 def _folder(drama_id: int) -> str:
@@ -135,12 +172,22 @@ def _read_text(fileobj, ext: str, language: str, script: str) -> str:
     if not data:
         raise InvalidInputError("The uploaded file is empty.")
     raw = extract_epub_text(io.BytesIO(data)) if ext == ".epub" else decode_text(data, language, script)
+    return _checked_text(raw, "No readable text was found in that file.")
+
+
+def _checked_text(raw: str, empty_message: str) -> str:
     text = _clean(raw)
     if not text:
-        raise InvalidInputError("No readable text was found in that file.")
+        raise InvalidInputError(empty_message)
     if len(text) > MAX_TEXT_CHARS:
         raise InvalidInputError("The novel text is too large.")
     return text
+
+
+def _pasted_text(text) -> str:
+    if not isinstance(text, str):
+        raise InvalidInputError("The text must be a string.")
+    return _checked_text(text, "The pasted text is empty.")
 
 
 def _write_atomic(drama_id: int, filename: str, text: str):
@@ -181,10 +228,21 @@ def upload_reference(drama_id: int, client_filename, fileobj) -> dict:
     drama = _require_drama(drama_id)
     ext = _extension(client_filename, REFERENCE_EXTENSIONS)
     _require_idle(drama_id)
-    text = _read_text(fileobj, ext, "en", "")
+    return _store_reference(drama_id, drama, _read_text(fileobj, ext, "en", ""))
+
+
+def save_reference_text(drama_id: int, text) -> dict:
+    """The paste box: sets or replaces the reference from pasted text, with
+    the same caps, 409 and atomic write as the upload."""
+    drama = _require_drama(drama_id)
+    _require_idle(drama_id)
+    return _store_reference(drama_id, drama, _pasted_text(text))
+
+
+def _store_reference(drama_id: int, drama: dict, text: str) -> dict:
     replaced = _file_status(_reference_path(drama_id, drama))["present"]
     _write_atomic(drama_id, REFERENCE_FILENAME, text)
-    # Whitelisted, fixed value: the only field this upload owns.
+    # Whitelisted, fixed value: the only field this write owns.
     db.update_drama(drama_id, novel_reference_filename=REFERENCE_FILENAME)
     return {"drama_id": drama_id, "replaced": replaced,
             **_file_status(os.path.join(_folder(drama_id), REFERENCE_FILENAME))}
@@ -224,9 +282,20 @@ def upload_raw_novel(drama_id: int, client_filename, fileobj) -> dict:
     """Sets or replaces raw_novel_context.txt (.txt/.md/.epub)."""
     drama = _require_drama(drama_id)
     ext = _extension(client_filename, RAW_NOVEL_EXTENSIONS)
-    _require_idle(drama_id)
+    _require_raw_novel_idle(drama_id)
     text = _read_text(fileobj, ext, drama.get("source_language") or "zh",
                       drama.get("chinese_script") or "simplified")
+    return _store_raw_novel(drama_id, text)
+
+
+def save_raw_novel_text(drama_id: int, text) -> dict:
+    """Pasted raw novel text; same rules as the upload."""
+    _require_drama(drama_id)
+    _require_raw_novel_idle(drama_id)
+    return _store_raw_novel(drama_id, _pasted_text(text))
+
+
+def _store_raw_novel(drama_id: int, text: str) -> dict:
     path = os.path.join(_folder(drama_id), RAW_NOVEL_FILENAME)
     replaced = os.path.isfile(path)
     _write_atomic(drama_id, RAW_NOVEL_FILENAME, text)

@@ -1,6 +1,33 @@
 import { describe, expect, it } from 'vitest'
 
-import { checkNovelFile, novelFileStatusLine, novelFileSummary } from './novelFile'
+import {
+  MAX_NOVEL_TEXT_CHARS,
+  checkNovelFile,
+  novelFileStatusLine,
+  novelFileSummary,
+  pasteProblem,
+  pastedCount,
+} from './novelFile'
+import { bumpNovelFiles } from './novelFileEvents'
+
+describe('paste box', () => {
+  it('counts the trimmed text, as the server stores it', () => {
+    expect(pastedCount('')).toBe('0 characters')
+    expect(pastedCount('  a \n')).toBe('1 character')
+    expect(pastedCount('第一章 abc')).toBe('7 characters')
+  })
+
+  it('flags text over the server limit only', () => {
+    expect(pasteProblem('')).toBeNull()
+    expect(pasteProblem('x'.repeat(10))).toBeNull()
+    expect(pasteProblem(' '.repeat(5) + 'x'.repeat(MAX_NOVEL_TEXT_CHARS))).toBeNull()
+    expect(pasteProblem('x'.repeat(MAX_NOVEL_TEXT_CHARS + 1))).toMatch(/Too long/)
+  })
+
+  it('bumpNovelFiles is callable without subscribers', () => {
+    expect(() => bumpNovelFiles()).not.toThrow()
+  })
+})
 
 describe('checkNovelFile', () => {
   it('accepts the server whitelist per kind, case-insensitively', () => {

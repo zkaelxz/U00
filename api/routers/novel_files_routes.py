@@ -3,24 +3,53 @@ api/routers/novel_files_routes.py -- the English novel translation
 reference and the raw original-language novel for one drama (parity audit
 B1 #3/#4). Thin adapters over services/novel_files_service.py.
 
-Uploads and the reference removal are PC-only (`local_only()`, the user
-rule "uploads, deletes and settings are PC-only"); the multipart POSTs need
-X-Baihe-Local: 1, which the React upload helper sends. Status reads are
-`library.read`. Raw-novel removal already lives in delete_routes.py.
+Uploads, pastes and the reference removal are PC-only (`local_only()`, the
+user rule "uploads, deletes and settings are PC-only"); the multipart POSTs
+need X-Baihe-Local: 1, which the React upload helper sends. Status reads
+are `library.read`. Raw-novel removal already lives in delete_routes.py.
 Every write answers 409 while a job runs for the drama.
+
+The paste routes (`.../text`) read the JSON body themselves, streamed and
+capped at svc.MAX_TEXT_BYTES, so an oversized paste is refused before it
+is buffered whole or parsed; the local_only guard has already run by then.
 """
 
-from fastapi import APIRouter, File, Path, UploadFile
+from fastapi import APIRouter, File, Path, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from pydantic import ValidationError
 
 from api.auth import local_only, require_permission
-from api.schemas import (DeleteConfirm, ErrorResponse, NovelFileStatus, NovelFileUploadResult,
-                         NovelReferenceRemoveResult)
+from api.schemas import (DeleteConfirm, ErrorResponse, NovelFileStatus, NovelFileTextRequest,
+                         NovelFileUploadResult, NovelReferenceRemoveResult)
 from services import novel_files_service as svc
+from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/novel", tags=["novel"])
 _ERR = {404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
         422: {"model": ErrorResponse}}
 _NOT_FOUND = {404: {"model": ErrorResponse}}
+_TOO_LARGE = "The pasted text is too large."
+# The body is read by hand (see the module docstring); this keeps it in the docs.
+_TEXT_BODY = {"requestBody": {"required": True, "content": {"application/json": {
+    "schema": NovelFileTextRequest.model_json_schema()}}}}
+
+
+async def _read_text_body(request: Request) -> str:
+    """Streams the JSON body with a byte cap, then validates it. Errors
+    never echo the input."""
+    cap = svc.MAX_TEXT_BYTES
+    length = request.headers.get("content-length", "")
+    if length.isdigit() and int(length) > cap:
+        raise InvalidInputError(_TOO_LARGE)
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > cap:
+            raise InvalidInputError(_TOO_LARGE)
+    try:
+        return NovelFileTextRequest.model_validate_json(bytes(body)).text
+    except ValidationError:
+        raise InvalidInputError('Send JSON: {"text": "..."}.') from None
 
 
 @router.get("/dramas/{drama_id}/reference", dependencies=[require_permission("library.read")],
@@ -35,6 +64,14 @@ def get_reference(drama_id: int = Path(ge=1)):
              summary="Set or replace the English novel reference (.txt/.md; 409 while a job runs)")
 def post_reference(drama_id: int = Path(ge=1), file: UploadFile = File(...)):
     return svc.upload_reference(drama_id, file.filename, file.file)
+
+
+@router.post("/dramas/{drama_id}/reference/text", dependencies=[local_only()],
+             response_model=NovelFileUploadResult, responses=_ERR, openapi_extra=_TEXT_BODY,
+             summary="Set or replace the English novel reference from pasted text (409 while a job runs)")
+async def post_reference_text(request: Request, drama_id: int = Path(ge=1)):
+    text = await _read_text_body(request)
+    return await run_in_threadpool(svc.save_reference_text, drama_id, text)
 
 
 @router.post("/dramas/{drama_id}/reference/remove", dependencies=[local_only()],
@@ -56,3 +93,11 @@ def get_raw_novel(drama_id: int = Path(ge=1)):
              summary="Set or replace the raw original-language novel (.txt/.md/.epub; 409 while a job runs)")
 def post_raw_novel(drama_id: int = Path(ge=1), file: UploadFile = File(...)):
     return svc.upload_raw_novel(drama_id, file.filename, file.file)
+
+
+@router.post("/dramas/{drama_id}/raw-novel/text", dependencies=[local_only()],
+             response_model=NovelFileUploadResult, responses=_ERR, openapi_extra=_TEXT_BODY,
+             summary="Set or replace the raw original-language novel from pasted text (409 while a job runs)")
+async def post_raw_novel_text(request: Request, drama_id: int = Path(ge=1)):
+    text = await _read_text_body(request)
+    return await run_in_threadpool(svc.save_raw_novel_text, drama_id, text)

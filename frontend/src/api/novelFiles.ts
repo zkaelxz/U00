@@ -34,3 +34,10 @@ export const getRawNovel = (dramaId: number, f?: Fetch) =>
 
 export const uploadRawNovel = (dramaId: number, file: File, f?: Fetch) =>
   upload(`/api/novel/dramas/${dramaId}/raw-novel`, file, f)
+
+// The paste box: JSON {text}, same caps, 409 and PC-only rule as the upload.
+export const saveNovelReferenceText = (dramaId: number, text: string, f?: Fetch) =>
+  postJson<NovelFileUploadResult>(`/api/novel/dramas/${dramaId}/reference/text`, { text }, pcOnlyFetch(f))
+
+export const saveRawNovelText = (dramaId: number, text: string, f?: Fetch) =>
+  postJson<NovelFileUploadResult>(`/api/novel/dramas/${dramaId}/raw-novel/text`, { text }, pcOnlyFetch(f))

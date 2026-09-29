@@ -1,5 +1,5 @@
 /*
- * NovelFilePanel: status plus PC-only upload / replace / remove for one of
+ * NovelFilePanel: status plus PC-only save / replace / remove for one of
  * the drama's two novel files (api/routers/novel_files_routes.py):
  *
  *   kind="reference"  the English novel translation, a terminology
@@ -7,13 +7,23 @@
  *   kind="raw"        the original-language novel, which primes the
  *                     automatic Whisper prompt (Transcribe, Source stage).
  *
- * Status is readable remotely; the upload and remove controls are PC-only
- * (usePcOnly, pcOnlyFetch). The server answers 409 while a job for the
- * drama runs; `busy` disables the controls meanwhile.
+ * The text comes from a file ("Upload a file") or the paste box ("Paste
+ * text"). Status is readable remotely; the save and remove controls are
+ * PC-only (usePcOnly, pcOnlyFetch). The server answers 409 while a job
+ * for the drama runs; `busy` disables the controls meanwhile. A save or
+ * removal bumps useNovelFilesVersion so other panels re-read.
  */
 import { useEffect, useState } from 'react'
 
-import { getNovelReference, getRawNovel, removeNovelReference, uploadNovelReference, uploadRawNovel } from '../../../api/novelFiles'
+import {
+  getNovelReference,
+  getRawNovel,
+  removeNovelReference,
+  saveNovelReferenceText,
+  saveRawNovelText,
+  uploadNovelReference,
+  uploadRawNovel,
+} from '../../../api/novelFiles'
 import { removeRawNovel } from '../../../api/stageDeletes'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -22,32 +32,45 @@ import { Section } from '../../../components/Section'
 import { PC_ONLY_BODY, usePcOnly } from '../../../hooks/usePcOnly'
 import type { NovelFileStatus } from '../../../types/novelFiles'
 import { useStage } from '../StageContext'
-import { NOVEL_FILE_EXTENSIONS, checkNovelFile, novelFileStatusLine, novelFileSummary, type NovelFileKind } from './novelFile'
+import {
+  NOVEL_FILE_EXTENSIONS,
+  checkNovelFile,
+  novelFileStatusLine,
+  novelFileSummary,
+  pasteProblem,
+  pastedCount,
+  type NovelFileKind,
+} from './novelFile'
+import { bumpNovelFiles } from './novelFileEvents'
 
-const COPY: Record<NovelFileKind, { title: string; name: string; label: string; help: string }> = {
+const COPY: Record<NovelFileKind, { title: string; name: string; label: string; pasteLabel: string; help: string }> = {
   reference: {
     title: 'Novel reference (English translation)',
     name: 'novel reference',
     label: 'Reference file',
-    help: 'An existing English translation of the novel (.txt or .md). Translation uses it to keep names and terms consistent.',
+    pasteLabel: 'Reference text',
+    help: 'An existing English translation of the novel (.txt or .md, or paste it). Translation uses it to keep names and terms consistent.',
   },
   raw: {
     title: 'Raw novel (original language)',
     name: 'raw novel',
     label: 'Raw novel file',
-    help: 'The original-language novel (.txt, .md or .epub). The automatic prompt uses its names and phrasing to help speech recognition.',
+    pasteLabel: 'Raw novel text',
+    help: 'The original-language novel (.txt, .md or .epub, or paste it). The automatic prompt uses its names and phrasing to help speech recognition.',
   },
 }
 
 const API = {
-  reference: { get: getNovelReference, upload: uploadNovelReference, remove: removeNovelReference },
-  raw: { get: getRawNovel, upload: uploadRawNovel, remove: removeRawNovel },
+  reference: { get: getNovelReference, upload: uploadNovelReference, paste: saveNovelReferenceText, remove: removeNovelReference },
+  raw: { get: getRawNovel, upload: uploadRawNovel, paste: saveRawNovelText, remove: removeRawNovel },
 }
+
+type Source = 'file' | 'paste'
 
 interface Props {
   kind: NovelFileKind
   busy?: boolean
-  // Called after a successful upload or removal (e.g. to reload the auto prompt).
+  // Called after a successful save or removal (e.g. to reload the auto prompt).
   onChanged?: () => void
 }
 
@@ -57,12 +80,16 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
   const copy = COPY[kind]
   const api = API[kind]
   const [status, setStatus] = useState<NovelFileStatus | null>(null)
+  const [source, setSource] = useState<Source>('file')
   const [file, setFile] = useState<File | null>(null)
+  const [text, setText] = useState('')
   const [working, setWorking] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [reloads, setReloads] = useState(0)
-  const problem = file ? checkNovelFile(kind, file.name) : null
+  const fileProblem = file ? checkNovelFile(kind, file.name) : null
+  const textProblem = pasteProblem(text)
+  const ready = source === 'file' ? !!file && !fileProblem : !!text.trim() && !textProblem
 
   useEffect(() => {
     let cancelled = false
@@ -79,7 +106,9 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
     setWorking(false)
     setError(null)
     setNotice(message)
+    setFile(null)
     setReloads((n) => n + 1)
+    bumpNovelFiles()
     onChanged?.()
   }
   const fail = (e: unknown) => {
@@ -88,17 +117,23 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
     setError(e)
   }
 
-  const upload = () => {
-    if (!file || problem) return
+  const save = () => {
+    if (!ready) return
     setWorking(true)
-    api.upload(dramaId, file).then((r) => {
-      setFile(null)
+    const req = source === 'file' && file ? api.upload(dramaId, file) : api.paste(dramaId, text)
+    req.then((r) => {
+      if (source === 'paste') setText('')
       done(`${r.replaced ? 'Replaced' : 'Saved'}: ${r.char_count.toLocaleString()} characters.`)
     }, fail)
   }
   const remove = () => {
     setWorking(true)
     api.remove(dramaId).then(() => done('Removed.'), fail)
+  }
+
+  const pick = (next: Source) => {
+    setSource(next)
+    setNotice(null)
   }
 
   return (
@@ -109,20 +144,39 @@ export function NovelFilePanel({ kind, busy = false, onChanged }: Props) {
           <p className="muted">{PC_ONLY_BODY}</p>
         ) : (
           <>
-            <Field label={copy.label} help={copy.help} error={problem}>
-              <input
-                key={reloads}
-                type="file"
-                accept={NOVEL_FILE_EXTENSIONS[kind].join(',')}
-                onChange={(e) => {
-                  setNotice(null)
-                  setFile(e.target.files?.[0] ?? null)
-                }}
-              />
-            </Field>
+            <div className="actions" role="radiogroup" aria-label={`${copy.title}: source`}>
+              <label className="check">
+                <input type="radio" name={`novelfile-${kind}-source`} checked={source === 'file'} onChange={() => pick('file')} />{' '}
+                Upload a file
+              </label>
+              <label className="check">
+                <input type="radio" name={`novelfile-${kind}-source`} checked={source === 'paste'} onChange={() => pick('paste')} />{' '}
+                Paste text
+              </label>
+            </div>
+            {source === 'file' ? (
+              <Field label={copy.label} help={copy.help} error={fileProblem}>
+                <input
+                  key={reloads}
+                  type="file"
+                  accept={NOVEL_FILE_EXTENSIONS[kind].join(',')}
+                  onChange={(e) => {
+                    setNotice(null)
+                    setFile(e.target.files?.[0] ?? null)
+                  }}
+                />
+              </Field>
+            ) : (
+              <>
+                <Field label={copy.pasteLabel} help={copy.help} error={textProblem}>
+                  <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} />
+                </Field>
+                <p className="muted" aria-live="polite" data-testid={`novel-file-count-${kind}`}>{pastedCount(text)}</p>
+              </>
+            )}
             <div className="actions">
-              <button type="button" disabled={!file || !!problem || busy || working} onClick={upload}>
-                {status?.present ? 'Replace saved file' : 'Save file'}
+              <button type="button" disabled={!ready || busy || working} onClick={save}>
+                {status?.present ? 'Replace saved text' : 'Save'}
               </button>
               {status?.present && (
                 <ConfirmButton

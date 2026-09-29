@@ -2850,3 +2850,10 @@ class NovelReferenceRemoveResult(BaseModel):
     drama_id: int
     removed: bool
     present: bool
+
+
+class NovelFileTextRequest(BaseModel):
+    """Pasted text for the novel reference or raw novel. The route reads
+    the body itself, capped at 32 MB, before this is validated."""
+    model_config = ConfigDict(extra="forbid")
+    text: str

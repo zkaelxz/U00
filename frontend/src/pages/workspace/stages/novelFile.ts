@@ -29,6 +29,22 @@ export function novelFileSummary(status: NovelFileStatus | null): string {
   return status.present ? `${status.char_count.toLocaleString()} chars` : 'none saved'
 }
 
+// services/novel_files_service.py MAX_TEXT_CHARS (counted after trimming).
+export const MAX_NOVEL_TEXT_CHARS = 10_000_000
+
+/** "1,234 characters" for the paste box: what the server will store (trimmed). */
+export function pastedCount(text: string): string {
+  const n = text.trim().length
+  return `${n.toLocaleString()} ${n === 1 ? 'character' : 'characters'}`
+}
+
+/** Why the pasted text can't be saved, or null. Empty is just "nothing yet". */
+export function pasteProblem(text: string): string | null {
+  return text.trim().length > MAX_NOVEL_TEXT_CHARS
+    ? `Too long: the limit is ${MAX_NOVEL_TEXT_CHARS.toLocaleString()} characters.`
+    : null
+}
+
 /** The status sentence in the body. */
 export function novelFileStatusLine(status: NovelFileStatus | null): string {
   if (!status) return 'Checking…'

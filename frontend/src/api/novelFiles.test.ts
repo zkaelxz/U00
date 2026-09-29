@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { getNovelReference, getRawNovel, removeNovelReference, uploadNovelReference, uploadRawNovel } from './novelFiles'
+import {
+  getNovelReference,
+  getRawNovel,
+  removeNovelReference,
+  saveNovelReferenceText,
+  saveRawNovelText,
+  uploadNovelReference,
+  uploadRawNovel,
+} from './novelFiles'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
 type Call = { url: string; init?: RequestInit }
@@ -47,6 +55,24 @@ describe('novel file API', () => {
     expect(calls[0].url).toBe('/api/novel/dramas/4/reference/remove')
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({ confirm: true })
     expect(new Headers(calls[0].init?.headers).get('X-Baihe-Local')).toBe('1')
+  })
+
+  it('saves pasted text as JSON {text} with X-Baihe-Local', async () => {
+    const calls: Call[] = []
+    const f = fakeFetch(calls)
+    await saveNovelReferenceText(4, 'Chapter 1', f)
+    await saveRawNovelText(4, '第一章', f)
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/novel/dramas/4/reference/text',
+      '/api/novel/dramas/4/raw-novel/text',
+    ])
+    expect(calls.map((c) => JSON.parse(String(c.init?.body)))).toEqual([{ text: 'Chapter 1' }, { text: '第一章' }])
+    for (const c of calls) {
+      const h = new Headers(c.init?.headers)
+      expect(c.init?.method).toBe('POST')
+      expect(h.get('X-Baihe-Local')).toBe('1')
+      expect(h.get('Content-Type')).toBe('application/json')
+    }
   })
 
   it('a 403 on upload marks the tab remote', async () => {
