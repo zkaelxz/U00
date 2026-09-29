@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { TranslateRunConfig, WorkflowTierApplied } from '../../types/translateStage'
+import type { TranslatePresetApplied, TranslateRunConfig, WorkflowTierApplied } from '../../types/translateStage'
 import {
+  applyPresetToForm,
   applyTierToForm,
   buildEstimateParams,
   buildPresetBody,
@@ -17,8 +18,10 @@ import {
   reflectAvailable,
   savePresetStart,
   splitLines,
+  styleGuidance,
   validatePresetName,
   validateRun,
+  withPresetEngine,
   withSavedEngine,
 } from './translateForm'
 
@@ -34,6 +37,14 @@ describe('translate form', () => {
     const f = initialForm(config)
     expect(f).toMatchObject({ locale: 'en-US', batch_size: '20', context_window: '5', style_preset: 'natural' })
     expect(validateRun(f, 'ollama')).toBeNull()
+  })
+
+  it('starts from the Settings default locale and style note when given', () => {
+    const f = initialForm({ ...config, default_locale: 'en-GB', default_style_note: 'Terse.' })
+    expect(f).toMatchObject({ locale: 'en-GB', style_note: 'Terse.' })
+    // An unknown default locale falls back to en-US; a preset's locale still wins.
+    expect(initialForm({ ...config, default_locale: 'fr-FR' }).locale).toBe('en-US')
+    expect(initialForm({ ...config, default_locale: 'en-GB' }, { locale: 'en-US' }).locale).toBe('en-US')
   })
 
   it('validates ranges, cap, chain and the force confirmation', () => {
@@ -260,6 +271,55 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
     expect(buildPresetBody(g, 'deepl', 'Mine', true)).toMatchObject({
       translation_engine: 'claude', engine_model: 'claude-sonnet-5', overwrite: true,
     })
+  })
+})
+
+describe('apply a saved preset (parity X03/X04)', () => {
+  const c = {
+    ...config,
+    translation_engine: 'deepl',
+    style_presets: [{ key: 'natural', label: 'Natural', guidance: 'Sound natural.' }, { key: 'wuxia', label: 'Wuxia' }],
+    engines: [
+      { name: 'claude', models: ['claude-a', 'claude-b'] },
+      { name: 'deepl', models: [] },
+    ],
+    bulk_supported_engines: ['claude'],
+  } as unknown as TranslateRunConfig
+  const preset = (o: Partial<TranslatePresetApplied> = {}): TranslatePresetApplied => ({
+    drama_id: 1, preset_id: 2, name: 'Mine', translation_engine: 'claude', engine_model: 'claude-b',
+    style_preset: 'wuxia', locale: 'en-GB', default_female_pronouns: true, include_genre_notes: false, ...o,
+  })
+
+  it('fills engine, model, style, locale and toggles', () => {
+    const f = applyPresetToForm(initialForm(c), preset(), c)
+    expect(f).toMatchObject({
+      engine: 'claude', model: 'claude-b', style_preset: 'wuxia', locale: 'en-GB',
+      female_pronouns: true, genre_notes: false,
+    })
+  })
+
+  it('skips values the server no longer offers and keeps the engine when the preset has none', () => {
+    const base = { ...initialForm(c), model: 'kept' }
+    const f = applyPresetToForm(base, preset({ translation_engine: null, engine_model: null, style_preset: 'gone', locale: 'xx' }), c)
+    expect(f).toMatchObject({ engine: '', model: 'kept', style_preset: 'natural', locale: 'en-US' })
+    const g = applyPresetToForm(initialForm(c), preset({ engine_model: 'claude-z' }), c)
+    expect(g.model).toBe('')
+  })
+
+  it('drops Reflect/Bulk that the new engine cannot run', () => {
+    const base = { ...initialForm(c), engine: 'claude', reflect: true, bulk: true }
+    const f = applyPresetToForm(base, preset({ translation_engine: 'deepl', engine_model: null }), c)
+    expect(f).toMatchObject({ engine: 'deepl', reflect: false, bulk: false })
+  })
+
+  it('moves the config default engine only when the preset has one', () => {
+    expect(withPresetEngine(c, preset()).translation_engine).toBe('claude')
+    expect(withPresetEngine(c, preset({ translation_engine: null }))).toBe(c)
+  })
+
+  it('reads the style guidance text', () => {
+    expect(styleGuidance(c, 'natural')).toBe('Sound natural.')
+    expect(styleGuidance(c, 'wuxia')).toBe('')
   })
 })
 

@@ -4,6 +4,7 @@
 import type {
   EstimateParams,
   FallbackEngine,
+  TranslatePresetApplied,
   TranslatePresetBody,
   TranslateRunConfig,
   TranslateRunStartBody,
@@ -111,16 +112,18 @@ export function initialForm(c: TranslateRunConfig, preset: PresetStart = {}): Ru
   const style = preset.style_preset && c.style_presets.some((p) => p.key === preset.style_preset)
     ? preset.style_preset
     : c.default_style_preset
+  // Then the Settings default English variant, then en-US.
+  const fallbackLocale = c.default_locale && c.locales.includes(c.default_locale) ? c.default_locale : 'en-US'
   const locale = preset.locale && c.locales.includes(preset.locale)
     ? preset.locale
-    : c.locales.includes('en-US') ? 'en-US' : (c.locales[0] ?? 'en-US')
+    : c.locales.includes(fallbackLocale) ? fallbackLocale : (c.locales[0] ?? 'en-US')
   const defaultModels = c.engines?.find((e) => e.name === c.translation_engine)?.models ?? []
   const model = preset.engine_model && defaultModels.includes(preset.engine_model) ? preset.engine_model : ''
   return {
     engine: '',
     model,
     style_preset: style,
-    style_note: '',
+    style_note: c.default_style_note ?? '',
     locale,
     batch_size: String(c.defaults.batch_size),
     context_window: String(c.defaults.context_window),
@@ -246,6 +249,49 @@ export function applyTierToForm(f: RunForm, t: WorkflowTierApplied, c: Translate
 // with Default selected must all use the new engine.
 export function withSavedEngine(c: TranslateRunConfig, t: WorkflowTierApplied): TranslateRunConfig {
   return c.translation_engine === t.translation_engine ? c : { ...c, translation_engine: t.translation_engine }
+}
+
+// Parity X03: fill the form from an applied preset, the way Streamlit's
+// apply_preset_to_session set the style/locale/toggle widgets. With an engine
+// the preset's engine is set explicitly (the drama's saved engine changed on
+// the server) and its model is kept only if that engine lists it; without
+// one the engine and model stay as they are. Values this server no longer
+// offers are skipped. Reflect/Bulk are kept only if they still fit. Nothing
+// else changes and no run is started.
+export function applyPresetToForm(f: RunForm, p: TranslatePresetApplied, c: TranslateRunConfig): RunForm {
+  const engine = p.translation_engine || f.engine
+  const eff = engine || c.translation_engine
+  const models = c.engines?.find((e) => e.name === eff)?.models ?? []
+  const model = p.translation_engine
+    ? (p.engine_model && models.includes(p.engine_model) ? p.engine_model : '')
+    : f.model
+  const style = p.style_preset && c.style_presets.some((s) => s.key === p.style_preset) ? p.style_preset : f.style_preset
+  const locale = p.locale && c.locales.includes(p.locale) ? p.locale : f.locale
+  const supported = c.bulk_supported_engines ?? []
+  const reflect = f.reflect && reflectAvailable(eff)
+  const bulk = f.bulk && (reflect ? bulkReflectAvailable(eff, supported) : bulkAvailable(eff, supported))
+  return {
+    ...f,
+    engine,
+    model,
+    style_preset: style,
+    locale,
+    reflect,
+    bulk,
+    female_pronouns: p.default_female_pronouns,
+    genre_notes: p.include_genre_notes,
+  }
+}
+
+// After a preset with an engine is applied, the drama's saved engine is the preset's.
+export function withPresetEngine(c: TranslateRunConfig, p: TranslatePresetApplied): TranslateRunConfig {
+  const e = p.translation_engine
+  return !e || c.translation_engine === e ? c : { ...c, translation_engine: e }
+}
+
+// The guidance text for a style key ('' when the server sent none).
+export function styleGuidance(c: TranslateRunConfig, key: string): string {
+  return c.style_presets.find((s) => s.key === key)?.guidance ?? ''
 }
 
 export const PRESET_NAME_MAX = 100

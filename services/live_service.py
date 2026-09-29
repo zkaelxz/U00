@@ -11,7 +11,8 @@ use_gpu reaches the pipeline, and max_minutes is a hard stop.
 
 Decisions (spec): any public http(s) URL yt-dlp can resolve is accepted
 (host checked by services.url_guard.resolve_public, no fetch here); no
-browser cookies over the API; keys are resolved server-side, never taken
+browser cookies over the API (a start at the PC uses the saved Settings
+cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No Streamlit/FastAPI import.
 
 Router contract: start/get are gated like media.import_url, and a paid
@@ -29,7 +30,7 @@ from typing import Optional
 import background_jobs
 import live_translate
 import translate_engines
-from services import settings_service, translate_service, url_guard
+from services import ownership_service, settings_service, translate_service, url_guard
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError)
 
@@ -89,7 +90,7 @@ def _num(name, value, lo, hi, cast=float):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    engine_name = engine_name or "claude"
+    engine_name = engine_name or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     api_key = translate_service.resolve_api_key(engine_name)
@@ -182,8 +183,12 @@ def _reap():
 def start_session(url, source_language="zh", whisper_size="small", segment_seconds=20,
                   overlap_seconds=live_translate.DEFAULT_OVERLAP_SECONDS,
                   engine: Optional[str] = None, model: Optional[str] = None,
-                  max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False) -> dict:
+                  max_minutes=DEFAULT_MAX_MINUTES, use_gpu: bool = False,
+                  use_saved_cookies: bool = False) -> dict:
     """Starts one live capture session; returns {"session_id": ...}.
+    use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
+    cookies.txt). The router sets it only for a request made at the PC, so
+    another device never reads streams as the owner's signed-in account.
     InvalidInputError (422) for a bad/private URL or bad option,
     DependencyUnavailableError (503) for an unresolvable host or missing
     engine key."""
@@ -231,7 +236,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "starting": True}
+        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "starting": True,
+                                 "owner_user_id": ownership_service.acting_user_id()}
     try:
         started = background_jobs.start_job(
             session_id, _make_target(session_id),
@@ -239,6 +245,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             max_seconds=max_minutes * 60,
             stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
+            **(settings_service.get_cookie_settings() if use_saved_cookies else {}),
             gpu_touching=True, description="Live capture (local Whisper)")
     except Exception:
         _remove_dir(session_id)
@@ -257,19 +264,24 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     return {"session_id": session_id}
 
 
-def _require(session_id) -> dict:
+def _visible(principal, session_id, entry) -> bool:
+    return ownership_service.can_see_job(principal, session_id, entry.get("owner_user_id"))
+
+
+def _require(session_id, principal=None) -> dict:
+    """Another user's session is a 404 like an unknown one (auth B2)."""
     with _lock:
-        known = isinstance(session_id, str) and session_id in _sessions
-    if not known:
+        entry = _sessions.get(session_id) if isinstance(session_id, str) else None
+    if entry is None or not _visible(principal, session_id, entry):
         raise NotFoundError("No such live session.")
     return background_jobs.get_status(session_id)
 
 
-def stop_session(session_id) -> dict:
+def stop_session(session_id, principal=None) -> dict:
     """Bumps the generation first (so an in-flight chunk's result is
     discarded), then cancels: cancel_queued if still queued, else
     request_cancel. Idempotent on a finished session."""
-    job = _require(session_id)
+    job = _require(session_id, principal)
     live_translate.bump_generation(session_id)
     if job is None or background_jobs.cancel_queued(session_id):
         _remove_dir(session_id)
@@ -287,10 +299,10 @@ def _status(job) -> str:
     return status if status in ("queued", "running", "done", "error", "cancelled") else "error"
 
 
-def get_session(session_id, after=0) -> dict:
+def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index}. Never a
     traceback, a filesystem path or a key."""
-    job = _require(session_id)
+    job = _require(session_id, principal)
     _reap()
     after = int(_num("after", after, 0, 10 ** 9))
     status = _status(job)
@@ -313,12 +325,14 @@ def get_session(session_id, after=0) -> dict:
             "cues": out, "next_index": max(after, len(cues))}
 
 
-def list_sessions() -> list:
+def list_sessions(principal=None) -> list:
     _reap()
     with _lock:
         items = list(_sessions.items())
     result = []
     for sid, entry in items:
+        if not _visible(principal, sid, entry):
+            continue
         job = background_jobs.get_status(sid)
         cues = (job or {}).get("result") or []
         result.append({"session_id": sid, "status": _status(job), "engine": entry.get("engine"),

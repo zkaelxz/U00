@@ -15,7 +15,9 @@ and bulk=True (Step 9/9d's Claude/Gemini batch APIs, DeepSeek off-peak, and
 bulk Reflect) to the same start, plus resume_bulk_translations().
 
 Parity X02/X22 add apply_workflow_tier() and save_translate_preset() (the
-tab's "Apply tier" and "Save as preset" buttons).
+tab's "Apply tier" and "Save as preset" buttons); parity X03 adds
+apply_translate_preset() ("Apply a preset" on an existing drama), and the
+config's style presets carry their guidance text (X04).
 
 Out of scope here: glossary review, preset rename/delete and characters CRUD.
 
@@ -61,11 +63,7 @@ def _require_drama(drama_id: int) -> dict:
 
 
 def _monthly_cap() -> float:
-    raw = settings_service.resolve_key("monthly_cap_usd")
-    try:
-        return max(0.0, float(raw)) if raw else 0.0
-    except (TypeError, ValueError):
-        return 0.0
+    return settings_service.get_monthly_cap_usd()
 
 
 def _cap_applies(engine_name: str, gemini_free_tier: bool = False) -> bool:
@@ -98,9 +96,9 @@ def get_translate_config(drama_id: int) -> dict:
     free_tier = settings_service.get_gemini_free_tier()
     return {
         "drama_id": drama_id,
-        "translation_engine": drama.get("translation_engine") or "claude",
+        "translation_engine": drama.get("translation_engine") or settings_service.get_default_engine(),
         "engines": translate_service.list_engines(),
-        "style_presets": [{"key": k, "label": v["label"]}
+        "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
                           for k, v in translation_guide.STYLE_PRESETS.items()],
         "default_style_preset": "novel" if is_novel else "audio_drama",
         "locales": list(LOCALES),
@@ -110,6 +108,8 @@ def get_translate_config(drama_id: int) -> dict:
              "auto_qc": bool(t["auto_qc"])}
             for k, t in translate_engines.WORKFLOW_TIERS.items()],
         "defaults": get_translate_config_defaults(is_novel),
+        "default_locale": settings_service.get_preference("default_locale"),
+        "default_style_note": settings_service.get_preference("default_style_note"),
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
@@ -138,7 +138,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
                             job_cost_cap_usd: float = None) -> dict:
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
-    engine_name = engine_name or drama.get("translation_engine") or "claude"
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError(f"Unknown translate engine {engine_name!r}.")
     if reflect and engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
@@ -206,12 +206,26 @@ def _load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
         return f.read()
 
 
-def _summary_engine():
-    """Same default as `cli.py translate`: local Ollama; None (summary
-    skipped) if it can't be built. Never fails the translation."""
+def _summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
+    """The episode-summary engine from Settings (default local Ollama, as
+    `cli.py translate`); (None, None), so the summary is skipped, if it
+    can't be built or a cloud pick has no key. Never fails the translation.
+    allow_paid=False (an API caller without engines.paid) also skips a pick
+    outside translate_engines.FREE_ENGINES: it would spend the owner's key."""
+    choice = settings_service.get_preference("episode_summary_engine")
+    if not allow_paid and choice not in translate_engines.FREE_ENGINES:
+        return None, None
     try:
+        if choice == "ollama":
+            return translate_engines.get_engine(
+                "ollama", None,
+                base_url=ollama_url or settings_service.resolve_key("ollama_url") or None), choice
+        api_key = translate_service.resolve_api_key(choice)
+        if not api_key:
+            return None, None
         return translate_engines.get_engine(
-            "ollama", None, base_url=settings_service.resolve_key("ollama_url") or None), "ollama"
+            choice, api_key, free_tier=choice == "gemini" and settings_service.get_gemini_free_tier()
+        ), choice
     except Exception:
         return None, None
 
@@ -256,7 +270,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         job_cost_cap_usd: float = None,
                         fallback_chain: list = None, reflect: bool = False,
                         bulk: bool = False, default_female_pronouns: bool = None,
-                        include_genre_notes: bool = None) -> dict:
+                        include_genre_notes: bool = None,
+                        allow_paid_summary: bool = True) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -296,7 +311,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
     running). gemini_free_tier None means the saved Settings value."""
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = _require_drama(drama_id)
-    engine_name = engine_name or drama.get("translation_engine") or "claude"
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown translate engine.")
     if locale not in LOCALES:
@@ -443,16 +458,18 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                 "target_line_count": len(eligible), "fallback_engines": [],
                 "reflect": reflect, "bulk": True}
 
-    summary_engine, summary_choice = _summary_engine()
+    summary_engine, summary_choice = _summary_engine(allow_paid=allow_paid_summary)
 
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_translate_job,
         job_id, drama_id, lines, engine, drama, style_note or "",
         novel_reference, force_retranslate, locale, glossary_terms,
         style_guidelines, engine_name, style_preset, context_window,
-        None, reflect=reflect, cost_cap_usd=cost_cap,
+        settings_service.get_ollama_num_ctx_override() or None, reflect=reflect,
+        cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
+        summary_monthly_cap_usd=_monthly_cap() or None,
         target_ids=target_ids, gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:
@@ -626,6 +643,37 @@ def apply_workflow_tier(drama_id: int, tier: str) -> dict:
     return {"drama_id": drama_id, "tier": tier, "label": t["label"],
             "translation_engine": t["translation_engine"], "engine_model": t["engine_model"],
             "reflect": bool(t["reflect"]), "auto_qc": bool(t["auto_qc"])}
+
+
+def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
+    """tabs/workspace_tab.py "Apply a preset" on an existing drama (parity
+    X03): the preset's engine (if it saved one) goes onto the drama row,
+    the one field with a per-drama DB home; style, locale, the two toggles
+    and the model are returned for the client's form, as Streamlit's
+    apply_preset_to_session put them in session_state. Starts nothing.
+    Raises NotFoundError (unknown drama or preset)."""
+    _require_drama(drama_id)
+    preset = next((p for p in db.list_presets() if p["id"] == preset_id), None)
+    if preset is None:
+        raise NotFoundError(f"No preset with id {preset_id}.")
+    engine = preset.get("translation_engine")
+    if engine not in translate_engines.ENGINES:
+        engine = None   # an engine this build no longer has: leave the drama's own
+    if engine:
+        db.update_drama(drama_id, translation_engine=engine)
+    style = preset.get("style_preset")
+    locale = preset.get("locale")
+    pronouns = preset.get("default_female_pronouns")
+    genre = preset.get("include_genre_notes")
+    return {
+        "drama_id": drama_id, "preset_id": preset["id"], "name": preset["name"],
+        "translation_engine": engine,
+        "engine_model": (preset.get("engine_model") or None) if engine else None,
+        "style_preset": style if style in translation_guide.STYLE_PRESETS else None,
+        "locale": locale if locale in LOCALES else None,
+        "default_female_pronouns": bool(pronouns),
+        "include_genre_notes": True if genre is None else bool(genre),
+    }
 
 
 def dismiss_translate_errors(drama_id: int) -> dict:

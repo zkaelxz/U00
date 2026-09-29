@@ -50,7 +50,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
 
-from services import auth_service
+from services import auth_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
@@ -122,9 +122,29 @@ def require_permission(permission: str):
         if permission not in principal["permissions"]:
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
+        ownership_service.note_acting_principal(principal)
+        require_path_visible(request, principal)
         return principal
 
     return _marked(dependency, "permission", permission)
+
+
+# Path parameters that name an owned item (auth B2). Every route whose path
+# has one is ownership-checked here, so a new route is covered by default;
+# tests/test_api_ownership.py fails if a route names a drama or series some
+# other way without being listed there.
+OWNED_PATH_PARAMS = {"drama_id": "drama", "series_id": "series"}
+
+
+def require_path_visible(request: Request, principal) -> None:
+    """404 (never 403, so a private item's existence isn't revealed) when a
+    `{drama_id}`/`{series_id}` path parameter names an item the principal
+    can't see. Runs after the permission check, so a caller without the
+    permission still gets a plain 403. Editing is visibility-based
+    (ownership_service.can_edit_drama), so reads and writes share it."""
+    for name, kind in OWNED_PATH_PARAMS.items():
+        if name in request.path_params:
+            ownership_service.require_visible(principal, kind, request.path_params[name])
 
 
 def authenticated():
@@ -234,6 +254,12 @@ def require_paid_engines(request: Request):
     service that isn't a translate engine, e.g. Groq transcription)."""
     if not _holds(request, "engines.paid"):
         raise ForbiddenError(_GENERIC_403)
+
+
+def holds_paid_engines(request: Request) -> bool:
+    """Whether the caller holds `engines.paid` (always, with auth off), for
+    a route that skips a paid extra step rather than refusing the request."""
+    return _holds(request, "engines.paid")
 
 
 def _holds(request: Request, permission: str) -> bool:
@@ -483,3 +509,24 @@ class LoopbackOnlyGate:
                     return await send({"type": "websocket.close", "code": 1008})
                 return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
         return await self.app(scope, receive, send)
+
+
+class ActingPrincipalMiddleware:
+    """Pure-ASGI middleware, installed only with auth on (auth B2). Binds a
+    per-request holder (ownership_service.bind_request) that
+    require_permission fills with the principal, so background_jobs can
+    record which user started a job without every service passing it
+    through. Pure ASGI (not BaseHTTPMiddleware) so the context var reaches
+    the endpoint."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        token = ownership_service.bind_request()
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            ownership_service.unbind_request(token)

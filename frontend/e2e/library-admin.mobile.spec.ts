@@ -80,3 +80,18 @@ test('Library select mode: 44px checkboxes, bottom bar, no overflow', async ({ p
   await expect(page.getByRole('region', { name: 'Selection' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
 })
+
+test('Escape right after opening still closes the phone Actions menu', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
+  await page.getByRole('button', { name: 'Select', exact: true }).click()
+  await page.locator('.drama-grid li', { hasText: 'Signal' }).click()
+  // Open and press Escape in one task, before the details' toggle event runs
+  // (the CI race: menuOpen was still false, so Escape did nothing).
+  await page.evaluate(() => {
+    const s = document.querySelector('.bar-menu > summary') as HTMLElement
+    s.click()
+    s.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  await expect(page.locator('.bar-menu-body')).toBeHidden()
+})

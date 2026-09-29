@@ -41,6 +41,7 @@ import tempfile
 import time
 import zipfile
 import zlib
+from typing import Optional
 
 import background_jobs
 import db
@@ -48,7 +49,8 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import drama_service, translate_service
+from services import (drama_service, ownership_service, settings_service,
+                      translate_service)
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -263,15 +265,16 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
         return {"results": results, "deleted": sum(r["ok"] for r in results)}
 
 
-def _bulk_translate_plan(ids):
+def _bulk_translate_plan(ids, principal=None):
     """(queued ids, skipped [{drama_id, reason}], {id: engine}) for already
     checked ids. A drama with any running or queued job (e.g. a translate
     waiting for the GPU) is skipped, so the bulk job never adopts or
-    cancels a job the user started."""
+    cancels a job the user started. A drama `principal` can't see (auth
+    B2) is reported exactly like a missing one."""
     queued, skipped, engines = [], [], {}
     for did in ids:
         drama = db.get_drama(did)
-        if drama is None:
+        if drama is None or not ownership_service.can_see_drama(principal, did):
             skipped.append({"drama_id": did, "reason": "not_found"})
         elif drama.get("status") != "aligned":
             skipped.append({"drama_id": did, "reason": "not_aligned"})
@@ -279,17 +282,17 @@ def _bulk_translate_plan(ids):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines[did] = drama.get("translation_engine") or "claude"
+            engines[did] = drama.get("translation_engine") or settings_service.get_default_engine()
     return queued, skipped, engines
 
 
-def bulk_translate_engines(drama_ids) -> dict:
+def bulk_translate_engines(drama_ids, principal=None) -> dict:
     """The engines start_bulk_translate(drama_ids) would use:
     {engines: sorted set, by_drama: {drama_id: engine}} from each queued
     drama's saved translation_engine (default "claude"). For the route
     layer's per-engine permission check; pass by_drama back as
     start_bulk_translate(expected_engines=...)."""
-    by_drama = _bulk_translate_plan(_check_ids(drama_ids))[2]
+    by_drama = _bulk_translate_plan(_check_ids(drama_ids), principal)[2]
     return {"engines": sorted(set(by_drama.values())), "by_drama": by_drama}
 
 
@@ -308,8 +311,9 @@ def _check_expected_engines(expected) -> dict:
     return out
 
 
-def start_bulk_translate(drama_ids, default_locale: str = "en-US",
-                        expected_engines=None) -> dict:
+def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
+                         expected_engines=None, allow_paid_summary: bool = True,
+                         principal=None) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" (the same filter the tab applies) and
@@ -318,15 +322,17 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US",
     server-side. expected_engines ({drama_id: engine}, from
     bulk_translate_engines): a drama whose engine differs now, or later
     when the job reaches it, is skipped ("engine_changed"), so the engines
-    a caller was authorized for are the only ones used.
+    a caller was authorized for are the only ones used; allow_paid_summary=
+    False (no engines.paid) likewise skips a cloud episode-summary engine.
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
-    from services import settings_service
     ids = _check_ids(drama_ids)
+    if default_locale is None:
+        default_locale = settings_service.get_preference("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
     _refuse_duplicate(BULK_TRANSLATE_JOB_ID, "bulk translation")
-    queued, skipped, engine_by_id = _bulk_translate_plan(ids)
+    queued, skipped, engine_by_id = _bulk_translate_plan(ids, principal)
     if expected_engines is not None:
         expected = _check_expected_engines(expected_engines)
         for did in list(queued):
@@ -342,17 +348,15 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US",
             api_keys[engine] = translate_service.resolve_api_key(engine)
         except Exception:
             api_keys[engine] = None
-    try:
-        cap = max(0.0, float(settings_service.resolve_key("monthly_cap_usd") or 0))
-    except (TypeError, ValueError):
-        cap = 0.0
+    cap = settings_service.get_monthly_cap_usd()
     started = background_jobs.start_job(
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
         gemini_free_tier=settings_service.get_gemini_free_tier(),
-        models={}, monthly_cap=cap, expected_engines=expected_engines)
+        models={}, monthly_cap=cap, expected_engines=expected_engines,
+        allow_paid_summary=allow_paid_summary)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     return {"job_id": BULK_TRANSLATE_JOB_ID, "queued": queued, "skipped": skipped}

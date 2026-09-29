@@ -10,15 +10,17 @@ before /{name} so they are never read as a source name.
 
 from typing import List
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import local_only, require_permission
 from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
                          SourceCacheStats, SourceDetail, SourceHealth, SourceNotification,
                          SourceProfileDomain, SourceProfileRollbackRequest,
                          SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
-                         SourceSummary, SourceToggle, SourceTrackRequest, TrackedSeries)
+                         SourcesJobStarted, SourceSummary, SourceToggle,
+                         SourceTrackedDramaRequest, SourceTrackRequest, TrackedSeries)
 from services import sources_registry_service as svc
+from services import sources_tracking_service as tracking
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
 
@@ -43,8 +45,8 @@ def list_profiles():
 
 
 @router.get("/tracked", dependencies=[require_permission("library.read")], response_model=List[TrackedSeries], summary="Tracked series")
-def list_tracked():
-    return svc.list_tracked()
+def list_tracked(request: Request):
+    return svc.list_tracked(principal=request.state.principal)
 
 
 @router.get("/notifications", dependencies=[require_permission("library.read")], response_model=List[SourceNotification],
@@ -78,9 +80,23 @@ def post_cache_clear(payload: SourceCacheClearRequest):
 
 @router.post("/tracked", dependencies=[require_permission("sources.import")], response_model=List[TrackedSeries],
              summary="Track or untrack one series (fetches nothing)", responses=_ERR)
-def post_tracked(payload: SourceTrackRequest):
+def post_tracked(payload: SourceTrackRequest, request: Request):
     return svc.set_tracked(payload.source, payload.series_id, payload.tracked, payload.title,
-                           payload.url, payload.drama_id)
+                           payload.url, payload.drama_id, principal=request.state.principal)
+
+
+@router.post("/tracked/drama", dependencies=[require_permission("sources.import")], response_model=List[TrackedSeries],
+             summary="Which drama a tracked series auto-imports into (null = none; fetches nothing)",
+             responses=_ERR)
+def post_tracked_drama(payload: SourceTrackedDramaRequest):
+    return tracking.set_tracked_drama(payload.source, payload.series_id, payload.drama_id)
+
+
+@router.post("/check-now", dependencies=[require_permission("sources.import")], response_model=SourcesJobStarted,
+             summary="Job: check every tracked series for new chapters now (409 if one is running)",
+             responses={**_ERR, 409: {"model": ErrorResponse}})
+def post_check_now():
+    return tracking.start_check_now()
 
 
 @router.post("/notifications/{notification_id}/dismiss", dependencies=[require_permission("sources.import")], response_model=SourceNotification,

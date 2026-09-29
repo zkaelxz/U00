@@ -1,9 +1,11 @@
 /*
- * "Open a file" field and "Download result" button for the Translate page.
+ * "Open a file" field and "Download" button for the Translate page.
  * Pure logic lives in translateFile.ts; these handlers take their browser
  * pieces (FileReader, object URLs) as arguments so they can be tested in node.
  */
-import { Field } from '../components/Field'
+import { useId } from 'react'
+
+import { buttonClass } from '../components/uiClasses'
 import {
   ACCEPT_ATTR,
   downloadName,
@@ -14,6 +16,9 @@ import {
   type FileLoadTarget,
 } from './translateFile'
 
+// The native file input is visually hidden; its <label> is drawn as a small
+// secondary button (focus shows on the label via translate.css). The hint and
+// the result line stay visible text, never a tooltip.
 export function OpenFileField({
   sourceName,
   message,
@@ -23,27 +28,37 @@ export function OpenFileField({
   message: string | null
   target: FileLoadTarget
 }) {
+  const id = useId()
+  const hintId = `${id}-hint`
   return (
     <div className="translate-file">
-      <Field
-        label="Open a file"
-        help="Plain text (.txt or .md). Its text replaces what is in the box below."
-        error={message}
-      >
-        <input
-          type="file"
-          accept={ACCEPT_ATTR}
-          onChange={(e) => {
-            const input = e.currentTarget
-            void loadChosenFile(input.files?.[0], target, fileReaderBytes).finally(() => {
-              input.value = ''
-            })
-          }}
-        />
-      </Field>
-      {sourceName && !message && (
-        <span className="muted" role="status">
+      <input
+        id={id}
+        type="file"
+        className="visually-hidden"
+        accept={ACCEPT_ATTR}
+        aria-describedby={hintId}
+        onChange={(e) => {
+          const input = e.currentTarget
+          void loadChosenFile(input.files?.[0], target, fileReaderBytes).finally(() => {
+            input.value = ''
+          })
+        }}
+      />
+      <label htmlFor={id} className={buttonClass('secondary', 'sm')}>
+        Open a file…
+      </label>
+      {message ? (
+        <span id={hintId} className="translate-file-error" role="alert">
+          {message}
+        </span>
+      ) : sourceName ? (
+        <span id={hintId} className="muted" role="status">
           Loaded {sourceName}
+        </span>
+      ) : (
+        <span id={hintId} className="muted">
+          .txt or .md; replaces the text below
         </span>
       )}
     </div>
@@ -65,10 +80,11 @@ export function DownloadResultButton({
   return (
     <button
       type="button"
-      className="translate-download"
+      className={buttonClass('secondary', 'sm', 'translate-download')}
+      aria-label={`Download result (${name})`}
       onClick={() => downloadText(result, name, deps)}
     >
-      Download result ({name})
+      Download
     </button>
   )
 }

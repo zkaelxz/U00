@@ -299,6 +299,10 @@ baihe-subtitler/
 │   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
 │   │                             S-5 novel text from a pasted URL
 │   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
+│   ├── sources_tracking_service.py Sources S-7 -- "Check now" (the sources_chapter_check job the scheduler
+│   │                             also uses) and which drama a tracked series auto-imports into
+│   ├── sources_signin_service.py Sources S-6/SO17 (PC only) -- sign-in window job, forget the saved profile,
+│   │                             per-tier "Test now" job; page URL must be public and on the source's site
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
@@ -306,7 +310,11 @@ baihe-subtitler/
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
 │   ├── line_ai_service.py        Migration Slice 50 -- per-line Improve translation / Why this?
-│   │                             (synchronous, read-only suggestions; id-addressed)
+│   │                             (synchronous, read-only suggestions; id-addressed); also
+│   │                             Alternatives / Grammar (review parity R17/R18)
+│   ├── line_tools_service.py     Review parity R19/R28 -- Pronounce (bounded edge-tts MP3 of a line's
+│   │                             source) and auto-shorten overlong lines (snapshot, then `en`-only
+│   │                             compare-and-set per line)
 │   ├── translation_version_service.py  Review parity R39 -- make a saved translation version the current
 │   │                             English (snapshot, then `en`-only write by line id; refuses restructured lines)
 │   ├── blocked_retry_service.py  Review parity R10 -- retry one content-blocked line with another engine
@@ -438,6 +446,8 @@ baihe-subtitler/
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
+│       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
+│       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
@@ -496,7 +506,11 @@ baihe-subtitler/
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
-│   │                              src/api/notifications.ts
+│   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
+│   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
+│   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
+│   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
+│   │                              <html data-theme>, applied in main.tsx)
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
@@ -504,7 +518,9 @@ baihe-subtitler/
 │   │                              (consistency, emotion), ReviewChecks (coverage/pacing, tendencies, version
 │   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
 │   │                              text) with RetranscribeLine (one-line re-transcribe job,
-│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested)
+│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested);
+│   │                              LineTools (alternatives, grammar, pronounce), ShortenOverlong (pacing
+│   │                              auto-shorten), tmDismiss.ts (per-session TM dismissals)
 │   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
@@ -516,9 +532,10 @@ baihe-subtitler/
 │   ├── src/pages/Live.tsx         Live page (#/live): paste a stream link, start a live capture session, poll
 │   │                              its transcript + translation, stop; api/live.ts (client + pure helpers,
 │   │                              unit-tested), types/live.ts, pages/live.css; e2e/live*.spec.ts + liveMocks.ts
-│   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters, SourceSettings, SourceDetail,
-│   │                              PacingForm, useSourcesJob (job-result polling + reattach), sourcesFormat.ts
-│   │                              (pure, unit-tested), sources.css
+│   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
+│   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
+│   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
+│   │                              sourcesFormat.ts (pure, unit-tested), sources.css
 │   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
 │   │                              (search, filters, add to Library, PC-only remove), platform search links,
 │   │                              baihehub search, navigation helper, add a title (from a URL or by hand),

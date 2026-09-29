@@ -8,7 +8,7 @@ import { buildAssRequest, emptyAssForm, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportAss } from './ExportAss'
 import { ExportFlags } from './ExportFlags'
-import { ExportEpub, ExportMediaJobs } from './ExportMedia'
+import { ExportEpub, ExportMediaJobs, MarkExported } from './ExportMedia'
 import { ExportSubtitles, type ExportFormat } from './ExportSubtitles'
 import './export.css'
 
@@ -115,9 +115,10 @@ export default function ExportStage() {
           </>
         )}
         <ExportSubtitles fmt={fmt} setFmt={setFmt} form={form} setForm={setForm} options={options} />
+        <MarkExported />
       </section>
       {options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />}
-      <Section title="More export" summary="flags, EPUB, audiobook, burned-in video">
+      <Section title="More export" summary="flags, EPUB, audiobook, video">
         <ExportFlags onDone={() => setReloads((n) => n + 1)} />
         {drama.content_mode === 'novel_narration' && <ExportEpub />}
         <ExportMediaJobs

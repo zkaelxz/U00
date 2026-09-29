@@ -13,7 +13,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import require_engines_allowed, require_permission
+from api.auth import is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, LiveSessionStart, LiveSessionStarted,
                          LiveSessionStatus, LiveSessionStopped, LiveSessionSummary)
 from services import live_service
@@ -35,26 +35,27 @@ def post_session(body: LiveSessionStart, request: Request):
         body.url, source_language=body.source_language, whisper_size=body.whisper_size,
         segment_seconds=body.segment_seconds, overlap_seconds=body.overlap_seconds,
         engine=body.engine, model=body.model, max_minutes=body.max_minutes,
-        use_gpu=body.use_gpu)
+        use_gpu=body.use_gpu, use_saved_cookies=is_local_request(request))
 
 
 @router.get("/sessions", dependencies=[require_permission("library.read")],
             response_model=List[LiveSessionSummary],
             summary="Live sessions started in this process")
-def list_sessions():
-    return live_service.list_sessions()
+def list_sessions(request: Request):
+    return live_service.list_sessions(principal=request.state.principal)
 
 
 @router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],
             response_model=LiveSessionStatus,
             summary="Session status and cues[after:] (poll with after=next_index)",
             responses=_ERRS)
-def get_session(session_id: str = _SID, after: int = Query(0, ge=0, le=10**9)):
-    return live_service.get_session(session_id, after)
+def get_session(request: Request, session_id: str = _SID,
+                after: int = Query(0, ge=0, le=10**9)):
+    return live_service.get_session(session_id, after, principal=request.state.principal)
 
 
 @router.post("/sessions/{session_id}/stop", dependencies=[require_permission("jobs.cancel")],
              response_model=LiveSessionStopped,
              summary="Stop a session (idempotent on a finished one)", responses=_ERRS)
-def post_stop(session_id: str = _SID):
-    return live_service.stop_session(session_id)
+def post_stop(request: Request, session_id: str = _SID):
+    return live_service.stop_session(session_id, principal=request.state.principal)

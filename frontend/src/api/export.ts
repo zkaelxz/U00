@@ -3,10 +3,13 @@ import type {
   AssExportRequest,
   AssStyleOptions,
   AutoQcFlagResult,
+  DubbedVideoRequest,
   ExportReadiness,
   FlagActionResult,
+  MarkExportedResult,
   MediaExportStarted,
   MediaKind,
+  SoftsubVideoRequest,
   SubtitleOptions,
 } from '../types/export'
 import { fetchBody, getJson, postJson } from './client'
@@ -57,5 +60,11 @@ export const startAudiobook = (id: number, f?: Fetch) =>
   postJson<MediaExportStarted>(`${dramaPath(id)}/audiobook`, undefined, f)
 export const startBurnedVideo = (id: number, req: AssExportRequest, f?: Fetch) =>
   postJson<MediaExportStarted>(`${dramaPath(id)}/burned-video`, req, f)
+export const startSoftsubVideo = (id: number, req: SoftsubVideoRequest, f?: Fetch) =>
+  postJson<MediaExportStarted>(`${dramaPath(id)}/softsub-video`, req, f)
+export const startDubbedVideo = (id: number, req: DubbedVideoRequest, f?: Fetch) =>
+  postJson<MediaExportStarted>(`${dramaPath(id)}/dubbed-video`, req, f)
+export const markExported = (id: number, f?: Fetch) =>
+  postJson<MarkExportedResult>(`${dramaPath(id)}/mark-exported`, undefined, f)
 export const getArtifactInfo = (id: number, kind: MediaKind, f?: Fetch) =>
   getJson<ArtifactInfo>(`/api/artifacts/dramas/${id}/${encodeURIComponent(kind)}/info`, f)

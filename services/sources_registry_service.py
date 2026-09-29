@@ -22,6 +22,7 @@ import re
 from urllib.parse import urlsplit
 
 import db
+from services import ownership_service
 from services.service_errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from sources import auth_browser, cache as src_cache, health, ladder, registry, store
@@ -49,6 +50,9 @@ SETTING_KEYS = (
 _URL_IN_TEXT = re.compile(r"https?://[^\s\"'<>)\]]+", re.IGNORECASE)
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*")
 _UNC_PATH = re.compile(r"\\\\[^\s\"'<>]+")
+# A query after a relative request path (requests' "url: /book/7?sig=..."),
+# which _URL_IN_TEXT (absolute URLs only) doesn't see.
+_REL_QUERY = re.compile(r"(?<=[\w/\]])\?[^\s)'\"<>]+")
 _POSIX_PATH = re.compile(r"(?<![\w:/.\-])(?:~|\.{1,2})?/(?:[\w.\-~@+ ]+/)+[\w.\-~@+]*|"
                          r"(?<![\w:/.\-])~/[\w.\-~@+]+")
 
@@ -81,6 +85,7 @@ def _scrub(text):
     text = _UNC_PATH.sub("[path]", text)
     text = _WIN_PATH.sub("[path]", text)
     text = _POSIX_PATH.sub("[path]", text)
+    text = _REL_QUERY.sub("", text)
     return text
 
 
@@ -244,9 +249,16 @@ def list_profiles() -> list:
     return out
 
 
-def list_tracked() -> list:
+def list_tracked(principal=None) -> list:
+    """Every tracked series (household-wide by decision). A linked drama
+    the principal can't see is reported as `drama_id: None`, so a private
+    drama's id doesn't leak (auth B2)."""
+    def linked(drama_id):
+        if drama_id is None or ownership_service.can_see_drama(principal, drama_id):
+            return drama_id
+        return None
     return [{"source": r["source"], "series_id": r["series_id"], "title": _scrub(r["title"]),
-             "url": safe_url(r.get("url")), "drama_id": r.get("drama_id"),
+             "url": safe_url(r.get("url")), "drama_id": linked(r.get("drama_id")),
              "last_checked": r.get("last_checked"),
              "last_check_error": _scrub(r.get("last_check_error"))}
             for r in store.list_tracked_series()]
@@ -342,6 +354,36 @@ def update_settings(changes: dict) -> dict:
     return get_settings()
 
 
+MAX_PROXY_URL_LEN = 500
+
+
+def set_proxy_url(url) -> dict:
+    """PC-only (the route is local_only): sets or clears ("") the HTTP(S)
+    proxy every source request goes through. Never echoed back: settings
+    show `proxy_configured` only, and no error names the value. A loopback
+    or private address is allowed here (a local proxy is the usual case)."""
+    if not isinstance(url, str):
+        raise InvalidInputError("The proxy must be text.")
+    text = url.strip()
+    if text:
+        bad = InvalidInputError("Use an http:// or https:// proxy address, e.g. "
+                                "http://127.0.0.1:8080.")
+        if len(text) > MAX_PROXY_URL_LEN or any(c.isspace() or ord(c) < 32 or ord(c) == 127
+                                                for c in text):
+            raise bad
+        try:
+            parts = urlsplit(text)
+            host = parts.hostname
+            parts.port  # noqa: B018 -- raises ValueError on a bad port
+        except ValueError:
+            raise bad from None
+        if parts.scheme.lower() not in ("http", "https") or not host or parts.query \
+                or parts.fragment or parts.path not in ("", "/"):
+            raise bad
+    store.set_setting("http_proxy_url", text)   # read per request (sources.http)
+    return get_settings()
+
+
 def reset_health(name: str) -> dict:
     _require_source(name)
     health.reset(name)
@@ -376,7 +418,7 @@ def dismiss_notification(notification_id: int) -> dict:
 
 
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
-                drama_id: int = None) -> list:
+                drama_id: int = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
     process's finished `sources_series_<source>` result for the same
     series (POST /api/sources/{name}/series): its chapters are recorded as
@@ -399,8 +441,9 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
         if not exists:
             raise NotFoundError("That series isn't tracked.")
         store.untrack_series(source, series_id)
-        return list_tracked()
-    if drama_id is not None and db.get_drama(drama_id) is None:
+        return list_tracked(principal)
+    if drama_id is not None and (db.get_drama(drama_id) is None or not
+                                 ownership_service.can_edit_drama(principal, drama_id)):
         raise NotFoundError(f"No drama with id {drama_id}.")
     status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
     result = status.get("result") if status.get("status") == "done" else None
@@ -416,4 +459,4 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
                        safe_url(info.get("url")), drama_id,
                        known_chapters=[SimpleNamespace(chapter_id=i, title=titles.get(i, ""))
                                        for i in ids])
-    return list_tracked()
+    return list_tracked(principal)

@@ -12,9 +12,9 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
 API_VERSION = "0.1"
 
@@ -185,15 +185,52 @@ class JobListResponse(BaseModel):
     count: int
 
 
+class SettingsPreferences(BaseModel):
+    """Persisted PC-side preferences (settings parity G05, G08, G09, G13,
+    G14, G15). Paths are paths only: a cookies file's contents are never
+    read or returned. The three paths are returned only to the PC itself;
+    any other caller gets "" there and only the *_configured booleans."""
+    default_engine: str
+    default_locale: str
+    default_style_note: str
+    episode_summary_engine: str
+    monthly_cap_usd: Optional[float] = None
+    ollama_num_ctx_override: int
+    whisper_model_path: str
+    ocr_backend: str
+    ocr_prefer_paddle_vl_manga: bool
+    tesseract_cmd: str
+    cookies_browser: Optional[str] = None
+    cookies_file: str
+    whisper_model_path_configured: bool = False
+    tesseract_cmd_configured: bool = False
+    cookies_file_configured: bool = False
+
+
+class SettingsChoices(BaseModel):
+    engines: List[str]
+    locales: List[str]
+    summary_engines: List[str]
+    ocr_backends: List[str]
+    cookie_browsers: List[str]
+
+
 class SettingsOverview(BaseModel):
     """Non-secret settings snapshot (Migration Slice 10) -- engine_keys
     reports only whether a key/endpoint is configured, never its value
-    (D2: keys are server-side only)."""
+    (D2: keys are server-side only). endpoints carries the Ollama,
+    LibreTranslate and GPT-SoVITS URLs only when they have no userinfo,
+    query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
+    preferences: SettingsPreferences
+    endpoints: Dict[str, Optional[str]]
+    monthly_cap_env_usd: float = 0.0
+    effective_monthly_cap_usd: float = 0.0
+    choices: SettingsChoices
 
 
 class TranslateEngine(BaseModel):
@@ -369,8 +406,8 @@ class TranscribeRunRequest(BaseModel):
     transcript_mode is "have_transcript" -- per Slice 19, it's never
     persisted server-side. tesseract_cmd is an optional, client-supplied
     path to the tesseract binary (hardsub_ocr with the "tesseract"
-    backend only) -- Streamlit's own equivalent Settings value has no
-    settings_service-backed home yet (Migration Slice 21)."""
+    backend only). The server runs it, so the run route accepts it only from
+    the PC itself (403 otherwise); omitted, the path saved in Settings applies."""
     source_language: Optional[str] = None
     chinese_script: Optional[str] = None
     transcript_text: Optional[str] = None
@@ -555,6 +592,7 @@ class DramaCreateResult(DramaDetail):
 class TranslateRunStylePreset(BaseModel):
     key: str
     label: str
+    guidance: str = ""   # parity X04: what this style asks the translator for
 
 
 class TranslateRunWorkflowTier(BaseModel):
@@ -583,6 +621,8 @@ class TranslateRunConfig(BaseModel):
     locales: List[str]
     workflow_tiers: List[TranslateRunWorkflowTier]
     defaults: TranslateRunDefaults
+    default_locale: str = "en-US"
+    default_style_note: str = ""
     project_instructions: Optional[str] = None
     series_instructions: Optional[str] = None
     has_novel_reference: bool
@@ -717,6 +757,37 @@ class GlossaryTermUpsert(BaseModel):
 
 class GlossaryDeleteResult(BaseModel):
     deleted: bool
+
+
+class GlossaryImportRequest(BaseModel):
+    """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
+    by the browser; filename only hints the format. overwrite_existing
+    needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=1_000_000)
+    filename: str = Field(default="", max_length=255)
+    overwrite_existing: StrictBool = False
+    confirm: StrictBool = False
+
+
+class GlossaryImportResult(BaseModel):
+    added: List[str]
+    overwritten: List[str]
+    skipped_existing: List[str]
+    invalid: List[str]
+    warnings: List[str]
+
+
+class GlossaryBulkDeleteRequest(BaseModel):
+    """Parity X13: term ids (never positions); needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    term_ids: List[StrictInt] = Field(min_length=1, max_length=1000)
+    confirm: StrictBool = False
+
+
+class GlossaryBulkDeleteResult(BaseModel):
+    deleted: List[int]
+    not_found: List[int]
 
 
 class GlossaryInstructions(BaseModel):
@@ -1012,13 +1083,28 @@ class ReviewRecordsTmSuggestion(BaseModel):
 
 
 class SettingsUpdateRequest(BaseModel):
-    """Non-secret Settings writes (Migration Slice 23). Booleans only;
-    unknown fields are rejected -- keys/URLs/paths are never accepted."""
+    """Non-secret Settings writes (Migration Slice 23; preferences added for
+    settings parity). Unknown fields are rejected; keys and endpoint URLs
+    are never accepted here (they have their own guarded routes).
+    settings_service.set_settings re-validates every value. For
+    monthly_cap_usd, null clears the saved cap (the .env value applies)."""
     model_config = ConfigDict(extra="forbid")
     gpu_limit_enabled: Optional[StrictBool] = None
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
+    default_engine: Optional[StrictStr] = Field(None, max_length=40)
+    default_locale: Optional[StrictStr] = Field(None, max_length=8)
+    default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
+    episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
+    monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
+    ollama_num_ctx_override: Optional[StrictInt] = None
+    whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)
+    ocr_backend: Optional[StrictStr] = Field(None, max_length=40)
+    ocr_prefer_paddle_vl_manga: Optional[StrictBool] = None
+    tesseract_cmd: Optional[StrictStr] = Field(None, max_length=1024)
+    cookies_browser: Optional[StrictStr] = Field(None, max_length=40)
+    cookies_file: Optional[StrictStr] = Field(None, max_length=1024)
 
 
 class DramaDeleteResult(BaseModel):
@@ -1063,8 +1149,10 @@ class LinesFindReplaceApplyResult(BaseModel):
 
 
 class LinesAcceptTmRequest(BaseModel):
+    """expected_en: the line's English the client saw (409 if it changed)."""
     model_config = ConfigDict(extra="forbid")
     entry_id: int = Field(ge=1)
+    expected_en: str = Field(max_length=20000)
 
 
 class LinesNoteCreate(BaseModel):
@@ -1415,6 +1503,26 @@ class MediaExportStarted(BaseModel):
     job_id: str
 
 
+class SoftsubVideoRequest(BaseModel):
+    """Parity E17: which subtitles go into the muxed track."""
+    model_config = ConfigDict(extra="forbid")
+    field: str = Field(default="en", pattern="^(en|zh|bilingual)$")
+    include_notes: StrictBool = False
+
+
+class DubbedVideoRequest(BaseModel):
+    """Parity E19: keep_original mixes the original audio in at -20 dB
+    instead of replacing it."""
+    model_config = ConfigDict(extra="forbid")
+    keep_original: StrictBool = False
+
+
+class MarkExportedResult(BaseModel):
+    """Parity E22: the drama's status after "Mark as exported"."""
+    drama_id: int
+    status: str
+
+
 class TranslateBulkResumeEntry(BaseModel):
     bulk_job_id: int
     state: str  # "polling" | "needs_key" | "running"
@@ -1524,6 +1632,20 @@ class EngineKeyResult(BaseModel):
     configured: bool
 
 
+class EndpointUrlSetRequest(BaseModel):
+    """Ollama / LibreTranslate / GPT-SoVITS URL (settings parity G06). An
+    http(s) URL with no userinfo, query or fragment."""
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(..., max_length=300)
+    confirm: StrictBool = False
+
+
+class EndpointUrlResult(BaseModel):
+    name: str
+    url: Optional[str] = None
+    configured: bool
+
+
 class LineExplainRequest(BaseModel):
     """Per-line AI helper request (Migration Slice 50). No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
@@ -1550,6 +1672,70 @@ class LineExplanation(BaseModel):
     explanation: str
     engine: str
     model: Optional[str] = None
+
+
+# --- Review per-line tools (review parity R17/R18/R28, R08/R43) ----------
+
+class LineAlternative(BaseModel):
+    translation: str
+    approach: str
+    tradeoff: str
+
+
+class LineAlternatives(BaseModel):
+    line_id: int
+    current_en: str
+    alternatives: List[LineAlternative]
+    engine: str
+    model: Optional[str] = None
+
+
+class LineGrammarPart(BaseModel):
+    word: str
+    reading: str
+    meaning: str
+    function: str
+
+
+class LineGrammar(BaseModel):
+    line_id: int
+    zh: str
+    parts: List[LineGrammarPart]
+    engine: str
+    model: Optional[str] = None
+
+
+class LinesShortenRequest(LineExplainRequest):
+    """Auto-shorten overlong lines. line_ids: only these (still only the
+    ones the pacing check calls too long); omitted = every such line.
+    confirm must be true: it overwrites English."""
+    line_ids: Optional[List[int]] = Field(None, max_length=1000)
+    confirm: StrictBool = False
+
+
+class LinesShortenedLine(BaseModel):
+    id: int
+    idx: int
+    before: str
+    after: str
+
+
+class LinesShortenResult(BaseModel):
+    shortened: int
+    unchanged: int
+    stale: int
+    remaining: int
+    snapshot_saved: bool
+    lines: List[LinesShortenedLine]
+
+
+class ReviewLinePosition(BaseModel):
+    """page: in the requested filter view (None if it hides the line);
+    page_all: with no filter. All None when there's no such line."""
+    line_id: Optional[int] = None
+    idx: Optional[int] = None
+    page: Optional[int] = None
+    page_all: Optional[int] = None
 
 
 # --- Discover catalog (Migration Slice 55) ---------------------------------
@@ -1878,7 +2064,8 @@ class LiveSessionStart(BaseModel):
     whisper_size: str = Field("small", max_length=10)
     segment_seconds: float = 20
     overlap_seconds: float = 3
-    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+    engine: Optional[str] = Field(None, max_length=40,
+                                  description="None = the Settings default engine (checked as paid).")
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
@@ -1923,7 +2110,8 @@ class LiveSessionStopped(BaseModel):
 class DiscoverTranslateQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     q: str = Field(max_length=500)
-    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+    engine: Optional[str] = Field(None, max_length=40,
+                                  description="None = Claude, the Discover default (checked as paid).")
 
 
 class DiscoverTranslateQueryResult(BaseModel):
@@ -2621,7 +2809,8 @@ class LibraryBulkDeleteRequest(BaseModel):
 class LibraryBulkTranslateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     drama_ids: LibraryDramaIds
-    default_locale: str = Field("en-US", max_length=5)
+    # Omitted: the Settings default English variant.
+    default_locale: Optional[str] = Field(None, max_length=5)
 
 
 class LibraryExportRequest(BaseModel):
@@ -2846,6 +3035,25 @@ class WorkflowTierApplied(BaseModel):
     engine_model: Optional[str] = None
     reflect: bool
     auto_qc: bool
+
+
+class TranslatePresetApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preset_id: StrictInt = Field(ge=1, le=2**31 - 1)
+
+
+class TranslatePresetApplied(BaseModel):
+    """Parity X03: the preset's engine (when set) is saved on the drama; the
+    rest is for the form. Nothing is started."""
+    drama_id: int
+    preset_id: int
+    name: str
+    translation_engine: Optional[str] = None
+    engine_model: Optional[str] = None
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: bool
+    include_genre_notes: bool
 
 
 class TranslatePresetSave(BaseModel):
@@ -3169,3 +3377,47 @@ class NovelFileTextRequest(BaseModel):
     the body itself, capped at 32 MB, before this is validated."""
     model_config = ConfigDict(extra="forbid")
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Sources S-6 sign-in, SO17 tier tests, S-7 check-now, tracked-series drama
+# link and the SO18 proxy (services/sources_signin_service.py,
+# services/sources_tracking_service.py, services/sources_registry_service.py).
+# Jobs are read with GET /api/sources/jobs/{job_id}/result.
+# ---------------------------------------------------------------------------
+
+class SourceSigninOpenRequest(BaseModel):
+    """`url`: a page on the source's own site ("" = its login page)."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field("", max_length=2000)
+
+
+class SourceSigninForgetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class SourceSigninForgetResult(BaseModel):
+    source: str
+    forgotten: bool
+    has_saved_signin: bool
+
+
+class SourceTierTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tier: Literal["static", "browser", "signed_in"]
+    url: StrictStr = Field(min_length=1, max_length=2000)
+
+
+class SourceTrackedDramaRequest(BaseModel):
+    """Which drama a tracked series auto-imports into (null = none)."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    drama_id: Optional[int] = Field(None, ge=1)
+
+
+class SourcesProxyRequest(BaseModel):
+    """"" clears it. Never returned: settings carry `proxy_configured` only."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field("", max_length=500)

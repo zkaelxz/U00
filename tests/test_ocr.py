@@ -98,15 +98,33 @@ class TestExtractTextTesseractCustomBinaryPath:
         Image.new("L", (10, 10), color=255).save(path)
         return str(path)
 
-    def test_sets_pytesseract_tesseract_cmd_when_given(self, monkeypatch, tmp_path):
+    def test_uses_tesseract_cmd_for_the_call_then_restores_it(self, monkeypatch, tmp_path):
+        """Security review (PR #439): the path is set for this call only, so
+        one run's binary never stays process-wide for later runs."""
         pytesseract = pytest.importorskip("pytesseract")
-        monkeypatch.setattr(pytesseract, "image_to_string", lambda *a, **k: "text")
+        seen = []
+        monkeypatch.setattr(pytesseract, "image_to_string",
+                            lambda *a, **k: seen.append(pytesseract.pytesseract.tesseract_cmd) or "text")
         monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract", raising=False)
 
         ocr.extract_text_tesseract(self._blank_image(tmp_path),
                                     tesseract_cmd=r"C:\Program Files\Tesseract-OCR\tesseract.exe")
 
-        assert pytesseract.pytesseract.tesseract_cmd == r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+        assert seen == [r"C:\Program Files\Tesseract-OCR\tesseract.exe"]
+        assert pytesseract.pytesseract.tesseract_cmd == "tesseract"
+
+    def test_restores_tesseract_cmd_when_ocr_raises(self, monkeypatch, tmp_path):
+        pytesseract = pytest.importorskip("pytesseract")
+
+        def boom(*a, **k):
+            raise RuntimeError("x")
+        monkeypatch.setattr(pytesseract, "image_to_string", boom)
+        monkeypatch.setattr(pytesseract.pytesseract, "tesseract_cmd", "tesseract", raising=False)
+
+        with pytest.raises(RuntimeError):
+            ocr.extract_text_tesseract(self._blank_image(tmp_path), tesseract_cmd="/evil")
+
+        assert pytesseract.pytesseract.tesseract_cmd == "tesseract"
 
     def test_leaves_default_tesseract_cmd_alone_when_not_given(self, monkeypatch, tmp_path):
         pytesseract = pytest.importorskip("pytesseract")

@@ -16,6 +16,8 @@ import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 import { JOB_RUNNING_MESSAGE, keptNote, structureErrorText } from './reviewLogic'
+import type { GoToLine } from './reviewResults'
+import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { lineNumber } from '../../../../lineNumber'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
@@ -32,11 +34,13 @@ interface Props {
   reloads: number
   onChanged: () => void
   jobRunning: boolean
+  // Opens a line in the editor; resolves to null, or a message saying why not.
+  onGoTo: GoToLine
 }
 
 // Notes (add lives on each line), translation versions (use or delete), line
 // history with a typed-confirm Restore, and translation-memory suggestions.
-export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props) {
+export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }: Props) {
   const [records, setRecords] = useState<Records | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
@@ -47,6 +51,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
   const [activating, setActivating] = useState<number | null>(null)
   const [activated, setActivated] = useState<string | null>(null)
   const [activateError, setActivateError] = useState<unknown>(null)
+  const [jumpNote, setJumpNote] = useState<string | null>(null)
+  const tmDismissed = useTmDismissed(dramaId)
 
   useEffect(() => {
     let cancelled = false
@@ -143,8 +149,15 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
       .finally(() => setBusy(false))
   }
 
+  // A note's line (R43): the editor above opens it, on whatever page it is.
+  const jumpTo = (lineId: number) => {
+    setJumpNote(null)
+    void onGoTo({ lineId }).then(setJumpNote)
+  }
+
   if (!records) return <ErrorBanner error={error} onDismiss={() => setError(null)} />
-  const { notes, tm, versions, history } = records
+  const { notes, versions, history } = records
+  const tm = visibleTm(records.tm, tmDismissed)
   const counts: [string, number][] = [
     ['Notes', notes.length],
     ['TM suggestions', tm.length],
@@ -175,12 +188,18 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
             {notes.map((n) => (
               <li key={n.id}>
                 <span className="muted">#{n.line_idx === null ? '?' : lineNumber(n.line_idx)}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
+                {n.line_id !== null && (
+                  <button type="button" className="link review-jump" onClick={() => jumpTo(n.line_id as number)}>
+                    Go to line
+                  </button>
+                )}{' '}
                 <button type="button" className="link" onClick={() => act(deleteNote(dramaId, n.id))}>
                   Delete
                 </button>
               </li>
             ))}
           </ul>
+          {jumpNote && <p role="status" data-testid="note-jump-status">{jumpNote}</p>}
         </>
       )}
       {tm.length > 0 && (
@@ -195,11 +214,14 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
                   <button
                     type="button"
                     className="link"
-                    onClick={() => act(acceptTm(dramaId, s.line_id as number, s.entry_id))}
+                    onClick={() => act(acceptTm(dramaId, s.line_id as number, s.entry_id, s.en))}
                   >
                     Accept
                   </button>
-                )}
+                )}{' '}
+                <button type="button" className="link review-jump" onClick={() => dismissTmEverywhere(dramaId, s)}>
+                  Dismiss
+                </button>
               </li>
             ))}
           </ul>

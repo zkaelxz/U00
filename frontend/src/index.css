@@ -53,8 +53,10 @@
   color-scheme: light dark;
 }
 
+/* Dark tokens: the system's choice unless Settings > Appearance picked light
+   (data-theme="light"), and always when it picked dark (src/theme.ts). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #16161a;
     --accent-text: #b8a3ea;
     --field-bg: #17171c;
@@ -69,6 +71,27 @@
     --info: #9cc3f5;
     --shadow-1: 0 1px 2px color-mix(in srgb, #000 40%, transparent), 0 4px 14px color-mix(in srgb, #000 25%, transparent);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #16161a;
+  --accent-text: #b8a3ea;
+  --field-bg: #17171c;
+  --surface: #202026;
+  --text: #ececf1;
+  --muted: #9d9daa;
+  --border: #33333c;
+  --bad: #f2b8b5;
+  --ok: #8fd6a0;
+  --warn: #f0c36d;
+  --surface-2: #28282f;
+  --info: #9cc3f5;
+  --shadow-1: 0 1px 2px color-mix(in srgb, #000 40%, transparent), 0 4px 14px color-mix(in srgb, #000 25%, transparent);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -217,16 +240,7 @@ th { font-weight: 600; color: var(--muted); font-size: var(--font-sm); }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover, tbody tr.selected { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
-/* ---- details / engine list ---- */
-.engine-details { margin: 0 0 var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
-.engine-details summary { cursor: pointer; color: var(--muted); font-size: var(--font-sm); font-weight: 600; }
-.engine-details ul { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: var(--space-2); }
-.engine-head { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
-.engine-details .muted { font-size: var(--font-sm); }
-
 .result { white-space: pre-wrap; margin: 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); font: inherit; }
-.history-list { list-style: none; padding: 0 !important; display: grid; gap: var(--space-2); }
-.history-list li { padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 
 dl { margin: 0; }
 dl > div { display: grid; grid-template-columns: minmax(6rem, 9rem) minmax(0, 1fr); gap: var(--space-2); padding: var(--space-1) 0; }
@@ -367,6 +381,10 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 .bar-menu-body button:not(.link), .bar-menu-body select { min-height: 48px; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
+.rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
+.rename-form .error { flex-basis: 100%; margin: 0; }
 .confirm-button { display: inline-flex; align-items: center; gap: var(--space-2); }
 .admin-block { display: grid; gap: var(--space-2); }
 .admin-block h3 { margin: 0; }
@@ -410,9 +428,11 @@ button.toggle {
 }
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--text)); border-color: var(--muted); }
 @media (prefers-color-scheme: dark) {
-  button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
-  button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
+  :root:not([data-theme="light"]) button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
+  :root:not([data-theme="light"]) button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
 }
+:root[data-theme="dark"] button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
+:root[data-theme="dark"] button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
 button.toggle[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
 button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--text)); border-color: var(--accent); }
 .toggle-thumb {
