@@ -337,6 +337,36 @@ class TestShorten:
         third = client.post(_shorten(did), json={"confirm": True}).json()
         assert third["snapshot_saved"] and len(db.list_line_history(did)) == 2
 
+    @pytest.mark.parametrize("edited", [0, 2])
+    def test_manual_edit_between_runs_gets_its_own_snapshot(self, client, monkeypatch, edited):
+        # 0: a line the first run shortened; 2: one it didn't reach yet. Either
+        # way the manual (still overlong) text must stay undoable from History.
+        did, ids = _seed([Line(idx=i, start=i, end=i + 1, zh="字", en=LONG) for i in range(5)])
+        monkeypatch.setattr(line_tools_service, "MAX_SHORTEN_LINES", 2)
+
+        def fake(work, engine, usage_cb=None):
+            for w in work:
+                w.en = "s"
+            return work
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        assert client.post(_shorten(did), json={"confirm": True}).json()["snapshot_saved"]
+        manual = "my own words " + LONG
+        before = db.load_line_objects(did)[edited].en
+        assert db.update_line_fields_if(did, ids[edited], {"en": manual}, {"en": before})
+        second = client.post(_shorten(did), json={"confirm": True}).json()
+        assert second["snapshot_saved"] and second["shortened"] == 2
+        hist = db.list_line_history(did)
+        assert len(hist) == 2
+        assert db.get_line_history_snapshot(hist[0]["id"])[edited]["en"] == manual
+
+    def test_confirm_must_be_a_real_boolean(self, client, monkeypatch):
+        did, _ = _overlong_drama()
+        _forbid_writes(monkeypatch)
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
+        for bad in ("yes", "true", 1, "1"):
+            assert client.post(_shorten(did), json={"confirm": bad}).status_code == 422
+
     def test_needs_confirm(self, client, monkeypatch):
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)

@@ -1590,7 +1590,7 @@ class LinesShortenRequest(LineExplainRequest):
     ones the pacing check calls too long); omitted = every such line.
     confirm must be true: it overwrites English."""
     line_ids: Optional[List[int]] = Field(None, max_length=1000)
-    confirm: bool = False
+    confirm: StrictBool = False
 
 
 class LinesShortenedLine(BaseModel):

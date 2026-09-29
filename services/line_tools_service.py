@@ -96,26 +96,33 @@ def _snapshot_row(ln) -> dict:
             "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
 
 
+def _shorten_pass_key(drama_id: int) -> str:
+    return f"shorten_pass:{drama_id}"
+
+
 def _continues_last_shorten(drama_id: int, current) -> bool:
-    """True when the drama's newest line_history snapshot is an auto-shorten
-    one and nothing has changed since except the English of lines that were
-    too long in it -- i.e. this run continues the same shortening pass (the
-    "N more are left" re-run), so that snapshot already holds the lines
-    before it and a second one would only push older history out of the
-    10 kept."""
+    """True when the drama's newest line_history snapshot is the auto-shorten
+    one the last shorten pass took and nothing has changed since except the
+    English that pass (and its continuations) wrote -- i.e. this run
+    continues the same shortening pass (the "N more are left" re-run), so
+    that snapshot already holds the lines before it and a second one would
+    only push older history out of the 10 kept. A line whose English differs
+    from the snapshot but isn't exactly what the pass wrote (a manual edit
+    between runs) means a new snapshot, so that edit stays undoable."""
     hist = db.list_line_history(drama_id)
     if not hist or hist[0]["label"] != SHORTEN_SNAPSHOT_LABEL:
         return False
+    pass_info = db.get_app_setting(_shorten_pass_key(drama_id)) or {}
+    if pass_info.get("snapshot_id") != hist[0]["id"]:
+        return False
+    written = pass_info.get("written") or {}
     snap = db.get_line_history_snapshot(hist[0]["id"]) or []
     if len(snap) != len(current):
         return False
-    snap_lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
-                       en=r.get("en") or "", id=r.get("id")) for r in snap]
-    was_long = {ln.id for ln in _too_long_lines(snap_lines)}
     for row, ln in zip(snap, current):
         if {k: row.get(k) for k in _snapshot_row(ln)} != _snapshot_row(ln):
             return False
-        if (row.get("en") or "") != (ln.en or "") and ln.id not in was_long:
+        if (row.get("en") or "") != (ln.en or "") and written.get(str(ln.id)) != ln.en:
             return False
     return True
 
@@ -177,15 +184,20 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     out["stale"] = len(changed) - len(writable)
     if not writable:
         return out
-    if not _continues_last_shorten(drama_id, current):
+    if _continues_last_shorten(drama_id, current):
+        pass_info = db.get_app_setting(_shorten_pass_key(drama_id))
+    else:
         db.save_line_history_snapshot(drama_id, current, SHORTEN_SNAPSHOT_LABEL)
         out["snapshot_saved"] = True
+        pass_info = {"snapshot_id": db.list_line_history(drama_id)[0]["id"], "written": {}}
     for w in writable:
         new_en = w.en.strip()[:lines_service.MAX_LINE_TEXT_CHARS]
         if db.update_line_fields_if(drama_id, w.id, {"en": new_en}, {"en": before[w.id]}):
             out["shortened"] += 1
+            pass_info["written"][str(w.id)] = new_en
             out["lines"].append({"id": w.id, "idx": w.idx, "before": before[w.id],
                                  "after": new_en})
         else:
             out["stale"] += 1
+    db.set_app_setting(_shorten_pass_key(drama_id), pass_info)
     return out
