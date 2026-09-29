@@ -190,6 +190,30 @@ class TestFallbackAndBulkProjection:
         assert all(len(f["error"]) <= 120 for f in bulk["failed"])
         assert job["outcome"] == "partial"
 
+    def test_bulk_with_chinese_errors_is_trimmed_never_dropped(self, isolated_db):
+        result = self._bulk(errors={i: "密钥已被撤销" * 20 for i in range(20)},
+                            skipped_no_key=list(range(100, 120)))
+        out = jobs_service.project_result(result)
+        import json
+        assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= 8000
+        assert out["bulk"]["failed_count"] == 20
+        assert all(len(f["error"].encode("utf-8")) <= 120 for f in out["bulk"]["failed"])
+        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
+        db.save_job_record("b2", status="done", result_json=jobs_service.project_result_json(result))
+        assert jobs_service.get_job("b2")["outcome"] == "failed"
+
+    def test_bulk_partly_translated_drama_is_partial(self):
+        out = jobs_service.project_result(self._bulk(partial={4: "batch errors"}))
+        assert out["bulk"]["partial"] == [{"drama_id": 4, "reason": "batch errors"}]
+        assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
+
+    def test_bulk_cancelled(self):
+        out = jobs_service.project_result(self._bulk(cancelled=True))
+        assert out["bulk"]["cancelled"] is True
+        assert jobs_service.derive_outcome("done", None, out)[0] == "cancelled"
+        out = jobs_service.project_result(self._bulk(translated=[1], cancelled=True))
+        assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
+
 
 class TestGetJob:
     def test_returns_a_recorded_job(self, isolated_db):

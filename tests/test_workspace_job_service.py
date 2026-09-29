@@ -67,22 +67,27 @@ def _stub_style_sources(monkeypatch):
 
 
 def _capture_bulk_start(isolated_db, monkeypatch, engine, content_mode):
-    from services import translate_run_service
     did = isolated_db.create_drama(title_en="D", media_type="audio_drama", content_mode=content_mode,
                                    status="aligned", translation_engine=engine)
     isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
     _stub_style_sources(monkeypatch)
     summary = object()
-    monkeypatch.setattr(translate_run_service, "_summary_engine", lambda: (summary, "ollama"))
-    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: object())
     seen = {}
+
+    def fake_get_engine(name, key, *a, **k):
+        if name == "ollama" and key is None:
+            seen["summary_base_url"] = k.get("base_url")
+            return summary
+        return object()
+    monkeypatch.setattr(wjs.translate_engines, "get_engine", fake_get_engine)
 
     def fake_start(job_id, fn, *args, **kwargs):
         seen.update(args=args, kwargs=kwargs)
         return False
     monkeypatch.setattr(wjs.background_jobs, "start_job", fake_start)
     monkeypatch.setattr(wjs.db, "get_month_spend", lambda: 0.0)
-    wjs.run_bulk_series_translate_job("bulk_parity", [did], {engine: "k"}, monthly_cap=5.0)
+    wjs.run_bulk_series_translate_job("bulk_parity", [did], {engine: "k"}, monthly_cap=5.0,
+                                      ollama_base_url="http://gpu-box:11434")
     background_jobs.clear_job("bulk_parity")
     return seen, summary
 
@@ -95,6 +100,50 @@ def test_bulk_uses_novel_defaults_custom_notes_and_summary_engine(isolated_db, m
     assert kwargs["context_window_ahead"] == 6 and kwargs["batch_size"] == 30
     assert "LEARNED-STYLE" in style_guidelines and "EMOTION-GUIDE" in style_guidelines
     assert kwargs["summary_engine"] is summary and kwargs["summary_engine_choice"] == "ollama"
+    assert seen["summary_base_url"] == "http://gpu-box:11434"
+
+
+def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkeypatch):
+    """run_translate_job catches batch errors (e.g. a revoked key), so the
+    per-drama job ends "done" with errors; that is not a translated drama."""
+    import types
+    from services import jobs_service
+    did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
+                                   content_mode="audio_drama", status="aligned",
+                                   translation_engine="test_offline")
+    isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="句")])
+
+    class Revoked:
+        name = "test_offline"
+        supports_reference = False
+        last_usage = {}
+
+        def translate_batch(self, zh, context):
+            raise RuntimeError("401 invalid api key sk-ABCDEFGHIJKLMNOP12345")
+    monkeypatch.setattr(wjs.translate_engines, "get_engine", lambda *a, **k: Revoked())
+    real_time = wjs.time
+    stub = types.SimpleNamespace(**{n: getattr(real_time, n) for n in dir(real_time)
+                                    if not n.startswith("__")})
+    stub.sleep = lambda s: real_time.sleep(0.02)
+    monkeypatch.setattr(wjs, "time", stub)
+    background_jobs.clear_job(f"translate_{did}")
+    background_jobs.clear_job("bulk_revoked")
+    captured = {}
+    real_set = background_jobs.set_result
+
+    def spy(jid, res):
+        if jid == "bulk_revoked":
+            captured["result"] = res
+        real_set(jid, res)
+    monkeypatch.setattr(background_jobs, "set_result", spy)
+    wjs.run_bulk_series_translate_job("bulk_revoked", [did], {})
+    result = captured["result"]
+    assert result["translated"] == [] and result["partial"] == {did: "batch errors"}
+    projected = jobs_service.project_result(result)
+    assert "sk-ABCDEFGHIJKLMNOP12345" not in str(projected)
+    assert jobs_service.derive_outcome("done", None, projected)[0] == "partial"
+    background_jobs.clear_job(f"translate_{did}")
+    background_jobs.clear_job("bulk_revoked")
 
 
 @pytest.mark.parametrize("engine", ["google", "deepl"])
@@ -131,6 +180,9 @@ def test_fix_flagged_retranslate_gets_full_context(isolated_db, monkeypatch):
     assert ctx["locale"] == "en-GB" and ctx["source_language"] == "zh"
     assert "苏杉" in str(ctx["glossary_terms"])
     assert "LEARNED-STYLE" in ctx["style_guidelines"]
+    # Whole-drama emotion guidance is keyed "Line N"; the single-line
+    # prompt numbers its line "1.", so it is left out here.
+    assert "EMOTION-GUIDE" not in ctx["style_guidelines"]
     assert ctx["speaker_labels"] == ["Su Shan"]
     assert isolated_db.load_lines(did)[0]["en"] == "Su Shan is here."
     background_jobs.clear_job("fix_ctx")

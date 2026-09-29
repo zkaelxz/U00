@@ -41,7 +41,7 @@ def _id_by_idx(lines):
     return {ln.idx: ln.id for ln in lines}
 
 
-def build_run_style_context(drama_id, drama, lines, style_preset):
+def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=True):
     """(glossary_terms, style_guidelines, character_names) for one drama,
     built exactly as translate_run_service.start_translate_run builds them:
     series glossary, the learned style profile, emotion guidance and
@@ -52,7 +52,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset):
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
     learned = adaptive_style.profile_to_prompt_block(prof.get("profile", {})) if prof else ""
-    emap = db.load_emotions(drama_id)
+    emap = db.load_emotions(drama_id) if with_emotions else None
     emotion_block = emotion.build_emotion_guidance(emap, [ln.idx for ln in lines]) if emap else ""
     style_guidelines = tguide.build_style_guidelines(
         style_preset, glossary_terms=glossary_terms,
@@ -470,7 +470,7 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     drama = db.get_drama(drama_id) or {}
     style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     glossary_terms, style_guidelines, character_names = build_run_style_context(
-        drama_id, drama, lines, style_preset)
+        drama_id, drama, lines, style_preset, with_emotions=False)
     base_context = translate_engines.build_translation_context(
         engine, drama, locale=locale, glossary_terms=glossary_terms,
         style_guidelines=style_guidelines)
@@ -995,11 +995,18 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     translate path in the app that didn't enforce it at all.
     """
     # Imported here: translate_run_service imports this module.
-    from services import translate_run_service
-    summary_engine, summary_choice = translate_run_service._summary_engine()
+    from services import settings_service, translate_run_service
+    # Same default as translate_run_service._summary_engine (local Ollama,
+    # None if it can't be built), but at this job's own Ollama URL.
+    try:
+        summary_engine, summary_choice = translate_engines.get_engine(
+            "ollama", None, base_url=ollama_base_url
+            or settings_service.resolve_key("ollama_url") or None), "ollama"
+    except Exception:
+        summary_engine, summary_choice = None, None
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
-               "errors": {}}
+               "errors": {}, "partial": {}, "cancelled": False}
     models = models or {}
     total = len(drama_ids) or 1
     for i, did in enumerate(drama_ids):
@@ -1122,10 +1129,18 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
         if background_jobs.is_cancel_requested(job_id):
             break
         per_status = background_jobs.get_status(per_job_id) or {}
+        per_result = per_status.get("result") if isinstance(per_status.get("result"), dict) else {}
         if per_status.get("status") == "error":
             results["errors"][did] = per_status.get("error")
-        else:
+        elif (not per_result.get("errors") and per_result.get("cap_reached") is None) \
+                or (db.get_drama(did) or {}).get("status") == "translated":
             results["translated"].append(did)
+        else:
+            # run_translate_job catches batch errors, so a revoked key still
+            # ends "done": only a clean run (or a fully translated drama) counts.
+            results["partial"][did] = ("cost cap reached" if per_result.get("cap_reached") is not None
+                                       else "batch errors")
 
+    results["cancelled"] = background_jobs.is_cancel_requested(job_id)
     background_jobs.update_progress(job_id, 1.0, "Done")
     background_jobs.set_result(job_id, results)
