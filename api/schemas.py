@@ -1429,6 +1429,21 @@ class MediaAnalysis(BaseModel):
     has_audio: bool
     audio_track_count: int
     sample_rate: Optional[int] = None
+    # Parity P05: from media_inspect (the tab's media analysis).
+    width: Optional[int] = None
+    height: Optional[int] = None
+    fps: Optional[float] = None
+    subtitle_tracks: List["MediaSubtitleTrack"] = Field(default_factory=list)
+    suggested_pipeline: List[str] = Field(default_factory=list)  # advisory; nothing is applied
+
+
+class MediaSubtitleTrack(BaseModel):
+    index: Optional[int] = None
+    codec: str
+    language: Optional[str] = None
+
+
+MediaAnalysis.model_rebuild()
 
 
 class AutofillRequest(BaseModel):
