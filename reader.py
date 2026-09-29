@@ -65,6 +65,16 @@ FONT_STACKS = {
 }
 
 
+def _json_for_script(value) -> str:
+    """JSON that is safe inside an inline <script>: no `</script>`, `<!--`
+    or HTML-significant characters, and no U+2028/U+2029 line terminators.
+    The escapes are valid JSON/JS string escapes, so the value is unchanged."""
+    return (json.dumps(value, ensure_ascii=False)
+            .replace("&", "\\u0026").replace("<", "\\u003c")
+            .replace(">", "\\u003e").replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029"))
+
+
 def build_reader_html(lines, source_language: str, definitions: dict,
                        audio_data_uri: str = None, theme: str = "light",
                        font_size: int = 22, line_height: float = 2.4,
@@ -82,6 +92,11 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     """
     import segment
 
+    # These land in <style>; coerce so a string can't inject CSS/HTML.
+    font_size = int(font_size)
+    line_height = float(line_height)
+    max_width = int(max_width)
+
     rows_html = []
     for ln in lines:
         segments = segment.segment_and_annotate(ln.zh, source_language)
@@ -91,10 +106,10 @@ def build_reader_html(lines, source_language: str, definitions: dict,
                 word_spans.append(html.escape(word))
                 continue
             safe_word = html.escape(word)
-            key = json.dumps(word)  # safe JS string literal
+            key = html.escape(word, quote=True)  # dataset.word reads it back verbatim
             ruby = f"<rt>{html.escape(reading)}</rt>" if reading else ""
             word_spans.append(
-                f'<ruby class="word" data-word={key} onclick="showDef(this)">'
+                f'<ruby class="word" data-word="{key}" onclick="showDef(this)">'
                 f'{safe_word}{ruby}</ruby>'
             )
         raw_html = "".join(word_spans)
@@ -108,7 +123,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
           <div class="en-text">{en_html}</div>
         </div>""")
 
-    defs_json = json.dumps(definitions, ensure_ascii=False)
+    defs_json = _json_for_script(definitions)
     t = THEMES.get(theme, THEMES["light"])
     c_bg, c_fg, c_sub = t["bg"], t["fg"], t["sub"]
     c_border, c_hover, c_active, c_rt = t["border"], t["hover"], t["active"], t["rt"]
@@ -119,7 +134,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     en_size = max(12, int(font_size * 0.68))
     rt_size = max(9, int(font_size * 0.5))
     page_start_offset = lines[0].start if (audio_data_uri and lines) else 0.0
-    audio_html = f'<audio id="player" controls style="width:100%; margin-bottom:12px;"><source src="{audio_data_uri}"></audio>' if audio_data_uri else ""
+    audio_html = f'<audio id="player" controls style="width:100%; margin-bottom:12px;"><source src="{html.escape(audio_data_uri or "", quote=True)}"></audio>' if audio_data_uri else ""
     follow_html = ('<div id="followbar"><label><input type="checkbox" id="followchk" checked> '
                     'Follow along while playing</label>'
                     '<span id="followstatus" style="opacity:.7"></span></div>'
@@ -130,6 +145,7 @@ def build_reader_html(lines, source_language: str, definitions: dict,
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src data: blob:; img-src data:">
 <style>
   body {{ font-family: {font_stack}; margin: 0 auto; padding: 12px;
          max-width: {max_width}px;
@@ -190,12 +206,31 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     const entry = DEFS[word];
     const popup = document.getElementById('popup');
 
+    // Built with textContent only: word, reading and definitions can be
+    // LLM output and must never be parsed as HTML.
+    popup.replaceChildren();
+    const b = document.createElement('b');
+    b.textContent = word;
+    popup.appendChild(b);
     if (!entry) {{
-      popup.innerHTML = `<b>${{word}}</b><span class="reading">(no definition available)</span>`;
+      const span = document.createElement('span');
+      span.className = 'reading';
+      span.textContent = '(no definition available)';
+      popup.appendChild(span);
     }} else {{
-      const reading = entry.reading ? `<span class="reading">${{entry.reading}}</span>` : '';
-      const defs = (entry.definitions || []).map(d => `&bull; ${{d}}`).join('<br>');
-      popup.innerHTML = `<b>${{word}}</b>${{reading}}<div class="defs">${{defs}}</div>`;
+      if (entry.reading) {{
+        const span = document.createElement('span');
+        span.className = 'reading';
+        span.textContent = String(entry.reading);
+        popup.appendChild(span);
+      }}
+      const defsDiv = document.createElement('div');
+      defsDiv.className = 'defs';
+      (entry.definitions || []).forEach((d, i) => {{
+        if (i) defsDiv.appendChild(document.createElement('br'));
+        defsDiv.appendChild(document.createTextNode('\u2022 ' + String(d)));
+      }});
+      popup.appendChild(defsDiv);
     }}
     popup.style.display = 'block';
   }}

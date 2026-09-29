@@ -23,6 +23,8 @@ export interface MetaResponse {
   app: string
   api_version: string
   environment: string
+  // True when the viewer is at the PC (PC-only routes would allow the request).
+  local?: boolean
 }
 
 export interface DramaSummary {
