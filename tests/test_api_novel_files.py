@@ -1,0 +1,262 @@
+"""Tests for /api/novel/dramas/{id}/reference and /raw-novel (parity audit
+B1 #3/#4): the English novel reference and the raw original-language
+novel. Isolated library, tiny in-test files, no network or models."""
+
+import io
+import json
+import os
+import zipfile
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+pytest.importorskip("multipart")
+
+from fastapi.testclient import TestClient
+
+import background_jobs
+import db
+from api import auth as api_auth
+from api.api_config import ApiSettings
+from api.server import create_app
+from services import auth_service
+from services import novel_files_service as svc
+from services import translate_run_service
+
+LOCAL = {"X-Baihe-Local": "1"}
+REMOTE = "https://baihe.example.com"
+
+
+@pytest.fixture
+def client(isolated_db):
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False, headers=LOCAL)
+
+
+def _drama(**kw):
+    return db.create_drama(title_en="D", **kw)
+
+
+def _ref(did):
+    return f"/api/novel/dramas/{did}/reference"
+
+
+def _raw(did):
+    return f"/api/novel/dramas/{did}/raw-novel"
+
+
+def _up(c, url, data, name="book.txt", **kw):
+    return c.post(url, files={"file": (name, data, "text/plain")}, **kw)
+
+
+def _file(did, name):
+    with open(os.path.join(db.DRAMAS_DIR, str(did), name), encoding="utf-8") as f:
+        return f.read()
+
+
+def _no_leak(body):
+    text = json.dumps(body)
+    for needle in (db.DRAMAS_DIR, "novel_reference.txt", "raw_novel_context.txt",
+                   "book.txt", "/", "\\\\"):
+        assert needle not in text, needle
+
+
+def _epub(body_html):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("OEBPS/a.xhtml", f"<html><body>{body_html}</body></html>")
+    return buf.getvalue()
+
+
+# --- reference ---------------------------------------------------------------
+
+def test_reference_upload_status_replace_remove(client):
+    did = _drama()
+    s = client.get(_ref(did))
+    assert s.status_code == 200
+    assert s.json() == {"drama_id": did, "present": False, "size_bytes": 0, "char_count": 0}
+
+    r = _up(client, _ref(did), "Chapter 1\r\nShen Qingyi drew her sword.".encode())
+    assert r.status_code == 200, r.text
+    body = r.json()
+    _no_leak(body)
+    assert body["present"] and not body["replaced"]
+    assert body["char_count"] == len("Chapter 1\nShen Qingyi drew her sword.")
+    assert db.get_drama(did)["novel_reference_filename"] == "novel_reference.txt"
+    assert _file(did, "novel_reference.txt") == "Chapter 1\nShen Qingyi drew her sword."
+    # the translate run reads exactly what was uploaded
+    assert translate_run_service._load_novel_reference(did, db.get_drama(did)).startswith("Chapter 1")
+    assert translate_run_service.get_translate_config(did)["has_novel_reference"] is True
+
+    r = _up(client, _ref(did), b"New text", name="n.md")
+    assert r.status_code == 200 and r.json()["replaced"] is True
+    assert _file(did, "novel_reference.txt") == "New text"
+    st = client.get(_ref(did)).json()
+    assert st == {"drama_id": did, "present": True, "size_bytes": 8, "char_count": 8}
+
+    assert client.post(_ref(did) + "/remove", json={}).status_code == 422
+    r = client.post(_ref(did) + "/remove", json={"confirm": True})
+    assert r.status_code == 200 and r.json() == {"drama_id": did, "removed": True, "present": False}
+    assert db.get_drama(did)["novel_reference_filename"] is None
+    assert not os.path.exists(os.path.join(db.DRAMAS_DIR, str(did), "novel_reference.txt"))
+    assert client.post(_ref(did) + "/remove", json={"confirm": True}).status_code == 404
+
+
+def test_reference_encoding_fallback_cp1252(client):
+    did = _drama()
+    r = _up(client, _ref(did), "café — done".encode("cp1252"))
+    assert r.status_code == 200
+    assert _file(did, "novel_reference.txt") == "café — done"
+
+
+def test_reference_errors(client, monkeypatch):
+    assert client.get(_ref(999)).status_code == 404
+    assert _up(client, _ref(999), b"x").status_code == 404
+    assert client.post(_ref(999) + "/remove", json={"confirm": True}).status_code == 404
+    did = _drama()
+    assert _up(client, _ref(did), b"x", name="book.epub").status_code == 422
+    assert _up(client, _ref(did), b"x", name="book.exe").status_code == 422
+    assert _up(client, _ref(did), b"").status_code == 422
+    assert _up(client, _ref(did), b"  \r\n ").status_code == 422
+    monkeypatch.setattr(svc, "MAX_TEXT_BYTES", 10)
+    r = _up(client, _ref(did), b"x" * 11)
+    assert r.status_code == 422
+    _no_leak(r.json())
+    assert db.get_drama(did)["novel_reference_filename"] is None
+
+
+def test_reference_stored_name_outside_folder_is_ignored(client):
+    did = _drama()
+    db.update_drama(did, novel_reference_filename="../../etc/passwd")
+    assert client.get(_ref(did)).json()["present"] is False
+    # removal clears the bad field without touching anything outside
+    r = client.post(_ref(did) + "/remove", json={"confirm": True})
+    assert r.status_code == 200
+    assert db.get_drama(did)["novel_reference_filename"] is None
+
+
+def test_upload_refused_while_job_runs(client, monkeypatch):
+    did = _drama()
+    _up(client, _ref(did), b"old ref")
+    _up(client, _raw(did), "旧".encode())
+    monkeypatch.setattr(background_jobs, "any_job_running_for_drama", lambda d: d == did)
+    assert _up(client, _ref(did), b"new ref").status_code == 409
+    assert _up(client, _raw(did), "新".encode()).status_code == 409
+    assert client.post(_ref(did) + "/remove", json={"confirm": True}).status_code == 409
+    assert _file(did, "novel_reference.txt") == "old ref"
+    assert _file(did, "raw_novel_context.txt") == "旧"
+    # another drama's job does not block
+    other = _drama()
+    assert _up(client, _ref(other), b"fine").status_code == 200
+
+
+# --- raw novel ---------------------------------------------------------------
+
+def test_raw_novel_upload_status_and_existing_remove(client):
+    did = _drama()
+    assert client.get(_raw(did)).json()["present"] is False
+    r = _up(client, _raw(did), "沈清疑拔剑。".encode("utf-8"))
+    assert r.status_code == 200, r.text
+    _no_leak(r.json())
+    assert r.json()["char_count"] == 6 and r.json()["size_bytes"] == 18
+    assert _file(did, "raw_novel_context.txt") == "沈清疑拔剑。"
+    st = client.get(_raw(did)).json()
+    assert st["present"] and st["char_count"] == 6
+    # the existing delete route removes what this uploaded
+    rm = client.post(f"/api/novel/dramas/{did}/raw-novel/remove", json={"confirm": True})
+    assert rm.status_code == 200
+    assert client.get(_raw(did)).json()["present"] is False
+
+
+def test_raw_novel_legacy_encodings(client):
+    did = _drama()
+    _up(client, _raw(did), "沈清疑拔剑。".encode("gb18030"))
+    assert _file(did, "raw_novel_context.txt") == "沈清疑拔剑。"
+    tw = _drama(chinese_script="traditional")
+    _up(client, _raw(tw), "雲隱宗".encode("big5"))
+    assert _file(tw, "raw_novel_context.txt") == "雲隱宗"
+    ja = _drama(source_language="ja")
+    _up(client, _raw(ja), "こんにちは".encode("cp932"))
+    assert _file(ja, "raw_novel_context.txt") == "こんにちは"
+    bom = _drama()
+    _up(client, _raw(bom), "﻿甲".encode("utf-8"))
+    assert _file(bom, "raw_novel_context.txt") == "甲"
+
+
+def test_raw_novel_epub_and_errors(client):
+    did = _drama()
+    r = _up(client, _raw(did), _epub("<p>第一章</p>"), name="b.epub")
+    assert r.status_code == 200 and r.json()["char_count"] == 3
+    assert _file(did, "raw_novel_context.txt") == "第一章"
+    assert _up(client, _raw(did), b"not a zip", name="b.epub").status_code == 422
+    assert _up(client, _raw(did), b"x", name="b.pdf").status_code == 422
+    assert _up(client, _raw(999), b"x").status_code == 404
+    assert client.get(_raw(999)).status_code == 404
+    # failed uploads left the saved text alone
+    assert _file(did, "raw_novel_context.txt") == "第一章"
+
+
+def test_raw_novel_feeds_auto_prompt(client):
+    from services import transcribe_service
+    did = _drama()
+    _up(client, _raw(did), "云隐宗的弟子沈清疑。".encode())
+    prompt = transcribe_service.build_auto_initial_prompt(did)
+    assert "云隐宗" in prompt
+
+
+def test_multipart_upload_without_local_header_refused(isolated_db):
+    c = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    did = _drama()
+    assert _up(c, _ref(did), b"x").status_code == 403
+    assert _up(c, _raw(did), b"x").status_code == 403
+
+
+# --- permissions (BAIHE_API_AUTH=on) -----------------------------------------
+
+def _user(email, *perms):
+    u = auth_service.add_user(email)
+    for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+        if p not in perms:
+            auth_service.revoke_permission(u["id"], p)
+    for p in perms:
+        auth_service.grant_permission(u["id"], p)
+    return auth_service.create_session(u["id"], "pytest", "203.0.113.9")
+
+
+def _h(s):
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+            api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+def test_status_needs_library_read(isolated_db):
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                        raise_server_exceptions=False)
+    did = _drama()
+    nobody = _user("n@example.com")
+    reader = _user("r@example.com", "library.read")
+    for url in (_ref(did), _raw(did)):
+        assert remote.get(url).status_code == 401
+        assert remote.get(url, headers=_h(nobody)).status_code == 403
+        r = remote.get(url, headers=_h(reader))
+        assert r.status_code == 200 and r.json()["present"] is False
+
+
+def test_writes_are_pc_only(isolated_db):
+    did = _drama()
+    remote = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                        raise_server_exceptions=False)
+    admin = auth_service.grant_admin_local("admin@example.com")
+    s = auth_service.create_session(admin["id"], "pytest", "203.0.113.9")
+    for h in ({}, {**_h(s), **LOCAL}):
+        assert _up(remote, _ref(did), b"x", headers=h).status_code in (401, 403)
+        assert _up(remote, _raw(did), b"x", headers=h).status_code in (401, 403)
+        assert remote.post(_ref(did) + "/remove", json={"confirm": True},
+                           headers=h).status_code in (401, 403)
+    assert db.get_drama(did)["novel_reference_filename"] is None
+    local = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="http://127.0.0.1:8600",
+                       client=("127.0.0.1", 5000), raise_server_exceptions=False, headers=LOCAL)
+    assert _up(local, _ref(did), b"ok").status_code == 200
+    assert _up(local, _raw(did), b"ok").status_code == 200
+    assert local.post(_ref(did) + "/remove", json={"confirm": True}).status_code == 200
+    proxied = _up(local, _ref(did), b"x", headers={"X-Forwarded-For": "1.2.3.4"})
+    assert proxied.status_code == 403

@@ -27,6 +27,7 @@ import {
 } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
+import { NovelFilePanel } from './NovelFilePanel'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
@@ -131,6 +132,14 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       cancelled = true
     }
   }, [])
+
+  // The raw novel feeds the automatic prompt: refresh only that, keeping unsaved form edits.
+  const reloadAutoPrompt = () => {
+    getTranscribeConfig(dramaId).then(
+      (c) => setConfig((cur) => (cur ? { ...cur, auto_initial_prompt: c.auto_initial_prompt } : c)),
+      () => undefined,
+    )
+  }
 
   const setC = <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => {
     setSaved(false)
@@ -387,6 +396,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           />
         </Section>
       )}
+      <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />
     </section>
   )
 }

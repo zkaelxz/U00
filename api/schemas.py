@@ -2827,3 +2827,26 @@ class TranslatePresetSave(BaseModel):
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+# ---------------------------------------------------------------------------
+# Novel files (parity audit B1 #3/#4): the English novel translation
+# reference and the raw original-language novel. Booleans and counts only;
+# no filename or path is ever returned.
+# ---------------------------------------------------------------------------
+
+class NovelFileStatus(BaseModel):
+    drama_id: int
+    present: bool
+    size_bytes: int
+    char_count: int
+
+
+class NovelFileUploadResult(NovelFileStatus):
+    replaced: bool
+
+
+class NovelReferenceRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    present: bool
