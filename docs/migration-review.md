@@ -973,6 +973,13 @@ guarantee. Booleans/numbers only, never a key or the novel text. Out of
 scope: the start-translate job (Slice 40), bulk/Reflect runs (Slice 41),
 glossary review, style-preset CRUD and characters.
 
+**Slice 53 -- Dub track download (2026-09-29).** `GET
+/api/dub/dramas/{id}/track` streams the finished `dub_track.wav` (or
+`narration_track.wav` for narration dramas) as an attachment. The drama is
+verified, the path is never returned, the filename is server-built
+(`drama_<id>_<track>`), symlinks/escapes and a missing file give 404. The React
+Dub stage shows a plain download link once a track exists. No Range support yet.
+
 **Slice 42 — Characters and voice config (2026-09-28).**
 `services/characters_service.py` + `/api/characters/*`: list a drama's
 speakers with character/voice settings, a validated partial update
