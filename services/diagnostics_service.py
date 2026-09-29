@@ -56,11 +56,16 @@ def get_diagnostics_overview() -> dict:
     redacted the same way the Streamlit tab's own "copy for support"
     export already is."""
     running = background_jobs.list_running_jobs()
+    import core
+    gpu = dict(diagnostics.get_gpu_status())
+    # What faster-whisper's own runtime (ctranslate2) sees -- can differ
+    # from torch (missing cuBLAS/cuDNN makes Whisper silently use CPU).
+    gpu["whisper"] = core.gpu_status()
     return {
         "dependencies": diagnostics.check_all_dependencies(),
         "file_completeness": diagnostics.check_file_completeness(PROJECT_ROOT),
         "library_writable": diagnostics.check_library_writable(db.LIBRARY_DIR),
-        "gpu": diagnostics.get_gpu_status(),
+        "gpu": gpu,
         "model_engine_versions": diagnostics.get_model_engine_versions(),
         "running_jobs": [_job_summary(jid, j) for jid, j in running.items()],
         "recent_log_lines": [diagnostics.redact_for_support(ln) for ln in applog.tail(50)],
