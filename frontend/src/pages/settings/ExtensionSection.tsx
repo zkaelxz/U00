@@ -4,41 +4,49 @@
  * engine's key stays on the PC; only whether one is saved comes back. The token lives only in this component's state:
  * never persisted, never logged, and cleared on Hide, on unmount and after
  * 120 s.
+ *
+ * Layout (UI refresh §3.12): a Card with the on/off Toggle in its header;
+ * the engine picker and token show only while the bridge is on.
  */
 import { useEffect, useRef, useState } from 'react'
 
 import {
   getExtensionEngine, getExtensionStatus, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
 } from '../../api/extension'
+import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
-import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
+import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
+import { humanize } from '../../components/labels'
 import {
   COPIED_MS, TOKEN_VISIBLE_MS, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
 } from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
 
 const SERVER = { pcOnly: true, serverText: true } as const
+const TITLE = 'Browser extension'
+const HELP = 'Lets the browser extension on this PC send pages to Baihe to translate.'
 
 export function ExtensionSection() {
   const pc = usePcOnly()
   const pending = usePcPendingNote(pc)
   if (pending) {
     return (
-      <Section title="Browser extension" storageKey="settings.extension">
+      <Card title={TITLE} aria-label={TITLE}>
         <p className="muted" data-testid="pc-pending">{pending}</p>
-      </Section>
+      </Card>
     )
   }
   if (pc === 'remote') {
     return (
-      <Section title="Browser extension" summary={PC_ONLY_SUMMARY} storageKey="settings.extension">
+      <Card title={TITLE} meta={PC_ONLY_SUMMARY} aria-label={TITLE}>
         <p className="muted">{PC_ONLY_BODY}</p>
-      </Section>
+      </Card>
     )
   }
   return <ExtensionControls />
@@ -84,37 +92,35 @@ function ExtensionControls() {
   }
 
   return (
-    <Section
-      title="Browser extension"
-      storageKey="settings.extension"
-      summary={status ? extensionSummary(status) : undefined}
+    <Card
+      title={TITLE}
+      aria-label={TITLE}
+      meta={
+        status && (
+          <span aria-live="polite" data-testid="extension-note">
+            {note ?? extensionSummary(status)}
+          </span>
+        )
+      }
+      actions={
+        status && (
+          <Toggle aria-label="Extension bridge" checked={status.enabled} disabled={saving} onChange={toggle} />
+        )
+      }
     >
       <div className="diag-stack">
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={SERVER} />
-        {!status ? (
-          !error && <p className="muted">Loading…</p>
-        ) : (
-          <>
-            <div className="toggle-list">
-              <Field label="Extension bridge" help="Lets the browser extension on this PC send pages to Baihe.">
-                <input
-                  type="checkbox"
-                  checked={status.enabled}
-                  disabled={saving}
-                  onChange={(e) => toggle(e.target.checked)}
-                />
-              </Field>
-            </div>
-            {/* The section summary hides while open, so the status stays here. */}
-            <p className="muted" aria-live="polite" data-testid="extension-note">
-              {note ?? extensionSummary(status)}
-            </p>
-            <EnginePicker />
-            <TokenReveal />
-          </>
-        )}
+        <p className="settings-note">{HELP}</p>
+        {!status
+          ? !error && <p className="muted">Loading…</p>
+          : status.enabled && (
+              <>
+                <EnginePicker />
+                <TokenReveal />
+              </>
+            )}
       </div>
-    </Section>
+    </Card>
   )
 }
 
@@ -166,7 +172,7 @@ function EnginePicker() {
                 <option value="">None (original text only)</option>
                 {settings.engines.map((e) => (
                   <option key={e.name} value={e.name}>
-                    {e.name}
+                    {e.label || humanize('engine', e.name)}
                     {e.key_configured ? '' : ' (no key)'}
                   </option>
                 ))}
@@ -274,11 +280,12 @@ function TokenReveal() {
             aria-label="Extension token"
             onFocus={(e) => e.currentTarget.select()}
           />
-          <button type="button" onClick={() => void copy()}>
+          <button type="button" className={buttonClass('secondary')} onClick={() => void copy()}>
             Copy
           </button>
           <button
             type="button"
+            className={buttonClass('ghost')}
             onClick={() => {
               setToken(null)
               setAnnounce('Token hidden.')

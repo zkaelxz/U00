@@ -176,9 +176,9 @@ describe('browser extension', () => {
     expect(extensionEngineNote({ ...base, engine: null, ready: false })).toBe(
       'No engine: pages come back with their original text only.')
     expect(extensionEngineNote({ ...base, engine: 'claude', ready: false })).toBe(
-      'No claude key is saved on this PC, so pages come back untranslated.')
+      'No Claude key is saved on this PC, so pages come back untranslated.')
     expect(extensionEngineNote({ ...base, engine: 'claude', ready: true })).toBe(
-      'Pages are translated with claude. The key stays on this PC.')
+      'Pages are translated with Claude. The key stays on this PC.')
   })
 
 

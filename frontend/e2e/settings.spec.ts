@@ -6,9 +6,8 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await page.goto('/#/settings')
   const box = page.getByRole('switch', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
-  await page.locator('details.section', { hasText: 'API keys configured' }).locator('summary').click()
-  await expect(page.getByText(/Setting keys works only on that PC/)).toBeVisible()
-  await page.evaluate(() => localStorage.removeItem('baihe.section.settings.api-keys'))
+  // API keys are always visible now (no fold), with the .env explanation.
+  await expect(page.getByText(/Setting them works only on that PC/).first()).toBeVisible()
   const before = await box.isChecked()
 
   // The toggle updates optimistically; wait for the save to finish before reloading,
@@ -22,7 +21,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await Promise.all([saved(), box.click()]) // restore
   await expect(box).toBeChecked({ checked: before })
   for (const dd of await page.locator('[data-testid^="key-"]').all())
-    await expect(dd).toHaveText(/^(Yes|No|Configured: yes|Configured: no)$/) // secret keys (#345) vs URL fields
+    await expect(dd).toHaveText(/^(Set|Missing)$/) // set/missing only, never a key
 })
 
 test('a failed update rolls the toggle back and shows an error', async ({ page }) => {
@@ -43,28 +42,47 @@ test('a failed update rolls the toggle back and shows an error', async ({ page }
   await expect(box).toBeChecked({ checked: before })
 })
 
-test('a collapsible section shows a summary, remembers its state and fits a phone', async ({ page }) => {
+test('API keys: status on every row, Set key opens that form in place, and the page fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 400, height: 800 })
   await page.goto('/#/settings')
-  const details = page.locator('details.section', { hasText: 'API keys configured' })
-  await expect(details.locator('.section-summary')).toHaveText(/\d+ of \d+ configured/)
-  await expect(details).not.toHaveAttribute('open', '')
+  const card = page.getByRole('region', { name: 'API keys' })
+  await expect(card.locator('.card-meta')).toHaveText(/^\d+ of \d+ set$/)
+  const rows = card.getByRole('list', { name: 'API keys' }).getByRole('listitem')
+  await expect(rows.first()).toBeVisible()
+  // Server addresses have their own block; no raw ids like hf_token here.
+  await expect(card.getByRole('list', { name: 'API keys' })).not.toContainText('_')
+  await expect(card.getByRole('textbox')).toHaveCount(0)
 
-  await details.locator('summary').click()
-  await expect(details).toHaveAttribute('open', '')
-  await expect(details.locator('.section-summary')).toHaveCount(0)
-  expect(await page.evaluate(() => localStorage.getItem('baihe.section.settings.api-keys'))).toBe('1')
-
-  await page.reload()
-  await expect(page.locator('details.section', { hasText: 'API keys configured' })).toHaveAttribute('open', '')
+  const open = card.getByRole('button', { name: /^(Set|Replace) Claude key$/ })
+  await expect(open).toHaveAttribute('aria-expanded', 'false')
+  await open.click()
+  const input = card.getByLabel('Claude key', { exact: true })
+  await expect(input).toHaveAttribute('type', 'password')
+  await expect(input).toHaveValue('')
+  await expect(input).toBeFocused()
+  await expect(card.getByRole('button', { name: 'Save key' })).toBeDisabled()
+  await card.getByRole('button', { name: 'Close Claude key' }).click()
+  await expect(card.getByRole('textbox')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-  await page.evaluate(() => localStorage.removeItem('baihe.section.settings.api-keys'))
+})
+
+test('away from the PC the key rows show status only, with no Set buttons', async ({ page }) => {
+  await page.route('**/api/meta', async (route) => {
+    const resp = await route.fetch()
+    return route.fulfill({ response: resp, json: { ...(await resp.json()), local: false } })
+  })
+  await page.goto('/#/settings')
+  const card = page.getByRole('region', { name: 'API keys' })
+  await expect(card.getByText('Setting keys is PC only.')).toBeVisible()
+  await expect(card.locator('[data-testid^="key-"]').first()).toHaveText(/^(Set|Missing)$/)
+  await expect(card.getByRole('button')).toHaveCount(0)
 })
 
 test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
-  const switches = page.getByRole('switch')
+  const switches = page.getByRole('region', { name: 'Jobs' }).getByRole('switch')
   await expect(switches).toHaveCount(4)
+  await expect(page.getByRole('switch', { name: 'Extension bridge' })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
   const sw = page.getByRole('switch', { name: /Gemini free tier/ })
   const before = (await sw.getAttribute('aria-checked')) === 'true'
