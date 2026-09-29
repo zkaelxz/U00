@@ -6,6 +6,7 @@ import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import type { CharacterEntry, CloneEngines, VoiceBankEntry } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
+import { SeriesCast } from './SeriesCast'
 import { buildCharacterUpdate, isDirty, toCharacterForm, type CharacterForm } from './characterForm'
 
 const COLUMNS = 7
@@ -139,7 +140,7 @@ function Row({ entry, engines, bank, onSaved }: {
 }
 
 export function CharactersPanel() {
-  const { dramaId } = useStage()
+  const { dramaId, drama } = useStage()
   const [entries, setEntries] = useState<CharacterEntry[] | null>(null)
   const [engines, setEngines] = useState<CloneEngines | null>(null)
   const [bank, setBank] = useState<VoiceBankEntry[]>([])
@@ -187,6 +188,7 @@ export function CharactersPanel() {
           </tbody>
         </table></div>
       )}
+      {drama.series_id ? <SeriesCast key={drama.series_id} seriesId={drama.series_id} /> : null}
       </div>
     </Section>
   )

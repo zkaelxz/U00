@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   acceptTm,
@@ -9,12 +9,15 @@ import {
   listVersions,
 } from '../../../../api/review'
 import { listAllLines, restoreSnapshot } from '../../../../api/restructure'
+import { deleteVersion } from '../../../../api/stageDeletes'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
 import { JOB_RUNNING_MESSAGE, structureErrorText } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
+import { ConfirmButton } from '../../../../components/ConfirmButton'
+import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
   notes: ReviewNote[]
@@ -38,6 +41,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
   const [restoring, setRestoring] = useState<HistoryItem | null>(null)
   const [busy, setBusy] = useState(false)
   const [restored, setRestored] = useState<string | null>(null)
+  const pc = usePcOnly()
+  const [versionError, setVersionError] = useState<unknown>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -64,6 +69,36 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
       setError(null)
       onChanged()
     }, setError)
+
+  // After a version delete, focus moves to the next row's Delete button (or
+  // the previous one), else to the Records summary, once the list reloads.
+  const versionsRef = useRef<HTMLUListElement>(null)
+  const focusAfterDelete = useRef<{ deletedId: number; nextId: number | null; summary: HTMLElement | null } | null>(null)
+  useEffect(() => {
+    const f = focusAfterDelete.current
+    if (!f || !records || records.versions.some((v) => v.id === f.deletedId)) return
+    focusAfterDelete.current = null
+    const next = f.nextId === null ? null
+      : versionsRef.current?.querySelector<HTMLButtonElement>(`li[data-version-id="${f.nextId}"] button`)
+    const target = next ?? (f.summary?.isConnected ? f.summary : null)
+    target?.focus()
+  }, [records])
+
+  const removeVersion = (v: VersionItem) => {
+    setVersionError(null)
+    const list = records?.versions ?? []
+    const i = list.findIndex((x) => x.id === v.id)
+    const next = list[i + 1] ?? list[i - 1] ?? null
+    const summary = versionsRef.current?.closest('details')?.querySelector<HTMLElement>(':scope > summary') ?? null
+    deleteVersion(dramaId, v.id).then(
+      () => {
+        setError(null)
+        focusAfterDelete.current = { deletedId: v.id, nextId: next?.id ?? null, summary }
+        onChanged()
+      },
+      setVersionError,
+    )
+  }
 
   // The restore endpoint needs the drama's current line ids; the snapshot of
   // the current lines is taken by the server before anything is replaced.
@@ -148,14 +183,24 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
       {versions.length > 0 && (
         <>
           <h4>Translation versions</h4>
-          <ul data-testid="versions-list">
+          <ul data-testid="versions-list" ref={versionsRef}>
             {versions.map((v) => (
-              <li key={v.id}>
+              <li key={v.id} data-version-id={v.id}>
                 {v.label ?? `Version ${v.id}`} · {v.engine} {v.model}
-                {v.is_active ? ' · active' : ''} <span className="muted">{v.created_at}</span>
+                {v.is_active ? ' · active' : ''} <span className="muted">{v.created_at}</span>{' '}
+                {pc === 'local' && (
+                  <ConfirmButton
+                    name={v.label ?? `Version ${v.id}`}
+                    disabled={jobRunning}
+                    onConfirm={() => removeVersion(v)}
+                  />
+                )}
               </li>
             ))}
           </ul>
+          {pc === 'local' && jobRunning && <p className="muted">Wait for the running job to finish.</p>}
+          {pc === 'remote' && <p className="muted">{PC_ONLY_DELETE_NOTE}</p>}
+          <ErrorBanner error={versionError} describe={{ pcOnly: true }} onDismiss={() => setVersionError(null)} />
         </>
       )}
       {history.length > 0 && (
