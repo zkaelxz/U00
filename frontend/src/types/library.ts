@@ -93,8 +93,28 @@ export interface DramaCreateRequest {
   title_zh?: string
   author?: string
   studio?: string
+  director?: string
+  voice_actors?: string
   summary?: string
   media_type?: string
+  // series_id and new_series_name are mutually exclusive.
+  series_id?: number
+  new_series_name?: string
+  preset_id?: number
+}
+
+// api/schemas.py DramaMetadataUpdate: partial, only sent keys are written.
+export interface DramaMetadataUpdate {
+  title_en?: string
+  title_zh?: string
+  author?: string
+  studio?: string
+  director?: string
+  voice_actors?: string
+  summary?: string
+  custom_tags?: string
+  media_type?: string
+  series_id?: number
 }
 
 export interface DramaDeleteResult {

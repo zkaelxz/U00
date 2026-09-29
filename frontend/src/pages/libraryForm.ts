@@ -17,7 +17,7 @@ export function validateCreate(form: DramaCreateRequest): string | null {
   if (!(form.title_en ?? '').trim() && !(form.title_zh ?? '').trim()) {
     return 'Enter an English or original title.'
   }
-  for (const key of ['title_en', 'title_zh', 'author', 'studio'] as const) {
+  for (const key of ['title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors'] as const) {
     if ((form[key] ?? '').length > MAX_NAME_LEN) {
       return `${key} is too long (max ${MAX_NAME_LEN} characters).`
     }
@@ -25,7 +25,35 @@ export function validateCreate(form: DramaCreateRequest): string | null {
   if ((form.summary ?? '').length > MAX_SUMMARY_LEN) {
     return `Summary is too long (max ${MAX_SUMMARY_LEN} characters).`
   }
+  if (form.new_series_name !== undefined) {
+    if (!form.new_series_name.trim()) return 'Enter a name for the new series.'
+    if (form.new_series_name.length > MAX_NAME_LEN) return `Series name is too long (max ${MAX_NAME_LEN} characters).`
+  }
   return null
+}
+
+// Series picker value for "create a new series".
+export const NEW_SERIES = 'new'
+
+export interface CreateExtras {
+  series: string // '' none, NEW_SERIES, or a series id
+  newSeriesName: string
+  preset: string // '' none, or a preset id
+}
+
+// The body POST /api/dramas gets: blank optional text is left out, and
+// series_id / new_series_name are never both sent.
+export function buildCreateRequest(form: DramaCreateRequest, extras: CreateExtras): DramaCreateRequest {
+  const out: DramaCreateRequest = { source_language: form.source_language }
+  for (const k of ['title_en', 'title_zh', 'author', 'studio', 'director', 'voice_actors', 'summary'] as const) {
+    const v = (form[k] ?? '').trim()
+    if (v) out[k] = v
+  }
+  if (form.media_type) out.media_type = form.media_type
+  if (extras.series === NEW_SERIES) out.new_series_name = extras.newSeriesName
+  else if (extras.series) out.series_id = Number(extras.series)
+  if (extras.preset) out.preset_id = Number(extras.preset)
+  return out
 }
 
 export const canConfirmDelete = (typed: string) => typed === 'DELETE'

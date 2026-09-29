@@ -101,19 +101,19 @@ class TestModelChoice:
 @pytest.fixture
 def no_asr(monkeypatch):
     """The ASR mock: re-running speaker detection must never call it."""
-    import tabs.workspace_tab as wt
-
     def boom(*a, **k):
         raise AssertionError("ASR was called during a speaker-detection re-run")
     monkeypatch.setattr(core, "transcribe_for_timing", boom)
-    monkeypatch.setattr(wt, "transcribe_for_timing", boom, raising=False)
+    # (A patch on tabs.workspace_tab.transcribe_for_timing used to sit here;
+    # the tab never calls that bare name -- its per-line re-transcribe goes
+    # through core_module, patched above -- so it was dropped for the
+    # Streamlit retirement.)
     import cli
     monkeypatch.setattr(cli, "transcribe_for_timing", boom)
     # Migration Slice 2: run_transcribe_job/run_fix_flagged_lines_job now
     # live in services/workspace_job_service.py and resolve this name from
     # their own module globals -- patching it there too is what actually
-    # covers that path now; the wt patch above is kept (raising=False) for
-    # whatever, if anything, still calls it via tabs.workspace_tab directly.
+    # covers that path now.
     from services import workspace_job_service
     monkeypatch.setattr(workspace_job_service, "transcribe_for_timing", boom)
 

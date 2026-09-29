@@ -102,3 +102,21 @@ export interface AutofillSuggestion {
   suggestion: Record<string, string>
   found: boolean
 }
+
+// api/schemas.py SourceConfig / SourceConfigUpdate (Source-stage config).
+export interface SourceConfig {
+  drama_id: number
+  source_language: string
+  chinese_script: string
+  content_mode: string
+  has_audio_pipeline: boolean
+  audio_available: boolean
+  has_video_source: boolean
+  transcript_mode: string
+  transcript_mode_options: string[]
+  has_raw_novel_context: boolean
+}
+
+export type SourceConfigUpdate = Partial<
+  Pick<SourceConfig, 'source_language' | 'chinese_script' | 'content_mode' | 'transcript_mode'>
+>

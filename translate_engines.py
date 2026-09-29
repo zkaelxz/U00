@@ -268,6 +268,17 @@ _SECRET_PATTERNS = [
                re.IGNORECASE),
     re.compile(r'\bsk-[A-Za-z0-9_-]{10,}\b'),
     re.compile(r'\bAIza[A-Za-z0-9_-]{10,}\b'),
+    # Hugging Face user access tokens: hf_ + 34 letters/digits today. The
+    # 20-char floor keeps ordinary identifiers like "hf_model" untouched.
+    re.compile(r'\bhf_[A-Za-z0-9]{20,}\b'),
+    # Groq keys: gsk_ + ~52 letters/digits.
+    re.compile(r'\bgsk_[A-Za-z0-9]{20,}\b'),
+    # DeepL keys: a UUID, with ":fx" on Free-plan keys. A bare UUID is
+    # only redacted with the ":fx" suffix or after "DeepL-Auth-Key", so
+    # the app's own UUID ids stay readable in logs.
+    re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:fx\b',
+               re.IGNORECASE),
+    re.compile(r'(DeepL-Auth-Key\s+)[A-Za-z0-9:\-]{10,}', re.IGNORECASE),
 ]
 
 
