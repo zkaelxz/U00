@@ -1046,6 +1046,21 @@ def init_db():
             # Anki card type, set from the Reader right where the word was
             # looked up, rather than only via a bulk end-of-session export.
             _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+        # Auth slice B1: ownership and sharing (services/ownership_service.py).
+        # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
+        # owner / admins, shared" -- no admin id is guessed.
+        for table, col, coltype in (
+            ("dramas", "owner_user_id", "INTEGER"),
+            ("dramas", "is_private", "INTEGER DEFAULT 0"),
+            ("series", "owner_user_id", "INTEGER"),
+            ("series", "is_private", "INTEGER DEFAULT 0"),
+            ("users", "share_by_default", "INTEGER DEFAULT 1"),
+            ("translate_history", "user_id", "INTEGER"),
+            ("job_records", "owner_user_id", "INTEGER"),
+        ):
+            cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            if col not in cols:
+                _safe_alter(conn, f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
         conn.commit()
     _migrate_line_refs_to_ids()
     _migrate_step26e_profiles()
@@ -1293,10 +1308,19 @@ def get_drama(drama_id: int):
 
 def list_dramas(search: str = "", studio: str = "", author: str = "",
                  voice_actor: str = "", status: str = "", source_language: str = "",
-                 media_type: str = ""):
+                 media_type: str = "", visible_to: int = None):
+    """`visible_to` (auth slice B1): a non-admin user id; when set, only
+    dramas that user may see are returned (their own, or neither the drama
+    nor its series private). None = unfiltered. The rule itself lives in
+    services/ownership_service.py; admins/local owner pass None."""
     with contextlib.closing(get_conn()) as conn:
         query = f"{_DRAMA_SELECT} WHERE 1=1"
         params = []
+        if visible_to is not None:
+            query += (" AND (dramas.owner_user_id = ? OR (COALESCE(dramas.is_private, 0) = 0"
+                      " AND NOT EXISTS (SELECT 1 FROM series s WHERE s.id = dramas.series_id"
+                      " AND COALESCE(s.is_private, 0) = 1)))")
+            params.append(visible_to)
         if search:
             query += " AND (title_zh LIKE ? OR title_en LIKE ? OR summary LIKE ?)"
             like = f"%{search}%"
@@ -1896,22 +1920,42 @@ def delete_known_title(title_id: int):
 # the same series, e.g. book 1/2/3 of the same title by the same author)
 # ---------------------------------------------------------------------------
 
-def get_or_create_series(name: str) -> int:
+def get_or_create_series(name: str, owner_user_id: int = None, is_private: bool = False) -> int:
+    """`owner_user_id`/`is_private` (auth slice B1) only stamp a newly
+    created row; an existing series is returned unchanged. Not
+    visibility-aware: non-admin callers use
+    ownership_service.get_or_create_series_for, which refuses a name taken
+    by a series they can't see."""
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT id FROM series WHERE name = ?", (name,)).fetchone()
         if row:
             conn.close()
             return row["id"]
-        cur = conn.execute("INSERT INTO series (name, created_at) VALUES (?, ?)",
-                            (name, datetime.datetime.utcnow().isoformat()))
+        cur = conn.execute("INSERT INTO series (name, created_at, owner_user_id, is_private) "
+                           "VALUES (?, ?, ?, ?)",
+                            (name, datetime.datetime.utcnow().isoformat(), owner_user_id,
+                             int(bool(is_private))))
         conn.commit()
         new_id = cur.lastrowid
     return new_id
 
 
-def list_series():
+def get_series_id_by_name(name: str):
     with contextlib.closing(get_conn()) as conn:
-        rows = conn.execute("SELECT * FROM series ORDER BY name").fetchall()
+        row = conn.execute("SELECT id FROM series WHERE name = ?", (name,)).fetchone()
+    return row["id"] if row else None
+
+
+def list_series(visible_to: int = None):
+    """`visible_to` (auth slice B1): a non-admin user id; when set, only
+    that user's own or non-private series. None = unfiltered."""
+    with contextlib.closing(get_conn()) as conn:
+        if visible_to is None:
+            rows = conn.execute("SELECT * FROM series ORDER BY name").fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM series WHERE owner_user_id = ? "
+                                "OR COALESCE(is_private, 0) = 0 ORDER BY name",
+                                (visible_to,)).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -2958,7 +3002,7 @@ def set_app_setting(key: str, value):
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
                     error: str = None, description: str = None, gpu_touching: bool = False,
                     started_at: float = None, finished_at: float = None,
-                    result_json: str = None):
+                    result_json: str = None, owner_user_id: int = None):
     """Mirrors one background_jobs.py job's status-transition fields into
     the cross-process job_records table (Migration Slice 7) -- records
     only, no resume: this is the *last written* state, not necessarily
@@ -2969,18 +3013,19 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
     with contextlib.closing(get_conn()) as conn:
         conn.execute("""
             INSERT INTO job_records (job_id, status, progress, message, error, description,
-                gpu_touching, started_at, finished_at, updated_at, result_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gpu_touching, started_at, finished_at, updated_at, result_json, owner_user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
                 status = excluded.status, progress = excluded.progress,
                 message = excluded.message, error = excluded.error,
                 description = excluded.description, gpu_touching = excluded.gpu_touching,
                 started_at = excluded.started_at, finished_at = excluded.finished_at,
                 updated_at = excluded.updated_at, result_json = excluded.result_json,
+                owner_user_id = COALESCE(job_records.owner_user_id, excluded.owner_user_id),
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
-              started_at, finished_at, time.time(), result_json))
+              started_at, finished_at, time.time(), result_json, owner_user_id))
         conn.commit()
 
 
@@ -3112,14 +3157,14 @@ def get_usage_by_drama():
 # ---------------------------------------------------------------------------
 
 def save_translate_history(source_language: str, target_language: str, engine: str,
-                           source_text: str, translated_text: str) -> int:
+                           source_text: str, translated_text: str, user_id: int = None) -> int:
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute("""
             INSERT INTO translate_history (source_language, target_language, engine,
-                                            source_text, translated_text, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                                            source_text, translated_text, created_at, user_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (source_language, target_language, engine, source_text, translated_text,
-              datetime.datetime.utcnow().isoformat()))
+              datetime.datetime.utcnow().isoformat(), user_id))
         conn.commit()
         new_id = cur.lastrowid
     return new_id
@@ -3512,7 +3557,8 @@ def reset_library():
 # writable column is whitelisted here because the UPDATE is built from keys.
 # ---------------------------------------------------------------------------
 
-_USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active")
+_USER_WRITABLE = ("google_sub", "email", "display_name", "is_admin", "is_active",
+                  "share_by_default")
 
 
 def auth_create_user(email: str, display_name: str = "", is_admin: bool = False) -> int:
@@ -3535,6 +3581,35 @@ def auth_update_user(user_id: int, **fields) -> bool:
     sets = ", ".join(f"{k} = ?" for k in fields)   # keys are whitelisted above
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(f"UPDATE users SET {sets} WHERE id = ?", (*fields.values(), user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_item_ownership(kind: str, item_id: int):
+    """Auth slice B1: the ownership fields of one drama or series, or None
+    if it doesn't exist. For a drama, `series_is_private` is included."""
+    with contextlib.closing(get_conn()) as conn:
+        if kind == "drama":
+            row = conn.execute(
+                "SELECT d.id, d.owner_user_id, COALESCE(d.is_private, 0) AS is_private, d.series_id, "
+                "COALESCE((SELECT s.is_private FROM series s WHERE s.id = d.series_id), 0) "
+                "AS series_is_private FROM dramas d WHERE d.id = ?", (item_id,)).fetchone()
+        elif kind == "series":
+            row = conn.execute("SELECT id, owner_user_id, COALESCE(is_private, 0) AS is_private "
+                               "FROM series WHERE id = ?", (item_id,)).fetchone()
+        else:
+            raise ValueError(f"unknown ownership kind: {kind!r}")
+    return dict(row) if row else None
+
+
+def set_item_private(kind: str, item_id: int, private: bool) -> bool:
+    """Auth slice B1: field-scoped write of is_private only."""
+    table = {"drama": "dramas", "series": "series"}.get(kind)
+    if table is None:
+        raise ValueError(f"unknown ownership kind: {kind!r}")
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(f"UPDATE {table} SET is_private = ? WHERE id = ?",
+                           (int(bool(private)), item_id))
         conn.commit()
         return cur.rowcount > 0
 

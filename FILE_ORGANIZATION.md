@@ -305,6 +305,8 @@ baihe-subtitler/
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
+│   ├── ownership_service.py      Auth slice B1 -- drama/series visibility (owner, private flag,
+│   │                             admin/local owner see all; denied = 404), share-by-default setting
 │   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │                                 attempts, settings, profiles, tracked, notifications) and config
 │                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
