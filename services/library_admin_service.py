@@ -310,7 +310,7 @@ def _check_expected_engines(expected) -> dict:
 
 
 def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
-                        expected_engines=None) -> dict:
+                        expected_engines=None, allow_paid_summary: bool = True) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
     dramas whose status is "aligned" (the same filter the tab applies) and
@@ -319,7 +319,8 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
     server-side. expected_engines ({drama_id: engine}, from
     bulk_translate_engines): a drama whose engine differs now, or later
     when the job reaches it, is skipped ("engine_changed"), so the engines
-    a caller was authorized for are the only ones used.
+    a caller was authorized for are the only ones used; allow_paid_summary=
+    False (no engines.paid) likewise skips a cloud episode-summary engine.
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     ids = _check_ids(drama_ids)
     if default_locale is None:
@@ -351,7 +352,8 @@ def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
         default_locale=default_locale,
         ollama_base_url=settings_service.resolve_key("ollama_url") or None,
         gemini_free_tier=settings_service.get_gemini_free_tier(),
-        models={}, monthly_cap=cap, expected_engines=expected_engines)
+        models={}, monthly_cap=cap, expected_engines=expected_engines,
+        allow_paid_summary=allow_paid_summary)
     if not started:
         raise ConflictError("A bulk translation is already running.")
     return {"job_id": BULK_TRANSLATE_JOB_ID, "queued": queued, "skipped": skipped}

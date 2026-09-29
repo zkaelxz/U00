@@ -595,6 +595,29 @@ class TestPaidEngines:
                                      )
         assert r.status_code == 200 and started[-1]["tesseract_cmd"] == "/usr/bin/tesseract"
 
+    def test_paid_summary_engine_skipped_without_engines_paid(self, isolated_db, monkeypatch):
+        """Security review (PR #439): a free run by a household user must not
+        trigger a cloud episode summary on the owner's key (single and bulk)."""
+        from services import library_admin_service, translate_run_service
+        runs, bulks = [], []
+        monkeypatch.setattr(translate_run_service, "start_translate_run",
+                            lambda *a, **k: runs.append(k) or {})
+        monkeypatch.setattr(library_admin_service, "bulk_translate_engines",
+                            lambda ids: {"engines": ["ollama"], "by_drama": {1: "ollama"}})
+        monkeypatch.setattr(library_admin_service, "start_bulk_translate",
+                            lambda *a, **k: bulks.append(k) or {})
+        c = _remote(_app())
+        _u, s = _user("jobs.start")
+        _u2, paid = _user_named("paid@example.com", "jobs.start", "engines.paid")
+        url = "/api/translate-run/dramas/1/run"
+        c.post(url, json={"engine": "ollama"}, headers=_h(s))
+        c.post(url, json={"engine": "ollama"}, headers=_h(paid))
+        assert [r["allow_paid_summary"] for r in runs] == [False, True]
+        bulk = "/api/library/admin/bulk/translate"
+        c.post(bulk, json={"drama_ids": [1]}, headers=_h(s))
+        c.post(bulk, json={"drama_ids": [1]}, headers=_h(paid))
+        assert [b["allow_paid_summary"] for b in bulks] == [False, True]
+
     def test_engines_paid_unlocks(self, isolated_db):
         c = _remote(_app())
         _u, s = _user("engines.paid")

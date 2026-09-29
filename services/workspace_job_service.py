@@ -75,7 +75,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        style_guidelines, engine_choice, style_preset, context_window=6,
                        ollama_num_ctx_override=None, reflect=False, cost_cap_usd=None,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
-                       summary_engine_choice=None, target_ids=None):
+                       summary_engine_choice=None, target_ids=None,
+                       summary_monthly_cap_usd=None):
     """
     The actual translation work, run inside a background thread by the
     Translate button. Deliberately touches nothing from Streamlit (no
@@ -98,6 +99,8 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
     translating, built by the caller (in the main thread, where Settings
     is readable) -- None if no summary engine is available/configured,
     which skips summary generation entirely rather than failing this job.
+    summary_monthly_cap_usd: the monthly cap, re-checked right before a
+    paid summary call (skipped once used up); None = no cap.
 
     target_ids: optional set of permanent line ids (Migration Slice 40's API
     start) -- only those lines are translated; None = every eligible line.
@@ -144,6 +147,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
             drama_id, lines, engine, engine_choice, style_preset, glossary_terms, errors,
             cancelled=background_jobs.is_cancel_requested(job_id),
             summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
+            summary_monthly_cap_usd=summary_monthly_cap_usd,
             line_scoped=target_ids is not None):
         background_jobs.set_result(job_id, {"errors": errors, "lines_replaced": True,
                                             "cap_reached": cap_reached.get("spent"),
@@ -964,7 +968,7 @@ def restore_library_backup(zip_bytes: bytes, library_dir: str, before_swap=None)
 def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_locale: str = "en-US",
                                   ollama_base_url: str = None, gemini_free_tier: bool = False,
                                   models: dict = None, monthly_cap: float = 0,
-                                  expected_engines: dict = None):
+                                  expected_engines: dict = None, allow_paid_summary: bool = True):
     """Step 9b.3: translates every drama in drama_ids that has no
     translation yet, queued ONE AT A TIME rather than all at once (same
     GPU/API-load reasoning as everywhere else in this app that queues
@@ -992,13 +996,17 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
     spending cap in USD, or 0/None for no cap -- re-checked against
     db.get_month_spend() before each drama, same as Workspace's and
     cli.py translate's own per-run cap resolution, since this was the one
-    translate path in the app that didn't enforce it at all.
+    translate path in the app that didn't enforce it at all. It is also
+    checked before each paid episode-summary call. allow_paid_summary=False
+    (a caller without engines.paid) skips a cloud summary engine picked in
+    Settings, so only the engines the caller was authorized for run.
     """
     # Imported here: translate_run_service imports this module.
     from services import settings_service, translate_run_service
     # Same Settings episode-summary engine as a single run (None if it
     # can't be built), at this job's own Ollama URL.
-    summary_engine, summary_choice = translate_run_service._summary_engine(ollama_base_url)
+    summary_engine, summary_choice = translate_run_service._summary_engine(
+        ollama_base_url, allow_paid=allow_paid_summary)
     results = {"translated": [], "skipped_running": [], "skipped_no_key": [],
                "skipped_no_lines": [], "skipped_cap": [], "skipped_engine_changed": [],
                "errors": {}, "partial": {}, "cancelled": False}
@@ -1090,6 +1098,7 @@ def run_bulk_series_translate_job(job_id, drama_ids, api_keys: dict, default_loc
             context_window_ahead=defaults["context_window_ahead"],
             batch_size=defaults["batch_size"],
             summary_engine=summary_engine, summary_engine_choice=summary_choice,
+            summary_monthly_cap_usd=monthly_cap,
             # Step 25d item 1: an Ollama-engine run touches the local GPU
             # like every other Ollama translation job in the app, and
             # needs the same GPU-job guard (Step 5c) so it can't run

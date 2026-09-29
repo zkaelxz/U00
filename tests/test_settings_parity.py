@@ -342,6 +342,68 @@ def test_summary_engine_cloud_without_key_is_skipped(isolated_db, env_file):
     assert translate_run_service._summary_engine() == (None, None)
 
 
+def test_summary_engine_paid_pick_skipped_when_not_allowed(isolated_db, env_file, monkeypatch):
+    """Security review (PR #439): a caller without engines.paid never gets a
+    cloud summary on the owner's key; a free (Ollama) pick still runs."""
+    from services import translate_run_service
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
+    settings_service.set_settings({"episode_summary_engine": "deepseek"})
+    assert translate_run_service._summary_engine(allow_paid=False) == (None, None)
+    assert translate_run_service._summary_engine()[1] == "deepseek"
+    settings_service.set_settings({"episode_summary_engine": "ollama"})
+    assert translate_run_service._summary_engine(allow_paid=False)[1] == "ollama"
+
+
+def test_translate_run_passes_allow_paid_summary_and_monthly_cap(isolated_db, env_file,
+                                                                monkeypatch):
+    from services import translate_run_service
+    did = _seed(isolated_db)
+    captured = {}
+
+    def fake_start_job(job_id, target, *a, **k):
+        captured.update(dict(zip(inspect.signature(target).parameters, a)))
+        captured.update(k)
+        return True
+    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    real_get_engine = translate_engines.get_engine
+    monkeypatch.setattr(translate_engines, "get_engine",
+                        lambda *a, **k: real_get_engine("test_offline", "offline"))
+    env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
+    settings_service.set_settings({"episode_summary_engine": "deepseek", "monthly_cap_usd": 7})
+
+    translate_run_service.start_translate_run(did, engine_name="test_offline",
+                                              allow_paid_summary=False)
+    assert captured["summary_engine"] is None and captured["summary_engine_choice"] is None
+    assert captured["summary_monthly_cap_usd"] == 7.0
+    background_jobs.clear_all_jobs()
+    translate_run_service.start_translate_run(did, engine_name="test_offline")
+    assert captured["summary_engine_choice"] == "deepseek"
+
+
+def test_library_bulk_translate_skips_paid_summary_when_not_allowed(isolated_db, env_file,
+                                                                   monkeypatch):
+    from services import library_admin_service, workspace_job_service
+    did = _seed(isolated_db, status="aligned", translation_engine="ollama")
+    env_file.write_text("BAIHE_DEEPSEEK_KEY=ds-key\n")
+    settings_service.set_settings({"episode_summary_engine": "deepseek", "monthly_cap_usd": 3})
+    starts = []
+
+    def fake_start_job(job_id, target, *a, **k):
+        starts.append((target, a, k))
+        return True
+    monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
+    library_admin_service.start_bulk_translate([did], allow_paid_summary=False)
+    target, a, k = starts[-1]
+    assert k["allow_paid_summary"] is False
+    # The coordinator job then builds no summary engine and passes the cap on.
+    starts.clear()
+    target(*a, **k)
+    per = [kw for t, _a, kw in starts if t is workspace_job_service.run_translate_job]
+    assert per and per[0]["summary_engine"] is None
+    assert per[0]["summary_monthly_cap_usd"] == 3.0
+
+
 def test_new_drama_is_stamped_with_default_engine(isolated_db, env_file):
     from services import drama_service
     assert drama_service.create_drama(source_language="zh", title_en="A")["translation_engine"] \

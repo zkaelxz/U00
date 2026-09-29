@@ -204,11 +204,15 @@ def _load_novel_reference(drama_id: int, drama: dict) -> Optional[str]:
         return f.read()
 
 
-def _summary_engine(ollama_url: Optional[str] = None):
+def _summary_engine(ollama_url: Optional[str] = None, allow_paid: bool = True):
     """The episode-summary engine from Settings (default local Ollama, as
     `cli.py translate`); (None, None), so the summary is skipped, if it
-    can't be built or a cloud pick has no key. Never fails the translation."""
+    can't be built or a cloud pick has no key. Never fails the translation.
+    allow_paid=False (an API caller without engines.paid) also skips a pick
+    outside translate_engines.FREE_ENGINES: it would spend the owner's key."""
     choice = settings_service.get_preference("episode_summary_engine")
+    if not allow_paid and choice not in translate_engines.FREE_ENGINES:
+        return None, None
     try:
         if choice == "ollama":
             return translate_engines.get_engine(
@@ -264,7 +268,8 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                         job_cost_cap_usd: float = None,
                         fallback_chain: list = None, reflect: bool = False,
                         bulk: bool = False, default_female_pronouns: bool = None,
-                        include_genre_notes: bool = None) -> dict:
+                        include_genre_notes: bool = None,
+                        allow_paid_summary: bool = True) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
     background job that does everything, DB write included: field-scoped
     `en` writes by permanent line id (run_translate_job), then the shared
@@ -451,7 +456,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
                 "target_line_count": len(eligible), "fallback_engines": [],
                 "reflect": reflect, "bulk": True}
 
-    summary_engine, summary_choice = _summary_engine()
+    summary_engine, summary_choice = _summary_engine(allow_paid=allow_paid_summary)
 
     started = background_jobs.start_job(
         job_id, workspace_job_service.run_translate_job,
@@ -462,6 +467,7 @@ def start_translate_run(drama_id: int, engine_name: str = None, model: str = Non
         cost_cap_usd=cost_cap,
         context_window_ahead=context_window_ahead, batch_size=batch_size,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
+        summary_monthly_cap_usd=_monthly_cap() or None,
         target_ids=target_ids, gpu_touching=any(c["engine"] == "ollama" for c in chain),
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (drama #{drama_id})")
     if not started:

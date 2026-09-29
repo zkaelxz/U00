@@ -462,6 +462,11 @@ def cmd_translate(args):
             base_url=_ollama_url(args) if summary_engine_choice == "ollama" else None)
     except Exception:
         summary_engine = None
+    # A paid summary engine counts against the monthly cap too (checked
+    # right before its call, in finish_translation_run).
+    summary_monthly_cap = getattr(args, "monthly_cap", None)
+    if summary_monthly_cap is None:
+        summary_monthly_cap = _monthly_cap_setting()
 
     def step(d):
         rows = db.load_lines(d["id"])
@@ -567,7 +572,8 @@ def cmd_translate(args):
         # still finds this drama.
         bulk_translate.finish_translation_run(
             d["id"], lines, engine, engine_name, style_preset, glossary_terms, batch_errors,
-            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice)
+            summary_engine=summary_engine, summary_engine_choice=summary_engine_choice,
+            summary_monthly_cap_usd=summary_monthly_cap)
         if "spent" in cap_reached:
             print(f"\n#{d['id']} stopped at the spending cap after about ${cap_reached['spent']:.2f} "
                   f"-- finished lines were kept; re-run with a higher cap to continue.")
