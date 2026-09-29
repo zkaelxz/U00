@@ -459,6 +459,10 @@ baihe-subtitler/
 │   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
 │   │                              text) with RetranscribeLine (one-line re-transcribe job,
 │   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested)
+│   │                              NovelFilePanel (novel reference in Translate, raw novel in Transcribe;
+│   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
+│   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
+│   │                              types/novelFiles.ts
 │   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
