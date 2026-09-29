@@ -75,6 +75,8 @@ test('Library at 360px: no sideways scroll; New drama and Details open bottom sh
   await page.getByRole('button', { name: 'Close' }).click()
   await page.getByRole('button', { name: 'Details: Signal' }).click()
   const sheet = page.getByRole('dialog', { name: 'Signal' })
+  // The details load after the sheet opens.
+  await expect(sheet.getByRole('link', { name: 'Open workspace' })).toBeVisible()
   await expectTall(page, '.drama-detail-actions .btn')
   const box = await sheet.boundingBox()
   expect(box && Math.round(box.y + box.height)).toBe(800)
