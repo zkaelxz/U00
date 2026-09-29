@@ -6,7 +6,8 @@ API batch 1). Thin: see services/diagnostics_gaps_service.py.
 Reads are `admin.diagnostics`: setup checks (Q01), model cache (Q14, list
 only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
 the server-side token and returns booleans only), finished-job history
-(Q09), log tail with keyword filter (Q18) and the support report (Q17).
+(Q09), log tail with keyword filter (Q18), the support report (Q17) and
+install presets (packages grouped by task, approx. sizes, PyPI links).
 
 Writes are `local_only()` plus `confirm=true`: dependency install and
 upgrade (Q06, package names from the service's whitelist only) and the
@@ -20,7 +21,8 @@ from typing import List
 from fastapi import APIRouter, Path, Query
 
 from api.auth import local_only, require_permission
-from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsInstallResult,
+from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsInstallPresets,
+                         DiagnosticsInstallResult,
                          DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
@@ -76,6 +78,13 @@ def get_log(n: int = Query(svc.LOG_TAIL_DEFAULT, ge=0, le=svc.LOG_TAIL_MAX),
             summary="A redacted plain-text report safe to share")
 def get_support_report():
     return {"report": svc.build_support_report()}
+
+
+@router.get("/install-presets", dependencies=[require_permission("admin.diagnostics")],
+            response_model=DiagnosticsInstallPresets,
+            summary="Packages grouped by task, with approx. sizes, PyPI links and caveats")
+def get_install_presets():
+    return svc.get_install_presets()
 
 
 @router.post("/dependencies/{package}/install", dependencies=[local_only()],

@@ -260,11 +260,13 @@ def installable_packages() -> set:
     names = {k for k, (_imp, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
              if tier in diagnostics.INSTALLABLE_TIERS}
     names |= {e["package"] for e in diagnostics.MODEL_ENGINE_REGISTRY if e.get("package")}
-    return names
+    return {n for n in names
+            if diagnostics.canonical_dist(diagnostics.pip_install_name(n))
+            not in diagnostics.NOT_OFFERED_FOR_INSTALL}
 
 
-def _pip(*args) -> list:
-    return [sys.executable, "-m", "pip", *args]
+def _pip(command: str, *args) -> list:
+    return [sys.executable, "-m", "pip", command, *diagnostics.PIP_INSTALL_FLAGS, *args]
 
 
 def _install_commands(name: str) -> list:
@@ -286,7 +288,7 @@ def _install_commands(name: str) -> list:
         return [(_pip("install", "--force-reinstall", "--no-deps", "torch", "torchaudio",
                       *index), GPU_TORCH_TIMEOUT_SECONDS),
                 (_pip("install", "torch", "torchaudio", *index), GPU_TORCH_TIMEOUT_SECONDS)]
-    return [(_pip("install", name), PIP_TIMEOUT_SECONDS)]
+    return [(_pip("install", diagnostics.pip_install_name(name)), PIP_TIMEOUT_SECONDS)]
 
 
 KILL_DRAIN_SECONDS = 5.0
@@ -356,10 +358,12 @@ def _stream_tree(cmd: list, timeout: float, drain_seconds: float = KILL_DRAIN_SE
 def _run_commands(cmds: list) -> dict:
     """Runs each (command, timeout) through _stream_tree; ok only if every
     one exits 0 in time. Stops at the first failure."""
-    tail, ok = [], True
+    tail, ok, hint = [], True, None
     for cmd, timeout in cmds:
         for item in _stream_tree(cmd, timeout):
             if "line" in item:
+                # Checked on the raw line: redaction rewrites the cache path.
+                hint = hint or diagnostics.pip_cache_permission_hint([item["line"]])
                 tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
             elif "returncode" in item:
                 ok = ok and item["returncode"] == 0 and not item.get("timed_out")
@@ -367,7 +371,7 @@ def _run_commands(cmds: list) -> dict:
                     tail = (tail + ["(stopped: pip took too long)"])[-_ADMIN_OUTPUT_TAIL:]
         if not ok:
             break
-    return {"ok": ok, "output_tail": tail}
+    return {"ok": ok, "output_tail": tail, "hint": None if ok else hint}
 
 
 def _run_pip(name: str, confirm, cmds_for) -> dict:
@@ -399,8 +403,59 @@ def install_dependency(name: str, confirm: bool = False) -> dict:
 
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
     return _run_pip(name, confirm, lambda n: [
-        (_pip("install", *diagnostics.upgrade_pip_args(n, _project_root())),
+        (_pip("install", *diagnostics.upgrade_pip_args(diagnostics.pip_install_name(n),
+                                                       _project_root())),
          PIP_TIMEOUT_SECONDS)])
+
+
+def _package_installed(name: str) -> bool:
+    dep = diagnostics.OPTIONAL_DEPENDENCIES.get(name)
+    if dep:
+        return bool(diagnostics.check_dependency(dep[0]))
+    return diagnostics.get_installed_version(diagnostics.pip_install_name(name)) is not None
+
+
+def _package_info(name: str, installed: bool, offered: set) -> dict:
+    dist = diagnostics.pip_install_name(name)
+    dep = diagnostics.OPTIONAL_DEPENDENCIES.get(name)
+    reason = diagnostics.known_install_limitation_reason(name)
+    return {
+        "name": name,
+        "dist": dist,
+        "installed": installed,
+        "installable": name in offered and not installed and reason is None,
+        "powers": dep[1] if dep else "",
+        "approx_mb": diagnostics.approx_download_mb(name),
+        "pulls_torch": diagnostics.canonical_dist(dist) in diagnostics.PULLS_TORCH,
+        "source_url": diagnostics.pypi_url(name),
+        "not_offered_reason": reason,
+        "warning": None if installed else diagnostics.install_downgrade_warning(name),
+    }
+
+
+def get_install_presets() -> dict:
+    """{"tasks": [...], "packages": {name: info}} for the Packages section:
+    install presets by task (diagnostics.INSTALL_TASKS) and, for every
+    installable package, its pip name, approx. download size, PyPI link,
+    and any reason not to offer it or warning before installing it. Local
+    checks only (import specs, installed metadata), no network."""
+    offered = installable_packages()
+    names = set(offered) | {n for t in diagnostics.INSTALL_TASKS for n in t["packages"]}
+    names |= {k for k, (_i, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
+              if tier in diagnostics.INSTALLABLE_TIERS}
+    packages = {n: _package_info(n, _package_installed(n), offered) for n in sorted(names)}
+    tasks = []
+    for t in diagnostics.INSTALL_TASKS:
+        rows = [packages[n] for n in t["packages"]]
+        missing = [r for r in rows if not r["installed"]]
+        tasks.append({
+            "id": t["id"], "group": t["group"], "label": t["label"], "help": t["help"],
+            "packages": list(t["packages"]),
+            "installed_count": len(rows) - len(missing),
+            "to_install": [r["name"] for r in missing if r["installable"]],
+            "approx_mb": sum(r["approx_mb"] or 0 for r in missing if r["installable"]),
+        })
+    return {"tasks": tasks, "packages": packages}
 
 
 def reset_library(confirm: bool = False, confirm_text: str = None) -> dict:

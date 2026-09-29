@@ -1,19 +1,26 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { installDependency, upgradeDependency } from '../../api/diagnostics'
+import { getInstallPresets, installDependency, upgradeDependency } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
-import type { DiagnosticsOverview } from '../../types/diagnostics'
+import type {
+  DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo,
+} from '../../types/diagnostics'
 import { splitDependencies } from '../diagnosticsFormat'
 import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, installBlockedReason, installConfirmLabel, installResultText,
   installableEngines, isInstallable, useDetailsOpen, type AdminBusy,
 } from './diagnosticsAdmin'
+import {
+  firstHint, groupTasks, packageSizeText, safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes,
+  taskOutput, taskResultText, taskStatus, type TaskRunResult,
+} from './installPresets'
 
 type Kind = 'install' | 'upgrade'
 type Outcome =
-  | { kind: Kind; name: string; ok: boolean; output: string[] }
+  // text: a task install's own summary line (otherwise installResultText).
+  | { kind: Kind; name: string; ok: boolean; output: string[]; hint?: string | null; text?: string }
   | { kind: Kind; name: string; error: unknown }
 
 /**
@@ -45,6 +52,19 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     return () => onOpenChange(false)
   }, [watching, onOpenChange])
 
+  // Presets are optional extras (sizes, links, tasks); the lists work without them.
+  const [presets, setPresets] = useState<DiagnosticsInstallPresets | null>(null)
+  const loadPresets = useCallback(() => {
+    getInstallPresets().then(setPresets, () => undefined)
+  }, [])
+  useEffect(() => loadPresets(), [loadPresets])
+  const changed = () => {
+    onChanged()
+    loadPresets()
+  }
+  const info = (name: string): DiagnosticsPackageInfo | undefined => presets?.packages[name]
+  const torchInstalled = !!overview.dependencies.torch?.installed
+
   const deps = splitDependencies(overview.dependencies)
   const engines = installableEngines(overview.model_engine_versions, Object.keys(overview.dependencies))
   const blocked = installBlockedReason(jobsActive, busy)
@@ -55,12 +75,42 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     setOutcome(null)
     try {
       const r = await (kind === 'install' ? installDependency(name) : upgradeDependency(name))
-      setOutcome({ kind, name, ok: r.ok, output: r.output_tail })
-      if (r.ok) onChanged()
+      setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint })
+      if (r.ok) changed()
     } catch (e) {
       setOutcome({ kind, name, error: e })
     } finally {
       onBusy(null)
+    }
+  }
+
+  // "Install for this task": one package at a time (the server runs one pip
+  // at a time); a failure doesn't stop the rest.
+  const runTask = async (t: DiagnosticsInstallTask) => {
+    setOutcome(null)
+    const results: TaskRunResult[] = []
+    try {
+      for (const [i, name] of t.to_install.entries()) {
+        onBusy({ kind: 'install', name: `${name} (${i + 1} of ${t.to_install.length})` })
+        try {
+          const r = await installDependency(name)
+          results.push({ name, ok: r.ok, output: r.output_tail, hint: r.hint })
+        } catch (e) {
+          if (!results.length) {
+            setOutcome({ kind: 'install', name: t.label, error: e })
+            return
+          }
+          results.push({ name, ok: false, output: [adminErrorText(e, 'install')] })
+        }
+      }
+      const ok = results.every((r) => r.ok)
+      setOutcome({
+        kind: 'install', name: t.label, ok, output: taskOutput(results), hint: firstHint(results),
+        text: taskResultText(t.label, results),
+      })
+    } finally {
+      onBusy(null)
+      if (results.some((r) => r.ok)) changed()
     }
   }
 
@@ -91,16 +141,45 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         <p className="muted" aria-live="polite" data-testid="install-running" id={runningId}>
           {running ?? ''}
         </p>
-        {outcome && <OutcomeBlock outcome={outcome} onRecheck={onChanged} />}
+        {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
+        {presets && presets.tasks.length > 0 && (
+          <Section storageKey="diagnostics.tasks" title="Install by task"
+            summary="Pick what you want to do; only its packages are installed.">
+            <div className="diag-stack" data-testid="install-tasks">
+              {groupTasks(sortTasksNeedingInstall(presets.tasks)).map((g) => (
+                <div key={g.group} className="diag-stack">
+                  <h4 className="task-group">{g.group}</h4>
+                  <ul aria-label={`${g.group} tasks`} className="pkg-list task-list">
+                    {g.tasks.map((t) => (
+                      <TaskRow key={t.id} task={t} packages={presets.packages}
+                        action={local && t.to_install.length > 0 && (
+                          <ConfirmButton
+                            name={t.label}
+                            label="Install for this task…"
+                            ariaLabel={`Install for ${t.label}`}
+                            verb="install"
+                            tone="primary"
+                            confirmLabel={taskConfirmLabel(t)}
+                            disabled={!!blocked}
+                            describedBy={running ? runningId : blocked ? reasonId : undefined}
+                            busy={!!busy && busy.kind === 'install' && t.to_install.some((n) => busy.name.startsWith(`${n} (`))}
+                            onConfirm={() => void runTask(t)}
+                          />
+                        )} />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
         {deps.missing.length > 0 && (
           <Section storageKey="diagnostics.missing" title="Missing packages" count={deps.missing.length}>
             <ul aria-label="Missing packages" className="pkg-list">
               {deps.missing.map((d) => (
                 <li key={d.name}>
-                  <span>
-                    <strong>{d.name}</strong> <span className="muted">{d.powers}</span>
-                  </span>
-                  {isInstallable(d.tier) && action('install', d.name)}
+                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} />
+                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('install', d.name)}
                 </li>
               ))}
             </ul>
@@ -111,10 +190,8 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             <ul aria-label="Model engines not installed" className="pkg-list">
               {engines.map((m) => (
                 <li key={m.name}>
-                  <span>
-                    <strong>{m.name}</strong> <span className="muted">{m.help}</span>
-                  </span>
-                  {action('install', m.package as string)}
+                  <PackageText name={m.name} text={m.help ?? ''} info={info(m.package as string)} torchInstalled={torchInstalled} />
+                  {!info(m.package as string)?.not_offered_reason && action('install', m.package as string)}
                 </li>
               ))}
             </ul>
@@ -125,9 +202,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
             <ul aria-label="Installed packages" className="pkg-list">
               {deps.installed.map((d) => (
                 <li key={d.name}>
-                  <span>
-                    <strong>{d.name}</strong> <span className="muted">{d.powers}</span>
-                  </span>
+                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} installed />
                   {isInstallable(d.tier) && action('upgrade', d.name)}
                 </li>
               ))}
@@ -136,6 +211,69 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         )}
       </div>
     </Section>
+  )
+}
+
+/** Name and purpose, then approx. size, a PyPI link, and any caveat. */
+function PackageText({ name, text, info, torchInstalled, installed = false }: {
+  name: string
+  text: string
+  info: DiagnosticsPackageInfo | undefined
+  torchInstalled: boolean
+  installed?: boolean
+}) {
+  const size = info && !installed ? packageSizeText(info, torchInstalled) : null
+  const url = safeSourceUrl(info?.source_url)
+  return (
+    <span className="pkg-text">
+      <span>
+        <strong>{name}</strong> <span className="muted">{text}</span>
+      </span>
+      {(size || url) && (
+        <span className="pkg-meta muted">
+          {size && <span data-testid="pkg-size">{size}</span>}
+          {url && (
+            <a className="pkg-source" href={url} target="_blank" rel="noopener noreferrer"
+              aria-label={`Source: ${info?.dist ?? name} on PyPI (opens in a new tab)`}>
+              Source ↗
+            </a>
+          )}
+        </span>
+      )}
+      {!installed && info?.not_offered_reason && <span className="muted" data-testid="pkg-not-offered">{info.not_offered_reason}</span>}
+      {!installed && !info?.not_offered_reason && info?.warning && <span className="warn">Warning: {info.warning}</span>}
+    </span>
+  )
+}
+
+function TaskRow({ task, packages, action }: {
+  task: DiagnosticsInstallTask
+  packages: Record<string, DiagnosticsPackageInfo>
+  action: ReactNode
+}) {
+  const notes = taskNotes(task, packages)
+  const size = task.to_install.length ? packageSizeText({ approx_mb: task.approx_mb, pulls_torch: false }, true) : null
+  return (
+    <li data-testid={`task-${task.id}`}>
+      <span className="pkg-text">
+        <span>
+          <strong>{task.label}</strong> <span className="muted">{task.help}</span>
+        </span>
+        <span className="pkg-meta muted">
+          <span className={task.to_install.length ? undefined : 'ok'}>{taskStatus(task)}</span>
+          {size && <span>· {size} to download</span>}
+        </span>
+        <span className="task-pkgs muted">
+          {task.packages.map((n) => (
+            <span key={n} className={packages[n]?.installed ? 'task-pkg installed' : 'task-pkg'}>
+              {packages[n]?.installed ? '✓ ' : ''}{n}
+            </span>
+          ))}
+        </span>
+        {notes.map((n) => <span key={n} className="warn">{n}</span>)}
+      </span>
+      {action}
+    </li>
   )
 }
 
@@ -166,12 +304,13 @@ function ResultBlock({ outcome }: { outcome: Extract<Outcome, { ok: boolean }> }
     const f = requestAnimationFrame(() => lineRef.current?.focus())
     return () => cancelAnimationFrame(f)
   }, [outcome])
-  const text = installResultText(outcome.kind, outcome.name, outcome.ok)
+  const text = outcome.text ?? installResultText(outcome.kind, outcome.name, outcome.ok)
   return (
     <div className="diag-stack" data-testid="install-result">
       <p ref={lineRef} tabIndex={-1} className={outcome.ok ? undefined : 'error'} role={outcome.ok ? 'status' : 'alert'}>
         {text}
       </p>
+      {!outcome.ok && outcome.hint && <p data-testid="install-hint">{outcome.hint}</p>}
       {/* Keyed by the result so a new one re-applies defaultOpen. */}
       <Section key={`${outcome.kind}-${outcome.name}-${outcome.ok}`} title="Output" defaultOpen={!outcome.ok}>
         <pre className="diag-pre">{outcome.output.length ? outcome.output.join('\n') : 'No output.'}</pre>

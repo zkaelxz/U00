@@ -2155,6 +2155,39 @@ class DiagnosticsInstallResult(BaseModel):
     package: str
     ok: bool
     output_tail: List[str]
+    # A plain-English next step for a known failure (pip's cache unwritable).
+    hint: Optional[str] = None
+
+
+class DiagnosticsPackageInfo(BaseModel):
+    name: str
+    dist: str
+    installed: bool
+    installable: bool
+    powers: str
+    approx_mb: Optional[int] = None
+    pulls_torch: bool
+    source_url: Optional[str] = None
+    not_offered_reason: Optional[str] = None
+    warning: Optional[str] = None
+
+
+class DiagnosticsInstallTask(BaseModel):
+    id: str
+    group: str
+    label: str
+    help: str
+    packages: List[str]
+    installed_count: int
+    to_install: List[str]
+    approx_mb: int
+
+
+class DiagnosticsInstallPresets(BaseModel):
+    """Install presets by task, plus per-package pip name, approx. size,
+    PyPI link and install caveats (GET /api/diagnostics/install-presets)."""
+    tasks: List[DiagnosticsInstallTask]
+    packages: Dict[str, DiagnosticsPackageInfo]
 
 
 class DiagnosticsResetRequest(BaseModel):

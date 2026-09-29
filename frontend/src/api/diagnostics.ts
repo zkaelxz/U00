@@ -2,6 +2,7 @@
 // (api/routers/diagnostics_gaps_routes.py). Install, upgrade and reset are
 // PC only and go through pcOnlyFetch (X-Baihe-Local; a 403 marks the tab remote).
 import type {
+  DiagnosticsInstallPresets,
   DiagnosticsInstallResult,
   DiagnosticsJobHistoryItem,
   DiagnosticsLogTail,
@@ -28,6 +29,9 @@ export const LOG_KEYWORD_MAX = 100
 export const getDiagnostics = (f?: Fetch) => getJson<DiagnosticsOverview>(BASE, f)
 
 export const getSetupChecks = (f?: Fetch) => getJson<DiagnosticsSetupChecks>(`${BASE}/setup-checks`, f)
+
+// Packages grouped by task, approx. sizes, PyPI links and install caveats.
+export const getInstallPresets = (f?: Fetch) => getJson<DiagnosticsInstallPresets>(`${BASE}/install-presets`, f)
 
 export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BASE}/model-cache`, f)
 

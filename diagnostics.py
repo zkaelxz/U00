@@ -147,6 +147,178 @@ OPTIONAL_DEPENDENCIES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Install names, sizes, sources and task presets (Diagnostics "Packages").
+# OPTIONAL_DEPENDENCIES's keys are what the API and UI call a package; most
+# are also the pip distribution name (pip treats "_", "-" and "." alike),
+# but a few are import names that don't exist on PyPI under that name
+# ("cv2" made `pip install cv2` fail with "No matching distribution").
+# ---------------------------------------------------------------------------
+
+# key -> the real PyPI distribution to `pip install`.
+PIP_DIST_NAMES = {
+    "cv2": "opencv-python",
+    "PIL": "pillow",
+    "bs4": "beautifulsoup4",
+}
+
+
+def pip_install_name(name: str) -> str:
+    """The distribution name pip should install for an OPTIONAL_DEPENDENCIES
+    key or a MODEL_ENGINE_REGISTRY package."""
+    return PIP_DIST_NAMES.get(name, name)
+
+
+def canonical_dist(name: str) -> str:
+    """PEP 503 normalized name: lowercase, runs of "-", "_", "." -> "-"."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+# Approximate download size in MB of each distribution's own wheel plus its
+# small dependencies (canonical dist name -> MB). A static estimate for the
+# Packages list, never a network lookup; labelled "approx." wherever shown.
+# Packages in PULLS_TORCH also pull PyTorch when it isn't installed yet,
+# which is not counted here (torch is its own row).
+APPROX_DOWNLOAD_MB = {
+    "faster-whisper": 80, "opencv-python": 45, "anthropic": 2, "openai": 2, "deepl": 1,
+    "requests": 1, "beautifulsoup4": 1, "pyannote-audio": 20, "soundfile": 2,
+    "edge-tts": 1, "pydub": 1, "f5-tts": 60, "omnivoice": 60, "chatterbox-tts": 60,
+    "hume-tada": 60, "pytesseract": 1, "pillow": 5, "paddleocr": 600, "manga-ocr": 20,
+    "piper-tts": 30, "jieba": 20, "pypinyin": 1, "sudachipy": 5, "pykakasi": 3,
+    "kiwipiepy": 90, "transformers": 20, "torch": 2500, "torchaudio": 10, "uroman": 1,
+    "sentencepiece": 2, "yt-dlp": 3, "opencc-python-reimplemented": 1,
+    "sudachidict-core": 70, "safetensors": 1, "huggingface-hub": 1, "pypdf": 1,
+    "streamlit-drawable-canvas": 5, "genanki": 1, "ebooklib": 1, "plyer": 1,
+    "playwright": 40, "trafilatura": 5, "audio-separator": 30, "funasr": 5, "demucs": 1,
+    "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "qwen-asr": 30,
+}
+PULLS_TORCH = {"pyannote-audio", "f5-tts", "omnivoice", "chatterbox-tts", "hume-tada",
+               "manga-ocr", "audio-separator", "funasr", "demucs", "qwen-asr", "torchaudio"}
+
+
+def approx_download_mb(name: str):
+    """Approximate download in MB for a package key, or None if unknown."""
+    return APPROX_DOWNLOAD_MB.get(canonical_dist(pip_install_name(name)))
+
+
+def pypi_url(name: str):
+    """https://pypi.org/project/<dist>/ for a package key, or None when the
+    distribution name isn't a plain PEP 508 name (never builds a URL from
+    anything else)."""
+    dist = pip_install_name(name)
+    if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?", dist):
+        return None
+    return f"https://pypi.org/project/{canonical_dist(dist)}/"
+
+
+# Packages the generic Install button must not offer, with the reason shown
+# instead (dist canonical name -> reason).
+NOT_OFFERED_FOR_INSTALL = {
+    "streamlit-drawable-canvas": "not offered: it fails to set up with this app's pinned "
+                                 "Streamlit, and the Scanlate brush that uses it is deferred "
+                                 "until Scanlate moves to the new interface.",
+}
+
+# Exact pins a package declares on another one the app shares, for a
+# "this would downgrade X" warning before installing (package -> {dep: pin}).
+KNOWN_EXACT_PINS = {
+    "qwen-asr": {"transformers": "4.57.6"},
+}
+
+
+def install_downgrade_warning(name: str):
+    """None, or a plain-English warning when installing `name` would move an
+    already-installed shared package to an older pinned version (e.g.
+    qwen-asr pins transformers==4.57.6 while 5.x is installed). Read-only:
+    checks the installed version only."""
+    pins = KNOWN_EXACT_PINS.get(canonical_dist(pip_install_name(name)))
+    if not pins:
+        return None
+    for dep, pin in pins.items():
+        have = get_installed_version(dep)
+        if have and _version_sort_key(have) > _version_sort_key(pin):
+            return (f"installing this would downgrade {dep} from {have} to {pin}, which "
+                    f"other features (NLLB translation, Scanlate, voice engines) use -- "
+                    f"they may stop working until {dep} is upgraded again.")
+    return None
+
+
+# Install presets: what the user wants to do -> the packages it needs (by
+# OPTIONAL_DEPENDENCIES key, or MODEL_ENGINE_REGISTRY package when it has
+# no key). Derived from the "feature" descriptions above.
+INSTALL_TASKS = [
+    {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
+     "help": "Turn a drama's audio into timed lines.",
+     "packages": ["faster_whisper", "soundfile", "numpy"]},
+    {"id": "music_removal", "group": "Audio", "label": "Remove background music",
+     "help": "Clean the audio before transcribing so dialogue is easier to hear.",
+     "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"]},
+    {"id": "speakers", "group": "Audio", "label": "Speaker detection",
+     "help": "Split and label lines by who is speaking (needs a Hugging Face token).",
+     "packages": ["pyannote.audio", "soundfile", "torch"]},
+    {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
+     "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
+     "packages": ["qwen-asr", "funasr", "torch"]},
+    {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
+     "help": "Re-align lines to individual words (experimental).",
+     "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
+    {"id": "tts_online", "group": "Dubbing", "label": "Dubbing: free online voice (edge-tts)",
+     "help": "Microsoft-hosted voices; needs internet, no GPU.",
+     "packages": ["edge_tts", "pydub", "numpy"]},
+    {"id": "tts_piper", "group": "Dubbing", "label": "Dubbing: offline voice (Piper)",
+     "help": "Small offline voices, no cloning.",
+     "packages": ["piper-tts", "pydub"]},
+    {"id": "tts_f5", "group": "Dubbing", "label": "Voice cloning: F5-TTS",
+     "help": "Clone a character's voice locally.",
+     "packages": ["f5_tts", "torch", "pydub", "huggingface_hub"]},
+    {"id": "tts_omnivoice", "group": "Dubbing", "label": "Voice cloning: OmniVoice",
+     "help": "Clone or design a voice locally. Can't share an install with Chatterbox/TADA.",
+     "packages": ["omnivoice", "torch", "pydub", "huggingface_hub"]},
+    {"id": "tts_chatterbox", "group": "Dubbing", "label": "Voice cloning: Chatterbox",
+     "help": "Emotion-aware local voice. Can't share an install with OmniVoice/TADA.",
+     "packages": ["chatterbox-tts", "torch", "pydub", "huggingface_hub"]},
+    {"id": "tts_tada", "group": "Dubbing", "label": "Long narration: TADA",
+     "help": "Local voice for novel narration. Can't share an install with OmniVoice/Chatterbox.",
+     "packages": ["hume-tada", "torch", "pydub", "huggingface_hub"]},
+    {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
+     "help": "Pull hard-coded subtitles out of video frames.",
+     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"]},
+    {"id": "url_import", "group": "Video", "label": "Import from a URL",
+     "help": "Download video from YouTube, Bilibili and other sites.",
+     "packages": ["yt-dlp"]},
+    {"id": "reader_zh", "group": "Novels & reader", "label": "Chinese reader tools",
+     "help": "Word splitting, pinyin and Traditional Chinese support.",
+     "packages": ["jieba", "pypinyin", "opencc-python-reimplemented"]},
+    {"id": "reader_ja", "group": "Novels & reader", "label": "Japanese reader tools",
+     "help": "Word splitting and furigana.",
+     "packages": ["sudachipy", "sudachidict_core", "pykakasi"]},
+    {"id": "reader_ko", "group": "Novels & reader", "label": "Korean reader tools",
+     "help": "Word splitting.", "packages": ["kiwipiepy"]},
+    {"id": "books", "group": "Novels & reader", "label": "EPUB and Anki export",
+     "help": "Import/export EPUB books and export vocab to Anki.",
+     "packages": ["ebooklib", "genanki"]},
+    {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
+     "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
+     "packages": ["bs4", "trafilatura", "playwright", "cryptography"]},
+    {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
+     "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
+     "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
+                  "safetensors", "huggingface_hub", "streamlit_drawable_canvas"]},
+    {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
+     "help": "Translate offline on this PC.",
+     "packages": ["transformers", "sentencepiece", "torch"]},
+    {"id": "paid_engines", "group": "Translation", "label": "Claude, DeepSeek and DeepL",
+     "help": "Client libraries for the paid translation engines (keys go in Settings).",
+     "packages": ["anthropic", "openai", "deepl"]},
+    {"id": "sign_in", "group": "App", "label": "Google sign-in for household access",
+     "help": "Needed only when BAIHE_API_AUTH=on.",
+     "packages": ["authlib", "httpx", "cryptography"]},
+    {"id": "notifications", "group": "App", "label": "Desktop notifications",
+     "help": "A notification when a background job finishes.",
+     "packages": ["plyer"]},
+]
+
+
 def check_python_version():
     import sys
     v = sys.version_info
@@ -658,6 +830,27 @@ def run_full_diagnostics(project_root: str, library_dir: str, api_keys_set: dict
 # and "dev" (pytest) has nothing to do with a running app session.
 INSTALLABLE_TIERS = ("feature", "engine")
 
+# Added to every install: pip's wheel cache can be unwritable or locked on
+# Windows (antivirus, another Python process), which fails the whole install
+# with "[Errno 13] Permission denied: ...\\pip\\cache\\wheels\\...", and the
+# "new release of pip" notice only clutters the output shown to the user.
+PIP_INSTALL_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
+
+PIP_CACHE_PERMISSION_HINT = (
+    "pip couldn't write to its download cache. Close other Python windows (and the "
+    "Baihe launcher if it's open twice), pause antivirus scanning of the pip folder, "
+    "or delete %LOCALAPPDATA%\\pip\\cache, then try again.")
+
+
+def pip_cache_permission_hint(lines) -> str:
+    """PIP_CACHE_PERMISSION_HINT when pip's output shows a permission error
+    inside its own cache folder, else None."""
+    for line in lines:
+        low = (line or "").lower().replace("/", "\\")
+        if "permission denied" in low and ("pip\\cache" in low or "cache\\pip" in low):
+            return PIP_CACHE_PERMISSION_HINT
+    return None
+
 
 def stream_pip_install(pip_args: list, python_executable: str = None):
     """Yields {"line": str} for each line of combined stdout/stderr as
@@ -668,7 +861,7 @@ def stream_pip_install(pip_args: list, python_executable: str = None):
     live during this session: a genuine `audio-separator` build failure
     on a real machine is exactly the case this must not hide)."""
     python_executable = python_executable or sys.executable
-    cmd = [python_executable, "-m", "pip", "install"] + list(pip_args)
+    cmd = [python_executable, "-m", "pip", "install", *PIP_INSTALL_FLAGS] + list(pip_args)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
     for line in proc.stdout:
@@ -846,8 +1039,8 @@ def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
     for name, info in deps.items():
         if not info.get("installed"):
             continue
-        installed_version = get_installed_version(name)
-        latest_version = get_latest_pypi_version(name, timeout=timeout)
+        installed_version = get_installed_version(pip_install_name(name))
+        latest_version = get_latest_pypi_version(pip_install_name(name), timeout=timeout)
         outdated = None
         if installed_version and latest_version:
             outdated = _version_sort_key(installed_version) < _version_sort_key(latest_version)
@@ -1040,7 +1233,11 @@ def known_install_limitation_reason(pip_name: str) -> str:
     to install at all on this Python version (Step 61) -- shown next to a
     "not installed" row before the user ever clicks Install, and again if
     they click it anyway and it fails, so a raw pip/Cython traceback is
-    never the only signal."""
+    never the only signal. Also covers NOT_OFFERED_FOR_INSTALL (a package
+    known not to work with this app at all, on any Python)."""
+    not_offered = NOT_OFFERED_FOR_INSTALL.get(canonical_dist(pip_install_name(pip_name)))
+    if not_offered:
+        return not_offered
     known = _known_python_version_limitation(pip_name)
     if not known:
         return None
@@ -1516,4 +1713,4 @@ def stream_dependency_install(name: str, python_executable: str = None,
     if name == "torch" and shutil.which("nvidia-smi"):
         yield from stream_gpu_torch_reinstall(python_executable, project_root)
     else:
-        yield from stream_pip_install([name], python_executable)
+        yield from stream_pip_install([pip_install_name(name)], python_executable)

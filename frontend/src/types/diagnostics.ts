@@ -101,6 +101,37 @@ export interface DiagnosticsInstallResult {
   package: string
   ok: boolean
   output_tail: string[]
+  // Plain-English next step for a known failure (pip's cache unwritable).
+  hint?: string | null
+}
+
+export interface DiagnosticsPackageInfo {
+  name: string
+  dist: string
+  installed: boolean
+  installable: boolean
+  powers: string
+  approx_mb: number | null
+  pulls_torch: boolean
+  source_url: string | null
+  not_offered_reason: string | null
+  warning: string | null
+}
+
+export interface DiagnosticsInstallTask {
+  id: string
+  group: string
+  label: string
+  help: string
+  packages: string[]
+  installed_count: number
+  to_install: string[]
+  approx_mb: number
+}
+
+export interface DiagnosticsInstallPresets {
+  tasks: DiagnosticsInstallTask[]
+  packages: Record<string, DiagnosticsPackageInfo>
 }
 
 export interface DiagnosticsResetResult {

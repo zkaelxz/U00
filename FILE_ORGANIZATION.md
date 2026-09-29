@@ -479,10 +479,12 @@ baihe-subtitler/
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
-│   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
+│   │                              Install…/Upgrade…, synchronous; "Install by task" presets, approx.
+│   │                              sizes, PyPI Source links), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
-│   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
+│   │                              unit-tested, + useDetailsOpen), installPresets.ts (pure task/size
+│   │                              helpers, unit-tested), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
 │   │                              the token lives in component state only); API in src/api/extension.ts.

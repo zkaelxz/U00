@@ -109,6 +109,26 @@ def test_reads(client):
     assert rep["report"].startswith("Report")
 
 
+def test_install_presets(client):
+    b = _clean(client.get("/api/diagnostics/install-presets"))
+    ids = [t["id"] for t in b["tasks"]]
+    assert "transcribe" in ids and "scanlate" in ids
+    cv2 = b["packages"]["cv2"]
+    assert cv2["dist"] == "opencv-python" and cv2["installed"] is True   # fakes: all installed
+    assert cv2["source_url"] == "https://pypi.org/project/opencv-python/"
+    assert b["packages"]["streamlit_drawable_canvas"]["not_offered_reason"]
+
+
+def test_install_failure_hint(client, monkeypatch):
+    def fake_stream(cmd, timeout):
+        yield {"line": "ERROR: [Errno 13] Permission denied: "
+                       "'C:\\users\\x\\appdata\\local\\pip\\cache\\wheels\\a.whl'"}
+        yield {"returncode": 1, "timed_out": False}
+    monkeypatch.setattr(svc, "_stream_tree", fake_stream)
+    b = client.post("/api/diagnostics/dependencies/jieba/install", json={"confirm": True}).json()
+    assert b["ok"] is False and "pip\\cache" in b["hint"]
+
+
 def test_log_bounds_422(client):
     assert client.get("/api/diagnostics/log?n=201").status_code == 422
     assert client.get("/api/diagnostics/log?n=-1").status_code == 422
@@ -166,7 +186,8 @@ def _h(s):
 
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote", "/api/diagnostics/job-history",
-         "/api/diagnostics/log", "/api/diagnostics/support-report")
+         "/api/diagnostics/log", "/api/diagnostics/support-report",
+         "/api/diagnostics/install-presets")
 WRITES = (("/api/diagnostics/dependencies/edge_tts/install", {"confirm": True}),
           ("/api/diagnostics/dependencies/edge_tts/upgrade", {"confirm": True}),
           ("/api/diagnostics/reset-library", {"confirm": True, "confirm_text": "RESET"}))
