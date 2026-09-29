@@ -42,6 +42,7 @@ Deliberately NOT here:
 
 No Streamlit or FastAPI import.
 """
+import csv
 import os
 from typing import Optional
 
@@ -270,8 +271,9 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
         raise InvalidInputError("overwrite_existing must be true or false.")
     try:
         entries, warnings = tguide.parse_glossary_file(text, filename)
-    except (AttributeError, TypeError, ValueError):
-        # A JSON row whose values aren't text (a number, a list) trips the parser.
+    except (AttributeError, TypeError, ValueError, csv.Error, RecursionError):
+        # A JSON row whose values aren't text (a number, a list), a CSV field
+        # over the csv module's size limit or deeply nested JSON trips the parser.
         raise InvalidInputError("That glossary has a row in an unexpected shape.") from None
     if not entries:
         raise InvalidInputError("Nothing could be imported from that glossary.",

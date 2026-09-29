@@ -237,6 +237,15 @@ class TestImportExportBulk:
         assert r.status_code == 422
         assert client.get(_url(did, "terms")).json() == []
 
+    @pytest.mark.parametrize("text", ["term,translation\na," + "x" * 140_000 + "\n",
+                                      "[" * 100_000 + "]" * 100_000],
+                             ids=["huge_csv_field", "deep_json"])
+    def test_parser_limits_are_422_not_500(self, client, isolated_db, text):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "import"), json={"text": text})
+        assert r.status_code == 422, r.text
+        assert client.get(_url(did, "terms")).json() == []
+
     def test_import_too_long_term_reported_invalid(self, client, isolated_db):
         did = _drama(isolated_db)
         text = "term,translation\n" + "x" * 300 + ",X\nok,OK\n"
