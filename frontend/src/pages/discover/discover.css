@@ -1,0 +1,54 @@
+/* Discover page (#/discover). Tokens only; shared rules live in index.css. */
+
+.discover-page { display: grid; gap: var(--space-4); max-width: 900px; margin-inline: auto; min-width: 0; }
+.discover-page > * { min-width: 0; }
+.discover-page h2, .discover-page h4 { margin: 0; }
+.discover-head { display: grid; gap: var(--space-2); }
+.discover-head > * { margin: 0; }
+.discover-page > details.section { margin: 0; background: var(--surface); padding: var(--space-3) var(--space-4); }
+@media (max-width: 640px) { .discover-page > details.section { padding: var(--space-2) var(--space-3); } }
+.discover-page > details.section > summary .section-title { font-size: 1.05rem; }
+
+.discover-block { display: grid; gap: var(--space-3); min-width: 0; }
+.discover-block > * { margin: 0; }
+.discover-lead { margin: 0; }
+.discover-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; }
+.discover-row > .field-item { flex: 1 1 14rem; min-width: 0; }
+.discover-row > button { flex: 0 0 auto; }
+.discover-filters { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+.discover-form-grid { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.discover-page input, .discover-page select, .discover-page textarea { max-width: 100%; box-sizing: border-box; }
+.discover-page .field-control > input:not([type='checkbox']),
+.discover-page .field-control > select,
+.discover-page .field-control > textarea { width: 100%; }
+.discover-check { display: inline-flex; align-items: center; gap: var(--space-2); }
+.discover-ok { color: var(--ok); margin: 0; }
+.discover-empty { display: grid; gap: var(--space-2); justify-items: start; }
+.discover-open { display: inline-flex; align-items: center; min-height: 44px; }
+
+ul.discover-list, ul.discover-review { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
+.discover-card {
+  padding: var(--space-2) var(--space-3) !important;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--field-bg);
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.discover-card > * { margin: 0; }
+.discover-card-head { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2); align-items: baseline; }
+.discover-card-detail p { margin: var(--space-1) 0 0; }
+.discover-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+.discover-in-library { display: inline-flex; align-items: center; min-height: 44px; }
+
+ul.discover-links, ul.discover-labels { margin: 0; overflow-wrap: anywhere; }
+.discover-links li { padding: var(--space-1) 0; }
+.discover-result { display: grid; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.discover-result > * { margin: 0; }
+.discover-steps { white-space: pre-wrap; overflow-wrap: anywhere; }
+.discover-review label { display: flex; gap: var(--space-2); align-items: flex-start; min-height: 44px; overflow-wrap: anywhere; }
+.discover-review input[type='checkbox'] { margin-top: 0.25rem; flex: 0 0 auto; }
+.discover-sub > summary { cursor: pointer; }
+.discover-sub > .discover-block { margin-top: var(--space-2); }
