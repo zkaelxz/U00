@@ -21,14 +21,22 @@ import re
 import json
 from translate_engines import call_llm_json
 
+MAX_PAGINATE_PAGES = 50
+
 
 def paginate_urls(base_url_pattern: str, start_page: int = 1, end_page: int = 5) -> list:
     """Builds a list of page URLs from a pattern containing {page}, e.g.
     paginate_urls('https://www.jjwxc.net/tag.php?tag=百合&page={page}', 1, 10)
     -> 10 URLs. You supply the pattern -- copy it from your browser's
     address bar after clicking to page 2 of the listing, to get the
-    exact query parameter the site actually uses."""
-    return [base_url_pattern.format(page=p) for p in range(start_page, end_page + 1)]
+    exact query parameter the site actually uses.
+
+    The pattern is user text, so only the literal "{page}" is substituted
+    (str.replace, never str.format -- a format string could read object
+    attributes). The range is capped at MAX_PAGINATE_PAGES pages."""
+    start_page = int(start_page)
+    end_page = min(int(end_page), start_page + MAX_PAGINATE_PAGES - 1)
+    return [base_url_pattern.replace("{page}", str(p)) for p in range(start_page, end_page + 1)]
 
 
 def extract_listing_entries_llm(page_text: str, engine, source_name: str = "",
