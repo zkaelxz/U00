@@ -837,7 +837,7 @@ class SourceClient:
                                         reason=reason.value, detail=f"{type(exc).__name__}: {exc}"[:300],
                                         final_url=url, at=time.time())
                 retryable = reason == FailureReason.TIMEOUT or _is_connection_error(exc)
-            elif conditional and resp.status_code == 304:
+            elif conditional and resp.status_code == 304 and resp.url == url:
                 # Unchanged since the last poll: nothing to classify or parse.
                 self.attempts.append(AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=True,
                                                    http_status=304, final_url=url,
@@ -958,6 +958,11 @@ class SourceClient:
             url = base.rstrip("/") + path
             try:
                 resp = self.get(url, record_health=False, **kw)
+            except NotModified:
+                # A conditional re-poll's 304 is this mirror working.
+                health.record_success(self.source, 0.0)
+                st["good_mirror"] = base
+                raise
             except FetchFailed as e:
                 if e.reason in (FailureReason.HTTP_ERROR, FailureReason.TIMEOUT,
                                 FailureReason.RATE_LIMIT) and \

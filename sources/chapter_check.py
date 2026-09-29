@@ -22,6 +22,10 @@ CHECK_JOB_ID = "sources_chapter_check"
 # A cycle's claim expires after this long, so a process that died
 # mid-cycle doesn't block checks forever. Well above a paced cycle's length.
 CYCLE_LEASE_SECONDS = 2 * 3600
+# Saved chapter-list validators older than this are ignored and the list
+# is fetched in full, so a server that wrongly keeps answering 304 can't
+# hide new chapters for longer than this.
+VALIDATOR_MAX_AGE_SECONDS = 7 * 24 * 3600
 _scheduler_started = False
 _scheduler_lock = threading.Lock()
 
@@ -36,7 +40,8 @@ def check_series(adapter, row: dict) -> list:
     neither downloaded nor parsed."""
     ladder.check_terms(adapter.name, adapter.capabilities())
     source, series_id = row["source"], row["series_id"]
-    with http.conditional_poll(**store.poll_validators(source, series_id)) as poll:
+    saved = store.poll_validators(source, series_id, max_age=VALIDATOR_MAX_AGE_SECONDS)
+    with http.conditional_poll(**saved) as poll:
         try:
             chapters = adapter.get_chapters(series_id)
         except http.NotModified:
@@ -53,8 +58,13 @@ def check_series(adapter, row: dict) -> list:
         # the same series at the same moment gets the rest.
         new = store.record_new_chapters(source, series_id, new)
     # Saved only after the new chapters are recorded, so a 304 next time
-    # can never hide a chapter this poll saw.
-    store.save_poll_validators(source, series_id, poll.validators())
+    # can never hide a chapter this poll saw. Best effort: failing here
+    # must not stop the auto-import of chapters already recorded (the old
+    # validators then just get a 200 next time).
+    try:
+        store.save_poll_validators(source, series_id, poll.validators())
+    except Exception:
+        pass
     store.mark_checked(source, series_id)
     return new
 

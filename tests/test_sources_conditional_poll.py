@@ -251,3 +251,86 @@ def test_real_transport_still_refuses_private_hosts(tracked, monkeypatch):
     with pytest.raises(http.UnsafeRedirect):
         chapter_check.check_series(ListAdapter(client), tracked)
     assert session.calls == []
+
+
+# -- review follow-ups -------------------------------------------------------
+
+def test_304_from_a_redirect_target_is_not_trusted(tracked):
+    """Saved validators, then the list URL starts redirecting (e.g. to a
+    login page) whose server answers 304: that is not "unchanged"."""
+    store.save_poll_validators("condtest", "s1", (LIST, "", LAST_MOD))
+
+    def login_wall(method, url, headers, data, timeout):
+        return Response(304, {}, b"", "https://novel.example/login?next=/book/1")
+    adapter = ListAdapter(make_client("condtest", login_wall, max_retries=0))
+    with pytest.raises(Exception) as err:
+        chapter_check.check_series(adapter, tracked)
+    assert not isinstance(err.value, http.NotModified)
+    assert store.poll_validators("condtest", "s1") == {"url": LIST, "etag": "",
+                                                       "last_modified": LAST_MOD}
+
+
+def test_304_outside_a_poll_or_for_another_url_is_an_ordinary_response(tracked):
+    def always_304(method, url, headers, data, timeout):
+        return Response(304, {}, b"", url)
+    client = make_client("condtest", always_304)
+    assert client.get(LIST).status_code == 304              # no poll: nothing raised
+    with http.conditional_poll(url=LIST, etag=ETAG) as poll:
+        assert client.get(PAGE2).status_code == 304          # not the validated URL
+    assert poll.not_modified is False
+
+
+def test_retry_then_304_is_still_not_modified(tracked):
+    served = [Response(503, {}, b"busy", LIST), Response(304, {}, b"", LIST)]
+
+    def flaky(method, url, headers, data, timeout):
+        return served.pop(0)
+    store.save_poll_validators("condtest", "s1", (LIST, ETAG, ""))
+    adapter = ListAdapter(make_client("condtest", flaky, backoff_base=0.0))
+    assert _check(adapter, tracked) == [] and adapter.parses == 0 and served == []
+
+
+def test_304_through_mirrors_records_health(tracked):
+    from sources import health
+    server = FakeServer()
+
+    class Mirrored(ListAdapter):
+        def get_chapters(self, series_id):
+            resp = self.client.get_with_mirrors("/book/1/chapters.json",
+                                                ["https://novel.example"])
+            self.parses += 1
+            return [ChapterInfo(source=self.name, series_id=series_id, chapter_id=c, title=c)
+                    for c in json.loads(resp.content)]
+
+    adapter = Mirrored(make_client("condtest", server))
+    _check(adapter, tracked)
+    health.record_failure("condtest", "HTTP_ERROR", "a failed search")
+    assert _check(adapter, tracked) == [] and adapter.parses == 1
+    assert store.connect().execute(
+        "SELECT consecutive_failures FROM source_health WHERE source='condtest'"
+    ).fetchone()[0] == 0
+
+
+def test_validators_saved_after_new_chapters_and_save_is_best_effort(tracked, monkeypatch):
+    order = []
+    real_record = store.record_new_chapters
+    monkeypatch.setattr(store, "record_new_chapters",
+                        lambda *a: order.append("record") or real_record(*a))
+
+    def failing_save(*a):
+        order.append("save")
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(store, "save_poll_validators", failing_save)
+    assert _check(ListAdapter(make_client("condtest", FakeServer())), tracked) == ["c1", "c2"]
+    assert order == ["record", "save"]
+
+
+def test_old_validators_expire_to_a_full_fetch(tracked, monkeypatch):
+    server = FakeServer()
+    adapter = ListAdapter(make_client("condtest", server))
+    _check(adapter, tracked)
+    real_time = chapter_check.time.time
+    monkeypatch.setattr(store.time, "time",
+                        lambda: real_time() + chapter_check.VALIDATOR_MAX_AGE_SECONDS + 60)
+    assert _check(adapter, tracked) == []
+    assert "If-None-Match" not in server.calls[1]["headers"] and adapter.parses == 2

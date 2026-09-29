@@ -330,14 +330,18 @@ def untrack_series(source: str, series_id: str):
                      (source, series_id))
 
 
-def poll_validators(source: str, series_id: str) -> dict:
+def poll_validators(source: str, series_id: str, max_age: float = None) -> dict:
     """The ETag / Last-Modified the last chapter-list poll of this series
     got for its one URL (Step 106), as conditional_poll() kwargs; {} if
-    none."""
+    none, or if they were saved more than `max_age` seconds ago (a 304
+    doesn't refresh them, so the list is fetched in full now and then)."""
     with connect() as conn:
-        row = conn.execute("SELECT url, etag, last_modified FROM chapter_poll_validators "
-                           "WHERE source=? AND series_id=?", (source, series_id)).fetchone()
-    return dict(row) if row else {}
+        row = conn.execute("SELECT url, etag, last_modified, updated_at FROM "
+                           "chapter_poll_validators WHERE source=? AND series_id=?",
+                           (source, series_id)).fetchone()
+    if not row or (max_age is not None and time.time() - float(row["updated_at"]) > max_age):
+        return {}
+    return {"url": row["url"], "etag": row["etag"], "last_modified": row["last_modified"]}
 
 
 def save_poll_validators(source: str, series_id: str, validators) -> None:
