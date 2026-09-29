@@ -246,3 +246,37 @@ def test_video_missing_groq_key_503_before_storing(client, monkeypatch, fast_ffm
     r = _video_post(client, did)
     assert r.status_code == 503
     assert not any(n.startswith("source") for n in os.listdir(db.drama_dir(did)))
+
+
+def test_video_chained_job_passes_through_child_failed_reason(client, monkeypatch, fast_ffmpeg):
+    from services import transcribe_service
+    did = _drama()
+    tid = f"transcribe_{did}"
+    background_jobs.clear_job(tid)
+
+    def child():
+        background_jobs.set_result(tid, {"failed_reason": "empty"})
+
+    def run(drama_id, **opts):
+        background_jobs.start_job(tid, child)
+        return {"job_id": tid}
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run", run)
+    job = _wait_status(_video_post(client, did).json()["job_id"])
+    assert job["status"] == "done"
+    assert job["result"] == {"failed_reason": "empty"}
+
+
+def test_audio_run_started_while_upload_claim_held(client, monkeypatch):
+    from services import media_upload_service, transcribe_service
+    did = _drama()
+    seen = {}
+
+    def run(drama_id, **opts):
+        seen["claimed"] = drama_id in media_upload_service._claimed
+        return {"job_id": f"transcribe_{drama_id}"}
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run", run)
+    r = _post(client, did)
+    assert r.status_code == 200 and r.json()["job_id"] == f"transcribe_{did}"
+    assert "transcribe_job_id" not in r.json()["upload"]
+    assert seen["claimed"] is True
+    assert did not in media_upload_service._claimed

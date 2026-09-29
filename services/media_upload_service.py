@@ -114,7 +114,9 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
     A video starts job `extract_audio_<id>` and returns its job_id before
     extraction runs (poll GET /api/jobs/{job_id}). With transcribe_options
     (kwargs for transcribe_service.start_transcribe_run), that same job
-    starts and follows the transcribe run once the audio is extracted."""
+    starts and follows the transcribe run once the audio is extracted; for
+    an audio file the run is started here, under the upload claim, and its
+    id returned as "transcribe_job_id" (the upload is kept if it fails)."""
     with _claims_lock:
         if drama_id in _claimed:
             raise ConflictError("Another upload is in progress for this drama.")
@@ -125,7 +127,12 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None) ->
         ext, size = _save_upload(drama_id, client_filename, fileobj)
         if ext not in VIDEO_EXTENSIONS:
             db.update_drama(drama_id, audio_filename=f"source{ext}")
-            return {"name": f"source{ext}", "size": size, "kind": "audio", "job_id": None}
+            result = {"name": f"source{ext}", "size": size, "kind": "audio", "job_id": None}
+            if transcribe_options is not None:  # started while the claim is still held
+                from services import transcribe_service
+                run = transcribe_service.start_transcribe_run(drama_id, **transcribe_options)
+                result["transcribe_job_id"] = run["job_id"]
+            return result
         job_id = f"{EXTRACT_JOB_PREFIX}{drama_id}"
         started = background_jobs.start_job(
             job_id, _extract_audio_job, job_id, drama_id, ext, transcribe_options,
@@ -190,6 +197,8 @@ def _follow_job(job_id, child_id):
         raise background_jobs.JobCancelled(job_id)
     if status != "done":
         raise RuntimeError(child.get("error") or "Transcription failed.")
+    # A "done" run can still carry result.failed_reason; pass it through.
+    background_jobs.set_result(job_id, child.get("result"))
 
 
 def get_media_status(drama_id) -> dict:
