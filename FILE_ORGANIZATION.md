@@ -177,6 +177,10 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)   Called by Streamlit tabs AND api/ alike;
 │   ├── service_errors.py         error types every service raises   never imports streamlit/fastapi.
 │   ├── library_service.py        Library list/filter + one drama's details
+│   ├── library_admin_service.py  E0 destructive/admin Library actions (no router yet): bulk status/
+│   │                             tags/delete, bulk translate start, export-zip and backup jobs,
+│   │                             restore (validated first), storage scan/cleanup; typed confirms,
+│   │                             running-job refusal, per-drama results, never returns paths
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
