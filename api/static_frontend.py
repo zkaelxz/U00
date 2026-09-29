@@ -55,8 +55,8 @@ _MEDIA_TYPES = {
 }
 
 
-def _media_type(path: Path):
-    return _MEDIA_TYPES.get(path.suffix.lower())
+def _media_type(path: Path) -> str:
+    return _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
 
 DEFAULT_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -95,11 +95,13 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
         candidate = (root / path).resolve() if path else index
         inside = candidate == root or root in candidate.parents
         if inside and candidate.is_file():
-            headers = {"Cache-Control": "no-cache"} if candidate.name == "index.html" else None
+            headers = {"X-Content-Type-Options": "nosniff"}
+            if candidate.name == "index.html":
+                headers["Cache-Control"] = "no-cache"
             return FileResponse(candidate, headers=headers, media_type=_media_type(candidate))
         if "." in path.rsplit("/", 1)[-1]:
             raise HTTPException(status_code=404)  # a missing asset, not a page
-        return FileResponse(index, headers={"Cache-Control": "no-cache"},
-                            media_type=_MEDIA_TYPES[".html"])
+        return FileResponse(index, media_type=_MEDIA_TYPES[".html"],
+                            headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
 
     return True

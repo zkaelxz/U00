@@ -36,10 +36,13 @@ class TestServing:
         assert r.status_code == 200
         assert "FAKE-INDEX" in r.text
         assert r.headers["cache-control"] == "no-cache"
+        assert r.headers["content-type"] == "text/html; charset=utf-8"
 
     def test_asset_served(self, dist):
         r = _client(dist).get("/assets/app.js")
         assert r.status_code == 200 and "fake" in r.text
+        assert r.headers["content-type"] == "text/javascript; charset=utf-8"
+        assert "cache-control" not in r.headers
 
     def test_unknown_page_path_gets_index(self, dist):
         r = _client(dist).get("/some/deep/link")
@@ -107,6 +110,14 @@ class TestContentTypes:
         r = _client(dist).get(path)
         assert r.status_code == 200
         assert r.headers["content-type"].split(";")[0] == expected
+        assert r.headers["x-content-type-options"] == "nosniff"
+
+    def test_unknown_extension_is_octet_stream(self, dist, windows_like_mimetypes):
+        (dist / "assets" / "blob.xyz").write_bytes(b"\x00")
+        r = _client(dist).get("/assets/blob.xyz")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/octet-stream"
+        assert r.headers["x-content-type-options"] == "nosniff"
 
 
 def test_frontend_has_no_case_colliding_paths():
