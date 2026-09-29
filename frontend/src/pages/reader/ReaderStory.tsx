@@ -19,7 +19,7 @@ import type {
 import type { TranslateEngine } from '../../types/translate'
 import { ActionError } from './ReaderAction'
 import { useAction } from './useReaderAction'
-import { EnginePicker } from './ReaderEngine'
+import { ENGINE_PICKER_ID, EngineLine, EnginePicker } from './ReaderEngine'
 import { trimHistory } from './readerPrefs'
 
 type Common = {
@@ -157,7 +157,13 @@ function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omi
 
 const CLEAR_TIMEOUT_MS = 5000
 
-function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; boundary: number | undefined; engine: string; paid: boolean }) {
+function WikiSection({ dramaId, boundary, engines, engine, paid }: {
+  dramaId: number
+  boundary: number | undefined
+  engines: TranslateEngine[]
+  engine: string
+  paid: boolean
+}) {
   const [wiki, setWiki] = useState<ReaderWikiList | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [type, setType] = useState('')
@@ -247,6 +253,7 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
       summary="People, places and things so far"
     >
       <ErrorBanner error={loadError} />
+      <EngineLine engines={engines} engine={engine} />
       <div className="actions">
         <button type="button" disabled={!engine || update.busy} onClick={() => void update.run(0)}>
           {update.busy ? 'Updating…' : 'Update wiki'}
@@ -306,7 +313,7 @@ function WikiSection({ dramaId, boundary, engine, paid }: { dramaId: number; bou
   )
 }
 
-function AskSection({ dramaId, engine, paid }: { dramaId: number; engine: string; paid: boolean }) {
+function AskSection({ dramaId, engines, engine, paid }: { dramaId: number; engines: TranslateEngine[]; engine: string; paid: boolean }) {
   const [history, setHistory] = useState<ReaderChatTurn[]>([])
   const [question, setQuestion] = useState('')
   const ask = useAction(async (q: string) => {
@@ -318,6 +325,7 @@ function AskSection({ dramaId, engine, paid }: { dramaId: number; engine: string
   return (
     <Section title="Ask about the story" storageKey="reader.ask" summary="Questions answered from the drama's own lines">
       <p className="muted">Q&amp;A uses the whole drama, including later lines.</p>
+      <EngineLine engines={engines} engine={engine} />
       {history.length > 0 && (
         <ol className="reader-chat" aria-label="Conversation">
           {history.map((t, i) => (
@@ -358,7 +366,9 @@ export function StorySection(p: Common & { spoilerFree: boolean }) {
   return (
     <>
       <Section title="Story tools" storageKey="reader.story" summary={p.spoilerFree ? 'Spoiler-free' : 'Spoiler-free off'}>
-        <EnginePicker engines={p.engines} engine={p.engine} onChange={p.onEngine} />
+        <div id={ENGINE_PICKER_ID}>
+          <EnginePicker engines={p.engines} engine={p.engine} onChange={p.onEngine} />
+        </div>
         {!p.spoilerFree && (
           <p className="muted">Spoiler-free is off: Who is, Explain, relationships and the wiki may use later lines.</p>
         )}
@@ -372,8 +382,8 @@ export function StorySection(p: Common & { spoilerFree: boolean }) {
           paid={paid}
         />
       </Section>
-      <WikiSection dramaId={p.dramaId} boundary={p.boundary} engine={p.engine} paid={paid} />
-      <AskSection dramaId={p.dramaId} engine={p.engine} paid={paid} />
+      <WikiSection dramaId={p.dramaId} boundary={p.boundary} engines={p.engines} engine={p.engine} paid={paid} />
+      <AskSection dramaId={p.dramaId} engines={p.engines} engine={p.engine} paid={paid} />
     </>
   )
 }

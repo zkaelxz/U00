@@ -157,6 +157,12 @@ test('a 429 part-way through a wiki update resumes where it stopped', async ({ p
 
   await page.locator('summary', { hasText: 'Ask about the story' }).click()
   await expect(page.getByText('Q&A uses the whole drama, including later lines.')).toBeVisible()
+
+  // "Uses <engine> · Change" opens Story tools and focuses its picker.
+  const ask = page.locator('details', { has: page.locator('summary', { hasText: 'Ask about the story' }) })
+  await expect(ask.getByText('Uses Ollama (local)')).toBeVisible()
+  await ask.getByRole('button', { name: 'Change' }).click()
+  await expect(page.getByRole('combobox', { name: 'AI engine' })).toBeFocused()
 })
 
 test('a paid engine refused with 403 shows the paid copy', async ({ page }) => {
