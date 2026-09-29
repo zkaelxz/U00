@@ -353,7 +353,7 @@ class TestTranslationIdsAreLineIds:
 def test_translate_job_whose_lines_were_replaced_records_no_version(isolated_db, monkeypatch):
     import background_jobs
     import translate_engines
-    from tabs.workspace_tab import run_translate_job
+    from services.workspace_job_service import run_translate_job
     did = isolated_db.create_drama(title_en="D", status="aligned")
     isolated_db.save_lines(did, _lines("a", short=False))
     job_lines = isolated_db.load_line_objects(did)

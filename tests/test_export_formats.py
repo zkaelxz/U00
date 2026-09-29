@@ -241,7 +241,7 @@ class TestReadingSpeed:
     def test_translate_job_puts_dense_lines_in_the_review_queue(self, isolated_db, monkeypatch):
         import background_jobs
         import translate_engines
-        from tabs.workspace_tab import run_translate_job
+        from services.workspace_job_service import run_translate_job
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好"),
                                      Line(idx=1, start=1, end=5, zh="再见")])

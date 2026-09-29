@@ -275,7 +275,7 @@ class TestSenseVoiceTags:
         import emotion
         import sensevoice_tags as sv
         from core import Line
-        from tabs.workspace_tab import run_sensevoice_job
+        from services.workspace_job_service import run_sensevoice_job
         did = isolated_db.create_drama(title_en="D")
         isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你真行"),
                                      Line(idx=1, start=1, end=2, zh="好的")])

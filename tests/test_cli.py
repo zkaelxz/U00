@@ -171,7 +171,7 @@ class TestCmdTranslateParity:
         same drama, not a restated expectation."""
         import background_jobs
         import translation_guide as tguide
-        from tabs.workspace_tab import run_translate_job
+        from services.workspace_job_service import run_translate_job
 
         series_id = isolated_db.get_or_create_series("Test Series")
         isolated_db.upsert_series_character(series_id, "Su Shan", gender="female")
@@ -382,7 +382,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
 
     def test_enforces_exact_glossary_terms_and_saves_a_version_like_workspace(self, isolated_db, monkeypatch):
         import background_jobs
-        from tabs.workspace_tab import run_translate_job
+        from services.workspace_job_service import run_translate_job
 
         series_id = isolated_db.get_or_create_series("Test Series")
         isolated_db.upsert_glossary_term(series_id, "林默", "Lin Mo", notes="Lin Mo|Lim Mo",
@@ -418,7 +418,7 @@ class TestCmdTranslateRetryAndWorkspaceParity:
         """Cancelling marked the drama "translated" and saved an active
         version, dropping it out of Library's untranslated selection."""
         import background_jobs
-        from tabs.workspace_tab import run_translate_job
+        from services.workspace_job_service import run_translate_job
 
         did = isolated_db.create_drama(title_en="Test", status="aligned")
         isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"句{i}") for i in range(45)])

@@ -180,6 +180,8 @@ baihe-subtitler/
 │   ├── workspace_job_service.py  Workspace/Library's background-job runner functions (Migration
 │   │                             Slice 2 -- moved out of tabs/workspace_tab.py and tabs/library_tab.py
 │   │                             unchanged; those tabs import them back and call them as before)
+│   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
+│   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
