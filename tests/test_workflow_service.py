@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import Line
-from services.workflow_service import compute_workspace_stage_index
+from services.workflow_service import compute_workspace_stage_index, stage_statuses_from_index
 
 
 
@@ -69,7 +69,6 @@ class TestWorkspaceStageIndex:
         idx = compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
         assert idx == 3
 
-        from ui.workflow import stage_statuses_from_index
         statuses = stage_statuses_from_index(self.STAGES, idx)
         assert statuses == ["done", "done", "done", "current", "not_started",
                              "not_started", "not_started"]
@@ -90,7 +89,6 @@ class TestWorkspaceStageIndex:
         idx = compute_workspace_stage_index(
             {"content_mode": "audio_drama", "status": "exported"}, lines, str(tmp_path))
         assert idx == 6
-        from ui.workflow import stage_statuses_from_index
         assert stage_statuses_from_index(self.STAGES, idx) == \
             ["done", "done", "done", "done", "done", "done", "current"]
 
@@ -114,3 +112,10 @@ class TestWorkspaceStageIndex:
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker=None)]
         idx = compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
         assert idx == 4
+
+
+def test_stage_statuses_from_index():
+    stages = ["Source", "Translate", "Export"]
+    assert stage_statuses_from_index(stages, 1) == ["done", "current", "not_started"]
+    assert stage_statuses_from_index(stages, 0) == ["current", "not_started", "not_started"]
+    assert stage_statuses_from_index(stages, None) == ["not_started"] * 3

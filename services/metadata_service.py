@@ -23,9 +23,8 @@ an error.
 
 No Streamlit or FastAPI import: plain dicts in, plain dicts out.
 """
-import ipaddress
 import os
-import socket
+import socket  # noqa: F401  (tests patch metadata_service.socket.getaddrinfo)
 from typing import Optional
 from urllib.parse import urljoin, urlsplit
 
@@ -33,7 +32,7 @@ import db
 import media_inspect
 import metadata_lookup
 import translate_engines
-from services import drama_service, settings_service
+from services import drama_service, settings_service, url_guard
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -111,38 +110,21 @@ def analyze_media(drama_id: int) -> dict:
 
 
 def _check_public_url(url: str) -> str:
-    """http(s) only, with a host whose every resolved address is public.
+    """http(s) only, with a host whose every resolved address is public
+    (the rule itself lives in services.url_guard, shared with sources/http).
 
     Returns the first validated address, which the caller must connect to.
     """
     if not isinstance(url, str) or len(url) > drama_service.MAX_URL_LEN:
         raise InvalidInputError(_BAD_URL)
     try:
-        parts = urlsplit(url)
-        host = parts.hostname
-        port = parts.port
-    except ValueError:
-        raise InvalidInputError(_BAD_URL) from None
-    if parts.scheme not in ("http", "https") or not host or parts.username or parts.password:
-        raise InvalidInputError(_BAD_URL)
-    try:
-        infos = socket.getaddrinfo(host, port or (443 if parts.scheme == "https" else 80),
-                                   type=socket.SOCK_STREAM)
-    except (UnicodeError, OSError):
+        return url_guard.resolve_public(url)
+    except url_guard.URLResolveError:
         raise DependencyUnavailableError(_FETCH_FAILED) from None
-    if not infos:
-        raise DependencyUnavailableError(_FETCH_FAILED)
-    pinned = None
-    for info in infos:
-        raw_ip = info[4][0].split("%")[0]
-        ip = ipaddress.ip_address(raw_ip)
-        if getattr(ip, "ipv4_mapped", None):
-            ip = ip.ipv4_mapped
-        if not ip.is_global:
-            raise InvalidInputError("url must point to a public web address.")
-        if pinned is None:
-            pinned = raw_ip
-    return pinned
+    except url_guard.UnsafeURLError as e:
+        if str(e) == url_guard.NOT_PUBLIC:
+            raise InvalidInputError("url must point to a public web address.") from None
+        raise InvalidInputError(_BAD_URL) from None
 
 
 def _pinned_get(url: str, ip: str, headers: dict):

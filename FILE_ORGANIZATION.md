@@ -186,6 +186,11 @@ baihe-subtitler/
 │   │                             unchanged; those tabs import them back and call them as before)
 │   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
 │   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
+│   │                             + stage_statuses_from_index (from ui/workflow.py)
+│   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
+│   │                             Scanlate pages (moved from tabs/scanlate_tab.py; Streamlit upload; API callers must pass
+│   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
+│   │                             route must enforce a png/jpg/jpeg/pdf allowlist and a size cap)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
@@ -264,6 +269,9 @@ baihe-subtitler/
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
+│   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
+│   │                             text; delete version, series character, bug bundle, preset, voice bank
+│   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
@@ -306,7 +314,7 @@ baihe-subtitler/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta
 │       ├── library_routes.py     /api/library/dramas[/{id}]
-│       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
+│       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
@@ -356,6 +364,7 @@ baihe-subtitler/
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
+│       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
