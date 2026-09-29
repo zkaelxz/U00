@@ -28,8 +28,9 @@ def get_engines():
 
 @router.get("/history", dependencies=[require_permission("library.read")], response_model=TranslateHistoryResponse,
             summary="Standalone-translate history, most recent first")
-def get_history(limit: int = Query(50, ge=1, le=200)):
-    return {"items": translate_service.list_history(limit=limit)}
+def get_history(request: Request, limit: int = Query(50, ge=1, le=200)):
+    return {"items": translate_service.list_history(limit=limit,
+                                                    principal=request.state.principal)}
 
 
 @router.post("", dependencies=[require_permission("engines.paid")], response_model=TranslateResponse,
@@ -41,7 +42,8 @@ def post_translate(payload: TranslateRequest, request: Request):
     with llm_slot(request):
         return translate_service.translate(
             payload.text, payload.engine, payload.source_language, payload.target_language,
-            model=payload.model, free_tier=payload.free_tier)
+            model=payload.model, free_tier=payload.free_tier,
+            principal=request.state.principal)
 
 
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,
