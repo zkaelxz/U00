@@ -21,6 +21,7 @@ only.
 import portable
 portable.activate_portable_mode()
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -90,10 +91,16 @@ async def _lifespan(app: FastAPI):
     """Starts the background pieces Streamlit used to start (chapter-check
     scheduler, extension endpoint when enabled, the GPU-queue re-check),
     only when `settings.background_services` is on -- never in tests.
-    Idempotent. The GPU-queue re-check is stopped at shutdown."""
+    Idempotent. The GPU-queue re-check is stopped at shutdown. Also
+    closes job records left running by a dead process (B-04)."""
     if not getattr(app.state.settings, "background_services", False):
         yield
         return
+    from services import jobs_service
+    try:
+        jobs_service.sweep_stale_job_records()
+    except Exception:
+        logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
     from api.background import (start_background_services, start_gpu_queue_poller,
                                 stop_gpu_queue_poller)
     start_background_services()

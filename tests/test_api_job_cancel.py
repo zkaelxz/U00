@@ -200,3 +200,40 @@ def test_live_record_owned_by_another_process_is_not_closed(client, monkeypatch)
     finally:
         if proc.poll() is None:
             proc.kill()
+
+
+def test_listing_jobs_sweeps_dead_owners_records(client):
+    """B-04 leftover: a dead owner's record is closed without anyone
+    cancelling it -- listing jobs sweeps it; fresh and in-process ones stay."""
+    db.save_job_record("dead", "running")
+    _age("dead", 3600)
+    db.save_job_record("alive", "running")
+    _age("alive", 60)
+    db.save_job_record("mine", "running")
+    _age("mine", 3600)
+    _own("mine")
+    try:
+        jobs = {j["job_id"]: j["status"] for j in client.get("/api/jobs").json()["items"]}
+    finally:
+        _disown("mine")
+    assert jobs["dead"] == "cancelled"
+    assert jobs["alive"] == "running" and jobs["mine"] == "running"
+
+
+def test_api_startup_sweeps_dead_owners_records(isolated_db, monkeypatch):
+    import api.background as bg
+    monkeypatch.setattr(bg, "start_background_services", lambda: {})
+    monkeypatch.setattr(bg, "start_gpu_queue_poller", lambda: None)
+    monkeypatch.setattr(bg, "stop_gpu_queue_poller", lambda: None)
+    db.save_job_record("dead_at_start", "running")
+    _age("dead_at_start", 3600)
+    with TestClient(create_app(ApiSettings(background_services=True))):
+        pass
+    assert db.get_job_record("dead_at_start")["status"] == "cancelled"
+
+
+def test_one_staleness_cutoff_everywhere():
+    from services import drama_service, jobs_service, novel_files_service
+    assert (jobs_service.STALE_JOB_SECONDS == drama_service._STALE_JOB_RECORD_SECONDS
+            == novel_files_service._STALE_JOB_RECORD_SECONDS
+            == background_jobs.STALE_JOB_SECONDS)

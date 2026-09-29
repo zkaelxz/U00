@@ -85,6 +85,11 @@ def _mirror_locked(job_id):
 # process's stale-record sweep (jobs_service.cancel_job) can tell a live job
 # that is simply not changing status from one whose owner process died.
 HEARTBEAT_INTERVAL = 60.0
+# A queued/running job_records row not heartbeated for this long belongs to
+# a dead owner process (records have no resume). The one staleness cutoff:
+# the jobs list/startup sweep, cancel, and every "is a job running" check
+# (drama delete, novel files, library admin, voice clone) use it.
+STALE_JOB_SECONDS = 15 * 60
 _heartbeat_thread = None
 
 
