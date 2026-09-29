@@ -38,10 +38,6 @@ export function stateText(s: DiagnosticsGpuTorchStatus): string {
 export const stateIsProblem = (s: DiagnosticsGpuTorchStatus) =>
   s.state === 'mismatched' || s.state === 'cpu_on_gpu' || s.nvidia.status === 'too_old'
 
-/** "torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128". */
-export const variantVersionsText = (v: DiagnosticsTorchVariant) =>
-  ['torch', 'torchvision', 'torchaudio'].map((n) => `${n} ${v.versions[n] ?? '?'}`).join(' · ')
-
 /** Why the setup can't run for this variant, or null. */
 export function setupBlockedReason(s: DiagnosticsGpuTorchStatus, v: DiagnosticsTorchVariant): string | null {
   if (!s.python_supported) return 'This Python version has no PyTorch wheels for the recommended set.'
@@ -61,4 +57,17 @@ export function verifyText(v: DiagnosticsTorchVerify): string {
     ? `CUDA works${v.device ? ` on ${v.device}` : ''}`
     : v.cuda_build ? `CUDA ${v.cuda_build} build, but no GPU is available` : 'CPU-only build: CUDA not available'
   return `torch ${v.torch}: ${cuda}.`
+}
+
+/** The short badge next to the "GPU PyTorch" heading. */
+export function stateBadge(s: DiagnosticsGpuTorchStatus): { text: string; tone: 'ok' | 'warn' | 'neutral' } {
+  // A too-old driver breaks CUDA whatever is installed, so it outranks the package state.
+  if (s.nvidia.status === 'too_old' && s.state !== 'missing') return { text: 'Driver too old', tone: 'warn' }
+  switch (s.state) {
+    case 'missing': return { text: 'Not installed', tone: 'neutral' }
+    case 'mismatched': return { text: 'Versions don\'t match', tone: 'warn' }
+    case 'cpu_on_gpu': return { text: 'CPU only', tone: 'warn' }
+    case 'recommended': return { text: 'Recommended set', tone: 'ok' }
+    case 'different': return { text: 'Not the recommended set', tone: 'neutral' }
+  }
 }

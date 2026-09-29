@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useState, type ReactNode } from 'react'
 
 import { checkGpuTorch, getGpuTorch } from '../../api/diagnostics'
-import { Section } from '../../components/Section'
+import { Badge } from '../../components/Badge'
+import { buttonClass } from '../../components/uiClasses'
 import { adminErrorText } from './diagnosticsAdmin'
 import type { DiagnosticsGpuTorchStatus, DiagnosticsTorchVariant } from '../../types/diagnostics'
 import {
-  driverText, packageVersionText, setupBlockedReason, stateIsProblem, stateText, variantVersionsText, verifyText,
+  driverText, packageVersionText, setupBlockedReason, stateBadge, stateIsProblem, stateText, verifyText,
 } from './gpuTorch'
 
+const TORCH_PACKAGES = ['torch', 'torchvision', 'torchaudio'] as const
+
 /**
- * Packages > "GPU PyTorch": the NVIDIA GPU and driver, the installed
- * torch/torchvision/torchaudio, and the recommended matched set. The status
+ * Packages > "GPU PyTorch": the NVIDIA GPU and driver, then the installed
+ * torch/torchvision/torchaudio beside the recommended matched set. The status
  * read is cheap (nvidia-smi and package metadata); "Check CUDA" imports torch
  * in a fresh Python on the server. `action` renders the PC-only setup button
  * for the recommended variant (the parent owns busy state and the result).
@@ -37,51 +40,68 @@ export function GpuTorchPanel({ refreshKey, action }: {
       .finally(() => setProbing(false))
   }
 
-  const summary = status ? stateText(status) : undefined
+  const titleId = useId()
+  const badge = status ? stateBadge(status) : null
+  const blocked = status && status.state !== 'recommended' ? setupBlockedReason(status, status.recommended) : null
   return (
-    <Section storageKey="diagnostics.gpuTorch" title="GPU PyTorch" summary={summary}>
-      <div className="diag-stack gpu-torch" data-testid="gpu-torch">
-        {failed && !status && <p className="muted">Couldn't read the PyTorch status.</p>}
-        {!status && !failed && <p className="muted">Checking…</p>}
-        {status && (
-          <>
-            <p className={stateIsProblem(status) ? 'warn' : status.state === 'recommended' ? 'ok' : undefined}
-              data-testid="gpu-torch-state">
-              {stateText(status)}
-            </p>
-            <p data-testid="gpu-torch-driver" className={status.nvidia.status === 'too_old' ? 'warn' : undefined}>
-              {driverText(status.nvidia)}
-            </p>
-            <ul aria-label="Installed PyTorch packages" className="pkg-list">
-              {status.installed.map((p) => (
-                <li key={p.name}>
-                  <span><strong>{p.name}</strong> <span className="muted">{packageVersionText(p)}</span></span>
-                </li>
-              ))}
-            </ul>
-            {status.problems.map((p) => <p key={p} className="warn">{p}</p>)}
-            <p className="muted" data-testid="gpu-torch-recommended">
-              Recommended ({status.recommended.label}): {variantVersionsText(status.recommended)}, from{' '}
-              <code>{status.recommended.index_url}</code>.
-            </p>
-            {probeError && <p className="error" role="alert">{probeError}</p>}
-            {status.probe && (
-              <p data-testid="gpu-torch-probe" className={status.probe.cuda_available ? 'ok' : 'warn'}>
-                {verifyText(status.probe)}
-              </p>
-            )}
-            <div className="actions">
-              <button type="button" onClick={probe} disabled={probing} aria-busy={probing}>
-                {probing ? 'Checking CUDA…' : 'Check CUDA'}
-              </button>
-              {status.state !== 'recommended' && action(status.recommended, setupBlockedReason(status, status.recommended))}
-            </div>
-            {status.state !== 'recommended' && setupBlockedReason(status, status.recommended) && (
-              <p className="muted">{setupBlockedReason(status, status.recommended)}</p>
-            )}
-          </>
-        )}
+    <div className="diag-subcard gpu-torch" data-testid="gpu-torch" role="group" aria-labelledby={titleId}>
+      <div className="subcard-head">
+        <h4 id={titleId}>GPU PyTorch</h4>
+        {badge && <Badge tone={badge.tone}>{badge.text}</Badge>}
       </div>
-    </Section>
+      {failed && !status && <p className="muted">Couldn't read the PyTorch status.</p>}
+      {!status && !failed && <p className="muted">Checking…</p>}
+      {status && (
+        <>
+          <p className={stateIsProblem(status) ? 'warn' : status.state === 'recommended' ? 'ok' : undefined}
+            data-testid="gpu-torch-state">
+            {stateText(status)}
+          </p>
+          <p data-testid="gpu-torch-driver" className={status.nvidia.status === 'too_old' ? 'warn' : undefined}>
+            {driverText(status.nvidia)}
+          </p>
+          <div className="table-scroll">
+            <table className="torch-table" aria-label="PyTorch versions">
+              <thead>
+                <tr>
+                  <th scope="col">Package</th>
+                  <th scope="col">Installed</th>
+                  <th scope="col">Recommended</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...new Set([...TORCH_PACKAGES, ...status.installed.map((x) => x.name)])].map((name) => {
+                  const p = status.installed.find((x) => x.name === name) ?? { name, version: null, build: null }
+                  return (
+                    <tr key={name}>
+                      <th scope="row">{name}</th>
+                      <td>{packageVersionText(p)}</td>
+                      <td>{status.recommended.versions[name] ?? '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted" data-testid="gpu-torch-recommended">
+            Recommended: {status.recommended.label}, from <code>{status.recommended.index_url}</code>.
+          </p>
+          {status.problems.map((p) => <p key={p} className="warn">{p}</p>)}
+          {probeError && <p className="error" role="alert">{probeError}</p>}
+          {status.probe && (
+            <p data-testid="gpu-torch-probe" className={status.probe.cuda_available ? 'ok' : 'warn'}>
+              {verifyText(status.probe)}
+            </p>
+          )}
+          <div className="actions">
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={probe} disabled={probing} aria-busy={probing}>
+              {probing ? 'Checking CUDA…' : 'Check CUDA'}
+            </button>
+            {status.state !== 'recommended' && action(status.recommended, blocked)}
+          </div>
+          {blocked && <p className="muted">{blocked}</p>}
+        </>
+      )}
+    </div>
   )
 }
