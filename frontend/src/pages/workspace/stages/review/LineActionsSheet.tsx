@@ -5,7 +5,7 @@ import { Sheet } from '../../../../components/Sheet'
 import type { ReviewLine } from '../../../../types/review'
 import { AddLineForm, type NewLine } from './AddLineForm'
 import { MergeConfirm } from './MergeConfirm'
-import { JOB_RUNNING_MESSAGE } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, type ToolMode } from './reviewLogic'
 import { SplitDialog, type SplitChoice } from './SplitDialog'
 import { lineNumber } from '../../../../lineNumber'
 
@@ -39,6 +39,7 @@ interface Props {
   onEditDetails: () => void
   onImprove: () => void
   onWhy: () => void
+  onTool: (mode: ToolMode) => void
   onDismissFlag: () => void
   onAddNote: () => void
   onSplit: (choice: SplitChoice) => void
@@ -151,6 +152,22 @@ export function LineActionsSheet(p: Props) {
                 </button>
               </li>
               <li><button type="button" onClick={p.onWhy}>Why this? (AI)</button></li>
+              <li>
+                <button type="button" disabled={!line.en || !line.zh} onClick={() => p.onTool('alternatives')}>
+                  Alternatives (AI)
+                  {!line.en && <span className="sheet-reason">Needs a translation first.</span>}
+                </button>
+              </li>
+              <li>
+                <button type="button" disabled={!line.zh} onClick={() => p.onTool('grammar')}>
+                  Grammar breakdown (AI)
+                </button>
+              </li>
+              <li>
+                <button type="button" disabled={!line.zh} onClick={() => p.onTool('pronounce')}>
+                  Pronounce the source
+                </button>
+              </li>
               <li>
                 <button type="button" disabled={!!blocked} onClick={() => p.onView('split')}>
                   Split line…

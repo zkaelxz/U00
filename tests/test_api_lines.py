@@ -105,10 +105,14 @@ class TestOthers:
         sid = db.get_drama(did)["series_id"]
         db.record_translation_memory(sid, "你好", "Howdy")
         eid = db.list_translation_memory(sid)[0]["id"]
-        r = client.post(f"{B}/{did}/lines/{ids[0]}/accept-tm", json={"entry_id": eid})
+        url = f"{B}/{did}/lines/{ids[0]}/accept-tm"
+        before = db.load_lines(did)[0]["en"]
+        assert client.post(url, json={"entry_id": eid}).status_code == 422
+        r = client.post(url, json={"entry_id": eid, "expected_en": "stale"})
+        assert r.status_code == 409 and db.load_lines(did)[0]["en"] == before
+        r = client.post(url, json={"entry_id": eid, "expected_en": before})
         assert r.status_code == 200 and r.json()["en"] == "Howdy"
-        assert client.post(f"{B}/{did}/lines/{ids[0]}/accept-tm",
-                           json={"entry_id": 9999}).status_code == 404
+        assert client.post(url, json={"entry_id": 9999, "expected_en": "Howdy"}).status_code == 404
 
     def test_notes_add_delete(self, client):
         did, ids = _seed()

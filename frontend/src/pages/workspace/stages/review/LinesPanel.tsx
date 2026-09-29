@@ -3,17 +3,25 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../../../../api/client'
 import type { MediaKind } from '../../../../api/media'
 import { addLine, deleteLine, listAllLines, mergeLines, splitLine } from '../../../../api/restructure'
-import { addNote, dismissFlag, listLines, patchLine, searchLines } from '../../../../api/review'
+import {
+  acceptTm as acceptTmSuggestion,
+  addNote,
+  dismissFlag,
+  flaggedAdjacent,
+  listLines,
+  listTmSuggestions,
+  patchLine,
+  searchLines,
+} from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { readSectionOpen, writeSectionOpen } from '../../../../components/sectionStorage'
 import { useMediaQuery } from '../../../../hooks/useMediaQuery'
 import { useShortcut } from '../../../../hooks/useShortcut'
 import { routeHref } from '../../../../router'
 import type { RestructureResult } from '../../../../types/restructure'
-import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
+import type { LineFilter, ReviewLine, ReviewLinesPage, TmSuggestion } from '../../../../types/review'
 import type { NewLine } from './AddLineForm'
 import { FindReplacePanel } from './FindReplacePanel'
-import type { AiMode } from './LineAi'
 import { LineActionsSheet, type SheetState, type SheetView } from './LineActionsSheet'
 import { LineRow, type EditState, type NoteDraft, type RowActions, type RowIssue } from './LineRow'
 import { Player, type PlayerHandle } from './Player'
@@ -27,6 +35,7 @@ import {
   initialActiveId,
   isDirty,
   lineRange,
+  flaggedStep,
   nextFlaggedId,
   PAGE_SIZE,
   pageCount,
@@ -36,11 +45,13 @@ import {
   structureErrorText,
   suggestionPatch,
   type LineDraft,
+  type PanelMode,
 } from './reviewLogic'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
 import { ShortcutSheet } from './ShortcutSheet'
 import type { SplitChoice } from './SplitDialog'
+import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { idxFromLineNumber, lineNumber } from '../../../../lineNumber'
 
 interface Props {
@@ -59,7 +70,7 @@ interface Props {
   goTo?: { target: LineTarget; seq: number; resolve: (message: string | null) => void } | null
 }
 
-type Target = 'first' | 'last' | 'firstFlagged' | 'lastFlagged' | number
+type Target = 'first' | 'last' | number
 type Pending = { target: Target; edit?: boolean }
 
 const PHONE = '(max-width: 640px)'
@@ -81,8 +92,6 @@ const mismatch = () => new ApiError(409, { code: 'conflict', message: 'lines cha
 function pick(lines: ReviewLine[], t: Target): ReviewLine | undefined {
   if (t === 'first') return lines[0]
   if (t === 'last') return lines[lines.length - 1]
-  if (t === 'firstFlagged') return lines.find((l) => l.flag) ?? lines[0]
-  if (t === 'lastFlagged') return [...lines].reverse().find((l) => l.flag) ?? lines[lines.length - 1]
   return lines.find((l) => l.id === t)
 }
 
@@ -103,14 +112,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const [activeId, setActiveId] = useState<number | null>(null)
   const [edit, setEdit] = useState<EditState | null>(null)
   const [issue, setIssue] = useState<RowIssue | null>(null)
-  const [ai, setAi] = useState<{ lineId: number; mode: AiMode } | null>(null)
+  const [ai, setAi] = useState<{ lineId: number; mode: PanelMode } | null>(null)
+  // Translation-memory suggestions for the lines shown (R11), by line id.
+  const [tmList, setTmList] = useState<TmSuggestion[]>([])
+  const tmDismissed = useTmDismissed(dramaId)
   const [sheet, setSheet] = useState<SheetState | null>(null)
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const [structError, setStructError] = useState<unknown>(null)
   const [sheetNote, setSheetNote] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
-  const [flagCue, setFlagCue] = useState<1 | -1 | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
   const [replaceOpen, setReplaceOpen] = useState(() => readSectionOpen(browserStorage(), 'review.findreplace', false))
 
@@ -336,7 +347,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     const goPage = async (p: number, target: Target) => {
       if (!(await leaveEdit())) return
       pending.current = { target }
-      setFlagCue(null)
       setPage(p)
     }
 
@@ -348,16 +358,42 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
       else void goPage(pg + delta, delta > 0 ? 'first' : 'last')
     }
 
-    const moveFlagged = (delta: 1 | -1) => {
-      const { shown: lines, page: pg, pages: n, searching: s } = st.current
+    // Previous/next flagged line (Alt+Up/Down and the buttons): on this page
+    // first, then the server finds the nearest one on any page (R08). In a
+    // filtered view the server is asked from the focused row (flaggedStep).
+    const moveFlagged = async (delta: 1 | -1) => {
+      const { shown: lines, page: pg, searching: s, filter: f, activeId: cur } = st.current
       const row = (document.activeElement as HTMLElement | null)?.closest?.('[data-line-id]')
-      const from = row ? lines.findIndex((l) => String(l.id) === row.getAttribute('data-line-id')) : -1
-      const id = nextFlaggedId(lines, from, delta)
-      if (id !== null) {
-        setFlagCue(null)
-        void activate(id, true)
-      } else if (!s && (delta > 0 ? pg < n : pg > 1)) setFlagCue(delta)
-      else setStatus('No more flagged lines.')
+      const from = row
+        ? lines.findIndex((l) => String(l.id) === row.getAttribute('data-line-id'))
+        : lines.findIndex((l) => l.id === cur)
+      if (s) {
+        const id = nextFlaggedId(lines, from, delta)
+        if (id !== null) void activate(id, true)
+        else setStatus('No more flagged lines in these results.')
+        return
+      }
+      const step = flaggedStep(lines, f, from, delta)
+      if ('id' in step) {
+        void activate(step.id, true)
+        return
+      }
+      try {
+        const r = await flaggedAdjacent(dramaId, delta > 0 ? 'next' : 'prev', step.fromId, PAGE_SIZE, f)
+        if (r.line_id === null || r.page_all === null) setStatus('No more flagged lines.')
+        else if (r.page === pg) void activate(r.line_id, true)
+        else if (r.page !== null) void goPage(r.page, r.line_id)
+        else {
+          // The filter hides it: show every line to open it.
+          if (!(await leaveEdit())) return
+          pending.current = { target: r.line_id }
+          setStatus('Showing all lines to open the flagged line.')
+          setFilter('all')
+          setPage(r.page_all)
+        }
+      } catch (e) {
+        setError(e)
+      }
     }
 
     const saveAndNext = async () => {
@@ -491,6 +527,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         st.current.onChanged()
       },
       playLine: (line) => player.current?.playLine(line),
+      acceptTm: (id, entryId, expectedEn) => {
+        acceptTmSuggestion(dramaId, id, entryId, expectedEn).then((saved) => {
+          // A clean edit of this line now has a stale base: close it.
+          if (st.current.edit?.lineId === id && !stillDirty(id)) setEditNow(null)
+          replaceLine(saved)
+          setIssue(null)
+          st.current.onChanged()
+        }, (e) => failLine(id, e))
+      },
+      dismissTm: (s) => dismissTmEverywhere(dramaId, s),
       clearIssue: () => setIssue(null),
       reload: () => {
         setEditNow(null)
@@ -652,7 +698,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   // ---- toolbar ----
   const changeFilter = async (f: LineFilter) => {
     if (!(await ctl.leaveEdit())) return
-    setFlagCue(null)
     setFilter(f)
     setPage(1)
     setInput('')
@@ -660,7 +705,6 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   }
   const changeSearch = async (v: string) => {
     if (st.current.edit && !(await ctl.leaveEdit())) return
-    setFlagCue(null)
     setInput(v)
     if (v === '') setTerm('')
   }
@@ -715,6 +759,28 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     writeSectionOpen(browserStorage(), 'review.findreplace', next)
   }
 
+  // Translation-memory suggestions for the lines shown (R11). Optional: a
+  // failure (or no permission) just shows none.
+  const shownIds = shown.map((l) => l.id).join(',')
+  useEffect(() => {
+    let cancelled = false
+    const ids = shownIds ? shownIds.split(',').map(Number).slice(0, 200) : []
+    // Nothing shown: the old list matches no row, so it can stay.
+    if (ids.length === 0) return
+    listTmSuggestions(dramaId, undefined, ids).then(
+      (list) => !cancelled && setTmList(list),
+      () => !cancelled && setTmList([]),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId, shownIds, reloads])
+  const tmByLine = useMemo(() => {
+    const m = new Map<number, TmSuggestion>()
+    for (const s of visibleTm(tmList, tmDismissed)) if (s.line_id !== null) m.set(s.line_id, s)
+    return m
+  }, [tmList, tmDismissed])
+
   // ---- shortcuts ----
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
   useShortcut((combo, { inText, event }) => {
@@ -745,7 +811,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         return true
       case 'alt+arrowdown':
       case 'alt+arrowup':
-        ctl.moveFlagged(combo === 'alt+arrowdown' ? 1 : -1)
+        void ctl.moveFlagged(combo === 'alt+arrowdown' ? 1 : -1)
         return true
       case ']':
       case '[': {
@@ -861,20 +927,18 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         </p>
       )}
       {replaceOpen && <FindReplacePanel dramaId={dramaId} onChanged={onChanged} onClose={toggleReplace} />}
+      {!searching && !!data?.flagged_count && (
+        <div className="review-flagnav" role="group" aria-label="Flagged lines">
+          <button type="button" title="Previous flagged line (Alt+↑)" onClick={() => void ctl.moveFlagged(-1)}>
+            ‹ Previous flagged
+          </button>
+          <button type="button" title="Next flagged line (Alt+↓)" onClick={() => void ctl.moveFlagged(1)}>
+            Next flagged ›
+          </button>
+        </div>
+      )}
       <p className="review-status" role="status">
         {status}
-        {flagCue && (
-          <>
-            No more flagged lines on this page.{' '}
-            <button
-              type="button"
-              className="link"
-              onClick={() => void ctl.goPage(page + flagCue, flagCue > 0 ? 'firstFlagged' : 'lastFlagged')}
-            >
-              {flagCue > 0 ? 'Next page ›' : '‹ Previous page'}
-            </button>
-          </>
-        )}
       </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {hiddenEdit && (
@@ -930,6 +994,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
             limited={limited}
             edit={edit?.lineId === l.id ? edit : null}
             ai={ai?.lineId === l.id ? ai.mode : null}
+            tm={tmByLine.get(l.id) ?? null}
             issue={issue?.lineId === l.id ? issue : null}
             actions={actions}
           />
@@ -1003,6 +1068,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         onEditDetails={() => closeSheetThen(() => sheetLine && void ctl.openEdit(sheetLine.id, true))}
         onImprove={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'improve'))}
         onWhy={() => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, 'explain'))}
+        onTool={(mode) => closeSheetThen(() => sheetLine && actions.setAi(sheetLine.id, mode))}
         onDismissFlag={() => closeSheetThen(() => sheetLine && actions.dismissFlag(sheetLine.id))}
         onAddNote={() =>
           closeSheetThen(() => {

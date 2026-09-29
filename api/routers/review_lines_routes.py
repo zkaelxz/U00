@@ -13,13 +13,14 @@ restore, the media player and preview, translation-memory suggestions, LLM
 tools, bulk modes, and history/versions/notes reads (Slice 48).
 """
 
-from typing import List
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Path, Query
 from api.auth import require_permission
 from api.schemas import (ErrorResponse, ReviewLinesCoverage, ReviewLinesFindReplaceRequest,
                          ReviewLinesLine, ReviewLinesMatch, ReviewLinesOriginalText,
-                         ReviewLinesPacing, ReviewLinesPage, ReviewLinesProvenance)
+                         ReviewLinesPacing, ReviewLinesPage, ReviewLinesProvenance,
+                         ReviewLinePosition)
 from services import review_lines_service
 
 router = APIRouter(prefix="/api/review", tags=["review"])
@@ -83,3 +84,15 @@ def get_review_line_provenance(drama_id: int = Path(ge=1), line_id: int = Path(g
             responses=_404)
 def get_review_line_original_text(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return review_lines_service.get_original_text(drama_id, line_id)
+
+
+@router.get("/dramas/{drama_id}/flagged-adjacent", dependencies=[require_permission("lines.read")],
+            response_model=ReviewLinePosition,
+            summary="The nearest flagged line before/after a line, across pages",
+            responses=_404_422)
+def get_review_flagged_adjacent(drama_id: int = Path(ge=1),
+                                direction: Literal["next", "prev"] = "next",
+                                from_line_id: Optional[int] = Query(None, ge=1),
+                                page_size: int = Query(40, ge=1, le=200), only: str = "all"):
+    return review_lines_service.adjacent_flagged(drama_id, direction == "next", from_line_id,
+                                                 page_size, only)

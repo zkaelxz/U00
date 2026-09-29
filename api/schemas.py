@@ -1149,8 +1149,10 @@ class LinesFindReplaceApplyResult(BaseModel):
 
 
 class LinesAcceptTmRequest(BaseModel):
+    """expected_en: the line's English the client saw (409 if it changed)."""
     model_config = ConfigDict(extra="forbid")
     entry_id: int = Field(ge=1)
+    expected_en: str = Field(max_length=20000)
 
 
 class LinesNoteCreate(BaseModel):
@@ -1670,6 +1672,70 @@ class LineExplanation(BaseModel):
     explanation: str
     engine: str
     model: Optional[str] = None
+
+
+# --- Review per-line tools (review parity R17/R18/R28, R08/R43) ----------
+
+class LineAlternative(BaseModel):
+    translation: str
+    approach: str
+    tradeoff: str
+
+
+class LineAlternatives(BaseModel):
+    line_id: int
+    current_en: str
+    alternatives: List[LineAlternative]
+    engine: str
+    model: Optional[str] = None
+
+
+class LineGrammarPart(BaseModel):
+    word: str
+    reading: str
+    meaning: str
+    function: str
+
+
+class LineGrammar(BaseModel):
+    line_id: int
+    zh: str
+    parts: List[LineGrammarPart]
+    engine: str
+    model: Optional[str] = None
+
+
+class LinesShortenRequest(LineExplainRequest):
+    """Auto-shorten overlong lines. line_ids: only these (still only the
+    ones the pacing check calls too long); omitted = every such line.
+    confirm must be true: it overwrites English."""
+    line_ids: Optional[List[int]] = Field(None, max_length=1000)
+    confirm: StrictBool = False
+
+
+class LinesShortenedLine(BaseModel):
+    id: int
+    idx: int
+    before: str
+    after: str
+
+
+class LinesShortenResult(BaseModel):
+    shortened: int
+    unchanged: int
+    stale: int
+    remaining: int
+    snapshot_saved: bool
+    lines: List[LinesShortenedLine]
+
+
+class ReviewLinePosition(BaseModel):
+    """page: in the requested filter view (None if it hides the line);
+    page_all: with no filter. All None when there's no such line."""
+    line_id: Optional[int] = None
+    idx: Optional[int] = None
+    page: Optional[int] = None
+    page_all: Optional[int] = None
 
 
 # --- Discover catalog (Migration Slice 55) ---------------------------------

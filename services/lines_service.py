@@ -220,18 +220,24 @@ def apply_find_replace(drama_id: int, matches) -> dict:
             "applied_ids": applied_ids, "stale_ids": stale_ids}
 
 
-def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int) -> dict:
+def accept_tm_suggestion(drama_id: int, line_id: int, entry_id: int, expected_en: str) -> dict:
     """Sets the line's translation to a translation-memory entry's text
     (writes only `en`) and counts the use. The entry must belong to this
-    drama's series -- another series' entry is the same 404 as a missing one."""
+    drama's series -- another series' entry is the same 404 as a missing one.
+    `expected_en` is the English the caller saw: the write is one
+    compare-and-set, so a line edited since is a 409 with nothing written."""
+    if not isinstance(expected_en, str):
+        raise InvalidInputError("expected_en must be text.")
     drama, _, ln = _load(drama_id, line_id)
     series_id = drama.get("series_id")
     entry = next((e for e in (db.list_translation_memory(series_id) if series_id else [])
                   if e["id"] == entry_id), None)
     if entry is None:
         raise NotFoundError(f"No translation-memory entry with id {entry_id} for this drama.")
-    ln.en = entry["translation"]
-    db.save_lines(drama_id, [ln], fields=("en",))
+    if not db.update_line_fields_if(drama_id, line_id, {"en": entry["translation"]},
+                                    {"en": expected_en}):
+        raise ConflictError("This line changed since you loaded it.",
+                            details={"fields": ["en"]})
     db.bump_translation_memory_use(entry["id"])
     return _reload_dict(drama_id, line_id)
 

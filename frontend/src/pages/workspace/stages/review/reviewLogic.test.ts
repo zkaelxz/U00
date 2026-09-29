@@ -20,6 +20,7 @@ import {
   lineRange,
   LINES_CHANGED_MESSAGE,
   mergedText,
+  flaggedStep,
   nextFlaggedId,
   pageForPosition,
   pageStillMatches,
@@ -70,6 +71,18 @@ describe('active line', () => {
     expect(nextFlaggedId(lines, 0, 1)).toBe(3)
     expect(nextFlaggedId(lines, 2, 1)).toBeNull()
     expect(nextFlaggedId(lines, 2, -1)).toBe(1)
+  })
+  it('asks the server from the focused row in a filtered view', () => {
+    // untranslated view: lines 4 and 9 shown; a hidden flagged line may sit between
+    const lines = [mk(4), mk(9, { flag: 'uncertain' }), mk(12)]
+    expect(flaggedStep(lines, 'untranslated', 0, 1)).toEqual({ fromId: 4 })
+    expect(flaggedStep(lines, 'untranslated', 2, -1)).toEqual({ fromId: 12 })
+    // nothing focused: the page, then its edge
+    expect(flaggedStep(lines, 'untranslated', -1, 1)).toEqual({ id: 9 })
+    // "all" pages hold every line, so the page is searched first
+    expect(flaggedStep(lines, 'all', 0, 1)).toEqual({ id: 9 })
+    expect(flaggedStep(lines, 'all', 1, 1)).toEqual({ fromId: 12 })
+    expect(flaggedStep(lines, 'all', 1, -1)).toEqual({ fromId: 4 })
   })
   it('maps a position to its page', () => {
     expect(pageForPosition(0)).toBe(1)
