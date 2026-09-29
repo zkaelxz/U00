@@ -7,10 +7,10 @@ at scale. Inspired by
 (ASR → translate → TTS dub / clone), scoped to this genre space, with a
 persistent filterable library for managing dozens of titles.
 
-It is a Python/Streamlit app (still the main UI, started with
-`streamlit run app.py`) with a headless CLI (`cli.py`). Alongside it, an
-experimental FastAPI service and React frontend are being built out
-stage by stage over the same library; see
+It is a Python app with a FastAPI server and React frontend, started with
+`start.bat` (or `python -m api`), plus a headless CLI (`cli.py`). The
+older Streamlit UI (`app.py`) is being retired and is no longer what the
+launcher opens; see
 [Project status and architecture](#project-status-and-architecture).
 
 **Important:** this tool works on files you already have legal access
@@ -40,9 +40,13 @@ URL you have the right to download from, only.
 
 *Verified against the repository on 2026-09-29.*
 
-- **Streamlit app (main UI, complete).** `app.py` plus `tabs/*.py`. This
-  is what `start.bat` / `streamlit run app.py` open, on port 8501, and
-  everything in this README describes it unless stated otherwise.
+- **Launcher.** `start.bat` starts `python -m api` on
+  `http://127.0.0.1:8600/` (loopback only), which serves the prebuilt
+  React app from `frontend/dist` (a release zip, see
+  [`docs/RELEASE.md`](docs/RELEASE.md)). It no longer starts Streamlit.
+- **Streamlit app (being retired).** `app.py` plus `tabs/*.py`. It is no
+  longer launched by `start.bat`, but much of this README still describes
+  its screens.
 - **FastAPI + React app (experimental, runs alongside).** A gradual
   migration to an HTTP API (`api/`) and a React frontend (`frontend/`)
   over the *same* library, database and background jobs. Nothing about
@@ -57,10 +61,14 @@ URL you have the right to download from, only.
   functions; `api/` exposes those as HTTP routes; `frontend/` is the
   React client and calls `/api`. `cli.py` and the Streamlit tabs use the
   same underlying modules.
-- **Not a production deployment story yet.** FastAPI does not serve the
-  built `frontend/dist` today (no static-file mount in `api/`); React
-  runs from the Vite dev or preview server, which proxies `/api` to
-  FastAPI. Both are loopback-only with no login.
+- **Not a production deployment story yet.** `python -m api` serves the
+  built `frontend/dist` at `/` (`api/static_frontend.py`). It is
+  loopback-only with no login, so other devices on your network can't
+  reach it until authentication exists (`docs/remote-access-decision.md`).
+- **Known limitations.** The browser-extension bridge (`page_server.py`)
+  and the scheduled chapter check are still only started by the
+  Streamlit app. Launching through `start.bat` / `python -m api` does
+  not start them yet. Starting them from the API is a follow-up.
 
 Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
 map), [`docs/README.md`](docs/README.md) (docs index),
@@ -171,13 +179,23 @@ If you're on Windows and don't want to type any commands, double-click
 run `make_shortcut.bat` once to create it). It creates the virtual
 environment and installs dependencies the first time, checks that
 ffmpeg/a JS runtime/CUDA are set up and tells you plainly if any of them
-aren't, then opens the app in its own window (Edge's app mode, falling
-back to Chrome or your default browser). It starts the **Streamlit** app
-only, on port 8501 -- not the API or the React dev server (see
-[Running the API and the React frontend](#running-the-api-and-the-react-frontend)).
-Running it again just reopens the window if the app's already running.
-`start.ps1` is a PowerShell equivalent (`-Portable`, `-PythonVersion`),
-and `start.bat` also accepts `--portable`, `--server-only`, `--ci` and
+aren't, then starts the app server (`python -m api`) on
+`http://127.0.0.1:8600/` and, once `/api/health` answers, opens it in its
+own window (Edge's app mode, falling back to Chrome or your default
+browser). Running it again just reopens the window if the app's already
+running.
+
+**One-time extra step: the app's screens.** The React frontend ships as a
+prebuilt zip, so you don't need Node.js. Download
+`baihe-frontend-<version>.zip` from the project's GitHub Releases page and
+extract it into the Baihe folder, so that `frontend\dist\index.html`
+exists. If it's missing, `start.bat` stops and tells you this. How the zip
+is made: [`docs/RELEASE.md`](docs/RELEASE.md). Developers with Node.js 22
+can run `start.bat --build-frontend` instead.
+
+`start.ps1` is a PowerShell equivalent (`-Portable`, `-PythonVersion`,
+`-BuildFrontend`), and `start.bat` also accepts `--portable`,
+`--server-only` (don't open a window), `--ci`, `--build-frontend` and
 `--python-version 3.12` (or a `PYTHON_VERSION` marker file). It uses
 `constraints.lock.txt` instead of `constraints.txt` if you've made one
 with `make_lock.bat`. `uninstall.bat` removes the
@@ -196,8 +214,9 @@ just prefer the command line on Windows too.
 Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
 diarization; CI and the cloud test setup use 3.11) and `ffmpeg` **with
 libass support** (needed for burning subtitles into video). Most
-standard `ffmpeg` builds already include it. Node.js is only needed for
-the experimental React frontend (22 is what CI uses). Optional system
+standard `ffmpeg` builds already include it. Node.js is only needed to
+build the React frontend yourself (22 is what CI uses); the release zip
+avoids that. Optional system
 tools such as the Tesseract binary (for `pytesseract` OCR) are covered
 where each feature is described.
 
@@ -279,28 +298,15 @@ would need to bundle a full Python interpreter plus every ML dependency
 this app can use, multi-gigabytes either way, so that isn't what this
 does.
 
-### Running as a personal server (LAN access)
+### Access from other devices (not available yet)
 
-Streamlit already binds to every network interface when `start.bat`
-launches it (`--server.headless true`), not just `localhost` -- so a
-Windows machine you leave running as an always-on personal server is
-already reachable from any other device on the same home network, no
-setup needed beyond starting the app there. `start.bat` now prints that
-address on every launch: "Also reachable from other devices on this
-network at: `http://<your-LAN-IP>:8501`". Open that from a browser on any
-other computer/phone on the same network and it's the same app, same
-library, same background jobs -- there's no separate client/server split
-to configure.
-
-If you're running that machine unattended and never want its own local
-Edge/Chrome window to pop up, use `start.bat --server-only` (same effect
-as setting the `BAIHE_SERVER_ONLY` environment variable).
-
-**This is LAN-only, single-user, by design** -- there's no login or
-access control, matching a personal home network where anyone on it is
-already trusted. Don't expose the port to the internet (e.g. via router
-port-forwarding) without adding your own authentication in front of it
-first.
+The app is **loopback-only** (`127.0.0.1`): only the PC running it can
+open it. The API has no login yet, so `start.bat` never binds it to your
+network and no longer prints a LAN address. Phone and household access
+comes back once authentication and permissions exist; see
+[`docs/remote-access-decision.md`](docs/remote-access-decision.md).
+`start.bat --server-only` still runs the server without opening a window
+(same effect as setting `BAIHE_SERVER_ONLY`).
 
 ## Usage
 

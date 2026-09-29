@@ -60,12 +60,15 @@ jobs:
         shell: cmd
         run: start.bat --ci
 
-      - name: Health check -- confirm the server is actually reachable
+      # start.bat --ci already waits for /api/health (`python -m api`);
+      # this re-checks it independently. A fresh checkout has no
+      # frontend/dist (it ships as a release zip), so this is API-only.
+      - name: Health check -- confirm /api/health answers
         shell: pwsh
         run: |
-          $response = Invoke-WebRequest -Uri http://localhost:8501 -UseBasicParsing
+          $response = Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing
           if ($response.StatusCode -ne 200) {
             Write-Error "Server responded with $($response.StatusCode), expected 200"
             exit 1
           }
-          Write-Host "Server answered on port 8501 with status $($response.StatusCode)"
+          Write-Host "/api/health answered on port 8600 with status $($response.StatusCode)"
