@@ -1,0 +1,6 @@
+/* Diagnostics parity: the always-visible core checks and model-cache rows
+   with a delete button. */
+.diag-core { margin-bottom: var(--space-2); }
+.diag-core li.warn { font-weight: 600; }
+.diag-cache li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.diag-cache li > span { min-width: 0; overflow-wrap: anywhere; }

@@ -10,6 +10,8 @@ drama (Migration Slice 37), the API counterpart of the New-drama form's
     is written.
   - apply_autofill: writes only the whitelisted fields, through
     drama_service.update_drama_metadata (which re-validates them).
+  - romanize_credits: asks the LLM for readable forms of the credits and
+    writes only the four *_romanized fields (the originals are untouched).
 
 Safety: a client-supplied URL must be http(s) with a public host -- every
 address the host resolves to (and every redirect hop, followed manually) must
@@ -239,6 +241,63 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     if suggestion and url:
         suggestion["source_url"] = url
     return {"drama_id": drama_id, "suggestion": suggestion, "found": bool(suggestion)}
+
+
+CREDIT_FIELDS = ("author", "studio", "director", "voice_actors")
+
+
+def romanize_engine_name(drama_id: int, engine_name: Optional[str] = None) -> str:
+    """The engine a romanize call will use: the one asked for, else the
+    drama's translation engine, else the default (so the route can check
+    engines.paid against the engine that really runs)."""
+    drama = _require_drama(drama_id)
+    return engine_name or drama.get("translation_engine") or DEFAULT_ENGINE
+
+
+def romanize_credits(drama_id: int, engine_name: Optional[str] = None) -> dict:
+    """The Workspace "Romanize credits" button (inventory P13): asks an LLM
+    for readable English forms of the author, studio, director and cast and
+    stores them in the *_romanized fields beside the untouched originals.
+    Returns {"drama_id", "romanized": {field: value}, "updated": bool};
+    `updated` is False when the engine gave nothing usable (nothing is
+    written then). No credits 422; no key / engine failure 503 (fixed text)."""
+    import translation_guide
+    drama = _require_drama(drama_id)
+    engine_name = engine_name or drama.get("translation_engine") or DEFAULT_ENGINE
+    supported = [e for e, cls in translate_engines.ENGINES.items()
+                 if getattr(cls, "supports_reference", False)]
+    if engine_name not in supported:
+        raise InvalidInputError("That engine cannot romanize credits; use an LLM engine.",
+                                details={"allowed": supported})
+    credits = {k: (drama.get(k) or "").strip() for k in CREDIT_FIELDS}
+    if not any(credits.values()):
+        raise InvalidInputError("Add an author, studio, director or cast first.")
+    api_key = _api_key(engine_name)
+    if not api_key:
+        raise DependencyUnavailableError(
+            f"No {engine_name} key is configured. Set one in Settings first.")
+    try:
+        engine = translate_engines.get_engine(
+            engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),
+            base_url=(settings_service.resolve_key("ollama_url") or None)
+            if engine_name == "ollama" else None)
+
+        def log(inp, out, *_):
+            db.log_usage(drama_id, engine_name, getattr(engine, "model", engine_name),
+                         "romanize_credits", inp, out,
+                         translate_engines.estimate_cost_for_engine(engine, inp, out))
+        found = translation_guide.romanize_metadata(
+            credits, engine, source_language=drama.get("source_language") or "zh",
+            usage_cb=log)
+    except Exception as e:
+        raise DependencyUnavailableError("The romanization service is unavailable.") from e
+    romanized = {k: v.strip()[:drama_service.MAX_NAME_LEN] for k, v in (found or {}).items()
+                 if k in CREDIT_FIELDS and credits.get(k) and isinstance(v, str) and v.strip()}
+    if romanized:
+        # All four, as the Streamlit button did: a credit not returned (e.g.
+        # one since removed) loses its stale romanized form.
+        db.update_drama(drama_id, **{f"{k}_romanized": romanized.get(k) for k in CREDIT_FIELDS})
+    return {"drama_id": drama_id, "romanized": romanized, "updated": bool(romanized)}
 
 
 def apply_autofill(drama_id: int, fields: dict) -> dict:

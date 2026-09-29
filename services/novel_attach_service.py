@@ -194,6 +194,12 @@ def _spine_order(zf, names) -> list:
 def extract_epub_text(fileobj) -> str:
     """Safe plain-text extraction; raises InvalidInputError for anything
     that is not a well-formed, in-bounds EPUB."""
+    return "\n\n".join(extract_epub_chapters(fileobj))
+
+
+def extract_epub_chapters(fileobj) -> list:
+    """The EPUB's text as one entry per reading-order document that has any
+    text (the chapters a range picks from). Same checks as extract_epub_text."""
     try:
         zf = zipfile.ZipFile(fileobj)
     except (zipfile.BadZipFile, OSError):
@@ -223,10 +229,28 @@ def extract_epub_text(fileobj) -> str:
             text = _html_to_text(raw)
             if text:
                 chunks.append(text)
-    return "\n\n".join(chunks)
+    return chunks
 
 
-def attach_epub(drama_id: int, fileobj, mode: str = "replace") -> dict:
+def _check_range(chapter_from, chapter_to, total: int):
+    """1-based, inclusive. Either end may be omitted (first / last chapter)."""
+    for v in (chapter_from, chapter_to):
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
+            raise InvalidInputError("Chapter numbers are whole numbers.")
+    start = 1 if chapter_from is None else chapter_from
+    end = total if chapter_to is None else chapter_to
+    if not 1 <= start <= end <= total:
+        raise InvalidInputError(
+            f"That EPUB has {total} chapter{'s' if total != 1 else ''}; pick a range from 1 to {total}.",
+            details={"chapters": total})
+    return start, end
+
+
+def attach_epub(drama_id: int, fileobj, mode: str = "replace",
+                chapter_from: Optional[int] = None, chapter_to: Optional[int] = None) -> dict:
+    """Attaches the EPUB's text, or only chapters chapter_from..chapter_to
+    (1-based, inclusive; inventory S13). Returns {char_count, epub_chapters,
+    chapter_from, chapter_to}."""
     _require_drama(drama_id)
     _check_mode(mode)
     _check_idle(drama_id)
@@ -235,9 +259,38 @@ def attach_epub(drama_id: int, fileobj, mode: str = "replace") -> dict:
         raise InvalidInputError("The uploaded EPUB is too large.")
     if not data:
         raise InvalidInputError("The uploaded file is empty.")
-    text = _clean(extract_epub_text(io.BytesIO(data)))
+    chapters = extract_epub_chapters(io.BytesIO(data))
+    if not chapters:
+        raise InvalidInputError("No readable text was found in that EPUB.")
+    start, end = _check_range(chapter_from, chapter_to, len(chapters))
+    text = _clean("\n\n".join(chapters[start - 1:end]))
     if not text:
         raise InvalidInputError("No readable text was found in that EPUB.")
+    return {"char_count": _write_novel(drama_id, text, mode), "epub_chapters": len(chapters),
+            "chapter_from": start, "chapter_to": end}
+
+
+RAW_NOVEL_FILENAME = "raw_novel_context.txt"  # sources/pipeline.save_novel_text
+
+
+def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
+    """Uses the chapters imported in Sources (or saved as the original novel),
+    `raw_novel_context.txt`, as the narration text (inventory S12; the
+    Streamlit tab pre-filled the narration box from it). 404 when there is
+    none."""
+    _require_drama(drama_id)
+    _check_mode(mode)
+    path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
+    if not os.path.isfile(path):
+        raise NotFoundError("No chapters have been imported for this drama.")
+    with open(path, encoding="utf-8", errors="replace") as f:
+        raw = f.read(MAX_TEXT_CHARS + 1)
+    if len(raw) > MAX_TEXT_CHARS:     # checked before cleaning, so it never truncates
+        raise InvalidInputError("The imported chapters are too large.")
+    text = _clean(raw)
+    if not text:
+        raise InvalidInputError("The imported chapters are empty.")
+    _check_idle(drama_id)
     return {"char_count": _write_novel(drama_id, text, mode)}
 
 

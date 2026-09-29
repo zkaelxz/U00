@@ -2,11 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
-  createDrama, getCosts, getHistory, getPresets, getRecent, getSeries, getStats, getVoiceBank,
-  renamePreset, renameVoiceBankEntry, searchLines,
+  clearReadingHistory, createDrama, getContinueReading, getCosts, getHistory, getPresets, getRecent,
+  getSeries, getStats, getVoiceBank, renamePreset, renameVoiceBankEntry, searchLines,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
+import { ButtonLink } from '../components/Button'
+import { Card } from '../components/Card'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -20,13 +23,16 @@ import { AdminSection } from './libraryAdmin/AdminSection'
 import { SelectionBar } from './libraryAdmin/SelectionBar'
 import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import { useAdminJob } from './libraryAdmin/useAdminJob'
-import type { DramaCreateRequest, LibraryDashboard, LibrarySearchHit } from '../types/library'
+import type {
+  DramaCreateRequest, LibraryContinueEntry, LibraryDashboard, LibrarySearchHit,
+} from '../types/library'
 import {
   MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
 import { savePresetStart } from './workspace/translateForm'
 import { lineNumber } from '../lineNumber'
+import '../components/libraryParity.css'
 
 const name = (d: { title_en: string | null; title_zh: string | null; id?: number }) =>
   d.title_en || d.title_zh || `#${d.id ?? ''}`
@@ -172,6 +178,70 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
   )
 }
 
+// "Continue reading": partly-read dramas; Resume opens the Reader, which picks
+// up at the saved page (#388). Hidden when nothing is in progress.
+function ContinueStrip({ items }: { items: LibraryContinueEntry[] | null }) {
+  if (!items?.length) return null
+  return (
+    <Card title="Continue reading" className="wide continue-strip" aria-label="Continue reading">
+      <ul>
+        {items.map((d) => {
+          const pct = Math.round(d.percent_complete ?? 0)
+          const title = name({ ...d, id: d.drama_id })
+          return (
+            <li key={d.drama_id}>
+              {d.has_cover_art && <img className="continue-cover" src={coverUrl(d.drama_id)} alt="" loading="lazy" />}
+              <span className="continue-title">{title}</span>
+              <progress max={100} value={pct} aria-label={`${title}: ${pct}% read`} />
+              <span className="muted">{d.last_page ? `Page ${d.last_page} · ` : ''}{pct}%</span>
+              <ButtonLink
+                size="sm"
+                className="continue-resume"
+                href={routeHref({ name: 'read', id: d.drama_id, page: null })}
+                aria-label={`Resume ${title}`}
+              >
+                Resume
+              </ButtonLink>
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
+  )
+}
+
+// Clear the reading history (PC only). Reading progress, and so the Continue
+// strip, is kept.
+function ClearHistory({ pc, onCleared }: { pc: PcMode; onCleared: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+  if (pc === 'remote') return <p className="muted">Clearing history is PC only.</p>
+  const run = () => {
+    setBusy(true)
+    setError(null)
+    clearReadingHistory().then(
+      () => { setBusy(false); onCleared() },
+      (e: unknown) => { setBusy(false); setError(e) },
+    )
+  }
+  return (
+    <>
+      <div className="actions">
+        <ConfirmButton
+          name="reading history"
+          label="Clear history…"
+          ariaLabel="Clear reading history"
+          verb="clear"
+          busy={busy}
+          onConfirm={run}
+        />
+      </div>
+      <p className="muted">Where you left off in each drama is kept.</p>
+      <ErrorBanner error={error} describe={{ pcOnly: true }} onDismiss={() => setError(null)} />
+    </>
+  )
+}
+
 function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcMode; onChanged: () => void }) {
   const recent = useLoad(getRecent, reloadKey)
   const series = useLoad(getSeries, reloadKey)
@@ -216,6 +286,7 @@ function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcM
             </li>
           ))}
         </ul>
+        <ClearHistory pc={pc} onCleared={onChanged} />
       </Fold>
       <Fold title="Presets" count={presets.data?.items.length} error={presets.error}>
         <DeletableList
@@ -413,6 +484,7 @@ export default function LibraryPage() {
   const pc = usePcOnly()
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
+  const continuing = useLoad(getContinueReading, reloadKey)
   // One export job for the page: the selection bar and Backup & storage share it.
   const exporter = useAdminJob(ADMIN_JOB_IDS.export, 'export')
   // The last bulk result stays after the bar closes (like `notice`).
@@ -457,6 +529,7 @@ export default function LibraryPage() {
   return (
     <main className="library-grid">
       <StatsStrip stats={stats} />
+      <ContinueStrip items={continuing.data?.items ?? null} />
       <div className="wide new-drama-slot">
         <CreateForm reloadKey={reloadKey} onCreated={(id) => { setSelectedId(id); reload() }} />
       </div>

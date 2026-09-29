@@ -6,7 +6,7 @@ import type { ApiError } from '../../api/client'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
 import type {
-  DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
+  DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
 import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
@@ -78,7 +78,15 @@ export function adminErrorText(err: unknown, action: AdminAction): string {
 
 // ---- Setup ----
 
-export type SetupRow = { key: string; label: string; text: string; problem: boolean }
+// `core`: a Q01 core requirement (Python, ffmpeg with libass, JS runtime),
+// always shown at the top of the page rather than inside the Setup fold.
+export type SetupRow = { key: string; label: string; text: string; problem: boolean; core?: boolean }
+
+/** The ffmpeg row's problem text: missing, or built without libass. */
+function ffmpegProblem(c: DiagnosticsSetupChecks): string {
+  if (!c.ffmpeg.found) return 'ffmpeg not found'
+  return 'ffmpeg has no libass (burned-in subtitles and the styled preview need it)'
+}
 
 /** The Setup rows ("Label: value", or "Problem: …") from setup-checks plus the overview's GPU. */
 export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): SetupRow[] {
@@ -87,9 +95,12 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     rows.push({ key, label, problem: !ok, text: ok ? `${label}: ${good}` : `Problem: ${bad}` })
   add('python', 'Python', c.python.ok, c.python.version ?? 'found',
     c.python.version ? `Python ${c.python.version} is too old` : 'Python version unknown')
-  add('ffmpeg', 'ffmpeg', c.ffmpeg.found, c.ffmpeg.version ?? 'found', 'ffmpeg not found')
+  const ffmpegOk = c.ffmpeg.found && c.ffmpeg.libass !== false
+  add('ffmpeg', 'ffmpeg', ffmpegOk,
+    `${c.ffmpeg.version ?? 'found'}${c.ffmpeg.libass ? ' (with libass)' : ''}`, ffmpegProblem(c))
   add('js', 'JS runtime', c.js_runtime.found, c.js_runtime.name ?? 'found',
     'no JS runtime (some video sites lose formats)')
+  for (const r of rows) r.core = true
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
   if (gpu || gpuBlind) add('gpu', 'GPU', !gpuBlind, gpu ? describeGpu(gpu) : '', "PyTorch can't see the GPU")
   const missing = c.files.missing_top_level.length + c.files.missing_tabs.length
@@ -165,6 +176,19 @@ export function historySummary(h: DiagnosticsJobHistoryItem): string {
 }
 
 export const HISTORY_PAGE = 20
+
+// ---- Saved bug bundles ----
+
+/** "#4 Bad pronoun · Signal" ("(deleted drama)" once the drama is gone). */
+export const bugBundleTitle = (b: Pick<DiagnosticsBugBundle, 'id' | 'label' | 'drama_title'>) =>
+  `#${b.id} ${b.label || 'Untitled'} · ${b.drama_title ?? '(deleted drama)'}`
+
+/** The last replay's outcome, or null if never replayed. */
+export function bugBundleReplayText(b: Pick<DiagnosticsBugBundle, 'replayed' | 'replay_output' | 'reproduced'>) {
+  if (!b.replayed) return null
+  const verdict = b.reproduced ? 'Still reproduces the same output.' : 'No longer reproduces: the output changed.'
+  return `${verdict} Last replay: ${b.replay_output || '—'}`
+}
 
 // ---- Log and report ----
 

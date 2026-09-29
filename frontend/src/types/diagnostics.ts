@@ -42,7 +42,8 @@ export interface DiagnosticsOverview {
 
 export interface DiagnosticsSetupChecks {
   python: { version: string | null; ok: boolean }
-  ffmpeg: { found: boolean; version: string | null }
+  // libass: built with libass (burned-in subtitles); null/absent = unknown.
+  ffmpeg: { found: boolean; version: string | null; libass?: boolean | null }
   js_runtime: { found: boolean; name: string | null }
   cuda: { torch_installed: boolean; cuda_available: boolean | null }
   files: { all_present: boolean; missing_top_level: string[]; missing_tabs: string[] }
@@ -221,4 +222,31 @@ export interface DiagnosticsGpuTorchSetupResult extends DiagnosticsInstallResult
 export interface DiagnosticsResetResult {
   ok: boolean
   reset_at: number
+}
+
+// POST /api/diagnostics/model-cache/{hf|piper}/{name}/delete (PC only).
+export interface DiagnosticsCacheDeleteResult {
+  deleted: boolean
+  name: string
+}
+
+// GET /api/diagnostics/bug-bundles: saved "What happened here?" snapshots.
+export interface DiagnosticsBugBundle {
+  id: number
+  drama_id: number
+  drama_title: string | null
+  line_id: number | null
+  label: string
+  engine: string | null
+  model: string | null
+  produced_output: string
+  replayed: boolean
+  replay_output: string | null
+  reproduced: boolean | null
+  created_at: string | null
+}
+
+export interface BugBundleDeleteResult {
+  bundle_id: number
+  deleted: boolean
 }

@@ -1462,6 +1462,15 @@ class NovelAttachTextRequest(BaseModel):
 
 class NovelAttachResult(BaseModel):
     char_count: int
+    # EPUB attach only: the chapters found and the range that was used (1-based, inclusive).
+    epub_chapters: Optional[int] = None
+    chapter_from: Optional[int] = None
+    chapter_to: Optional[int] = None
+
+
+class NovelAttachFromSourcesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: str = Field(default="replace", max_length=10)
 
 
 class NovelOcrResult(BaseModel):
@@ -2257,6 +2266,8 @@ class DiagnosticsSetupPython(BaseModel):
 class DiagnosticsSetupFfmpeg(BaseModel):
     found: bool
     version: Optional[str] = None
+    libass: Optional[bool] = Field(default=None, description=(
+        "Built with libass (burned-in subtitles); null when ffmpeg is missing or unknown."))
 
 
 class DiagnosticsSetupJsRuntime(BaseModel):
@@ -3516,6 +3527,90 @@ class NovelFileTextRequest(BaseModel):
     the body itself, capped at 32 MB, before this is validated."""
     model_config = ConfigDict(extra="forbid")
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Library parity (react-misc-parity): Continue reading shelf, the data-driven
+# "All dramas" filter choices, and the PC-only reading-history clear.
+# ---------------------------------------------------------------------------
+
+class LibraryContinueEntry(BaseModel):
+    drama_id: int
+    title_en: Optional[str] = None
+    title_zh: Optional[str] = None
+    percent_complete: Optional[float] = None
+    last_page: Optional[int] = None
+    last_accessed_at: Optional[str] = None
+    has_cover_art: bool
+
+
+class LibraryContinueResponse(BaseModel):
+    items: List[LibraryContinueEntry]
+
+
+class LibraryFilterOptions(BaseModel):
+    studios: List[str]
+    authors: List[str]
+    voice_actors: List[str]
+    custom_tags: List[str]
+
+
+class ReadingHistoryClearResult(BaseModel):
+    cleared: bool
+    removed: int
+
+
+# ---------------------------------------------------------------------------
+# Diagnostics parity (react-misc-parity): model-cache delete (Q14) and the
+# saved bug-reproduction bundles list.
+# ---------------------------------------------------------------------------
+
+class DiagnosticsCacheDeleteResult(BaseModel):
+    deleted: bool
+    name: str
+
+
+class DiagnosticsBugBundle(BaseModel):
+    """A saved "What happened here?" snapshot; the frozen input is not returned."""
+    id: int
+    drama_id: int
+    drama_title: Optional[str] = None
+    line_id: Optional[int] = None
+    label: str
+    engine: Optional[str] = None
+    model: Optional[str] = None
+    produced_output: str
+    replayed: bool
+    replay_output: Optional[str] = None
+    reproduced: Optional[bool] = None
+    created_at: Optional[str] = None
+
+
+
+# ---------------------------------------------------------------------------
+# Workspace preamble parity (react-misc-parity): romanize credits (P13) and
+# cover art (P14). No filename or path is returned.
+# ---------------------------------------------------------------------------
+
+class RomanizeCreditsRequest(BaseModel):
+    """`engine` defaults to the drama's translation engine."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(default=None, max_length=40)
+
+
+class RomanizeCreditsResult(BaseModel):
+    drama_id: int
+    romanized: Dict[str, str]
+    updated: bool
+
+
+class CoverArtResult(BaseModel):
+    drama_id: int
+    has_cover_art: bool
+    format: str
+    width: int
+    height: int
+    size_bytes: int
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 
-import { analyzeMedia, applyMetadata, suggestMetadata } from '../../../api/metadata'
+import { analyzeMedia, applyMetadata, listPlatforms, suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
-import type { MediaAnalysis } from '../../../types/workspace'
+import type { KnownPlatform, MediaAnalysis } from '../../../types/workspace'
 import {
   acceptedFields,
   analysisDetails,
@@ -15,6 +15,37 @@ import {
   type SuggestionRow,
 } from '../metadataForm'
 import { useStage } from '../StageContext'
+import './preamble.css'
+
+// "Known official platforms" (inventory P04): where a listing page usually
+// lives. Loaded the first time it is opened.
+function KnownPlatforms() {
+  const [items, setItems] = useState<KnownPlatform[] | null>(null)
+  const [failed, setFailed] = useState(false)
+  const load = (open: boolean) => {
+    if (!open || items) return
+    listPlatforms().then(setItems, () => setFailed(true))
+  }
+  return (
+    <details className="known-platforms" onToggle={(e) => load((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>Known official platforms</summary>
+      {failed && <p className="muted">Couldn't load the list.</p>}
+      {!failed && !items && <p className="muted">Loading…</p>}
+      {items && (
+        <ul aria-label="Known official platforms">
+          {items.map((p) => (
+            <li key={p.url}>
+              <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a>
+              {p.content_types?.length ? (
+                <span className="muted"> · {p.content_types.map((t) => t.replace(/_/g, ' ')).join(', ')}</span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </details>
+  )
+}
 
 export function AutofillPanel() {
   const { dramaId, drama, refetchDrama } = useStage()
@@ -76,6 +107,7 @@ export function AutofillPanel() {
           <Field label="Listing URL" help="A public http(s) page. Nothing is saved until you accept the suggestions.">
             <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
           </Field>
+          <KnownPlatforms />
           <Field label="Or paste page text" help="Use this when the page needs a login or JavaScript.">
             <textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} />
           </Field>
