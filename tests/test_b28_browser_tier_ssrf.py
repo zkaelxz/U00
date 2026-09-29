@@ -185,7 +185,21 @@ def test_unresolvable_url_skips_only_browser_tiers(monkeypatch):
     assert ran == ["static"]
 
 
-_CHROMIUM = os.path.isdir(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or "/opt/pw-browsers")
+def _browser_dirs():
+    env = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env and env != "0":
+        yield env
+    yield "/opt/pw-browsers"
+    # Playwright's default install locations (Windows, macOS, Linux).
+    if os.environ.get("LOCALAPPDATA"):
+        yield os.path.join(os.environ["LOCALAPPDATA"], "ms-playwright")
+    home = os.path.expanduser("~")
+    yield os.path.join(home, "Library", "Caches", "ms-playwright")
+    yield os.path.join(home, ".cache", "ms-playwright")
+
+
+_CHROMIUM = any(os.path.isdir(d) and any(n.startswith("chromium") for n in os.listdir(d))
+                for d in _browser_dirs())
 
 
 @pytest.mark.skipif(not _CHROMIUM, reason="no Playwright Chromium installed")
@@ -270,3 +284,182 @@ def test_real_browser_public_page_still_renders_through_the_proxy(monkeypatch):
         assert "PUBLIC-OK" in html
     finally:
         srv.shutdown()
+
+
+# ---- the pinning proxy at socket level ----------------------------------
+
+import base64  # noqa: E402
+
+
+def _proxy_request(proxy, line, auth=True):
+    sock = socket.create_connection(("127.0.0.1", proxy.port), timeout=5)
+    hdrs = "Host: x\r\n"
+    if auth:
+        token = base64.b64encode(("%s:%s" % (proxy.username, proxy.password)).encode()).decode()
+        hdrs += "Proxy-Authorization: Basic %s\r\n" % token
+    sock.sendall(("%s\r\n%s\r\n" % (line, hdrs)).encode())
+    return sock
+
+
+def _read_head(sock):
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    return data.decode("latin-1")
+
+
+@pytest.fixture
+def proxy():
+    px = page_fetch._PinningProxy()
+    yield px
+    px.stop()
+
+
+def test_proxy_requires_the_per_launch_secret(proxy):
+    for line in ("CONNECT public.example:443 HTTP/1.1", "GET http://public.example/ HTTP/1.1"):
+        sock = _proxy_request(proxy, line, auth=False)
+        head = _read_head(sock)
+        sock.close()
+        assert head.startswith("HTTP/1.1 407")
+        assert 'Proxy-Authenticate: Basic realm="baihe"' in head
+    assert proxy.proxied == 0
+
+
+def test_proxy_rejects_a_wrong_secret(proxy):
+    sock = socket.create_connection(("127.0.0.1", proxy.port), timeout=5)
+    sock.sendall(b"CONNECT public.example:443 HTTP/1.1\r\n"
+                 b"Proxy-Authorization: Basic d3Jvbmc6d3Jvbmc=\r\n\r\n")
+    assert _read_head(sock).startswith("HTTP/1.1 407")
+    sock.close()
+
+
+@pytest.mark.parametrize("line", [
+    "CONNECT 10.0.0.5:443 HTTP/1.1",
+    "CONNECT 169.254.169.254:80 HTTP/1.1",
+    "CONNECT [::1]:443 HTTP/1.1",
+    "GET http://127.0.0.1:1/ HTTP/1.1",
+    "GET http://10.0.0.5/admin HTTP/1.1",
+])
+def test_proxy_refuses_private_targets(dns, proxy, line):
+    sock = _proxy_request(proxy, line)
+    assert _read_head(sock).startswith("HTTP/1.1 403")
+    sock.close()
+
+
+def test_connect_tunnels_to_exactly_the_validated_ip(monkeypatch, proxy):
+    echo = socket.socket()
+    echo.bind(("127.0.0.1", 0))
+    echo.listen(1)
+    port = echo.getsockname()[1]
+
+    def serve():
+        conn, _ = echo.accept()
+        conn.sendall(conn.recv(100).upper())
+        conn.close()
+    threading.Thread(target=serve, daemon=True).start()
+    seen = []
+
+    def resolver(url):
+        seen.append(url)
+        return "127.0.0.1"          # the name itself resolves nowhere
+    monkeypatch.setattr(url_guard, "resolve_public", resolver)
+    sock = _proxy_request(proxy, "CONNECT pinned.invalid:%d HTTP/1.1" % port)
+    assert _read_head(sock).startswith("HTTP/1.1 200")
+    sock.sendall(b"hello")
+    assert sock.recv(100) == b"HELLO"
+    sock.close()
+    echo.close()
+    assert seen == ["https://pinned.invalid:%d/" % port]
+    assert proxy.proxied == 1
+
+
+@pytest.mark.parametrize("target,expected", [
+    ("example.com:443", ("example.com", 443)),
+    ("[2001:db8::1]:8443", ("2001:db8::1", 8443)),
+    ("1.2.3.4:1", ("1.2.3.4", 1)),
+    ("x:65535", ("x", 65535)),
+])
+def test_connect_target_parsing(target, expected):
+    assert page_fetch._PinningProxy._parse_connect_target(target) == expected
+
+
+@pytest.mark.parametrize("target", [
+    "example.com", "example.com:", "example.com:0", "example.com:65536", "example.com:-1",
+    "example.com:abc", "[2001:db8::1]", "[2001:db8::1]443", "2001:db8::1:443", ":443",
+])
+def test_connect_target_parsing_rejects_bad_targets(target):
+    with pytest.raises(ValueError):
+        page_fetch._PinningProxy._parse_connect_target(target)
+
+
+def test_launch_kwargs_carry_secret_bypass_and_webrtc_flags(proxy):
+    kw = proxy.launch_kwargs()
+    assert kw["proxy"]["bypass"] == "<-loopback>"
+    assert kw["proxy"]["username"] == proxy.username and kw["proxy"]["password"]
+    assert "--force-webrtc-ip-handling-policy=disable_non_proxied_udp" in kw["args"]
+    assert "--disable-quic" in kw["args"]
+
+
+def test_goto_fails_closed_when_the_proxy_saw_nothing(proxy):
+    class Ctx:
+        browser = None
+
+    class Page:
+        context = Ctx()
+
+        def goto(self, url, **kw):
+            return object()     # a "response" that never touched the proxy
+
+    page = Page()
+    page_fetch._PROXIES[id(page.context)] = proxy
+    try:
+        with pytest.raises(page_fetch.ProxyBypassed):
+            page_fetch._goto(page, "https://public.example/")
+        proxy.proxied = 1
+        page_fetch._goto(page, "https://public.example/")
+    finally:
+        page_fetch._PROXIES.pop(id(page.context), None)
+
+
+@pytest.mark.skipif(not _CHROMIUM, reason="no Playwright Chromium installed")
+def test_real_browser_redirect_to_link_local_is_refused_by_the_proxy(monkeypatch):
+    pytest.importorskip("playwright.sync_api")
+
+    class Redirector(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(302)
+            self.send_header("Location", "http://169.254.169.254/latest/meta-data/")
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    pub = http.server.HTTPServer(("127.0.0.1", 0), Redirector)
+    threading.Thread(target=pub.serve_forever, daemon=True).start()
+    real = url_guard.resolve_public
+    checked = []
+
+    def resolver(url):
+        checked.append(url)
+        if url.startswith("http://127.0.0.1:%d/" % pub.server_port):
+            return "127.0.0.1"
+        return real(url)
+    monkeypatch.setattr(url_guard, "resolve_public", resolver)
+    try:
+        try:
+            html, _ = page_fetch.fetch_rendered("http://127.0.0.1:%d/" % pub.server_port,
+                                                timeout=10, wait_ms=0)
+        except Exception as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip("Playwright's Chromium build is not installed")
+            html = ""
+        # Playwright's route() never sees the redirect hop, so the only thing
+        # that can have checked the 169.254 URL is the proxy: <-loopback>
+        # removed Chromium's implicit link-local bypass.
+        assert any(u.startswith("http://169.254.169.254/") for u in checked)
+        assert "ami-id" not in html
+    finally:
+        pub.shutdown()

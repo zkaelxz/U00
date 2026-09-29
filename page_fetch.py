@@ -139,6 +139,9 @@ def make_request_guard(resolver=None):
 
 _PROXY_IO_TIMEOUT = 30          # seconds; every proxied socket op is bounded
 _PROXY_REFUSED = b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+_PROXY_AUTH_REQUIRED = (b"HTTP/1.1 407 Proxy Authentication Required\r\n"
+                        b'Proxy-Authenticate: Basic realm="baihe"\r\n'
+                        b"Content-Length: 0\r\nConnection: close\r\n\r\n")
 
 
 class _PinningProxy:
@@ -149,8 +152,18 @@ class _PinningProxy:
     can never carry a request for a different host."""
 
     def __init__(self):
+        import base64
+        import secrets
         import socketserver
         outer = self
+        # A per-launch secret, so no other local process can use this proxy
+        # as a server-side fetcher.
+        self.username = secrets.token_urlsafe(16)
+        self.password = secrets.token_urlsafe(24)
+        self._expected_auth = "Basic " + base64.b64encode(
+            ("%s:%s" % (self.username, self.password)).encode()).decode()
+        self.proxied = 0          # authenticated requests seen (fail-closed check in _goto)
+        self._count_lock = threading.Lock()
 
         class _Handler(socketserver.BaseRequestHandler):
             def handle(self):
@@ -158,7 +171,6 @@ class _PinningProxy:
 
         class _Server(socketserver.ThreadingTCPServer):
             daemon_threads = True
-            allow_reuse_address = True
 
         self._server = _Server(("127.0.0.1", 0), _Handler)
         self.port = self._server.server_address[1]
@@ -172,11 +184,47 @@ class _PinningProxy:
         except Exception:
             pass
 
-    def launch_args(self):
-        # <-loopback> removes Chromium's implicit localhost bypass, so even
-        # 127.0.0.1/localhost go through (and are refused by) the proxy.
-        return ["--proxy-server=http://127.0.0.1:%d" % self.port,
-                "--proxy-bypass-list=<-loopback>"]
+    def launch_kwargs(self):
+        """Keyword arguments for `chromium.launch` / `launch_persistent_context`.
+        `<-loopback>` removes Chromium's implicit loopback/link-local bypass,
+        so even 127.0.0.1 and 169.254.x go through (and are refused by) the
+        proxy. WebRTC is kept off non-proxied UDP and QUIC is disabled, so
+        neither goes around the proxy."""
+        return {
+            "proxy": {"server": "http://127.0.0.1:%d" % self.port, "bypass": "<-loopback>",
+                      "username": self.username, "password": self.password},
+            "args": ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                     "--disable-quic"],
+        }
+
+    def _authorized(self, lines) -> bool:
+        import hmac
+        for line in lines[1:]:
+            name, _, value = line.partition(":")
+            if name.strip().lower() == "proxy-authorization":
+                return hmac.compare_digest(value.strip().encode("latin-1"),
+                                           self._expected_auth.encode("latin-1"))
+        return False
+
+    @staticmethod
+    def _parse_connect_target(target: str):
+        """(host, port) from a CONNECT target (`host:port` or `[v6]:port`);
+        ValueError on anything malformed or a port outside 1..65535."""
+        if target.startswith("["):
+            end = target.find("]")
+            if end < 0 or target[end + 1:end + 2] != ":":
+                raise ValueError("bad CONNECT target")
+            host, port_s = target[1:end], target[end + 2:]
+        else:
+            host, sep, port_s = target.rpartition(":")
+            if not sep or ":" in host:
+                raise ValueError("bad CONNECT target")
+        if not host or not port_s.isdigit():
+            raise ValueError("bad CONNECT target")
+        port = int(port_s)
+        if not 1 <= port <= 65535:
+            raise ValueError("bad CONNECT port")
+        return host, port
 
     @staticmethod
     def _pinned(url):
@@ -199,10 +247,13 @@ class _PinningProxy:
             header_blob, rest = head.split(b"\r\n\r\n", 1)
             lines = header_blob.decode("latin-1").split("\r\n")
             method, target, version = lines[0].split(" ", 2)
+            if not self._authorized(lines):
+                client.sendall(_PROXY_AUTH_REQUIRED)
+                return
+            with self._count_lock:
+                self.proxied += 1
             if method.upper() == "CONNECT":
-                host, _, port = target.rpartition(":")
-                host = host.strip("[]")
-                port = int(port)
+                host, port = self._parse_connect_target(target)
                 ip = self._pinned("https://%s:%d/" % (
                     "[%s]" % host if ":" in host else host, port))
                 upstream = socket.create_connection((ip, port), timeout=_PROXY_IO_TIMEOUT)
@@ -261,15 +312,44 @@ class _PinningProxy:
 @contextmanager
 def _guarded_chromium(p):
     """A headless Chromium launched behind a fresh `_PinningProxy`."""
-    proxy = _PinningProxy()
+    proxy = None
     try:
-        browser = p.chromium.launch(headless=True, args=proxy.launch_args())
+        proxy = _PinningProxy()
+        browser = p.chromium.launch(headless=True, **proxy.launch_kwargs())
+        _PROXIES[id(browser)] = proxy
         try:
             yield browser
         finally:
+            _PROXIES.pop(id(browser), None)
             browser.close()
     finally:
-        proxy.stop()
+        if proxy is not None:
+            proxy.stop()
+
+
+# id(browser) or id(persistent context) -> its _PinningProxy
+_PROXIES = {}
+
+
+class ProxyBypassed(RuntimeError):
+    """The browser loaded a page without going through the pinning proxy."""
+
+
+def _goto(page, url: str, **kwargs):
+    """`page.goto`, then fail closed: if an http(s) navigation returned a
+    response but the launch's pinning proxy saw no request at all, the proxy
+    setting was overridden (e.g. by a managed browser policy) and the B-28
+    protection is not in force."""
+    response = page.goto(url, **kwargs)
+    context = getattr(page, "context", None)
+    owners = (context, getattr(context, "browser", None)) if context is not None else ()
+    proxy = next((_PROXIES[id(o)] for o in owners if o is not None and id(o) in _PROXIES),
+                 None)
+    if (proxy is not None and response is not None and proxy.proxied == 0
+            and url.split(":", 1)[0].lower() in ("http", "https")):
+        raise ProxyBypassed("The browser did not use Baihe's address-checking proxy, so the "
+                            "page was not loaded. (A browser policy may be overriding it.)")
+    return response
 
 
 def _guard_context(context):
@@ -435,7 +515,7 @@ def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
             page = _guarded_page(browser)
             if keep_blobs:
                 page.add_init_script(_BLOB_KEEPALIVE_JS)
-            page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            _goto(page, url, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page
 
@@ -533,7 +613,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
         with _guarded_chromium(p) as browser:
             page = _guarded_page(browser)
             page.on("response", on_response)
-            page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            _goto(page, url, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page, captured
 
@@ -557,7 +637,7 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     with sync_playwright() as p:
         with _guarded_chromium(p) as browser:
             page = _guarded_page(browser)
-            page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            _goto(page, url, timeout=timeout * 1000, wait_until="networkidle")
             try:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_load_state("networkidle", timeout=timeout * 1000)
@@ -635,20 +715,19 @@ def _launch_persistent(profile_dir: str, headless: bool):
     in with, not a disguised one."""
     sync_playwright = _require_playwright()
     pw = sync_playwright().start()
-    proxy = _PinningProxy()
+    proxy = None
     try:
+        proxy = _PinningProxy()
         context = pw.chromium.launch_persistent_context(profile_dir, headless=headless,
                                                         service_workers="block",
-                                                        args=proxy.launch_args())
+                                                        **proxy.launch_kwargs())
     except Exception:
-        proxy.stop()
+        if proxy is not None:
+            proxy.stop()
         pw.stop()
         raise
-    _PROFILE_PROXIES[id(context)] = proxy
+    _PROXIES[id(context)] = proxy
     return pw, context
-
-
-_PROFILE_PROXIES = {}   # id(persistent context) -> its _PinningProxy, stopped in _shut
 
 
 def _shut(pw, context):
@@ -658,7 +737,7 @@ def _shut(pw, context):
                 fn()
         except Exception:
             pass
-    proxy = _PROFILE_PROXIES.pop(id(context), None)
+    proxy = _PROXIES.pop(id(context), None)
     if proxy is not None:
         proxy.stop()
 
@@ -676,10 +755,10 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
     try:
         os.makedirs(profile_dir, exist_ok=True)
         pw, context = (launcher or _launch_persistent)(profile_dir, True)
-        _guard_context(context)
         try:
+            _guard_context(context)
             page = context.new_page()
-            page.goto(url, timeout=timeout * 1000, wait_until="networkidle")
+            _goto(page, url, timeout=timeout * 1000, wait_until="networkidle")
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)
@@ -707,11 +786,13 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
     try:
         os.makedirs(profile_dir, exist_ok=True)
         pw, context = (launcher or _launch_persistent)(profile_dir, False)
-        _guard_context(context)
         try:
+            _guard_context(context)
             page = context.pages[0] if context.pages else context.new_page()
             try:
-                page.goto(url, wait_until="domcontentloaded")
+                _goto(page, url, wait_until="domcontentloaded")
+            except ProxyBypassed:
+                raise
             except Exception:
                 pass  # the window is still open; the person can navigate there themselves
             context.wait_for_event("close", timeout=0)   # 0 = wait for the person, however long
