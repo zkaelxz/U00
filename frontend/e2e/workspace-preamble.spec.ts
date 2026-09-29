@@ -86,18 +86,20 @@ test('EPUB chapter range and chapters from Sources', async ({ page }) => {
 })
 
 test('Edit details can take a drama out of its series (series_id 0)', async ({ page }) => {
+  // The real drama, read once up front; the stubs below serve copies of it
+  // (in series 7 until the save, then in none) rather than proxying a live
+  // fetch per request, which broke once a handler ran again after its
+  // response was disposed.
+  const drama = await (await page.request.get('/api/library/dramas/2')).json()
   let inSeries = true
   const bodies: unknown[] = []
-  await page.route('**/api/library/dramas/2', async (r) => {
-    const res = await r.fetch()
-    const json = await res.json()
-    return r.fulfill({ response: res, json: { ...json, series_id: inSeries ? 7 : null } })
-  })
-  await page.route('**/api/dramas/2/metadata', async (r) => {
+  await page.route('**/api/library/dramas/2', (r) =>
+    r.fulfill({ json: { ...drama, series_id: inSeries ? 7 : null } }),
+  )
+  await page.route('**/api/dramas/2/metadata', (r) => {
     bodies.push(r.request().postDataJSON())
     inSeries = false
-    const res = await r.fetch({ url: r.request().url().replace('/api/dramas/2/metadata', '/api/library/dramas/2'), method: 'GET' })
-    return r.fulfill({ json: { ...(await res.json()), series_id: null } })
+    return r.fulfill({ json: { ...drama, series_id: null } })
   })
   await page.goto('/#/drama/2/source')
   await page.locator('.section-title', { hasText: 'Edit details' }).click()
