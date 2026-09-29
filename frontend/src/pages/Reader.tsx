@@ -384,6 +384,12 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
               aria-busy={pageLoading}
             />
           )}
+          {data && data.segmentation_available === false && (
+            <p className="muted" data-testid="reader-no-segmentation">
+              Word splitting isn't installed for this language, so words show one character at a time
+              with no reading. See Diagnostics &gt; Packages.
+            </p>
+          )}
           {!data && !error && <p className="muted">Loading…</p>}
           {/* After the page text, so the Sections don't jump down when it arrives. */}
           {page !== null && overview && data && (

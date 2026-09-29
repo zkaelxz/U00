@@ -5,6 +5,8 @@ export interface ReaderPage {
   page: number
   page_count: number
   total_lines: number
+  // False when the optional word-splitting packages aren't installed.
+  segmentation_available?: boolean
 }
 
 export interface ReaderPageParams {

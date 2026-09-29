@@ -97,9 +97,14 @@ def build_reader_html(lines, source_language: str, definitions: dict,
     line_height = float(line_height)
     max_width = int(max_width)
 
+    # Without the optional segmentation packages (jieba/pypinyin, sudachipy/
+    # pykakasi, kiwipiepy) every line still renders, one character per token
+    # with no reading, instead of the whole page failing.
+    can_segment = segment.segmentation_available(source_language)
     rows_html = []
     for ln in lines:
-        segments = segment.segment_and_annotate(ln.zh, source_language)
+        segments = (segment.segment_and_annotate(ln.zh, source_language) if can_segment
+                    else segment.per_character_tokens(ln.zh))
         word_spans = []
         for word, reading in segments:
             if not word.strip():
