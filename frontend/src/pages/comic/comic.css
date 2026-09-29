@@ -1,0 +1,151 @@
+/* Comic viewer (pages/Comic.tsx). Builds on reader.css; tokens only; phone rules at the end. */
+.comic {
+  /* Room left for a page fitted to the screen height (bars above it). */
+  --comic-avail-h: calc(100dvh - 180px);
+  --comic-page-max: 56rem;
+  --comic-box-line: var(--accent);
+}
+
+/* Desktop bar: breadcrumb, pager + scrubber, Typeset/Text/zoom, Aa. Sticky. */
+.comic-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-block: var(--space-2);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.comic-crumbs { flex: 1 1 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comic-toggles { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.comic-toggles button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.comic-zoom { display: inline-flex; gap: 2px; }
+.comic-zoom button { min-width: 2.5rem; }
+.comic-zoom .comic-zoom-level { min-width: 4rem; font-variant-numeric: tabular-nums; }
+
+.comic-pager { display: flex; align-items: center; gap: var(--space-2); flex: 2 1 18rem; min-width: 0; }
+.comic-pager > button { min-width: 44px; font-size: 1.2rem; line-height: 1; }
+.comic-scrubber { flex: 1 1 auto; min-width: 4rem; accent-color: var(--accent); }
+.comic-page-label { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Stage and pages */
+.comic-body { display: grid; gap: var(--space-3); min-width: 0; }
+.comic-body-panel { grid-template-columns: minmax(0, 1fr) minmax(14rem, 20rem); align-items: start; }
+.comic-stage {
+  position: relative;
+  min-width: 0;
+  overflow: clip;
+  touch-action: pan-x pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  scroll-margin-top: 64px;
+}
+.comic-stage.comic-zoomed { touch-action: none; cursor: grab; }
+.comic-zoom-layer { transform-origin: 0 0; }
+.comic-stage-vertical .comic-zoom-layer { display: grid; justify-items: center; }
+.comic-stage-paged { min-height: var(--comic-avail-h); display: grid; }
+.comic-stage-paged .comic-zoom-layer { display: grid; place-items: center; }
+
+.comic-page { margin: 0; width: 100%; max-width: var(--comic-page-max); scroll-margin-top: 64px; }
+/* safe: a page wider than the screen (Original size) starts at its left edge, never cut off. */
+.comic-stage-paged .comic-page { display: grid; justify-items: safe center; }
+.comic-page-inner { position: relative; width: 100%; margin-inline: auto; background: var(--surface); }
+.comic-page-inner:not([style*='aspect-ratio']) { min-height: 50vh; }
+.comic-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* Stored sizes and text boxes ignore EXIF rotation, so the image must too. */
+  image-orientation: none;
+  -webkit-user-drag: none;
+}
+.comic-fit-original { max-width: none; overflow-x: auto; }
+.comic-fit-original .comic-page-inner { max-width: none; }
+
+.comic-page-broken { display: grid; place-items: center; min-height: 12rem; border: 1px dashed var(--border); }
+.comic-page-problem { display: grid; gap: var(--space-1); justify-items: center; margin: 0; padding: var(--space-4); text-align: center; color: var(--muted); }
+.comic-page-problem span:first-child { font-weight: 600; color: var(--text); }
+
+/* Text boxes: positioned in % of the page; they never take a tap. */
+.comic-boxes { position: absolute; inset: 0; pointer-events: none; container-type: inline-size; }
+.comic-box {
+  position: absolute;
+  border: 2px solid var(--comic-box-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--comic-box-line) 8%, transparent);
+}
+.comic-box-text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  color: var(--text);
+  text-align: center;
+  line-height: 1.2;
+  font-size: clamp(9px, 1.9cqi, 16px);
+}
+.comic-box-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  line-height: 1;
+}
+.comic-box-line { max-height: 100%; overflow: hidden; }
+.comic-box > .comic-box-num { position: absolute; top: -0.7rem; left: -0.7rem; }
+
+/* Desktop text panel */
+.comic-panel {
+  position: sticky;
+  top: 72px;
+  max-height: calc(100dvh - 88px);
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.comic-panel h2 { font-size: var(--font-md); }
+.comic-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.comic-lines li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2); align-items: start; }
+.comic-line-source { font-size: var(--font-sm); }
+
+/* Bars hidden with a tap on the middle of the page */
+.comic-chrome-off .comic-head,
+.comic-chrome-off .comic-bottom { display: none; }
+
+/* Phone: full-bleed pages, slim sticky top bar, 56px bottom scrubber. */
+.comic-phone { --comic-avail-h: calc(100dvh - 48px - 56px - env(safe-area-inset-bottom, 0px)); }
+.comic-phone .comic-stage {
+  width: calc(100% + 2 * var(--space-4));
+  margin-inline: calc(-1 * var(--space-4));
+  border-radius: 0;
+  scroll-margin-top: 48px;
+}
+.comic-phone .comic-page { max-width: none; scroll-margin-top: 48px; }
+.comic-phone .comic-stage-paged .comic-zoom-layer { place-items: start center; }
+.comic-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.comic-bottom { display: flex; align-items: center; gap: var(--space-2); padding-inline: var(--space-2); min-height: 56px; }
+.comic-bottom .comic-pager { flex: 1 1 auto; }
+.comic-bottom .comic-pager > button { min-width: 48px; min-height: 44px; }
+.comic-scrubber { height: 44px; }
+.comic-text-btn[aria-pressed='true'] { border-color: var(--accent); color: var(--accent-text); }
+.comic-phone.comic-chrome-off { padding-bottom: 0; }
