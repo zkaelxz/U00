@@ -66,12 +66,47 @@ describe('review api', () => {
   })
   it('starts a job and deletes a note', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    await review.startReviewJob(1, 'fix-flagged', fakeFetch(200, {}, calls))
+    await review.startReviewJob(1, 'fix-flagged', undefined, fakeFetch(200, {}, calls))
     await review.deleteNote(1, 4, fakeFetch(200, {}, calls))
     expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
       ['POST', '/api/review-jobs/dramas/1/fix-flagged'],
       ['DELETE', '/api/lines/dramas/1/notes/4'],
     ])
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({})
+  })
+  it('sends engine, model and cap for a fix-flagged run', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await review.startReviewJob(1, 'fix-flagged', { engine: 'openai', model: 'm', job_cost_cap_usd: 0.5 }, fakeFetch(200, {}, calls))
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ engine: 'openai', model: 'm', job_cost_cap_usd: 0.5 })
+  })
+  it('reads stored results and checks from the review routes', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const f = fakeFetch(200, {}, calls)
+    await review.getConsistency(2, f)
+    await review.getEmotions(2, f)
+    await review.getTendencies(2, f)
+    await review.compareVersions(2, 5, 6, f)
+    await review.getCoverage(2, f)
+    await review.getPacingFlags(2, f)
+    await review.getLineProvenance(2, 9, f)
+    await review.getLineOriginalText(2, 9, f)
+    expect(calls.map((c) => c.url)).toEqual([
+      '/api/review/dramas/2/consistency',
+      '/api/review/dramas/2/emotions',
+      '/api/review/dramas/2/tendencies',
+      '/api/review/dramas/2/versions/compare?left_id=5&right_id=6',
+      '/api/review/dramas/2/coverage',
+      '/api/review/dramas/2/pacing-flags',
+      '/api/review/dramas/2/lines/9/provenance',
+      '/api/review/dramas/2/lines/9/original-text',
+    ])
+    expect(calls.every((c) => (c.init?.method ?? 'GET') === 'GET')).toBe(true)
+    expect(review.notesMarkdownUrl(2)).toMatch(/\/api\/review\/dramas\/2\/notes\/markdown$/)
+  })
+  it('surfaces a 404 from a result route as ApiError', async () => {
+    const err = await review.getConsistency(99, fakeFetch(404, { error: { code: 'not_found', message: 'x' } })).catch((e) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect(err.status).toBe(404)
   })
 })
 

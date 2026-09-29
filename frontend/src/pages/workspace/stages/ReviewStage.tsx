@@ -5,8 +5,10 @@ import { getMediaStatus } from '../../../api/workspace'
 import { useStage } from '../StageContext'
 import { LinesPanel } from './review/LinesPanel'
 import { RecordsPanel } from './review/RecordsPanel'
+import { ReviewChecks } from './review/ReviewChecks'
 import { ReviewJobsPanel } from './review/ReviewJobsPanel'
 import { StructureSection } from './review/StructureSection'
+import type { LineTarget } from './review/reviewResults'
 import { useDramaJobRunning } from './review/useDramaJobRunning'
 import './review/review.css'
 
@@ -17,6 +19,14 @@ export default function ReviewStage() {
   const changed = useCallback(() => setReloads((n) => n + 1), [])
   const jobRunning = useDramaJobRunning(dramaId, reloads)
   const [lineCount, setLineCount] = useState<number | null>(null)
+  // A finding's line link: the editor opens that line (by id where known).
+  const [goTo, setGoTo] = useState<{ target: LineTarget; seq: number; resolve: (m: string | null) => void } | null>(null)
+  const goToLine = useCallback(
+    (target: LineTarget) =>
+      new Promise<string | null>((resolve) => setGoTo((g) => ({ target, seq: (g?.seq ?? 0) + 1, resolve }))),
+    [],
+  )
+  const [flaggedCount, setFlaggedCount] = useState<number | null>(null)
 
   // Play from the source video when there is one (its sound plays even while
   // the picture is folded away), else from the audio; no media, no player.
@@ -41,9 +51,12 @@ export default function ReviewStage() {
         jobRunning={jobRunning}
         mediaKind={mediaKind}
         onLineCount={setLineCount}
+        onFlaggedCount={setFlaggedCount}
+        goTo={goTo}
       />
-      <ReviewJobsPanel dramaId={dramaId} onChanged={changed} />
+      <ReviewJobsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} onGoTo={goToLine} flaggedCount={flaggedCount} />
       {!!lineCount && <StructureSection dramaId={dramaId} jobRunning={jobRunning} onChanged={changed} />}
+      {!!lineCount && <ReviewChecks dramaId={dramaId} reloads={reloads} onGoTo={goToLine} />}
       <RecordsPanel dramaId={dramaId} reloads={reloads} onChanged={changed} jobRunning={jobRunning} />
     </div>
   )

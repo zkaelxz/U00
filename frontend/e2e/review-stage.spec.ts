@@ -558,7 +558,8 @@ test.describe('phone', () => {
       client: document.documentElement.clientWidth,
     }))
     expect(scroll).toBeLessThanOrEqual(client)
-    const small = await page.locator('.stage-review button:not(.link, .review-en), .stage-review .review-chip').evaluateAll((els) =>
+    // (i) help buttons are left out: they get the shared ::after hit area (index.css).
+    const small = await page.locator('.stage-review button:not(.link, .review-en, .field-help-btn), .stage-review .review-chip').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
         .map((e) => ({ h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, t: (e.textContent ?? '').trim() }))

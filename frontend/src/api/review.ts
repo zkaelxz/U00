@@ -8,7 +8,16 @@ import type {
   LineNoteCreate,
   LinePatch,
   NoteDeleteResult,
+  ConsistencyIssue,
+  Coverage,
+  EmotionSummary,
+  LineOriginalText,
+  LineProvenance,
+  Pacing,
+  ReviewJobBody,
   ReviewJobKind,
+  Tendencies,
+  VersionCompare,
   ReviewJobStarted,
   ReviewLine,
   ReviewLinesPage,
@@ -17,7 +26,7 @@ import type {
   TmSuggestion,
   VersionItem,
 } from '../types/review'
-import { deleteJson, getJson, postJson } from './client'
+import { apiUrl, deleteJson, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -64,8 +73,33 @@ export const listVersions = (id: number, f?: Fetch) => getJson<VersionItem[]>(`$
 export const listTmSuggestions = (id: number, f?: Fetch) =>
   getJson<TmSuggestion[]>(`${review(id)}/tm-suggestions`, f)
 
-export const startReviewJob = (id: number, kind: ReviewJobKind, f?: Fetch) =>
-  postJson<ReviewJobStarted>(`/api/review-jobs/dramas/${id}/${kind}`, {}, f)
+// body: only the fields the user set; {} leaves engine, model and cap to the server.
+export const startReviewJob = (id: number, kind: ReviewJobKind, body: ReviewJobBody = {}, f?: Fetch) =>
+  postJson<ReviewJobStarted>(`/api/review-jobs/dramas/${id}/${kind}`, body, f)
+
+// Stored results of the last AI checks (read-only; nothing is re-run).
+export const getConsistency = (id: number, f?: Fetch) =>
+  getJson<ConsistencyIssue[]>(`${review(id)}/consistency`, f)
+
+export const getEmotions = (id: number, f?: Fetch) => getJson<EmotionSummary>(`${review(id)}/emotions`, f)
+
+export const getTendencies = (id: number, f?: Fetch) => getJson<Tendencies>(`${review(id)}/tendencies`, f)
+
+export const compareVersions = (id: number, leftId: number, rightId: number, f?: Fetch) =>
+  getJson<VersionCompare>(`${review(id)}/versions/compare?left_id=${leftId}&right_id=${rightId}`, f)
+
+// Served inline as text/markdown: a plain link, opened by the browser.
+export const notesMarkdownUrl = (id: number) => apiUrl(`${review(id)}/notes/markdown`)
+
+export const getCoverage = (id: number, f?: Fetch) => getJson<Coverage>(`${review(id)}/coverage`, f)
+
+export const getPacingFlags = (id: number, f?: Fetch) => getJson<Pacing>(`${review(id)}/pacing-flags`, f)
+
+export const getLineProvenance = (id: number, lineId: number, f?: Fetch) =>
+  getJson<LineProvenance>(`${review(id)}/lines/${lineId}/provenance`, f)
+
+export const getLineOriginalText = (id: number, lineId: number, f?: Fetch) =>
+  getJson<LineOriginalText>(`${review(id)}/lines/${lineId}/original-text`, f)
 
 // Per-line AI helpers (Slice 50). Neither call writes; the engine and model
 // are left to the server's default (Gemini free tier: the saved setting), and no key ever passes through the browser.

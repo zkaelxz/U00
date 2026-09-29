@@ -4,6 +4,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import type { ReviewLine } from '../../../../types/review'
 import { LineAi, type AiMode } from './LineAi'
+import { LineOrigin } from './LineOrigin'
 import { CONFLICT_MESSAGE, formatTime, JOB_RUNNING_MESSAGE, type LineDraft } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 
@@ -269,6 +270,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
               Add note
             </button>
           </div>
+          <LineOrigin dramaId={dramaId} lineId={line.id} />
         </div>
       )}
       {edit?.note && (
