@@ -8,6 +8,9 @@ import type {
   EstimateParams,
   GlossaryCatalogues,
   GlossaryInstructions,
+  GlossaryBulkDeleteResult,
+  GlossaryImportBody,
+  GlossaryImportResult,
   GlossaryTerm,
   GlossaryTermUpsert,
   TranslatePresetBody,
@@ -19,7 +22,7 @@ import type {
   VoiceBankEntry,
   WorkflowTierApplied,
 } from '../types/translateStage'
-import { deleteJson, getJson, postJson } from './client'
+import { apiUrl, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -56,27 +59,13 @@ export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)
 export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch) =>
   postJson<GlossaryTerm>(`/api/glossary/dramas/${id}/terms`, term, f)
-export const deleteGlossaryTerm = (id: number, termId: number, f?: Fetch) =>
-  deleteJson<{ deleted: boolean }>(`/api/glossary/dramas/${id}/terms/${termId}?confirm=true`, f)
-
-/** Deletes terms one by one (there is no bulk endpoint); reports which failed. */
-export async function deleteGlossaryTerms(
-  id: number,
-  termIds: number[],
-  f?: Fetch,
-): Promise<{ deleted: number[]; failed: { id: number; error: unknown }[] }> {
-  const deleted: number[] = []
-  const failed: { id: number; error: unknown }[] = []
-  for (const termId of termIds) {
-    try {
-      await deleteGlossaryTerm(id, termId, f)
-      deleted.push(termId)
-    } catch (error) {
-      failed.push({ id: termId, error })
-    }
-  }
-  return { deleted, failed }
-}
+/** Deletes the named terms in one request (by id); ids no longer in the glossary come back in not_found. */
+export const deleteGlossaryTerms = (id: number, termIds: number[], f?: Fetch) =>
+  postJson<GlossaryBulkDeleteResult>(`/api/glossary/dramas/${id}/terms/bulk-delete`, { term_ids: termIds, confirm: true }, f)
+export const importGlossary = (id: number, body: GlossaryImportBody, f?: Fetch) =>
+  postJson<GlossaryImportResult>(`/api/glossary/dramas/${id}/import`, body, f)
+/** A plain download link (Content-Disposition: attachment). */
+export const glossaryCsvUrl = (id: number) => apiUrl(`/api/glossary/dramas/${id}/export.csv`)
 export const getGlossaryCatalogues = (f?: Fetch) =>
   getJson<GlossaryCatalogues>('/api/glossary/catalogues', f)
 export const getInstructions = (id: number, f?: Fetch) =>

@@ -185,3 +185,107 @@ class TestCatalogues:
         tier = body["workflow_tiers"][0]
         assert set(tier) == {"key", "label", "translation_engine", "engine_model",
                              "reflect", "auto_qc"}
+
+
+# ---- Parity T03/T04/X13: import, CSV export, bulk delete ---------------------
+
+class TestImportExportBulk:
+    CSV = "term,translation,category\n沈清疑,Shen Qingyi,person_name\n师姐,Senior Sister,bogus\n"
+
+    def test_import_csv_adds_and_reports(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "import"), json={"text": self.CSV, "filename": "g.csv"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert sorted(body["added"]) == ["师姐", "沈清疑"]
+        assert body["overwritten"] == [] and body["skipped_existing"] == []
+        assert any("unknown category" in w for w in body["warnings"])
+        terms = {t["term_original"]: t for t in client.get(_url(did, "terms")).json()}
+        assert terms["沈清疑"]["category"] == "person_name"
+        assert terms["师姐"]["category"] == "other"
+
+    def test_import_tsv_and_json(self, client, isolated_db):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "import"), json={"text": "a\tA\nb\tB\n", "filename": "x.tsv"})
+        assert sorted(r.json()["added"]) == ["a", "b"]
+        r = client.post(_url(did, "import"), json={
+            "text": '[{"term_original": "c", "term_translation": "C", "enforce_exact": "yes"}]'})
+        assert r.json()["added"] == ["c"]
+        c = next(t for t in client.get(_url(did, "terms")).json() if t["term_original"] == "c")
+        assert c["enforce_exact"] is True
+
+    def test_existing_terms_skipped_unless_confirmed_overwrite(self, client, isolated_db):
+        did = _drama(isolated_db)
+        client.post(_url(did, "terms"), json=FULL)
+        text = "term,translation\n沈清疑,Changed\n"
+        r = client.post(_url(did, "import"), json={"text": text})
+        assert r.json()["skipped_existing"] == ["沈清疑"]
+        r = client.post(_url(did, "import"), json={"text": text, "overwrite_existing": True})
+        assert r.status_code == 422
+        r = client.post(_url(did, "import"),
+                        json={"text": text, "overwrite_existing": True, "confirm": True})
+        assert r.json()["overwritten"] == ["沈清疑"]
+        t = client.get(_url(did, "terms")).json()[0]
+        assert t["term_translation"] == "Changed"
+        assert t["aliases"] == FULL["aliases"]   # kept on overwrite
+
+    @pytest.mark.parametrize("text", ["", "[]", "{}", "not json [", '[{"term_original": 5}]',
+                                      '[{"term_original": "x", "category": ["a"]}]'])
+    def test_bad_imports_are_422_and_write_nothing(self, client, isolated_db, text):
+        did = _drama(isolated_db)
+        r = client.post(_url(did, "import"), json={"text": text or "", "filename": "g.json"})
+        assert r.status_code == 422
+        assert client.get(_url(did, "terms")).json() == []
+
+    def test_import_too_long_term_reported_invalid(self, client, isolated_db):
+        did = _drama(isolated_db)
+        text = "term,translation\n" + "x" * 300 + ",X\nok,OK\n"
+        body = client.post(_url(did, "import"), json={"text": text}).json()
+        assert body["added"] == ["ok"] and len(body["invalid"]) == 1
+
+    def test_import_needs_series_and_drama(self, client, isolated_db):
+        did = _drama(isolated_db, series=False)
+        assert client.post(_url(did, "import"), json={"text": "a,b"}).status_code == 400
+        assert client.post(_url(999, "import"), json={"text": "a,b"}).status_code == 404
+        assert client.post(_url(did, "import"), json={"text": "a,b", "x": 1}).status_code == 422
+
+    def test_export_csv(self, client, isolated_db):
+        did = _drama(isolated_db)
+        client.post(_url(did, "terms"), json=FULL)
+        r = client.get(_url(did, "export.csv"))
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/csv")
+        assert f'glossary_{did}.csv' in r.headers["content-disposition"]
+        assert "沈清疑,Shen Qingyi,person_name,keep_pinyin,yes,hero" in r.text
+        # round-trips through the importer
+        other = _drama(isolated_db, "T")
+        assert client.post(_url(other, "import"), json={"text": r.text}).json()["added"] == ["沈清疑"]
+
+    def test_export_csv_empty_and_unknown(self, client, isolated_db):
+        did = _drama(isolated_db, series=False)
+        r = client.get(_url(did, "export.csv"))
+        assert r.status_code == 200 and r.text.strip().startswith("term_original")
+        assert client.get(_url(999, "export.csv")).status_code == 404
+
+    def test_bulk_delete(self, client, isolated_db):
+        did = _drama(isolated_db)
+        ids = [client.post(_url(did, "terms"), json={"term_original": t, "term_translation": t})
+               .json()["id"] for t in ("a", "b", "c")]
+        other = _drama(isolated_db, "Other")
+        foreign = client.post(_url(other, "terms"),
+                              json={"term_original": "z", "term_translation": "z"}).json()["id"]
+        assert client.post(_url(did, "terms/bulk-delete"),
+                           json={"term_ids": ids[:2]}).status_code == 422
+        r = client.post(_url(did, "terms/bulk-delete"),
+                        json={"term_ids": [ids[0], ids[1], foreign, 12345], "confirm": True})
+        assert r.status_code == 200
+        assert r.json() == {"deleted": ids[:2], "not_found": [foreign, 12345]}
+        assert [t["id"] for t in client.get(_url(did, "terms")).json()] == [ids[2]]
+        assert len(client.get(_url(other, "terms")).json()) == 1
+
+    @pytest.mark.parametrize("body", [{"term_ids": [], "confirm": True},
+                                      {"term_ids": ["1"], "confirm": True},
+                                      {"term_ids": [1], "confirm": "yes"}])
+    def test_bulk_delete_bad_body(self, client, isolated_db, body):
+        did = _drama(isolated_db)
+        assert client.post(_url(did, "terms/bulk-delete"), json=body).status_code == 422

@@ -127,6 +127,28 @@ export interface GlossaryTerm {
 
 export type GlossaryTermUpsert = Partial<Omit<GlossaryTerm, 'id'>> & { id?: number }
 
+// Parity T03: POST /api/glossary/dramas/{id}/import.
+export interface GlossaryImportBody {
+  text: string
+  filename?: string
+  overwrite_existing?: boolean
+  confirm?: boolean
+}
+
+export interface GlossaryImportResult {
+  added: string[]
+  overwritten: string[]
+  skipped_existing: string[]
+  invalid: string[]
+  warnings: string[]
+}
+
+// Parity X13: POST /api/glossary/dramas/{id}/terms/bulk-delete.
+export interface GlossaryBulkDeleteResult {
+  deleted: number[]
+  not_found: number[]
+}
+
 export interface GlossaryInstructions {
   project_instructions: string
   series_instructions: string

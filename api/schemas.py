@@ -14,7 +14,7 @@ field is a compatible change; renaming or removing one is not -- bump
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 API_VERSION = "0.1"
 
@@ -717,6 +717,37 @@ class GlossaryTermUpsert(BaseModel):
 
 class GlossaryDeleteResult(BaseModel):
     deleted: bool
+
+
+class GlossaryImportRequest(BaseModel):
+    """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
+    by the browser; filename only hints the format. overwrite_existing
+    needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=1_000_000)
+    filename: str = Field(default="", max_length=255)
+    overwrite_existing: StrictBool = False
+    confirm: StrictBool = False
+
+
+class GlossaryImportResult(BaseModel):
+    added: List[str]
+    overwritten: List[str]
+    skipped_existing: List[str]
+    invalid: List[str]
+    warnings: List[str]
+
+
+class GlossaryBulkDeleteRequest(BaseModel):
+    """Parity X13: term ids (never positions); needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    term_ids: List[StrictInt] = Field(min_length=1, max_length=1000)
+    confirm: StrictBool = False
+
+
+class GlossaryBulkDeleteResult(BaseModel):
+    deleted: List[int]
+    not_found: List[int]
 
 
 class GlossaryInstructions(BaseModel):
