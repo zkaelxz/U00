@@ -33,6 +33,11 @@ describe('confirmStep', () => {
     expect(armedAnnouncement('Preset A')).toBe('Press again to delete Preset A')
     expect(CONFIRM_REVERT_MS).toBe(5000)
   })
+
+  it('uses the verb in the label and the announcement', () => {
+    expect(confirmLabelFor('v1', 'use')).toBe('Confirm use v1')
+    expect(armedAnnouncement('v1', 'use')).toBe('Press again to use v1')
+  })
 })
 
 describe('ConfirmButton', () => {

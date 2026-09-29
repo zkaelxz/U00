@@ -294,6 +294,10 @@ baihe-subtitler/
 │   │                             field-scoped by line id; reuse workspace_job_service runners
 │   ├── line_ai_service.py        Migration Slice 50 -- per-line Improve translation / Why this?
 │   │                             (synchronous, read-only suggestions; id-addressed)
+│   ├── translation_version_service.py  Review parity R39 -- make a saved translation version the current
+│   │                             English (snapshot, then `en`-only write by line id; refuses restructured lines)
+│   ├── blocked_retry_service.py  Review parity R10 -- retry one content-blocked line with another engine
+│   │                             (synchronous, id-keyed result, compare-and-set write of en/flag/flag_note)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
@@ -319,6 +323,8 @@ baihe-subtitler/
 │   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
 │   │                             LoopbackOnlyGate (auth off: direct loopback requests only),
 │   │                             LocalOnlyCrossSiteGate (local_only routes refuse cross-site requests; #372)
+│   ├── llm_slots.py              shared cap for synchronous LLM/ffmpeg work in a request (2 server-wide,
+│   │                             1 per caller, 429 when busy): Reader LLM routes and the blocked-line retry
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/
@@ -378,6 +384,8 @@ baihe-subtitler/
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
+│       ├── translation_version_routes.py /api/review/dramas/{id}/versions/{vid}/activate (POST, lines.edit, confirm=true; R39)
+│       ├── blocked_retry_routes.py /api/lines/dramas/{id}/lines/{lid}/retry-blocked (POST, jobs.start + engine gate; R10)
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
