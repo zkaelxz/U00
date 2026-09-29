@@ -1,9 +1,0 @@
-.stage-export { display: grid; gap: 1rem; }
-.export-counts { list-style: none; padding: 0; margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
-.export-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
-.export-form label, .stage-export section > label { display: flex; flex-direction: column; gap: 0.2rem; }
-.stage-export label.export-check { flex-direction: row; align-items: center; gap: 0.4rem; }
-.export-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.5rem 0; }
-.export-text { max-height: 20rem; overflow: auto; white-space: pre-wrap; padding: 0.5rem; border: 1px solid currentColor; border-radius: 4px; }
-.export-flags { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
-.export-flags li { display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; }
