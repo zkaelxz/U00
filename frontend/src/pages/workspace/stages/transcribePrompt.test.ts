@@ -1,19 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { prefillPrompt } from './transcribePrompt'
+import { promptFields } from './transcribePrompt'
 
-describe('prefillPrompt', () => {
-  it('fills an empty box with the automatic prompt', () => {
-    expect(prefillPrompt('', '苏杉。他走了。')).toBe('苏杉。他走了。')
+describe('promptFields', () => {
+  it('sends nothing when both are empty, so the server uses the automatic prompt', () => {
+    expect(promptFields('', '')).toEqual({})
+    expect(promptFields('  ', ' ')).toEqual({})
   })
-  it('fills a whitespace-only box', () => {
-    expect(prefillPrompt('  ', '苏杉。')).toBe('苏杉。')
+  it('sends the extra names, trimmed', () => {
+    expect(promptFields('', ' 沈清疑、云隐宗 ')).toEqual({ extra_names: '沈清疑、云隐宗' })
   })
-  it('keeps a prompt the user typed and saved', () => {
-    expect(prefillPrompt('沈清疑', '苏杉。')).toBe('沈清疑')
-  })
-  it('stays empty when there is no automatic prompt', () => {
-    expect(prefillPrompt('', '')).toBe('')
-    expect(prefillPrompt('', undefined)).toBe('')
+  it('sends only the override when one is typed', () => {
+    expect(promptFields('全部替换', '沈清疑')).toEqual({ initial_prompt: '全部替换' })
   })
 })

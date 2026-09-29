@@ -5,6 +5,7 @@
 export interface AutotuneRunRequest {
   candidates?: number[]
   initial_prompt?: string
+  extra_names?: string
 }
 
 export interface AutotuneRunResult {

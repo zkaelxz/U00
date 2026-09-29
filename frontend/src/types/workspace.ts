@@ -66,6 +66,7 @@ export interface TranscribeRunRequest {
   run_diarize?: boolean
   expected_speakers?: number | null
   initial_prompt?: string
+  extra_names?: string
   tesseract_cmd?: string | null
 }
 

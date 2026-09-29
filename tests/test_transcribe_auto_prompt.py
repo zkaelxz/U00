@@ -61,6 +61,16 @@ class TestBuildAutoInitialPrompt:
         # combine_initial_prompt's overall 900-character cap, same as the CLI
         assert len(transcribe_service.build_auto_initial_prompt(did)) == 900
 
+    def test_extra_names_join_like_streamlit(self, isolated_db):
+        did = _drama_with_glossary(isolated_db)
+        assert transcribe_service.build_auto_initial_prompt(did, "沈清疑、云隐宗") == "苏杉、沈清疑、云隐宗。"
+        _novel(isolated_db, did, "他走了。")
+        assert transcribe_service.build_auto_initial_prompt(did, " 沈清疑 ") == "苏杉、沈清疑。他走了。"
+
+    def test_extra_names_only(self, isolated_db):
+        did = isolated_db.create_drama(title_en="D")
+        assert transcribe_service.build_auto_initial_prompt(did, "沈清疑") == "沈清疑。"
+
     def test_config_exposes_it(self, isolated_db):
         did = _drama_with_glossary(isolated_db)
         assert transcribe_service.get_transcribe_config(did)["auto_initial_prompt"] == "苏杉。"
@@ -92,10 +102,29 @@ class TestRunUsesAutoPrompt:
         transcribe_service.start_transcribe_run(did, initial_prompt=prompt)
         assert captured["initial_prompt"] == "苏杉。"
 
+    def test_extra_names_are_added_to_auto(self, isolated_db, monkeypatch):
+        did = _audio_drama(isolated_db)
+        captured = _capture(monkeypatch)
+        transcribe_service.start_transcribe_run(did, extra_names="沈清疑")
+        assert captured["initial_prompt"] == "苏杉、沈清疑。"
+
+    def test_autotune_uses_auto_plus_extra_names(self, isolated_db, monkeypatch):
+        did = _audio_drama(isolated_db)
+        seen = {}
+
+        def fake_process_job(job_id, target, args=(), **k):
+            seen["args"] = args
+            return True
+        monkeypatch.setattr(background_jobs, "start_process_job", fake_process_job)
+        transcribe_service.start_autotune_run(did, extra_names="沈清疑")
+        assert "苏杉、沈清疑。" in seen["args"]
+        transcribe_service.start_autotune_run(did, initial_prompt="全替换", extra_names="沈清疑")
+        assert "全替换" in seen["args"]
+
     def test_typed_prompt_wins(self, isolated_db, monkeypatch):
         did = _audio_drama(isolated_db)
         captured = _capture(monkeypatch)
-        transcribe_service.start_transcribe_run(did, initial_prompt="沈清疑")
+        transcribe_service.start_transcribe_run(did, initial_prompt="沈清疑", extra_names="x")
         assert captured["initial_prompt"] == "沈清疑"
 
 
@@ -121,6 +150,20 @@ class TestApi:
         r = client.post(f"/api/transcribe/dramas/{did}/run", json={})
         assert r.status_code == 200, r.text
         assert captured["initial_prompt"] == "苏杉。"
+
+    def test_run_with_extra_names(self, client, isolated_db, monkeypatch):
+        did = _audio_drama(isolated_db)
+        captured = _capture(monkeypatch)
+        r = client.post(f"/api/transcribe/dramas/{did}/run", json={"extra_names": "沈清疑"})
+        assert r.status_code == 200, r.text
+        assert captured["initial_prompt"] == "苏杉、沈清疑。"
+
+    def test_extra_names_length_limit(self, client, isolated_db):
+        did = _audio_drama(isolated_db)
+        r = client.post(f"/api/transcribe/dramas/{did}/run", json={"extra_names": "x" * 1001})
+        assert r.status_code in (400, 422)
+        r = client.post(f"/api/transcribe/dramas/{did}/autotune", json={"extra_names": "x" * 1001})
+        assert r.status_code in (400, 422)
 
 
 def test_cli_align_uses_the_helper(isolated_db, monkeypatch):

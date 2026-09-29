@@ -124,25 +124,40 @@ def _default_hardsub_backend(source_language: str) -> str:
     return "paddle" if source_language == "zh" else "tesseract"
 
 
-def build_auto_initial_prompt(drama_id: int) -> str:
-    """Whisper's automatic initial_prompt for one drama: the series
-    glossary's names (core.build_initial_prompt) plus, when the drama has a
+def build_auto_initial_prompt(drama_id: int, extra_names: str = "") -> str:
+    """Whisper's automatic initial_prompt for one drama, built the way the
+    Streamlit Transcript stage builds it: the series glossary's names
+    (core.build_initial_prompt) and any extra_names the user typed, joined
+    with "、" and ended with "。"; then, when the drama has a
     raw_novel_context.txt, a bounded novel excerpt merged in names-first and
     trimmed by core.combine_initial_prompt (its 900-character cap). Shared by
-    cli.cmd_align and the API transcribe path so the two can't drift.
-    Returns "" when there's neither a glossary nor a novel. Raises
+    cli.cmd_align (no extra names) and the API transcribe/auto-tune paths so
+    they can't drift. Returns "" when there's nothing to prime with. Raises
     NotFoundError for an unknown drama id."""
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
     terms = db.list_glossary_terms(drama["series_id"]) if drama.get("series_id") else []
-    prompt = core_module.build_initial_prompt(terms)
+    glossary_names = core_module.build_initial_prompt(terms).rstrip("。")
+    prompt = "、".join(x for x in (glossary_names, (extra_names or "").strip()) if x)
+    if prompt:
+        prompt += "。"
     novel_path = os.path.join(db.drama_dir(drama_id), "raw_novel_context.txt")
     if os.path.exists(novel_path):
         with open(novel_path, "r", encoding="utf-8") as f:
             prompt = core_module.combine_initial_prompt(
                 prompt, core_module.extract_novel_excerpt_for_prompt(f.read()))
     return prompt
+
+
+def _resolve_initial_prompt(drama_id: int, initial_prompt, extra_names) -> str:
+    """A non-empty initial_prompt is an explicit full override; otherwise the
+    automatic prompt plus the typed extra names."""
+    if not isinstance(initial_prompt, str) or not isinstance(extra_names, str):
+        raise InvalidInputError("initial_prompt and extra_names must be text.")
+    if initial_prompt.strip():
+        return initial_prompt
+    return build_auto_initial_prompt(drama_id, extra_names)
 
 
 def get_transcribe_config(drama_id: int) -> dict:
@@ -265,7 +280,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           chinese_script: Optional[str] = None,
                           transcript_text: Optional[str] = None, run_diarize: bool = False,
                           expected_speakers: Optional[int] = None,
-                          initial_prompt: str = "", tesseract_cmd: Optional[str] = None) -> dict:
+                          initial_prompt: str = "", tesseract_cmd: Optional[str] = None,
+                          extra_names: str = "") -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -275,10 +291,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     tab's render-loop-apply approach).
 
     source_language / chinese_script default to this drama's own stored
-    values (Slice 19) when omitted. initial_prompt is an optional,
-    client-supplied names-to-expect string; when it's empty or omitted the
-    run uses build_auto_initial_prompt (series glossary plus raw-novel
-    excerpt), the same prompt cli.cmd_align builds.
+    values (Slice 19) when omitted. initial_prompt is an optional
+    full override of Whisper's prompt; when it's empty or omitted the run
+    uses build_auto_initial_prompt (series glossary plus extra_names plus
+    raw-novel excerpt), the prompt cli.cmd_align builds without extra names.
 
     transcript_text is required (and only used) when this drama's
     transcript_mode is "have_transcript" -- per Slice 19, it's
@@ -377,7 +393,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
         drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         bool(drama.get("realign_long_segments")), bool(drama.get("whisper_fast_mode")),
         bool(drama.get("use_groq")), groq_api_key, hf_token, expected_speakers,
-        (initial_prompt or "").strip() or build_auto_initial_prompt(drama_id), video_path,
+        _resolve_initial_prompt(drama_id, initial_prompt or "", extra_names or ""), video_path,
         drama.get("hardsub_ocr_backend") or _default_hardsub_backend(source_language),
         drama.get("hardsub_interval_sec") or 1.0, tesseract_cmd, diarize_audio_path,
         settings_service.get_use_gpu(), asr_backend_choice, alignment_method,
@@ -729,7 +745,7 @@ def _autotune_all_worker(audio_path, model_size, language, use_gpu, hf_token, in
 
 
 def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
-                       initial_prompt: str = "") -> dict:
+                       initial_prompt: str = "", extra_names: str = "") -> dict:
     """Starts the auto-tune process job for this drama's stored audio, using
     the drama's own persisted whisper_size/beam_size/vad_threshold/
     whisper_fast_mode and language (as the tab uses its current widgets).
@@ -757,8 +773,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
             or len(set(candidates)) != len(candidates)):
         raise InvalidInputError(
             "candidates must be 1-6 distinct whole numbers between 300 and 3000 (ms).")
-    if not isinstance(initial_prompt, str):
-        raise InvalidInputError("initial_prompt must be text.")
+    initial_prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
     job_id = autotune_job_id(drama_id)
     started = background_jobs.start_process_job(
         job_id, _autotune_all_worker,
