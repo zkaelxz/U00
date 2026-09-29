@@ -1883,3 +1883,102 @@ class LiveSessionSummary(BaseModel):
 class LiveSessionStopped(BaseModel):
     session_id: str
     stopping: bool
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Discover network helpers (spec D-2) -- /api/discover/...
+# ---------------------------------------------------------------------------
+
+class DiscoverTranslateQueryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    q: str = Field(max_length=500)
+    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+
+
+class DiscoverTranslateQueryResult(BaseModel):
+    query: str
+    translated: str
+    engine: str
+
+
+class DiscoverBaihehubSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    q: str = Field(max_length=500)
+
+
+class DiscoverBaihehubHit(BaseModel):
+    title: str
+    url: str
+    snippet: str
+
+
+class DiscoverBaihehubResult(BaseModel):
+    results: List[DiscoverBaihehubHit]
+    fallback_url: str
+
+
+class DiscoverImportSuggestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(max_length=2000)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverImportSuggestion(BaseModel):
+    """A suggestion only; nothing is written. Apply it with POST /api/discover/titles."""
+    suggestion: Dict[str, str]
+    found: bool
+    needs_manual: bool
+    message: str
+
+
+class DiscoverBulkExtractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    urls: List[str] = Field(min_length=1, max_length=10)
+    source_label: str = Field("", max_length=100)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverNavigationHelpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(max_length=2000)
+    goal: str = Field(max_length=500)
+    target_language: str = Field("English", max_length=20)
+    engine: Optional[str] = Field(None, max_length=40)
+
+
+class DiscoverJobStarted(BaseModel):
+    job_id: str
+    started: bool
+
+
+class DiscoverJobResult(BaseModel):
+    """`result` is the job's own result once set: bulk extract
+    {entries, pages, source_label}; navigation help {labels, steps,
+    needs_manual, message}."""
+    job_id: str
+    status: Optional[str] = None
+    progress: float
+    message: str
+    result: Optional[Dict[str, Any]] = None
+
+
+class DiscoverBulkEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(max_length=300)
+    author: str = Field("", max_length=300)
+    tags: str = Field("", max_length=500)
+    source_url: str = Field("", max_length=2000)
+    has_audio_drama: StrictBool = False
+    language: str = Field("zh", max_length=10)
+
+
+class DiscoverBulkCommitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entries: List[DiscoverBulkEntry] = Field(min_length=1, max_length=500)
+    source_label: str = Field("", max_length=100)
+
+
+class DiscoverBulkCommitResult(BaseModel):
+    added: int
+    skipped: int
+    ids: List[int]
