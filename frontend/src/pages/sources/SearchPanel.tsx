@@ -2,7 +2,10 @@ import { useState } from 'react'
 
 import { startSearch } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
+import { buttonClass } from '../../components/uiClasses'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import type { OpenSeries, SearchResult, SourceSummary } from '../../types/sources'
 import {
@@ -36,7 +39,7 @@ export function SourceErrorLine({ copy, onRetry }: { copy: SourceErrorCopy; onRe
       {copy.retry && onRetry && (
         <>
           {' '}
-          <button type="button" onClick={onRetry}>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={onRetry}>
             Try again
           </button>
         </>
@@ -100,7 +103,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <button type="submit" className="primary" disabled={!!reason || running}>
+          <button type="submit" className={buttonClass('primary')} disabled={!!reason || running}>
             Search
           </button>
         </div>
@@ -111,16 +114,11 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
             storageKey="sources.searchIn"
             summary={searchInSummary(selected.length, names.length)}
           >
-            <div className="sources-checks">
+            <div className="setting-list sources-search-in">
               {searchable.map((s) => (
-                <label key={s.name}>
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(s.name)}
-                    onChange={(e) => toggleSource(s.name, e.target.checked)}
-                  />
-                  {s.display_name}
-                </label>
+                <Field key={s.name} label={s.display_name}>
+                  <Toggle checked={selected.includes(s.name)} onChange={(on) => toggleSource(s.name, on)} />
+                </Field>
               ))}
             </div>
           </Section>
@@ -133,7 +131,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
         {running && (
           <p>
             Searching…{percent(job.progress)} ·{' '}
-            <button type="button" className="link" onClick={job.cancel}>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.cancel}>
               Cancel
             </button>
           </p>
@@ -151,7 +149,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
             <p>
               <strong>{resultsHeader(result.results.length, errors.length)}</strong>
             </p>
-            <button type="button" className="link" onClick={job.reset}>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.reset}>
               Clear
             </button>
           </div>
@@ -177,6 +175,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
                       <button
                         key={`${e.source}:${e.series_id}`}
                         type="button"
+                        className={buttonClass('secondary', 'sm')}
                         data-opener={openerKey(e.source, e.series_id)}
                         onClick={() =>
                           onOpen({ source: e.source, series_id: e.series_id, title: e.title || m.title },
@@ -192,7 +191,7 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen }: Pro
             </ul>
           )}
           {result.results.length > shown && (
-            <button type="button" onClick={() => setShown((n) => n + RESULTS_PAGE)}>
+            <button type="button" className={buttonClass('secondary')} onClick={() => setShown((n) => n + RESULTS_PAGE)}>
               Show {Math.min(RESULTS_PAGE, result.results.length - shown)} more
             </button>
           )}

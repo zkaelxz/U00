@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getSource, listAttempts, resetSourceHealth } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { SourceAttempt, SourceDetail as Detail, SourceHealth } from '../../types/sources'
 import { humanizeValue as humanize } from '../../components/labels'
 import { SourceAccess } from './SourceAccess'
@@ -90,7 +91,7 @@ export function SourceDetail({ name, onHealth, onSignin }: Props) {
       {paused && (
         <p className="warn">
           {paused}{' '}
-          <button type="button" disabled={resetting} onClick={tryNow}>
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={resetting} onClick={tryNow}>
             Try again now
           </button>
         </p>

@@ -559,7 +559,7 @@ baihe-subtitler/
 │   ├── src/pages/Live.tsx         Live page (#/live): paste a stream link, start a live capture session, poll
 │   │                              its transcript + translation, stop; api/live.ts (client + pure helpers,
 │   │                              unit-tested), types/live.ts, pages/live.css; e2e/live*.spec.ts + liveMocks.ts
-│   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
+│   ├── src/pages/sources/         FindModeSwitch (search | link), SearchPanel, SeriesPanel, NewChapters (Check now, auto-import drama),
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
 │   │                              sourcesFormat.ts (pure, unit-tested), sources.css

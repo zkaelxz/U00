@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { Badge } from '../../components/Badge'
+import { ButtonLink } from '../../components/Button'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { OpenSeries, SeriesResult, SourceSummary, TrackedSeries } from '../../types/sources'
 import { ImportBar, ImportSetup, TrackRow } from './ChapterImport'
 import { useChapterImport } from './useChapterImport'
@@ -92,9 +95,9 @@ export function SeriesPanel({
   const canTrack = !!result && !tracked && (!remote || IMPORT_REMOTE_ALLOWED)
 
   return (
-    <section className="panel sources-series" aria-label="Series">
+    <section className="card sources-series" aria-label="Series">
       {showBack && (
-        <button type="button" className="link sources-back" onClick={onClose}>
+        <button type="button" className={buttonClass('ghost', 'md', 'sources-back')} onClick={onClose}>
           ‹ Results
         </button>
       )}
@@ -102,7 +105,7 @@ export function SeriesPanel({
         <h3 ref={headRef} tabIndex={-1}>
           {title}
         </h3>
-        {tracked && <span className="badge">Tracked</span>}
+        {tracked && <Badge tone="accent">Tracked</Badge>}
       </div>
 
       {view.busyOther ? (
@@ -115,11 +118,11 @@ export function SeriesPanel({
           </p>
           <div className="actions">
             {!stopAsked && (
-              <button type="button" onClick={askStop}>
+              <button type="button" className={buttonClass('secondary')} onClick={askStop}>
                 Cancel it
               </button>
             )}
-            <button type="button" onClick={onReload}>
+            <button type="button" className={buttonClass('secondary')} onClick={onReload}>
               Try again
             </button>
           </div>
@@ -133,7 +136,7 @@ export function SeriesPanel({
           <p>
             {job.message || 'Loading the series…'}
             {percent(job.progress)} ·{' '}
-            <button type="button" className="link" onClick={job.cancel}>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={job.cancel}>
               Cancel
             </button>
           </p>
@@ -143,7 +146,7 @@ export function SeriesPanel({
       {busyEnded && (
         <p className="muted">
           The other series stopped loading.{' '}
-          <button type="button" className="link" onClick={onReload}>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={onReload}>
             Try again
           </button>
         </p>
@@ -163,7 +166,7 @@ export function SeriesPanel({
             <div className="sources-description">
               <p className={more ? '' : 'clamp'}>{description}</p>
               {description.length > LONG_DESCRIPTION && (
-                <button type="button" className="sources-more" aria-expanded={more} onClick={() => setMore((m) => !m)}>
+                <button type="button" className={buttonClass('ghost', 'sm', 'sources-more')} aria-expanded={more} onClick={() => setMore((m) => !m)}>
                   {more ? 'Less' : 'More'}
                 </button>
               )}
@@ -174,12 +177,12 @@ export function SeriesPanel({
 
       <div className="actions">
         {siteUrl && (
-          <a href={siteUrl} target="_blank" rel="noopener noreferrer">
+          <ButtonLink href={siteUrl} target="_blank" rel="noopener noreferrer">
             Open on site ↗
-          </a>
+          </ButtonLink>
         )}
         {!running && (result || cleared) && (
-          <button type="button" onClick={onReload}>
+          <button type="button" className={buttonClass('secondary')} onClick={onReload}>
             Reload
           </button>
         )}
@@ -192,7 +195,7 @@ export function SeriesPanel({
             onConfirm={() => onUntrack(tracked)}
           />
         )}
-        <button type="button" className="link" onClick={onClose}>
+        <button type="button" className={buttonClass('ghost')} onClick={onClose}>
           Close
         </button>
       </div>
@@ -238,7 +241,7 @@ export function SeriesPanel({
             onToggle={(id, on) => setSelected((cur) => toggleId(cur, id, on))}
           />
           {chapters.length > shown && (
-            <button type="button" onClick={() => setShown(chapters.length)}>
+            <button type="button" className={buttonClass('secondary')} onClick={() => setShown(chapters.length)}>
               Show all {chapters.length}
             </button>
           )}
@@ -246,7 +249,7 @@ export function SeriesPanel({
       )}
       {importing && <ImportBar imp={imp} chapters={chapters} selected={selected} phone={phone} />}
       {showBack && result && (
-        <button type="button" className="link sources-back" onClick={onClose}>
+        <button type="button" className={buttonClass('ghost', 'md', 'sources-back')} onClick={onClose}>
           ‹ Results
         </button>
       )}
