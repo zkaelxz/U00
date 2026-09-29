@@ -1474,7 +1474,7 @@ def build_consistency_prompt(batch: list) -> str:
     )
 
 
-def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
+def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None, cancel_check=None):
     """Reviews already-translated lines for consistency issues: the same
     Chinese term/name translated differently in different places. Works
     on the .zh/.en pairs already present -- doesn't call any external
@@ -1490,7 +1490,9 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
     found nothing.
 
     Only meaningful with an LLM-capable engine; pure-MT engines return
-    ([], 0, 0) (they don't reason about the whole set at once)."""
+    ([], 0, 0) (they don't reason about the whole set at once).
+    cancel_check (B-05): called before each batch; it may raise to stop the
+    run between batches (a batch already sent still finishes)."""
     if not getattr(engine, "supports_reference", False):
         return [], 0, 0
     translated = [ln for ln in lines if ln.en.strip()]
@@ -1501,6 +1503,8 @@ def check_consistency_llm(lines, engine, batch_size: int = 60, usage_cb=None):
     failed_batches = 0
     total_batches = 0
     for start in range(0, len(translated), batch_size):
+        if cancel_check:
+            cancel_check()
         batch = translated[start:start + batch_size]
         total_batches += 1
         prompt = build_consistency_prompt(batch)
@@ -1640,7 +1644,8 @@ def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     )
 
 
-def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None):
+def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, usage_cb=None,
+                         cancel_check=None):
     """
     Reviews already-translated lines and flags the ones worth a second
     look -- the review-queue idea: instead of scanning a whole multi-hour
@@ -1652,6 +1657,8 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     Only meaningful with an LLM-capable engine; pure-MT engines (DeepL,
     Google) can't reason about their own confidence and are left
     untouched -- every line's .flag stays whatever it already was.
+    cancel_check (B-05): called before each batch; it may raise to stop the
+    run between batches (a batch already sent still finishes).
     """
     if not getattr(engine, "supports_reference", False):
         return lines
@@ -1662,6 +1669,8 @@ def flag_uncertain_lines(lines, engine, batch_size: int = 30, progress_cb=None, 
     n_batches = (len(translated) + batch_size - 1) // batch_size
 
     for bi, start in enumerate(range(0, len(translated), batch_size)):
+        if cancel_check:
+            cancel_check()
         batch = translated[start:start + batch_size]
         prompt = build_flag_prompt(batch)
         try:

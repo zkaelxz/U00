@@ -1161,13 +1161,14 @@ def narration_ffmetadata(chapters, total_ms: int, title: str = None) -> str:
 
 
 def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str = None,
-                         narrate_original: bool = False) -> str:
+                         narrate_original: bool = False, cancel_job_id: str = None) -> str:
     """Encodes narration_track.wav as an M4B audiobook (AAC) with chapter
     markers (narration_chapters). Needs the narration generated first --
     lines carrying the timing build_narration_track gave them -- and
     ffmpeg on PATH. Returns the .m4b path. narrate_original (Step 26c):
     chapter titles come from the source text, matching the narration
-    audio's own language."""
+    audio's own language. cancel_job_id: a thread job whose cancel request
+    kills the ffmpeg run (background_jobs.run_cancellable)."""
     import subprocess
     wav_path = os.path.join(drama_dir, "narration_track.wav")
     if not os.path.exists(wav_path):
@@ -1182,7 +1183,11 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     cmd = ["ffmpeg", "-y", "-i", wav_path, "-i", meta_path, "-map", "0:a",
            "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac", "-b:a", "64k",
            "-f", "ipod", out_path]
-    subprocess.run(cmd, check=True, capture_output=True)
+    if cancel_job_id:
+        import background_jobs
+        background_jobs.run_cancellable(cancel_job_id, cmd)
+    else:
+        subprocess.run(cmd, check=True, capture_output=True)
     return out_path
 
 
