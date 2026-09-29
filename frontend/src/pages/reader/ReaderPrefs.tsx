@@ -19,7 +19,7 @@ import {
   type ReaderFont,
   type ReaderPrefs,
   type ReaderTheme,
-} from './readerPrefs'
+} from './readerPrefsStore'
 
 type Props = {
   prefs: ReaderPrefs
