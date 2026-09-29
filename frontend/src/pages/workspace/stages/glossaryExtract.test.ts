@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
+import { GLOSSARY_EXPIRED } from './autotuneGlossary'
 import {
+  PROPOSALS_CHANGED_TEXT,
   SOURCE_TEXT,
+  applyRequest,
   buildOverrides,
   editProposal,
   extractionProgressText,
+  glossaryApplyErrorText,
   missingTranslationText,
   missingTranslations,
   proposalValues,
   reviewSource,
+  scopedValue,
   startTranslationLabel,
   type Edits,
 } from './glossaryExtract'
@@ -84,5 +89,35 @@ describe('glossary extraction helpers', () => {
     expect(startTranslationLabel(0)).toBe('Start translation')
     expect(startTranslationLabel(1)).toBe('Add 1 term and start translation')
     expect(startTranslationLabel(3)).toBe('Add 3 terms and start translation')
+  })
+})
+
+describe('run scoping and the apply body', () => {
+  it("reads state kept for another run as the initial value", () => {
+    const kept = { run: 'r1', value: new Set(['魏婴']) }
+    expect(scopedValue(kept, 'r1', null)).toBe(kept.value)
+    expect(scopedValue(kept, 'r2', null)).toBeNull()
+    expect(scopedValue({ run: null, value: { 魏婴: 1 } }, 'r1', {})).toEqual({})
+    // runs without an id (older server) still keep their own state
+    expect(scopedValue({ run: null, value: 3 }, null, 0)).toBe(3)
+  })
+
+  it('names the reviewed run and sends only what applies', () => {
+    expect(applyRequest(['魏婴'], 'r1', undefined)).toEqual({ terms: ['魏婴'], run_id: 'r1' })
+    expect(applyRequest(['魏婴'], 'r1', { 魏婴: { policy: 'hybrid' } }, true)).toEqual({
+      terms: ['魏婴'],
+      overwrite_existing: true,
+      confirm: true,
+      overrides: { 魏婴: { policy: 'hybrid' } },
+      run_id: 'r1',
+    })
+    expect(applyRequest(['魏婴'], null, undefined)).toEqual({ terms: ['魏婴'] })
+  })
+
+  it('maps a 409 on apply to "review again" and a 400 to "run again"', () => {
+    expect(glossaryApplyErrorText({ status: 409 })).toBe(PROPOSALS_CHANGED_TEXT)
+    expect(glossaryApplyErrorText({ status: 400 })).toBe(GLOSSARY_EXPIRED)
+    expect(glossaryApplyErrorText({ status: 500 })).toBeNull()
+    expect(glossaryApplyErrorText(null)).toBeNull()
   })
 })

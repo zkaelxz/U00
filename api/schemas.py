@@ -2537,6 +2537,8 @@ class NovelGlossaryStatus(BaseModel):
     progress: Optional[float] = None
     message: str = ""
     proposals: Optional[List[NovelGlossaryProposal]] = None
+    # Names this run; the apply sends it back (409 if the run was replaced).
+    run_id: Optional[str] = None
 
 
 class NovelGlossaryApplyRequest(BaseModel):
@@ -3208,9 +3210,17 @@ class GlossaryProposalEdit(BaseModel):
 
 class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
     """NovelGlossaryApplyRequest plus optional edits keyed by term text
-    (never by position); edits for terms not in `terms` are ignored."""
+    (never by position); edits for terms not in `terms` are ignored.
+    run_id: the status's run_id the user reviewed; a different held run is
+    refused with 409 (optional here for older from-novel callers)."""
     overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
         default_factory=dict, max_length=1000)
+    run_id: Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
+
+
+class LinesGlossaryApplyRequest(GlossaryProposalsApplyRequest):
+    """GlossaryProposalsApplyRequest with run_id required (from-lines)."""
+    run_id: Annotated[str, Field(min_length=1, max_length=64)]
 
 # Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
 # learn my style, SenseVoice audio tags, burned-subtitle preview clip.

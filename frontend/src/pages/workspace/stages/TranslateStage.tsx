@@ -11,6 +11,7 @@ import {
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { TranslateRunConfig, TranslateRunEstimate, WorkflowTierApplied } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
@@ -298,18 +299,14 @@ function RunPanel({
         {estimate && <EstimateView e={estimate} />}
       </div>
       {canReview && (
-        <label
-          className="inline translate-review-first"
-          title="Before the run starts, proposes glossary terms from the attached novel (or the source lines) with this drama's engine, so you can fix them first. A glossary mistake repeats on every line."
-        >
-          <input
-            type="checkbox"
-            checked={reviewFirst}
-            disabled={reviewing > 0}
-            onChange={(e) => setReviewFirst(e.target.checked)}
-          />{' '}
-          Review glossary before translating
-        </label>
+        <div className="setting-list">
+          <Field
+            label="Review glossary before translating"
+            help="Before the run starts, proposes glossary terms from the attached novel (or the source lines) with this drama's engine, so you can fix them first. A glossary mistake repeats on every line."
+          >
+            <Toggle checked={reviewFirst} disabled={reviewing > 0} onChange={setReviewFirst} />
+          </Field>
+        </div>
       )}
       {reviewing > 0 && (
         <GlossaryReview

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { ApiError } from '../../../api/client'
 import { cancelJob } from '../../../api/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
@@ -11,13 +12,14 @@ import {
   chosenTerms,
   defaultTermSelection,
   isActiveStatus,
-  novelGlossaryApplyErrorText,
   toggleTerm,
 } from './autotuneGlossary'
 import {
+  applyRequest,
   buildOverrides,
   editProposal,
   extractionProgressText,
+  glossaryApplyErrorText,
   missingTranslationText,
   missingTranslations,
   reviewSource,
@@ -35,6 +37,7 @@ import {
   useGlossaryCatalogues,
   useGlossaryRun,
   useHasNovel,
+  useRunScoped,
 } from './useGlossaryRun'
 import './autotuneGlossary.css'
 
@@ -68,20 +71,14 @@ function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySou
   const { dramaId, drama } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
   const { status, error: loadError, clearError } = useGlossaryRun(dramaId, source)
-  // The status read when the start settled: a result is only shown once a
-  // newer read arrives, never an earlier run's proposals.
-  const [startedAt, setStartedAt] = useState<{ status: object | null } | 'pending'>('pending')
+  // The run this press started (or attached to): only its status is shown,
+  // never an earlier run's proposals. failed: it could not be started.
+  const [started, setStarted] = useState<{ runId: string | null; failed: boolean } | 'pending'>('pending')
   const [startProblem, setStartProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [picked, setPicked] = useState<Set<string> | null>(null)
-  const [edits, setEdits] = useState<Edits>({})
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
 
-  const statusRef = useRef(status)
-  useEffect(() => {
-    statusRef.current = status
-  })
   const startedRef = useRef(false)
   useEffect(() => {
     if (startedRef.current) return
@@ -89,13 +86,17 @@ function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySou
     startExtraction(dramaId, source).then((r) => {
       setStartProblem(r.problem)
       setError(r.error)
-      setStartedAt({ status: statusRef.current })
+      setStarted({ runId: r.runId, failed: r.problem !== null || r.error !== null || !r.runId })
     })
   }, [dramaId, source])
 
-  const failed = startProblem !== null || error !== null
-  const fresh = startedAt !== 'pending' && (failed || status !== startedAt.status)
-  const cur = fresh && !failed ? status : null
+  const failed = started !== 'pending' && started.failed
+  const run = started !== 'pending' && !started.failed ? started.runId : null
+  const cur = run && status?.run_id === run ? status : null
+  const fresh = failed || cur !== null
+  // Selection and edits belong to the run shown.
+  const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null)
+  const [edits, setEdits] = useRunScoped<Edits>(run, {})
   const active = isActiveStatus(cur?.status)
   const proposals: NovelGlossaryProposal[] = cur?.status === 'done' ? cur.proposals ?? [] : []
   const sel = picked ?? defaultTermSelection(proposals)
@@ -117,20 +118,31 @@ function ReviewBody({ source, onStart, onCancel }: Props & { source: GlossarySou
     setProblem(null)
     const overrides = buildOverrides(proposals, chosen, edits)
     GLOSSARY_API[source]
-      .apply(dramaId, { terms: chosen, ...(overrides ? { overrides } : {}) })
+      .apply(dramaId, applyRequest(chosen, run, overrides))
       .then(
         (r) => {
           bumpGlossaryTerms()
           onStart(applySummary(r))
         },
         (e: unknown) => {
-          const t = novelGlossaryApplyErrorText(e)
+          const t = glossaryApplyErrorText(e)
           if (t) setProblem(t)
           else setError(e)
           setBusy(false)
+          // Replaced by another run (another tab or panel): review that one.
+          if (e instanceof ApiError && e.status === 409) adoptLatestRun()
         },
       )
   }
+
+  const adoptLatestRun = () =>
+    GLOSSARY_API[source].get(dramaId).then(
+      (s) => {
+        if (s.run_id) setStarted({ runId: s.run_id, failed: false })
+        bumpGlossaryRun(source)
+      },
+      () => undefined,
+    )
 
   const edit = <K extends keyof ProposalValues>(p: NovelGlossaryProposal, field: K, value: ProposalValues[K]) =>
     setEdits((c) => editProposal(c, p, field, value))

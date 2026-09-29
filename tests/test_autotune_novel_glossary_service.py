@@ -263,10 +263,42 @@ class TestNovelGlossary:
         t = {t["term_original"]: t for t in isolated_db.list_glossary_terms(sid)}["师尊"]
         assert t["term_translation"] == "Teacher" and t["enforce_exact"]
 
+    def test_run_id_names_each_run_and_a_stale_apply_writes_nothing(
+            self, isolated_db, monkeypatch, fake_engine):
+        """Another tab re-ran the extraction: an apply of the run the user
+        reviewed is refused (ConflictError) and nothing is written."""
+        did, sid = _novel_drama(isolated_db)
+        answers = iter([
+            [{"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
+              "policy": "hybrid", "reason": "first"}],
+            [{"term": "青云宗", "suggested_translation": "Blue Cloud Sect", "category": "place",
+              "policy": "translate", "reason": "second"}]])
+        monkeypatch.setattr(tguide, "extract_glossary_from_novel", lambda *a, **kw: next(answers))
+        _wait(gs.start_novel_glossary_run(did)["job_id"])
+        first = gs.get_novel_glossary_status(did)["run_id"]
+        assert first and isinstance(first, str)
+        _wait(gs.start_novel_glossary_run(did)["job_id"])
+        second = gs.get_novel_glossary_status(did)["run_id"]
+        assert second and second != first
+        with pytest.raises(ConflictError, match="review again"):
+            gs.apply_novel_glossary(did, ["青云宗"], run_id=first,
+                                    overrides={"青云宗": {"translation": "Qingyun Sect"}})
+        assert isolated_db.list_glossary_terms(sid) == []
+        rep = gs.apply_novel_glossary(did, ["青云宗"], run_id=second)
+        assert rep["added"] == ["青云宗"]
+        t = isolated_db.list_glossary_terms(sid)[0]
+        assert (t["term_translation"], t["category"]) == ("Blue Cloud Sect", "place")
+
     def test_apply_refusals(self, isolated_db):
         did, _ = _novel_drama(isolated_db)
         with pytest.raises(UnsupportedOperationError):
             gs.apply_novel_glossary(did, ["x"])
+        # a token for a run no longer held (app restarted) is a changed run
+        with pytest.raises(ConflictError):
+            gs.apply_novel_glossary(did, ["x"], run_id="gone")
+        for bad in ("", 5, "x" * 65):
+            with pytest.raises(InvalidInputError):
+                gs.apply_novel_glossary(did, ["x"], run_id=bad)
         for bad in ([], "x", [1]):
             with pytest.raises(InvalidInputError):
                 gs.apply_novel_glossary(did, bad)

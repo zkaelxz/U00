@@ -12,6 +12,10 @@ drama's engine), status with the proposals, and apply by term text.
 Parity X10 adds the same trio for the drama's source lines (from-lines);
 both applies take optional per-term edits (overrides). The pre-translate
 review (X28) reuses these routes plus the translate-run start.
+
+Each status carries the run's run_id; an apply sends it back and gets 409
+(nothing written) when the held run is another one. Required on from-lines,
+optional on from-novel for older callers.
 """
 
 from typing import List
@@ -21,8 +25,8 @@ from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, GlossaryCatalogues, GlossaryDeleteResult,
                          GlossaryInstructions, GlossaryInstructionsUpdate,
                          GlossaryProposalsApplyRequest, GlossaryTerm, GlossaryTermUpsert,
-                         LinesGlossaryRunResult, NovelGlossaryApplyResult,
-                         NovelGlossaryRunResult, NovelGlossaryStatus)
+                         LinesGlossaryApplyRequest, LinesGlossaryRunResult,
+                         NovelGlossaryApplyResult, NovelGlossaryRunResult, NovelGlossaryStatus)
 from services import glossary_service
 from services.service_errors import InvalidInputError
 
@@ -109,7 +113,7 @@ def get_novel_glossary(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/from-novel/apply", dependencies=[require_permission("lines.edit")], response_model=NovelGlossaryApplyResult,
              summary="Add named proposals to the series glossary (overwrite needs confirm=true)",
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: int = Path(ge=1)):
     return _apply(glossary_service.apply_novel_glossary, drama_id, payload)
 
@@ -117,7 +121,7 @@ def post_apply_novel_glossary(payload: GlossaryProposalsApplyRequest, drama_id: 
 def _status_body(s: dict) -> dict:
     return {"job_id": s["job_id"], "status": s["status"], "progress": s.get("progress"),
             "message": s.get("message") or "",
-            "proposals": (s.get("result") or {}).get("proposals")}
+            "proposals": (s.get("result") or {}).get("proposals"), "run_id": s.get("run_id")}
 
 
 def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> dict:
@@ -126,7 +130,7 @@ def _apply(apply_fn, drama_id: int, payload: GlossaryProposalsApplyRequest) -> d
     overrides = {term: edit.model_dump(exclude_unset=True)
                  for term, edit in payload.overrides.items()}
     return apply_fn(drama_id, payload.terms, overwrite_existing=payload.overwrite_existing,
-                    overrides=overrides)
+                    overrides=overrides, run_id=payload.run_id)
 
 
 # --- Parity X10: glossary from the drama's source lines -----------------------
@@ -154,6 +158,6 @@ def get_lines_glossary(drama_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/from-lines/apply", dependencies=[require_permission("lines.edit")], response_model=NovelGlossaryApplyResult,
              summary="Add named lines proposals to the series glossary (overwrite needs confirm=true)",
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
-                        422: {"model": ErrorResponse}})
-def post_apply_lines_glossary(payload: GlossaryProposalsApplyRequest, drama_id: int = Path(ge=1)):
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_apply_lines_glossary(payload: LinesGlossaryApplyRequest, drama_id: int = Path(ge=1)):
     return _apply(glossary_service.apply_lines_glossary, drama_id, payload)

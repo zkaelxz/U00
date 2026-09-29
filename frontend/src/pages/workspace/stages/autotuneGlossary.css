@@ -25,7 +25,6 @@
 /* Review glossary before translating (GlossaryReview.tsx, in the Translate run panel). */
 .glossary-review { margin-top: var(--space-3); }
 .glossary-review > h4 { margin: 0 0 var(--space-2); }
-.translate-review-first { display: inline-flex; align-items: center; gap: var(--space-1); margin-top: var(--space-2); }
 /* Phone: keep the apply row (Overwrite, confirm, primary) in reach at the bottom. */
 @media (max-width: 640px) {
   .novel-glossary-apply {

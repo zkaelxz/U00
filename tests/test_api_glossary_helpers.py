@@ -82,7 +82,8 @@ def _lines_drama(db, zh=("青云宗的师尊", "  ", "沈清来了"), engine="cl
     return did, sid
 
 
-PROPOSALS = {"proposals": [
+RUN = "run-1"
+PROPOSALS = {"run_id": RUN, "proposals": [
     {"term": "师尊", "suggested_translation": "Teacher", "category": "title",
      "policy": "translate", "reason": "r1", "already_in_glossary": True},
     {"term": "青云宗", "suggested_translation": "Qingyun Sect", "category": "sect",
@@ -206,7 +207,7 @@ class TestLinesGlossaryService:
         isolated_db.upsert_glossary_term(sid, "师尊", "Shizun (user)", enforce_exact=True)
         _put_job(gs.lines_glossary_job_id(did), result=PROPOSALS)
         rep = gs.apply_lines_glossary(
-            did, ["空", "青云宗", "不存在", "师尊"],
+            did, ["空", "青云宗", "不存在", "师尊"], run_id=RUN,
             overrides={"青云宗": {"translation": "Azure Cloud Sect", "policy": "translate_meaning"},
                        "空": {"translation": "Void"},
                        "未选": {"translation": "ignored"}})
@@ -219,7 +220,7 @@ class TestLinesGlossaryService:
         assert "未选" not in terms
         assert terms["师尊"]["term_translation"] == "Shizun (user)"
 
-        rep = gs.apply_lines_glossary(did, ["师尊"], overwrite_existing=True,
+        rep = gs.apply_lines_glossary(did, ["师尊"], overwrite_existing=True, run_id=RUN,
                                       overrides={"师尊": {"translation": "Master"}})
         assert rep["overwritten"] == ["师尊"]
         t = {t["term_original"]: t for t in isolated_db.list_glossary_terms(sid)}["师尊"]
@@ -243,20 +244,60 @@ class TestLinesGlossaryService:
         did, sid = _lines_drama(isolated_db)
         _put_job(gs.lines_glossary_job_id(did), result=PROPOSALS)
         with pytest.raises(InvalidInputError):
-            gs.apply_lines_glossary(did, ["青云宗"], overrides=overrides)
+            gs.apply_lines_glossary(did, ["青云宗"], overrides=overrides, run_id=RUN)
         assert isolated_db.list_glossary_terms(sid) == []
 
     def test_apply_refusals(self, isolated_db):
         did, _ = _lines_drama(isolated_db)
-        with pytest.raises(UnsupportedOperationError):
+        # the lines apply always names the run it reviewed
+        with pytest.raises(InvalidInputError, match="run_id"):
             gs.apply_lines_glossary(did, ["x"])
+        # no run held (app restarted): the reviewed run is gone
+        with pytest.raises(ConflictError):
+            gs.apply_lines_glossary(did, ["x"], run_id=RUN)
         # the novel run's result is not the lines run's
         _put_job(gs.novel_glossary_job_id(did), result=PROPOSALS)
-        with pytest.raises(UnsupportedOperationError):
-            gs.apply_lines_glossary(did, ["青云宗"])
+        with pytest.raises(ConflictError):
+            gs.apply_lines_glossary(did, ["青云宗"], run_id=RUN)
         for bad in ([], "x", [1]):
             with pytest.raises(InvalidInputError):
-                gs.apply_lines_glossary(did, bad)
+                gs.apply_lines_glossary(did, bad, run_id=RUN)
+
+    def test_stale_run_refused_and_nothing_written(self, isolated_db):
+        """The run was replaced (another tab or device extracted again) after
+        the user reviewed it: 409-class refusal, the glossary is untouched --
+        for both extractions, with or without overrides or overwrite."""
+        did, sid = _lines_drama(isolated_db)
+        isolated_db.upsert_glossary_term(sid, "师尊", "Shizun (user)")
+        newer = {**PROPOSALS, "run_id": "run-2"}
+        for job_id, apply in ((gs.lines_glossary_job_id(did), gs.apply_lines_glossary),
+                              (gs.novel_glossary_job_id(did), gs.apply_novel_glossary)):
+            _put_job(job_id, result=newer)
+            for kw in ({}, {"overrides": {"青云宗": {"translation": "Azure"}}},
+                       {"overwrite_existing": True}):
+                with pytest.raises(ConflictError, match="review again"):
+                    apply(did, ["青云宗", "师尊"], run_id=RUN, **kw)
+            # a run that's running again has no proposals to apply either
+            _put_job(job_id, status="running", result=None, progress=0.2)
+            with pytest.raises(ConflictError):
+                apply(did, ["青云宗"], run_id=RUN)
+        terms = isolated_db.list_glossary_terms(sid)
+        assert [(t["term_original"], t["term_translation"]) for t in terms] == [
+            ("师尊", "Shizun (user)")]
+
+    def test_status_names_the_run(self, isolated_db, monkeypatch, fake_engine):
+        did, _ = _lines_drama(isolated_db)
+        monkeypatch.setattr(tguide, "extract_terms_llm", lambda *a, **kw: [])
+        _wait(gs.start_lines_glossary_run(did)["job_id"])
+        first = gs.get_lines_glossary_status(did)["run_id"]
+        _wait(gs.start_lines_glossary_run(did)["job_id"])
+        second = gs.get_lines_glossary_status(did)
+        assert first and second["run_id"] and second["run_id"] != first
+        assert background_jobs.get_status(gs.lines_glossary_job_id(did))["result"]["run_id"] \
+            == second["run_id"]
+        # a run held without a run_id (older result) reads as unknown
+        _put_job(gs.lines_glossary_job_id(did), result={"proposals": []})
+        assert gs.get_lines_glossary_status(did)["run_id"] is None
 
 
 # ----- routes -------------------------------------------------------------------
@@ -292,11 +333,12 @@ class TestLinesGlossaryRoutes:
         r = client.get(_gl(did))
         assert r.status_code == 200 and SECRET not in r.text
         body = r.json()
-        assert body["status"] == "done"
+        assert body["status"] == "done" and body["run_id"]
         assert set(body["proposals"][0]) == {"term", "suggested_translation", "category",
                                              "policy", "reason", "already_in_glossary"}
         r = client.post(_gl(did, "/apply"), json={
-            "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure Cloud Sect"}}})
+            "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure Cloud Sect"}},
+            "run_id": body["run_id"]})
         assert r.status_code == 200, r.text
         assert r.json()["added"] == ["青云宗"]
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Azure Cloud Sect"
@@ -329,11 +371,12 @@ class TestLinesGlossaryRoutes:
         did, sid = _lines_drama(isolated_db)
         isolated_db.upsert_glossary_term(sid, "师尊", "Shizun (user)")
         _put_job(f"lines_glossary_{did}", result=PROPOSALS)
-        r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True})
+        r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
+                                                  "run_id": RUN})
         assert r.status_code == 422 and _error(r)["code"] == "validation_error"
         assert isolated_db.list_glossary_terms(sid)[0]["term_translation"] == "Shizun (user)"
         r = client.post(_gl(did, "/apply"), json={"terms": ["师尊"], "overwrite_existing": True,
-                                                  "confirm": True})
+                                                  "confirm": True, "run_id": RUN})
         assert r.status_code == 200 and r.json()["overwritten"] == ["师尊"]
 
     @pytest.mark.parametrize("body", [
@@ -342,7 +385,9 @@ class TestLinesGlossaryRoutes:
         {"terms": ["青云宗"], "overrides": {"青云宗": {"notes": "x"}}},
         {"terms": ["青云宗"], "overrides": {"青云宗": {"category": "bogus"}}},
         {"terms": ["青云宗"], "overrides": {"青云宗": {"translation": None}}},
-        {"terms": ["青云宗"], "overrides": ["青云宗"]}])
+        {"terms": ["青云宗"], "overrides": ["青云宗"]},
+        {"terms": ["青云宗"], "run_id": ""}, {"terms": ["青云宗"], "run_id": 5},
+        {"terms": ["青云宗"], "run_id": "x" * 65}])
     @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
     def test_bad_body_422(self, client, isolated_db, body, kind):
         did, sid = _lines_drama(isolated_db)
@@ -350,6 +395,29 @@ class TestLinesGlossaryRoutes:
         r = client.post(f"/api/glossary/dramas/{did}/{kind}/apply", json=body)
         assert r.status_code == 422, r.text
         assert isolated_db.list_glossary_terms(sid) == []
+
+    def test_lines_apply_requires_run_id(self, client, isolated_db):
+        did, sid = _lines_drama(isolated_db)
+        _put_job(f"lines_glossary_{did}", result=PROPOSALS)
+        r = client.post(_gl(did, "/apply"), json={"terms": ["青云宗"]})
+        assert r.status_code == 422 and _error(r)["code"] == "validation_error"
+        assert isolated_db.list_glossary_terms(sid) == []
+
+    @pytest.mark.parametrize("kind", ["from-lines", "from-novel"])
+    def test_stale_run_409_nothing_written(self, client, isolated_db, kind):
+        did, sid = _lines_drama(isolated_db)
+        _put_job(f"{kind.replace('from-', '')}_glossary_{did}",
+                 result={**PROPOSALS, "run_id": "run-2"})
+        path = f"/api/glossary/dramas/{did}/{kind}"
+        assert client.get(path).json()["run_id"] == "run-2"
+        r = client.post(f"{path}/apply", json={
+            "terms": ["青云宗"], "overrides": {"青云宗": {"translation": "Azure"}},
+            "run_id": RUN})
+        assert r.status_code == 409, r.text
+        assert _error(r)["message"] == gs.PROPOSALS_CHANGED
+        assert isolated_db.list_glossary_terms(sid) == []
+        r = client.post(f"{path}/apply", json={"terms": ["青云宗"], "run_id": "run-2"})
+        assert r.status_code == 200 and r.json()["added"] == ["青云宗"]
 
     def test_novel_apply_accepts_overrides(self, client, isolated_db):
         did, sid = _lines_drama(isolated_db)
@@ -361,7 +429,7 @@ class TestLinesGlossaryRoutes:
 
     @pytest.mark.parametrize("method,path,body", [
         ("post", _gl(999), None), ("get", _gl(999), None),
-        ("post", _gl(999, "/apply"), {"terms": ["x"]})])
+        ("post", _gl(999, "/apply"), {"terms": ["x"], "run_id": RUN})])
     def test_unknown_drama_404(self, client, isolated_db, method, path, body):
         kw = {"json": body} if body is not None else {}
         r = getattr(client, method)(path, **kw)

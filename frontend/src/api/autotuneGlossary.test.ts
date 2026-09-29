@@ -52,7 +52,7 @@ describe('auto-tune + glossary-from-novel api', () => {
     const f = fakeFetch(calls)
     await getLinesGlossary(4, f)
     await startLinesGlossary(4, f)
-    await applyLinesGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { translation: 'Wei Ying' } } }, f)
+    await applyLinesGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { translation: 'Wei Ying' } }, run_id: 'r1' }, f)
     await applyNovelGlossary(4, { terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } }, f)
     expect(calls.map((c) => [c.url, c.init?.method ?? 'GET'])).toEqual([
       ['/api/glossary/dramas/4/from-lines', 'GET'],
@@ -61,7 +61,11 @@ describe('auto-tune + glossary-from-novel api', () => {
       ['/api/glossary/dramas/4/from-novel/apply', 'POST'],
     ])
     expect(calls[1].init?.body).toBeUndefined()
-    expect(JSON.parse(String(calls[2].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { translation: 'Wei Ying' } } })
+    expect(JSON.parse(String(calls[2].init?.body))).toEqual({
+      terms: ['魏婴'],
+      overrides: { 魏婴: { translation: 'Wei Ying' } },
+      run_id: 'r1',
+    })
     expect(JSON.parse(String(calls[3].init?.body))).toEqual({ terms: ['魏婴'], overrides: { 魏婴: { policy: 'hybrid' } } })
   })
 

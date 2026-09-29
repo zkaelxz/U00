@@ -20,7 +20,7 @@ import { getGlossaryCatalogues } from '../../../api/translateStage'
 import { getNovelStatus } from '../../../api/workspace'
 import type { GlossaryCatalogues } from '../../../types/translateStage'
 import { ENGINE_CHANGED_TEXT, isActiveStatus, novelGlossaryStartErrorText } from './autotuneGlossary'
-import type { GlossarySource } from './glossaryExtract'
+import { scopedValue, type GlossarySource, type RunScoped } from './glossaryExtract'
 import { useNovelFilesVersion } from './novelFileEvents'
 import { useRunStatus } from './useRunStatus'
 
@@ -70,26 +70,49 @@ export function useGlossaryRun(dramaId: number, source: GlossarySource) {
   return run
 }
 
+export interface StartOutcome {
+  problem: string | null
+  error: unknown
+  // The run that was started (or attached to); null when none.
+  runId: string | null
+}
+
 // Starts a source's extraction; every mounted panel for it re-reads. A 409
 // is either a run already going (attach to it) or the drama's engine
-// changed since the gate checked it. Never rejects.
-export function startExtraction(
-  dramaId: number,
-  source: GlossarySource,
-): Promise<{ problem: string | null; error: unknown }> {
+// changed since the gate checked it. runId is read from the status right
+// after the start, so a caller can tell its run from an earlier one.
+// Never rejects.
+export function startExtraction(dramaId: number, source: GlossarySource): Promise<StartOutcome> {
   const api = GLOSSARY_API[source]
-  const ok = () => {
+  const ok = (runId: string | null): StartOutcome => {
     bumpGlossaryRun(source)
-    return { problem: null, error: null }
+    return { problem: null, error: null, runId }
   }
-  const changed = { problem: ENGINE_CHANGED_TEXT, error: null }
-  return api.start(dramaId).then(ok, (e: unknown) => {
-    if (e instanceof ApiError && e.status === 409) {
-      return api.get(dramaId).then((s) => (isActiveStatus(s.status) ? ok() : changed), () => changed)
-    }
-    const text = novelGlossaryStartErrorText(e)
-    return text ? { problem: text, error: null } : { problem: null, error: e }
-  })
+  const changed = { problem: ENGINE_CHANGED_TEXT, error: null, runId: null }
+  return api.start(dramaId).then(
+    () => api.get(dramaId).then((s) => ok(s.run_id), (e: unknown) => ({ ...ok(null), error: e })),
+    (e: unknown) => {
+      if (e instanceof ApiError && e.status === 409) {
+        return api.get(dramaId).then((s) => (isActiveStatus(s.status) ? ok(s.run_id) : changed), () => changed)
+      }
+      const text = novelGlossaryStartErrorText(e)
+      return text ? { problem: text, error: null, runId: null } : { problem: null, error: e, runId: null }
+    },
+  )
+}
+
+// State that belongs to one run's proposals (selection, edits, a pending
+// confirm): when a different run is shown -- started here, by another
+// panel or in another tab -- it reads as `initial` again.
+export function useRunScoped<T>(run: string | null, initial: T): [T, (next: T | ((cur: T) => T)) => void] {
+  const [state, setState] = useState<RunScoped<T>>({ run, value: initial })
+  const value = scopedValue(state, run, initial)
+  const set = (next: T | ((cur: T) => T)) =>
+    setState((s) => {
+      const cur = scopedValue(s, run, initial)
+      return { run, value: typeof next === 'function' ? (next as (c: T) => T)(cur) : next }
+    })
+  return [value, set]
 }
 
 // Categories and policies for the proposal edit selects; null until read

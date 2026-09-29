@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { ApiError } from '../../../api/client'
 import { cancelJob } from '../../../api/jobs'
 import { getGlossaryTerms } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -16,15 +17,16 @@ import {
   defaultTermSelection,
   isActiveStatus,
   overwriteConfirmText,
-  novelGlossaryApplyErrorText,
   novelGlossaryBlocker,
   toggleTerm,
 } from './autotuneGlossary'
 import {
   SOURCE_TEXT,
+  applyRequest,
   buildOverrides,
   editProposal,
   extractionProgressText,
+  glossaryApplyErrorText,
   missingTranslationText,
   missingTranslations,
   type Edits,
@@ -40,6 +42,7 @@ import {
   useGlossaryCatalogues,
   useGlossaryRun,
   useHasNovel,
+  useRunScoped,
 } from './useGlossaryRun'
 import './autotuneGlossary.css'
 
@@ -61,11 +64,14 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
   const isPhone = useMediaQuery('(max-width: 640px)')
   const { status, error: loadError, clearError } = useGlossaryRun(dramaId, source)
   const hasNovel = useHasNovel(dramaId, drama, source === 'novel')
+  // Selection, edits and a pending overwrite confirm belong to the run whose
+  // proposals are shown; a new run (from any panel or tab) starts them over.
+  const run = status?.run_id ?? null
   // null = the default selection for the current proposals.
-  const [picked, setPicked] = useState<Set<string> | null>(null)
-  const [edits, setEdits] = useState<Edits>({})
+  const [picked, setPicked] = useRunScoped<Set<string> | null>(run, null)
+  const [edits, setEdits] = useRunScoped<Edits>(run, {})
   const [overwrite, setOverwrite] = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const [confirming, setConfirming] = useRunScoped(run, false)
   // Chosen terms already in the series glossary, re-read when confirming
   // an overwrite; null while reading or if the read failed.
   const [existing, setExisting] = useState<number | null>(null)
@@ -119,10 +125,7 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
     setProblem(null)
     const overrides = buildOverrides(proposals, chosen, edits)
     GLOSSARY_API[source]
-      .apply(dramaId, {
-        ...(overwrite ? { terms: chosen, overwrite_existing: true, confirm: true } : { terms: chosen }),
-        ...(overrides ? { overrides } : {}),
-      })
+      .apply(dramaId, applyRequest(chosen, run, overrides, overwrite))
       .then(
         (r) => {
           setError(null)
@@ -131,9 +134,11 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
           bumpGlossaryTerms()
         },
         (e: unknown) => {
-          const t = novelGlossaryApplyErrorText(e)
+          const t = glossaryApplyErrorText(e)
           if (t) setProblem(t)
           else setError(e)
+          // Replaced by another run: show that run's proposals to review.
+          if (e instanceof ApiError && e.status === 409) bumpGlossaryRun(source)
         },
       )
       .finally(() => setBusy(false))

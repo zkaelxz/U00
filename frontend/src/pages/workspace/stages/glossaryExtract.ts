@@ -4,8 +4,8 @@
 // term text, never by position.
 
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
-import type { GlossaryProposalEdit } from '../../../types/glossaryHelpers'
-import { novelGlossaryProgressText } from './autotuneGlossary'
+import type { GlossaryProposalEdit, GlossaryProposalsApplyRequest } from '../../../types/glossaryHelpers'
+import { novelGlossaryApplyErrorText, novelGlossaryProgressText } from './autotuneGlossary'
 
 export type GlossarySource = 'novel' | 'lines'
 
@@ -112,3 +112,43 @@ export const missingTranslationText = (terms: string[]) =>
 
 export const startTranslationLabel = (adding: number) =>
   adding ? `Add ${adding} term${adding === 1 ? '' : 's'} and start translation` : 'Start translation'
+
+// --- Run scoping --------------------------------------------------------
+// Selection, edits and a pending confirm belong to one run's proposals.
+// Any panel (or another tab) can start a new run; state kept for an older
+// run must not carry over (new terms would show unchecked and old edits
+// would become overrides), so it reads as the initial value again.
+
+export interface RunScoped<T> {
+  run: string | null
+  value: T
+}
+
+export const scopedValue = <T>(state: RunScoped<T>, run: string | null, initial: T): T =>
+  state.run === run ? state.value : initial
+
+// The apply body for the run the user reviewed: its run_id (the server
+// answers 409 if the held run is another one), the chosen terms, and only
+// the edits that differ from the proposals shown.
+export function applyRequest(
+  chosen: string[],
+  runId: string | null,
+  overrides: Record<string, GlossaryProposalEdit> | undefined,
+  overwrite = false,
+): GlossaryProposalsApplyRequest {
+  return {
+    terms: chosen,
+    ...(overwrite ? { overwrite_existing: true, confirm: true } : {}),
+    ...(overrides ? { overrides } : {}),
+    ...(runId ? { run_id: runId } : {}),
+  }
+}
+
+export const PROPOSALS_CHANGED_TEXT = 'The proposals changed since you reviewed them — review again.'
+
+// 409 on apply: the extraction was run again since these proposals were
+// shown; 400: no finished run held (app restarted).
+export function glossaryApplyErrorText(err: unknown): string | null {
+  const e = err as { status?: number } | null
+  return e?.status === 409 ? PROPOSALS_CHANGED_TEXT : novelGlossaryApplyErrorText(err)
+}

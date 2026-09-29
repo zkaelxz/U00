@@ -34,6 +34,14 @@ lines' source text, with its own job id, status and apply. Both applies
 take optional per-term overrides (translation/category/policy the user
 edited in review), keyed by term text like the terms themselves.
 
+Run ids: every extraction run gets a fresh run_id, shown in its status and
+stored in its result. An apply names the run_id of the proposals the user
+reviewed; if the held run is a different one (another tab or device ran
+the extraction again), the apply is refused with ConflictError and nothing
+is written -- otherwise un-overridden fields would be filled from proposals
+the user never saw. The lines apply requires it; the novel apply accepts it
+optionally (older callers), and the React client always sends it.
+
 The pre-translate glossary review (parity X28) needs no service of its
 own: the client runs one of the two extractions, applies what the user
 keeps, then starts the translate run through translate_run_service.
@@ -45,6 +53,8 @@ Deliberately NOT here:
 No Streamlit or FastAPI import.
 """
 import os
+import threading
+import uuid
 from typing import Optional
 
 import background_jobs
@@ -316,7 +326,7 @@ def _normalize_proposals(proposals, known_terms) -> list:
     return list(out.values())
 
 
-def _run_novel_glossary_job(job_id, drama_id, engine, engine_name, src_text, en_text,
+def _run_novel_glossary_job(job_id, run_id, drama_id, engine, engine_name, src_text, en_text,
                             source_language, known_terms):
     try:
         proposals = tguide.extract_glossary_from_novel(
@@ -332,7 +342,33 @@ def _run_novel_glossary_job(job_id, drama_id, engine, engine_name, src_text, en_
         # Engine errors can echo request details; never surface them raw.
         raise RuntimeError(
             _EXTRACT_FAILED + " " + translate_engines.redact_secrets(str(exc))) from None
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms)})
+    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms),
+                                        "run_id": run_id})
+
+
+# The run_id of each extraction job id's latest started run, for the status
+# of a run that isn't done yet (a done run's own result carries its run_id,
+# which is what an apply is checked against).
+_run_ids: dict = {}
+_run_ids_lock = threading.Lock()
+
+
+def _start_extraction_job(job_id: str, target, *args, **kwargs) -> bool:
+    run_id = uuid.uuid4().hex
+    started = background_jobs.start_job(job_id, target, job_id, run_id, *args, **kwargs)
+    if started:
+        with _run_ids_lock:
+            _run_ids[job_id] = run_id
+    return started
+
+
+def _current_run_id(job_id: str, job: Optional[dict]) -> Optional[str]:
+    if not job:
+        return None
+    if job.get("status") == "done":
+        return (job.get("result") or {}).get("run_id") or None
+    with _run_ids_lock:
+        return _run_ids.get(job_id)
 
 
 def _glossary_engine(drama: dict, engine_name: Optional[str]):
@@ -390,8 +426,8 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
 
     engine_name, engine = _glossary_engine(drama, engine_name)
     job_id = novel_glossary_job_id(drama_id)
-    started = background_jobs.start_job(
-        job_id, _run_novel_glossary_job, job_id, drama_id, engine, engine_name, src_text,
+    started = _start_extraction_job(
+        job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_glossary_terms(sid),
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from novel (drama #{drama_id})")
@@ -418,13 +454,14 @@ def _extraction_status(drama_id: int, job_id: str) -> dict:
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
             "message": translate_engines.redact_secrets(str(message)) if message else "",
-            "result": result}
+            "result": result, "run_id": _current_run_id(job_id, job)}
 
 
 def get_novel_glossary_status(drama_id: int) -> dict:
-    """{job_id, status, progress, message, result} for this drama's
+    """{job_id, status, progress, message, result, run_id} for this drama's
     glossary-from-novel job; result is {"proposals": [...]} only when done
-    (else None). The message (or a failed job's error) is redacted; no key
+    (else None). run_id names this run (None if unknown); pass it back to
+    the apply. The message (or a failed job's error) is redacted; no key
     is ever in a job result. NotFoundError when the drama doesn't exist or
     no such job is resident in this process (results live only in
     background_jobs memory)."""
@@ -462,8 +499,11 @@ def _clean_overrides(overrides) -> dict:
     return out
 
 
+PROPOSALS_CHANGED = "The proposals changed since you reviewed them — review again."
+
+
 def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existing: bool,
-                      overrides) -> dict:
+                      overrides, run_id: Optional[str], *, run_id_required: bool) -> dict:
     drama = _drama(drama_id)
     sid = _series_id(drama, required=True)
     if not isinstance(overwrite_existing, bool):
@@ -471,8 +511,16 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
     if (not isinstance(terms, (list, tuple)) or not terms or len(terms) > 1000
             or not all(isinstance(t, str) for t in terms)):
         raise InvalidInputError("terms must be a non-empty list of term strings.")
+    if run_id is None and run_id_required:
+        raise InvalidInputError("run_id is required.")
+    if run_id is not None and (not isinstance(run_id, str) or not run_id or len(run_id) > 64):
+        raise InvalidInputError("run_id must be the run_id from the extraction's status.")
     edits = _clean_overrides(overrides)
     job = background_jobs.get_status(job_id)
+    # A different run than the one reviewed (or none held any more): its
+    # proposals would fill fields the user never saw.
+    if run_id is not None and _current_run_id(job_id, job) != run_id:
+        raise ConflictError(PROPOSALS_CHANGED)
     if not job or job.get("status") != "done":
         raise UnsupportedOperationError("No finished glossary extraction for this drama.")
     by_term = {p["term"]: p for p in (job.get("result") or {}).get("proposals") or []}
@@ -500,7 +548,7 @@ def _apply_extraction(drama_id: int, job_id: str, terms: list, overwrite_existin
 
 
 def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
-                         overrides: Optional[dict] = None) -> dict:
+                         overrides: Optional[dict] = None, run_id: Optional[str] = None) -> dict:
     """Adds the named proposals (by term text, never list position) from
     this drama's finished extraction to the series glossary. A term already
     in the glossary is left untouched and reported in "skipped_existing"
@@ -509,10 +557,12 @@ def apply_novel_glossary(drama_id: int, terms: list, overwrite_existing: bool = 
     kept). Terms not among the proposals (or proposed with no translation
     and none given in overrides) are reported in "unknown". overrides:
     optional {term: {translation?, category?, policy?}} the user edited in
-    review; keys for terms not in `terms` are ignored. Returns {"added",
-    "overwritten", "skipped_existing", "unknown"} lists of terms."""
+    review; keys for terms not in `terms` are ignored. run_id: optional,
+    the run_id of the status the user reviewed; when given and the held run
+    is another one (or none), ConflictError and nothing is written. Returns
+    {"added", "overwritten", "skipped_existing", "unknown"} lists of terms."""
     return _apply_extraction(drama_id, novel_glossary_job_id(drama_id), terms,
-                             overwrite_existing, overrides)
+                             overwrite_existing, overrides, run_id, run_id_required=False)
 
 
 # ---------------------------------------------------------------------------
@@ -529,7 +579,7 @@ def lines_glossary_engine(drama_id: int) -> str:
     return novel_glossary_engine(drama_id)
 
 
-def _run_lines_glossary_job(job_id, drama_id, engine, engine_name, source_lines,
+def _run_lines_glossary_job(job_id, run_id, drama_id, engine, engine_name, source_lines,
                             source_language, known_terms):
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
@@ -547,7 +597,8 @@ def _run_lines_glossary_job(job_id, drama_id, engine, engine_name, source_lines,
     # One LLM call can't be interrupted; a cancel during it drops the result.
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled()
-    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms)})
+    background_jobs.set_result(job_id, {"proposals": _normalize_proposals(proposals, known_terms),
+                                        "run_id": run_id})
 
 
 def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -> dict:
@@ -580,8 +631,8 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None) -
             raise UnsupportedOperationError(refusal)
 
     job_id = lines_glossary_job_id(drama_id)
-    started = background_jobs.start_job(
-        job_id, _run_lines_glossary_job, job_id, drama_id, engine, engine_name, source_lines,
+    started = _start_extraction_job(
+        job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
         drama.get("source_language") or "zh", db.list_glossary_terms(sid),
         gpu_touching=engine_name == "ollama",
         description=f"Glossary from lines (drama #{drama_id})")
@@ -596,7 +647,8 @@ def get_lines_glossary_status(drama_id: int) -> dict:
 
 
 def apply_lines_glossary(drama_id: int, terms: list, overwrite_existing: bool = False,
-                         overrides: Optional[dict] = None) -> dict:
-    """apply_novel_glossary's contract, for the lines extraction's proposals."""
+                         overrides: Optional[dict] = None, run_id: Optional[str] = None) -> dict:
+    """apply_novel_glossary's contract, for the lines extraction's proposals,
+    except that run_id is required (InvalidInputError when missing)."""
     return _apply_extraction(drama_id, lines_glossary_job_id(drama_id), terms,
-                             overwrite_existing, overrides)
+                             overwrite_existing, overrides, run_id, run_id_required=True)
