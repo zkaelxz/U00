@@ -418,7 +418,10 @@ def _package_installed(name: str) -> bool:
 def _package_info(name: str, installed: bool, offered: set) -> dict:
     dist = diagnostics.pip_install_name(name)
     dep = diagnostics.OPTIONAL_DEPENDENCIES.get(name)
-    reason = diagnostics.known_install_limitation_reason(name)
+    reason = diagnostics.NOT_OFFERED_FOR_INSTALL.get(diagnostics.canonical_dist(dist))
+    # A Python-version limitation (e.g. audio-separator on 3.14) is a warning,
+    # not a refusal: the install route still accepts it.
+    limitation = None if reason else diagnostics.known_install_limitation_reason(name)
     return {
         "name": name,
         "dist": dist,
@@ -429,7 +432,8 @@ def _package_info(name: str, installed: bool, offered: set) -> dict:
         "pulls_torch": diagnostics.canonical_dist(dist) in diagnostics.PULLS_TORCH,
         "source_url": diagnostics.pypi_url(name),
         "not_offered_reason": reason,
-        "warning": None if installed else diagnostics.install_downgrade_warning(name),
+        "warning": None if installed else (limitation
+                                           or diagnostics.install_downgrade_warning(name)),
     }
 
 

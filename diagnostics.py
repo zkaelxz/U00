@@ -1710,6 +1710,11 @@ def stream_dependency_install(name: str, python_executable: str = None,
     the generic Install button would otherwise reproduce that exact gap
     through a second path. Every other dependency, and torch on a
     non-NVIDIA machine, installs exactly as stream_pip_install always did."""
+    not_offered = NOT_OFFERED_FOR_INSTALL.get(canonical_dist(pip_install_name(name)))
+    if not_offered:
+        yield {"line": f"{name}: {not_offered}"}
+        yield {"done": True, "ok": False, "returncode": None}
+        return
     if name == "torch" and shutil.which("nvidia-smi"):
         yield from stream_gpu_torch_reinstall(python_executable, project_root)
     else:

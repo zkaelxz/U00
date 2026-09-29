@@ -220,3 +220,21 @@ def test_qwen_asr_warns_before_downgrading_transformers(monkeypatch, have, warne
     if warned:
         assert "5.2.0" in w and "4.57.6" in w
     assert diagnostics.install_downgrade_warning("jieba") is None
+
+
+def test_streamlit_dependency_install_refuses_a_not_offered_package(monkeypatch):
+    monkeypatch.setattr(diagnostics, "stream_pip_install",
+                        lambda *a, **k: pytest.fail("must not run pip"))
+    items = list(diagnostics.stream_dependency_install("streamlit_drawable_canvas"))
+    assert items[-1]["done"] is True and items[-1]["ok"] is False
+    assert "not offered" in items[0]["line"]
+
+
+def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
+    monkeypatch.setattr(diagnostics, "known_install_limitation_reason",
+                        lambda n: "known not to install on Python 3.14" if n == "audio-separator"
+                        else None)
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
+    info = svc.get_install_presets()["packages"]["audio-separator"]
+    assert info["not_offered_reason"] is None and info["installable"] is True
+    assert "3.14" in info["warning"]

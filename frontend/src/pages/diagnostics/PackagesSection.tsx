@@ -86,8 +86,10 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 
   // "Install for this task": one package at a time (the server runs one pip
   // at a time); a failure doesn't stop the rest.
+  const [taskRunning, setTaskRunning] = useState<string | null>(null)
   const runTask = async (t: DiagnosticsInstallTask) => {
     setOutcome(null)
+    setTaskRunning(t.id)
     const results: TaskRunResult[] = []
     try {
       for (const [i, name] of t.to_install.entries()) {
@@ -110,6 +112,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
       })
     } finally {
       onBusy(null)
+      setTaskRunning(null)
       if (results.some((r) => r.ok)) changed()
     }
   }
@@ -162,7 +165,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                             confirmLabel={taskConfirmLabel(t)}
                             disabled={!!blocked}
                             describedBy={running ? runningId : blocked ? reasonId : undefined}
-                            busy={!!busy && busy.kind === 'install' && t.to_install.some((n) => busy.name.startsWith(`${n} (`))}
+                            busy={!!busy && taskRunning === t.id}
                             onConfirm={() => void runTask(t)}
                           />
                         )} />
@@ -203,7 +206,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
               {deps.installed.map((d) => (
                 <li key={d.name}>
                   <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} installed />
-                  {isInstallable(d.tier) && action('upgrade', d.name)}
+                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('upgrade', d.name)}
                 </li>
               ))}
             </ul>
