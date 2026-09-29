@@ -297,7 +297,7 @@ baihe-subtitler/
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
-│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
+│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only), .../track (Slice 53, WAV download)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
 │       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate

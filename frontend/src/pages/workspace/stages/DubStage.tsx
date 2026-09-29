@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { dubApi } from '../../../api/dub'
+import { dubApi, dubTrackUrl } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
@@ -72,7 +72,6 @@ export default function DubStage() {
       setError(null)
       setJobId(r.job_id)
     }, setError)
-  // The finished track cannot be downloaded yet; say so only once there is one.
   const trackReady = cfg.track_available || (done && job?.status === 'done')
   const showPacing =
     pacing?.available && (pacing.lines.length > 0 || Object.keys(pacing.counts).length > 0)
@@ -119,7 +118,9 @@ export default function DubStage() {
         </div>
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {trackReady && (
-          <p className="muted dub-note">Downloading the finished dub track is not available yet.</p>
+          <p className="dub-note">
+            <a href={dubTrackUrl(dramaId)} download>Download dub track (WAV)</a>
+          </p>
         )}
         <Section storageKey="dub.advanced" title="Advanced" summary={dubAdvancedSummary(cfg, form)}>
           {!cfg.is_narration && (
