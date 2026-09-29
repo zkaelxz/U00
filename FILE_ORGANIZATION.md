@@ -199,7 +199,7 @@ baihe-subtitler/
 │   │                             writes, flag/flag_note only), generate_epub (Slice 18:
 │   │                             novel-narration dramas only, needs optional `ebooklib`),
 │   │                             generate_ass_text/get_ass_style_options (Slice 27: ASS text,
-│   │                             per-request style); audiobook/burned-in-video export stay out of scope
+│   │                             per-request style); audiobook/burned-in-video export live in media_export_service (Slices 29-30)
 │   ├── diarization_service.py    Migration Slice 16 -- get_diarization_config (read-only:
 │   │                             hf_token_configured bool, expected_speakers, audio_available)
 │   │                             plus start_diarization_run (a real GPU-touching background job);
@@ -216,14 +216,14 @@ baihe-subtitler/
 │   │                             start), unlike Streamlit's render-loop apply step. Slice 21 adds
 │   │                             hardsub_ocr transcript_mode (burned-in video captions, via
 │   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
-│   │                             step, same as Whisper's own text). chunk_and_tag and qwen3
-│   │                             backends still stay out of scope
+│   │                             step, same as Whisper's own text). chunk_and_tag lives in narration_service
+│   │                             (Slice 33); qwen3 backends still stay out of scope
 │   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │   │                             engines, per-speaker voices, pacing of the last run; no paths)
 │   ├── drama_service.py          Migration Slice 35 -- create_drama (optional series/preset) and
 │   │                             update_drama_metadata (whitelisted partial update); Slice 36
 │   │                             delete_drama (typed-confirm, refused while a job runs);
-│   │                             cover upload and metadata auto-fill stay out of scope
+│   │                             cover upload stays out of scope (auto-fill is metadata_service, Slice 37)
 │   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
 │   │                             estimate / cap gating); start-translate job is a later slice
@@ -297,7 +297,7 @@ baihe-subtitler/
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
 │       │                         (Migration Slice 20)
-│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only)
+│       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only), .../track (Slice 53, WAV download)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
 │       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
 │       ├── translate_run_routes.py /api/translate-run/dramas/{id}/config, .../estimate

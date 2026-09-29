@@ -3,11 +3,12 @@ api/routers/dub_routes.py -- read-only Dub-stage endpoints for one drama
 (Migration Slice 25): the config summary and the last run's pacing.
 
 The Generate job is Slice 26 (POST .../run); voice/character
-edits, per-line preview and track download are also out of scope. All
+edits and per-line preview are also out of scope. All
 logic lives in services/dub_service.py.
 """
 
 from fastapi import APIRouter, Path
+from fastapi.responses import FileResponse
 
 from api.schemas import DubConfig, DubPacing, DubRunRequest, DubRunStarted, ErrorResponse
 from services import dub_service
@@ -38,3 +39,13 @@ def start_dub_run(body: DubRunRequest, drama_id: int = Path(ge=1)):
         drama_id, tts_engine=body.tts_engine, max_speedup=body.max_speedup,
         max_slowdown=body.max_slowdown, narration_language=body.narration_language,
         keep_background=body.keep_background)
+
+
+@router.get("/dramas/{drama_id}/track",
+            summary="Download the finished dub/narration track (WAV)",
+            responses={404: {"model": ErrorResponse}})
+def download_dub_track(drama_id: int = Path(ge=1)):
+    track = dub_service.get_dub_track(drama_id)
+    return FileResponse(
+        track["path"], media_type="audio/wav",
+        headers={"Content-Disposition": f'attachment; filename="drama_{drama_id}_{track["name"]}"'})

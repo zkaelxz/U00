@@ -931,8 +931,6 @@ Real LLM/Whisper runs were not verified (tests stub the helpers).
 
 **Slice 45 -- restructure lines + version-history restore.** `services/restructure_service.py` + `/api/restructure/dramas/{id}/...`: `lines/add`, `lines/{line_id}/delete` (needs `confirm=true`, the tab's checkbox bar for deletes), `merge` (2-50 adjacent ids, in order; joined like `core.merge_adjacent_short_lines`), `lines/{line_id}/split` (character offset `at_char` + `expected_zh`, optional `at_time` strictly inside the line else proportional via `resegment.split_times`, optional `en_at_char`; the first piece keeps the id, flag, notes and emotion, the second is new with no flag), `GET resegment/preview` (read-only, rules only), `POST resegment` (job `resegment_<id>`, already in `DRAMA_JOB_PREFIXES`; re-segments AND saves; an Ollama LLM pass runs as a process job applied via the Slice 49 `on_done` hook, other engines/rules in a thread; duplicate start 409), `GET history` (Slice 48's `list_line_history`) and `history/{hid}/restore` (ownership 404; `core.restore_saved_lines`, so Step 25l's id-first matching applies). Every write takes `expected_line_ids` (the drama's ids in order) and returns 409 with nothing written on any difference, is refused 409 while any job runs on the drama (`drama_service._job_running_for_drama`; stricter than the tab, which does not check running jobs), loads lines fresh, takes a history snapshot of them FIRST ("before merge"/"before split"/"before add line"/"before delete line"/"before re-segment"/"before restore"), then does one `db.save_lines(fields=None)` over that fresh list, so ids carry flag/flag_note/speaker/notes/emotions: merged-away lines' notes/emotions are re-pointed via `merged_ids`, deleted/split lines' refs are deleted with their rows, and no orphan or duplicate rows remain (tests cover merge -> restore, delete, split, re-segment with a concurrent writer). Re-segmentation's `confirm` is required when any line LONG ENOUGH to be split (a superset of what a run changes) carries a translation, flag or note; the tab asks only for the lines actually split (deviation: it can't know an LLM run's result up front). Atomicity gap: snapshot, id re-check and `save_lines` are three transactions (db.py has no combined API); guarded by a per-drama in-process lock across load -> check -> snapshot -> save (also taken by the re-segment job's apply step) and an id-set re-read immediately before the save. A full sync from another process (Streamlit) between that re-read and the save is not prevented; a failure after the snapshot leaves only an extra snapshot. Pre-existing gap: history snapshots don't store flag/flag_note/sfx, so a restored line whose id no longer exists comes back unflagged. Add/delete/split have no tab equivalent yet.
 
-**Next candidates:** the
-
 **Next candidates:** the remaining slices are tracked as an ordered queue (Slices 22 onward, with
 dependencies and which are gated on a user decision) in the Migration Roadmap Tracker's "Migration
 slices" tab rather than repeated here, so this paragraph doesn't go stale every slice. Decisions
@@ -959,7 +957,8 @@ semantics: only the preset's `translation_engine` is persisted on the drama;
 are session-only in Streamlit, so create returns them as `preset_defaults`
 for the client to hold. Out of scope: delete (destructive; gated on a
 confirmation-semantics decision), cover upload (needs python-multipart),
-series rename/unassign, presets CRUD, metadata auto-fill, personal notes.
+series rename/unassign, presets CRUD, personal notes. (Metadata auto-fill was
+later added as Slice 37, `/api/metadata`.)
 
 **Slice 39 — Translate stage config and cost estimate (2026-09-28).**
 Read-only half of the per-drama Translate stage: `GET
@@ -973,6 +972,13 @@ fallback -- no new drama columns. The estimate is advisory, not a
 guarantee. Booleans/numbers only, never a key or the novel text. Out of
 scope: the start-translate job (Slice 40), bulk/Reflect runs (Slice 41),
 glossary review, style-preset CRUD and characters.
+
+**Slice 53 -- Dub track download (2026-09-29).** `GET
+/api/dub/dramas/{id}/track` streams the finished `dub_track.wav` (or
+`narration_track.wav` for narration dramas) as an attachment. The drama is
+verified, the path is never returned, the filename is server-built
+(`drama_<id>_<track>`), symlinks/escapes and a missing file give 404. The React
+Dub stage shows a plain download link once a track exists. No Range support yet.
 
 **Slice 42 — Characters and voice config (2026-09-28).**
 `services/characters_service.py` + `/api/characters/*`: list a drama's
@@ -1032,7 +1038,7 @@ names and locale are built server-side from the DB exactly as the tab and
 `cli.py translate` do. Errors: unknown drama 404; duplicate start 409; no
 key 503 with fixed text (keys resolved server-side, never accepted or echoed);
 bad engine/locale/preset/line_ids 422; nothing to translate or monthly cap
-refusal 422. Deliberate differences: the summary engine is always local Ollama
+refusal 400 (the app's UnsupportedOperation status). Deliberate differences: the summary engine is always local Ollama
 (no per-session Settings pick); Ollama's num_ctx override is not applied.
 Out of scope: bulk/Reflect (Slice 41), the fallback chain (Step 97b). Paid-key
 runs were not verified (tests use the offline engine and fakes only).
