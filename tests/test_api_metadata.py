@@ -47,7 +47,7 @@ def test_analyze_media(client, drama, monkeypatch):
     with open(os.path.join(folder, "audio.wav"), "wb") as f:
         f.write(b"x")
     db.update_drama(drama, audio_filename="audio.wav")
-    monkeypatch.setattr(media_inspect, "_run_ffprobe", lambda path, **kw: PROBE)
+    monkeypatch.setattr(media_inspect, "run_ffprobe", lambda path, **kw: PROBE)
     r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
     assert r.status_code == 200
     assert r.json() == {"drama_id": drama, "duration_seconds": 12.5, "has_video": False,
@@ -64,14 +64,14 @@ def test_analyze_errors(client, drama, monkeypatch):
 
     def boom(path, **kw):
         raise media_inspect.ProbeError("/secret/path failed")
-    monkeypatch.setattr(media_inspect, "_run_ffprobe", boom)
+    monkeypatch.setattr(media_inspect, "run_ffprobe", boom)
     r = client.post(f"/api/metadata/dramas/{drama}/analyze-media")
     assert r.status_code == 503 and "/secret" not in r.text
 
 
 def test_analyze_ignores_traversal_filename(client, drama, monkeypatch):
     db.update_drama(drama, audio_filename="../x.wav")
-    monkeypatch.setattr(media_inspect, "_run_ffprobe", lambda p, **kw: PROBE)
+    monkeypatch.setattr(media_inspect, "run_ffprobe", lambda p, **kw: PROBE)
     assert client.post(f"/api/metadata/dramas/{drama}/analyze-media").status_code == 422
 
 

@@ -121,14 +121,14 @@ class TestTranslate:
         # it, and translate() must not treat that as a "missing key" the
         # way it would for claude/deepseek/etc. (checked in translate()'s
         # own `api_key is None and engine_name != "nllb"` guard).
-        assert translate_service._resolve_api_key("nllb") is None
+        assert translate_service.resolve_api_key("nllb") is None
 
     def test_resolve_api_key_test_offline_is_literal_offline(self):
-        assert translate_service._resolve_api_key("test_offline") == "offline"
+        assert translate_service.resolve_api_key("test_offline") == "offline"
 
     def test_resolve_api_key_ollama_defaults_to_local(self, tmp_path):
         env_path = _write_env(tmp_path, "")
-        assert translate_service._resolve_api_key("ollama", env_path) == "local"
+        assert translate_service.resolve_api_key("ollama", env_path) == "local"
 
 
 class TestClearHistory:
