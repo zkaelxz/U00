@@ -289,6 +289,15 @@ describe('seriesView (the job id is per source, so it may hold another series)',
     expect(seriesView(open, job({ status: 'running' }), 'sources_series_alpha').status).toBe('running')
   })
 
+  it('a running run for another series (found on load) is busyOther, not shown as loading', () => {
+    const other = { source: 'alpha', series_id: 'A' }
+    expect(seriesView(open, job({ status: 'running', runningFor: other }), 'sources_series_alpha'))
+      .toEqual({ status: 'idle', result: null, error: null, busyOther: true })
+    expect(seriesView(open, job({ status: 'running', runningFor: { source: 'alpha', series_id: 'B' } }), 'sources_series_alpha'))
+      .toEqual({ status: 'running', result: null, error: null, busyOther: false })
+    expect(seriesView(open, job({ status: 'running', runningFor: null }), 'sources_series_alpha').status).toBe('running')
+  })
+
   it('links only http(s)', () => {
     expect(safeHref('https://a.example/x')).toBe('https://a.example/x')
     expect(safeHref('javascript:alert(1)')).toBeNull()
