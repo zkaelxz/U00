@@ -1519,3 +1519,63 @@ class LineExplanation(BaseModel):
     explanation: str
     engine: str
     model: Optional[str] = None
+
+
+# --- Discover catalog (Migration Slice 55) ---------------------------------
+
+class KnownTitle(BaseModel):
+    id: int
+    title_original: Optional[str] = None
+    title_en: Optional[str] = None
+    author: Optional[str] = None
+    tags: Optional[str] = None
+    summary_en: Optional[str] = None
+    summary_original: Optional[str] = None
+    source_name: Optional[str] = None
+    source_url: Optional[str] = None
+    language: Optional[str] = None
+    media_type: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class KnownTitleList(BaseModel):
+    titles: List[KnownTitle]
+    total: int
+
+
+class KnownTitleCreate(BaseModel):
+    """Whitelisted manual-add fields; unknown fields are 422."""
+    model_config = ConfigDict(extra="forbid")
+    title_original: str = Field(max_length=300)
+    title_en: str = Field("", max_length=300)
+    author: str = Field("", max_length=300)
+    tags: str = Field("", max_length=500)
+    summary_en: str = Field("", max_length=5000)
+    summary_original: str = Field("", max_length=5000)
+    source_name: str = Field("", max_length=100)
+    source_url: str = Field("", max_length=2000)
+    language: str = Field(max_length=10)
+    media_type: str = Field(max_length=40)
+
+
+class KnownTitleDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: bool = False
+
+
+class KnownTitleDeleted(BaseModel):
+    deleted: bool
+    id: int
+
+
+class KnownTitleSeedResult(BaseModel):
+    added: int
+    total: int
+
+
+class DiscoverPlatforms(BaseModel):
+    platforms: List[Dict[str, Any]]
+
+
+class DiscoverSearchLinks(BaseModel):
+    links: List[Dict[str, Any]]
