@@ -48,3 +48,23 @@ test('dashboard from the real API shows the call count', async ({ page }) => {
   await expect(page.getByTestId('stats')).toContainText(/\d+ API calls?/)
   await expect(page.getByTestId('stats-breakdown')).toContainText('By type:')
 })
+
+const costs = {
+  items: [
+    { id: 1, title_en: 'Grandmaster of Demonic Cultivation', title_zh: '魔道祖师', translation_engine: 'claude', input_tokens: 540000, output_tokens: 201000, cache_read_tokens: 162000, estimated_cost_usd: 3.47, call_count: 212 },
+    { id: 2, title_en: "Heaven Official's Blessing", title_zh: '天官赐福', translation_engine: null, input_tokens: 272000, output_tokens: 100000, cache_read_tokens: 0, estimated_cost_usd: 0, call_count: 1 },
+  ],
+}
+
+test('Cost by drama: tokens, cache hits, and free engines labelled (L04)', async ({ page }) => {
+  await page.route('**/api/library/costs', (r) => r.fulfill({ json: costs }))
+  await page.goto('/')
+  const tools = page.getByRole('region', { name: 'Library tools' })
+  await tools.locator('summary', { hasText: 'Cost by drama' }).click()
+  const rows = tools.getByRole('region', { name: 'Cost by drama' }).getByRole('listitem')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText('$3.47')
+  await expect(rows.nth(0)).toContainText('540k in · 201k out · 30% cache hits · 212 calls')
+  await expect(rows.nth(1)).toContainText('$0.00 (free)')
+  await expect(rows.nth(1)).toContainText('272k in · 100k out · 0% cache hits · 1 call')
+})

@@ -36,7 +36,7 @@ import {
   MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
   validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
-import { countsLine, usageLine } from './libraryParity/libraryParity'
+import { costLabel, costMeta, countsLine, usageLine } from './libraryParity/libraryParity'
 import './libraryParity/libraryParity.css'
 import { savePresetStart } from './workspace/translateForm'
 
@@ -316,9 +316,14 @@ function LibraryTools({ loads, pc, onChanged, admin }: {
         >
           <ul className="tool-list">
             {costs.data?.items.map((c) => (
-              <li key={c.id} className="tool-row">
-                <a href={workspaceHref(c.id)}>{dramaName(c)}</a>
-                <span className="muted num">${c.estimated_cost_usd.toFixed(2)}</span>
+              <li key={c.id}>
+                <span className="tool-row">
+                  <a href={workspaceHref(c.id)}>{dramaName(c)}</a>
+                  <span className="num">{costLabel(c.estimated_cost_usd)}</span>
+                </span>
+                <span className="muted num cost-meta">
+                  {c.translation_engine && `${engineLabel(c.translation_engine)} · `}{costMeta(c)}
+                </span>
               </li>
             ))}
           </ul>
