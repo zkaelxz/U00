@@ -21,9 +21,10 @@ creates page files exclusively on its own.
 
 `start_url_import` (S-5, thin slice: novel text only) checks the pasted URL
 in the request (sources_url_service.check_public_url), then the job runs
-adaptive.import_novel with no LLM engine and appends the text to the
-drama's raw-novel file. When the extraction needs review nothing is
-written. From another device the signed-in profile and the browser tier
+adaptive.import_novel and appends the text to the drama's raw-novel file.
+The LLM fallback is off unless the request opted in (parity SO09: the
+engine is built in the request by sources_extraction_service, key on the
+PC). When the extraction needs review nothing is written. From another device the signed-in profile and the browser tier
 are off.
 
 Results live in this process only; read them with
@@ -34,6 +35,7 @@ Text is scrubbed, URLs reduced to scheme+host+path.
 import background_jobs
 import db
 from services import drama_service, ownership_service
+from services import sources_extraction_service as extraction
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import _import_supported, _scrub, safe_url
@@ -210,10 +212,10 @@ def _url_fail(job_id: str, err: dict):
     fail_job(job_id, "url_import", err)
 
 
-def _url_import_job(job_id: str, url: str, drama_id: int, local: bool):
+def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None):
     background_jobs.update_progress(job_id, 0.1, "Reading the page...")
     try:
-        res, report = adaptive.import_novel(url, engine=None, client=source_client(url, job_id),
+        res, report = adaptive.import_novel(url, engine=engine, client=source_client(url, job_id),
                                             allow_signed_in=local, allow_browser=local)
     except Cancelled:
         raise background_jobs.JobCancelled(job_id) from None
@@ -237,17 +239,21 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool):
                                         "char_count": len(text)})
 
 
-def start_url_import(url, drama_id, local: bool = True, principal=None) -> dict:
+def start_url_import(url, drama_id, local: bool = True, principal=None,
+                     ai_engine: str = None) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
-    appended to a novel drama's raw-novel text. 422 bad/private URL or not
-    a novel drama; 503 the host doesn't resolve; 404 no drama; 409 while a
-    job runs for the drama."""
+    appended to a novel drama's raw-novel text. `ai_engine` (a name from
+    sources_extraction_service.resolve_ai_engine_name, None = off) is the
+    LLM fallback. 422 bad/private URL or not a novel drama; 503 the host
+    doesn't resolve or the engine has no key; 404 no drama; 409 while a job
+    runs for the drama."""
     url = check_public_url(url)
     drama = _require_drama(drama_id, principal)
     if (drama.get("media_type") or "").lower() not in NOVEL_MEDIA_TYPES:
         raise InvalidInputError("Novel text imports into a novel drama. Pick one, "
                                 "or create one first.")
     _require_idle(drama_id)
+    engine = extraction.build_ai_engine(ai_engine)
     job_id = import_job_id(drama_id)
-    return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local),
+    return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local), engine,
                   description="Import novel text from a pasted URL")

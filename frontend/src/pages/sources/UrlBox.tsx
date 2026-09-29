@@ -14,7 +14,8 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../api/client'
-import { sourceImportJobId, startUrlImport, startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
+import { sourceImportJobId, startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
+import { startNovelUrlImport } from '../../api/sourcesExtraction'
 import { getMediaStatus } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
@@ -28,13 +29,16 @@ import type { UrlImportResult, UrlPreview } from '../../types/sourcesImport'
 import type { MediaStatus } from '../../types/workspace'
 import { JobPanel } from '../workspace/stages/JobPanel'
 import { URL_PC_ONLY, UrlDownload } from '../workspace/stages/UrlDownload'
+import { AiFallback } from './AiFallback'
 import { DramaPicker } from './DramaPicker'
+import { AI_OFF, aiReason, aiRequestFields } from './extractionFormat'
 import { useDramaList } from './useDramaList'
 import { describeSourceError, percent, safeHref } from './sourcesFormat'
 import {
   MAX_URL_LEN, PREVIEW_NOTES, chapterImportDramas, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts,
   urlImportText, videoDramas,
 } from './urlImportFormat'
+import { useAiEngines } from './useAiEngines'
 import { useSourcesJob } from './useSourcesJob'
 
 type Props = {
@@ -204,10 +208,13 @@ function NovelImport({ url, title, language }: { url: string; title: string; lan
   const running = job.status === 'running'
   const result = job.startedHere && job.status === 'done' && job.result?.kind === 'url_import' ? job.result : null
   const failed = job.startedHere && job.status === 'error' ? job.error : null
+  const [aiChoice, setAiChoice] = useState(AI_OFF)
+  const ai = useAiEngines(aiChoice.on)
+  const aiBlocked = aiReason(aiChoice, ai.engines)
 
   const start = () => {
-    if (!dramaId || running) return
-    job.start(() => startUrlImport(url, dramaId))
+    if (!dramaId || running || aiBlocked) return
+    job.start(() => startNovelUrlImport(url, dramaId, aiRequestFields(aiChoice, ai.engines)))
   }
 
   return (
@@ -222,8 +229,9 @@ function NovelImport({ url, title, language }: { url: string; title: string; lan
         help="The chapter text is added to the end of the drama’s novel text."
       />
       <ErrorBanner error={dramas.error} />
+      <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
       <div className="actions">
-        <button type="button" className={buttonClass('primary')} disabled={!dramaId || running} onClick={start}>
+        <button type="button" className={buttonClass('primary')} disabled={!dramaId || running || !!aiBlocked} onClick={start}>
           {running ? 'Importing…' : 'Import text'}
         </button>
         {running && (

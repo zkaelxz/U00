@@ -2,6 +2,7 @@
 //
 //   R1 POST /api/sources/url/preview            {url}                 -> {job_id: 'sources_url_preview'}
 //   R2 POST /api/sources/url/import             {url, drama_id}       -> {job_id: 'sourceimport_<drama>'}
+//      (sent by startNovelUrlImport in sourcesExtraction.ts, with the AI fallback fields)
 //   R3 POST /api/sources/{name}/import          {series_id, chapter_ids, drama_id} -> same job id
 //   R4 POST /api/sources/tracked                {source, series_id, tracked: true, drama_id?} -> TrackedSeries[]
 //   R5 POST /api/media/dramas/{id}/download-url {url, audio_only, confirm_replace_audio} -> {job_id: 'urlmedia_<drama>'}
@@ -25,9 +26,6 @@ export const urlMediaJobId = (dramaId: number) => `urlmedia_${dramaId}`
 
 export const startUrlPreview = (url: string, f?: Fetch) =>
   postJson<SourcesJobStarted>('/api/sources/url/preview', { url }, f)
-
-export const startUrlImport = (url: string, drama_id: number, f?: Fetch) =>
-  postJson<SourcesJobStarted>('/api/sources/url/import', { url, drama_id }, f)
 
 export const startChapterImport = (source: string, body: ChapterImportRequest, f?: Fetch) =>
   postJson<SourcesJobStarted>(`/api/sources/${seg(source)}/import`, body, f)
