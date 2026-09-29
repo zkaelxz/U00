@@ -1806,3 +1806,198 @@ class TranslateBulkCancelResult(BaseModel):
     drama_id: int
     bulk_job: TranslateBulkJobEntry
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Route batch 2B (M4): Reader API over services/reader_service.py
+# ---------------------------------------------------------------------------
+
+class ReaderOverview(BaseModel):
+    drama_id: int
+    length_display: str
+    line_count: int
+    percent_complete: float
+    last_page: int
+    last_line_idx: Optional[int] = None
+
+
+class ReaderProgressRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    page: int = Field(ge=1)
+    chapter_size: int = Field(40, ge=10, le=200)
+
+
+class ReaderProgress(BaseModel):
+    drama_id: int
+    last_page: int
+    last_line_idx: int
+    percent_complete: float
+
+
+class ReaderNotesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    notes: str = Field(max_length=100_000)
+
+
+class ReaderNotes(BaseModel):
+    drama_id: int
+    notes: str
+
+
+class ReaderMediaAvailability(BaseModel):
+    """What the Watch / listen panel can show -- booleans and labels only.
+    React plays the files through /api/media and /api/dub."""
+    drama_id: int
+    original: Optional[str] = None   # "video" | "audio" | None
+    dub: bool
+    narration: bool
+    caption_tracks: List[str]
+    captions_overlay: bool
+
+
+class ReaderReadoutLine(BaseModel):
+    line_id: Optional[int] = None
+    idx: int
+    start: float
+    timestamp: str
+    text: str
+
+
+class ReaderReadout(BaseModel):
+    drama_id: int
+    track: str
+    lines: List[ReaderReadoutLine]
+
+
+class ReaderEngineFields(BaseModel):
+    """Shared by every LLM request. An omitted engine means Claude (the
+    Reader tab's default) and counts as paid for the engine check."""
+    model_config = ConfigDict(extra="forbid")
+    engine: Optional[str] = Field(None, max_length=40)
+    model: Optional[str] = Field(None, max_length=100)
+
+
+class ReaderLookupRequest(ReaderEngineFields):
+    page: int = Field(ge=1)
+    chapter_size: int = Field(40, ge=10, le=200)
+    use_llm: StrictBool = False
+
+
+class ReaderDefinition(BaseModel):
+    reading: Optional[str] = None
+    definitions: List[str] = []
+
+
+class ReaderLookupResult(BaseModel):
+    drama_id: int
+    page: int
+    definitions: Dict[str, ReaderDefinition]
+    saved: int
+
+
+class ReaderVocabWord(BaseModel):
+    word: str
+    reading: Optional[str] = None
+    definitions: List[str] = []
+    language: Optional[str] = None
+    first_seen_line_idx: Optional[int] = None
+    export_rich: bool
+
+
+class ReaderVocabList(BaseModel):
+    drama_id: int
+    count: int
+    words: List[ReaderVocabWord]
+
+
+class ReaderRichExportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    words: List[str] = Field(min_length=1, max_length=500)
+    queued: StrictBool = True
+
+
+class ReaderRichExportResult(BaseModel):
+    drama_id: int
+    updated: int
+    queued: bool
+    rich_count: int
+
+
+class ReaderWhoRequest(ReaderEngineFields):
+    name: str = Field(min_length=1, max_length=200)
+    up_to_line_idx: Optional[int] = Field(None, ge=0)
+
+
+class ReaderExplainRequest(ReaderEngineFields):
+    phrase: str = Field(min_length=1, max_length=200)
+    up_to_line_idx: Optional[int] = Field(None, ge=0)
+
+
+class ReaderRecapRequest(ReaderEngineFields):
+    page: int = Field(ge=1)
+    chapter_size: int = Field(40, ge=10, le=200)
+
+
+class ReaderScopedLlmRequest(ReaderEngineFields):
+    """Relationships and wiki update: None = no spoiler limit."""
+    up_to_line_idx: Optional[int] = Field(None, ge=0)
+
+
+class ReaderAnswer(BaseModel):
+    drama_id: int
+    answer: Optional[str] = None
+
+
+class ReaderRecap(BaseModel):
+    drama_id: int
+    summary: Optional[str] = None
+
+
+class ReaderRelationshipMap(BaseModel):
+    drama_id: int
+    characters: List[Dict[str, Any]]
+    relationships: List[Dict[str, Any]]
+    mermaid: str
+
+
+class ReaderWikiEntry(BaseModel):
+    id: Optional[int] = None
+    entry_type: Optional[str] = None
+    name: Optional[str] = None
+    aliases: Optional[Any] = None
+    description: Optional[str] = None
+    attributes: Dict[str, Any] = {}
+    first_seen_line_idx: Optional[int] = None
+    known_through_line_idx: Optional[int] = None
+
+
+class ReaderWikiList(BaseModel):
+    drama_id: int
+    entry_types: List[str]
+    entries: List[ReaderWikiEntry]
+
+
+class ReaderWikiUpdateResult(BaseModel):
+    drama_id: int
+    updated: int
+
+
+class ReaderWikiClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class ReaderWikiClearResult(BaseModel):
+    drama_id: int
+    cleared: bool
+
+
+class ReaderChatTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(max_length=20_000)
+
+
+class ReaderAskRequest(ReaderEngineFields):
+    question: str = Field(min_length=1, max_length=2000)
+    chat_history: List[ReaderChatTurn] = Field(default_factory=list, max_length=40)
