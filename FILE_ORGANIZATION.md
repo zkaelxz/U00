@@ -312,19 +312,20 @@ baihe-subtitler/
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
 │   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
-│   │                             LoopbackOnlyGate (auth off: direct loopback requests only)
+│   │                             LoopbackOnlyGate (auth off: direct loopback requests only),
+│   │                             LocalOnlyCrossSiteGate (local_only routes refuse cross-site requests; #372)
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/
 │       ├── __init__.py
-│       ├── system_routes.py      /api/health, /api/meta
+│       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
 │       ├── library_routes.py     /api/library/dramas[/{id}]
 │       ├── library_admin_routes.py /api/library/admin/* (route batch 2A): bulk status/tags/delete/
 │       │                         translate, export + backup jobs, artifacts[/info] download, restore
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
-│       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
+│       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
@@ -393,11 +394,18 @@ baihe-subtitler/
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
 │   ├── src/api/                   client.ts (all HTTP) + types.ts (mirrors api/schemas.py); one <area>.ts per
 │   │                              API area, e.g. review.ts, restructure.ts (add/delete/merge/split/re-segment/
-│   │                              restore), media.ts (Range stream URLs); types in src/types/<area>.ts
+│   │                              restore), media.ts (Range stream URLs), libraryAdmin.ts (Library admin +
+│   │                              preset/voice-bank deletes), pcOnly.ts (PC-only mode store + pcOnlyFetch:
+│   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
-│   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm)
+│   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
+│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code)
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
-│   │                              usePersistedState (per-viewer prefs in localStorage)
+│   │                              usePersistedState (per-viewer prefs in localStorage),
+│   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
+│   ├── src/pages/libraryAdmin/    Library admin: SelectionBar (bulk status/list/translate/export/delete),
+│   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
+│   │                              libraryAdmin.ts (pure, unit-tested)
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
