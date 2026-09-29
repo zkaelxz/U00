@@ -16,10 +16,11 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulkList,
-                         TranslateBulkResumeResult, TranslatePresetSave, TranslatePresetSaved,
-                         TranslateRunConfig, TranslateRunEstimate, TranslateRunStart,
-                         TranslateRunStarted, WorkflowTierApplied, WorkflowTierApply)
-from services import translate_run_service
+                         TranslateBulkResumeResult, TranslateErrorsDismissed,
+                         TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
+                         TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
+                         WorkflowTierApplied, WorkflowTierApply)
+from services import ownership_service, translate_run_service
 from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -95,6 +96,16 @@ def list_bulk_translations(drama_id: int = Path(ge=1)):
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
 def cancel_bulk_translation(drama_id: int = Path(ge=1), bulk_job_id: int = Path(ge=1)):
     return translate_run_service.cancel_bulk_translation(drama_id, bulk_job_id)
+
+
+@router.post("/dramas/{drama_id}/errors/dismiss", dependencies=[require_permission("lines.edit")],
+             response_model=TranslateErrorsDismissed,
+             summary="Dismiss the last run's failed-batch notice (clears only that record)",
+             responses={404: {"model": ErrorResponse}})
+def dismiss_translate_errors(request: Request, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    # A drama the caller can't see is a 404, the same as a missing one.
+    ownership_service.require_visible(request.state.principal, "drama", drama_id)
+    return translate_run_service.dismiss_translate_errors(drama_id)
 
 
 @router.post("/dramas/{drama_id}/workflow-tier", dependencies=[require_permission("lines.edit")],

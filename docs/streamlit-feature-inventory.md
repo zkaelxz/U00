@@ -72,8 +72,8 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | P13 | Romanize credits (LLM), shown as bilingual credits | 1442-1479 | `tguide.romanize_metadata`, `format_bilingual_credit` | MISSING | no API | wt TestRomanizeCreditsEnginePassesOllamaUrlAndFreeTier |
 | P14 | Cover art upload and preview | 1481-1491 | file write + `db.update_drama` | MISSING | no API (`has_cover_art` is read-only) | — |
 | P15 | Delete drama: checkbox plus typed DELETE, blocked while a job runs | 1504-1526 | `background_jobs.any_job_running_for_drama`, `db.delete_drama` | `components/DramaDetailPanel.tsx` | `DELETE /api/dramas/{id}?confirm=true&confirm_text=DELETE` | wt TestDestructiveActionsNeedConfirmation, TestDeleteDramaBlockedByRunningJob |
-| P16 | Project header and stage stepper showing real progress | 1528-1542 | `workflow_service.compute_workspace_stage_index`, `ui.project_header` | PARTIAL `pages/workspace/WorkspaceShell.tsx` (stage nav, no progress) | no API (service exists) | wt TestWorkspaceStageIndex, test_ui_components TestProjectHeader |
-| P17 | Stage tabs open on the drama's current stage | 1544-1553 | same | MISSING (`router.ts` defaults to `source`) | no API | wt TestStageTabsOpenOnTheCurrentStage, TestStageTabsReplaceTheExpanderScroll |
+| P16 | Project header and stage stepper showing real progress | 1528-1542 | `workflow_service.compute_workspace_stage_index`, `ui.project_header` | DONE `pages/workspace/WorkspaceShell.tsx` (stepper marks done/next/optional/blocked from the progress API, plus line/untranslated/flagged counts) | `GET /api/workflow/dramas/{id}/progress` | wt TestWorkspaceStageIndex, test_ui_components TestProjectHeader |
+| P17 | Stage tabs open on the drama's current stage | 1544-1553 | same | DONE (`#/drama/{id}` with no stage opens the stage the progress API reports; Library links omit the stage; Source if progress fails) | `GET /api/workflow/dramas/{id}/progress` | wt TestStageTabsOpenOnTheCurrentStage, TestStageTabsReplaceTheExpanderScroll |
 
 ### 2.2 Source tab (1555-1911)
 
@@ -132,7 +132,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 
 | ID | Feature | Source | Calls | React | API | Tests |
 |---|---|---|---|---|---|---|
-| X01 | Notice about the last run's failed batches, with Dismiss | 2399-2414 | `db.update_drama(last_translate_errors=None)` | MISSING (config returns the errors; React doesn't show them) | `GET /api/translate-run/dramas/{id}/config`; dismiss: no API | — |
+| X01 | Notice about the last run's failed batches, with Dismiss | 2399-2414 | `db.update_drama(last_translate_errors=None)` | DONE `stages/TranslateStage.tsx` FailedBatchesNotice (batch count, 1-based line ranges, distinct reasons; Dismiss notice) | `GET /api/translate-run/dramas/{id}/config`; `POST /api/translate-run/dramas/{id}/errors/dismiss` (lines.edit, `translate_run_service.dismiss_translate_errors`) | test_api_translate_errors_dismiss |
 | X02 | Starting tier (Draft/Standard/Release sets engine, model, Reflect and Auto QC) | 2416-2428, `apply_workflow_tier` 117 | `translate_engines.WORKFLOW_TIERS`; `translate_run_service.apply_workflow_tier` | `stages/TranslateStage.tsx` "Starting tier" + "Apply tier" (fills engine, model, Reflect and refreshes the form's Default engine; Auto QC has no React flag, so the status line only says the tier recommends it) | `POST /api/translate-run/dramas/{id}/workflow-tier` (`lines.edit`) | test_project_instructions TestWorkflowTiers; test_api_translate_presets_tiers |
 | X03 | Apply a saved preset | 2430-2447 | `apply_preset_to_session` | MISSING | no API (presets list only) | wt TestPresetsInWorkspaceUI |
 | X04 | Translation style and its guidance text | 2455-2467 | `tguide.STYLE_PRESETS` | `stages/TranslateStage.tsx` Style (guidance text MISSING) | run `style_preset` | — |
@@ -187,7 +187,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | ID | Feature | Source | Calls | React | API | Tests |
 |---|---|---|---|---|---|---|
 | R01 | Pick up a finished flag job before counting flags | 3982-3984 | `db.load_line_objects` | N/A | — | test_step20_ux_polish TestAutoQCToastVsWarning |
-| R02 | Media player with seek, "Jump to time", "Play current segment" (Alt+Space), selected line | 823-988, 3988-3990 | `st.video`/`st.audio`, `parse_timestamp` | PARTIAL `stages/review/Player.tsx` (#377): audio/video player for the selected line; "Jump to time" not verified | `GET`/`HEAD /api/media/dramas/{id}/audio` and `.../video` with Range (Slice 52, #352) | test_media_preview TestReviewPlayer, TestRowClickSeeksInWorkspace, TestParseTimestamp, TestPlayerTimes |
+| R02 | Media player with seek, "Jump to time", "Play current segment" (Alt+Space), selected line | 823-988, 3988-3990 | `st.video`/`st.audio`, `parse_timestamp` | DONE `stages/review/Player.tsx` (#377, `react-review-player`): open by default (Hide/Show player), seek bar with time/duration, "Jump to time" (mm:ss, h:mm:ss or seconds), "Go to line #N" for the selected line, Alt+Space; subtitles on the video (English, Original, Both or Off, re-read after every save; audio shows the current cue as text); phones keep the video and tools below the sticky toolbar. Burned-subtitle preview not ported | `GET`/`HEAD /api/media/dramas/{id}/audio` and `.../video` with Range (Slice 52, #352); subtitles from `GET /api/reader/dramas/{id}/captions/{track}` (lines.read) | test_media_preview TestReviewPlayer, TestRowClickSeeksInWorkspace, TestParseTimestamp, TestPlayerTimes |
 | R03 | Burned-subtitle preview around the selected line (video) | 958-987, 877-894 | `video_export.render_preview_clip` | MISSING | no API | test_media_preview TestBurnPreview |
 | R04 | Find and replace over translations: preview, apply by line id, skip stale lines, update translation memory | 3992-4066 | `scanlate.bulk_find_replace_preview`, `db.update_translation_memory_after_replace` | `stages/review/FindReplacePanel.tsx` | `POST /api/review/.../find-replace/preview`, `POST /api/lines/.../find-replace/apply` | test_review_workspace TestLineFindAndReplace |
 | R05 | Search the transcript and jump to the line's page | 4068-4085 | `_search_transcript` | PARTIAL `stages/review/LinesPanel.tsx` search (jump to page MISSING) | `GET /api/review/dramas/{id}/search` | test_step20_ux_polish TestSearchTranscript, TestTranscriptSearchJumpsToCorrectPage |
@@ -198,7 +198,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R10 | Content-blocked line: retry with another engine | 4144-4194 | `engine.translate_batch` | `stages/review/LineRow.tsx` (Edit details, engine picker) | `POST /api/lines/dramas/{id}/lines/{line_id}/retry-blocked` (`blocked_retry_service`) | wt TestContentBlockedRetryWithDifferentEngine |
 | R11 | Translation memory suggestion per line: accept or dismiss | 4195-4212 | `translation_memory.suggest_for_lines`, `db.bump_translation_memory_use` | PARTIAL `stages/review/RecordsPanel.tsx` accept (list, not per line); dismiss MISSING | `GET /api/review/.../tm-suggestions`, `POST /api/lines/.../accept-tm` | test_translation_memory TestTranslationMemoryInReview |
 | R12 | Edit a line's start, end, speaker, source and translation | 4213-4225, 4428-4458 | — | `stages/review/LineRow.tsx` | `POST /api/lines/dramas/{id}/lines/{line_id}` | wt TestSaveEditsDoesNotRoundUntouchedTimestamps, TestLineEditingNotLockedDuringAJob |
-| R13 | Row "▶" seeks the player to that line | 4227-4232 | `_seek_to_line` | `stages/review/LineRow.tsx` "▶ Play" (#377) | — | test_media_preview TestRowClickSeeksInWorkspace |
+| R13 | Row "▶" seeks the player to that line | 4227-4232 | `_seek_to_line` | DONE `stages/review/LineRow.tsx` "▶ Play" (#377) seeks the player and plays the line; the player's "Go to line #N" seeks without playing (`react-review-player`) | — | test_media_preview TestRowClickSeeksInWorkspace |
 | R14 | Mark a line as a non-verbal/SFX cue | 4234-4238 | `Line.sfx` | `stages/review/LineRow.tsx` "Sound cue" checkbox (#377) | same endpoint (`sfx`) | test_media_preview TestSfxPersistence, TestSfxExport |
 | R15 | Improve translation, then "Use this" | 4241-4266 | `line_tools.improve_line`, `db.record_edit_sample` | `stages/review/LineAi.tsx` | `POST /api/line-ai/.../improve` | wt TestImproveTranslationUseThisRefreshesTheEnBox |
 | R16 | "Why this?" explanation | 4272-4279 | `line_tools.explain_translation` | `stages/review/LineAi.tsx` | `POST /api/line-ai/.../explain` | wt TestPerLineExplainToolsMovedFromReader |
@@ -207,7 +207,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R19 | Pronounce (edge-tts clip) | 4296-4302 | `line_tools.pronunciation_audio` | MISSING | no API | same |
 | R20 | "What happened?": speaker, engine, flag, glossary matches, notes, consistency, neighbours | 4303-4336 | `debug_view.explain_line` | `stages/review/LineOrigin.tsx` (#392) | `GET /api/review/.../lines/{id}/provenance` | — |
 | R21 | Save a bug-reproduction bundle | 4337-4346 | `debug_view.save_bug_bundle` | MISSING (a Diagnostics extra, undecided) | no API | test_diagnostics_and_export TestBugBundleDeleteNeedsConfirmation |
-| R22 | Play just this line's audio | 4355-4375, `_line_audio_clip` 789 | `core.extract_audio_slice` | `stages/review/LineRow.tsx` "▶ Play" (#377) | no API | test_review_workspace TestLineAudioClip |
+| R22 | Play just this line's audio | 4355-4375, `_line_audio_clip` 789 | `core.extract_audio_slice` | DONE `stages/review/LineRow.tsx` "▶ Play" (#377): plays the line's span of the drama audio/video and stops at its end (Loop line repeats it); no separate clip file | no API (uses the Range stream) | test_review_workspace TestLineAudioClip |
 | R23 | Re-transcribe one line, then "Use this" | 4376-4411 | `core.transcribe_for_timing` (via `transcribe_service.start_retranscribe_line` / `get_retranscribe_result` / `apply_retranscribe_line`) | `stages/review/RetranscribeLine.tsx` in the line details: "Heard" next to the current text, "Use this" / "Discard" | `POST /api/transcribe/dramas/{id}/lines/{line_id}/retranscribe` (`jobs.start`), `GET` same path (`lines.read`), `.../retranscribe/apply` (`lines.edit`) | wt TestRetranscribeUseThisRefreshesTheZhBox, test_api_retranscribe_line |
 | R24 | Compare with the original transcript, and restore it | 4412-4427 | `raw_transcript.original_text_for_line` | PARTIAL `stages/review/LineOrigin.tsx` shows the original (#392); restore MISSING | `GET /api/review/.../lines/{id}/original-text` + line patch | test_raw_transcript TestRestoreOneLineInReview |
 | R25 | Save edits (Ctrl+S), record edit samples and translation memory, "Unsaved changes (N)" indicator | 4460-4491, `_unsaved_line_count` 990 | `db.save_lines`, `record_edit_sample`, `record_translation_memory` | `stages/review/LineRow.tsx` per-line save (server records samples/TM, `lines_service.py:164-166`); page-level unsaved count N/A | `POST /api/lines/...` | test_review_workspace TestUnsavedLineCount, TestReviewAndEditUI |
@@ -218,7 +218,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R30 | Review queue: flag lines for a second look (with bulk option) | 4652-4715 | `run_flag_job` | `stages/review/ReviewJobsPanel.tsx` (bulk MISSING) | `POST /api/review-jobs/.../flag` | test_bulk_translate TestBulkFlag |
 | R31 | Run Auto QC (numbers, dates, names, units) | 4717-4745 | `_run_auto_qc` 779 → `auto_qc.run_auto_qc` | `stages/ExportFlags.tsx` (in Export, not Review) | `POST /api/export/.../flag-auto-qc` | test_auto_qc; test_step20_ux_polish TestAutoQCToastVsWarning |
 | R32 | Fix flagged lines: re-transcribe and re-translate, with the cap | 4747-4845 | `run_fix_flagged_lines_job` | `stages/review/ReviewJobsPanel.tsx` (free tier now from the saved setting when omitted; the per-job cap defaults to none, same as a translate run, and the monthly cap still applies); fixed/total/errors/cap now served as job `result` + `outcome` (branch `api-job-results`) | `POST /api/review-jobs/.../fix-flagged` | wt TestFixFlaggedLinesCapUI; wt fix_flagged job tests |
-| R33 | Emotion detection job (audio cues, bulk option) | 4848-4918 | `run_emotion_job` | PARTIAL `stages/review/ReviewJobsPanel.tsx` (audio-cues toggle and bulk MISSING) | `POST /api/review-jobs/.../emotion` (`use_audio_cues`) | test_emotion_manhua_ui TestDetectEmotionsProgress |
+| R33 | Emotion detection job (audio cues, bulk option) | 4848-4918 | `run_emotion_job` | PARTIAL `stages/review/ReviewJobsPanel.tsx` (audio-cues toggle in Check options, default on with audio; bulk MISSING) | `POST /api/review-jobs/.../emotion` (`use_audio_cues`) | test_emotion_manhua_ui TestDetectEmotionsProgress |
 | R34 | Emotion summary (tagged, high-risk, per emotion) | 4920-4929 | `emotion.emotion_summary` | `stages/review/ReviewFindings.tsx` (#392) | `GET /api/review/dramas/{id}/emotions` | test_emotion_manhua_ui TestEmotionSummary |
 | R35 | SenseVoice tagging from the audio, with a side-by-side table | 4931-4985 | `run_sensevoice_job`, `sensevoice_tags.side_by_side` | MISSING | no API | test_transcription_quality TestSenseVoiceTags |
 | R36 | Adaptive style: edit tendencies metrics | 4987-5002 | `adaptive_style.summarize_edit_tendencies` | `stages/review/ReviewChecks.tsx` (#392) | `GET /api/review/dramas/{id}/tendencies` | — |
@@ -235,7 +235,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R47 | Re-segment long lines by meaning: rules or LLM preview, background Ollama job with cancel, confirm clearing translations, apply with guard | 5259-5429 | `resegment.resegment_lines`, `resegment_subprocess_worker` | PARTIAL `stages/review/StructureSection.tsx` (#377): preview, then typed-confirm run; LLM/cancel options not verified | `GET /api/restructure/.../resegment/preview`, `POST .../resegment` | wt TestResegmentGuardrail, TestResegmentationStaleSnapshotSafety, TestResegmentationRealMidRunStop |
 | R48 | Version history (snapshots) list and Restore | 5431-5451 | `db.list_line_history`, `_restore_saved_lines` | `stages/review/RecordsPanel.tsx` list + typed-confirm Restore (#377) | `GET /api/review/.../history`, `POST /api/restructure/.../history/{id}/restore` | wt TestMergeAndRestoreStaleIdSetSafety; test_diagnostics_and_export TestLineHistory |
 | R49 | Bulk (half-price) option for consistency, flag, emotion and notes jobs | 4585, 4666, 4866, 5124 | `_start_bulk_generic` 410 | MISSING | no API field on review jobs | test_bulk_translate TestBulkFlag/Consistency/Emotion/TranslationNotes |
-| R50 | Engine and model used for Review AI jobs (shared with the Translate pickers) | used throughout | `get_engine` | MISSING (React sends `{}`, so the server default applies) | `ReviewJobStart.engine/model` | wt TestTranslationOnlyEngineGatesLlmOnlyButtons |
+| R50 | Engine and model used for Review AI jobs (shared with the Translate pickers) | used throughout | `get_engine` | DONE `stages/review/ReviewJobsPanel.tsx` (Check options: engine and model for consistency, emotion, notes, flag; fix-flagged keeps its own; unset fields fall back to the server default; paid engines still gated by engines.paid) | `ReviewJobStart.engine/model` | wt TestTranslationOnlyEngineGatesLlmOnlyButtons |
 
 ### 2.7 Dub tab (5455-5613)
 
@@ -319,7 +319,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G13 | Ollama context window override | 373-381 | — | MISSING | no API | — |
 | G14 | Monthly spending cap | 383-395 | — | MISSING (read from `BAIHE_MONTHLY_CAP_USD` server side, UNK) | no API | wt TestSpendingCapUI |
 | G15 | yt-dlp cookies from a browser or a cookies.txt | 397-413 | `video_download.COOKIE_BROWSERS` | MISSING | no API | test_settings_tab TestCookieBasedLoginSettings; test_live_tab |
-| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | PARTIAL `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s; PC only). Engine for extension pages MISSING (no API) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372) | test_page_server_settings |
+| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | DONE `pages/settings/ExtensionSection.tsx` (on/off, status, two-step Show token kept in component state and cleared after 120 s, engine and model for extension pages saved as an app setting and hooked into page_server at API startup; PC only) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372); `GET /api/extension/engine` (admin.settings), `POST /api/extension/engine` (local_only) | test_page_server_settings |
 
 ## 5. Diagnostics (`tabs/diagnostics_tab.py`, 987 lines)
 
@@ -382,61 +382,61 @@ React: `pages/Reader.tsx` + `pages/reader/` at `#/read/<id>` (#388), calling eve
 
 ## 8. Sources (`tabs/sources_tab.py`, 990 lines)
 
-The API covers the registry and settings (56a/56b) and search/series jobs (S-3, #372). React: `pages/Sources.tsx` + `pages/sources/` (`#/sources`, branch `react-sources-page`, not merged) builds SO12 and the non-import parts of SO13 and SO15-SO18, marked "React:" in the API column. No React for import (S-4/S-5), tracking a new series, check now, pasted URLs, test tiers, sign-in or the proxy URL: those have no API.
+The API covers the registry and settings (56a/56b), search/series jobs (S-3, #372), import (S-4/S-5, #411), and, on branch `react-sources-remaining`, check now and the tracked-series drama link (S-7), sign-in (S-6), per-tier tests and the proxy (PC only). React: `pages/Sources.tsx` + `pages/sources/` (`#/sources`, #401, #421, `react-sources-remaining`), marked "React:" in the API column (re-verified 2026-09-29). Still without React or API: the preflight (SO02), pasting page source after a verification page (SO03), comic import from a link (SO06, open question Q4), identify media (SO08), the AI fallback (SO09), Review extraction (SO10, prune candidate) and the pasted-URL diagnostics list (SO16).
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
-| SO01 | Paste any URL: preview (type, platform, chapter, language, count) | 64-80, 129-140 | `front_door.preview` | `POST /api/sources/url/preview` + job result (S-5) | test_sources_tab |
+| SO01 | Paste any URL: preview (type, platform, chapter, language, count) | 64-80, 129-140 | `front_door.preview` | `POST /api/sources/url/preview` + job result (S-5). React: REPLACED (UrlBox, #421) | test_sources_tab |
 | SO02 | "Will this site work?" preflight | 82-99 | `preflight.preflight` | no API | test_sources_preflight |
-| SO03 | Verification hand-off: open in browser, retry, cancel, continue from pasted page source | 42-61, 101-128 | `front_door.classify_html` | no API | test_sources_tab |
-| SO04 | Open the series browser from a URL | 143-146 | — | no API | — |
-| SO05 | Import video into a drama (audio only, overwrite confirm, cookies) | 147-178 | `front_door.import_video` | `POST /api/media/dramas/{id}/download-url` (local_only; generic yt-dlp even for Bilibili; no cookies) | test_sources_tab |
+| SO03 | Verification hand-off: open in browser, retry, cancel, continue from pasted page source | 42-61, 101-128 | `front_door.classify_html` | Handoff in the preview/import errors (409 `handoff`, `open_url`). React: PARTIAL (open in your browser, try again; no paste-page-source) | test_sources_tab |
+| SO04 | Open the series browser from a URL | 143-146 | — | From the preview result (source, series id). React: REPLACED (Open series, the pasted chapter ticked; #421) | — |
+| SO05 | Import video into a drama (audio only, overwrite confirm, cookies) | 147-178 | `front_door.import_video` | `POST /api/media/dramas/{id}/download-url` (local_only; generic yt-dlp even for Bilibili; no cookies). React: REPLACED for the PC (UrlBox video, #421; no cookies) | test_sources_tab |
 | SO06 | Import comic pages into Scanlate (with skipped-image list) | 179-206 | `adaptive.import_comic`, `pipeline.add_page_images` | no API (S-4) | test_adaptive_extraction TestSourcesTabReview |
-| SO07 | Import novel text (append, download .txt) | 207-235 | `adaptive.import_novel`, `pipeline.save_novel_text` | `POST /api/sources/url/import` (append; no LLM fallback, no review step: needs-review writes nothing) | same |
+| SO07 | Import novel text (append, download .txt) | 207-235 | `adaptive.import_novel`, `pipeline.save_novel_text` | `POST /api/sources/url/import` (append; no LLM fallback, no review step: needs-review writes nothing). React: REPLACED (UrlBox novel import, #421; no .txt download) | same |
 | SO08 | Identify media on an unknown page and pick a resource | 545-571 | `adaptive.identify_media` | no API | — |
 | SO09 | AI-assisted fallback engine (optional) | 334-359 | `translate_engines.get_engine` | no API | test_adaptive_extraction TestLlmOnlyAsFallback |
 | SO10 | Review extraction: confidence, pick containers, title, next/prev links, re-run, save profile, approve, import; comic roles and order | 362-543 | `ai_extract.*`, `profiles.*` | no API (plan section 3 item 8 prune candidate) | test_adaptive_extraction |
-| SO11 | Sign in through a real browser window, or forget the sign-in | 270-320 | `auth_browser.manual_login`, `forget` | no API (S-6) | test_sources_auth_browser |
+| SO11 | Sign in through a real browser window, or forget the sign-in | 270-320 | `auth_browser.manual_login`, `forget` | `POST /api/sources/{name}/signin/open` (job, window on the PC), `POST .../signin/forget` (confirm); both local_only, result PC only (S-6). React: REPLACED (Source settings > Details > Sign in) | test_sources_auth_browser, test_api_sources_local |
 | SO12 | Search every enabled source, clear results, open a result | 574-603 | `registry.multi_search` | `POST /api/sources/search` + job result (S-3). React: REPLACED (search, Search in, cancel, clear, open; no cover images) | test_sources_tab |
-| SO13 | Series browser: chapter list, reload, tick chapters, import into a drama, track for new chapters | 606-684 | `pipeline.start_import`, `store.track_series` | `POST /api/sources/{name}/series` + job result; `POST /api/sources/{name}/import` (chapter ids, per-drama job); `POST /api/sources/tracked` (track needs the loaded series result; untrack). React: PARTIAL (info, chapter list, reload, stop tracking; no ticks, import or track) | test_sources_tab |
-| SO14 | Source access status: live job metrics, cancel, results per chapter, dismiss | 687-734 | `background_jobs.list_running_jobs` | `/api/jobs` | test_sources_tab |
-| SO15 | New chapters: check now, open, dismiss; tracked series with "stop tracking" | 737-765 | `chapter_check.start_check_now`, `store.dismiss_notification`, `untrack_series` | `GET /api/sources/notifications`, `POST .../dismiss`, `GET/POST /api/sources/tracked`; check-now: no API (S-7). React: PARTIAL (open, dismiss, stop tracking; no check now) | test_sources_tab |
+| SO13 | Series browser: chapter list, reload, tick chapters, import into a drama, track for new chapters | 606-684 | `pipeline.start_import`, `store.track_series` | `POST /api/sources/{name}/series` + job result; `POST /api/sources/{name}/import` (chapter ids, per-drama job); `POST /api/sources/tracked` (track needs the loaded series result; untrack). React: REPLACED (info, chapter list, reload, ticks, import, track, stop tracking; #421) | test_sources_tab |
+| SO14 | Source access status: live job metrics, cancel, results per chapter, dismiss | 687-734 | `background_jobs.list_running_jobs` | `/api/jobs`. React: PARTIAL (per-chapter outcomes and cancel for an import in the series panel, #421; no all-jobs panel here) | test_sources_tab |
+| SO15 | New chapters: check now, open, dismiss; tracked series with "stop tracking" | 737-765 | `chapter_check.start_check_now`, `store.dismiss_notification`, `untrack_series` | `GET /api/sources/notifications`, `POST .../dismiss`, `GET/POST /api/sources/tracked`, `POST /api/sources/check-now` (job `sources_chapter_check`, S-7), `POST /api/sources/tracked/drama` (auto-import target). React: REPLACED (check now with result line, open, dismiss, stop tracking, auto-import drama) | test_sources_tab, test_api_sources_local |
 | SO16 | Pasted-URL diagnostics and site profile rollback | 768-796 | `adaptive.recent_extractions`, `profiles.rollback` | `GET /api/sources/profiles`, `POST .../rollback`. React: PARTIAL (profile versions + Make active; no pasted-URL diagnostics) | test_adaptive_extraction TestDiagnostics |
-| SO17 | Per-source enable, adult toggle, health, "try again now", test tiers, sign in, attempt log | 799-893 | `registry.set_enabled`, `store.set_adult_enabled`, `health.reset`, `ladder.test_tier` | `POST /api/sources/{name}/enabled|adult|health/reset`, `GET .../attempts`; test tiers: no API. React: PARTIAL (on, adult, health text, try again now, details, attempts; no test tiers or sign-in) | test_sources_tab |
-| SO18 | Source settings: pacing, concurrency, retries, session breaks, cache mode, check interval, auto-import, demo source, diagnostics mode, proxy; clear cache | 896-967 | `store.set_setting`, `cache.RawCache` | `GET/POST /api/sources/settings`, `POST /api/sources/cache/clear`. React: PARTIAL (all but the proxy URL, shown as set/none; save sends changed keys only) | test_sources_tab |
+| SO17 | Per-source enable, adult toggle, health, "try again now", test tiers, sign in, attempt log | 799-893 | `registry.set_enabled`, `store.set_adult_enabled`, `health.reset`, `ladder.test_tier` | `POST /api/sources/{name}/enabled|adult|health/reset`, `GET .../attempts`, `POST /api/sources/{name}/tier-test` (job, local_only, result PC only). React: REPLACED (on, adult, health text, try again now, details, attempts, Test now per tier, sign in) | test_sources_tab, test_api_sources_local |
+| SO18 | Source settings: pacing, concurrency, retries, session breaks, cache mode, check interval, auto-import, demo source, diagnostics mode, proxy; clear cache | 896-967 | `store.set_setting`, `cache.RawCache` | `GET/POST /api/sources/settings`, `POST /api/sources/cache/clear`, `POST /api/sources/settings/proxy` (local_only, write-only). React: REPLACED (save sends changed keys only; the proxy is write-only, shown as set/none; PC only: LAN editing waits for the network-zones slice) | test_sources_tab, test_api_sources_local |
 | SO19 | Starts the chapter-check scheduler | 975 | `chapter_check.ensure_scheduler_started` | Done in the API startup hook (`api/background.py`, #372) | — |
 
 ## 9. Discover (`tabs/discover_tab.py`, 394 lines)
 
-The whole page is MISSING in React. The API covers the catalog (D-0/D-1) and the D-2 network helpers (#372).
+React: the Discover page `#/discover` (branch `react-discover-page`) covers DI01-DI10 over the catalog (D-0/D-1) and D-2 helper routes (#372); DI08 opens a new tab instead of an in-app frame, and DI07 has no pasted-text fallback (no API).
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
-| DI01 | Shared engine and API key for every AI action on the page | 36-56 | `translate_engines.get_engine` | no API | test_discover_tab TestKeyGatingIsEngineAware |
-| DI02 | Load starter titles | 60-70 | `title_library.seed_known_titles` | `POST /api/discover/titles/seed` | test_discover_tab |
-| DI03 | Search the saved catalog, import a title into the Library, remove it | 72-113 | `db.list_known_titles`, `db.create_drama`, `delete_known_title` | `GET /api/discover/titles`, `POST .../import-to-library`, `POST .../delete` | test_discover_tab TestDiscoverConsolidation |
-| DI04 | Find a title on official platforms (query translated to Chinese, cached; search links) | 115-158 | `title_library.translate_query_to_zh`, `known_sites.build_search_links` | `GET /api/discover/search-links` (translation: no API) | test_discover_tab TestFindATitleTranslationCaching |
-| DI05 | Site navigation helper (translate a page and give steps) | 160-221 | `navigator` | no API (D-2 prune candidate) | test_discover_tab TestSiteNavigationHelperButton |
-| DI06 | Search baihehub.com | 223-242 | — | no API (D-2 prune candidate) | test_discover_tab TestBaihehubSearch |
-| DI07 | Bulk import from listing pages: URL pattern generator, extract, manual paste, review, add | 244-334 | `title_library.*` | no API (D-2 prune candidate) | test_discover_tab TestBulkImportUrlPatternGenerator |
-| DI08 | Browse a site in-app (iframe) | 336-355 | `st.iframe` | no API | test_dark_mode_step68 |
-| DI09 | Import a title from a URL into the catalog | 357-376 | `title_library.import_title_from_url`, `db.create_known_title` | no API | test_discover_tab |
-| DI10 | Add a title manually | 378-394 | `db.create_known_title` | `POST /api/discover/titles` | test_discover_tab |
+| DI01 | Shared engine and API key for every AI action on the page | 36-56 | `translate_engines.get_engine` | no API (engine name per request; keys resolved on the PC). React: DONE (one picker, configured engines the routes accept) | test_discover_tab TestKeyGatingIsEngineAware |
+| DI02 | Load starter titles | 60-70 | `title_library.seed_known_titles` | `POST /api/discover/titles/seed`. React: DONE (shown when the catalogue is empty) | test_discover_tab |
+| DI03 | Search the saved catalog, import a title into the Library, remove it | 72-113 | `db.list_known_titles`, `db.create_drama`, `delete_known_title` | `GET /api/discover/titles`, `POST .../import-to-library`, `POST .../delete`. React: DONE (search, language/format filters, details, add to Library with the 409 "already in your Library" link, PC-only remove) | test_discover_tab TestDiscoverConsolidation |
+| DI04 | Find a title on official platforms (query translated to Chinese, cached; search links) | 115-158 | `title_library.translate_query_to_zh`, `known_sites.build_search_links` | `GET /api/discover/search-links`, `POST /api/discover/translate-query` (#372). React: DONE (translation on Find, cached per query and engine; the JJWXC tag link is not ported) | test_discover_tab TestFindATitleTranslationCaching |
+| DI05 | Site navigation helper (translate a page and give steps) | 160-221 | `navigator` | `POST /api/discover/navigation-help` + `GET .../result` (#372). React: DONE (steps as plain text, translated labels; known-platforms list under Find) | test_discover_tab TestSiteNavigationHelperButton |
+| DI06 | Search baihehub.com | 223-242 | — | `POST /api/discover/baihehub-search` (#372). React: DONE (browser fallback link) | test_discover_tab TestBaihehubSearch |
+| DI07 | Bulk import from listing pages: URL pattern generator, extract, manual paste, review, add | 244-334 | `title_library.*` | `POST /api/discover/bulk-extract` + `GET .../result`, `POST /api/discover/bulk-commit` (#372). React: PARTIAL (pattern generator, extract job, review, add with dedup; no pasted-text extraction: no API) | test_discover_tab TestBulkImportUrlPatternGenerator |
+| DI08 | Browse a site in-app (iframe) | 336-355 | `st.iframe` | no API. React: CHANGED (opens the site in a new tab; no in-app frame or embeddability check) | test_dark_mode_step68 |
+| DI09 | Import a title from a URL into the catalog | 357-376 | `title_library.import_title_from_url`, `db.create_known_title` | `POST /api/discover/import-suggestion` (#372) + `POST /api/discover/titles`. React: DONE (the suggestion fills the add form; nothing is saved until Add) | test_discover_tab |
+| DI10 | Add a title manually | 378-394 | `db.create_known_title` | `POST /api/discover/titles`. React: DONE | test_discover_tab |
 
 ## 10. Live (`tabs/live_tab.py`, 149 lines)
 
-Kept and to be ported (plan section 8, M6). The whole page is MISSING; the L-1 API (polling) is merged (#372).
+Kept and ported (plan section 8, M6). React page `#/live` (`frontend/src/pages/Live.tsx`, branch `react-live-page`) over the L-1 API (polling, #372). Deleting `tabs/live_tab.py` still waits on the user's real-stream check (plan section 8).
 
-| ID | Feature | Source | Calls | Tests |
-|---|---|---|---|---|
-| LV01 | Stream URL, language, Whisper size, chunk length and overlap | 41-66 | — | test_live_tab TestOverlapSettingReachesTheStartButton |
-| LV02 | Engine and API key | 68-85 | `translate_engines.get_engine` | — |
-| LV03 | Start the live capture job (cookies from Settings) | 87-107 | `live_translate.run_live_job` | test_live_tab TestCookieSettingsReachTheStartButton |
-| LV04 | Queued: cancel, falling back to a real stop | 108-116 | `background_jobs.cancel_queued`, `live_translate.bump_generation` | test_live_tab TestQueuedJobCancelButton |
-| LV05 | Stop (discards chunks still in flight) | 117-127 | same | — |
-| LV06 | Feed of the latest 50 cues, refresh, error details | 129-149 | — | — |
+| ID | Feature | Source | Calls | Tests | React |
+|---|---|---|---|---|---|
+| LV01 | Stream URL, language, Whisper size, chunk length and overlap | 41-66 | — | test_live_tab TestOverlapSettingReachesTheStartButton | DONE: link, Language; Whisper, Chunk (s), Overlap (s) under Advanced (remembered per browser). e2e live.spec.ts |
+| LV02 | Engine and API key | 68-85 | `translate_engines.get_engine` | — | DONE: Engine picker lists engines with a key; keys are resolved server-side (no key field; add keys in Settings) |
+| LV03 | Start the live capture job (cookies from Settings) | 87-107 | `live_translate.run_live_job` | test_live_tab TestCookieSettingsReachTheStartButton | DONE: Start (POST /api/live/sessions, `media.import_url`), plus Stop after (min) and Use GPU. Cookies do not travel over the API (decision); a signed-in-only stream won't resolve |
+| LV04 | Queued: cancel, falling back to a real stop | 108-116 | `background_jobs.cancel_queued`, `live_translate.bump_generation` | test_live_tab TestQueuedJobCancelButton | DONE: Cancel while queued (the stop route does cancel_queued or a real stop) |
+| LV05 | Stop (discards chunks still in flight) | 117-127 | same | — | DONE: Stop (POST .../stop, `jobs.cancel`) |
+| LV06 | Feed of the latest 50 cues, refresh, error details | 129-149 | — | — | DONE: newest 50 lines, polled every 2 s (no Refresh button); error text is the service's cleaned message (no traceback over the API). Reopening the page shows the running or latest session |
 
-Known port fixes are recorded in plan section 8: `use_gpu`, a per-session temp dir, `max_minutes`, URL expiry, cookies over the API.
+Port fixes from plan section 8 are in `services/live_service.py` (`use_gpu`, a per-session temp dir, `max_minutes`); URL expiry still needs a restart to re-resolve.
 
 ## 11. Scanlate (`tabs/scanlate_tab.py`, 639 lines): DEFERRED
 
@@ -507,7 +507,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 | 1 | API key and endpoint entry in Settings (G06, X20, T07, D01, N03). Without it, paid engines only work after editing `.env` by hand. Endpoint URLs (Ollama, LibreTranslate, GPT-SoVITS) have no API | Settings | S (keys) / M (URLs) | part |
 | 2 | Edit-metadata form, including the series picker, custom tags and episode number/summary (P10, P11, X09) | Workspace preamble | S | yes |
 | 3 | Content-mode and transcript-mode pickers (S03, S08) | Source | S | yes |
-| 4 | Review media player: Range endpoint, seek, jump to time, play segment, row ▶, per-line clip (R02, R13, R22) | Review | L | no |
+| 4 | ~~Review media player: Range endpoint, seek, jump to time, play segment, row ▶, per-line clip (R02, R13, R22)~~ Done (`react-review-player`; burned-subtitle preview not ported) | Review | L | yes |
 | 5 | Line-structure UI: re-segment preview and apply, history restore, merge (R47, R48, R46) | Review | M | yes (merge: part) |
 | 6 | Character voice setup: clone engine, voice design, ref text, offline voice, voice-bank apply, custom pronouns (C06, C07, C10-C12, C14); ref clip upload and auto-extract (C09, C01) | Translate/Characters | M + M | yes / no |
 | 7 | New-drama form: credits, summary, series, preset (P06-P08) | Library | S | yes |
@@ -569,7 +569,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 7. Style guidance text (X04). S, no.
 
 **Workspace: Review**
-1. Media player and per-line audio (R02, R13, R22). L, no.
+1. ~~Media player and per-line audio (R02, R13, R22).~~ Done (`react-review-player`).
 2. Re-segment, merge, history restore (R47, R46, R48). M, yes.
 3. Read-only panels (R26, R27, R29, R34, R36, R20, R41, R44). S each, yes.
 4. SFX toggle (R14). S, yes.
@@ -605,5 +605,5 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 
 **Reader** (L; needs the Range endpoint): RD01-RD14.
 **Sources** (L; S-3..S-7): SO01-SO19, including the scheduler move in M0-b.
-**Discover** (M/L; D-2): DI01, DI04-DI09.
-**Live** (L; L-1): LV01-LV06.
+**Discover** (M/L; D-2): DI01, DI04-DI09. React page built (`react-discover-page`); left: DI07 pasted-text extraction (needs an API), DI08 in-app frame (replaced by a new tab).
+**Live** (L; L-1): LV01-LV06 built (React `#/live`, branch `react-live-page`); tab deletion waits on the real-stream check.

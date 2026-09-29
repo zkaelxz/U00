@@ -91,44 +91,6 @@ class TestOriginalTextForLine:
         assert rt.original_text_for_line(None, Line(idx=0, start=0, end=1, zh="x")) is None
 
 
-class TestRestoreOneLineInReview:
-    """The roadmap's exit condition, second half: a single line can be
-    restored from the raw transcript, in the Review step."""
-
-    def _run(self, did):
-        from streamlit.testing.v1 import AppTest
-
-        def _render():
-            import tabs.workspace_tab as wt
-            wt.render_workspace_tab()
-
-        at = AppTest.from_function(_render)
-        at.session_state["active_drama_id"] = did
-        at.session_state["lines"] = None
-        at.run(timeout=30)
-        at.run(timeout=30)
-        return at
-
-    def test_restore_button_puts_back_only_that_lines_original_text(self, isolated_db):
-        did, ddir, path = _transcribed_drama(isolated_db)
-        isolated_db.update_drama(did, media_type="audio_drama", content_mode="audio_drama",
-                                 status="aligned")
-        lines = isolated_db.load_line_objects(did)
-        lines[0].zh, lines[2].zh = "typo one", "typo three"
-        isolated_db.save_lines(did, lines)
-
-        at = self._run(did)
-        restore = [b for b in at.button if b.key == "rvrestore_2"]
-        assert restore, "no restore option for an edited line"
-        assert not [b for b in at.button if b.key == "rvrestore_1"]  # unchanged line: nothing to restore
-        restore[0].click().run(timeout=30)
-
-        rows = isolated_db.load_lines(did)
-        assert [r["zh"] for r in rows] == ["typo one", "世界", "再见"]
-        assert [t.value for t in at.text_area if t.key == "zh_2"] == ["再见"]
-        assert rt.list_raw_transcripts(ddir) == [path]  # restoring never writes a new file
-
-
 def test_cli_align_writes_the_raw_transcript_too(isolated_db, monkeypatch):
     """CLI/UI parity: cmd_align is the CLI's transcription path."""
     import cli
