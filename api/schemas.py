@@ -321,6 +321,7 @@ class DiarizationConfig(BaseModel):
     # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
     last_device: Optional[str] = None
     audio_available: bool
+    manual_speaker_count: int = 0   # parity D06: hand-corrected speakers
 
 
 class DiarizationRunResult(BaseModel):
