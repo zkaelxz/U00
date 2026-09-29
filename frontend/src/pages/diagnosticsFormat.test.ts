@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
-import { describeGpu, formatDuration, hasActiveJobs, splitDependencies } from './diagnosticsFormat'
+import {
+  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobStatusLine, splitDependencies,
+} from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
   job_id: 'j', status: 'done', progress: null, message: '', error: null, description: null,
@@ -28,6 +30,12 @@ describe('diagnosticsFormat', () => {
     expect(formatDuration(job({ finished_at: 142 }), 999)).toBe('42s')
     expect(formatDuration(job({}), 100 + 185)).toBe('3m 05s')
     expect(formatDuration(job({}), 100 + 3720)).toBe('1h 02m')
+  })
+  it('formats plain seconds and a job card line', () => {
+    expect(formatSeconds(-3)).toBe('0s')
+    expect(formatSeconds(65.7)).toBe('1m 05s')
+    expect(jobStatusLine(job({ status: 'running', progress: 0.4 }), 100 + 185)).toBe('Running 40% · 3m 05s')
+    expect(jobStatusLine(job({ status: 'error', progress: 0.4, finished_at: 110 }), 999)).toBe('Failed · 10s')
   })
   it('describes the GPU', () => {
     expect(describeGpu({ ...gpu, available: false })).toBe('No GPU detected.')
