@@ -7,6 +7,12 @@ at scale. Inspired by
 (ASR → translate → TTS dub / clone), scoped to this genre space, with a
 persistent filterable library for managing dozens of titles.
 
+It is a Python/Streamlit app (still the main UI, started with
+`streamlit run app.py`) with a headless CLI (`cli.py`). Alongside it, an
+experimental FastAPI service and React frontend are being built out
+stage by stage over the same library; see
+[Project status and architecture](#project-status-and-architecture).
+
 **Important:** this tool works on files you already have legal access
 to (audio/video you've downloaded or been given, novel text you own or
 have licensed). It does not scrape, download, or extract content from
@@ -15,6 +21,7 @@ URL you have the right to download from, only.
 
 ## Table of contents
 
+- [Project status and architecture](#project-status-and-architecture)
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -28,6 +35,42 @@ URL you have the right to download from, only.
 - [Testing & diagnostics](#testing--diagnostics)
 - [Code organization](#code-organization)
 - [Notes & tips](#notes--tips)
+
+## Project status and architecture
+
+*Verified against the repository on 2026-09-29.*
+
+- **Streamlit app (main UI, complete).** `app.py` plus `tabs/*.py`. This
+  is what `start.bat` / `streamlit run app.py` open, on port 8501, and
+  everything in this README describes it unless stated otherwise.
+- **FastAPI + React app (experimental, runs alongside).** A gradual
+  migration to an HTTP API (`api/`) and a React frontend (`frontend/`)
+  over the *same* library, database and background jobs. Nothing about
+  the Streamlit app changes because of it, and **no Streamlit screen has
+  been retired yet.** What works in React today: Library, Diagnostics,
+  Settings, the standalone Translate page, and the per-drama Workspace
+  stages Source, Translate, Review, Export and Dub. Everything else
+  (for example Reader, Discover, Live, Scanlate and Sources) is
+  Streamlit-only for now.
+- **Layers.** `db.py` (plain `sqlite3`) and the domain modules at the
+  repo root hold the logic; `services/` wraps them in UI-independent
+  functions; `api/` exposes those as HTTP routes; `frontend/` is the
+  React client and calls `/api`. `cli.py` and the Streamlit tabs use the
+  same underlying modules.
+- **Not a production deployment story yet.** FastAPI does not serve the
+  built `frontend/dist` today (no static-file mount in `api/`); React
+  runs from the Vite dev or preview server, which proxies `/api` to
+  FastAPI. Both are loopback-only with no login.
+
+Where to read more: [`FILE_ORGANIZATION.md`](FILE_ORGANIZATION.md) (file
+map), [`docs/README.md`](docs/README.md) (docs index),
+[`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md)
+(migration design), [`docs/migration-handoff.md`](docs/migration-handoff.md)
+(current status and queue),
+[`docs/migration-frontend-plan.md`](docs/migration-frontend-plan.md)
+(React phase plan) and
+[`docs/baihe-roadmap-master.md`](docs/baihe-roadmap-master.md) (bug
+tracker and to-do index).
 
 ## Features
 
@@ -129,8 +172,15 @@ run `make_shortcut.bat` once to create it). It creates the virtual
 environment and installs dependencies the first time, checks that
 ffmpeg/a JS runtime/CUDA are set up and tells you plainly if any of them
 aren't, then opens the app in its own window (Edge's app mode, falling
-back to Chrome or your default browser). Running it again just reopens
-the window if the app's already running. `uninstall.bat` removes the
+back to Chrome or your default browser). It starts the **Streamlit** app
+only, on port 8501 -- not the API or the React dev server (see
+[Running the API and the React frontend](#running-the-api-and-the-react-frontend)).
+Running it again just reopens the window if the app's already running.
+`start.ps1` is a PowerShell equivalent (`-Portable`, `-PythonVersion`),
+and `start.bat` also accepts `--portable`, `--server-only`, `--ci` and
+`--python-version 3.12` (or a `PYTHON_VERSION` marker file). It uses
+`constraints.lock.txt` instead of `constraints.txt` if you've made one
+with `make_lock.bat`. `uninstall.bat` removes the
 shortcut and virtual environment, and asks separately (defaulting to
 **no** each time) before it will touch your library or check your
 user-level PATH for ffmpeg/Tesseract entries you may have added by hand
@@ -144,8 +194,12 @@ just prefer the command line on Windows too.
 ### Prerequisites
 
 Python 3.9+ (3.10+ if you're using pyannote.audio 4.x for speaker
-diarization) and `ffmpeg` **with libass support** (needed for burning
-subtitles into video). Most standard `ffmpeg` builds already include it.
+diarization; CI and the cloud test setup use 3.11) and `ffmpeg` **with
+libass support** (needed for burning subtitles into video). Most
+standard `ffmpeg` builds already include it. Node.js is only needed for
+the experimental React frontend (22 is what CI uses). Optional system
+tools such as the Tesseract binary (for `pytesseract` OCR) are covered
+where each feature is described.
 
 ```bash
 # macOS
@@ -165,6 +219,7 @@ source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements-core.txt -c constraints.txt
 ```
 
+(`requirements-core.txt` also installs FastAPI and uvicorn for the API.)
 That's the minimum to launch the app and translate text — the same
 starting point `start.bat` installs on Windows. Add only what you'll
 actually use on top of it:
@@ -180,7 +235,14 @@ if you're not cloning voices, etc.; install just the lines you need
 instead of the whole file. The same picking is available with no
 typing at all from the Diagnostics tab's own Install buttons, once the
 app is running. If you'd rather install everything in one shot instead
-of picking, `requirements.txt` is those three files combined.
+of picking, `requirements.txt` is those three files combined (it also
+pulls in `pytest`, via `requirements-optional.txt`).
+
+**First run:** start the app, open **Settings** and add the API key for
+the translation engine you'll use (or pick `test_offline`, see below).
+Keys are read from a `.env` file next to `app.py` (copy `.env.example`
+to `.env`; it is excluded from version control) or from environment
+variables. Models such as Whisper download on first use.
 
 `-c constraints.txt` caps a handful of packages at major versions known
 not to have broken this app (that's exactly how pyannote 4 broke
@@ -246,8 +308,10 @@ first.
 
 **GUI:**
 ```bash
-streamlit run app.py
+streamlit run app.py     # from the repo root, inside the venv
 ```
+Streamlit serves on port 8501 by default (`start.bat` passes
+`--server.headless true --server.port 8501`).
 
 **CLI (headless batch):**
 ```bash
@@ -266,17 +330,32 @@ novel text at `library/dramas/<id>/novel_narration_source.txt` and set
 of this automatically when you use it — manual placement is only for
 adding dramas without ever opening the GUI).
 
-**HTTP API + React frontend (in progress, migration branch only).** The
-gradual move to FastAPI + React. It runs *alongside* the Streamlit app
-over the same library and currently offers a read-only Library view.
-Nothing above changes. FastAPI/uvicorn are in `requirements-core.txt`;
-the frontend needs Node.js 20+:
+### Running the API and the React frontend
+
+Experimental; runs *alongside* the Streamlit app over the same library
+(see [Project status and architecture](#project-status-and-architecture)
+for what works). FastAPI/uvicorn come with `requirements-core.txt`; the
+frontend needs Node.js (22 is what CI uses). Two terminals, from the
+repo root:
+
 ```bash
 BAIHE_API_ENV=development python -m api     # API on http://127.0.0.1:8600, docs at /api/docs
-cd frontend && npm install && npm run dev   # React on http://127.0.0.1:5173
+cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
 ```
-Loopback-only by default and no login, so don't expose it beyond a trusted
-network. See [`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md).
+
+- On Windows `cmd`, set the variable first (`set BAIHE_API_ENV=development`).
+- The API reads `BAIHE_API_HOST` (default `127.0.0.1`), `BAIHE_API_PORT`
+  (default `8600`), `BAIHE_API_ENV` (`development` or `production`,
+  default `production`; development enables auto-reload and CORS for the
+  Vite ports) and `BAIHE_API_CORS_ORIGINS` (see `api/api_config.py`).
+- The React app calls the relative path `/api`; the Vite dev server
+  (5173) and `npm run preview` (4173) proxy it to
+  `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if you set that.
+- `npm run build` produces `frontend/dist`, but FastAPI does not serve it
+  yet; use `npm run preview` to look at a build.
+- Loopback-only by default and no login. Setting `BAIHE_API_HOST=0.0.0.0`
+  exposes it, unauthenticated, to your network -- only on a network you
+  trust. See [`docs/migration-react-fastapi.md`](docs/migration-react-fastapi.md).
 
 ### Trying it for free first
 
@@ -1528,10 +1607,24 @@ an isolated temp database, so running them never touches your real
 library.
 
 ```bash
-pip install pytest      # if not already installed
-python run_tests.py     # run everything
+pip install -r requirements.txt  # includes pytest; or: pip install -r requirements-core.txt pytest
+python run_tests.py     # run everything (a wrapper around pytest, config in pytest.ini)
 python run_tests.py -k history   # run a subset
 ```
+
+If `tests/test_sources_mangaz.py`'s RSA tests fail with
+`ModuleNotFoundError: No module named '_cffi_backend'`, run
+`pip install cffi` (a missing dependency of `cryptography`, not an app
+bug). Tests are fully mocked: no GPU, models, API keys or network
+needed.
+
+Frontend checks, from `frontend/` after `npm ci`: `npm run lint`,
+`npm test` (vitest), `npm run build` (typecheck + bundle) and
+`npm run e2e` (Playwright against a seeded throwaway library; needs a
+browser from `npx playwright install chromium`, or set
+`PLAYWRIGHT_CHROMIUM_PATH` to an existing Chromium executable, and
+Python with `requirements-core.txt` installed). The e2e run uses ports
+8611 and 4174, so it can run beside a normal dev stack.
 
 Worth running after any change you make to the code, and useful for
 confirming a fresh install is working before you start real work.
@@ -1606,10 +1699,13 @@ around long-term as your reference set.
 ## Code organization
 
 `app.py` is a thin orchestrator; each tab's actual UI logic lives in
-`tabs/*.py` (`library_tab.py`, `workspace_tab.py`, `reader_tab.py`,
-`scanlate_tab.py`, `discover_tab.py`,
-`settings_tab.py`, `diagnostics_tab.py`), with shared imports
-centralized in `common.py`. If you're extending this yourself, that's
+`tabs/*.py` (`library_tab.py`, `workspace_tab.py`, `translate_tab.py`,
+`reader_tab.py`, `scanlate_tab.py`, `discover_tab.py`, `sources_tab.py`,
+`live_tab.py`, `settings_tab.py`, `diagnostics_tab.py`), with shared
+imports centralized in `common.py`. `services/`, `api/` and `frontend/`
+hold the API/React layers described under
+[Project status and architecture](#project-status-and-architecture);
+`FILE_ORGANIZATION.md` has the full file map. If you're extending this yourself, that's
 where to look. `docs/technical-notes.md` has a detailed log of bugs
 found and fixed during development, for anyone debugging or extending
 the codebase further.

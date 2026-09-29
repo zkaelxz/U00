@@ -1,0 +1,14 @@
+.stage-review { display: grid; gap: var(--space-4); }
+.review-lines { list-style: none; margin: 0; padding: 0; }
+.review-line { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
+.review-line-meta { font-size: 0.85rem; }
+.review-flag { color: var(--bad); font-size: 0.9rem; }
+.review-text { display: grid; gap: 4px; }
+.review-edit { display: grid; gap: 6px; margin-top: 6px; }
+.review-edit label { display: grid; gap: 2px; font-size: 0.9rem; }
+.review-edit textarea, .review-edit input { font: inherit; }
+.review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.review-pager { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+.review-matches { list-style: none; padding: 0; }
+.review-matches del { color: var(--bad); }
+.review-matches ins { color: var(--ok); text-decoration: none; }
