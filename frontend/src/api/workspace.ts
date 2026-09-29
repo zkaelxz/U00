@@ -56,8 +56,20 @@ export const updateTranscribeConfig = (id: number, update: TranscribeConfigUpdat
 export const startTranscribe = (id: number, req: TranscribeRunRequest, f?: Fetch) =>
   postJson<JobStarted>(`/api/transcribe/dramas/${id}/run`, req, f)
 
-export const startDiarization = (id: number, expectedSpeakers?: number | null, f?: Fetch) => {
-  const qs = expectedSpeakers == null ? '' : `?expected_speakers=${expectedSpeakers}`
+// Speaker-count hints for a diarization run: an exact count, or a min/max
+// range (Step 105). The server rejects a count combined with a range.
+export interface SpeakerHints {
+  expectedSpeakers?: number | null
+  minSpeakers?: number | null
+  maxSpeakers?: number | null
+}
+
+export const startDiarization = (id: number, hints: SpeakerHints = {}, f?: Fetch) => {
+  const params = new URLSearchParams()
+  if (hints.expectedSpeakers != null) params.set('expected_speakers', String(hints.expectedSpeakers))
+  if (hints.minSpeakers != null) params.set('min_speakers', String(hints.minSpeakers))
+  if (hints.maxSpeakers != null) params.set('max_speakers', String(hints.maxSpeakers))
+  const qs = params.toString() ? `?${params.toString()}` : ''
   return postJson<JobStarted>(`/api/diarization/dramas/${id}/run${qs}`, undefined, f)
 }
 

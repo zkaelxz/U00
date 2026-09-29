@@ -28,7 +28,9 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
   Migration Slice 24). Off: they return 403. On: they still refuse any
   request that looks remote (non-loopback peer/Host, proxy or identity
   headers, cross-origin) and need `confirm=true`. That is a safeguard,
-  not authentication -- see docs/migration-review.md.
+  not authentication -- see docs/migration-review.md. start.bat and
+  start.ps1 set it to 1 unless it is already set (2026-09-29), so an
+  explicit `0` opts out; `python -m api` run directly leaves it off.
 - `BAIHE_API_SERVE_FRONTEND` (`1`/`0`, default on) -- serve the built
   React app (`frontend/dist`) at `/` from the same process. Has no
   effect when `frontend/dist/index.html` doesn't exist (API only).
