@@ -425,6 +425,10 @@ ul.drama-cards.selecting > li { cursor: pointer; }
 .card-check .drama-card-title { min-height: 0; }
 .deletable-list { list-style: none; padding: 0 !important; }
 .deletable-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.deletable-list .row-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.rename-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); width: 100%; min-width: 0; }
+.rename-form .field-item { flex: 1 1 12rem; min-width: 0; }
+.rename-form .error { flex-basis: 100%; margin: 0; }
 .confirm-button { display: inline-flex; align-items: center; gap: var(--space-2); }
 .admin-block { display: grid; gap: var(--space-2); }
 .admin-block h3 { margin: 0; }

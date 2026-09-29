@@ -9,10 +9,12 @@ import type {
   LibraryDashboard,
   LibraryFilterOptions,
   LibraryHistoryResponse,
+  LibraryPreset,
   LibraryPresetsResponse,
   LibraryRecentResponse,
   LibrarySearchResponse,
   LibrarySeriesResponse,
+  LibraryVoice,
   LibraryVoiceBankResponse,
   ReadingHistoryClearResult,
 } from '../types/library'
@@ -36,7 +38,12 @@ export const clearReadingHistory = (f?: Fetch) =>
 export const getPresets = (f?: Fetch) => getJson<LibraryPresetsResponse>('/api/library/presets', f)
 export const getVoiceBank = (f?: Fetch) =>
   getJson<LibraryVoiceBankResponse>('/api/library/voice-bank', f)
-export const searchLines = (q: string, f?: Fetch) =>
+// Parity L18/L19: rename only (a duplicate preset name is a 409).
+export const renamePreset = (id: number, name: string, f?: Fetch) =>
+  postJson<LibraryPreset>(`/api/library/presets/${id}/rename`, { name }, f)
+export const renameVoiceBankEntry = (id: number, name: string, f?: Fetch) =>
+  postJson<LibraryVoice>(`/api/library/voice-bank/${id}/rename`, { name }, f)
+export const searchLines =(q: string, f?: Fetch) =>
   getJson<LibrarySearchResponse>(`/api/library/search?q=${encodeURIComponent(q)}`, f)
 
 export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
