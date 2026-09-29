@@ -1,4 +1,6 @@
 import type {
+  BulkCancelResult,
+  BulkJobList,
   BulkResumeResult,
   CharacterEntry,
   CloneEngines,
@@ -38,6 +40,10 @@ export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: F
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
 export const resumeBulkTranslations = (id: number, f?: Fetch) =>
   postJson<BulkResumeResult>(`/api/translate-run/dramas/${id}/bulk/resume`, {}, f)
+export const listBulkTranslations = (id: number, f?: Fetch) =>
+  getJson<BulkJobList>(`/api/translate-run/dramas/${id}/bulk`, f)
+export const cancelBulkTranslation = (id: number, bulkJobId: number, f?: Fetch) =>
+  postJson<BulkCancelResult>(`/api/translate-run/dramas/${id}/bulk/${bulkJobId}/cancel`, {}, f)
 
 export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)

@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
-import { getTranslateConfig, getTranslateEstimate, resumeBulkTranslations, startTranslateRun } from '../../../api/translateStage'
+import { getTranslateConfig, getTranslateEstimate, startTranslateRun } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { useJob, useJobRun } from '../../../hooks/useJob'
-import type { BulkResumeResult, TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
+import type { TranslateRunConfig, TranslateRunEstimate } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
 import {
   buildEstimateParams,
@@ -18,6 +18,7 @@ import {
   reflectAvailable,
   validateRun, type RunForm,
 } from '../translateForm'
+import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
 import { JobPanel } from './JobPanel'
@@ -76,8 +77,6 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
   const effEngine = f.engine || config.translation_engine
   const canReflect = reflectAvailable(effEngine) && !(f.bulk && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
-  const [resumed, setResumed] = useState<BulkResumeResult | null>(null)
-  const resume = () => resumeBulkTranslations(dramaId).then((r) => { setError(null); setResumed(r) }, setError)
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
 
   const runEstimate = () => {
@@ -209,18 +208,6 @@ function RunPanel({ config, onStarted, busy }: { config: TranslateRunConfig; onS
                 <input type="checkbox" checked={f.bulk} disabled={!canBulk && !f.bulk} onChange={(e) => set('bulk', e.target.checked)} />
               </Field>
             )}
-            {config.bulk_supported_engines.length > 0 && (
-              <>
-                <button type="button" className="link" onClick={resume}>Resume pending batches</button>
-                {resumed && (
-                  <span className="muted" data-testid="bulk-resume">
-                    {resumed.jobs.length === 0
-                      ? 'No pending batches.'
-                      : resumed.jobs.map((j) => `#${j.bulk_job_id} ${j.state}`).join(', ')}
-                  </span>
-                )}
-              </>
-            )}
           </div>
           <div className="advanced-wide check-row">
             <label className="inline">
@@ -280,6 +267,9 @@ export default function TranslateStage() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {config && <RunPanel config={config} busy={busy} onStarted={setJobId} />}
       {jobId && <JobPanel job={job} pollError={pollError} />}
+      {config && (
+        <BulkBatchesPanel supported={config.bulk_supported_engines.length > 0} reloadKey={reloads} />
+      )}
       <GlossaryPanel />
       <CharactersPanel />
     </div>
