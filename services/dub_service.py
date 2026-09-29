@@ -6,8 +6,8 @@ Streamlit Dub tab (`tabs/workspace_tab.py`'s `with tab_dub:` block, lines
 
 Migration Slice 25. Deliberately out of scope: the Generate job (Slice 26),
 voice/character CRUD (lives in the Translate tab, a separate slice),
-per-line preview/regenerate (a new feature), and downloading the track (a
-later binary-endpoint slice). Speakers and lines come from the database,
+per-line preview/regenerate (a new feature). Track download is Slice 53
+(`get_dub_track`). Speakers and lines come from the database,
 not the browser's unsaved session lines.
 
 No Streamlit or FastAPI import: plain dicts out. Nothing secret or
