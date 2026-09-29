@@ -31,3 +31,11 @@ Track each delegated task as `agent | scope/owned paths | status | blocker`. Sum
 - `react-page-builder`: one React page or panel against existing routes. The task packet gives the UX spec path if there is one, the routes and the screenshot output path.
 - `security-reviewer`: read-only. Needs the same inputs as `code-reviewer`. Run it before merging anything that adds routes or touches `api/auth.py`, URL fetching, file serving or keys.
 - `merge-integrator`: lands branches with `/merge-slice`. The task packet must say that merging is authorized, and give the branch order and each branch's stems and known doubts.
+- `security-auditor`: read-only audit of the whole system against `docs/remote-access-decision.md`. It is required before anyone other than the user gets access, and should be rerun after large auth or routing changes. `security-reviewer` covers a single diff.
+- `parity-auditor`: read-only drift report across the CLI, services and API, and React (and Streamlit, for reference). Run it before Streamlit deletions and after a batch of slices.
+- `bug-investigator`: reproduces a bug as an `xfail(strict=True)` test and gives the root cause at file:line. It edits `tests/` only and never fixes the bug; hand the fix to `implementer`.
+- `test-author`: writes tests only, independent of the implementer. It never changes product code, and a behaviour that doesn't match the spec becomes an `xfail(strict=True)` test plus a bug report.
+- `docs-steward`: brings `FILE_ORGANIZATION.md`, the migration docs' status lines and the route table up to date with the code, citing a PR or commit for each change. It edits docs only and reports code-side gaps.
+- `source-vetter`: vets a content source's ToS, robots.txt and technical posture with primary sources only, using web tools. It never builds adapters.
+
+Hook: `.claude/hooks/file-organization-check.py` (PostToolUse on Write) warns when a new top-level, `tabs/`, `services/` or `api/routers/` module isn't listed in `FILE_ORGANIZATION.md`. It only warns and never blocks.
