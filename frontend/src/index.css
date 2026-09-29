@@ -301,6 +301,13 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .stage-tabs { overflow-x: auto; flex-wrap: nowrap; scroll-snap-type: x proximity; scrollbar-width: thin; }
   .stage-tabs a { flex: 0 0 auto; scroll-snap-align: start; padding-inline: var(--space-2); white-space: nowrap; }
 }
+/* Library drama cards (phone layout of LibraryList) */
+ul.drama-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+ul.drama-cards > li { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
+ul.drama-cards > li.selected { border-color: var(--accent); }
+.drama-card-title { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; }
+.drama-card-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1); }
+.drama-card-meta button { margin-left: auto; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
