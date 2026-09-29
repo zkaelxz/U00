@@ -17,23 +17,23 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | ID | Sev | Where | Problem | Proposed fix | Step |
 |---|---|---|---|---|---|
 | B-01 | ~~L~~ | tests/test_api_foundation.py | ~~Recurring `database is locked` in `test_run_already_running_is_409` setup~~ **FIXED (#259)**: it was not a load flake but an order-dependent race (the previous test started a real job thread and returned without waiting) | Test now waits for the job to finish | done (F-11) |
-| B-02 | M | flag job (Slice 44 / tab) | The `flag` job can overwrite a manual flag change the user made while it runs (existing tab behaviour) | Scope write to lines whose flag is unchanged since start | 122 |
-| B-03 | M | chapter OCR (Slice 38) | Settings `tesseract_cmd` is not passed to OCR; a Windows install off PATH fails | Pass the setting through like Slice 21's hardsub path | 122 |
+| B-02 | ~~M~~ | flag job (Slice 44 / tab) | ~~The `flag` job can overwrite a manual flag change the user made while it runs (existing tab behaviour)~~ **FIXED (#276)** | Scope write to lines whose flag is unchanged since start | done (F-13) |
+| B-03 | ~~M~~ | chapter OCR (Slice 38) | ~~Settings `tesseract_cmd` is not passed to OCR; a Windows install off PATH fails~~ **FIXED (#276)** | Pass the setting through like Slice 21's hardsub path | done (F-14) |
 | B-04 | M | job cancel (Slice 22) | Cancelling a job whose owner process died sets a flag nobody reads; record stays "running" (existing no-resume limit) | Stale-job sweep using `db.list_job_records` staleness cutoff | 123 |
 | B-05 | L-M | thread jobs (audiobook, burned video, review jobs) | A thread job that never polls `is_cancel_requested` cannot be stopped; ffmpeg is not killed mid-run | Run ffmpeg via `Popen` with cooperative kill, or process jobs | 123 |
-| B-06 | M | fallback chain (Step 97b) | Switches engine on the first qualifying error with no backoff, so one rate-limit response moves the whole rest of the run | Retry the primary with backoff N times, then switch | 124 |
-| B-07 | M | metadata autofill (Slice 37) | Per-engine LLM call timeouts were not verified (project rule: every request has `timeout=`) | Audit engines used by `supports_reference`; extend `tests/test_static_analysis.py` to `services/` HTTP calls | 125 |
+| B-06 | ~~M~~ | fallback chain (Step 97b) | ~~Switches engine on the first qualifying error with no backoff, so one rate-limit response moves the whole rest of the run~~ **FIXED (#277)** | Retry the primary with backoff N times, then switch | done (F-15) |
+| B-07 | ~~M~~ | metadata autofill (Slice 37) | ~~Per-engine LLM call timeouts were not verified (project rule: every request has `timeout=`)~~ **FIXED (#278)** | Audit engines used by `supports_reference`; extend `tests/test_static_analysis.py` to `services/` HTTP calls | done (F-16) |
 | B-08 | L | metadata autofill (Slice 37) | SSRF check has a small DNS-rebinding gap between resolve and connect (documented) | Pin the resolved IP for the connection | 125 |
-| B-09 | L | media upload (Slice 31/32) | Accepts uploads for any drama type (Streamlit offers it only in the audio flow); video audio extraction (ffmpeg) runs synchronously in the request | Type check; move extraction into a job | 126 |
+| B-09 | L | media upload (Slice 31/32) | Accepts uploads for any drama type (Streamlit offers it only in the audio flow); video audio extraction (ffmpeg) runs synchronously in the request **Part 1 (type check) fixed in #286; part 2 (async extraction) still open.** | Type check; move extraction into a job | 126 |
 | B-10 | L (latent) | `cli.cmd_narrate_prep` | Zips speakers back to lines by position (violates the "match by id" rule); safe today because the list is built locally | Convert to the id-keyed pattern | 126 |
 | B-11 | L | export API vs Streamlit | API exports read saved DB lines; unsaved Streamlit session edits differ | Document; resolved when the tab retires | 132 |
-| B-12 | L | Slice 43 line edit | `expected` compare and write are two steps, not one atomic statement | Single conditional UPDATE in `db` | 126 |
+| B-12 | ~~L~~ | Slice 43 line edit | ~~`expected` compare and write are two steps, not one atomic statement~~ **FIXED (#291)** | Single conditional UPDATE in `db` | done (F-17) |
 | B-13 | L | Slice 49 | API diarization always merges with `overwrite_manual=False` (no confirm step); manual speakers never overwritten | Optional explicit `overwrite_manual` field later | 132 |
-| B-14 | M-L | drama delete (Slice 36) | If the folder cannot be fully removed the DB row is already gone (500, no paths) | Delete folder first (rename-then-delete) or record a tombstone; interacts with Step 43 soft-delete | 127 |
-| B-15 | L | video_export | `_escape_filter_path` does not escape `'`; safe only because paths come from `tempfile` | Escape or stop using the helper | 126 |
-| B-16 | L | Settings | `gemini_free_tier` is stored but nothing consumes it | Wire into `translate_engines.engine_picker_label` | 128 |
+| B-14 | ~~M-L~~ | drama delete (Slice 36) | ~~If the folder cannot be fully removed the DB row is already gone (500, no paths)~~ **FIXED (#286)** | Delete folder first (rename-then-delete) or record a tombstone; interacts with Step 43 soft-delete | done (F-18) |
+| B-15 | ~~L~~ | video_export | ~~`_escape_filter_path` does not escape `'`; safe only because paths come from `tempfile`~~ **FIXED (#291)** | Escape or stop using the helper | done (F-19) |
+| B-16 | ~~L~~ | Settings | ~~`gemini_free_tier` is stored but nothing consumes it~~ **FIXED (#286)** | Wire into `translate_engines.engine_picker_label` | done (F-20) |
 | B-17 | L | api CORS | `allow_methods=["GET"]` blocks cross-origin POST; the Vite proxy is the only supported dev path | Widen only if a cross-origin deployment is chosen | 131 |
-| B-18 | L | frontend `useJob` | Stops polling on any ApiError, including transient network/5xx | Retry with backoff | 131 |
+| B-18 | ~~L~~ | frontend `useJob` | ~~Stops polling on any ApiError, including transient network/5xx~~ **FIXED (#279)** | Retry with backoff | done (F-21) |
 | B-19 | L | code quality | Private helpers used across modules (`drama_service._job_running_for_drama`, `translate_service._resolve_api_key`, `media_inspect._run_ffprobe`) | Give them public names | 129 |
 | B-20 | L | code quality | The guideline-building block is duplicated across the workspace tab, CLI and `translate_run_service` | Shared builder (own step; touches CLI + tab) | 129 |
 | B-21 | L | docs drift | Stale statements: `drama_service` and Slice 35 docs say auto-fill is out of scope; `export_service` docstrings say audiobook/video are out of scope; transcribe docstrings and `FILE_ORGANIZATION.md` say `chunk_and_tag` is out of scope; Slice 40 docs say 422 where code returns 400; stub line `**Next candidates:** the` near line 876 of `docs/migration-review.md`; `TranscribeConfig` booleans overlap `MediaStatus` | One doc-only sweep | 130 |
@@ -56,6 +56,15 @@ Severity is a judgement (H/M/L). "Latent" = wrong only if a condition changes.
 | F-10 | Frontend F (#254) | `ErrorBanner` never prints a server message containing a path, key/token pattern, or over 200 characters |
 | F-11 | #259 | `test_run_starts_a_real_job_visible_in_jobs_api` returned while its real job thread was still writing; the thread's last DB write raced the next test's `init_db` and failed its fixture setup ("database is locked"), in two consecutive full-suite runs. Test now waits for the job |
 | F-12 | #262 | **Streamlit dub tab was broken since Step 26c (#161):** the tab passed `narrate_original`/`source_language` positionally to `dub.build_track_subprocess_worker`, but `background_jobs` appends the result queue LAST while the worker declares `result_queue` before those parameters, so the queue landed in the wrong slot and the job ended without a result. The tests' fake worker copied the wrong signature, hiding it. Fixed with keyword binding (`functools.partial`), fake worker corrected, regression tests added (found by the Step 95 builder) |
+| F-13 | B-02, #276 | flag job keeps a flag the user changed while it ran (compare-and-set against the job-start value) |
+| F-14 | B-03, #276 | `tesseract_cmd` is now passed through chapter OCR |
+| F-15 | B-06, #277 | fallback chain retries the primary with capped backoff on transient errors before switching |
+| F-16 | B-07, #278 | static timeout check extended to `services/`, `api/`, `sources/http.py`, `dictionary.py` (also `urlopen`, `session.request`); audit found no missing timeouts |
+| F-17 | B-12, #291 | line-edit compare-and-set is one conditional UPDATE (`db.update_line_fields_if`) |
+| F-18 | B-14, #286 | drama folder is renamed to a tombstone before the DB row is deleted, restored if the DB delete fails; a failed final removal is a logged warning, not a 500 |
+| F-19 | B-15, #291 | single quotes are escaped in the ffmpeg subtitles filter path |
+| F-20 | B-16, #286 | engine list labels now reflect the `gemini_free_tier` setting |
+| F-21 | B-18, #279 | `useJob` retries network errors and 5xx with capped backoff, surfaces after 5 consecutive failures; 4xx still stops |
 
 ## 4. To-do queue (in order)
 **Waiting on the user (cannot proceed):**
