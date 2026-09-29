@@ -34,7 +34,7 @@ import navigator
 import title_library
 import translate_engines
 from services import discover_catalog_service as _catalog
-from services import safe_fetch, settings_service
+from services import ownership_service, safe_fetch, settings_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError, RateLimitedError,
                                      UnsupportedOperationError)
@@ -218,9 +218,11 @@ def _start(job_id: str, label: str, target, *args) -> dict:
     return {"job_id": job_id, "started": True}
 
 
-def _job_result(job_id: str) -> dict:
+def _job_result(job_id: str, principal=None) -> dict:
+    """Another user's run of this shared job id is a 404 (auth B2)."""
     status = background_jobs.get_status(job_id)
-    if status is None:
+    if status is None or not ownership_service.can_see_job(principal, job_id,
+                                                           status.get("owner_user_id")):
         raise NotFoundError("No such job has run in this process.")
     return {"job_id": job_id, "status": status.get("status"),
             "progress": status.get("progress") or 0.0,
@@ -317,8 +319,8 @@ def bulk_extract(urls, source_label="", engine_name: Optional[str] = None) -> di
                   clean, source_label, engine)
 
 
-def bulk_extract_result() -> dict:
-    return _job_result(BULK_JOB_ID)
+def bulk_extract_result(principal=None) -> dict:
+    return _job_result(BULK_JOB_ID, principal)
 
 
 def bulk_commit(entries, source_label="") -> dict:
@@ -440,5 +442,5 @@ def navigation_help(url, goal, target_language="English",
                   url, goal, target_language, engine)
 
 
-def navigation_help_result() -> dict:
-    return _job_result(NAV_JOB_ID)
+def navigation_help_result(principal=None) -> dict:
+    return _job_result(NAV_JOB_ID, principal)
