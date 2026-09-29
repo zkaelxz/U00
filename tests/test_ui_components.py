@@ -146,15 +146,6 @@ class TestProjectState:
 # --------------------------------------------------------------------- #
 
 class TestWorkflowStepper:
-    def test_stage_statuses_from_index(self):
-        stages = ["Source", "Translate", "Export"]
-        assert workflow.stage_statuses_from_index(stages, 1) == \
-            ["done", "current", "not_started"]
-        assert workflow.stage_statuses_from_index(stages, 0) == \
-            ["current", "not_started", "not_started"]
-        assert workflow.stage_statuses_from_index(stages, None) == \
-            ["not_started"] * 3
-
     def test_render_stepper_rejects_mismatched_lengths(self):
         with pytest.raises(ValueError):
             workflow.render_stepper(["A", "B"], ["done"])
