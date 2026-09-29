@@ -9,7 +9,9 @@ import {
   buildRunBody,
   bulkAvailable,
   bulkReflectAvailable,
+  failedBatches,
   initialForm,
+  lineRanges,
   loadPresetStart,
   monthSpendText,
   parseCap,
@@ -264,7 +266,6 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
   })
 })
 
-
 describe('apply a saved preset (parity X03/X04)', () => {
   const c = {
     ...config,
@@ -311,5 +312,24 @@ describe('apply a saved preset (parity X03/X04)', () => {
   it('reads the style guidance text', () => {
     expect(styleGuidance(c, 'natural')).toBe('Sound natural.')
     expect(styleGuidance(c, 'wuxia')).toBe('')
+  })
+})
+
+describe('failed batches notice (X01)', () => {
+  it('summarises batches, 1-based lines and distinct reasons', () => {
+    const r = failedBatches([
+      { batch_index: 0, lines: [0, 1, 2], error: 'timeout' },
+      { batch_index: 3, lines: [8, 2], error: 'timeout' },
+      { batch_index: 4, lines: [11], error: 'blocked' },
+    ])
+    expect(r).toEqual({ batches: 3, lineNumbers: [1, 2, 3, 9, 12], reasons: ['timeout', 'blocked'] })
+    expect(lineRanges(r!.lineNumbers)).toBe('1-3, 9, 12')
+  })
+  it('is null for nothing and tolerates a malformed record', () => {
+    expect(failedBatches(null)).toBeNull()
+    expect(failedBatches([])).toBeNull()
+    expect(failedBatches({ lines: [1] })).toBeNull()
+    expect(failedBatches([null, 'x', { lines: ['a', -1, 1.5, 4] }])).toEqual({ batches: 3, lineNumbers: [5], reasons: [] })
+    expect(lineRanges([])).toBe('')
   })
 })

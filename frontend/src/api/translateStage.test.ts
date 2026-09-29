@@ -9,6 +9,8 @@ import {
   deleteGlossaryTerms,
   glossaryCsvUrl,
   importGlossary,
+
+  dismissTranslateErrors,
   getTranslateEstimate,
   listBulkTranslations,
   saveCharacter,
@@ -143,5 +145,15 @@ describe('workflow tier and preset writes', () => {
     }, f).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
     expect((err as ApiError).status).toBe(409)
+  })
+})
+
+describe('dismiss failed-batch notice (X01)', () => {
+  it('posts to the drama-scoped dismiss route', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const r = await dismissTranslateErrors(6, fakeFetch(200, { drama_id: 6, dismissed: true }, calls))
+    expect(r.dismissed).toBe(true)
+    expect(calls[0].url).toBe('/api/translate-run/dramas/6/errors/dismiss')
+    expect(calls[0].init?.method).toBe('POST')
   })
 })

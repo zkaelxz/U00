@@ -2881,6 +2881,13 @@ class WorkflowTierApply(BaseModel):
     tier: WorkflowTierKey
 
 
+class TranslateErrorsDismissed(BaseModel):
+    """X01: the last run's failed-batch notice is cleared; lines untouched.
+    `dismissed` is False when there was nothing to clear."""
+    drama_id: int
+    dismissed: bool
+
+
 class WorkflowTierApplied(BaseModel):
     """The tier's engine is saved on the drama; the rest is for the form.
     Nothing is started."""

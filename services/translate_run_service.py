@@ -661,6 +661,19 @@ def apply_translate_preset(drama_id: int, preset_id: int) -> dict:
     }
 
 
+def dismiss_translate_errors(drama_id: int) -> dict:
+    """tabs/workspace_tab.py "Dismiss this notice": clears only the drama's
+    persisted record of the last run's failed batches
+    (db.update_drama(last_translate_errors=None)); lines are untouched, so a
+    later "Translate all lines" still retries the missing ones. NotFoundError
+    for an unknown drama; `dismissed` is False when there was nothing to clear."""
+    drama = _require_drama(drama_id)
+    had = bool(drama.get("last_translate_errors"))
+    if had:
+        db.update_drama(drama_id, last_translate_errors=None)
+    return {"drama_id": drama_id, "dismissed": had}
+
+
 _PRESET_NAME_MAX = 100   # services/library_service._clean_name's limit
 
 
