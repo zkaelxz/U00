@@ -34,8 +34,9 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds):
+    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None):
         calls["out_dir"] = out_dir
+        calls["protocol_whitelist"] = protocol_whitelist
         p = FakeProc()
         calls["procs"].append(p)
         return p
@@ -133,12 +134,24 @@ def test_each_start_gets_own_session_and_dir(live, monkeypatch):
     seen = []
     monkeypatch.setattr(live_translate, "run_live_job",
                         lambda *a, **k: seen.append((a[0], a[2], os.path.isdir(a[2]))))
-    a, b = _start(), _start()
+    a = _start()
+    assert _terminal(a)   # one session at a time: the second starts after the first ends
+    b = _start()
     assert a != b and a.startswith("live_") and b.startswith("live_")
-    assert _terminal(a) and _terminal(b)
+    assert _terminal(b)
     assert {s[0] for s in seen} == {a, b}
     assert seen[0][1] != seen[1][1] and all(s[2] for s in seen)
     assert all(not os.path.exists(s[1]) for s in seen)  # removed on finish
+
+
+def test_second_start_while_one_runs_is_conflict(live):
+    from services.service_errors import ConflictError
+    a = _start()
+    assert _wait(lambda: "out_dir" in live)
+    with pytest.raises(ConflictError):
+        _start()
+    assert list(live_service._sessions) == [a]
+    assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
 
 
 def test_dir_removed_on_error_and_message_clean(live, monkeypatch):

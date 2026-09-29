@@ -25,13 +25,14 @@ import tempfile
 import threading
 import uuid
 from typing import Optional
+from urllib.parse import urlsplit
 
 import background_jobs
 import live_translate
 import translate_engines
 from services import metadata_service, settings_service, translate_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError, ServiceError)
+from services.service_errors import (ConflictError, DependencyUnavailableError,
+                                     InvalidInputError, NotFoundError, ServiceError)
 
 SOURCE_LANGUAGES = ("zh", "ja", "ko")
 WHISPER_SIZES = ("tiny", "base", "small", "medium")
@@ -40,6 +41,10 @@ OVERLAP_RANGE = (0, 8)
 MAX_MINUTES_RANGE = (1, 240)
 DEFAULT_MAX_MINUTES = 60
 MAX_SESSIONS = 32
+STREAMLIT_JOB_ID = "live_capture"
+# ffmpeg input protocols for a resolved live stream (HLS over https needs
+# tcp, tls and crypto for encrypted segments); no file, pipe, data, etc.
+FFMPEG_PROTOCOL_WHITELIST = "http,https,tcp,tls,crypto"
 
 _lock = threading.Lock()
 # session_id -> {"dir": str or None, "engine": str}
@@ -112,6 +117,43 @@ def _remove_dir(session_id: str):
         shutil.rmtree(path, ignore_errors=True)
 
 
+def _active_session_locked():
+    """The id of a session that is reserved, queued or running, or the
+    Streamlit tab's fixed `live_capture` job if it runs in this process;
+    else None. Call with _lock held."""
+    for sid, entry in _sessions.items():
+        if not entry.get("dir"):
+            continue    # finished: its job removed the directory
+        job = background_jobs.get_status(sid)
+        if job is None or job.get("status") in ("queued", "running"):
+            return sid
+    legacy = background_jobs.get_status(STREAMLIT_JOB_ID)
+    if legacy and legacy.get("status") in ("queued", "running"):
+        return STREAMLIT_JOB_ID
+    return None
+
+
+def check_stream_url(stream_url) -> None:
+    """Run on the direct stream URL yt-dlp resolved, before ffmpeg opens
+    it: http(s) only, no credentials, and a host whose every address is
+    public (metadata_service._check_public_url on scheme+host, since a
+    signed stream URL can be longer than that check's URL cap). The error
+    never echoes the URL, which can carry a signed token."""
+    bad = InvalidInputError("The stream address the site returned is not a public "
+                            "http(s) address, so it was not opened.")
+    try:
+        parts = urlsplit(stream_url if isinstance(stream_url, str) else "")
+        netloc = parts.netloc
+    except ValueError:
+        raise bad from None
+    if parts.scheme not in ("http", "https") or not netloc or "@" in netloc:
+        raise bad
+    try:
+        metadata_service._check_public_url(f"{parts.scheme}://{netloc}/")
+    except InvalidInputError:
+        raise bad from None
+
+
 def _make_target(session_id: str):
     def _target(*args, **kwargs):
         try:
@@ -158,7 +200,16 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     engine_name, eng = _build_engine(engine, model)
 
     _reap()
+    session_id = f"live_{uuid.uuid4().hex}"
+    out_dir = tempfile.mkdtemp(prefix="baihe_live_")
     with _lock:
+        # One session at a time (the Streamlit tab allowed exactly one):
+        # each holds the GPU and an engine for up to max_minutes. The
+        # check and the reservation share one lock hold, so two starts
+        # can't both pass.
+        if _active_session_locked() is not None:
+            shutil.rmtree(out_dir, ignore_errors=True)
+            raise ConflictError("A live session is already running. Stop it first.")
         if len(_sessions) >= MAX_SESSIONS:
             # Forget the oldest finished sessions (dicts keep insertion order).
             for sid in list(_sessions):
@@ -168,10 +219,6 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-
-    session_id = f"live_{uuid.uuid4().hex}"
-    out_dir = tempfile.mkdtemp(prefix="baihe_live_")
-    with _lock:
         _sessions[session_id] = {"dir": out_dir, "engine": engine_name}
     try:
         started = background_jobs.start_job(
@@ -179,6 +226,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
             session_id, url, out_dir, segment_seconds, source_language, whisper_size, eng,
             use_gpu=bool(use_gpu), overlap_seconds=overlap_seconds,
             max_seconds=max_minutes * 60,
+            stream_url_check=check_stream_url, protocol_whitelist=FFMPEG_PROTOCOL_WHITELIST,
             gpu_touching=True, description="Live capture (local Whisper)")
     except Exception:
         _remove_dir(session_id)

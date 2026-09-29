@@ -154,7 +154,8 @@ def test_auth_on_permissions(fake_live):
     assert r.status_code == 200
     sid = r.json()["session_id"]
     spender = _headers("media.import_url", "engines.paid", email="pay@example.com")
-    assert c.post("/api/live/sessions", json=paid, headers=spender).status_code == 200
+    # past the permission checks; refused only because one session is running
+    assert c.post("/api/live/sessions", json=paid, headers=spender).status_code == 409
     # reads: library.read; stop: jobs.cancel (both household defaults)
     assert c.get(f"/api/live/sessions/{sid}", headers=household).status_code == 200
     assert c.get("/api/live/sessions", headers=household).status_code == 200
@@ -163,3 +164,68 @@ def test_auth_on_permissions(fake_live):
     no_read = _headers(email="nr@example.com", revoke=("library.read",))
     assert c.get(f"/api/live/sessions/{sid}", headers=no_read).status_code == 403
     assert c.post(f"/api/live/sessions/{sid}/stop", headers=household).status_code == 200
+
+
+def test_one_session_at_a_time(client, fake_live):
+    body = {"url": URL, "engine": "test_offline"}
+    first = client.post("/api/live/sessions", json=body)
+    assert first.status_code == 200
+    for _ in range(3):
+        r = client.post("/api/live/sessions", json=body)
+        assert r.status_code == 409 and r.json()["error"]["code"] == "conflict"
+    assert len(live_service._sessions) == 1
+    sid = first.json()["session_id"]
+    client.post(f"/api/live/sessions/{sid}/stop")
+    assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["status"] == "cancelled")
+    assert _wait(lambda: client.post("/api/live/sessions", json=body).status_code == 200)
+
+
+def test_streamlit_capture_job_blocks_a_start(client, fake_live):
+    import threading
+    gate = threading.Event()
+    assert background_jobs.start_job("live_capture", lambda: gate.wait(5))
+    try:
+        r = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"})
+        assert r.status_code == 409
+    finally:
+        gate.set()
+        _wait(lambda: not background_jobs.is_running("live_capture"))
+
+
+def test_job_gets_stream_check_and_ffmpeg_whitelist(client, fake_live):
+    r = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"})
+    assert r.status_code == 200
+    assert _wait(lambda: "kw" in fake_live)
+    assert fake_live["kw"]["stream_url_check"] is live_service.check_stream_url
+    assert fake_live["kw"]["protocol_whitelist"] == "http,https,tcp,tls,crypto"
+
+
+@pytest.mark.parametrize("bad", ["file:///etc/passwd", "rtmp://example.com/live", "concat:a|b",
+                                 "http://user:pw@example.com/x", "https:///nohost", None, "",
+                                 "data:text/plain,x"])
+def test_stream_url_check_refuses_non_http(fake_live, bad):
+    with pytest.raises(live_service.InvalidInputError) as e:
+        live_service.check_stream_url(bad)
+    assert "etc/passwd" not in str(e.value) and "pw@" not in str(e.value)
+
+
+def test_stream_url_check_refuses_private_host_and_allows_long_public(fake_live, monkeypatch):
+    long_url = "https://manifest.googlevideo.com/api/manifest/hls_playlist/" + "x" * 4000
+    live_service.check_stream_url(long_url)
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [
+        (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 80))])
+    with pytest.raises(live_service.InvalidInputError) as e:
+        live_service.check_stream_url("http://metadata.example/latest?sig=SECRETSIG")
+    assert "SECRETSIG" not in str(e.value)
+
+
+def test_refused_stream_url_ends_the_job_without_leaking(client, fake_live, monkeypatch):
+    def fake_run(job_id, url, out_dir, *a, stream_url_check=None, **kw):
+        stream_url_check("file:///etc/passwd?token=" + SECRET)
+    monkeypatch.setattr(live_translate, "run_live_job", fake_run)
+    sid = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"}
+                      ).json()["session_id"]
+    assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["status"] == "error")
+    g = client.get(f"/api/live/sessions/{sid}")
+    assert "not a public" in g.json()["message"]
+    _no_leak(g, ("etc/passwd",))
