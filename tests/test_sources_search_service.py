@@ -14,7 +14,8 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 from sources import registry
 from sources.base import SourceAdapter
-from sources.http import PacingPolicy
+from sources.http import (PacingPolicy, ResponseRefused, ResponseTooLarge, ResponseTooSlow,
+                          UnsupportedEncoding)
 from sources.models import (ChallengeDetected, ChapterInfo, ContentHidden, FailureReason,
                             NotSupportedError, SearchResult, SeriesInfo, SourceUnavailable,
                             TermsProhibited)
@@ -195,6 +196,10 @@ def test_result_404_after_clear_and_for_foreign_ids(fakes):
      lambda d: d["reason"] == "TOS_PROHIBITED"),
     (ContentHidden("hidden"), UnsupportedOperationError, 400,
      lambda d: d["hint"] == "adult_toggle" and d["source"] == "alpha"),
+    (ResponseTooLarge(), InvalidInputError, 422, lambda d: d["reason"] == "RESPONSE_REFUSED"),
+    (UnsupportedEncoding(), InvalidInputError, 422, lambda d: d["reason"] == "RESPONSE_REFUSED"),
+    (ResponseTooSlow(), DependencyUnavailableError, 503,
+     lambda d: d["reason"] == "RESPONSE_REFUSED"),
 ])
 def test_series_exception_mapping(fakes, exc, cls, status, check):
     fakes["alpha"] = _make("alpha", series_exc=exc)
@@ -250,3 +255,44 @@ def test_known_chapter_ids_rejects_non_series(fakes):
         svc.known_chapter_ids({"kind": "series", "error": {"status": 503}})
     assert svc.known_chapter_ids({"kind": "series", "chapters": [
         {"chapter_id": "a"}, {"chapter_id": "a"}, {"chapter_id": ""}, {"chapter_id": "b"}]}) == ["a", "b"]
+
+
+def test_running_series_job_names_its_series(fakes):
+    """The series job id is per source, so a poll while it runs must say
+    which series it is for (ids only; no line text in the payload)."""
+    import threading
+    gate = threading.Event()
+    fakes["alpha"] = cls = _make("alpha")
+    orig = cls.get_series
+
+    def slow(self, series_id):
+        gate.wait(5)
+        return orig(self, series_id)
+
+    cls.get_series = slow
+    svc.start_series("alpha", "A")
+    try:
+        r = svc.get_job_result("sources_series_alpha")
+        assert r["status"] in ("running", "queued")
+        assert (r["source"], r["series_id"]) == ("alpha", "A")
+        assert r["result"] is None
+    finally:
+        gate.set()
+    _wait("sources_series_alpha")
+    done = svc.get_job_result("sources_series_alpha")
+    assert (done["source"], done["series_id"]) == ("alpha", "A")
+
+
+def test_search_job_has_no_series_identity(fakes):
+    fakes["alpha"] = _make("alpha", _ok_routes("alpha"))
+    svc.start_search("abc")
+    _wait("sources_search")
+    r = svc.get_job_result("sources_search")
+    assert "source" not in r and "series_id" not in r
+
+
+def test_refused_response_with_an_unmapped_status_is_a_500_not_a_keyerror():
+    exc = ResponseRefused("Refused.")
+    exc.status = 418
+    view = svc._error_view(exc, "alpha")
+    assert view["status"] == 500 and view["code"] == svc.ServiceError.code

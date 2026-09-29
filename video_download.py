@@ -26,6 +26,26 @@ class DownloadError(RuntimeError):
     clear message instead of yt-dlp's raw exception text."""
 
 
+class DownloadAborted(Exception):
+    """Raised by a caller's progress hook (passed in extra_opts) to stop a
+    download -- a size or time cap, or a cancel. download() re-raises it
+    as is, never wrapped in DownloadError, so the caller can tell why."""
+
+
+def _find_aborted(exc):
+    """The DownloadAborted behind `exc`, if any: yt-dlp may wrap an
+    exception raised in a hook (a DownloadError whose exc_info holds it)."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, DownloadAborted):
+            return exc
+        info = getattr(exc, "exc_info", None)
+        inner = info[1] if isinstance(info, tuple) and len(info) > 1 else None
+        exc = inner if isinstance(inner, BaseException) else (exc.__cause__ or exc.__context__)
+    return None
+
+
 # yt-dlp's own supported browser names for --cookies-from-browser.
 COOKIE_BROWSERS = ["chrome", "firefox", "edge", "brave", "opera", "vivaldi", "safari"]
 
@@ -46,7 +66,8 @@ def cookie_options(browser: str = None, cookies_file: str = None) -> dict:
 
 
 def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
-             title_cb=None, cookies_browser: str = None, cookies_file: str = None) -> str:
+             title_cb=None, cookies_browser: str = None, cookies_file: str = None,
+             extra_opts: dict = None) -> str:
     """Downloads `url` into `out_dir` and returns the path to the
     resulting file.
 
@@ -76,6 +97,10 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
     (see cookie_options()) for a site that blocks unauthenticated
     requests -- TikTok and Instagram in particular. Both default to
     None, the existing unauthenticated behavior.
+
+    extra_opts: yt-dlp options merged LAST (they win), except
+    "progress_hooks", which are appended after this function's own hook.
+    A hook may raise DownloadAborted to stop; it is re-raised unwrapped.
 
     Raises ImportError if yt-dlp isn't installed, or DownloadError (with
     the original exception chained) if the download/extraction itself
@@ -128,6 +153,10 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             "js_runtimes": js_runtimes,
         }
     ydl_opts.update(cookie_options(cookies_browser, cookies_file))
+    extra = dict(extra_opts or {})
+    extra_hooks = list(extra.pop("progress_hooks", None) or [])
+    ydl_opts.update(extra)
+    ydl_opts["progress_hooks"] = [_hook] + extra_hooks
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -136,6 +165,9 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             if title_cb and info.get("title"):
                 title_cb(info["title"])
     except Exception as exc:
+        aborted = _find_aborted(exc)
+        if aborted is not None:
+            raise aborted from None
         cookie_hint = ("" if (cookies_browser or cookies_file) else
                       " If the site needs you to be signed in (TikTok and Instagram "
                       "especially), turn on cookie-based login in Settings.")

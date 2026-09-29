@@ -278,6 +278,11 @@ class DiarizationConfig(BaseModel):
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
+    # Step 105: the speaker-count range the last run used, if any.
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
+    # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
+    last_device: Optional[str] = None
     audio_available: bool
 
 
@@ -398,6 +403,9 @@ class DubSpeaker(BaseModel):
     offline_voice: Optional[str] = None
     engine: str
     has_clone_ref: bool
+    # Voice-clone setup: why this speaker won't be cloned as configured
+    # (e.g. a clone engine with no clip or voice design falls back to plain TTS).
+    clone_warning: Optional[str] = None
 
 
 class DubDefaults(BaseModel):
@@ -606,6 +614,7 @@ class CharactersEntry(BaseModel):
     filename or path -- only the two booleans (D2)."""
     speaker_label: str
     character_name: str
+    voice_actor: str = ""
     pronouns: str
     tts_voice: str
     offline_voice: str
@@ -626,6 +635,7 @@ class CharactersUpdateRequest(BaseModel):
 
     speaker_label: str
     character_name: Optional[str] = None
+    voice_actor: Optional[str] = None
     pronouns: Optional[str] = None
     tts_voice: Optional[str] = None
     offline_voice: Optional[str] = None
@@ -2031,12 +2041,16 @@ class SourcesJobStarted(BaseModel):
 class SourcesJobResult(BaseModel):
     """`result` (only once done): search {kind, query, cancelled, results,
     errors, per_source_counts} or series {kind, source, series_id, info,
-    chapters}. URLs are scheme+host+path only; text is scrubbed."""
+    chapters}. URLs are scheme+host+path only; text is scrubbed. Series
+    jobs also carry `source` and `series_id` while queued/running, so a
+    page can tell which series the per-source run is for."""
     job_id: str
     status: Optional[str] = None
     progress: Optional[float] = None
     message: Optional[str] = None
     result: Optional[Dict[str, Any]] = None
+    source: Optional[str] = None
+    series_id: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -2762,6 +2776,7 @@ class TranslationVersionActivateResult(BaseModel):
     label: str
     activated: bool
     lines_changed: int
+    conflicts: list[int] = []  # line ids edited meanwhile; left as they were
 
 
 class BlockedRetryRequest(BaseModel):
@@ -2827,3 +2842,307 @@ class TranslatePresetSave(BaseModel):
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+# --- Step 44: job notifications (Discord / ntfy) ------------------------------
+
+NotificationChannel = Literal["discord", "ntfy"]
+NotificationOutcome = Literal["sent", "failed", "refused", "not_configured"]
+
+
+class NotificationStatus(BaseModel):
+    """Configured booleans only: never a webhook URL, host or topic."""
+    discord_configured: bool
+    ntfy_configured: bool
+    ntfy_allow_local: bool
+
+
+class NotificationChannelSetRequest(BaseModel):
+    """Write-only channel URL. `value` is a secret: never echoed back, and
+    validation errors never include it."""
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(..., repr=False)
+    confirm: StrictBool = False
+
+
+class NotificationChannelClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class NotificationChannelResult(BaseModel):
+    channel: NotificationChannel
+    configured: bool
+
+
+class NotificationTestResult(BaseModel):
+    results: Dict[NotificationChannel, NotificationOutcome]
+
+
+# ---------------------------------------------------------------------------
+# Sources S-4 chapter import (services/sources_import_service.py). Results
+# are read with GET /api/sources/jobs/{job_id}/result (SourcesJobResult).
+# ---------------------------------------------------------------------------
+
+from pydantic import StrictStr  # noqa: E402
+
+class SourcesChapterImportRequest(BaseModel):
+    """Chapter ids only: never chapter objects or URLs (the job re-fetches
+    the series' chapter list and keeps these ids). The drama must exist."""
+    model_config = ConfigDict(extra="forbid")
+    series_id: str = Field(min_length=1, max_length=200)
+    chapter_ids: List[StrictStr] = Field(min_length=1, max_length=200)
+    drama_id: int = Field(ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Sources S-5 paste-a-URL preview and novel import
+# (services/sources_url_service.py, services/sources_import_service.py).
+# Results are read with GET /api/sources/jobs/{job_id}/result.
+# ---------------------------------------------------------------------------
+
+class SourcesUrlPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+
+
+class SourcesUrlImportRequest(BaseModel):
+    """Novel text only (thin slice). The drama must be a novel drama."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    drama_id: int = Field(ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Workspace video-URL download (services/url_media_service.py); PC-only.
+# The job is read with GET /api/jobs/{job_id}.
+# ---------------------------------------------------------------------------
+
+class MediaUrlDownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    audio_only: StrictBool
+    confirm_replace_audio: StrictBool = False
+
+
+class MediaUrlDownloadStarted(BaseModel):
+    job_id: str
+
+# Voice-clone setup (parity audit blocker #7; inventory C01, C03, C09, C13):
+# services/voice_clone_service.py. No path, filename or URL anywhere.
+# ---------------------------------------------------------------------------
+
+class VoiceCloneExtractRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    max_candidates: int = Field(3, ge=1, le=5)
+
+
+class VoiceCloneJobStarted(BaseModel):
+    job_id: str
+
+
+class VoiceCloneCandidate(BaseModel):
+    """An opaque candidate id (for preview/choose), its time window in the
+    drama's audio and the transcript line matched to it ("" if none)."""
+    id: str
+    start: float
+    end: float
+    duration: float
+    ref_text: str
+
+
+class VoiceCloneSpeakerCandidates(BaseModel):
+    """skip_reason ("too_short", "too_long", "no_segments") and
+    closest_duration explain an extraction that found nothing."""
+    speaker_label: str
+    candidates: List[VoiceCloneCandidate]
+    skip_reason: Optional[str] = None
+    closest_duration: Optional[float] = None
+
+
+class VoiceCloneCandidates(BaseModel):
+    drama_id: int
+    speakers: List[VoiceCloneSpeakerCandidates]
+
+
+class VoiceCloneRemoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    confirm: StrictBool = False
+
+
+class VoiceCloneBankSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=200)
+    notes: str = Field("", max_length=1000)
+
+
+class VoiceCloneSeriesLinkRequest(BaseModel):
+    """series_character_id is required; null unlinks."""
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+    series_character_id: Optional[int] = Field(..., ge=1, le=2147483647)
+
+# Parity X15-X17: add and edit a series' people
+# (services/series_people_service.py). Responses reuse CharactersSeriesEntry.
+# ---------------------------------------------------------------------------
+
+class SeriesPersonCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    character_name: str = Field(max_length=200)
+    pronouns: str = Field("", max_length=40)
+    aliases: str = Field("", max_length=1000)
+    notes: str = Field("", max_length=2000)
+
+
+class SeriesPersonUpdate(BaseModel):
+    """Omitted (or null) leaves a field alone; "" clears it
+    (character_name can't be blank)."""
+    model_config = ConfigDict(extra="forbid")
+    character_name: Optional[str] = Field(None, max_length=200)
+    pronouns: Optional[str] = Field(None, max_length=40)
+    aliases: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+# ---------------------------------------------------------------------------
+# Report a problem (services/bug_report_service.py): the React header's
+# "Report a problem" dialog. The report is sent as the multipart field
+# `report` (JSON matching BugReportClient, max 256 KB) plus an optional
+# `screenshot` file (PNG/JPEG, max 5 MB). Client buffers carry no request
+# or response bodies, headers, cookies or line text.
+# ---------------------------------------------------------------------------
+
+class BugReportRouteVisit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    route: str = Field(max_length=300)
+    at: Optional[str] = Field(None, max_length=40)
+
+
+class BugReportConsoleEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    level: Literal["error", "warn"]
+    message: str = Field(max_length=2000)
+    at: Optional[str] = Field(None, max_length=40)
+
+
+class BugReportErrorEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["error", "unhandledrejection"]
+    message: str = Field(max_length=2000)
+    source: Optional[str] = Field(None, max_length=500)
+    at: Optional[str] = Field(None, max_length=40)
+
+
+class BugReportFailedRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    method: str = Field(max_length=10)
+    path: str = Field(max_length=500)
+    status: int = Field(ge=0, le=999)
+    code: Optional[str] = Field(None, max_length=80)
+    at: Optional[str] = Field(None, max_length=40)
+
+
+class BugReportViewport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    width: int = Field(ge=0, le=100000)
+    height: int = Field(ge=0, le=100000)
+    dpr: Optional[float] = Field(None, ge=0, le=20)
+
+
+class BugReportClient(BaseModel):
+    """What the browser sends. Lists are the capture module's ring buffers."""
+    model_config = ConfigDict(extra="forbid")
+    what_happened: str = Field(min_length=1, max_length=5000)
+    expected: str = Field("", max_length=5000)
+    include_server_log: StrictBool = True
+    route: str = Field("", max_length=300)
+    route_history: List[BugReportRouteVisit] = Field(default_factory=list, max_length=10)
+    console: List[BugReportConsoleEntry] = Field(default_factory=list, max_length=30)
+    errors: List[BugReportErrorEntry] = Field(default_factory=list, max_length=30)
+    failed_requests: List[BugReportFailedRequest] = Field(default_factory=list, max_length=30)
+    app_version: str = Field("", max_length=60)
+    api_version: str = Field("", max_length=60)
+    environment: str = Field("", max_length=60)
+    build_id: str = Field("", max_length=120)
+    user_agent: str = Field("", max_length=500)
+    viewport: Optional[BugReportViewport] = None
+    mode: Literal["pc", "lan", "remote", "unknown"] = "unknown"
+
+
+class BugReportSaved(BaseModel):
+    """`markdown` (for Copy report) includes the server section (commit,
+    setup, log tail) only for a caller holding admin.diagnostics; it is
+    always saved on the PC. `issue_markdown`, `what_happened`, `expected`
+    and `title` are the server-scrubbed texts for the public GitHub issue
+    link, which never carries the server section."""
+    id: int
+    stamp: str
+    markdown: str
+    issue_markdown: str
+    what_happened: str
+    expected: str
+    title: str
+
+
+class BugReportText(BaseModel):
+    """One saved report's markdown (with the server section)."""
+    id: int
+    stamp: str
+    markdown: str
+
+
+class BugReportDeleteConfirm(BaseModel):
+    """PC-only delete: `stamp` is the folder stamp from the list, so a stale
+    list can't delete a different report."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    stamp: str = Field(pattern=r"^\d{8}T\d{6}Z$")
+
+
+class BugReportListItem(BaseModel):
+    id: int
+    stamp: str
+    created_at: Optional[str] = None
+    summary: str
+    route: Optional[str] = None
+    mode: Optional[str] = None
+    has_screenshot: bool
+    has_server_log: bool
+
+
+class BugReportDeleted(BaseModel):
+    id: int
+    deleted: bool
+
+
+# ---------------------------------------------------------------------------
+# Novel files (parity audit B1 #3/#4): the English novel translation
+# reference and the raw original-language novel. Booleans and counts only;
+# no filename or path is ever returned.
+# ---------------------------------------------------------------------------
+
+class NovelFileStatus(BaseModel):
+    drama_id: int
+    present: bool
+    size_bytes: int
+    char_count: int
+
+
+class NovelFileUploadResult(NovelFileStatus):
+    replaced: bool
+
+
+class NovelReferenceRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    present: bool
+
+
+class NovelFileTextRequest(BaseModel):
+    """Pasted text for the novel reference or raw novel. The route reads
+    the body itself, capped at 32 MB, before this is validated."""
+    model_config = ConfigDict(extra="forbid")
+    text: str

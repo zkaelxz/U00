@@ -53,6 +53,19 @@ async function openSection(page: Page, title: string) {
   await page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }).first().click()
 }
 
+test('Use this version reports lines edited meanwhile as kept', async ({ page }) => {
+  await page.route('**/api/review/dramas/3/versions/*/activate', (route) =>
+    route.fulfill({ json: { drama_id: 3, version_id: 1, label: 'Earlier pass', activated: true,
+                            lines_changed: 1, conflicts: [11, 12] } }))
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page)).toHaveCount(3)
+  await openSection(page, 'Records')
+  const list = page.getByTestId('versions-list')
+  await list.getByRole('button', { name: 'Use this version Earlier pass', exact: true }).click()
+  await list.getByRole('button', { name: 'Confirm: replace the English with Earlier pass' }).click()
+  await expect(page.getByTestId('activate-status')).toContainText('2 lines were edited meanwhile and kept.')
+})
+
 test('Use this version: two steps, then the English is replaced and the list reloads', async ({ page }) => {
   let calls = 0
   page.on('request', (r) => {

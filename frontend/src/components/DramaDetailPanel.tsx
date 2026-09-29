@@ -4,6 +4,7 @@ import { api, ApiError } from '../api/client'
 import { deleteDrama } from '../api/library'
 import type { DramaDetail } from '../api/types'
 import type { DramaDeleteResult } from '../types/library'
+import { isComicType } from '../pages/comic/comicLogic'
 import { canConfirmDelete } from '../pages/libraryForm'
 import { routeHref } from '../router'
 import { ErrorBanner } from './ErrorBanner'
@@ -84,7 +85,7 @@ export function DramaDetailPanel({ dramaId, onDeleted, deleteNote }: Props) {
           ))}
       </dl>
       <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Open workspace</a>
-      {' · '}<a href={routeHref({ name: 'read', id: dramaId, page: null })}>Read</a>
+      {' · '}<a href={routeHref({ name: isComicType(drama.media_type) ? 'comic' : 'read', id: dramaId, page: null })}>Read</a>
       {!onDeleted && deleteNote && <p className="muted">{deleteNote}</p>}
       {onDeleted && !confirming && (
         <button type="button" className="danger" onClick={() => setConfirming(true)}>

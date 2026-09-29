@@ -140,6 +140,8 @@ export interface GlossaryCatalogues {
 export interface CharacterEntry {
   speaker_label: string
   character_name: string
+  // Optional: older mocks and servers may omit it.
+  voice_actor?: string
   pronouns: string
   tts_voice: string
   offline_voice: string
@@ -155,6 +157,7 @@ export interface CharacterEntry {
 export interface CharacterUpdate {
   speaker_label: string
   character_name?: string
+  voice_actor?: string
   pronouns?: string
   tts_voice?: string
   offline_voice?: string

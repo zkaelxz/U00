@@ -9,6 +9,7 @@ import type {
   HealthResponse,
   MetaResponse,
 } from './types'
+import { recordFailedRequest } from '../report/capture'
 
 // Relative by default: the Vite dev/preview proxy (vite.config.ts) or a
 // same-origin deployment forwards /api to FastAPI. VITE_API_BASE_URL is
@@ -97,6 +98,7 @@ async function send(path: string, init: RequestInit, fetchImpl: Fetch): Promise<
   try {
     resp = await fetchImpl(`${BASE}${path}`, withCsrf(init))
   } catch {
+    recordFailedRequest(init.method ?? 'GET', path, 0, 'network_error')
     throw new ApiError(0, {
       code: 'network_error',
       message: 'Could not reach the Baihe API. Is it running?',
@@ -106,8 +108,11 @@ async function send(path: string, init: RequestInit, fetchImpl: Fetch): Promise<
   return resp
 }
 
-function failure(status: number, body: unknown): ApiError {
+// Records the failure for "Report a problem" (method, path without query,
+// status and code only: never bodies or headers) and returns the error.
+function failure(method: string | undefined, path: string, status: number, body: unknown): ApiError {
   const info = (body as { error?: ErrorInfo } | null)?.error
+  recordFailedRequest(method ?? 'GET', path, status, info?.code ?? 'internal_error')
   return new ApiError(status, info ?? { code: 'internal_error', message: `Request failed (${status}).` })
 }
 
@@ -119,7 +124,7 @@ async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Pr
   } catch {
     // Non-JSON body (e.g. a proxy's own error page) -- handled below.
   }
-  if (!resp.ok) throw failure(resp.status, body)
+  if (!resp.ok) throw failure(init.method, path, resp.status, body)
   return body as T
 }
 
@@ -145,12 +150,23 @@ export async function fetchBody<T>(
     } catch {
       // not JSON
     }
-    throw failure(resp.status, body)
+    throw failure(init.method, path, resp.status, body)
   }
   return read(resp)
 }
 
 const JSON_ACCEPT = { Accept: 'application/json' }
+
+// A fetch that aborts with `signal`, for api functions that take a Fetch.
+export function withSignal(signal: AbortSignal, fetchImpl: Fetch = fetch): Fetch {
+  return (input, init) => fetchImpl(input, { ...init, signal })
+}
+
+// HEAD status of a full API URL (no body read; a 401 here is reported, not
+// treated as signed out). A network failure throws.
+export async function headStatus(url: string, fetchImpl: Fetch = fetch): Promise<number> {
+  return (await fetchImpl(url, { method: 'HEAD' })).status
+}
 
 export function getJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
   return request<T>(path, { headers: JSON_ACCEPT }, fetchImpl)

@@ -79,7 +79,34 @@ def _check_dependencies():
             f"Word-level realignment needs: pip install {exc.name}") from exc
 
 
-def align_words(audio_path: str, words: list, device: str = "cpu"):
+class _LoadedAligner:
+    """The MMS_FA model plus its tokenizer/aligner/uromanizer, loaded once
+    and reused across every oversized segment in one realignment run
+    (Step 102) -- reloading the model per segment was real, avoidable
+    latency and memory churn on audio with several long segments."""
+
+    def __init__(self, bundle, model, tokenizer, aligner, uromanizer, device):
+        self.bundle = bundle
+        self.model = model
+        self.tokenizer = tokenizer
+        self.aligner = aligner
+        self.uromanizer = uromanizer
+        self.device = device
+
+
+def load_aligner(device: str = "cpu") -> _LoadedAligner:
+    """Loads the MMS forced-alignment model once. Pass the result to
+    align_words()/realign_long_segment() as `aligner=` to reuse it."""
+    import torchaudio
+    import uroman as ur
+
+    bundle = torchaudio.pipelines.MMS_FA
+    return _LoadedAligner(bundle, bundle.get_model().to(device), bundle.get_tokenizer(),
+                          bundle.get_aligner(), ur.Uroman(), device)
+
+
+def align_words(audio_path: str, words: list, device: str = "cpu",
+                aligner: "_LoadedAligner | None" = None):
     """
     Aligns a list of already-segmented words against their own audio,
     using Meta's MMS forced-alignment model. Returns [(word, start, end),
@@ -102,14 +129,14 @@ def align_words(audio_path: str, words: list, device: str = "cpu"):
     """
     import torch
     import torchaudio
-    import uroman as ur
     import soundfile as sf
 
-    bundle = torchaudio.pipelines.MMS_FA
-    model = bundle.get_model().to(device)
-    tokenizer = bundle.get_tokenizer()
-    aligner = bundle.get_aligner()
-    uromanizer = ur.Uroman()
+    loaded = aligner if aligner is not None else load_aligner(device)
+    device = loaded.device
+    bundle = loaded.bundle
+    model = loaded.model
+    tokenizer = loaded.tokenizer
+    uromanizer = loaded.uromanizer
 
     waveform, sr = sf.read(audio_path, dtype="float32", always_2d=True)
     waveform = torch.from_numpy(waveform.T)  # (frames, channels) -> (channels, frames)
@@ -120,7 +147,7 @@ def align_words(audio_path: str, words: list, device: str = "cpu"):
     with torch.inference_mode():
         emission, _ = model(waveform.to(device))
     tokens = tokenizer(romanized)
-    token_spans = aligner(emission[0], tokens)
+    token_spans = loaded.aligner(emission[0], tokens)
 
     num_frames = emission.shape[1]
     ratio = waveform.shape[1] / num_frames / bundle.sample_rate
@@ -167,7 +194,8 @@ def _group_aligned_words_into_lines(aligned_words, offset: float, min_pause_seco
 
 def realign_long_segment(audio_path: str, segment: dict, language: str,
                           chinese_script: str = "simplified",
-                          min_pause_seconds: float = 0.6, device: str = "cpu"):
+                          min_pause_seconds: float = 0.6, device: str = "cpu",
+                          aligner: "_LoadedAligner | None" = None):
     """
     Re-splits ONE oversized/VAD-merged Whisper segment into multiple
     correctly-timed lines, using MMS word-level alignment against that
@@ -197,7 +225,10 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     try:
         import core as core_module
         core_module.extract_audio_slice(audio_path, segment["start"], segment["end"], slice_path)
-        aligned = align_words(slice_path, words, device=device)
+        if aligner is not None:
+            aligned = align_words(slice_path, words, device=device, aligner=aligner)
+        else:
+            aligned = align_words(slice_path, words, device=device)
     except Exception as exc:
         import applog
         applog.get_logger().error(
@@ -230,12 +261,26 @@ def realign_oversized_segments(segments, audio_path: str, language: str,
     """
     _check_dependencies()
     out = []
+    loaded = None  # loaded lazily on the first oversized segment, then reused (Step 102)
+    load_failed = False
     for seg in segments:
         duration = seg["end"] - seg["start"]
-        if duration >= min_duration_to_realign and (seg.get("text") or "").strip():
+        if (not load_failed and duration >= min_duration_to_realign
+                and (seg.get("text") or "").strip()):
+            if loaded is None:
+                try:
+                    loaded = load_aligner(device)
+                except Exception as exc:
+                    import applog
+                    applog.get_logger().error(
+                        f"word-level realignment model failed to load, keeping every "
+                        f"segment unsplit: {exc}")
+                    load_failed = True
+                    out.append(seg)
+                    continue
             out.extend(realign_long_segment(
                 audio_path, seg, language, chinese_script=chinese_script,
-                min_pause_seconds=min_pause_seconds, device=device))
+                min_pause_seconds=min_pause_seconds, device=device, aligner=loaded))
         else:
             out.append(seg)
     return out

@@ -76,6 +76,14 @@ if not defined PYTHON_VERSION if exist PYTHON_VERSION (
 
 REM Loopback only until the API has authentication -- never 0.0.0.0.
 set BAIHE_API_HOST=127.0.0.1
+REM Turn on the PC-only API-key form in Settings (decided 2026-09-29).
+REM Key writes are still refused unless the request comes from this PC
+REM itself (loopback peer and Host, no proxy headers, and Origin, if sent,
+REM is loopback;
+REM api/routers/settings_routes.py:_require_local_admin). Keys go to .env
+REM and their values are never returned. Set BAIHE_API_ALLOW_KEY_WRITES=0
+REM before running this script to opt out.
+if not defined BAIHE_API_ALLOW_KEY_WRITES set BAIHE_API_ALLOW_KEY_WRITES=1
 if not defined BAIHE_API_PORT set BAIHE_API_PORT=8600
 set PORT=%BAIHE_API_PORT%
 set "APP_URL=http://127.0.0.1:%PORT%/"
@@ -151,7 +159,7 @@ REM package still imports fine but something else is missing used to
 REM make this skip the install step entirely and fail later with a much
 REM less clear error (Step 53). Keep this import list in sync with
 REM requirements-core.txt's own packages.
-%PY% -c "import streamlit, pandas, requests, bs4, anthropic, fastapi, multipart, uvicorn" >nul 2>nul
+%PY% -c "import streamlit, pandas, requests, urllib3, bs4, anthropic, fastapi, multipart, uvicorn; assert tuple(int(x) for x in urllib3.__version__.split('.')[:2]) >= (2, 6)" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies -- this can take a few minutes the first time...
     if exist constraints.lock.txt (

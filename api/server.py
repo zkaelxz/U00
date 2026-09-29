@@ -32,8 +32,11 @@ from api.auth import (EarlyAuthGate, LocalOnlyCrossSiteGate, LoopbackOnlyGate, l
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
+    auth_routes,
     blocked_retry_routes,
+    bug_report_routes,
     characters_routes,
+    comic_routes,
     delete_routes,
     diagnostics_gaps_routes,
     diagnostics_routes,
@@ -54,21 +57,26 @@ from api.routers import (
     media_routes,
     metadata_routes,
     narration_routes,
+    notification_routes,
+    novel_files_routes,
     novel_routes,
     reader_routes,
     restructure_routes,
     review_jobs_routes,
     review_lines_routes,
     review_records_routes,
+    series_people_routes,
     settings_routes,
     source_routes,
     sources_catalog_routes,
+    sources_import_routes,
     sources_search_routes,
     system_routes,
     transcribe_routes,
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    voice_clone_routes,
     workflow_routes,
 )
 from api.schemas import API_VERSION
@@ -170,12 +178,20 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(live_routes.router)
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
+    app.include_router(sources_import_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
     app.include_router(extension_routes.router)
     app.include_router(library_admin_routes.router)
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
+    app.include_router(notification_routes.router)
+    app.include_router(comic_routes.router)
+    app.include_router(series_people_routes.router)
+    app.include_router(auth_routes.router)
+    app.include_router(voice_clone_routes.router)
+    app.include_router(bug_report_routes.router)
+    app.include_router(novel_files_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

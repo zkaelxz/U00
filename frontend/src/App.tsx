@@ -4,6 +4,8 @@ import type { AuthUser } from './api/auth'
 import { api } from './api/client'
 import type { MetaResponse } from './api/types'
 import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
+import { RouteErrorBoundary } from './components/ErrorBoundary'
+import ComicPage from './pages/Comic'
 import DiagnosticsPage from './pages/Diagnostics'
 import LibraryPage from './pages/Library'
 import LoginPage from './pages/Login'
@@ -13,6 +15,7 @@ import SourcesPage from './pages/Sources'
 import TranslatePage from './pages/Translate'
 import WorkspaceShell from './pages/workspace/WorkspaceShell'
 import './pages/login.css'
+import { ReportProblemButton } from './report/ReportProblem'
 import { routeHref, useRoute } from './router'
 import type { Route } from './router'
 
@@ -93,7 +96,7 @@ function UserMenu({ user }: { user: AuthUser }) {
 
 // [label, target, route names that count as being on this page]
 const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'drama', 'read']],
+  ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
   ['Translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
   ['Settings', { name: 'settings' }, ['settings']],
@@ -133,17 +136,22 @@ export default function App() {
           ))}
         </nav>
         <div className="header-end">
+          <ReportProblemButton />
           <ApiStatus />
           {user && <UserMenu user={user} />}
         </div>
       </header>
-      {route.name === 'library' && <LibraryPage />}
-      {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
-      {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
-      {route.name === 'settings' && <SettingsPage />}
-      {route.name === 'translate' && <TranslatePage />}
-      {route.name === 'sources' && <SourcesPage />}
-      {route.name === 'diagnostics' && <DiagnosticsPage />}
+      {/* Header and nav stay outside the boundary so a crashed page can still be left. */}
+      <RouteErrorBoundary>
+        {route.name === 'library' && <LibraryPage />}
+        {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
+        {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
+        {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
+        {route.name === 'settings' && <SettingsPage />}
+        {route.name === 'translate' && <TranslatePage />}
+        {route.name === 'sources' && <SourcesPage />}
+        {route.name === 'diagnostics' && <DiagnosticsPage />}
+      </RouteErrorBoundary>
     </>
   )
 }

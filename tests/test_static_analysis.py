@@ -544,6 +544,24 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_url_import_modules(self):
+        # Sources S-4/S-5 and the URL download: the modules those routes
+        # reach outside services/ and api/.
+        for name in ("video_download.py", "sources/pipeline.py", "sources/front_door.py",
+                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py"):
+            problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
+            assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
+
+    def test_notification_service(self):
+        # Step 44: the Discord/ntfy push runs from a timer thread after a
+        # job ends; a hung webhook must never hold it (Session.post checked).
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "services", "notification_service.py"), session_verbs=True)
+        assert problems == [], f"call(s) missing timeout= at line(s): {problems}"
+        src = open(os.path.join(PROJECT_ROOT, "services", "notification_service.py"),
+                   encoding="utf-8").read()
+        assert "session.post(" in src, "the timeout check no longer sees the send call"
+
     def test_services_and_api_packages(self):
         # B-07: the FastAPI layer's services/ (metadata autofill's page
         # fetch, etc.) and api/ must never make an untimed HTTP call.
@@ -554,6 +572,59 @@ class TestHttpCallsHaveTimeouts:
                     for f in files}
         problems = {k: v for k, v in problems.items() if v}
         assert problems == {}, f"call(s) missing timeout=: {problems}"
+
+
+_HTTPX_CLIENTS = ("OAuth2Client", "AsyncOAuth2Client", "Client", "AsyncClient")
+_HTTPX_CALLS = _HTTP_VERBS + ("stream", "fetch_token")
+
+
+def _find_httpx_calls_missing_timeout(path):
+    """(lineno list, number of calls checked) for httpx / Authlib client use
+    in `path`: every `OAuth2Client(...)`, `httpx.Client(...)`,
+    `httpx.<verb>(...)` and `<client>.<verb>/fetch_token(...)` on a name
+    bound by `with ... as <client>` must pass `timeout=`."""
+    tree = ast.parse(open(path, encoding="utf-8").read(), path)
+    clients = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.withitem) and isinstance(node.optional_vars, ast.Name):
+            clients.add(node.optional_vars.id)
+    problems, checked = [], 0
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else ""
+        owner = f.value.id if isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name) else ""
+        is_client = (not owner and name in ("OAuth2Client", "AsyncOAuth2Client")) or \
+            (owner == "httpx" and name in _HTTPX_CLIENTS)
+        is_call = (owner == "httpx" and name in _HTTPX_CALLS) or \
+            (owner in clients and name in _HTTPX_CALLS)
+        if is_client or is_call:
+            checked += 1
+            if not any(kw.arg == "timeout" for kw in node.keywords):
+                problems.append(node.lineno)
+    return sorted(problems), checked
+
+
+class TestSignInHttpTimeouts:
+    """Step 134: Google sign-in talks to Google with Authlib's httpx
+    OAuth2Client and httpx, which the requests-based check above can't see."""
+
+    def test_oidc_service(self):
+        problems, checked = _find_httpx_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "services", "oidc_service.py"))
+        assert checked >= 4, "the checker no longer sees oidc_service's HTTP calls"
+        assert problems == [], f"httpx/Authlib call(s) missing timeout= at line(s): {problems}"
+
+    def test_checker_catches_missing_timeouts(self, tmp_path):
+        p = tmp_path / "mod.py"
+        p.write_text("import httpx\n"
+                     "with OAuth2Client(client_id=1) as c:\n"
+                     "    c.fetch_token(u, code=1)\n"
+                     "with httpx.Client(timeout=5) as h:\n"
+                     "    h.get(u, timeout=5)\n"
+                     "httpx.get(u)\n")
+        assert _find_httpx_calls_missing_timeout(str(p)) == ([2, 3, 6], 5)
 
 
 class TestTimeoutCheckerItself:
@@ -622,6 +693,17 @@ class TestConstraintsFile:
         for pinned in ("pyannote.audio<5", "transformers<6", "torch<3",
                        "torchaudio<3", "streamlit<2", "faster-whisper<2"):
             assert pinned in text, f"missing pin: {pinned}"
+
+    def test_urllib3_has_the_2_6_floor(self):
+        """Security review L-1: requests alone allows urllib3 1.26 (no
+        read1, CVE-2025-66471); the floor is in the requirements, the
+        constraints and both launchers' "already installed?" checks."""
+        assert "urllib3>=2.6" in self._read_constraints()
+        core = open(os.path.join(PROJECT_ROOT, "requirements-core.txt"), encoding="utf-8").read()
+        assert "urllib3>=2.6" in core
+        for launcher in ("start.bat", "start.ps1"):
+            text = open(os.path.join(PROJECT_ROOT, launcher), encoding="utf-8").read()
+            assert ">= (2, 6)" in text, launcher
 
     def test_yt_dlp_and_edge_tts_are_left_uncapped(self):
         """Both need to stay current against sites/services that change

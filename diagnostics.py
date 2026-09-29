@@ -131,12 +131,19 @@ OPTIONAL_DEPENDENCIES = {
                          "FunASR Model Open Source License)", "feature"),
     "demucs": ("demucs", "background-music removal before transcription (fallback)", "feature"),
     "cryptography": ("cryptography", "mangaz.com adapter's session-scoped RSA+AES page "
-                                     "decryption (Sources tab)", "feature"),
+                                     "decryption (Sources tab); Google sign-in token checks",
+                     "feature"),
+    "authlib": ("authlib", "Google sign-in for household access (BAIHE_API_AUTH=on)", "feature"),
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),
     "uvicorn": ("uvicorn", "serves the HTTP API (python -m api)", "required"),
+    "python-multipart": ("multipart", "file uploads through the HTTP API (media upload, "
+                                      "novel attach)", "required"),
+    "numpy": ("numpy", "keeping background music in a dub, Scanlate, hard-subtitle OCR",
+              "feature"),
     "pytest": ("pytest", "running the test suite", "dev"),
-    "httpx": ("httpx", "running the HTTP API's tests (FastAPI TestClient)", "dev"),
+    "httpx": ("httpx", "Google sign-in's HTTP client (with authlib); also the HTTP API's "
+                       "tests (FastAPI TestClient)", "feature"),
 }
 
 
@@ -489,6 +496,9 @@ def get_model_engine_versions(ollama_model: str = None) -> list:
 # "Re-run speaker detection."
 # ---------------------------------------------------------------------------
 
+PYANNOTE_CHECK_TIMEOUT_S = 10  # a hung Hub must not pin the request thread
+
+
 def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
     """[{"model", "accessible", "error"}, ...] for every entry in
     diarize.DIARIZATION_MODELS. This DOES reach the network (a lightweight
@@ -505,7 +515,7 @@ def check_pyannote_gated_access(hf_token: str = None, api=None) -> list:
     results = []
     for model in diarize.DIARIZATION_MODELS:
         try:
-            api.model_info(model, token=hf_token or None)
+            api.model_info(model, token=hf_token or None, timeout=PYANNOTE_CHECK_TIMEOUT_S)
             results.append({"model": model, "accessible": True, "error": None})
         except Exception as e:
             results.append({"model": model, "accessible": False, "error": str(e)})

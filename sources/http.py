@@ -27,6 +27,7 @@ import random
 import re
 import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
@@ -37,6 +38,15 @@ from .models import (AccessTier, AttemptRecord, ChallengeDetected, CHALLENGE_REA
 
 DEFAULT_TIMEOUT = 20
 MAX_SINGLE_BACKOFF = 60.0
+
+# Body limits for the real transport (security review MED-1): the body is
+# streamed and never read past its cap, and one request (every redirect
+# hop plus the body) must finish within its deadline, so a huge or
+# slow-drip response can't hold memory or keep a job "running" forever.
+MAX_PAGE_BYTES = 10_000_000
+MAX_IMAGE_BYTES = 20_000_000
+REQUEST_DEADLINE = 180.0
+_BODY_CHUNK = 65_536
 
 # A plain desktop browser identity -- the same posture as a person's own
 # browser, never a named bot identity a site has chosen to block.
@@ -147,6 +157,189 @@ class UnsafeRedirect(FetchFailed):
         super().__init__(message, reason, attempt)
 
 
+TOO_LARGE = "Refused: the response was too large."
+TOO_SLOW = "Refused: the site took too long to respond."
+
+
+class ResponseRefused(FetchFailed):
+    """The body was over its cap or the request ran past its deadline. The
+    message is fixed (no URL). Never retried; the access ladder re-raises
+    it rather than trying another tier. `status` is the API status to show:
+    422 too large, 503 too slow."""
+
+    status = 422
+
+    def __init__(self, message: str = TOO_LARGE, attempt=None):
+        super().__init__(message, FailureReason.HTTP_ERROR, attempt)
+
+
+class ResponseTooLarge(ResponseRefused):
+    status = 422
+
+    def __init__(self, attempt=None):
+        super().__init__(TOO_LARGE, attempt)
+
+
+class ResponseTooSlow(ResponseRefused):
+    status = 503
+
+    def __init__(self, attempt=None):
+        super().__init__(TOO_SLOW, attempt)
+
+
+@dataclass
+class FetchLimits:
+    max_page_bytes: int = MAX_PAGE_BYTES
+    max_image_bytes: int = MAX_IMAGE_BYTES
+    deadline: float = REQUEST_DEADLINE
+    cancel_check: object = None
+    clock: object = time.monotonic
+
+
+def _header(headers, name: str) -> str:
+    for k, v in (headers or {}).items():
+        if k.lower() == name:
+            return str(v)
+    return ""
+
+
+def _check_limits(limits: FetchLimits, deadline_at: float):
+    if limits.cancel_check and limits.cancel_check():
+        raise Cancelled("Cancelled.")
+    if limits.clock() > deadline_at:
+        raise ResponseTooSlow()
+
+
+# The encodings the body decoder handles itself; anything else is refused
+# rather than handed to urllib3's decoder (its read loop runs until it has
+# decoded output, so a stream of empty deflate blocks would never return
+# to our deadline/cancel checks -- security review M-1).
+ACCEPT_ENCODING = "gzip, deflate"
+UNSUPPORTED_ENCODING = "Refused: the response used an unsupported compression."
+_DECODE_STEP = 1_048_576
+
+
+class UnsupportedEncoding(ResponseRefused):
+    status = 422
+
+    def __init__(self, attempt=None):
+        super().__init__(UNSUPPORTED_ENCODING, attempt)
+
+
+class BodyDecoder:
+    """Decodes a response body fed in raw chunks, never producing more than
+    `cap` + 1 decoded bytes in total and at most _DECODE_STEP per call to
+    zlib, with `check()` run between steps. gzip (x-gzip) and deflate
+    (zlib-wrapped, or raw as some servers send it) only; identity or no
+    header passes the bytes through. `feed`/`finish` return the decoded
+    bytes; the caller counts them against its cap."""
+
+    def __init__(self, content_encoding: str, cap: int, check=None):
+        enc = (content_encoding or "").strip().lower()
+        if enc in ("", "identity"):
+            self._d = None
+        elif enc in ("gzip", "x-gzip"):
+            self._d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        elif enc == "deflate":
+            self._d = zlib.decompressobj()
+            self._first = b""  # until zlib's header is accepted, kept for a raw retry
+        else:
+            raise UnsupportedEncoding()
+        self._deflate = enc == "deflate"
+        self._cap, self._out, self._check = cap, 0, check or (lambda: None)
+
+    def _run(self, data: bytes) -> bytes:
+        parts = []
+        while True:
+            self._check()
+            if self._d.eof:
+                return b"".join(parts)  # trailing bytes after the stream end are ignored
+            step = min(_DECODE_STEP, max(self._cap + 1 - self._out, 1))
+            out = self._d.decompress(data, step)
+            self._out += len(out)
+            parts.append(out)
+            if self._out > self._cap:
+                raise ResponseTooLarge()
+            data = self._d.unconsumed_tail
+            if not data:
+                return b"".join(parts)
+
+    def feed(self, chunk: bytes) -> bytes:
+        if self._d is None:
+            self._out += len(chunk)
+            return chunk
+        if self._deflate and self._first is not None:
+            self._first += chunk
+            try:
+                out = self._run(chunk)
+            except zlib.error:
+                self._d, self._out = zlib.decompressobj(-zlib.MAX_WBITS), 0
+                data, self._first = self._first, None
+                try:
+                    return self._run(data)
+                except zlib.error:
+                    raise FetchFailed("The response could not be decoded.",
+                                      FailureReason.HTTP_ERROR) from None
+            if out or len(self._first) >= 2:
+                self._first = None
+            return out
+        try:
+            return self._run(chunk)
+        except zlib.error:
+            raise FetchFailed("The response could not be decoded.",
+                              FailureReason.HTTP_ERROR) from None
+
+    def finish(self) -> bytes:
+        if self._d is None:
+            return b""
+        try:
+            out = self._d.flush()
+        except zlib.error:
+            raise FetchFailed("The response could not be decoded.",
+                              FailureReason.HTTP_ERROR) from None
+        self._out += len(out)
+        if self._out > self._cap:
+            raise ResponseTooLarge()
+        return out
+
+
+def read_raw_chunk(raw, n: int) -> bytes:
+    """Up to n undecoded bytes: whatever arrived (read1) where the stream
+    has it. Never decode_content=True (see BodyDecoder)."""
+    read1 = getattr(raw, "read1", None)
+    if read1 is not None:
+        return read1(n, decode_content=False)
+    return raw.read(min(n, 8192), decode_content=False)
+
+
+def _read_body(r, limits: FetchLimits, deadline_at: float) -> bytes:
+    """At most the cap for the response's type (images get their own),
+    refused early on a Content-Length over it. Reads raw bytes in small
+    pieces (read1 returns whatever arrived) and decodes them itself
+    (BodyDecoder), checking cancel and the deadline between every raw
+    piece and every decode step. Both the raw and the decoded bytes are
+    counted against the cap, so a compressed bomb is capped too."""
+    ctype = _header(r.headers, "content-type").lower()
+    cap = limits.max_image_bytes if ctype.startswith("image/") else limits.max_page_bytes
+    length = _header(r.headers, "content-length").strip()
+    if length.isdigit() and int(length) > cap:
+        raise ResponseTooLarge()
+    check = lambda: _check_limits(limits, deadline_at)  # noqa: E731
+    decoder = BodyDecoder(_header(r.headers, "content-encoding"), cap, check)
+    chunks, raw_total = [], 0
+    while True:
+        check()
+        chunk = read_raw_chunk(r.raw, _BODY_CHUNK)
+        if not chunk:
+            break
+        raw_total += len(chunk)
+        if raw_total > cap:
+            raise ResponseTooLarge()
+        chunks.append(decoder.feed(chunk))
+    chunks.append(decoder.finish())
+    return b"".join(chunks)
+
+
 def _ascii_url(url: str) -> str:
     """The URL with its host in the exact ASCII form requests will connect
     to (UTS46 IDNA, lowercased), so the name that is validated, pinned and
@@ -174,14 +367,21 @@ def _ascii_url(url: str) -> str:
     return parts._replace(netloc=netloc).geturl()
 
 
-def _requests_transport(method, url, headers, data, timeout):
+def _requests_transport(method, url, headers, data, timeout, limits: FetchLimits = None):
     """One request, following redirects by hand (B-25): every hop -- the
     first included -- must be http(s) with a host whose every resolved
     address is global (services.url_guard). Without a proxy the connection
     is pinned to the validated address (Host header, SNI and certificate
     checks keep the real name); with one, the target host is validated by
-    name and the proxy does the connecting."""
+    name and the proxy does the connecting.
+
+    The body is streamed under `limits` (FetchLimits: size caps, an overall
+    deadline for the whole request, cancel between chunks); every response
+    is closed."""
     from services import url_guard
+
+    limits = limits or FetchLimits()
+    deadline_at = limits.clock() + float(limits.deadline)
 
     session = _thread_session()
     # Step 98: route through a configured proxy, if one is set. Applied
@@ -192,7 +392,12 @@ def _requests_transport(method, url, headers, data, timeout):
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     hops = []
     current, cur_method, cur_data, cur_headers = url, method, data, dict(headers or {})
+    # Only encodings BodyDecoder handles (requests would also offer br/zstd
+    # when those packages are installed).
+    if not any(k.lower() == "accept-encoding" for k in cur_headers):
+        cur_headers["Accept-Encoding"] = ACCEPT_ENCODING
     for _ in range(MAX_REDIRECTS + 1):
+        _check_limits(limits, deadline_at)
         current = _ascii_url(current)
         try:
             ip = url_guard.resolve_public(current)
@@ -206,13 +411,19 @@ def _requests_transport(method, url, headers, data, timeout):
         _tls.pin = (host, ip)
         try:
             r = session.request(cur_method, current, headers=cur_headers, data=cur_data,
-                                timeout=timeout, allow_redirects=False, proxies=proxies)
+                                timeout=timeout, allow_redirects=False, proxies=proxies,
+                                stream=True)
         finally:
             _tls.pin = None
         hops.append(r)
         location = (r.headers or {}).get("Location") or (r.headers or {}).get("location")
         if r.status_code not in _REDIRECT_CODES or not location:
+            try:
+                content = _read_body(r, limits, deadline_at)
+            finally:
+                r.close()
             break
+        r.close()
         nxt = urljoin(current, location)
         if _should_strip_auth(current, nxt):
             cur_headers = {k: v for k, v in cur_headers.items()
@@ -252,7 +463,7 @@ def _requests_transport(method, url, headers, data, timeout):
         for hop in list(getattr(resp, "history", None) or []) + [resp]:
             for cookie in hop.cookies:
                 cookies[cookie.name] = cookie.value
-    return Response(status_code=r.status_code, headers=dict(r.headers), content=r.content,
+    return Response(status_code=r.status_code, headers=dict(r.headers), content=content,
                     url=r.url, cookies=cookies)
 
 
@@ -379,10 +590,12 @@ class SourceClient:
     def __init__(self, source: str, policy: PacingPolicy = None, transport=None,
                  sleep=time.sleep, clock=time.monotonic, rng=None, cache: RawCache = None,
                  default_headers: dict = None, cancel_check=None, status_cb=None,
-                 timeout: float = DEFAULT_TIMEOUT):
+                 timeout: float = DEFAULT_TIMEOUT, max_page_bytes: int = MAX_PAGE_BYTES,
+                 max_image_bytes: int = MAX_IMAGE_BYTES,
+                 request_deadline: float = REQUEST_DEADLINE):
         self.source = source
         self.policy = policy or PacingPolicy.from_settings()
-        self.transport = transport or _requests_transport
+        self.transport = transport or self._limited_transport
         self.sleep = sleep
         self.clock = clock
         self.rng = rng or random.Random()
@@ -392,10 +605,23 @@ class SourceClient:
         self.cancel_check = cancel_check
         self.status_cb = status_cb
         self.timeout = timeout
+        self.max_page_bytes = max_page_bytes
+        self.max_image_bytes = max_image_bytes
+        self.request_deadline = request_deadline
         self.stats = {"requests": 0, "cache_hits": 0, "retries": 0,
                       "current_action": "Idle", "current_delay": 0.0,
                       "access_method": "Normal HTTP"}
         self.attempts = []   # AttemptRecord per failed/succeeded request, for diagnostics
+
+    def _limited_transport(self, method, url, headers, data, timeout):
+        """The real transport under this client's body limits; cancel is
+        read at call time, so a cancel_check set after construction works."""
+        return _requests_transport(method, url, headers, data, timeout, limits=FetchLimits(
+            self.max_page_bytes, self.max_image_bytes, self.request_deadline,
+            self._cancel_requested))
+
+    def _cancel_requested(self) -> bool:
+        return bool(self.cancel_check and self.cancel_check())
 
     # -- status view plumbing --------------------------------------------
     def _status(self, action: str = None, delay: float = None):
@@ -502,10 +728,13 @@ class SourceClient:
                     resp, exc = None, e
                 latency = self.clock() - started
 
-            if isinstance(exc, UnsafeRedirect):
+            if isinstance(exc, Cancelled):
+                self._status("Idle", 0.0)
+                raise exc
+            if isinstance(exc, (UnsafeRedirect, ResponseRefused)):
                 self.attempts.append(AttemptRecord(
                     tier=AccessTier.STATIC_HTTP.value, ok=False,
-                    reason=FailureReason.ACCESS_DENIED.value, detail=str(exc),
+                    reason=exc.reason.value, detail=str(exc),
                     final_url=url, at=time.time()))
                 self._status("Idle", 0.0)
                 raise exc

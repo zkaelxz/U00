@@ -22,6 +22,8 @@ import {
 } from './dubForm'
 import { JobPanel } from './JobPanel'
 import { NarrationPanel } from './NarrationPanel'
+import { VoiceClonePanel } from './VoiceClonePanel'
+import { cloneWarnings, warningSummary } from './voiceClone'
 import { lineNumber } from '../../../lineNumber'
 import './dub.css'
 
@@ -75,6 +77,7 @@ export default function DubStage() {
       setJobId(r.job_id)
     }, setError)
   const trackReady = cfg.track_available || (done && jobSucceeded(job))
+  const cloneWarning = warningSummary(cloneWarnings(cfg).size)
   const showPacing =
     pacing?.available && (pacing.lines.length > 0 || Object.keys(pacing.counts).length > 0)
 
@@ -118,6 +121,11 @@ export default function DubStage() {
             {blocker ?? dubSettingsLine(cfg, form)}
           </p>
         </div>
+        {cloneWarning && (
+          <p className="voice-warning" data-testid="dub-clone-warning">
+            {cloneWarning}
+          </p>
+        )}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {trackReady && (
           <p className="dub-note">
@@ -168,6 +176,7 @@ export default function DubStage() {
           </div>
         </Section>
       </section>
+      <VoiceClonePanel cfg={cfg} onChanged={() => setReloads((n) => n + 1)} />
       {cfg.is_narration && <NarrationPanel dramaId={dramaId} busy={busy} onJobStarted={setJobId} />}
       {pacing && showPacing && (
         <Section title="Pacing of the last run" summary={pacingSummary(pacing.counts)}>
