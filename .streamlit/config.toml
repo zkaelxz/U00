@@ -8,6 +8,8 @@ textColor = "#1F1F23"
 font = "sans serif"
 
 [server]
+# Loopback only: the LAN must not get the full owner UI.
+address = "127.0.0.1"
 maxUploadSize = 2048
 
 [browser]
