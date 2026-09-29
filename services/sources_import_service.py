@@ -24,7 +24,10 @@ in the request (sources_url_service.check_public_url), then the job runs
 adaptive.import_novel and appends the text to the drama's raw-novel file.
 The LLM fallback is off unless the request opted in (parity SO09: the
 engine is built in the request by sources_extraction_service, key on the
-PC). When the extraction needs review nothing is written. From another device the signed-in profile and the browser tier
+PC). When the extraction needs review (low confidence, the request asked
+for `review`, or Sources diagnostics mode is on) nothing is written: the
+job opens a Review extraction for the drama instead (parity SO10,
+sources_extraction_service.open_review). From another device the signed-in profile and the browser tier
 are off.
 
 `start_comic_url_import` (parity SO06) is the comic counterpart: the job
@@ -36,7 +39,8 @@ plus a per-page budget (generic_import.DownloadBudget: at most
 MAX_COMIC_IMAGES images and MAX_COMIC_TOTAL_BYTES in all, image or generic
 binary content types only); PIL must read each one. The result lists the
 images left out and why (the Streamlit "skipped as page furniture" list).
-When the extraction needs review nothing is written.
+When the extraction needs review nothing is written (a review opens, as
+for novel text).
 
 Results live in this process only; read them with
 sources_search_service.get_job_result (GET /api/sources/jobs/{id}/result).
@@ -230,7 +234,8 @@ def _url_fail(job_id: str, err: dict):
     fail_job(job_id, "url_import", err)
 
 
-def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None):
+def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
+                    review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page...")
     try:
         res, report = adaptive.import_novel(url, engine=engine, client=source_client(url, job_id),
@@ -245,20 +250,24 @@ def _url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=No
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
         _url_fail(job_id, handoff_error(res.ladder.handoff, url))
     text = res.text or ""
-    if report.needs_review or not text.strip():
+    why = extraction.review_reason(report, review)
+    if why or not text.strip():
+        opened = extraction.open_review(drama_id, "novel", url, getattr(res.ladder, "html", ""),
+                                        report.data, report, why or extraction.WHY_LOW_CONFIDENCE)
         background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": True,
-                                            "char_count": len(text)})
+                                            "char_count": len(text), "review_open": opened})
         return
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Saving the text...")
+    extraction.drop_review(drama_id)
     pipeline.save_novel_text(drama_id, text, append=True, heading=res.title)
     background_jobs.set_result(job_id, {"kind": "url_import", "needs_review": False,
-                                        "char_count": len(text)})
+                                        "char_count": len(text), "review_open": False})
 
 
 def start_url_import(url, drama_id, local: bool = True, principal=None,
-                     ai_engine: str = None) -> dict:
+                     ai_engine: str = None, review: bool = False) -> dict:
     """Starts `sourceimport_<drama_id>`: novel text from one pasted URL,
     appended to a novel drama's raw-novel text. `ai_engine` (a name from
     sources_extraction_service.resolve_ai_engine_name, None = off) is the
@@ -274,7 +283,7 @@ def start_url_import(url, drama_id, local: bool = True, principal=None,
     engine = extraction.build_ai_engine(ai_engine)
     job_id = import_job_id(drama_id)
     return _start(job_id, _url_import_job, job_id, url, drama_id, bool(local), engine,
-                  description="Import novel text from a pasted URL")
+                  bool(review), description="Import novel text from a pasted URL")
 
 
 # ---------------------------------------------------------------------------
@@ -290,13 +299,15 @@ def skipped_view(candidates) -> list:
             for c in list(candidates)[:MAX_SKIPPED_LISTED]]
 
 
-def _comic_result(needs_review: bool, pages_added: int, rejected) -> dict:
+def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=False) -> dict:
     rejected = list(rejected)
     return {"kind": "comic_import", "needs_review": needs_review, "pages_added": pages_added,
-            "skipped": skipped_view(rejected), "skipped_count": len(rejected)}
+            "skipped": skipped_view(rejected), "skipped_count": len(rejected),
+            "review_open": bool(review_open)}
 
 
-def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None):
+def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, engine=None,
+                          review: bool = False):
     background_jobs.update_progress(job_id, 0.1, "Reading the page and checking each image...")
     budget = DownloadBudget(MAX_COMIC_IMAGES, MAX_COMIC_TOTAL_BYTES)
     try:
@@ -313,18 +324,23 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
         fail_job(job_id, "comic_import", _error_view(e))
     if res.ladder is not None and getattr(res.ladder, "handoff", None):
         fail_job(job_id, "comic_import", handoff_error(res.ladder.handoff, url))
-    if report.needs_review or not res.images:
-        background_jobs.set_result(job_id, _comic_result(True, 0, res.rejected))
+    why = extraction.review_reason(report, review)
+    if why or not res.images:
+        opened = extraction.open_review(drama_id, "comic", url, getattr(res.ladder, "html", ""),
+                                        report.data, report, why or extraction.WHY_LOW_CONFIDENCE,
+                                        candidates=list(res.images) + list(res.rejected))
+        background_jobs.set_result(job_id, _comic_result(True, 0, res.rejected, opened))
         return
     if background_jobs.is_cancel_requested(job_id):
         raise background_jobs.JobCancelled(job_id)
     background_jobs.update_progress(job_id, 0.9, "Adding the pages...")
+    extraction.drop_review(drama_id)
     n = pipeline.add_page_images(drama_id, [(c.content, c.ext) for c in res.images])
     background_jobs.set_result(job_id, _comic_result(False, n, res.rejected))
 
 
 def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
-                           ai_engine: str = None) -> dict:
+                           ai_engine: str = None, review: bool = False) -> dict:
     """Starts `sourceimport_<drama_id>`: the page images of one pasted comic
     chapter URL, added to a manhua/manga/manhwa drama's pages (Scanlate).
     Same checks and errors as start_url_import."""
@@ -337,4 +353,4 @@ def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
     engine = extraction.build_ai_engine(ai_engine)
     job_id = import_job_id(drama_id)
     return _start(job_id, _comic_url_import_job, job_id, url, drama_id, bool(local), engine,
-                  description="Import comic pages from a pasted URL")
+                  bool(review), description="Import comic pages from a pasted URL")

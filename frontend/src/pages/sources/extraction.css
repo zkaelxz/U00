@@ -2,3 +2,39 @@
 .sources-ai { display: grid; gap: var(--space-2); margin-block: var(--space-2); }
 .sources-skipped ul { margin: var(--space-2) 0 0; padding-left: 1.2em; }
 .sources-skipped li { overflow-wrap: anywhere; }
+.extraction-review { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); margin-top: var(--space-3); min-width: 0; max-width: 100%; box-sizing: border-box; }
+.extraction-review h3 { margin: 0; }
+.extraction-details summary { cursor: pointer; }
+.extraction-details ul { margin: var(--space-2) 0 0; padding-left: 1.2em; }
+.extraction-details li { overflow-wrap: anywhere; }
+.extraction-preview {
+  max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  margin: 0; padding: var(--space-2); border: 1px solid var(--border); border-radius: 6px;
+  font-family: inherit;
+}
+.extraction-novel, .extraction-comic { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
+.sources-import { min-width: 0; }
+.extraction-novel select { max-width: 100%; }
+.extraction-fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-1); min-width: 0; }
+.extraction-fieldset legend { font-weight: 600; margin-bottom: var(--space-1); }
+.extraction-fieldset label { display: flex; align-items: center; gap: var(--space-2); overflow-wrap: anywhere; }
+.extraction-radios { grid-auto-flow: column; justify-content: start; gap: var(--space-3); }
+.extraction-images { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.extraction-image {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--space-2); align-items: center;
+  padding-bottom: var(--space-2); border-bottom: 1px solid var(--border);
+}
+.extraction-thumb { width: 64px; min-height: 48px; display: flex; align-items: center; justify-content: center; }
+.extraction-thumb img { max-width: 64px; max-height: 96px; object-fit: contain; }
+.extraction-image-text { display: grid; min-width: 0; }
+.extraction-image-text .sources-link { overflow-wrap: anywhere; }
+.extraction-image-controls { display: flex; gap: var(--space-2); align-items: center; min-width: 0; }
+.extraction-image-controls input { width: 4.5rem; }
+.extraction-actions { flex-wrap: wrap; }
+.extraction-review button { white-space: normal; max-width: 100%; }
+@media (max-width: 640px) {
+  .extraction-image { grid-template-columns: 64px minmax(0, 1fr); }
+  .extraction-image-controls { grid-column: 1 / -1; }
+  .extraction-image-controls select { flex: 1; min-width: 0; }
+  .extraction-radios { grid-auto-flow: row; }
+}

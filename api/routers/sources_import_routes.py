@@ -56,7 +56,8 @@ def post_url_import(body: SourcesUrlImportAiRequest, request: Request):
     if engine is not None:
         require_engines_allowed(request, engine)
     return svc.start_url_import(body.url, body.drama_id, local=is_local_request(request),
-                                principal=request.state.principal, ai_engine=engine)
+                                principal=request.state.principal, ai_engine=engine,
+                                review=body.review)
 
 
 @router.post("/{name}/import", dependencies=[require_permission("sources.import")],

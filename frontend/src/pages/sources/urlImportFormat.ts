@@ -173,6 +173,7 @@ export function comicNote(r: ChapterImportResult): string | null {
 }
 
 export function urlImportText(r: UrlImportResult): string {
+  if (r.needs_review && r.review_open) return 'Nothing was saved yet. Check what Baihe found below, then import it.'
   if (r.needs_review) {
     return 'Baihe couldn’t be sure it found the chapter text, so nothing was saved. Paste the text in the Workspace’s Novel panel instead.'
   }

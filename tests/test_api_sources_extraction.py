@@ -73,6 +73,8 @@ def env(isolated_db, monkeypatch, fake_llm):  # noqa: F811
     monkeypatch.setattr(settings_service, "resolve_key", lambda name, env_path=None: keys.get(name))
     engines = Engines()
     monkeypatch.setattr(translate_engines, "get_engine", engines)
+    from services import sources_extraction_service as svc
+    monkeypatch.setattr(svc, "_REVIEWS", {})    # reviews are per process, drama ids per test DB
     yield {"fetch": fetch, "keys": keys, "engines": engines}
     for jid in list(background_jobs.list_all_jobs()):
         if jid.startswith(("sources_", "sourceimport_")):
@@ -355,11 +357,12 @@ def test_comic_needs_review_writes_nothing(client, env, comic, monkeypatch):
 
     def fake(url, engine=None, client=None, **kw):
         return (ComicImportResult(url, images=[], rejected=[], ladder=LadderResult(url)),
-                SimpleNamespace(needs_review=True))
+                SimpleNamespace(needs_review=True, data=None))
     monkeypatch.setattr(imp.adaptive, "import_comic", fake)
     did = _comic_drama()
     res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
-    assert res.json()["result"]["needs_review"] is True and db.list_pages(did) == []
+    assert res.json()["result"]["needs_review"] is True
+    assert db.list_pages(did) == []
 
 
 def test_comic_no_pages_and_handoff(client, env, comic, monkeypatch):
@@ -389,3 +392,251 @@ def test_comic_auth_on_remote_is_static_only(env, comic):
     assert r.status_code == 200
     _wait(f"sourceimport_{did}")
     assert env["fetch"].calls[-1] == {"url": COMIC_URL, "signed_in": False, "browser": False}
+
+
+# ---------------------------------------------------------------------------
+# SO10: Review extraction between the preview and the write
+# ---------------------------------------------------------------------------
+
+def _review(client, did):
+    r = client.get(f"/api/sources/dramas/{did}/extraction")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _novel_review(client, env, **body):
+    url = _novel_page(env)
+    did = db.create_drama(title_en="N", media_type="novel")
+    r = _run(client, "/api/sources/url/import", {"url": url, "drama_id": did, **body}, did)
+    res = r.json()["result"]
+    assert res["needs_review"] is True and res["review_open"] is True
+    assert _raw(did) == ""
+    return did, _review(client, did)
+
+
+def _leak_free(text):
+    assert SECRET not in text and "<html" not in text and "?" not in text
+    assert db.LIBRARY_DIR not in text
+
+
+def test_asked_review_writes_nothing_and_offers_choices(client, env):
+    did, rv = _novel_review(client, env, review=True)
+    assert rv["kind"] == "extraction_review" and rv["content_type"] == "novel"
+    assert rv["why"] == "asked" and rv["comic"] is None and rv["can_save_profile"] is False
+    assert rv["display_url"] == "https://www.novel.example/book/77/1012.html"
+    assert rv["confidence"]["overall"]["bucket"] in ("HIGH", "MEDIUM", "LOW", "FAILED")
+    n = rv["novel"]
+    assert n["char_count"] > 200 and "第12章第0段" in n["text_preview"]
+    assert n["content_selector"] in [c["selector"] for c in n["containers"]]
+    assert any(h["text"] == "第12章 重逢" for h in n["headings"])
+    assert {l["text"] for l in n["links"]} >= {"下一章", "上一章"}
+    assert n["next_link"] == next(l["id"] for l in n["links"] if l["text"] == "下一章")
+    _leak_free(client.get(f"/api/sources/dramas/{did}/extraction").text)
+
+
+def test_novel_rerun_leave_out_then_import(client, env):
+    did, rv = _novel_review(client, env, review=True)
+    n = rv["novel"]
+    sel = n["content_selector"]
+    container = next(c for c in n["containers"] if c["selector"] == sel)
+    ad = next(o["selector"] for o in container["exclusions"] if "广告" in o["preview"])
+    body = {"revision": rv["revision"], "content_selector": sel, "exclude_selectors": [ad],
+            "title_block": n["title_block"], "next_link": n["next_link"],
+            "previous_link": n["previous_link"], "number_from": "url"}
+    r = client.post(f"/api/sources/dramas/{did}/extraction/rerun-novel", json=body)
+    assert r.status_code == 200, r.text
+    rv2 = r.json()
+    assert rv2["revision"] != rv["revision"] and rv2["can_save_profile"] is True
+    assert "广告" not in rv2["novel"]["text_preview"] and rv2["novel"]["number_from"] == "url"
+    assert rv2["novel"]["exclude_selectors"] == [ad]
+
+    # The old revision is stale now.
+    assert client.post(f"/api/sources/dramas/{did}/extraction/rerun-novel",
+                       json=body).status_code == 409
+    assert client.post(f"/api/sources/dramas/{did}/extraction/import",
+                       json={"revision": rv["revision"]}).status_code == 409
+
+    r = client.post(f"/api/sources/dramas/{did}/extraction/save-profile",
+                    json={"revision": rv2["revision"]})
+    assert r.status_code == 200 and r.json()["version"] == 1 and r.json()["kind"] == "novel"
+    from sources import profiles
+    assert profiles.active("novel.example", "novel")["origin"] == "correction"
+
+    r = client.post(f"/api/sources/dramas/{did}/extraction/import",
+                    json={"revision": rv2["revision"]})
+    assert r.status_code == 200 and r.json() == {"job_id": f"sourceimport_{did}"}
+    _wait(f"sourceimport_{did}")
+    res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
+    assert res["kind"] == "review_import" and res["content_type"] == "novel"
+    raw = _raw(did)
+    assert "第12章第0段" in raw and "广告" not in raw and raw.startswith("第12章 重逢")
+    assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404
+
+
+def test_novel_rerun_refuses_anything_not_offered(client, env):
+    did, rv = _novel_review(client, env, review=True)
+    n = rv["novel"]
+    base = {"revision": rv["revision"], "content_selector": n["content_selector"]}
+    url = f"/api/sources/dramas/{did}/extraction/rerun-novel"
+    for extra in ({"content_selector": "body *:has(p)"}, {"exclude_selectors": ["div"]},
+                  {"title_block": "b99999"}, {"next_link": "L99999"},
+                  {"number_from": "html"}, {"html": "<p>x</p>"}):
+        r = client.post(url, json={**base, **extra})
+        assert r.status_code == 422, extra
+    assert client.post(f"/api/sources/dramas/{did}/extraction/save-profile",
+                       json={"revision": rv["revision"]}).status_code == 422   # no corrections yet
+    assert client.post(f"/api/sources/dramas/{did}/extraction/approve-profile",
+                       json={"revision": rv["revision"]}).status_code == 422   # nothing pending
+    assert client.post(f"/api/sources/dramas/{did}/extraction/rerun-comic",
+                       json={"revision": rv["revision"], "images": []}).status_code == 422
+
+
+def test_approve_a_held_profile(client, env):
+    from services import sources_extraction_service as svc
+    from sources import profiles
+    did, rv = _novel_review(client, env, review=True)
+    live = svc._REVIEWS[did]
+    rules = profiles.infer_novel_rules(live.page, live.data)
+    live.report.pending_profile = {"domain": "novel.example", "kind": "novel", "rules": rules,
+                                   "origin": "llm", "validation": live.data}
+    rv = _review(client, did)
+    assert rv["report"]["pending_profile"] is not None
+    r = client.post(f"/api/sources/dramas/{did}/extraction/approve-profile",
+                    json={"revision": rv["revision"]})
+    assert r.status_code == 200 and r.json()["version"] == 1
+    assert profiles.active("novel.example", "novel")["approved"] is True
+    assert _review(client, did)["report"]["pending_profile"] is None
+
+
+def test_diagnostics_mode_always_reviews(client, env):
+    from sources import store
+    store.set_setting("extraction_diagnostics", True)
+    _did, rv = _novel_review(client, env)
+    assert rv["why"] == "diagnostics"
+
+
+def test_low_confidence_opens_a_review(client, env, monkeypatch):
+    from sources import adaptive
+
+    real = adaptive.extract_novel
+
+    def unsure(html, url, engine=None, use_cache=True, report=None):
+        data, report = real(html, url, engine, use_cache, report)
+        report.needs_review = True
+        return data, report
+    monkeypatch.setattr(adaptive, "extract_novel", unsure)
+    _did, rv = _novel_review(client, env)
+    assert rv["why"] == "low_confidence"
+
+
+def test_no_review_is_404_and_a_new_direct_import_drops_the_old_one(client, env):
+    did = db.create_drama(title_en="N", media_type="novel")
+    assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404
+    assert client.post(f"/api/sources/dramas/{did}/extraction/import",
+                       json={"revision": "x"}).status_code == 404
+    did, _rv = _novel_review(client, env, review=True)
+    _run(client, "/api/sources/url/import", {"url": chapter_url(12), "drama_id": did}, did)
+    assert client.get(f"/api/sources/dramas/{did}/extraction").status_code == 404
+
+
+def test_reviews_are_capped_and_expire(client, env, monkeypatch):
+    from services import sources_extraction_service as svc
+    dids = [_novel_review(client, env, review=True)[0] for _ in range(svc.MAX_REVIEWS + 1)]
+    assert client.get(f"/api/sources/dramas/{dids[0]}/extraction").status_code == 404
+    assert client.get(f"/api/sources/dramas/{dids[-1]}/extraction").status_code == 200
+    monkeypatch.setattr(svc, "REVIEW_TTL", -1)
+    assert client.get(f"/api/sources/dramas/{dids[-1]}/extraction").status_code == 404
+
+
+def _comic_review(client, env, comic):
+    did = _comic_drama()
+    r = _run(client, "/api/sources/url/import-comic",
+             {"url": COMIC_URL, "drama_id": did, "review": True}, did)
+    res = r.json()["result"]
+    assert res["needs_review"] is True and res["review_open"] is True and res["pages_added"] == 0
+    assert db.list_pages(did) == []
+    return did, _review(client, did)
+
+
+def test_comic_review_roles_order_thumbnails_and_import(client, env, comic):
+    did, rv = _comic_review(client, env, comic)
+    c = rv["comic"]
+    assert rv["content_type"] == "comic" and rv["novel"] is None and c["page_count"] == 3
+    by_name = {i["display_url"].rsplit("/", 1)[-1]: i for i in c["images"]}
+    assert by_name["icon.png"]["role"] != "content" and by_name["icon.png"]["page"] == 0
+    assert [by_name[f"00{n}.png"]["page"] for n in (1, 2, 3)] == [1, 2, 3]
+    assert "content" in c["roles"] and "ad" in c["roles"]
+    _leak_free(client.get(f"/api/sources/dramas/{did}/extraction").text)
+
+    img = client.get(f"/api/sources/dramas/{did}/extraction/images/{by_name['002.png']['id']}")
+    assert img.status_code == 200 and img.headers["content-type"] == "image/png"
+    assert img.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in img.headers["content-security-policy"]
+    assert img.content == comic.files["https://img.comic.example/77/5/002.png"][1]
+    assert client.get(f"/api/sources/dramas/{did}/extraction/images/999").status_code == 404
+
+    # 003 is an ad; 002 is read before 001.
+    body = {"revision": rv["revision"], "images": [
+        {"id": by_name["003.png"]["id"], "role": "ad", "page": 0},
+        {"id": by_name["002.png"]["id"], "role": "content", "page": 1},
+        {"id": by_name["001.png"]["id"], "role": "content", "page": 2}]}
+    r = client.post(f"/api/sources/dramas/{did}/extraction/rerun-comic", json=body)
+    assert r.status_code == 200, r.text
+    rv2 = r.json()
+    assert rv2["comic"]["page_count"] == 2 and rv2["can_save_profile"] is True
+    r = client.post(f"/api/sources/dramas/{did}/extraction/import",
+                    json={"revision": rv2["revision"]})
+    assert r.status_code == 200
+    _wait(f"sourceimport_{did}")
+    res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
+    assert res == {"kind": "review_import", "content_type": "comic", "pages_added": 2}
+    import hashlib
+    import os
+    pages = db.list_pages(did)
+    got = [hashlib.sha256(open(os.path.join(db.drama_dir(did), p["filename"]), "rb").read()).digest()
+           for p in sorted(pages, key=lambda p: p["idx"])]
+    want = [hashlib.sha256(comic.files[f"https://img.comic.example/77/5/00{n}.png"][1]).digest()
+            for n in (2, 1)]
+    assert got == want
+
+
+def test_comic_rerun_refuses_unknown_ids_and_roles(client, env, comic):
+    did, rv = _comic_review(client, env, comic)
+    url = f"/api/sources/dramas/{did}/extraction/rerun-comic"
+    for item in ({"id": 999, "role": "content"}, {"id": 0, "role": "hero"},
+                 {"id": 0, "role": "content", "page": 501}, {"id": "0", "role": "content"},
+                 {"id": 0, "role": "content", "url": "https://x.example/a.png"}):
+        r = client.post(url, json={"revision": rv["revision"], "images": [item]})
+        assert r.status_code == 422, item
+    r = client.post(url, json={"revision": rv["revision"], "images": [
+        {"id": i["id"], "role": "ad"} for i in rv["comic"]["images"]]})
+    assert r.status_code == 200 and r.json()["comic"]["page_count"] == 0
+    assert client.post(f"/api/sources/dramas/{did}/extraction/import",
+                       json={"revision": r.json()["revision"]}).status_code == 422
+
+
+def test_review_auth_on(env, comic):
+    did = _comic_drama()
+    c, h = _remote_user_named("imp@example.com", "sources.import")
+    r = c.post("/api/sources/url/import-comic",
+               json={"url": COMIC_URL, "drama_id": did, "review": True}, headers=h)
+    assert r.status_code == 200
+    _wait(f"sourceimport_{did}")
+    rv = c.get(f"/api/sources/dramas/{did}/extraction", headers=h)
+    assert rv.status_code == 200
+    rev = rv.json()["revision"]
+    first = rv.json()["comic"]["images"][1]["id"]
+    assert c.get(f"/api/sources/dramas/{did}/extraction/images/{first}", headers=h).status_code == 200
+    r = c.post(f"/api/sources/dramas/{did}/extraction/rerun-comic", headers=h,
+               json={"revision": rev, "images": [{"id": first, "role": "content", "page": 1}]})
+    assert r.status_code == 200
+    rev = r.json()["revision"]
+    # Site profiles are settings-like writes: PC only.
+    for path in ("save-profile", "approve-profile"):
+        assert c.post(f"/api/sources/dramas/{did}/extraction/{path}", headers=h,
+                      json={"revision": rev}).status_code == 403
+    c2, h2 = _remote_user_named("no@example.com")
+    assert c2.get(f"/api/sources/dramas/{did}/extraction", headers=h2).status_code == 403
+    assert c.post(f"/api/sources/dramas/{did}/extraction/import", headers=h,
+                  json={"revision": rev}).status_code == 200
+    _wait(f"sourceimport_{did}")

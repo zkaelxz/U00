@@ -234,7 +234,7 @@ def _fake_import(monkeypatch, text="正文" * 300, needs_review=False, exc=None,
         lr = LadderResult(url)
         lr.handoff = handoff
         return (NovelImportResult(url, "第2章", "" if handoff else text, "heuristic", ladder=lr),
-                SimpleNamespace(needs_review=needs_review))
+                SimpleNamespace(needs_review=needs_review, data=None))
     monkeypatch.setattr(imp.adaptive, "import_novel", fake)
 
 
@@ -256,7 +256,8 @@ def test_url_import_appends_text(client, env, monkeypatch):
     did = db.create_drama(title_en="N", media_type="novel")
     r = _import(client, did)
     _no_leak(r)
-    assert r.json()["result"] == {"kind": "url_import", "needs_review": False, "char_count": 600}
+    assert r.json()["result"] == {"kind": "url_import", "needs_review": False, "char_count": 600,
+                                  "review_open": False}
     assert calls == [{"url": PAGE, "engine": None, "signed_in": True, "browser": True}]
     assert "第2章" in _raw(did) and _raw(did).count("正文") == 300
     _import(client, did)

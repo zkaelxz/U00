@@ -3,7 +3,7 @@
  * sources_url_preview), then act on it:
  *
  *   series / chapter link  "Open series" (the chapter is ticked)
- *   novel page             pick a drama, "Import text" (R2, sourceimport_<drama>)
+ *   novel page             pick a drama, "Import text" (R2, NovelUrlImport)
  *   comic page             pick a drama, "Import pages" (SO06, ComicUrlImport)
  *   video                  pick a drama, download it (R5, PC only, urlmedia_<drama>)
  *   unknown                a short explanation
@@ -15,8 +15,7 @@
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../../api/client'
-import { sourceImportJobId, startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
-import { startNovelUrlImport } from '../../api/sourcesExtraction'
+import { startUrlPreview, URL_PREVIEW_JOB_ID } from '../../api/sourcesImport'
 import { getMediaStatus } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
@@ -26,21 +25,18 @@ import { buttonClass } from '../../components/uiClasses'
 import { useJob, useJobRun } from '../../hooks/useJob'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { OpenSeries } from '../../types/sources'
-import type { UrlImportResult, UrlPreview } from '../../types/sourcesImport'
+import type { UrlPreview } from '../../types/sourcesImport'
 import type { MediaStatus } from '../../types/workspace'
 import { JobPanel } from '../workspace/stages/JobPanel'
 import { URL_PC_ONLY, UrlDownload } from '../workspace/stages/UrlDownload'
-import { AiFallback } from './AiFallback'
 import { ComicUrlImport } from './ComicUrlImport'
 import { DramaPicker } from './DramaPicker'
-import { AI_OFF, aiReason, aiRequestFields } from './extractionFormat'
+import { NovelUrlImport } from './NovelUrlImport'
 import { useDramaList } from './useDramaList'
 import { describeSourceError, percent, safeHref } from './sourcesFormat'
 import {
-  MAX_URL_LEN, PREVIEW_NOTES, chapterImportDramas, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts,
-  urlImportText, videoDramas,
+  MAX_URL_LEN, PREVIEW_NOTES, checkUrl, contentTypeLabel, dramaLabel, previewAction, previewFacts, videoDramas,
 } from './urlImportFormat'
-import { useAiEngines } from './useAiEngines'
 import { useSourcesJob } from './useSourcesJob'
 
 type Props = {
@@ -194,72 +190,11 @@ function PreviewCard({ preview: p, url, display, onOpenSeries }: {
         </div>
       )}
       {needLink && <p className="muted">Paste the link again and press Preview to import it.</p>}
-      {action === 'novel' && url && <NovelImport url={url} title={title} language={p.language} />}
+      {action === 'novel' && url && <NovelUrlImport url={url} title={title} language={p.language} />}
       {action === 'video' && url && <VideoImport url={url} />}
       {action === 'comic' && url && <ComicUrlImport url={url} title={title} language={p.language} />}
       {action === 'unknown' && <p className="muted">{PREVIEW_NOTES[action]}</p>}
     </article>
-  )
-}
-
-function NovelImport({ url, title, language }: { url: string; title: string; language: string | null }) {
-  const dramas = useDramaList()
-  const [dramaId, setDramaId] = useState<number | null>(null)
-  // No reattach on 409: the server answers 409 while any job for the drama
-  // runs, so the running one may not be this import; its text shows instead.
-  const job = useSourcesJob<UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
-  const running = job.status === 'running'
-  const result = job.startedHere && job.status === 'done' && job.result?.kind === 'url_import' ? job.result : null
-  const failed = job.startedHere && job.status === 'error' ? job.error : null
-  const [aiChoice, setAiChoice] = useState(AI_OFF)
-  const ai = useAiEngines(aiChoice.on)
-  const aiBlocked = aiReason(aiChoice, ai.engines)
-
-  const start = () => {
-    if (!dramaId || running || aiBlocked) return
-    job.start(() => startNovelUrlImport(url, dramaId, aiRequestFields(aiChoice, ai.engines)))
-  }
-
-  return (
-    <div className="sources-import" role="group" aria-label="Import text">
-      <DramaPicker
-        dramas={dramas.items ? chapterImportDramas(dramas.items, false) : null}
-        value={dramaId}
-        onChange={setDramaId}
-        disabled={running}
-        newDrama={{ title, language, comic: false }}
-        onCreated={dramas.add}
-        help="The chapter text is added to the end of the drama’s novel text."
-      />
-      <ErrorBanner error={dramas.error} />
-      <AiFallback value={aiChoice} onChange={setAiChoice} engines={ai.engines} error={ai.error} disabled={running} />
-      <div className="actions">
-        <button type="button" className={buttonClass('primary')} disabled={!dramaId || running || !!aiBlocked} onClick={start}>
-          {running ? 'Importing…' : 'Import text'}
-        </button>
-        {running && (
-          <button type="button" className={buttonClass('secondary')} onClick={() => void job.cancel()}>
-            Cancel
-          </button>
-        )}
-        {!dramaId && !running && <span className="muted">Still needed: a drama to import into.</span>}
-      </div>
-      <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
-      <div aria-live="polite">
-        {running && <p>{job.message || 'Importing…'}{percent(job.progress)}</p>}
-        {failed && <p className="warn" role="alert">{describeSourceError(failed, 'The site').text}</p>}
-        {result && (
-          <p className={result.needs_review ? 'warn' : undefined} data-testid="url-import-result">
-            {urlImportText(result)}{' '}
-            {dramaId && (
-              <ButtonLink href={`#/drama/${dramaId}/source`} size="sm">
-                Open workspace
-              </ButtonLink>
-            )}
-          </p>
-        )}
-      </div>
-    </div>
   )
 }
 
