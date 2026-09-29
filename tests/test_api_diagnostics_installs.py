@@ -1,0 +1,266 @@
+"""Deno install (Q02) as a background job, over
+services/diagnostics_installs_service.py. Every download and winget run is
+faked; no network, no install."""
+import hashlib
+import io
+import time
+import zipfile
+
+import pytest
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
+
+import background_jobs
+import diagnostics
+from api import auth as api_auth
+from api.api_config import ApiSettings
+from api.server import create_app
+from services import auth_service
+from services import diagnostics_gaps_service as gaps
+from services import diagnostics_installs_service as svc
+
+REMOTE = "https://baihe.example.com"
+SECRET = "sk-ant-api03-SECRETSECRETSECRET123456"
+ABS_PATH = "/home/someone/private/thing"
+LATEST = svc.DENO_DOWNLOADS[("Linux", "x86_64")]
+VERSIONED = ("https://github.com/denoland/deno/releases/download/v2.9.7/"
+             "deno-x86_64-unknown-linux-gnu.zip")
+ASSET_HOST = "https://release-assets.githubusercontent.com/github-production-release-asset/1/x"
+
+
+def _zip(member="deno", data=b"#!deno-binary"):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(member, data)
+    return buf.getvalue()
+
+
+class _Resp:
+    def __init__(self, status=200, body=b"", location=None, length=True):
+        self.status_code = status
+        self.headers = {}
+        if location:
+            self.headers["Location"] = location
+        if length:
+            self.headers["Content-Length"] = str(len(body))
+        self._body = body
+        self.closed = False
+
+    def iter_content(self, n):
+        for i in range(0, len(self._body), n):
+            yield self._body[i:i + n]
+
+    def close(self):
+        self.closed = True
+
+
+def _wait(job_id, timeout=10):
+    end = time.time() + timeout
+    while time.time() < end:
+        st = background_jobs.get_status(job_id)
+        if st and st["status"] not in ("running", "queued"):
+            return st
+        time.sleep(0.02)
+    raise AssertionError("job did not finish")
+
+
+@pytest.fixture
+def env(isolated_db, monkeypatch, tmp_path):
+    """Linux x86_64, no deno on PATH, nothing running; the download table is
+    served by `routes` (URL -> response factory)."""
+    from services import library_admin_service
+    state = {"running": False, "which": None, "routes": {}, "requests": [], "timeouts": []}
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: state["running"])
+    monkeypatch.setattr(svc.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(svc.platform, "machine", lambda: "x86_64")
+    real_which = svc.shutil.which
+    monkeypatch.setattr(svc.shutil, "which",
+                        lambda n, *a, **k: state["which"] if n in ("deno", "winget")
+                        else real_which(n, *a, **k))
+    dest = tmp_path / "home" / ".deno" / "bin" / "deno"
+    monkeypatch.setattr(diagnostics, "_deno_default_install_path", lambda: str(dest))
+    monkeypatch.setattr(diagnostics, "check_js_runtime",
+                        lambda: {"found": False, "name": None, "path": None})
+    import requests
+
+    def fake_get(url, **kw):
+        state["requests"].append(url)
+        state["timeouts"].append(kw.get("timeout"))
+        assert kw.get("allow_redirects") is False
+        make = state["routes"].get(url)
+        if make is None:
+            return _Resp(404)
+        return make()
+    monkeypatch.setattr(requests, "get", fake_get)
+    background_jobs.clear_job(svc.DENO_JOB_ID)
+    svc._DENO_RESULT["last"] = None
+    state["dest"] = dest
+    yield state
+    background_jobs.clear_job(svc.DENO_JOB_ID)
+
+
+def _serve_release(state, zip_bytes=None, checksum=None):
+    z = _zip() if zip_bytes is None else zip_bytes
+    digest = hashlib.sha256(z).hexdigest() if checksum is None else checksum
+    state["routes"].update({
+        LATEST: lambda: _Resp(302, location=VERSIONED),
+        VERSIONED: lambda: _Resp(302, location=ASSET_HOST + "?zip"),
+        ASSET_HOST + "?zip": lambda: _Resp(200, z),
+        VERSIONED + ".sha256sum": lambda: _Resp(302, location=ASSET_HOST + "?sum"),
+        ASSET_HOST + "?sum": lambda: _Resp(200, f"{digest}  deno.zip\n".encode()),
+    })
+
+
+@pytest.fixture
+def client(env):
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+
+
+def test_deno_status_read(client, env):
+    b = client.get("/api/diagnostics/deno").json()
+    assert b["runtime_found"] is False and b["deno_on_path"] is False
+    assert b["can_install"] is True and b["install_method"] == "download"
+    assert b["job"] is None and b["last_result"] is None
+
+
+def test_deno_download_installs_verified_binary(client, env):
+    _serve_release(env)
+    r = client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert r.status_code == 200 and r.json() == {"job_id": "deno_install", "started": True}
+    st = _wait(svc.DENO_JOB_ID)
+    assert st["status"] == "done", st
+    assert env["dest"].read_bytes() == b"#!deno-binary"
+    # Every request came from the static table or an allowlisted hop, with a timeout.
+    assert env["requests"][0] == LATEST
+    assert all(t == svc.REQUEST_TIMEOUT for t in env["timeouts"])
+    b = client.get("/api/diagnostics/deno").json()
+    last = b["last_result"]
+    assert last["ok"] is True and last["needs_restart"] is True     # not on PATH yet
+    assert b["deno_installed"] is True and b["job"]["status"] == "done"
+    assert ABS_PATH not in str(b) and str(env["dest"]) not in str(b)
+
+
+def test_deno_checksum_mismatch_installs_nothing(client, env):
+    _serve_release(env, checksum="0" * 64)
+    assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
+    st = _wait(svc.DENO_JOB_ID)
+    assert st["status"] == "error"
+    assert not env["dest"].exists()
+    last = client.get("/api/diagnostics/deno").json()["last_result"]
+    assert last["ok"] is False and "checksum" in last["message"]
+
+
+@pytest.mark.parametrize("hop", [
+    "http://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-unknown-linux-gnu.zip",
+    "https://evil.example/deno.zip",
+    "https://github.com.evil.example/x",
+    "https://user:pw@github.com/x",
+    "https://github.com:8443/denoland/deno/releases/download/v1/deno-x86_64-unknown-linux-gnu.zip",
+])
+def test_deno_refuses_unexpected_redirects(client, env, hop):
+    _serve_release(env)
+    env["routes"][LATEST] = lambda: _Resp(302, location=hop)
+    client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert hop not in env["requests"]
+    assert not env["dest"].exists()
+    assert "evil" not in str(client.get("/api/diagnostics/deno").json())
+
+
+def test_deno_redirect_loop_and_size_cap(client, env, monkeypatch):
+    _serve_release(env)
+    env["routes"][ASSET_HOST + "?zip"] = lambda: _Resp(302, location=ASSET_HOST + "?zip")
+    client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    # the versioned URL is hop 1, then MAX_REDIRECTS more; never a 7th request
+    assert env["requests"].count(ASSET_HOST + "?zip") == svc.MAX_REDIRECTS
+    background_jobs.clear_job(svc.DENO_JOB_ID)
+    _serve_release(env)
+    monkeypatch.setattr(svc, "DENO_MAX_BYTES", 10)
+    env["routes"][ASSET_HOST + "?zip"] = lambda: _Resp(200, _zip(), length=False)
+    client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert not env["dest"].exists()
+
+
+def test_deno_zip_without_binary(client, env):
+    _serve_release(env, zip_bytes=_zip(member="../../evil"))
+    client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert _wait(svc.DENO_JOB_ID)["status"] == "error"
+    assert not env["dest"].exists()
+
+
+def test_deno_refusals(client, env):
+    url = "/api/diagnostics/deno/install"
+    for body in ({}, {"confirm": False}, {"confirm": "yes"}, {"confirm": True, "url": "x"}):
+        assert client.post(url, json=body).status_code == 422, body
+    env["running"] = True
+    r = client.post(url, json={"confirm": True})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "conflict"
+    env["running"] = False
+    env["which"] = "/usr/bin/deno"
+    assert client.post(url, json={"confirm": True}).status_code == 409
+    env["which"] = None
+    assert env["requests"] == [] and background_jobs.get_status(svc.DENO_JOB_ID) is None
+
+
+def test_deno_unsupported_platform(client, env, monkeypatch):
+    monkeypatch.setattr(svc.platform, "machine", lambda: "riscv64")
+    assert client.get("/api/diagnostics/deno").json()["can_install"] is False
+    r = client.post("/api/diagnostics/deno/install", json={"confirm": True})
+    assert r.status_code == 422
+
+
+def test_deno_winget_on_windows(client, env, monkeypatch):
+    monkeypatch.setattr(svc.platform, "system", lambda: "Windows")
+    env["which"] = None
+    monkeypatch.setattr(svc, "_use_winget", lambda: True)
+    ran = []
+
+    def fake_tree(cmd, timeout):
+        ran.append((cmd, timeout))
+        yield {"line": f"Found Deno at {ABS_PATH} {SECRET}"}
+        yield {"returncode": 0, "timed_out": False}
+    monkeypatch.setattr(gaps, "_stream_tree", fake_tree)
+    assert client.post("/api/diagnostics/deno/install", json={"confirm": True}).status_code == 200
+    assert _wait(svc.DENO_JOB_ID)["status"] == "done"
+    assert ran and ran[0][0][:5] == ["winget", "install", "-e", "--id", "DenoLand.Deno"]
+    assert ran[0][1] == svc.WINGET_TIMEOUT_SECONDS
+    b = client.get("/api/diagnostics/deno")
+    assert SECRET not in b.text and ABS_PATH not in b.text
+    assert b.json()["last_result"]["needs_restart"] is True and env["requests"] == []
+
+
+def _h(s):
+    return {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+            api_auth.CSRF_HEADER: s["csrf_token"]}
+
+
+def test_auth_on_reads_admin_writes_pc_only(env):
+    app = create_app(ApiSettings(auth_mode="on"))
+    remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
+    u = auth_service.add_user("kid@example.com")
+    for p in auth_service.PERMISSIONS:
+        if not p.startswith("admin."):
+            try:
+                auth_service.grant_permission(u["id"], p)
+            except Exception:
+                pass
+    kid = auth_service.create_session(u["id"])
+    admin = auth_service.create_session(auth_service.grant_admin_local("a@example.com")["id"])
+    for path in ("/api/diagnostics/deno",):
+        assert remote.get(path).status_code == 401
+        assert remote.get(path, headers=_h(kid)).status_code == 403
+        assert remote.get(path, headers=_h(admin)).status_code == 200
+    writes = (("/api/diagnostics/deno/install", {"confirm": True}),)
+    for path, body in writes:
+        assert remote.post(path, json=body, headers=_h(admin)).status_code == 403, path
+    local = TestClient(app, base_url="http://127.0.0.1:8600", client=("127.0.0.1", 5000),
+                       raise_server_exceptions=False)
+    for path, body in writes:
+        assert local.post(path, json=body,
+                          headers={"X-Forwarded-For": "1.2.3.4"}).status_code == 403, path
+    assert background_jobs.get_status(svc.DENO_JOB_ID) is None
