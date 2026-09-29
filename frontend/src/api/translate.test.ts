@@ -71,6 +71,14 @@ describe('translate api', () => {
     expect(out).toBe('yo')
     expect(calls[0].init?.method).toBe('POST')
   })
+  it('clears history as a confirmed PC-only DELETE', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    expect(await translateApi.clearHistory(fakeFetch(200, { cleared: true }, calls))).toEqual({ cleared: true })
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toBe('/api/translate/history?confirm=true')
+    expect(calls[0].init?.method).toBe('DELETE')
+    expect(new Headers(calls[0].init?.headers).get('X-Baihe-Local')).toBe('1')
+  })
   it('surfaces a 503 as ApiError', async () => {
     const f = fakeFetch(503, { error: { code: 'dependency_unavailable', message: 'No key.' } })
     const err = await translateApi

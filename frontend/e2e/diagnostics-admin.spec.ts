@@ -337,6 +337,21 @@ test('check access asks online only when pressed and links to the terms', async 
   expect(unmocked).toEqual([])
 })
 
+test('check access says why when huggingface_hub is missing', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page)
+  await page.route('**/api/diagnostics/pyannote**', (r) => r.fulfill({ json: {
+    pyannote_installed: true, hf_token_configured: true, ready: true, models: null,
+  } }))
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Speaker detection/)
+  await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toHaveCount(0)
+  await page.getByRole('button', { name: 'Check access online' }).click()
+  await expect(page.getByText("Can't check: huggingface_hub isn't installed.")).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Gated models' })).toHaveCount(0)
+  expect(unmocked).toEqual([])
+})
+
 test('extension: summary, two-step token reveal, never stored, Hide clears it', async ({ page }) => {
   const unmocked = await guard(page)
   await page.route('**/api/extension/status', (r) => r.fulfill({ json: { enabled: false, running: true } }))

@@ -127,6 +127,38 @@ def test_pyannote_readiness_booleans_no_token(monkeypatch):
     _assert_clean(out)
 
 
+def test_pyannote_readiness_without_hf_hub_returns_models_none(monkeypatch):
+    """Check requested but huggingface_hub can't be imported: models is None
+    (the UI's "can't check" message), not an empty list."""
+    import sys
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, env_path=None: HF_TOKEN)
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)  # import raises ImportError
+    out = svc.get_pyannote_readiness(check_access=True)
+    assert out["models"] is None
+    assert out["ready"] is True
+
+
+def test_pyannote_readiness_with_hf_hub_returns_list(monkeypatch):
+    """An installed huggingface_hub still yields one row per gated model."""
+    import sys
+    import types
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, env_path=None: HF_TOKEN)
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+
+    class FakeHfApi:
+        def model_info(self, model, token=None, timeout=None):
+            return object()
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = FakeHfApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+    out = svc.get_pyannote_readiness(check_access=True)
+    assert out["models"] == [{"model": m, "accessible": True}
+                             for m in diagnostics.diarize.DIARIZATION_MODELS]
+    assert out["ready"] is True
+
+
 def test_job_history_redacted(isolated_db, dirty_jobs):
     hist = svc.get_job_history()
     assert [h["job_id"] for h in hist] == ["emotion_999999", "custom_job"]
@@ -152,6 +184,24 @@ def test_support_report_clean(dirty_log, monkeypatch):
     assert "OS:" in report and "Python:" in report and "Recent errors:" in report
     assert "API keys set: claude" in report
     _assert_clean(report)
+
+
+def test_log_tail_and_support_report_strip_ansi(isolated_db, monkeypatch):
+    """yt-dlp colours its errors; neither the Log view nor the support
+    report should show the raw escape codes."""
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, "app.log"), "w", encoding="utf-8") as f:
+        f.write("INFO started\n")
+        f.write("ERROR download failed: \x1b[0;31mERROR:\x1b[0m [youtube] abc123: Sign in\n")
+    tail = svc.get_log_tail(10)
+    assert tail[-1].endswith("download failed: ERROR: [youtube] abc123: Sign in")
+    assert not any("\x1b" in ln for ln in tail)
+    monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {})
+    monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
+    report = svc.build_support_report()
+    assert "ERROR: [youtube] abc123: Sign in" in report
+    assert "\x1b" not in report
 
 
 def _no_jobs(monkeypatch, running=False):

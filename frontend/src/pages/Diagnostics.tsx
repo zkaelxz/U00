@@ -21,7 +21,7 @@ import { SetupSection } from './diagnostics/SetupSection'
 import { SupportReportSection } from './diagnostics/SupportReportSection'
 import { headerParts, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import './diagnostics/diagnostics.css'
-import { formatDuration, isActive, jobStatusLine, splitDependencies, statusLabel } from './diagnosticsFormat'
+import { formatDuration, isActive, jobDetail, jobStatusLine, splitDependencies, statusLabel } from './diagnosticsFormat'
 
 const POLL_MS = 3000
 
@@ -198,7 +198,7 @@ function JobTable({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
               <td>
                 {statusLabel(j.status)}
                 {j.progress != null && isActive(j.status) && ` ${Math.round(j.progress * 100)}%`}
-                {j.message && <div className="muted">{j.message}</div>}
+                {jobDetail(j) && <div className="muted">{jobDetail(j)}</div>}
               </td>
               <td>{formatDuration(j, now)}</td>
               <td>
@@ -223,7 +223,7 @@ function JobCards({ jobs, now, onCancel }: { jobs: JobRecord[]; now: number; onC
         <li key={j.job_id}>
           <strong>{j.description || j.job_id}</strong>
           <p>{jobStatusLine(j, now)}</p>
-          {j.message && <p className="muted">{j.message}</p>}
+          {jobDetail(j) && <p className="muted">{jobDetail(j)}</p>}
           {isActive(j.status) && (
             <div className="job-cancel">
               <button type="button" aria-label={`Cancel ${j.description || j.job_id}`} onClick={() => onCancel(j.job_id)}>

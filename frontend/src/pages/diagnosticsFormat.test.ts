@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import {
-  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobStatusLine, splitDependencies,
+  describeGpu, formatDuration, formatSeconds, hasActiveJobs, jobDetail, jobStatusLine, splitDependencies,
 } from './diagnosticsFormat'
 
 const job = (o: Partial<JobRecord>): JobRecord => ({
@@ -36,6 +36,15 @@ describe('diagnosticsFormat', () => {
     expect(formatSeconds(65.7)).toBe('1m 05s')
     expect(jobStatusLine(job({ status: 'running', progress: 0.4 }), 100 + 185)).toBe('Running 40% · 3m 05s')
     expect(jobStatusLine(job({ status: 'error', progress: 0.4, finished_at: 110 }), 999)).toBe('Failed · 10s')
+  })
+  it('shows progress text only while a job runs, and the error when it failed', () => {
+    expect(jobDetail(job({ status: 'running', message: 'Transcribing... 40%' }))).toBe('Transcribing... 40%')
+    expect(jobDetail(job({ status: 'queued', message: 'Waiting' }))).toBe('Waiting')
+    expect(jobDetail(job({ status: 'running', message: '' }))).toBeNull()
+    expect(jobDetail(job({ status: 'done', message: 'Transcribing... 99%' }))).toBeNull()
+    expect(jobDetail(job({ status: 'cancelled', message: 'Batch 2 of 5' }))).toBeNull()
+    expect(jobDetail(job({ status: 'error', message: 'Batch 2 of 5', error: 'Timed out' }))).toBe('Timed out')
+    expect(jobDetail(job({ status: 'error', message: 'Batch 2 of 5', error: null }))).toBe('Batch 2 of 5')
   })
   it('describes the GPU', () => {
     expect(describeGpu({ ...gpu, available: false })).toBe('No GPU detected.')

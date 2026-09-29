@@ -55,6 +55,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
     monkeypatch.setattr(diagnostics, "check_pyannote_gated_access", lambda token, api=None: [
         {"model": "pyannote/speaker-diarization-3.1", "accessible": True, "error": DIRTY}])
+    monkeypatch.setattr(svc, "_hf_hub_importable", lambda: True)  # the check runs even without the hub installed
     monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {
         "emotion_999999": {"status": "error", "message": DIRTY, "error": DIRTY,
                            "description": DIRTY, "started_at": 10.0, "finished_at": 12.5},

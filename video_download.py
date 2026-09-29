@@ -141,6 +141,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
             "progress_hooks": [_hook],
             "quiet": True, "no_warnings": True, "noplaylist": True,
+            "no_color": True,  # no ANSI codes in error text shown in the UI/log
             "js_runtimes": js_runtimes,
         }
     else:
@@ -149,6 +150,7 @@ def download(url: str, out_dir: str, audio_only: bool = True, progress_cb=None,
             "outtmpl": os.path.join(out_dir, "downloaded_video.%(ext)s"),
             "progress_hooks": [_hook],
             "quiet": True, "no_warnings": True, "noplaylist": True,
+            "no_color": True,  # no ANSI codes in error text shown in the UI/log
             "merge_output_format": "mp4",
             "js_runtimes": js_runtimes,
         }

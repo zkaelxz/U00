@@ -53,7 +53,10 @@ export function PyannoteSection() {
           {checked && data.models === null && (
             <p className="muted">Can't check: huggingface_hub isn't installed.</p>
           )}
-          {data.models && (
+          {checked && data.models?.length === 0 && (
+            <p className="muted">No gated models to check.</p>
+          )}
+          {data.models && data.models.length > 0 && (
             <ul className="diag-rows" aria-label="Gated models">
               {data.models.map((m) => (
                 <li key={m.model}>
