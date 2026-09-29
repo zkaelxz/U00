@@ -3,7 +3,7 @@ import type { Page, Route } from '@playwright/test'
 // Shared page.route mocks for the Sources specs. A real search or series
 // fetch would hit the internet (paced), and every spec shares one seeded
 // library, so every job start, job result and settings write is mocked
-// here; a guard fails any unmocked search/series POST.
+// here; guards abort (and record) any Sources or job-cancel call nothing mocks.
 
 export const SOURCES = [
   {
@@ -59,13 +59,14 @@ export function searchResult(n = 3) {
   }
 }
 
-export function seriesResult(chapters = 124) {
+
+export function seriesResult(chapters = 124, series_id = 'a0', title = 'Heaven Book 1') {
   return {
     kind: 'series',
     source: 'alpha',
-    series_id: 'a0',
+    series_id,
     info: {
-      title: 'Heaven Book 1', url: 'https://alpha.example/a', cover_url: 'https://alpha.example/c.jpg',
+      title, url: 'https://alpha.example/a', cover_url: 'https://alpha.example/c.jpg',
       authors: ['Mo Xiang'], description: 'A long description. '.repeat(20), genres: ['xianxia'],
       status: 'ongoing', content_type: 'manhua', language: 'zh',
     },
@@ -93,26 +94,36 @@ export function sourceDetail(summary: (typeof SOURCES)[number]) {
   }
 }
 
+
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
+
+const notFound = (route: Route) => json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
 
 export interface MockState {
   calls: { method: string; path: string; body: unknown }[]
   search: 'none' | 'running' | 'done'
   searchBody: unknown
+  // The alpha series job (the id is per source: sources_series_alpha).
   series: 'none' | 'running' | 'done'
-  seriesBody: unknown
+  // Which series the job holds; its result is seriesResult(124, seriesId, seriesTitle).
+  seriesId: string
+  seriesTitle: string
+  // Keep a running series job running (no auto-finish on the next poll).
+  seriesHold: boolean
   tracked: unknown[]
   notifications: unknown[]
   local: boolean
-  // Non-GET Sources calls nothing mocked: must stay empty.
+  // Calls that nothing mocks: aborted, and must stay empty.
   unmocked: string[]
 }
 
+// Every request matched here is fulfilled or aborted; nothing falls through
+// to the real server (a mocked POST must never reach it).
 export async function mockSources(page: Page, over: Partial<MockState> = {}): Promise<MockState> {
   const s: MockState = {
-    calls: [], search: 'none', searchBody: searchResult(), series: 'none', seriesBody: seriesResult(),
-    tracked: [], notifications: [], local: true, unmocked: [], ...over,
+    calls: [], search: 'none', searchBody: searchResult(), series: 'none', seriesId: 'a0', seriesTitle: 'Heaven Book 1',
+    seriesHold: false, tracked: [], notifications: [], local: true, unmocked: [], ...over,
   }
   const record = (route: Route) => {
     const req = route.request()
@@ -127,16 +138,15 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     return url
   }
 
-  // Guard first: later routes take precedence, so this only catches what nothing else mocks.
-  await page.route(/\/api\/sources\/.*/, (route) => {
-    const req = route.request()
+  // Guards first: later routes take precedence, so these only catch what nothing else mocks.
+  const guard = (route: Route) => {
     record(route)
-    if (req.method() !== 'GET') {
-      s.unmocked.push(`${req.method()} ${req.url()}`)
-      return route.abort()
-    }
-    return route.fallback()
-  })
+    s.unmocked.push(`${route.request().method()} ${route.request().url()}`)
+    return route.abort()
+  }
+  await page.route(/\/api\/sources\/.*/, guard)
+  await page.route(/\/api\/jobs\/[^/]+\/cancel$/, guard)
+
   await page.route(/\/api\/meta$/, (route) => json(route, { app: 'Baihe Studio', api_version: '0.1', environment: 'test', local: s.local }))
   await page.route(/\/api\/sources(\?.*)?$/, (route) => {
     record(route)
@@ -144,7 +154,7 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
   })
   await page.route(/\/api\/sources\/tracked$/, (route) => {
     record(route)
-    return json(route, s.tracked)
+    return route.request().method() === 'GET' ? json(route, s.tracked) : guard(route)
   })
   await page.route(/\/api\/sources\/notifications(\?.*)?$/, (route) => {
     record(route)
@@ -152,7 +162,7 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
   })
   await page.route(/\/api\/sources\/settings$/, (route) => {
     record(route)
-    return json(route, SETTINGS)
+    return route.request().method() === 'GET' ? json(route, SETTINGS) : guard(route)
   })
   await page.route(/\/api\/sources\/profiles$/, (route) => {
     record(route)
@@ -172,30 +182,47 @@ export async function mockSources(page: Page, over: Partial<MockState> = {}): Pr
     s.search = 'running'
     return json(route, { job_id: 'sources_search' })
   })
+  // Like the server: one series job per source; a second start while one runs is a 409.
   await page.route(/\/api\/sources\/[^/]+\/series$/, (route) => {
     record(route)
+    if (s.series === 'running') {
+      return json(route, {
+        error: { code: 'conflict', message: 'A request like this is already running.', details: { job_id: 'sources_series_alpha' } },
+      }, 409)
+    }
+    const body = route.request().postDataJSON() as { series_id: string }
     s.series = 'running'
+    s.seriesId = body.series_id
     return json(route, { job_id: 'sources_series_alpha' })
   })
   await page.route(/\/api\/sources\/jobs\/sources_search\/result$/, (route) => {
     record(route)
-    if (s.search === 'none') return json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
+    if (s.search === 'none') return notFound(route)
     if (s.search === 'running') return json(route, { job_id: 'sources_search', status: 'running', progress: 0.1, message: null, result: null })
     return json(route, { job_id: 'sources_search', status: 'done', progress: 1, message: null, result: s.searchBody })
   })
   await page.route(/\/api\/sources\/jobs\/sources_series_[^/]+\/result$/, (route) => {
     record(route)
-    if (s.series === 'none') return json(route, { error: { code: 'not_found', message: 'No such Sources job.' } }, 404)
+    if (s.series === 'none') return notFound(route)
     if (s.series === 'running') {
-      s.series = 'done' // the next poll finishes
+      if (!s.seriesHold) s.series = 'done' // the next poll finishes
       return json(route, { job_id: 'sources_series_alpha', status: 'running', progress: 0.2, message: 'Loading the series...', result: null })
     }
-    return json(route, { job_id: 'sources_series_alpha', status: 'done', progress: 1, message: null, result: s.seriesBody })
+    return json(route, {
+      job_id: 'sources_series_alpha', status: 'done', progress: 1, message: null,
+      result: seriesResult(124, s.seriesId, s.seriesTitle),
+    })
   })
   await page.route(/\/api\/jobs\/sources_search\/cancel$/, (route) => {
     record(route)
     s.search = 'done'
     return json(route, { job_id: 'sources_search', cancel_requested: true })
+  })
+  await page.route(/\/api\/jobs\/sources_series_alpha\/cancel$/, (route) => {
+    record(route)
+    s.series = 'none'
+    s.seriesHold = false
+    return json(route, { job_id: 'sources_series_alpha', cancel_requested: true })
   })
   return s
 }

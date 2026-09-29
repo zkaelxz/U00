@@ -12,7 +12,7 @@
  * 500 is retried up to 3 times with backoff; after that a lost connection
  * reads "Lost contact with the API." and a 500 shows the server's error.
  * A start that gets 409 with details.job_id equal to this job reattaches
- * to the running one instead of showing an error.
+ * to the running one (search only; see `reattachOn409`).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -20,6 +20,7 @@ import { ApiError } from '../../api/client'
 import { cancelJob } from '../../api/jobs'
 import { getSourcesJobResult } from '../../api/sources'
 import type { SourcesJobResult, SourcesJobStarted } from '../../types/sources'
+import { isSameJobConflict } from './sourcesFormat'
 
 export type SourcesJobStatus = 'idle' | 'running' | 'done' | 'error'
 
@@ -81,36 +82,40 @@ export function pollSourcesJob<R>(id: string, h: PollHandlers<R>): () => void {
   }
 }
 
-/** True when a start's 409 is "this very job is already running". */
-export function isSameJobConflict(e: unknown, jobId: string): boolean {
-  if (!(e instanceof ApiError) || e.status !== 409) return false
-  const d = e.details as { job_id?: unknown } | null | undefined
-  return !!d && d.job_id === jobId
-}
-
 interface JobState<R> {
   id: string
   status: SourcesJobStatus
   progress: number | null
   message: string | null
   result: R | null
-  jobStatus: string | null
   error: ApiError | null
 }
 
 const idle = <R>(id: string): JobState<R> => ({
-  id, status: 'idle', progress: null, message: null, result: null, jobStatus: null, error: null,
+  id, status: 'idle', progress: null, message: null, result: null, error: null,
 })
 
-export function useSourcesJob<R>(jobId: string | null) {
+export interface SourcesJobOptions {
+  // A start's 409 for this same job id reattaches to the running run (search).
+  // Off for series: the id is per source, so the running run may be another
+  // series; the 409 is then left in `startError` for the page to explain.
+  reattachOn409?: boolean
+}
+
+export function useSourcesJob<R>(jobId: string | null, { reattachOn409 = true }: SourcesJobOptions = {}) {
   const [state, setState] = useState<JobState<R> | null>(null)
   const [startError, setStartError] = useState<unknown>(null)
   const [starting, setStarting] = useState(false)
+  // True once this page started (or reattached to) the current run itself,
+  // as opposed to finding it on mount.
+  const [startedHere, setStartedHere] = useState(false)
   // Bumped to (re)start polling for the current id: mount, a start, a reattach.
   const [pollKey, setPollKey] = useState(0)
   const idRef = useRef(jobId)
-  // While a start is in flight, a look at the previous run must not show.
-  const startingRef = useRef(false)
+  // The id whose updates are ignored: while a start is in flight (a look at
+  // the previous run must not show) and after a failed start (the running
+  // run is not the one asked for).
+  const mutedRef = useRef<string | null>(null)
   useEffect(() => {
     idRef.current = jobId
   })
@@ -119,48 +124,56 @@ export function useSourcesJob<R>(jobId: string | null) {
     if (!jobId) return
     return pollSourcesJob<R>(jobId, {
       onUpdate: (r) =>
-        !startingRef.current &&
+        mutedRef.current !== jobId &&
         setState({
           id: jobId,
           status: r.status === 'done' ? 'done' : r.status === 'running' || r.status === 'queued' ? 'running' : 'error',
           progress: r.progress,
           message: r.message,
           result: r.status === 'done' ? r.result : null,
-          jobStatus: r.status,
           error:
             r.status === 'cancelled'
               ? new ApiError(409, { code: 'conflict', message: 'Cancelled.', details: { reason: 'CANCELLED' } })
               : null,
         }),
-      onIdle: () => !startingRef.current && setState(idle(jobId)),
-      onError: (error) => !startingRef.current && setState((s) => ({ ...(s && s.id === jobId ? s : idle<R>(jobId)), status: 'error', error })),
+      onIdle: () => mutedRef.current !== jobId && setState(idle(jobId)),
+      onError: (error) =>
+        mutedRef.current !== jobId &&
+        setState((s) => ({ ...(s && s.id === jobId ? s : idle<R>(jobId)), status: 'error', error })),
     })
   }, [jobId, pollKey])
 
   // `id` defaults to the hook's current id; pass it when the id changes in
-  // the same event (opening a series on another source).
-  const start = useCallback((post: () => Promise<SourcesJobStarted>, id = idRef.current) => {
-    if (!id) return
-    setStartError(null)
-    setStarting(true)
-    startingRef.current = true
-    post().then(
-      () => {
-        startingRef.current = false
-        setStarting(false)
+  // the same event (opening a series on another source). The previous run's
+  // state is dropped at once, so it never shows under the new request.
+  const start = useCallback(
+    (post: () => Promise<SourcesJobStarted>, id = idRef.current) => {
+      if (!id) return
+      setStartError(null)
+      setStarting(true)
+      setStartedHere(false)
+      setState(idle(id))
+      mutedRef.current = id
+      const attach = () => {
+        mutedRef.current = null
+        setStartedHere(true)
         setState({ ...idle<R>(id), status: 'running' })
         setPollKey((k) => k + 1)
-      },
-      (e: unknown) => {
-        startingRef.current = false
-        setStarting(false)
-        if (isSameJobConflict(e, id)) {
-          setState({ ...idle<R>(id), status: 'running' })
-          setPollKey((k) => k + 1)
-        } else setStartError(e)
-      },
-    )
-  }, [])
+      }
+      post().then(
+        () => {
+          setStarting(false)
+          attach()
+        },
+        (e: unknown) => {
+          setStarting(false)
+          if (reattachOn409 && isSameJobConflict(e, id)) attach()
+          else setStartError(e) // stays muted: the running run is someone else's
+        },
+      )
+    },
+    [reattachOn409],
+  )
 
   const cancel = useCallback(() => {
     const id = idRef.current
@@ -182,6 +195,7 @@ export function useSourcesJob<R>(jobId: string | null) {
     message: cur?.message ?? null,
     result: cur?.result ?? null,
     error: cur?.error ?? null,
+    startedHere,
     startError,
     clearStartError: () => setStartError(null),
     start,

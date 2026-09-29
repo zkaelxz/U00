@@ -31,7 +31,7 @@ import { NewChapters } from './sources/NewChapters'
 import { SearchPanel } from './sources/SearchPanel'
 import { SeriesPanel } from './sources/SeriesPanel'
 import { SourceSettings } from './sources/SourceSettings'
-import { SEARCH_REMOTE_ALLOWED, pageSummary } from './sources/sourcesFormat'
+import { SEARCH_REMOTE_ALLOWED, pageSummary, seriesView } from './sources/sourcesFormat'
 import { useSourcesJob } from './sources/useSourcesJob'
 import './sources/sources.css'
 
@@ -62,7 +62,10 @@ export default function SourcesPage() {
   const opener = useRef<{ key: string; scrollY: number } | null>(null)
 
   const search = useSourcesJob<SearchResult>(SEARCH_JOB_ID)
-  const series = useSourcesJob<SeriesResult>(open ? seriesJobId(open.source) : null)
+  const seriesId = open ? seriesJobId(open.source) : null
+  // No 409 reattach: the id is per source, so the running run may be another series.
+  const series = useSourcesJob<SeriesResult>(seriesId, { reattachOn409: false })
+  const view = seriesView(open, series, seriesId)
 
   useEffect(() => {
     listSources().then(setSources, setLoadError)
@@ -98,10 +101,13 @@ export default function SourcesPage() {
     const o = opener.current
     opener.current = null
     // After the results are shown again: same scroll position, focus on the opener.
+    // Narrow layouts only: the results were hidden, so put the scroll back.
     requestAnimationFrame(() => {
-      if (!o) return
-      window.scrollTo(0, o.scrollY)
-      document.querySelector<HTMLElement>(`[data-opener="${CSS.escape(o.key)}"]`)?.focus({ preventScroll: true })
+      if (o && !wide) window.scrollTo(0, o.scrollY)
+      const back =
+        (o && document.querySelector<HTMLElement>(`[data-opener="${CSS.escape(o.key)}"]`)) ||
+        document.querySelector<HTMLElement>('.sources-search input[type="search"]')
+      back?.focus({ preventScroll: !!o && !wide })
     })
   }
 
@@ -129,7 +135,7 @@ export default function SourcesPage() {
     }
   }
 
-  const seriesShown = !!open && (series.status !== 'idle' || cleared || !!series.startError)
+  const seriesShown = !!open && (view.status !== 'idle' || cleared || !!series.startError)
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
     : null
@@ -168,14 +174,16 @@ export default function SourcesPage() {
 
       {seriesShown && open && (
         <SeriesPanel
+          key={`${open.source}:${open.series_id}`}
           open={open}
           display={display(open.source)}
           job={series}
+          view={view}
           tracked={openTracked}
           remote={remote}
           cleared={cleared}
           focusKey={focusKey}
-          showBack={!wide}
+          showBack={!wide && search.status === 'done' && !!search.result}
           onReload={reloadSeries}
           onClose={closeSeries}
           onUntrack={untrack}
@@ -189,7 +197,7 @@ export default function SourcesPage() {
             notifications={notifications}
             tracked={tracked}
             display={display}
-            onOpen={(s) => openSeries(s)}
+            onOpen={openSeries}
             onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
             onUntrack={untrack}
             untrackBusy={untrackBusy}

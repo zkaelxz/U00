@@ -1,9 +1,12 @@
 // Pure logic and copy for the Sources page (docs spec ux-sources-diagnostics §1).
 // No React here, so everything is unit-tested in sourcesFormat.test.ts.
+import { ApiError } from '../../api/client'
 import { safeDetail } from '../../components/errorMessages'
 import type {
   SeriesChapter,
+  OpenSeries,
   SeriesInfo,
+  SeriesResult,
   SourceErrorView,
   SourceHealth,
   SourcesSettings,
@@ -185,6 +188,54 @@ export function limitGroups(groups: ChapterGroup[], n: number): ChapterGroup[] {
     out.push({ group: g.group, chapters: rows })
   }
   return out
+}
+
+/** An http(s) link, or null (never render another scheme as a link). */
+export function safeHref(url: string | null | undefined): string | null {
+  return url && /^https?:\/\//i.test(url) ? url : null
+}
+
+/** True when a start's 409 names this same job id as already running. */
+export function isSameJobConflict(e: unknown, jobId: string): boolean {
+  if (!(e instanceof ApiError) || e.status !== 409) return false
+  const d = e.details as { job_id?: unknown } | null | undefined
+  return !!d && d.job_id === jobId
+}
+
+export interface SeriesJobLike {
+  status: 'idle' | 'running' | 'done' | 'error'
+  result: SeriesResult | null
+  error: unknown
+  startedHere: boolean
+  startError: unknown
+}
+
+export interface SeriesView {
+  status: 'idle' | 'running' | 'done' | 'error'
+  result: SeriesResult | null
+  error: unknown
+  // A start was refused because another series from this source is loading.
+  busyOther: boolean
+}
+
+/**
+ * What the series panel may show for the open series. The job id is per
+ * source, so the job can hold a different series: a finished result counts
+ * only when its source and series_id match `open`, and a run found on mount
+ * (not started here) that failed is not shown, since it can't be matched.
+ */
+export function seriesView(open: OpenSeries | null, job: SeriesJobLike, jobId: string | null): SeriesView {
+  const busyOther = !!jobId && isSameJobConflict(job.startError, jobId)
+  const none: SeriesView = { status: 'idle', result: null, error: null, busyOther }
+  if (!open || busyOther) return none
+  if (job.status === 'done') {
+    const r = job.result
+    return r && r.source === open.source && r.series_id === open.series_id
+      ? { status: 'done', result: r, error: null, busyOther }
+      : none
+  }
+  if (job.status === 'error') return job.startedHere ? { status: 'error', result: null, error: job.error, busyOther } : none
+  return { status: job.status, result: null, error: null, busyOther }
 }
 
 // ---------------------------------------------------------------- time

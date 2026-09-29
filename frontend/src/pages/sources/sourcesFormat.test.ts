@@ -20,6 +20,9 @@ import {
   percent,
   profileLine,
   resultsHeader,
+  safeHref,
+  seriesView,
+  type SeriesJobLike,
   searchDisabledReason,
   searchInSummary,
   searchSourcesParam,
@@ -253,5 +256,42 @@ describe('settings', () => {
   it('writes a profile version line', () => {
     expect(profileLine({ version: 3, kind: 'novel', status: 'active', origin: 'ai', failures: 2, last_failure_reason: 'empty' }))
       .toBe('v3 · novel · active · from ai · 2 failures (empty)')
+  })
+})
+
+describe('seriesView (the job id is per source, so it may hold another series)', () => {
+  const open = { source: 'alpha', series_id: 'B', title: 'B' }
+  const result = (series_id: string) => ({ kind: 'series' as const, source: 'alpha', series_id, info: null, chapters: [] })
+  const job = (over: Partial<SeriesJobLike>): SeriesJobLike => ({
+    status: 'idle', result: null, error: null, startedHere: true, startError: null, ...over,
+  })
+
+  it('shows a finished result only for the open series', () => {
+    expect(seriesView(open, job({ status: 'done', result: result('B') }), 'sources_series_alpha').result?.series_id).toBe('B')
+    expect(seriesView(open, job({ status: 'done', result: result('A') }), 'sources_series_alpha')).toMatchObject({
+      status: 'idle', result: null,
+    })
+    expect(seriesView({ ...open, source: 'beta' }, job({ status: 'done', result: result('B') }), 'sources_series_beta').status)
+      .toBe('idle')
+  })
+
+  it('a 409 for this job means another series is loading', () => {
+    const conflict = new ApiError(409, { code: 'conflict', message: 'x', details: { job_id: 'sources_series_alpha' } })
+    expect(seriesView(open, job({ status: 'done', result: result('A'), startError: conflict }), 'sources_series_alpha'))
+      .toEqual({ status: 'idle', result: null, error: null, busyOther: true })
+  })
+
+  it('ignores a failure found on mount, keeps one started here', () => {
+    const err = new ApiError(503, { code: 'x', message: 'x' })
+    expect(seriesView(open, job({ status: 'error', error: err, startedHere: false }), 'sources_series_alpha').status).toBe('idle')
+    expect(seriesView(open, job({ status: 'error', error: err }), 'sources_series_alpha').error).toBe(err)
+    expect(seriesView(null, job({ status: 'running' }), null).status).toBe('idle')
+    expect(seriesView(open, job({ status: 'running' }), 'sources_series_alpha').status).toBe('running')
+  })
+
+  it('links only http(s)', () => {
+    expect(safeHref('https://a.example/x')).toBe('https://a.example/x')
+    expect(safeHref('javascript:alert(1)')).toBeNull()
+    expect(safeHref(null)).toBeNull()
   })
 })

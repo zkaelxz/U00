@@ -129,6 +129,15 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   await expect(box.getByText('Chapter 125 · Alpha Comics · 2 h ago')).toBeVisible()
   await expect(box.getByText('· last check failed: Timed out.')).toBeVisible()
 
+  // Open from New chapters, then Close: focus goes back to that Open button.
+  const openBtn = box.getByRole('button', { name: 'Open', exact: true })
+  await openBtn.click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  await panel.getByRole('button', { name: 'Close' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(openBtn).toBeFocused()
+
   await box.getByRole('button', { name: 'Dismiss' }).click()
   await expect(box.getByText('Chapter 125 · Alpha Comics')).toHaveCount(0)
 
@@ -137,6 +146,7 @@ test('new chapters: dismiss and two-step stop tracking', async ({ page }) => {
   await box.getByRole('button', { name: 'Confirm stop tracking Old Book' }).click()
   await expect(box.getByText('Old Book')).toHaveCount(0)
   expect(posted(s, '/api/sources/tracked')[0].body).toEqual({ source: 'beta', series_id: 'b0', tracked: false })
+  expect(s.unmocked).toEqual([])
 })
 
 test('remote: search and settings are PC only, no settings request', async ({ page }) => {
@@ -148,6 +158,61 @@ test('remote: search and settings are PC only, no settings request', async ({ pa
   await expect(page.getByText('Run this on the main PC.')).toBeVisible()
   await page.waitForTimeout(300)
   expect(s.calls.filter((c) => c.path.startsWith('/api/sources/settings'))).toEqual([])
+  expect(s.unmocked).toEqual([])
+})
+
+test('series B on the same source while A is still running never shows A', async ({ page }) => {
+  const s = await mockSources(page, { searchBody: { ...searchResult(3), errors: {} }, seriesHold: true })
+  await page.goto('/#/sources')
+  await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
+  await page.getByRole('searchbox', { name: 'Title' }).press('Enter')
+  s.search = 'done'
+  await expect(page.getByText('3 results', { exact: true })).toBeVisible()
+
+  // A (a0) starts and keeps running.
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(0).click()
+  const panel = page.getByRole('region', { name: 'Series' })
+  await expect(panel.getByText(/Loading the series/)).toBeVisible()
+
+  // B (a1) on the same source: the server says 409 (its job id is per source).
+  await page.getByRole('button', { name: 'Open on Alpha Comics' }).nth(1).click()
+  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 2' })).toBeVisible()
+  await expect(panel.getByText('Another series is loading from this source.')).toBeVisible()
+  await expect(panel.getByText(/Loading the series/)).toHaveCount(0)
+
+  // A finishes on the server: its chapters must not appear under B.
+  s.seriesHold = false
+  s.series = 'done'
+  await page.waitForTimeout(2000)
+  await expect(panel.getByText(/124 chapters/)).toHaveCount(0)
+  await expect(panel.getByRole('heading', { level: 3, name: 'Heaven Book 2' })).toBeVisible()
+
+  // Cancel the other one, then Try again loads B.
+  s.series = 'running'
+  s.seriesHold = true
+  await panel.getByRole('button', { name: 'Cancel it' }).click()
+  await expect.poll(() => posted(s, '/api/jobs/sources_series_alpha/cancel').length).toBe(1)
+  await panel.getByRole('button', { name: 'Try again' }).click()
+  s.seriesHold = false
+  s.seriesTitle = 'Heaven Book 2'
+  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  expect(posted(s, '/api/sources/alpha/series').map((c) => c.body)).toEqual([
+    { series_id: 'a0' }, { series_id: 'a1' }, { series_id: 'a1' },
+  ])
+  expect(s.unmocked).toEqual([])
+})
+
+test('on load, a finished job for another series is not shown under the remembered one', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.sources.lastSeries', JSON.stringify({ source: 'alpha', series_id: 'a1', title: 'Heaven Book 2' }))
+  })
+  const s = await mockSources(page, { series: 'done', seriesId: 'a0' })
+  await page.goto('/#/sources')
+  await expect.poll(() => s.calls.some((c) => c.path === '/api/sources/jobs/sources_series_alpha/result')).toBe(true)
+  await page.waitForTimeout(500)
+  await expect(page.getByRole('region', { name: 'Series' })).toHaveCount(0)
+  await expect(page.getByText(/124 chapters/)).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
 })
 
 test('source settings: health text, On rollback, save only changes, 422, clear cache', async ({ page }) => {

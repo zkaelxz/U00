@@ -5,13 +5,18 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import type { OpenSeries, SeriesResult, TrackedSeries } from '../../types/sources'
 import { SourceErrorLine } from './SearchPanel'
-import { CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, seriesExtra, seriesMeta } from './sourcesFormat'
+import {
+  CHAPTERS_PAGE, describeSourceError, groupChapters, limitGroups, percent, safeHref, seriesExtra, seriesMeta,
+  type SeriesView,
+} from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
 
 type Props = {
   open: OpenSeries
   display: string
   job: SourcesJob<SeriesResult>
+  // What may be shown for `open` (the job can hold another series).
+  view: SeriesView
   tracked: TrackedSeries | null
   remote: boolean
   // Chapter list dropped after the source's Adult works switch changed.
@@ -30,7 +35,7 @@ type Props = {
 const LONG_DESCRIPTION = 180
 
 export function SeriesPanel({
-  open, display, job, tracked, remote, cleared, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
+  open, display, job, view, tracked, remote, cleared, focusKey, showBack, onReload, onClose, onUntrack, untrackBusy,
 }: Props) {
   const headRef = useRef<HTMLHeadingElement>(null)
   const [more, setMore] = useState(false)
@@ -40,12 +45,13 @@ export function SeriesPanel({
     if (focusKey) headRef.current?.focus({ preventScroll: false })
   }, [focusKey])
 
-  const result = !cleared && job.status === 'done' ? job.result : null
+  const result = !cleared && view.status === 'done' ? view.result : null
   const info = result?.info ?? null
   const chapters = result?.chapters ?? []
   const groups = groupChapters(chapters)
   const title = info?.title || open.title || open.series_id
-  const running = job.status === 'running'
+  const running = view.status === 'running'
+  const siteUrl = safeHref(info?.url)
   const description = info?.description?.trim() ?? ''
   const extra = seriesExtra(info)
 
@@ -63,7 +69,20 @@ export function SeriesPanel({
         {tracked && <span className="badge">Tracked</span>}
       </div>
 
-      <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
+      {view.busyOther ? (
+        <p className="warn" role="alert">
+          Another series is loading from this source.{' '}
+          <button type="button" className="link" onClick={job.cancel}>
+            Cancel it
+          </button>
+          {' '}
+          <button type="button" onClick={onReload}>
+            Try again
+          </button>
+        </p>
+      ) : (
+        <ErrorBanner error={job.startError} onDismiss={job.clearStartError} describe={{ serverText: true }} />
+      )}
 
       <div aria-live="polite">
         {running && (
@@ -79,8 +98,8 @@ export function SeriesPanel({
 
       {cleared && <p className="muted">Chapter list cleared; reload it to use the new setting.</p>}
 
-      {!cleared && job.status === 'error' && job.error && (
-        <SourceErrorLine copy={{ ...describeSourceError(job.error, display, remote), retry: true }} onRetry={onReload} />
+      {!cleared && view.status === 'error' && !!view.error && (
+        <SourceErrorLine copy={{ ...describeSourceError(view.error, display, remote), retry: true }} onRetry={onReload} />
       )}
 
       {result && (
@@ -101,8 +120,8 @@ export function SeriesPanel({
       )}
 
       <div className="actions">
-        {info?.url && (
-          <a href={info.url} target="_blank" rel="noopener noreferrer">
+        {siteUrl && (
+          <a href={siteUrl} target="_blank" rel="noopener noreferrer">
             Open on site ↗
           </a>
         )}

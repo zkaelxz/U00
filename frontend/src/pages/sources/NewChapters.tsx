@@ -11,7 +11,7 @@ type Props = {
   notifications: SourceNotification[]
   tracked: TrackedSeries[]
   display: (source: string) => string
-  onOpen: (series: OpenSeries) => void
+  onOpen: (series: OpenSeries, opener: string) => void
   onDismissed: (id: number) => void
   onUntrack: (t: TrackedSeries) => void
   untrackBusy: string | null
@@ -61,7 +61,8 @@ export function NewChapters({
               <span className="actions">
                 <button
                   type="button"
-                  onClick={() => onOpen({ source: n.source, series_id: n.series_id, title: titleOf(n) })}
+                  data-opener={`new:${n.id}`}
+                  onClick={() => onOpen({ source: n.source, series_id: n.series_id, title: titleOf(n) }, `new:${n.id}`)}
                 >
                   Open
                 </button>

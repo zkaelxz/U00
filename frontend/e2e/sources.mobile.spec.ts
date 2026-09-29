@@ -73,3 +73,21 @@ test('phone: source settings render as cards with 44 px toggles', async ({ page 
   await tallTargets(page)
   expect(s.unmocked).toEqual([])
 })
+
+test('phone: every main nav link is inside the viewport at 360 and 390 px', async ({ page }) => {
+  const s = await mockSources(page)
+  for (const width of [360, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto('/#/sources')
+    const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
+    await expect(links).toHaveCount(5)
+    for (const link of await links.all()) {
+      const box = (await link.boundingBox())!
+      expect(box.x, `${await link.textContent()} at ${width}`).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width, `${await link.textContent()} at ${width}`).toBeLessThanOrEqual(width)
+      expect(box.height).toBeGreaterThanOrEqual(44)
+    }
+    await noSideways(page)
+  }
+  expect(s.unmocked).toEqual([])
+})

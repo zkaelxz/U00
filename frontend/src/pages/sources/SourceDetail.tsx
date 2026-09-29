@@ -111,42 +111,37 @@ function Attempts({ name }: { name: string }) {
   const [rows, setRows] = useState<SourceAttempt[] | null>(null)
   const [error, setError] = useState<unknown>(null)
 
-  function onToggle(e: React.SyntheticEvent<HTMLDetailsElement>) {
-    if (!e.currentTarget.open || rows) return
+  function onToggle(open: boolean) {
+    if (!open || rows) return
+    setError(null)
     listAttempts(name, 20).then(setRows, setError)
   }
 
-  // Same markup as components/Section, which has no open callback.
   return (
-    <details className="section" onToggle={onToggle}>
-      <summary>
-        <span className="section-title">Recent attempts</span>
-      </summary>
-      <div className="section-body">
-        <ErrorBanner error={error} describe={{ pcOnly: true }} />
-        {!rows && !error && <p className="muted">Loading…</p>}
-        {rows && !rows.length && <p className="muted">No attempts yet.</p>}
-        {rows && rows.length > 0 && (
-          <ul className="sources-attempts">
-            {rows.map((a, i) => (
-              <li key={`${a.created_at ?? 0}-${i}`}>
-                {a.url} · {humanize(a.technical_status)} ·{' '}
-                <time dateTime={isoTime(a.created_at)}>{ago(a.created_at)}</time>
-                {(a.lines.length > 0 || a.reasons.length > 0) && (
-                  <details>
-                    <summary>Details</summary>
-                    <ul>
-                      {[...a.reasons, ...a.lines].map((l, j) => (
-                        <li key={j}>{l}</li>
-                      ))}
-                    </ul>
-                  </details>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </details>
+    <Section title="Recent attempts" onToggle={onToggle}>
+      <ErrorBanner error={error} describe={{ pcOnly: true }} />
+      {!rows && !error && <p className="muted">Loading…</p>}
+      {rows && !rows.length && <p className="muted">No attempts yet.</p>}
+      {rows && rows.length > 0 && (
+        <ul className="sources-attempts">
+          {rows.map((a, i) => (
+            <li key={`${a.created_at ?? 0}-${i}`}>
+              {a.url} · {humanize(a.technical_status)} ·{' '}
+              <time dateTime={isoTime(a.created_at)}>{ago(a.created_at)}</time>
+              {(a.lines.length > 0 || a.reasons.length > 0) && (
+                <details>
+                  <summary>Details</summary>
+                  <ul>
+                    {[...a.reasons, ...a.lines].map((l, j) => (
+                      <li key={j}>{l}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   )
 }
