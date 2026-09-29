@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { ApiError } from '../../../api/client'
 import { getPresets } from '../../../api/library'
@@ -297,6 +297,8 @@ function RunPanel({
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
   const guidance = styleGuidance(config, f.style_preset)
   const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
+  // "Re-translate existing…" unmounts itself; hand focus to the confirm box that replaces it.
+  const focusAck = useRef(false)
 
   const runEstimate = () => {
     const params = buildEstimateParams(f)
@@ -406,7 +408,10 @@ function RunPanel({
               <button
                 type="button"
                 className={buttonClass('ghost', 'sm')}
-                onClick={() => setF((s) => ({ ...s, force: true, forceConfirmed: false }))}
+                onClick={() => {
+                  focusAck.current = true
+                  setF((s) => ({ ...s, force: true, forceConfirmed: false }))
+                }}
               >
                 Re-translate existing…
               </button>
@@ -417,7 +422,16 @@ function RunPanel({
       )}
       {f.force && (
         <label className="inline stage-ack">
-          <input type="checkbox" checked={f.forceConfirmed} onChange={(e) => set('forceConfirmed', e.target.checked)} />{' '}
+          <input
+            type="checkbox"
+            ref={(el) => {
+              if (el && focusAck.current) {
+                focusAck.current = false
+                el.focus()
+              }
+            }}
+            checked={f.forceConfirmed}
+            onChange={(e) => set('forceConfirmed', e.target.checked)} />{' '}
           I understand this replaces existing English (a snapshot is saved first)
         </label>
       )}
