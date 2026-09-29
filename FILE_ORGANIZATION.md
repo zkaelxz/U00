@@ -312,7 +312,8 @@ baihe-subtitler/
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
 │   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
-│   │                             LoopbackOnlyGate (auth off: direct loopback requests only)
+│   │                             LoopbackOnlyGate (auth off: direct loopback requests only),
+│   │                             LocalOnlyCrossSiteGate (local_only routes refuse cross-site requests; #372)
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/
@@ -324,7 +325,7 @@ baihe-subtitler/
 │       │                         (multipart), storage scan/clean; tests/test_api_library_admin.py
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4); overview, progress, notes, media, captions, lookup, vocab + exports, story tools, wiki, ask (route batch 2B, M4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
-│       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
+│       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8), POST /{id}/cancel (#350); records carry a redacted result + outcome (#378)
 │       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)

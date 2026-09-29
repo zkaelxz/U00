@@ -3,6 +3,12 @@
 Durable status for the next session. Repo docs and code are the source of truth; this file is the index.
 Last updated 2026-09-29. Base branch: `baihe-subtitler`. Slice detail lives in `docs/migration-review.md`.
 
+## Status after the batches (docs sync, 2026-09-29, base 4b2d5e5)
+Everything the old session left pushed is merged: `reader-service` #358, `transcribe-autotune-glossary-service` #361, `fix-b27-retry-engine` #362 (B-27 marked fixed), `api-routes-batch-1` #372 (incl. Sources S-3 and Diagnostics admin routes, extension control, `LocalOnlyCrossSiteGate`).
+Queue below: item 1 done (route batch 2C #365, 2B #370, 2A #376; library admin hardening #369); item 2 done (#374); item 3 partly done (Review editor #377; Workspace shell not yet; progress endpoint merged in #372).
+Also merged: #363 B-25 redirect hops, #364 Range tests, #366 idx tests, #367/#368 tab-to-service extraction, #371 B-29, #373 B-28, #375 B-09 part 2, #378 job results, #379 React bulk batches panel, #380 React parity, #381 Gemini free tier outside Streamlit, #382 CLI parity, #383 xdist test isolation.
+Open, not merged: `react-library-admin`, `react-reader-page`, `react-autotune-glossary-deletes`, `fix-reader-html-escaping`.
+
 ## Session handoff (2026-09-29, late): read this first
 The previous lead session handed over to a new session so that the new project agents can load
 (`.claude/agents/`: merge-integrator, api-slice-builder, react-page-builder, security-reviewer,
@@ -33,7 +39,7 @@ security-auditor, parity-auditor, bug-investigator, test-author, docs-steward, s
 **Test gate:** `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` gives the full suite in about 4 minutes (4686 passed, 86 skipped on #352).
 
 ## Verified status
-- Merged slices: 19-23, 25-33, 35-49 (+ earlier 1-18), plus E0 (Library remainder), Step 95 (BGM-preserving dub) and Step 97b (translate fallback chain, API level). Slices 41 and 45 were built on Opus at the user's request (#266, #267).
+- Merged slices: 19-23, 25-33, 35-56 (+ earlier 1-18; 50 #307, 51+52 #352, 53 #310, 54 #317, 55 #319, 56 #321), plus E0 (Library remainder), Step 95 (BGM-preserving dub) and Step 97b (translate fallback chain, API level). Slices 41 and 45 were built on Opus at the user's request (#266, #267).
 - Frontend (React): every planned slice is merged (F, A, B, C, I, D, E, G, H, F2; PRs #254-#271), see `docs/migration-frontend-plan.md`.
 - Serving (merged, #287; 405 fix #294): `python -m api` serves `frontend/dist` at `/` (`api/static_frontend.py`, `BAIHE_API_SERVE_FRONTEND`); `start-react.bat` launches it on Windows (written without a Windows machine, untested).
 - Concise UI (merged): shared Section/Field blocks (#293), then Dub #295, Export #296, Translate #297, Review #298, Source #299, Translate Reflect/Bulk/Resume pending batches #300, Settings + Diagnostics #301, NovelPanel + Library new-drama form #302 (Library table-first #285). Every React page/stage now has the concise treatment (collapsible Section, Field with tooltips, remembered state). Also merged: GPU/CPU reporting and job progress messages (#283), Slice 24 key writes (#289), Slice 34 with fakes (#290), bug batches (#286, #291).
@@ -67,7 +73,7 @@ Uploads/exports: multipart + drama-folder outputs. `use_gpu`: persisted, default
 
 ## Queue (not yet built)
 24 API-key writes (user requirement 2026-09-29: keys stay on the main PC and are never sent to other devices; remote devices use server-side keys) -- **built, OFF by default** (`BAIHE_API_ALLOW_KEY_WRITES=1` to enable): write-only `POST /api/settings/keys/{engine}` (body `{value, confirm:true}`) and `POST /api/settings/keys/{engine}/clear`; response is only `{engine, configured}`. Guards (all must hold, else a generic 403): flag on; TCP peer is loopback; Host header is 127.0.0.1/localhost/[::1]; none of X-Forwarded-For/Host/Proto, Forwarded, X-Real-IP, Tailscale-User-Login, Cf-Connecting-Ip, Cf-Ray, Via present; Origin, if present, is loopback; then `confirm=true`, a known secret engine, and a clean value (no whitespace/quotes/control chars, max 512). **Honest limit: this is a safeguard, not authentication** -- a header/peer check can be defeated by a proxy that strips headers or a local process; real admin isolation is the separate admin listener (D5), still to be built.; 34 qwen3 backends -- **built with fakes (#290)**, real-model check still owed by the user.
-Next (React and API gaps): metadata auto-fill and media-analysis UI; OCR/EPUB import UI; per-line improve/why-this; media playback with Range; dub download; SSE/job push; a pending-batch list endpoint (none exists, so the Translate "Resume pending batches" control cannot list batches with poll/cancel until one is added); B-04/B-05 job-cancel staleness; B-09 part 2 (async extraction); B-08 SSRF pinning; frontend phases 7-10; deferred roadmap steps 106-132 per the master doc.
+Next (React and API gaps): metadata auto-fill and media-analysis UI; OCR/EPUB import UI; per-line improve/why-this; media playback with Range; dub download; SSE/job push; ~~pending-batch list endpoint~~ (built, Slice 51 #352; React panel #379); ~~B-04/B-05 job-cancel staleness~~ (#350); ~~B-09 part 2 (async extraction)~~ (#375); ~~B-08 SSRF pinning~~ (fixed; browser tiers B-28 #373); frontend phases 7-10; deferred roadmap steps 106-132 per the master doc.
 Small bug/cleanup steps 121-132: see `docs/baihe-roadmap-master.md` section 2 (bug tracker).
 Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);
 transcribe/narration docs and docstrings that still say chunk_and_tag or audiobook/auto-fill are out of scope are stale (cosmetic cleanup step).
@@ -85,11 +91,11 @@ Also for the planning session: candidate notes on Fanjiao/GLify/YuriAudio2Notion
 
 ## Known flags
 - Step 97b: the fallback switch is immediate on the first qualifying error (no backoff on the primary); CLI/Streamlit do not expose a chain.
-- Slices 29-30 and 38: real ffmpeg/libass and real OCR/EPUBs never run; Settings `tesseract_cmd` is not passed to chapter OCR.
+- Slices 29-30 and 38: real ffmpeg/libass and real OCR/EPUBs never run; ~~Settings `tesseract_cmd` is not passed to chapter OCR~~ (B-03 #276).
 - `scripts/migration/resolve_slice.py`: keep-both is unsafe for `api/schemas.py` when a branch edits a class in place (Step 97b); rebuild as base + appended block, or hand-merge ours-first.
-- Stale stub line `**Next candidates:** the` near line 876 of docs/migration-review.md.
-- `gemini_free_tier` (Slice 23) is stored but unused; likely consumer `translate_engines.engine_picker_label`.
+- ~~Stale stub line `**Next candidates:** the` in docs/migration-review.md~~ (removed in the docs sync after #372).
+- ~~`gemini_free_tier` (Slice 23) is stored but unused~~ (B-16 #286; applied to API/CLI runs in #381).
 - `drama_service` now imports `background_jobs` (Slice 36); import weight unchecked.
-- Slice 36: if the drama folder cannot be fully removed, the DB row is already deleted (500 without paths).
-- Slice 43: `expected` compare and write are two steps, not atomic.
+- ~~Slice 36: if the drama folder cannot be fully removed, the DB row is already deleted~~ (B-14 #286).
+- ~~Slice 43: `expected` compare and write are two steps, not atomic~~ (B-12 #291).
 - Slice 49: API diarization merges with `overwrite_manual=False` by default; explicit `overwrite_manual=true` needs `confirm=true` (B-13, fixed).
