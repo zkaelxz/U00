@@ -12,7 +12,7 @@ import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
+import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import {
@@ -24,6 +24,14 @@ const SERVER = { pcOnly: true, serverText: true } as const
 
 export function ExtensionSection() {
   const pc = usePcOnly()
+  const pending = usePcPendingNote(pc)
+  if (pending) {
+    return (
+      <Section title="Browser extension" storageKey="settings.extension">
+        <p className="muted" data-testid="pc-pending">{pending}</p>
+      </Section>
+    )
+  }
   if (pc === 'remote') {
     return (
       <Section title="Browser extension" summary={PC_ONLY_SUMMARY} storageKey="settings.extension">

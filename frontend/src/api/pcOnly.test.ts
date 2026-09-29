@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from './client'
 import {
-  applyMeta, getPcMode, loadPcMode, markRemote, pcOnlyFetch, resetPcModeForTests, subscribePcMode,
+  applyMeta, getPcMetaFailed, getPcMode, loadPcMode, markRemote, pcOnlyFetch, resetPcModeForTests, subscribePcMode,
 } from './pcOnly'
 import type { MetaResponse } from './types'
 
@@ -21,8 +21,13 @@ describe('PC-only mode', () => {
   })
 
   it('stays unknown when meta fails or has no local field (older API)', async () => {
+    const heard = vi.fn()
+    subscribePcMode(heard)
+    expect(getPcMetaFailed()).toBe(false)
     await loadPcMode(() => Promise.reject(new ApiError(0, { code: 'network_error', message: '' })))
     expect(getPcMode()).toBe('unknown')
+    expect(getPcMetaFailed()).toBe(true)
+    expect(heard).toHaveBeenCalled()
     applyMeta(meta(undefined))
     expect(getPcMode()).toBe('unknown')
   })

@@ -95,10 +95,19 @@ export function applyMeta(meta: Pick<MetaResponse, 'local'>): void {
 }
 
 let metaLoad: Promise<void> | null = null
+// /api/meta failed this page load (the mode then stays 'unknown').
+let metaFailed = false
+
+export function getPcMetaFailed(): boolean {
+  return metaFailed
+}
 
 /** Fetch /api/meta once per page load; failures leave the mode 'unknown'. */
 export function loadPcMode(meta: () => Promise<MetaResponse> = () => api.meta()): Promise<void> {
-  metaLoad ??= meta().then(applyMeta, () => undefined)
+  metaLoad ??= meta().then(applyMeta, () => {
+    metaFailed = true
+    listeners.forEach((l) => l())
+  })
   return metaLoad
 }
 
@@ -116,6 +125,7 @@ export function pcOnlyFetch(f: Fetch = fetch): Fetch {
 /** Test-only: forget the mode and the cached meta load. */
 export function resetPcModeForTests(next: PcMode = 'unknown'): void {
   metaLoad = null
+  metaFailed = false
   refusedThisLoad = false
   mode = next
   listeners.clear()
