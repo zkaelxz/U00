@@ -2,8 +2,12 @@ import { memo, useEffect, useState, type KeyboardEvent, type MouseEvent } from '
 
 import { retryBlockedLine } from '../../../../api/review'
 import { translateApi } from '../../../../api/translate'
+import { Badge } from '../../../../components/Badge'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
+import { humanize, humanizeValue } from '../../../../components/labels'
+import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine, TmSuggestion } from '../../../../types/review'
 import type { TranslateEngine } from '../../../../types/translate'
 import { LineAi } from './LineAi'
@@ -77,7 +81,12 @@ interface Props {
   actions: RowActions
 }
 
-const INTERACTIVE = 'button, a, input, textarea, select, label, summary, dialog'
+// "content_blocked" + note -> "Content blocked · gemini: SAFETY"
+function flagText(line: Pick<ReviewLine, 'flag' | 'flag_note'>): string {
+  return `${humanizeValue(line.flag)}${line.flag_note ? ` · ${line.flag_note}` : ''}`
+}
+
+const INTERACTIVE =  'button, a, input, textarea, select, label, summary, dialog'
 
 // One line: meta, source and translation. The active row (roving tabIndex)
 // carries a toolbar on wider screens; editing happens in place. Details and
@@ -127,20 +136,23 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           {!isPhone && <>–{formatTime(line.end)}</>}
         </span>
         {line.speaker && <span className="review-speaker">{line.speaker}</span>}
-        {line.sfx && <span>sound cue</span>}
+        {line.sfx && <Badge>Sound cue</Badge>}
         {line.dub_filename && !isPhone && <span>dub: {line.dub_filename}</span>}
         {line.flag && (
-          <span className="review-flag" data-testid="line-flag" title={line.flag_note ?? undefined}>
-            <span aria-hidden="true">⚑</span>
-            <span className={isPhone ? 'sr-only' : undefined}>
-              {' '}Flagged: {line.flag}
-              {line.flag_note ? ` · ${line.flag_note}` : ''}
-            </span>
+          <span className="review-flag" data-testid="line-flag">
+            {isPhone ? (
+              <>
+                <span aria-hidden="true">⚑</span>
+                <span className="sr-only"> Flagged: {flagText(line)}</span>
+              </>
+            ) : (
+              <Badge tone="warn">⚑ {flagText(line)}</Badge>
+            )}
           </span>
         )}
         <button
           type="button"
-          className="review-more"
+          className={buttonClass('ghost', 'sm', 'review-more')}
           aria-label={`More actions for line ${lineNumber(line.idx)}`}
           aria-haspopup="dialog"
           onClick={() => actions.openSheet(line.id)}
@@ -151,8 +163,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
       {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
       {isPhone && active && line.flag && (
         <div className="review-flag review-flag-line" aria-hidden="true">
-          Flagged: {line.flag}
-          {line.flag_note ? ` · ${line.flag_note}` : ''}
+          Flagged: {flagText(line)}
         </div>
       )}
       <div className="review-body">
@@ -171,9 +182,9 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             />
             {!isPhone && (
               <div className="review-actions">
-                <button type="button" className="primary" onClick={actions.saveAndNext}>Save &amp; next</button>
-                <button type="button" onClick={actions.save}>Save</button>
-                <button type="button" onClick={actions.cancelEdit}>Cancel</button>
+                <button type="button" className={buttonClass('primary', 'sm')} onClick={actions.saveAndNext}>Save &amp; next</button>
+                <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.save}>Save</button>
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={actions.cancelEdit}>Cancel</button>
                 <span className="muted review-keys">Enter save &amp; next · Shift+Enter new line · Esc cancel</span>
               </div>
             )}
@@ -183,10 +194,10 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             type="button"
             className="review-en"
             data-testid="line-en"
-            title="Click to edit the translation"
+            
             onClick={() => (isPhone && !active ? actions.activate(line.id) : actions.openEdit(line.id))}
           >
-            {line.en || <span className="muted">(not translated)</span>}
+            {line.en || <span className="muted review-untranslated">(not translated)</span>}
           </button>
         )}
       </div>
@@ -198,8 +209,8 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             {tm.suggestion}
           </span>
           <span className="review-actions">
-            <button type="button" onClick={() => actions.acceptTm(line.id, tm.entry_id, line.en ?? '')}>Use</button>
-            <button type="button" onClick={() => actions.dismissTm(tm)}>Dismiss</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => actions.acceptTm(line.id, tm.entry_id, line.en ?? '')}>Use</button>
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissTm(tm)}>Dismiss</button>
           </span>
         </div>
       )}
@@ -207,12 +218,13 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
       {active && !isPhone && (
         <div className="review-tools" role="toolbar" aria-label={`Line ${lineNumber(line.idx)} actions`}>
           {hasMedia && (
-            <button type="button" onClick={() => actions.playLine(line)} title="Play the line (Space)">
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.playLine(line)} title="Play the line (Space)">
               ▶ Play
             </button>
           )}
           <button
             type="button"
+            className={buttonClass('ghost', 'sm')}
             aria-expanded={!!edit?.details}
             onClick={() => actions.toggleDetails(line.id)}
             title="Timing, speaker, source (D)"
@@ -221,6 +233,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           </button>
           <button
             type="button"
+            className={buttonClass('ghost', 'sm')}
             disabled={!line.en}
             aria-pressed={ai === 'improve'}
             onClick={() => actions.setAi(line.id, ai === 'improve' ? null : 'improve')}
@@ -230,29 +243,35 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           </button>
           <button
             type="button"
+            className={buttonClass('ghost', 'sm')}
             aria-pressed={ai === 'explain'}
             onClick={() => actions.setAi(line.id, ai === 'explain' ? null : 'explain')}
             title="Why this? (W)"
           >
             Why this?
           </button>
-          <button type="button" disabled={jobRunning} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
+          <button type="button" className={buttonClass('ghost', 'sm')} disabled={jobRunning} onClick={() => actions.openStructure(line.id, 'split')} title="Split line (Alt+Enter while editing)">
             Split…
           </button>
           <button
             type="button"
+            className={buttonClass('ghost', 'sm')}
             disabled={jobRunning || limited}
             onClick={() => actions.openStructure(line.id, 'merge')}
-            title={limited ? 'Merge works in the All lines view' : 'Merge with next (M)'}
+            title="Merge with next (M)"
           >
             Merge ↓
           </button>
           {line.flag && (
-            <button type="button" onClick={() => actions.dismissFlag(line.id)} title="Dismiss flag (F)">
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => actions.dismissFlag(line.id)} title="Dismiss flag (F)">
               Dismiss flag
             </button>
           )}
-          {jobRunning && <span className="muted review-reason">{JOB_RUNNING_MESSAGE}</span>}
+          {jobRunning ? (
+            <span className="muted review-reason">{JOB_RUNNING_MESSAGE}</span>
+          ) : (
+            limited && <span className="muted review-reason">Merge works in the All lines view.</span>
+          )}
         </div>
       )}
 
@@ -279,14 +298,17 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
               <input inputMode="decimal" value={draft.end} onChange={(e) => actions.setDraft({ end: e.target.value })} />
             </Field>
           </div>
-          <label className="review-check">
-            <input type="checkbox" checked={draft.sfx} onChange={(e) => actions.setDraft({ sfx: e.target.checked })} /> Sound cue
-            (no dialogue)
-          </label>
+          <div className="setting-list review-toggles">
+            <Field label="Sound cue (no dialogue)">
+              <Toggle checked={draft.sfx} onChange={(sfx) => actions.setDraft({ sfx })} />
+            </Field>
+          </div>
           {issue?.problem && <p className="error" role="alert">{issue.problem}</p>}
           <div className="review-actions">
             <button
               type="button"
+              className={buttonClass('secondary', 'sm')}
+              aria-expanded={!!edit.note}
               onClick={() => actions.setNote(edit.note ? null : { term: '', type: 'translation', text: '' })}
             >
               Add note
@@ -327,7 +349,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             <textarea value={edit.note.text} onChange={(e) => edit.note && actions.setNote({ ...edit.note, text: e.target.value })} rows={2} />
           </Field>
           <div className="review-actions">
-            <button type="button" disabled={!edit.note.term.trim() || !edit.note.text.trim()} onClick={actions.saveNote}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={!edit.note.term.trim() || !edit.note.text.trim()} onClick={actions.saveNote}>
               Save note
             </button>
           </div>
@@ -355,7 +377,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
       {issue?.conflict && (
         <div className="banner error-banner" role="alert" data-testid="line-conflict">
           <span>{CONFLICT_MESSAGE}</span>
-          <button type="button" className="link" onClick={actions.reload}>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={actions.reload}>
             Reload
           </button>
         </div>
@@ -415,7 +437,8 @@ function BlockedRetry({ dramaId, lineId, dirty, jobRunning, onApplied }: {
             onApplied(r.line, true)
             return
           }
-          setBlockedAgain(r.reason ? `${r.engine} also blocked this line: ${r.reason}` : `${r.engine} also blocked this line.`)
+          const who = humanize('engine', r.engine)
+          setBlockedAgain(r.reason ? `${who} also blocked this line: ${r.reason}` : `${who} also blocked this line.`)
           onApplied(r.line, false)
         },
         setError,
@@ -432,12 +455,12 @@ function BlockedRetry({ dramaId, lineId, dirty, jobRunning, onApplied }: {
         <select aria-label="Retry engine" value={engine} disabled={busy} onChange={(e) => setEngine(e.target.value)}>
           {options.map((e) => (
             <option key={e.name} value={e.name}>
-              {e.name}
+              {humanize('engine', e.name)}
               {e.free ? ' (free)' : ''}
             </option>
           ))}
         </select>
-        <button type="button" disabled={busy || reason !== null} aria-busy={busy || undefined} onClick={retry}>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || reason !== null} aria-busy={busy || undefined} onClick={retry}>
           {busy ? 'Retrying…' : 'Retry line'}
         </button>
         {reason && <span className="muted review-reason" data-testid="retry-reason">{reason}</span>}

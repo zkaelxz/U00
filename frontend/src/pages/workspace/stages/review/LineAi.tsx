@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiError, withSignal } from '../../../../api/client'
 import { explainLine, improveLine } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { LineExplanation, LineImprovement, ReviewLine } from '../../../../types/review'
 import { AI_STALE_MESSAGE, AI_UNAVAILABLE_MESSAGE, suggestionIsStale } from './reviewLogic'
 
@@ -103,10 +104,10 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
                 onChange={(e) => setIssue(e.target.value)}
               />
             </label>
-            <button type="button" disabled={busy} onClick={() => run('improve')}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} onClick={() => run('improve')}>
               {busy ? 'Working…' : improvement ? 'Ask again' : 'Suggest'}
             </button>
-            <button type="button" className="link" disabled={busy} onClick={onClose}>
+            <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>
               Close
             </button>
           </div>
@@ -129,10 +130,10 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
               {stale && <p className="error" role="alert">{AI_STALE_MESSAGE}</p>}
               {improvement.changed && (
                 <div className="review-actions">
-                  <button type="button" disabled={busy || stale} onClick={() => use(improvement.suggestion)}>
+                  <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || stale} onClick={() => use(improvement.suggestion)}>
                     Use this
                   </button>
-                  <button type="button" disabled={busy} onClick={onClose}>Dismiss suggestion</button>
+                  <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>Dismiss suggestion</button>
                 </div>
               )}
             </div>
@@ -147,11 +148,11 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
           )}
           <div className="review-actions">
             {!busy && error !== null && (
-              <button type="button" data-testid="line-ai-retry" onClick={() => run('explain')}>
+              <button type="button" className={buttonClass('secondary', 'sm')} data-testid="line-ai-retry" onClick={() => run('explain')}>
                 Try again
               </button>
             )}
-            <button type="button" className="link" disabled={busy} onClick={onClose}>
+            <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>
               Hide explanation
             </button>
           </div>

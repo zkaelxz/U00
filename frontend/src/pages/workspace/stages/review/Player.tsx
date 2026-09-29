@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
 import { mediaStreamUrl, type MediaKind } from '../../../../api/media'
+import { Toggle } from '../../../../components/Toggle'
+import { buttonClass } from '../../../../components/uiClasses'
 import { usePersistedState } from '../../../../hooks/usePersistedState'
 import type { ReviewLine } from '../../../../types/review'
 import { formatDuration, formatTime } from './reviewLogic'
@@ -64,6 +66,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [missingSrc, setMissingSrc] = useState<string | null>(null)
   const [jump, setJump] = useState('')
   const [jumpError, setJumpError] = useState<string | null>(null)
+  const loopId = useId()
   const loopRef = useRef(loop)
   const segRef = useRef<Segment | null>(null)
   // The panel (with the <video>) is portalled into one element for the
@@ -244,6 +247,8 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           }}
           className="review-video"
           playsInline
+          // A click on the picture plays or pauses; the Play button above stays the keyboard control.
+          onClick={failed ? undefined : togglePlay}
           {...common}
         >
           {track}
@@ -281,12 +286,12 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
               value={jump}
               onChange={(e) => setJump(e.target.value)}
             />
-            <button type="submit" disabled={!jump.trim() || failed}>
+            <button type="submit" className={buttonClass('secondary', 'sm')} disabled={!jump.trim() || failed}>
               Jump
             </button>
           </form>
           {selected && (
-            <button type="button" onClick={() => seekTo(selected.start)} disabled={failed} title="Move the player to the selected line's start">
+            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => seekTo(selected.start)} disabled={failed}>
               Go to line #{lineNumber(selected.idx)}
             </button>
           )}
@@ -316,7 +321,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
       <div className="review-player-row">
         <button
           type="button"
-          className="review-play"
+          className={buttonClass('secondary', 'md', 'review-play')}
           aria-label={playing ? 'Pause' : 'Play'}
           title={playing ? 'Pause (Alt+Space)' : 'Play (Alt+Space)'}
           onClick={togglePlay}
@@ -329,10 +334,13 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           <span className="review-duration"> / {formatDuration(duration)}</span>
         </span>
         {here && <span className="muted" data-testid="player-line">Line #{lineNumber(here.idx)}</span>}
-        <label className="review-check" title="Repeat the line being played (L)">
-          <input type="checkbox" checked={loop} onChange={(e) => setLoop(e.target.checked)} /> Loop<span className="review-loop-word"> line</span>
-        </label>
-        <button type="button" className="link review-player-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="review-loop">
+          <Toggle id={loopId} checked={loop} onChange={setLoop} aria-label="Loop line" title="Repeat the line being played (L)" />
+          <label htmlFor={loopId} aria-hidden="true">
+            Loop<span className="review-loop-word"> line</span>
+          </label>
+        </span>
+        <button type="button" className={buttonClass('ghost', 'sm', 'review-player-toggle')} aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide player' : 'Show player'}
         </button>
         {trailing}
