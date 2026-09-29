@@ -6,7 +6,9 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await page.goto('/#/settings')
   const box = page.getByRole('checkbox', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
+  await page.locator('details.section', { hasText: 'API keys configured' }).locator('summary').click()
   await expect(page.getByText(/API-key entry is not available/)).toBeVisible()
+  await page.evaluate(() => localStorage.removeItem('baihe.section.settings.api-keys'))
   const before = await box.isChecked()
 
   // The toggle updates optimistically; wait for the save to finish before reloading,
