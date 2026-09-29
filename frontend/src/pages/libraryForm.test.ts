@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest'
 
-import { canConfirmDelete, validateCreate } from './libraryForm'
+import { canConfirmDelete, groupHistory, validateCreate } from './libraryForm'
+
+describe('groupHistory', () => {
+  it('collapses consecutive rows of one drama and keeps the newest', () => {
+    const rows = [
+      { drama_id: 1, at: 'c' },
+      { drama_id: 1, at: 'b' },
+      { drama_id: 2, at: 'a' },
+      { drama_id: 1, at: '0' },
+    ]
+    const g = groupHistory(rows)
+    expect(g.map((x) => [x.entry.drama_id, x.count, x.entry.at])).toEqual([
+      [1, 2, 'c'],
+      [2, 1, 'a'],
+      [1, 1, '0'],
+    ])
+  })
+  it('handles an empty list', () => expect(groupHistory([])).toEqual([]))
+})
 
 describe('validateCreate', () => {
   it('accepts a titled drama with a language', () => {

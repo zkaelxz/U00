@@ -26,3 +26,20 @@ export function validateCreate(form: DramaCreateRequest): string | null {
 }
 
 export const canConfirmDelete = (typed: string) => typed === 'DELETE'
+
+export interface HistoryGroup<T> {
+  entry: T // the most recent row of the run
+  count: number
+}
+
+// Collapses runs of consecutive rows for the same drama (the list is newest
+// first, and the API records one row per progress save) into one row + count.
+export function groupHistory<T extends { drama_id: number }>(rows: T[]): HistoryGroup<T>[] {
+  const out: HistoryGroup<T>[] = []
+  for (const row of rows) {
+    const last = out[out.length - 1]
+    if (last && last.entry.drama_id === row.drama_id) last.count += 1
+    else out.push({ entry: row, count: 1 })
+  }
+  return out
+}

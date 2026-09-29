@@ -44,7 +44,7 @@ export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
   }, [search, status, quickFilter, reloadKey])
 
   return (
-    <section className="panel" aria-labelledby="library-heading">
+    <section className="panel wide" aria-labelledby="library-heading">
       <h2 id="library-heading">Library</h2>
       <div className="filters">
         <input

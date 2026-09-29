@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
 import {
   NON_ENGLISH_LANGUAGES,
+  engineShortName,
+  engineSummary,
   languagePair,
   translateApi,
   usableEngines,
@@ -64,13 +66,13 @@ export default function TranslatePage() {
   }
 
   return (
-    <section className="panel" aria-label="Translate">
+    <section className="panel page-narrow" aria-label="Translate">
       <h2>Translate</h2>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <form onSubmit={submit}>
-        <div className="filters">
-          <label>
-            Engine{' '}
+        <div className="field-row">
+          <label className="field">
+            <span>Engine</span>
             <select
               aria-label="Engine"
               value={engine}
@@ -81,14 +83,14 @@ export default function TranslatePage() {
             >
               {usable.map((en) => (
                 <option key={en.name} value={en.name}>
-                  {en.label}
+                  {engineShortName(en)}
                 </option>
               ))}
             </select>
           </label>
           {selected?.models && (
-            <label>
-              Model{' '}
+            <label className="field">
+              <span>Model</span>
               <select value={model} onChange={(e) => setModel(e.target.value)}>
                 <option value="">Default</option>
                 {selected.models.map((m) => (
@@ -99,8 +101,8 @@ export default function TranslatePage() {
               </select>
             </label>
           )}
-          <label>
-            Direction{' '}
+          <label className="field">
+            <span>Direction</span>
             <select
               value={direction}
               onChange={(e) => setDirection(e.target.value as TranslateDirection)}
@@ -109,8 +111,8 @@ export default function TranslatePage() {
               <option value="from_english">From English</option>
             </select>
           </label>
-          <label>
-            {direction === 'to_english' ? 'Source language' : 'Target language'}{' '}
+          <label className="field">
+            <span>{direction === 'to_english' ? 'Source language' : 'Target language'}</span>
             <select value={other} onChange={(e) => setOther(e.target.value)}>
               {NON_ENGLISH_LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -120,28 +122,41 @@ export default function TranslatePage() {
             </select>
           </label>
         </div>
-        <ul className="muted" aria-label="Engine keys">
-          {engines.map((en) => (
-            <li key={en.name}>
-              {en.label}: key configured {en.key_configured ? 'yes' : 'no'}
-            </li>
-          ))}
-        </ul>
+        <details className="engine-details">
+          <summary>Engine details</summary>
+          <ul aria-label="Engine keys">
+            {engines.map((en) => (
+              <li key={en.name}>
+                <div className="engine-head">
+                  <strong>{engineShortName(en)}</strong>
+                  <span className={en.key_configured ? 'badge ok' : 'badge bad'}>
+                    key configured: {en.key_configured ? 'yes' : 'no'}
+                  </span>
+                </div>
+                <div className="muted">{engineSummary(en.label)}</div>
+              </li>
+            ))}
+          </ul>
+        </details>
+        <label className="field">
+          <span>Text to translate</span>
         <textarea
           aria-label="Text to translate"
           rows={6}
-          style={{ width: '100%' }}
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <button type="submit" disabled={loading}>
-          {loading ? 'Translating…' : 'Translate'}
-        </button>
+        </label>
+        <div className="actions">
+          <button type="submit" className="primary" disabled={loading}>
+            {loading ? 'Translating…' : 'Translate'}
+          </button>
+        </div>
       </form>
       {result !== null && (
         <div>
           <h3>Result</h3>
-          <pre data-testid="translate-result" style={{ whiteSpace: 'pre-wrap' }}>
+          <pre data-testid="translate-result" className="result">
             {result}
           </pre>
         </div>
@@ -150,7 +165,7 @@ export default function TranslatePage() {
       {history.length === 0 ? (
         <p className="muted">No translations yet.</p>
       ) : (
-        <ul data-testid="translate-history">
+        <ul data-testid="translate-history" className="history-list">
           {history.map((h, i) => (
             <li key={`${h.created_at}-${i}`}>
               <span className="muted">

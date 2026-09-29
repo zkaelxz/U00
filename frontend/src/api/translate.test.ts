@@ -1,7 +1,29 @@
 import { describe, expect, it } from 'vitest'
 
 import { ApiError } from './client'
-import { languagePair, translateApi, usableEngines, validateTranslateInput } from './translate'
+import {
+  engineShortName,
+  engineSummary,
+  languagePair,
+  translateApi,
+  usableEngines,
+  validateTranslateInput,
+} from './translate'
+
+describe('engine display helpers', () => {
+  it('uses a short name, never the long description', () => {
+    expect(engineShortName({ name: 'deepseek' })).toBe('DeepSeek')
+    expect(engineShortName({ name: 'some_new_engine' })).toBe('Some new engine')
+  })
+
+  it('summarises a long label as its first sentence', () => {
+    const long =
+      'Far and away the cheapest capable option -- roughly 5-10 cents per drama. Strong on Chinese.'
+    expect(engineSummary(long)).toBe('Far and away the cheapest capable option')
+    expect(engineSummary('Best for tone. Supports caching.')).toBe('Best for tone.')
+    expect(engineSummary('x'.repeat(300)).length).toBeLessThanOrEqual(140)
+  })
+})
 
 const engine = (name: string, key_configured: boolean) => ({
   name,
