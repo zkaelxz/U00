@@ -90,7 +90,9 @@ function withCsrf(init: RequestInit): RequestInit {
   return { ...init, headers: { ...(init.headers as Record<string, string> | undefined), ...extra } }
 }
 
-async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Promise<T> {
+// Every request goes through here: the CSRF header on mutations, one
+// network-error shape, and the 401 -> signed-out notification.
+async function send(path: string, init: RequestInit, fetchImpl: Fetch): Promise<Response> {
   let resp: Response
   try {
     resp = await fetchImpl(`${BASE}${path}`, withCsrf(init))
@@ -100,21 +102,52 @@ async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Pr
       message: 'Could not reach the Baihe API. Is it running?',
     })
   }
+  if (resp.status === 401) unauthorizedListeners.forEach((l) => l())
+  return resp
+}
+
+function failure(status: number, body: unknown): ApiError {
+  const info = (body as { error?: ErrorInfo } | null)?.error
+  return new ApiError(status, info ?? { code: 'internal_error', message: `Request failed (${status}).` })
+}
+
+async function request<T>(path: string, init: RequestInit, fetchImpl: Fetch): Promise<T> {
+  const resp = await send(path, init, fetchImpl)
   let body: unknown = null
   try {
     body = await resp.json()
   } catch {
     // Non-JSON body (e.g. a proxy's own error page) -- handled below.
   }
-  if (resp.status === 401) unauthorizedListeners.forEach((l) => l())
-  if (!resp.ok) {
-    const info = (body as { error?: ErrorInfo } | null)?.error
-    throw new ApiError(
-      resp.status,
-      info ?? { code: 'internal_error', message: `Request failed (${resp.status}).` },
-    )
-  }
+  if (!resp.ok) throw failure(resp.status, body)
   return body as T
+}
+
+/**
+ * For text/binary responses (subtitle text, an EPUB blob): same CSRF,
+ * X-Baihe-Local on mutations, 401 and error handling as the JSON helpers,
+ * but the caller reads the body. Errors (which are JSON) become ApiError.
+ */
+export async function fetchBody<T>(
+  path: string,
+  init: RequestInit,
+  read: (r: Response) => Promise<T>,
+  fetchImpl: Fetch = fetch,
+): Promise<T> {
+  const headers = isMutating(init.method)
+    ? { ...(init.headers as Record<string, string> | undefined), ...LOCAL_HEADER }
+    : init.headers
+  const resp = await send(path, { ...init, headers }, fetchImpl)
+  if (!resp.ok) {
+    let body: unknown = null
+    try {
+      body = await resp.json()
+    } catch {
+      // not JSON
+    }
+    throw failure(resp.status, body)
+  }
+  return read(resp)
 }
 
 const JSON_ACCEPT = { Accept: 'application/json' }

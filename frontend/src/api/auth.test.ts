@@ -47,10 +47,13 @@ describe('login link', () => {
   })
 
   it('refuses anything that is not a same-site path', () => {
-    for (const bad of ['', 'https://evil.example', '//evil.example', '/\\evil.example', 'evil', null, undefined]) {
+    for (const bad of ['', 'https://evil.example', '//evil.example', '/\\evil.example', 'evil', null, undefined,
+      '/\t/evil.example', '/\n/evil.example', '/\r/evil.example', '/ /evil.example', '/\u0000/x']) {
       expect(safeReturnTo(bad)).toBe('/')
     }
     expect(safeReturnTo('/#/read/3')).toBe('/#/read/3')
+    expect(safeReturnTo('/?q=a%20b#/drama/2')).toBe('/?q=a%20b#/drama/2')
+    expect(loginHref('/\t/evil.example')).toBe('/api/auth/login?return_to=%2F')
   })
 })
 

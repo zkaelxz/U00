@@ -30,11 +30,15 @@ export const logout = (f?: Fetch) => postJson<unknown>('/api/auth/logout', undef
 
 /**
  * Where to come back to after Google: a same-site relative path. Anything
- * that isn't "/..." (or is "//host", "/\\host") falls back to "/"; the
- * server checks this again.
+ * that isn't "/..." (or is "//host", "/\\host", or has a control character
+ * or space, which browsers strip or rewrite: "/\t/host" becomes "//host")
+ * falls back to "/"; the server checks this again.
  */
+// eslint-disable-next-line no-control-regex -- matching them is the point
+const UNSAFE_CHARS = /[\\\s\u0000-\u001f\u007f]/
+
 export function safeReturnTo(path: string | null | undefined): string {
-  if (!path || !path.startsWith('/') || path.startsWith('//') || path.includes('\\')) return '/'
+  if (!path || !path.startsWith('/') || path.startsWith('//') || UNSAFE_CHARS.test(path)) return '/'
   return path
 }
 
