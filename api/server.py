@@ -72,6 +72,7 @@ from api.routers import (
     translate_routes,
     translate_run_routes,
     translation_version_routes,
+    voice_clone_routes,
     workflow_routes,
 )
 from api.schemas import API_VERSION
@@ -181,6 +182,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(blocked_retry_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(series_people_routes.router)
+    app.include_router(voice_clone_routes.router)
     app.include_router(novel_files_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first

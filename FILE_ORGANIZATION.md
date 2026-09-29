@@ -312,6 +312,9 @@ baihe-subtitler/
 │   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
 │   │                             attempts, settings, profiles, tracked, notifications) and config
 │   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
+│   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
+│   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
 │   └── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
 │                                 (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
 │                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
@@ -414,6 +417,9 @@ baihe-subtitler/
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
 │       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
+│       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
+│       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
 │       └── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
 │                                 /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
 │
@@ -426,7 +432,11 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code)
+│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ErrorBoundary (page crash fallback, resets on route change) +
+│   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
+│   │                              when React never mounts; index.html also holds a static no-JS note)
+│   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
