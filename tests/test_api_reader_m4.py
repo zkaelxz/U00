@@ -473,12 +473,14 @@ def test_auth_on_401_without_session(on_client):
 
 
 @pytest.mark.parametrize("path,body", LLM_ROUTES)
-def test_household_llm_routes_free_engines_only(on_client, path, body):
+def test_household_llm_routes_free_engines_only(on_client, drama, path, body):
     s = _session("kid@example.com")
-    url = f"{BASE}/99999{path}"
-    assert on_client.post(url, json=body, headers=_h(s)).status_code == 403          # omitted
-    assert on_client.post(url, json={**body, "engine": "claude"},
+    # The engine gate runs after the B2 path guard, so it needs a real drama.
+    real = f"{BASE}/{drama}{path}"
+    assert on_client.post(real, json=body, headers=_h(s)).status_code == 403         # omitted
+    assert on_client.post(real, json={**body, "engine": "claude"},
                           headers=_h(s)).status_code == 403
+    url = f"{BASE}/99999{path}"
     r = on_client.post(url, json={**body, "engine": "ollama"}, headers=_h(s))
     assert r.status_code == 404   # past auth; unknown drama
 
@@ -493,13 +495,14 @@ def test_engines_paid_allows_claude(on_client, path, body):
     assert r.status_code == 404
 
 
-def test_household_lookup(on_client):
+def test_household_lookup(on_client, drama):
     s = _session("kid@example.com")
     url = f"{BASE}/99999/lookup"
+    real = f"{BASE}/{drama}/lookup"
     assert on_client.post(url, json={"page": 1}, headers=_h(s)).status_code == 404
-    assert on_client.post(url, json={"page": 1, "use_llm": True},
+    assert on_client.post(real, json={"page": 1, "use_llm": True},
                           headers=_h(s)).status_code == 403
-    assert on_client.post(url, json={"page": 1, "use_llm": True, "engine": "claude"},
+    assert on_client.post(real, json={"page": 1, "use_llm": True, "engine": "claude"},
                           headers=_h(s)).status_code == 403
     assert on_client.post(url, json={"page": 1, "use_llm": True, "engine": "ollama"},
                           headers=_h(s)).status_code == 404
@@ -654,7 +657,7 @@ def test_lookup_without_llm_ignores_the_cap(client, lookup_drama):
             reader_routes._ACTIVE_CALLERS.discard("local")
 
 
-def test_per_user_cap_keyed_on_user_id(on_client):
+def test_per_user_cap_keyed_on_user_id(on_client, drama):
     a = _session("a@example.com")
     b = _session("b@example.com")
     uid_a = auth_service.resolve_session(a["session_token"])["user_id"]
@@ -662,7 +665,7 @@ def test_per_user_cap_keyed_on_user_id(on_client):
         reader_routes._ACTIVE_CALLERS.add(f"user:{uid_a}")
     try:
         body = {"question": "Q?", "engine": "ollama"}
-        assert on_client.post(f"{BASE}/99999/ask", json=body, headers=_h(a)).status_code == 429
+        assert on_client.post(f"{BASE}/{drama}/ask", json=body, headers=_h(a)).status_code == 429
         assert on_client.post(f"{BASE}/99999/ask", json=body, headers=_h(b)).status_code == 404
     finally:
         with reader_routes._ACTIVE_LOCK:
