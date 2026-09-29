@@ -12,7 +12,7 @@ scope -- see services/drama_service.py.
 """
 
 from fastapi import APIRouter, Path, Query
-
+from api.auth import local_only, require_permission
 from api.routers.library_routes import _to_detail
 from api.schemas import (DramaCreateRequest, DramaCreateResult, DramaDeleteResult,
                          DramaDetail, DramaMetadataUpdate, ErrorResponse)
@@ -21,7 +21,7 @@ from services import drama_service
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
 
-@router.post("", response_model=DramaCreateResult, status_code=201,
+@router.post("", dependencies=[require_permission("admin.library")], response_model=DramaCreateResult, status_code=201,
              summary="Create a drama (optionally with a series and/or preset)",
              responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_drama(payload: DramaCreateRequest):
@@ -30,7 +30,7 @@ def post_drama(payload: DramaCreateRequest):
                              preset_defaults=result.get("preset_defaults"))
 
 
-@router.post("/{drama_id}/metadata", response_model=DramaDetail,
+@router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,
              summary="Update a drama's metadata (partial update)",
              responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_drama_metadata(payload: DramaMetadataUpdate, drama_id: int = Path(ge=1)):
@@ -38,7 +38,7 @@ def post_drama_metadata(payload: DramaMetadataUpdate, drama_id: int = Path(ge=1)
         drama_id, **payload.model_dump(exclude_unset=True)))
 
 
-@router.delete("/{drama_id}", response_model=DramaDeleteResult, response_model_exclude_none=True,
+@router.delete("/{drama_id}", dependencies=[local_only()], response_model=DramaDeleteResult, response_model_exclude_none=True,
                summary="Permanently delete a drama (requires confirm=true and confirm_text=DELETE)",
                responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                           422: {"model": ErrorResponse}})
