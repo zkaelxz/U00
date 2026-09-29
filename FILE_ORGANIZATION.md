@@ -359,7 +359,8 @@ baihe-subtitler/
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
 │       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
-│       └── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
+│       ├── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
+│       └── live_routes.py        /api/live/sessions (POST start, GET list), /{id} (GET poll), /{id}/stop (spec L-1; API batch 1)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

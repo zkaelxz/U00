@@ -43,6 +43,7 @@ from api.routers import (
     library_routes,
     line_ai_routes,
     lines_routes,
+    live_routes,
     media_routes,
     metadata_routes,
     narration_routes,
@@ -144,6 +145,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(discover_routes.router)
     app.include_router(sources_catalog_routes.router)
     app.include_router(workflow_routes.router)
+    app.include_router(live_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

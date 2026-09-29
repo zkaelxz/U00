@@ -1831,3 +1831,55 @@ class WorkflowProgress(BaseModel):
     has_dub_track: bool
     exported: bool
     stages: List[WorkflowStageState]
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: Live capture (spec L-1, polling) -- /api/live/sessions
+# ---------------------------------------------------------------------------
+
+class LiveSessionStart(BaseModel):
+    """Keys are resolved server-side; no browser cookies over the API.
+    Numbers are clamped to the service's ranges (segment 10-60 s, overlap
+    0-8 s and at most half the segment, max_minutes 1-240)."""
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=1, max_length=2000)
+    source_language: str = Field("zh", max_length=5)
+    whisper_size: str = Field("small", max_length=10)
+    segment_seconds: float = 20
+    overlap_seconds: float = 3
+    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+    model: Optional[str] = Field(None, max_length=100)
+    max_minutes: float = 60
+    use_gpu: StrictBool = False
+
+
+class LiveSessionStarted(BaseModel):
+    session_id: str
+
+
+class LiveCue(BaseModel):
+    start: float
+    end: float
+    text: str
+    translated: str
+
+
+class LiveSessionStatus(BaseModel):
+    session_id: str
+    status: str   # queued | running | done | error | cancelled
+    message: str
+    progress: float
+    cues: List[LiveCue]
+    next_index: int
+
+
+class LiveSessionSummary(BaseModel):
+    session_id: str
+    status: str
+    engine: Optional[str] = None
+    cue_count: int
+
+
+class LiveSessionStopped(BaseModel):
+    session_id: str
+    stopping: bool
