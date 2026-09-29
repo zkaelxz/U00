@@ -238,6 +238,14 @@ test('on load, a running job for another series shows as busy, not as loading th
   await expect(panel.getByText(/Loading the series/)).toHaveCount(0)
   await panel.getByRole('button', { name: 'Cancel it' }).click()
   await expect.poll(() => posted(s, '/api/jobs/sources_series_alpha/cancel').length).toBe(1)
+  // Once the other run has ended the panel stays, and Try again loads the remembered series.
+  await expect(panel.getByText('The other series stopped loading.')).toBeVisible()
+  await expect(panel.getByText(/Another series/)).toHaveCount(0)
+  await panel.getByRole('button', { name: 'Try again' }).click()
+  s.seriesHold = false
+  s.seriesTitle = 'Heaven Book 2'
+  await expect(panel.getByText('Alpha Comics · 124 chapters · ongoing · zh')).toBeVisible()
+  expect(posted(s, '/api/sources/alpha/series').map((c) => c.body)).toEqual([{ series_id: 'a1' }])
   expect(s.unmocked).toEqual([])
 })
 

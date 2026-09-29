@@ -262,8 +262,11 @@ test('PC mode not yet known or unconfirmed: a muted line instead of install, res
   pendingFulfils.push(metaAnswered)
   await page.route('**/api/meta', async (r) => {
     await held
-    await r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'down' } } })
-    metaDone()
+    try {
+      await r.fulfill({ status: 500, json: { error: { code: 'internal', message: 'down' } } })
+    } finally {
+      metaDone()
+    }
   })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)

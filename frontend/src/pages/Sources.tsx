@@ -66,6 +66,10 @@ export default function SourcesPage() {
   // No 409 reattach: the id is per source, so the running run may be another series.
   const series = useSourcesJob<SeriesResult>(seriesId, { reattachOn409: false })
   const view = seriesView(open, series, seriesId)
+  // Another series was loading; once it ends, keep the panel (with Try
+  // again) until the user acts, instead of letting it vanish.
+  const [wasBusy, setWasBusy] = useState(false)
+  if (view.busyOther && !wasBusy) setWasBusy(true)
 
   useEffect(() => {
     listSources().then(setSources, setLoadError)
@@ -90,6 +94,7 @@ export default function SourcesPage() {
     }
     setStoredSeries(s)
     setCleared(false)
+    setWasBusy(false)
     setFocusKey((k) => k + 1)
     series.start(() => startSeries(s.source, s.series_id), seriesJobId(s.source))
   }
@@ -97,12 +102,14 @@ export default function SourcesPage() {
   function reloadSeries() {
     if (!open) return
     setCleared(false)
+    setWasBusy(false)
     series.start(() => startSeries(open.source, open.series_id), seriesJobId(open.source))
   }
 
   function closeSeries() {
     setStoredSeries(null)
     setCleared(false)
+    setWasBusy(false)
     const o = opener.current
     opener.current = null
     // After the results are shown again: same scroll position, focus on the opener.
@@ -140,7 +147,7 @@ export default function SourcesPage() {
     }
   }
 
-  const seriesShown = !!open && (view.status !== 'idle' || view.busyOther || cleared || !!series.startError)
+  const seriesShown = !!open && (view.status !== 'idle' || view.busyOther || wasBusy || cleared || !!series.startError)
   const openTracked = open
     ? tracked.find((t) => t.source === open.source && t.series_id === open.series_id) ?? null
     : null
@@ -187,6 +194,7 @@ export default function SourcesPage() {
           tracked={openTracked}
           remote={remote}
           cleared={cleared}
+          busyEnded={wasBusy && !view.busyOther && view.status === 'idle'}
           focusKey={focusKey}
           showBack={!wide && search.status === 'done' && !!search.result}
           onReload={reloadSeries}

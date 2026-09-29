@@ -7,7 +7,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { getExtensionStatus, revealExtensionToken, setExtensionEnabled } from '../../api/extension'
-import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
@@ -48,16 +47,13 @@ function ExtensionControls() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  // Wait for /api/meta first, so a viewer away from the PC makes no extension calls.
+  // Mounted only once /api/meta said this is the main PC.
   useEffect(() => {
     let live = true
-    void loadPcMode().then(() => {
-      if (!live || getPcMode() === 'remote') return
-      getExtensionStatus().then(
-        (s) => live && setStatus(s),
-        (e: unknown) => live && setError(e),
-      )
-    })
+    getExtensionStatus().then(
+      (s) => live && setStatus(s),
+      (e: unknown) => live && setError(e),
+    )
     return () => {
       live = false
     }

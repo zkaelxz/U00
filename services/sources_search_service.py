@@ -21,6 +21,8 @@ Results live only in this process's in-memory job table
 another process, `get_job_result` answers 404.
 """
 
+import threading
+
 import background_jobs
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, ServiceError,
@@ -253,15 +255,20 @@ def start_series(name, series_id) -> dict:
         raise UnsupportedOperationError("This source can't list chapters.",
                                         details={"reason": "NOT_SUPPORTED"})
     job_id = SERIES_JOB_PREFIX + name
-    started = _start(job_id, _series_job, job_id, name, series_id,
-                     description=f"Sources series ({name})")
-    _SERIES_IDENTITY[job_id] = (name, series_id)
+    # Start and record together, so a poll never pairs this run with the
+    # previous run's series.
+    with _IDENTITY_LOCK:
+        started = _start(job_id, _series_job, job_id, name, series_id,
+                         description=f"Sources series ({name})")
+        _SERIES_IDENTITY[job_id] = (name, series_id)
     return started
 
 
 # job_id -> (source, series_id) of the latest series run started here, so a
 # running/queued poll can say which series it is for (ids only, no text).
+# Written and read under _IDENTITY_LOCK together with the job status.
 _SERIES_IDENTITY: dict = {}
+_IDENTITY_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +285,9 @@ def get_job_result(job_id) -> dict:
     resident in this process; a failed job raises its mapped error (503
     with retry_after, 409 handoff, 400 terms/hidden/unsupported)."""
     job_id = str(job_id or "")
-    status = background_jobs.get_status(job_id) if _is_ours(job_id) else None
+    with _IDENTITY_LOCK:
+        status = background_jobs.get_status(job_id) if _is_ours(job_id) else None
+        started_for = _SERIES_IDENTITY.get(job_id)
     if not status:
         raise NotFoundError("No such Sources job in this app session.")
     result = status.get("result")
@@ -294,7 +303,7 @@ def get_job_result(job_id) -> dict:
         "result": result if done else None,
     }
     if job_id.startswith(SERIES_JOB_PREFIX):
-        ident = _SERIES_IDENTITY.get(job_id)
+        ident = started_for
         if isinstance(result, dict) and result.get("source"):
             ident = (result.get("source"), result.get("series_id"))
         if ident:

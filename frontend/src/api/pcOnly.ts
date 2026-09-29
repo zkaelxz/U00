@@ -3,8 +3,10 @@
  * uploads, deletes, backups and settings are allowed? Shared by every page;
  * read it in components with `usePcOnly()` (hooks/usePcOnly.ts).
  *
- *   'unknown'  /api/meta has not answered yet: render PC-only controls
- *              optimistically (the server still enforces).
+ *   'unknown'  /api/meta has not answered yet, failed, or had no boolean
+ *              `local`. Most pages render PC-only controls optimistically
+ *              (the server still enforces); the Diagnostics/Settings admin
+ *              blocks wait for 'local' (usePcPendingNote, getPcMetaFailed).
  *   'local'    GET /api/meta said local: true.
  *   'remote'   /api/meta said local: false, or a PC-only call got a 403.
  *              The 403 switch is kept in sessionStorage for this tab until
@@ -95,7 +97,8 @@ export function applyMeta(meta: Pick<MetaResponse, 'local'>): void {
 }
 
 let metaLoad: Promise<void> | null = null
-// /api/meta failed this page load (the mode then stays 'unknown').
+// /api/meta failed, or answered without a boolean `local`, this page load
+// (the mode then stays 'unknown').
 let metaFailed = false
 
 export function getPcMetaFailed(): boolean {
@@ -104,10 +107,11 @@ export function getPcMetaFailed(): boolean {
 
 /** Fetch /api/meta once per page load; failures leave the mode 'unknown'. */
 export function loadPcMode(meta: () => Promise<MetaResponse> = () => api.meta()): Promise<void> {
-  metaLoad ??= meta().then(applyMeta, () => {
+  const unconfirmed = () => {
     metaFailed = true
     listeners.forEach((l) => l())
-  })
+  }
+  metaLoad ??= meta().then((m) => (typeof m?.local === 'boolean' ? applyMeta(m) : unconfirmed()), unconfirmed)
   return metaLoad
 }
 

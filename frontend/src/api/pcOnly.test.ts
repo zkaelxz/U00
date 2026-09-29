@@ -28,6 +28,15 @@ describe('PC-only mode', () => {
     expect(getPcMode()).toBe('unknown')
     expect(getPcMetaFailed()).toBe(true)
     expect(heard).toHaveBeenCalled()
+  })
+
+  it('a meta answer without a boolean local is unconfirmed, not checking forever', async () => {
+    await loadPcMode(() => Promise.resolve(meta(undefined)))
+    expect(getPcMode()).toBe('unknown')
+    expect(getPcMetaFailed()).toBe(true)
+  })
+
+  it('still unknown when applyMeta gets no local field', () => {
     applyMeta(meta(undefined))
     expect(getPcMode()).toBe('unknown')
   })
