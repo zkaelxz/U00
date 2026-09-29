@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 
+import { getJob } from '../../../api/jobs'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { useJob } from '../../../hooks/useJob'
 import type { MediaStatus } from '../../../types/workspace'
-import { checkUploadFile } from '../sourceForm'
+import { TERMINAL_STATUSES } from '../../../types/jobs'
+import { checkUploadFile, sourceJobIds } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
 import { NovelPanel } from './NovelPanel'
@@ -30,6 +32,23 @@ export default function SourceStage() {
       cancelled = true
     }
   }, [dramaId, reloads])
+
+  // Reattach to a run started before this stage was left/reloaded: the job
+  // keeps running server-side. 404 or a finished job means nothing to show.
+  useEffect(() => {
+    let cancelled = false
+    for (const id of sourceJobIds(dramaId)) {
+      getJob(id).then(
+        (j) => {
+          if (!cancelled && !TERMINAL_STATUSES.includes(j.status)) setJobId((cur) => cur ?? id)
+        },
+        () => undefined,
+      )
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [dramaId])
 
   const { job, done, error: pollError } = useJob(jobId, {
     onDone: () => {

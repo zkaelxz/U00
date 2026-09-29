@@ -26,7 +26,12 @@ export function JobPanel({ job, pollError }: Props) {
             {job.status}
             {job.message ? ` · ${job.message}` : ''}
           </p>
-          {job.progress !== null && <progress value={job.progress} max={1} />}
+          {job.progress !== null && (
+            <p>
+              <progress value={job.progress} max={1} aria-label="Job progress" />{' '}
+              <span data-testid="job-percent">{Math.round(Math.min(Math.max(job.progress, 0), 1) * 100)}%</span>
+            </p>
+          )}
           {job.status === 'error' && job.error && (
             <p className="error" role="alert">
               {safeDetail(job.error) ?? 'The job failed. Details are in the app log.'}
