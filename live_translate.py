@@ -235,6 +235,23 @@ def list_completed_chunks(out_dir: str, last_completed_index: int):
     return [(i, os.path.join(out_dir, f"chunk_{i:05d}.wav")) for i in completed]
 
 
+_STALE_RE = re.compile(r"(?:chunk|padded)_\d{5}\.wav$")
+
+
+def clear_stale_chunks(out_dir: str):
+    """Removes leftover chunk_*.wav/padded_*.wav files from out_dir. A
+    fixed, shared capture directory otherwise hands a new run the previous
+    run's chunks, which list_completed_chunks() would treat as new audio."""
+    if not os.path.isdir(out_dir):
+        return
+    for f in os.listdir(out_dir):
+        if _STALE_RE.fullmatch(f):
+            try:
+                os.remove(os.path.join(out_dir, f))
+            except OSError:
+                pass
+
+
 def read_wav_tail(path: str, seconds: float):
     """
     The last `seconds` of a chunk's own PCM audio, kept in memory so it
@@ -437,7 +454,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
         try:
             translated = engine.translate_batch([text], {})[0]
         except Exception as exc:
-            translated = f"[translation failed: {exc}]"
+            from translate_engines import redact_secrets
+            translated = f"[translation failed: {redact_secrets(str(exc))}]"
         cues.append({
             "start": offset + seg["start"], "end": offset + seg["end"],
             "text": text, "translated": translated,
@@ -475,7 +493,7 @@ def current_generation(job_id: str) -> int:
 def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
                   source_language: str, whisper_size: str, engine, use_gpu: bool = False,
                   poll_interval: float = 2.0, cookies_browser: str = None, cookies_file: str = None,
-                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS):
+                  overlap_seconds: float = DEFAULT_OVERLAP_SECONDS, max_seconds: float = None):
     """
     The background-thread target (see background_jobs.start_job). Runs
     until request_cancel(job_id) is set or the stream itself ends, then
@@ -497,9 +515,19 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     to the next chunk before transcribing it (see the module docstring
     and dedup_overlap()). 0 turns overlap off entirely; capped at half a
     chunk so padding can never outweigh the chunk itself.
+
+    Stale-file guard: any chunk_*.wav/padded_*.wav already in out_dir
+    (left by an earlier run that shared the directory) is removed before
+    capture starts, so it can never be processed as this run's audio.
+
+    max_seconds: a hard stop -- once this much wall-clock time has passed
+    since the call began, capture stops as if Stop were pressed. None
+    means no limit (the Streamlit tab's behavior).
     """
     overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
     my_generation = bump_generation(job_id)
+    started = time.monotonic()
+    clear_stale_chunks(out_dir)
 
     background_jobs.update_progress(job_id, 0.0, "Resolving stream URL...")
     source_url = resolve_stream_url(url, cookies_browser=cookies_browser, cookies_file=cookies_file)
@@ -518,13 +546,17 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
             if (background_jobs.is_cancel_requested(job_id)
                     or current_generation(job_id) != my_generation):
                 break
+            if max_seconds is not None and time.monotonic() - started >= max_seconds:
+                background_jobs.update_progress(job_id, 0.0, "Stopped: time limit reached.")
+                break
             if proc.poll() is not None:
                 background_jobs.update_progress(
                     job_id, 0.0, "Capture stopped (stream likely ended).")
                 break
 
             for idx, path in list_completed_chunks(out_dir, last_completed):
-                if current_generation(job_id) != my_generation:
+                if (current_generation(job_id) != my_generation
+                        or (max_seconds is not None and time.monotonic() - started >= max_seconds)):
                     # Stopped mid-batch -- don't burn through the rest of
                     # this batch's already-queued chunks either.
                     break
