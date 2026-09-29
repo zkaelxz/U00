@@ -1079,6 +1079,8 @@ class MediaUploadResult(BaseModel):
     name: str
     size: int
     kind: str
+    # B-09: set for a video -- the background audio-extraction job to poll.
+    job_id: Optional[str] = None
 
 
 class NarrationEngineOption(BaseModel):
@@ -2011,6 +2013,60 @@ class ReaderChatTurn(BaseModel):
 class ReaderAskRequest(ReaderEngineFields):
     question: str = Field(min_length=1, max_length=2000)
     chat_history: List[ReaderChatTurn] = Field(default_factory=list, max_length=40)
+
+
+# ---------------------------------------------------------------------------
+# PC-only delete routes (migration handoff "Next queue" item 2)
+# ---------------------------------------------------------------------------
+
+class DeleteConfirm(BaseModel):
+    """Body of every PC-only delete: the Streamlit buttons are gated by a
+    plain Confirm checkbox, so `confirm: true` (strict) is the whole bar."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class MediaRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    audio_file_removed: bool
+    video_file_removed: bool
+    has_audio: bool
+    has_video: bool
+
+
+class RawNovelRemoveResult(BaseModel):
+    drama_id: int
+    removed: bool
+    has_raw_novel_context: bool
+
+
+class TranslationVersionDeleteResult(BaseModel):
+    drama_id: int
+    version_id: int
+    deleted: bool
+    was_active: bool
+
+
+class SeriesCharacterDeleteResult(BaseModel):
+    series_id: int
+    character_id: int
+    deleted: bool
+
+
+class BugBundleDeleteResult(BaseModel):
+    bundle_id: int
+    deleted: bool
+
+
+class PresetDeleteResult(BaseModel):
+    preset_id: int
+    deleted: bool
+
+
+class VoiceBankDeleteResult(BaseModel):
+    entry_id: int
+    deleted: bool
 
 
 # ---------------------------------------------------------------------------
