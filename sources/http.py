@@ -21,6 +21,9 @@ What it guarantees, structurally rather than by convention:
   * The raw-content cache is consulted before the network.
   * Live counters (requests, cache hits, current action, current delay)
     for the Source Access status view.
+  * Conditional re-polls (Step 106): inside conditional_poll(), a GET of
+    the poll's one known URL carries If-None-Match / If-Modified-Since,
+    and a 304 raises NotModified so the caller can skip the parse.
 """
 
 import random
@@ -28,6 +31,7 @@ import re
 import threading
 import time
 import zlib
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlsplit
 
@@ -56,6 +60,82 @@ DEFAULT_USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537
 
 class Cancelled(Exception):
     """The person pressed Cancel; raised at the next safe point."""
+
+
+class NotModified(Exception):
+    """A conditional re-poll's request came back 304: the resource is
+    unchanged since the validators were saved, so there is nothing to
+    parse. Only ever raised inside conditional_poll()."""
+
+
+# A validator longer than this, or holding a control character, is not
+# stored or sent (an ETag is a short quoted token; a date is ~29 chars).
+MAX_VALIDATOR_LENGTH = 256
+
+
+def clean_validator(value) -> str:
+    """The header value if it is safe to store and send back, else ""."""
+    value = str(value or "").strip()
+    if not value or len(value) > MAX_VALIDATOR_LENGTH or \
+            any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        return ""
+    return value
+
+
+@dataclass
+class ConditionalPoll:
+    """One chapter-list re-poll (Step 106). `url`/`etag`/`last_modified`
+    are the validators saved by the previous poll; while the poll is
+    active, every request made on this thread (any SourceClient) is
+    recorded, so validators are only kept for a poll that was exactly one
+    plain GET -- a multi-request or browser-rendered chapter list can't
+    be judged unchanged from one of its responses."""
+    url: str = ""
+    etag: str = ""
+    last_modified: str = ""
+    not_modified: bool = False
+    gets: list = field(default_factory=list)   # (url, final_url, status, etag, last_modified)
+    other_requests: int = 0                     # POSTs, cache hits, browser renders
+
+    def conditional_headers(self, url: str) -> dict:
+        if url != self.url:
+            return {}
+        hdrs = {}
+        if self.etag:
+            hdrs["If-None-Match"] = self.etag
+        if self.last_modified:
+            hdrs["If-Modified-Since"] = self.last_modified
+        return hdrs
+
+    def validators(self):
+        """(url, etag, last_modified) to save for the next poll, or None."""
+        if self.other_requests or len(self.gets) != 1:
+            return None
+        url, final_url, status, etag, last_modified = self.gets[0]
+        if status != 200 or final_url != url or not (etag or last_modified):
+            return None
+        return url, etag, last_modified
+
+
+_poll_local = threading.local()
+
+
+def _active_poll():
+    return getattr(_poll_local, "poll", None)
+
+
+@contextmanager
+def conditional_poll(url: str = "", etag: str = "", last_modified: str = ""):
+    """Runs a chapter-list fetch as a conditional re-poll on this thread;
+    yields the ConditionalPoll recording it."""
+    poll = ConditionalPoll(url=url or "", etag=clean_validator(etag),
+                           last_modified=clean_validator(last_modified))
+    previous = _active_poll()
+    _poll_local.poll = poll
+    try:
+        yield poll
+    finally:
+        _poll_local.poll = previous
 
 
 @dataclass
@@ -700,16 +780,29 @@ class SourceClient:
                 f"{self.source} is marked unavailable after repeated failures; "
                 f"next try allowed in {wait:.0f}s.", retry_after=wait)
 
-        cacheable = use_cache and method.upper() == "GET" and self.cache is not None
+        poll = _active_poll()
+        conditional = {}
+        if poll is not None:
+            if method.upper() == "GET":
+                conditional = poll.conditional_headers(url)
+            else:
+                poll.other_requests += 1
+        cacheable = use_cache and method.upper() == "GET" and self.cache is not None \
+            and not conditional
         if cacheable:
             cached = self.cache.get(url)
             if cached is not None:
+                if poll is not None:
+                    poll.other_requests += 1
                 self.stats["cache_hits"] += 1
                 self._status(f"Cache hit: {url}")
                 return Response(200, {}, cached, url, from_cache=True)
 
         hdrs = dict(self.default_headers)
         hdrs.update(headers or {})
+        given = {k.lower() for k in hdrs}
+        conditional = {k: v for k, v in conditional.items() if k.lower() not in given}
+        hdrs.update(conditional)
         host = urlsplit(url).netloc
         st = _state(self.source, self.policy.max_concurrent)
 
@@ -744,6 +837,16 @@ class SourceClient:
                                         reason=reason.value, detail=f"{type(exc).__name__}: {exc}"[:300],
                                         final_url=url, at=time.time())
                 retryable = reason == FailureReason.TIMEOUT or _is_connection_error(exc)
+            elif conditional and resp.status_code == 304:
+                # Unchanged since the last poll: nothing to classify or parse.
+                self.attempts.append(AttemptRecord(tier=AccessTier.STATIC_HTTP.value, ok=True,
+                                                   http_status=304, final_url=url,
+                                                   at=time.time()))
+                if record_health:
+                    health.record_success(self.source, latency)
+                poll.not_modified = True
+                self._status("Idle", 0.0)
+                raise NotModified(url)
             else:
                 ctype = str({k.lower(): v for k, v in resp.headers.items()}.get("content-type", ""))
                 is_page = classify_body and ("html" in ctype or not ctype)
@@ -759,6 +862,11 @@ class SourceClient:
                         health.record_success(self.source, latency)
                     if cacheable:
                         self.cache.put(url, resp.content)
+                    if poll is not None and method.upper() == "GET":
+                        low = {k.lower(): v for k, v in resp.headers.items()}
+                        poll.gets.append((url, resp.url, resp.status_code,
+                                          clean_validator(low.get("etag")),
+                                          clean_validator(low.get("last-modified"))))
                     self._status("Idle", 0.0)
                     return resp
                 reason = reasons[0] if reasons else FailureReason.HTTP_ERROR
@@ -800,6 +908,9 @@ class SourceClient:
         same per-source pace and concurrency limit as ordinary requests, so
         a higher ladder tier can't be used to hit a source faster."""
         self._check_cancel()
+        poll = _active_poll()
+        if poll is not None:
+            poll.other_requests += 1
         st = _state(self.source, self.policy.max_concurrent)
         with st["sem"]:
             with st["pace_lock"]:

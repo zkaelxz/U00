@@ -15,7 +15,7 @@ import time
 
 import background_jobs
 
-from . import ladder, registry, store
+from . import http, ladder, registry, store
 from .models import SourceError
 
 CHECK_JOB_ID = "sources_chapter_check"
@@ -28,16 +28,34 @@ _scheduler_lock = threading.Lock()
 
 def check_series(adapter, row: dict) -> list:
     """Returns the ChapterInfo list of chapters that are new since the last
-    check, and records them (known + a notification each)."""
+    check, and records them (known + a notification each).
+
+    Step 106: the chapter list is fetched as a conditional re-poll. When
+    the last poll was one plain GET that returned an ETag or Last-Modified,
+    this poll sends them back; a 304 means nothing changed, so the list is
+    neither downloaded nor parsed."""
     ladder.check_terms(adapter.name, adapter.capabilities())
-    chapters = adapter.get_chapters(row["series_id"])
-    known = store.known_chapter_ids(row["source"], row["series_id"])
+    source, series_id = row["source"], row["series_id"]
+    with http.conditional_poll(**store.poll_validators(source, series_id)) as poll:
+        try:
+            chapters = adapter.get_chapters(series_id)
+        except http.NotModified:
+            chapters = None
+    if poll.not_modified:
+        # Even if an adapter swallowed NotModified and returned something,
+        # the one request it made said "unchanged".
+        store.mark_checked(source, series_id)
+        return []
+    known = store.known_chapter_ids(source, series_id)
     new = [c for c in chapters if c.chapter_id not in known]
     if new:
         # Only what this call actually recorded: another process checking
         # the same series at the same moment gets the rest.
-        new = store.record_new_chapters(row["source"], row["series_id"], new)
-    store.mark_checked(row["source"], row["series_id"])
+        new = store.record_new_chapters(source, series_id, new)
+    # Saved only after the new chapters are recorded, so a 304 next time
+    # can never hide a chapter this poll saw.
+    store.save_poll_validators(source, series_id, poll.validators())
+    store.mark_checked(source, series_id)
     return new
 
 
