@@ -35,6 +35,7 @@ import {
   initialActiveId,
   isDirty,
   lineRange,
+  flaggedStep,
   nextFlaggedId,
   PAGE_SIZE,
   pageCount,
@@ -356,25 +357,27 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
 
     // Previous/next flagged line (Alt+Up/Down and the buttons): on this page
-    // first, then the server finds the nearest one on any page (R08).
+    // first, then the server finds the nearest one on any page (R08). In a
+    // filtered view the server is asked from the focused row (flaggedStep).
     const moveFlagged = async (delta: 1 | -1) => {
       const { shown: lines, page: pg, searching: s, filter: f, activeId: cur } = st.current
       const row = (document.activeElement as HTMLElement | null)?.closest?.('[data-line-id]')
       const from = row
         ? lines.findIndex((l) => String(l.id) === row.getAttribute('data-line-id'))
         : lines.findIndex((l) => l.id === cur)
-      const id = nextFlaggedId(lines, from, delta)
-      if (id !== null) {
-        void activate(id, true)
-        return
-      }
       if (s) {
-        setStatus('No more flagged lines in these results.')
+        const id = nextFlaggedId(lines, from, delta)
+        if (id !== null) void activate(id, true)
+        else setStatus('No more flagged lines in these results.')
         return
       }
-      const edge = delta > 0 ? lines[lines.length - 1] : lines[0]
+      const step = flaggedStep(lines, f, from, delta)
+      if ('id' in step) {
+        void activate(step.id, true)
+        return
+      }
       try {
-        const r = await flaggedAdjacent(dramaId, delta > 0 ? 'next' : 'prev', edge?.id ?? null, PAGE_SIZE, f)
+        const r = await flaggedAdjacent(dramaId, delta > 0 ? 'next' : 'prev', step.fromId, PAGE_SIZE, f)
         if (r.line_id === null || r.page_all === null) setStatus('No more flagged lines.')
         else if (r.page === pg) void activate(r.line_id, true)
         else if (r.page !== null) void goPage(r.page, r.line_id)

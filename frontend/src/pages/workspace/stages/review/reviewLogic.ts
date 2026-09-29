@@ -156,6 +156,27 @@ export function nextFlaggedId(lines: ReviewLine[], fromIndex: number, delta: 1 |
   return null
 }
 
+/**
+ * Where previous/next flagged looks (R08). A page of the "all" or "flagged"
+ * view holds every flagged line near the start row, so it is searched first,
+ * then the server from the page's edge. A page of a filtered view
+ * ("untranslated") leaves flagged lines out, so the server is asked from the
+ * focused row itself and none in between is skipped. `fromId` null = from
+ * the far end.
+ */
+export function flaggedStep(
+  lines: ReviewLine[],
+  filter: LineFilter,
+  fromIndex: number,
+  delta: 1 | -1,
+): { id: number } | { fromId: number | null } {
+  if (filter !== 'all' && filter !== 'flagged' && fromIndex !== -1) return { fromId: lines[fromIndex].id }
+  const id = nextFlaggedId(lines, fromIndex, delta)
+  if (id !== null) return { id }
+  const edge = delta > 0 ? lines[lines.length - 1] : lines[0]
+  return { fromId: edge?.id ?? null }
+}
+
 // ---- structure edits ----
 
 /** UTF-16 caret offset -> code-point offset (the server counts Python characters). */
