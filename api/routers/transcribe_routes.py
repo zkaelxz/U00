@@ -13,8 +13,10 @@ Route batch 2C adds auto-tune (start, status with the candidate scores,
 apply a measured candidate), whose results are only readable here.
 
 Parity audit B1 (R23) adds re-transcribing one line: a GPU-queued job that
-proposes new source text (poll GET /api/jobs/{job_id}), and an apply route
-that writes it only if the line is unchanged since the job started.
+proposes new source text (poll GET /api/jobs/{job_id} for status), a read of
+the proposal (the line text is only readable here, not in the job record),
+and an apply route that writes it only if the line is unchanged since the
+job started.
 """
 
 from typing import Optional
@@ -24,7 +26,7 @@ from api.auth import require_paid_engines, require_permission
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, ErrorResponse, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
-                         RetranscribeLineResult, TranscribeConfig, TranscribeConfigUpdate,
+                         RetranscribeLineResult, RetranscribeResult, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
 from services import transcribe_service
 
@@ -104,7 +106,7 @@ def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1
 
 @router.post("/dramas/{drama_id}/lines/{line_id}/retranscribe",
              dependencies=[require_permission("jobs.start")], response_model=RetranscribeLineResult,
-             summary="Re-transcribe one line's audio window and replace its source text (job)",
+             summary="Re-transcribe one line's audio window and propose new source text (job)",
              responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
                         409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
 def post_retranscribe_line(payload: Optional[RetranscribeLineRequest] = None,
@@ -123,4 +125,12 @@ def post_retranscribe_line(payload: Optional[RetranscribeLineRequest] = None,
 def post_apply_retranscribe_line(payload: RetranscribeApplyRequest, drama_id: int = Path(ge=1),
                                  line_id: int = Path(ge=1)):
     return transcribe_service.apply_retranscribe_line(
-        drama_id, line_id, payload.job_id, payload.expected_zh)
+        drama_id, line_id, payload.job_id, payload.expected_zh, payload.expected_proposed)
+
+
+@router.get("/dramas/{drama_id}/lines/{line_id}/retranscribe",
+            dependencies=[require_permission("lines.read")], response_model=RetranscribeResult,
+            summary="The finished re-transcription's proposal for this line (raw line text)",
+            responses={404: {"model": ErrorResponse}})
+def get_retranscribe_line(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
+    return transcribe_service.get_retranscribe_result(drama_id, line_id)

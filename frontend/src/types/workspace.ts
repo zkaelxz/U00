@@ -139,11 +139,21 @@ export interface RetranscribeLineResult {
   line_id: number
 }
 
+// api/schemas.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
+export interface RetranscribeResult {
+  job_id: string
+  line_id: number
+  status: string
+  proposed_zh: string
+  base_zh: string
+}
+
 // api/schemas.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
-// for a finished re-transcription (expected_zh = the job result's base_zh).
+// for exactly the proposal shown (expected_zh = base_zh, expected_proposed = proposed_zh).
 export interface RetranscribeApplyRequest {
   job_id: string
   expected_zh: string
+  expected_proposed: string
 }
 
 export interface RetranscribeApplyResult {

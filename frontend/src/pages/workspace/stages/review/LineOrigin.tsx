@@ -4,14 +4,15 @@ import { getLineOriginalText, getLineProvenance } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { safeDetail } from '../../../../components/errorMessages'
 import type { LineOriginalText, LineProvenance } from '../../../../types/review'
+import type { RetranscribeApplyResult } from '../../../../types/workspace'
 import { RetranscribeLine } from './RetranscribeLine'
 import { emotionText, glossaryText, termsText } from './reviewResults'
 
 // "Where this line came from", folded inside the line's details: the original
 // transcription and what the app knows about how the translation was made.
 // Fetched each time it is opened, so it never shows data from before a save.
-// "Re-transcribe this line" sits right after it; onChanged (optional) is
-// called when that replaced the line's text, so the editor can reload.
+// "Re-transcribe this line" sits right after it; onChanged (optional) gets
+// the new text when "Use this" replaced it, so the editor can update.
 export function LineOrigin({
   dramaId,
   lineId,
@@ -19,7 +20,7 @@ export function LineOrigin({
 }: {
   dramaId: number
   lineId: number
-  onChanged?: () => void
+  onChanged?: (applied: RetranscribeApplyResult) => void
 }) {
   const [data, setData] = useState<{ p: LineProvenance; o: LineOriginalText } | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -54,9 +55,9 @@ export function LineOrigin({
         dramaId={dramaId}
         lineId={lineId}
         reloadsEditor={!!onChanged}
-        onChanged={() => {
+        onChanged={(applied) => {
           if (open) load()
-          onChanged?.()
+          onChanged?.(applied)
         }}
       />
     </>

@@ -7,6 +7,7 @@ Whisper are faked -- no audio model, no network.
 
 import inspect
 import os
+import subprocess
 import time
 
 import pytest
@@ -69,6 +70,7 @@ def fake_asr(monkeypatch):
 
     def fake_slice(audio_path, start, end, out_path, timeout=None):
         calls["slices"].append((start, end))
+        calls["slice_timeout"] = timeout
         with open(out_path, "wb") as f:
             f.write(b"slice")
 
@@ -203,6 +205,7 @@ class TestJobBody:
         assert after == before
         assert isolated_db.list_line_history(did) == []
         assert fake_asr["slices"] == [(0.0, 1.5)]
+        assert fake_asr["slice_timeout"] == 120
         t = fake_asr["transcribe"][0]
         assert t["model_size"] == "small" and t["beam_size"] == 7
         assert t["initial_prompt"] == "苏杉。" and t["language"] == "zh"
@@ -213,7 +216,7 @@ class TestJobBody:
         fake_asr["text"] = "  "
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
-        assert _run_with_result(captured) == {"failed_reason": "empty"}
+        assert _run_with_result(captured) == {"line_id": ids[0], "failed_reason": "empty"}
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
 
     def test_line_gone(self, isolated_db, captured, fake_asr):
@@ -228,7 +231,7 @@ class TestJobBody:
         did, ids = _drama(isolated_db)
         transcribe_service.start_retranscribe_line(did, ids[0])
         monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: True)
-        assert _run_with_result(captured) == {"failed_reason": "cancelled"}
+        assert _run_with_result(captured) == {"line_id": ids[0], "failed_reason": "cancelled"}
 
     def test_model_download_error_redacted(self, isolated_db, captured, fake_asr, monkeypatch):
         def boom(*a, **k):
@@ -252,13 +255,31 @@ class TestJobBody:
         assert result["failed_reason"] == "audio_slice"
         assert isolated_db.drama_dir(did) not in str(result)
 
+    def test_ffmpeg_timeout_ends_the_job(self, isolated_db, fake_asr, monkeypatch):
+        seen = {}
+
+        def slow_slice(audio_path, start, end, out_path, timeout=None):
+            seen["timeout"] = timeout
+            raise subprocess.TimeoutExpired(["ffmpeg", audio_path], timeout)
+        monkeypatch.setattr(core, "extract_audio_slice", slow_slice)
+        did, ids = _drama(isolated_db)
+        out = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))
+        assert seen["timeout"] == 120
+        rec = jobs_service.get_job(out["job_id"])
+        assert rec["result"]["failed_reason"] == "audio_slice"
+        assert rec["outcome"] == "failed"
+        assert isolated_db.drama_dir(did) not in str(rec)
+        assert fake_asr["transcribe"] == []
+        assert fake_asr["released"] == 1
+
     def test_real_thread_projection(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         out = _finish(transcribe_service.start_retranscribe_line(did, ids[1]))
         rec = jobs_service.get_job(out["job_id"])
         assert rec["outcome"] == "ok"
-        # Only the allowlisted keys go out; line_id/base_start/base_end stay in-process.
-        assert rec["result"] == {"proposed_zh": "新的文字", "base_zh": "错字"}
+        # Only line_id goes out; the line text is read with GET .../retranscribe.
+        assert rec["result"] == {"line_id": ids[1]}
+        assert "新的文字" not in str(rec) and "错字" not in str(rec)
         assert isolated_db.drama_dir(did) not in str(rec)
         assert isolated_db.load_line_objects(did)[1].zh == "错字"
 
@@ -279,20 +300,47 @@ def _proposed(db, fake_asr, n=0, **kw):
 
 
 class TestJobsProjection:
-    def test_long_text_capped_in_chars_and_bytes(self):
-        p = jobs_service.project_result({"proposed_zh": "字" * 5000, "base_zh": "a" * 5000})
-        assert len(p["base_zh"]) == 2000
-        assert len(p["proposed_zh"].encode("utf-8")) <= 3000
-        assert jobs_service._json_len(p) <= jobs_service._MAX_JSON
+    def test_line_text_is_never_in_a_job_record(self):
+        p = jobs_service.project_result({"line_id": 4, "proposed_zh": "字", "base_zh": "字",
+                                         "base_start": 1.0, "base_end": 2.0})
+        assert p == {"line_id": 4}
 
-    def test_other_strings_keep_the_short_cap(self):
-        assert len(jobs_service.project_result({"detail": "x" * 900})["detail"]) == 500
+
+class TestGetResult:
+    def test_returns_raw_proposal(self, isolated_db, fake_asr):
+        did, ids = _drama(isolated_db)
+        lines = isolated_db.load_line_objects(did)
+        lines[0].zh = "见 /home/x/y/z 文件"
+        isolated_db.save_lines(did, lines)
+        job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
+        assert transcribe_service.get_retranscribe_result(did, ids[0]) == {
+            "job_id": job_id, "line_id": ids[0], "status": "done",
+            "proposed_zh": "新的文字", "base_zh": "见 /home/x/y/z 文件"}
+
+    def test_404_for_other_line_running_failed_or_none(self, isolated_db, fake_asr):
+        did, ids = _drama(isolated_db)
+        with pytest.raises(NotFoundError):
+            transcribe_service.get_retranscribe_result(did, ids[0])
+        _put_job(f"retranscribe_{did}")
+        with pytest.raises(NotFoundError):
+            transcribe_service.get_retranscribe_result(did, ids[0])
+        _clear_jobs()
+        _finish(transcribe_service.start_retranscribe_line(did, ids[0]))
+        with pytest.raises(NotFoundError):
+            transcribe_service.get_retranscribe_result(did, ids[1])
+        with pytest.raises(NotFoundError):
+            transcribe_service.get_retranscribe_result(999999, ids[0])
+        fake_asr["text"] = ""
+        _clear_jobs()
+        _finish(transcribe_service.start_retranscribe_line(did, ids[0]))
+        with pytest.raises(NotFoundError):
+            transcribe_service.get_retranscribe_result(did, ids[0])
 
 
 class TestApply:
     def test_writes_only_zh_of_that_line_by_id_with_history(self, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
-        out = transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+        out = transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
         assert out == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
         lines = {ln.id: ln for ln in isolated_db.load_line_objects(did)}
         assert lines[ids[0]].zh == "新的文字"
@@ -305,7 +353,7 @@ class TestApply:
         assert len(hist) == 1 and "re-transcrib" in hist[0]["label"]
         # applied once: a second apply sees changed text
         with pytest.raises(ConflictError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
 
     def test_matched_by_id_after_lines_move(self, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr, n=1)
@@ -314,14 +362,14 @@ class TestApply:
             ln.idx += 1
         lines.insert(0, Line(idx=0, start=0.0, end=0.1, zh="新行"))
         isolated_db.save_lines(did, lines)
-        transcribe_service.apply_retranscribe_line(did, ids[1], job_id, "错字")
+        transcribe_service.apply_retranscribe_line(did, ids[1], job_id, "错字", "新的文字")
         by_id = {ln.id: ln.zh for ln in isolated_db.load_line_objects(did)}
         assert by_id[ids[1]] == "新的文字" and by_id[ids[0]] == "你好"
 
     def test_expected_mismatch_409(self, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
         with pytest.raises(ConflictError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "别的")
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "别的", "新的文字")
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
         assert isolated_db.list_line_history(did) == []
 
@@ -335,7 +383,7 @@ class TestApply:
             lines[0].end = 1.2
         isolated_db.save_lines(did, lines)
         with pytest.raises(ConflictError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
         assert isolated_db.load_line_objects(did)[0].zh == ("用户改的" if change == "zh" else "你好")
 
     def test_race_between_check_and_write_409(self, isolated_db, fake_asr, monkeypatch):
@@ -349,52 +397,58 @@ class TestApply:
             return real(drama_id, line_id, values, expected)
         monkeypatch.setattr(isolated_db, "update_line_fields_if", edit_first)
         with pytest.raises(ConflictError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
         assert isolated_db.load_line_objects(did)[0].zh == "抢先"
 
-    def test_expected_may_be_the_projected_text(self, isolated_db, fake_asr):
-        """base_zh is shown through the jobs projection (paths collapsed);
-        the client sends back what it was shown."""
+    def test_proposal_mismatch_409(self, isolated_db, fake_asr):
+        """An apply is tied to the run the user saw: another proposal is refused."""
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        with pytest.raises(ConflictError):
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "旧的提议")
+        assert isolated_db.load_line_objects(did)[0].zh == "你好"
+
+    def test_raw_text_with_a_path_applies_exactly(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
+        fake_asr["text"] = "在 /home/x/y 里"
         lines = isolated_db.load_line_objects(did)
         lines[0].zh = "见 /home/x/y/z 文件"
         isolated_db.save_lines(did, lines)
         job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
-        shown = jobs_service.get_job(job_id)["result"]["base_zh"]
-        assert shown != "见 /home/x/y/z 文件"
-        transcribe_service.apply_retranscribe_line(did, ids[0], job_id, shown)
-        assert isolated_db.load_line_objects(did)[0].zh == "新的文字"
+        shown = transcribe_service.get_retranscribe_result(did, ids[0])
+        transcribe_service.apply_retranscribe_line(did, ids[0], job_id, shown["base_zh"],
+                                                   shown["proposed_zh"])
+        assert isolated_db.load_line_objects(did)[0].zh == "在 /home/x/y 里"
 
     def test_404s(self, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
         with pytest.raises(NotFoundError):
-            transcribe_service.apply_retranscribe_line(999999, ids[0], job_id, "你好")
+            transcribe_service.apply_retranscribe_line(999999, ids[0], job_id, "你好", "新的文字")
         with pytest.raises(NotFoundError):
-            transcribe_service.apply_retranscribe_line(did, 999999, job_id, "你好")
+            transcribe_service.apply_retranscribe_line(did, 999999, job_id, "你好", "新的文字")
         # a finished job for another line of this drama
         with pytest.raises(NotFoundError):
-            transcribe_service.apply_retranscribe_line(did, ids[1], job_id, "错字")
+            transcribe_service.apply_retranscribe_line(did, ids[1], job_id, "错字", "新的文字")
         _clear_jobs()
         with pytest.raises(NotFoundError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
 
     def test_running_or_failed_job_404(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)
         _put_job(f"retranscribe_{did}")
         with pytest.raises(NotFoundError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], f"retranscribe_{did}", "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], f"retranscribe_{did}", "你好", "新的文字")
         fake_asr["text"] = ""
         _clear_jobs()
         job_id = _finish(transcribe_service.start_retranscribe_line(did, ids[0]))["job_id"]
         with pytest.raises(NotFoundError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", "新的文字")
 
     def test_other_drama_job_id_422(self, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
         with pytest.raises(InvalidInputError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], "translate_1", "你好")
+            transcribe_service.apply_retranscribe_line(did, ids[0], "translate_1", "你好", "新的文字")
         with pytest.raises(InvalidInputError):
-            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, None)
+            transcribe_service.apply_retranscribe_line(did, ids[0], job_id, "你好", None)
 
 
 # ----- API ------------------------------------------------------------------
@@ -479,7 +533,7 @@ def _apply_path(did, lid):
 class TestApplyRoute:
     def test_success_then_409(self, client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
-        body = {"job_id": job_id, "expected_zh": "你好"}
+        body = {"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字"}
         r = client.post(_apply_path(did, ids[0]), json=body)
         assert r.status_code == 200, r.text
         assert r.json() == {"drama_id": did, "line_id": ids[0], "zh": "新的文字"}
@@ -490,20 +544,54 @@ class TestApplyRoute:
 
     def test_expected_mismatch_409(self, client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
-        r = client.post(_apply_path(did, ids[0]), json={"job_id": job_id, "expected_zh": "x"})
+        r = client.post(_apply_path(did, ids[0]), json={"job_id": job_id, "expected_zh": "x", "expected_proposed": "新的文字"})
         assert r.status_code == 409
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
 
     def test_404_and_422(self, client, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
         assert client.post(_apply_path(did, 999999),
-                           json={"job_id": job_id, "expected_zh": "你好"}).status_code == 404
+                           json={"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字"}).status_code == 404
         assert client.post(_apply_path(did, ids[0]),
-                           json={"job_id": "translate_1", "expected_zh": "你好"}).status_code == 422
-        for body in ({}, {"job_id": job_id}, {"job_id": job_id, "expected_zh": "你好", "x": 1},
-                     {"job_id": "", "expected_zh": "你好"}):
+                           json={"job_id": "translate_1", "expected_zh": "你好", "expected_proposed": "新的文字"}).status_code == 422
+        for body in ({}, {"job_id": job_id}, {"job_id": job_id, "expected_zh": "你好"},
+                     {"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字", "x": 1},
+                     {"job_id": "", "expected_zh": "你好", "expected_proposed": "新的文字"},
+                     {"job_id": job_id, "expected_zh": "你好", "expected_proposed": ""}):
             assert client.post(_apply_path(did, ids[0]), json=body).status_code == 422
         assert isolated_db.load_line_objects(did)[0].zh == "你好"
+
+
+class TestGetRoute:
+    def test_success_and_404(self, client, isolated_db, fake_asr):
+        did, ids, job_id = _proposed(isolated_db, fake_asr)
+        r = client.get(_path(did, ids[0]))
+        assert r.status_code == 200, r.text
+        assert r.json() == {"job_id": job_id, "line_id": ids[0], "status": "done",
+                            "proposed_zh": "新的文字", "base_zh": "你好"}
+        assert isolated_db.drama_dir(did) not in r.text
+        assert client.get(_path(did, ids[1])).status_code == 404
+        assert client.get(_path(did, 999999)).status_code == 404
+        assert client.get(_path(0, ids[0])).status_code == 422
+
+
+class TestWhisperSizeAllowlist:
+    @pytest.mark.parametrize("size", ["tiny", "base", "small", "medium", "large-v3",
+                                      "large-v3-turbo"])
+    def test_picker_sizes_accepted(self, client, isolated_db, size):
+        did, _ = _drama(isolated_db)
+        r = client.post(f"/api/transcribe/dramas/{did}/config", json={"whisper_size": size})
+        assert r.status_code == 200, r.text
+        assert r.json()["whisper_size"] == size
+
+    @pytest.mark.parametrize("size", ["someone/evil-repo", "../x", "large-v9", ""])
+    def test_other_values_422(self, client, isolated_db, size):
+        did, _ = _drama(isolated_db)
+        r = client.post(f"/api/transcribe/dramas/{did}/config", json={"whisper_size": size})
+        assert r.status_code == 422
+        assert isolated_db.get_drama(did)["whisper_size"] == "small"
+        with pytest.raises(InvalidInputError):
+            transcribe_service.update_transcribe_config(did, whisper_size=size)
 
 
 def _remote():
@@ -540,7 +628,7 @@ class TestAuthOn:
     def test_apply_needs_lines_edit(self, isolated_db, fake_asr):
         did, ids, job_id = _proposed(isolated_db, fake_asr)
         c = _remote()
-        body = {"job_id": job_id, "expected_zh": "你好"}
+        body = {"job_id": job_id, "expected_zh": "你好", "expected_proposed": "新的文字"}
         assert c.post(_apply_path(did, ids[0]), json=body).status_code == 401
         u = auth_service.add_user("bare2@example.com")
         for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
@@ -553,3 +641,17 @@ class TestAuthOn:
         r = c.post(_apply_path(did, ids[0]), json=body, headers=h)
         assert r.status_code == 200, r.text
         assert isolated_db.load_line_objects(did)[0].zh == "新的文字"
+
+    def test_get_needs_lines_read(self, isolated_db, fake_asr):
+        did, ids, _job = _proposed(isolated_db, fake_asr)
+        c = _remote()
+        assert c.get(_path(did, ids[0])).status_code == 401
+        u = auth_service.add_user("bare3@example.com")
+        for p in auth_service.HOUSEHOLD_DEFAULT_PERMISSIONS:
+            auth_service.revoke_permission(u["id"], p)
+        h = _headers(u)
+        assert c.get(_path(did, ids[0]), headers=h).status_code == 403
+        auth_service.grant_permission(u["id"], "lines.read")
+        r = c.get(_path(did, ids[0]), headers=h)
+        assert r.status_code == 200, r.text
+        assert r.json()["proposed_zh"] == "新的文字"

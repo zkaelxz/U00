@@ -2718,18 +2718,30 @@ class RetranscribeLineResult(BaseModel):
 
 
 class RetranscribeApplyRequest(BaseModel):
-    """"Use this": job_id is the finished re-transcription; expected_zh is
-    the base_zh its result showed. A line changed since the job started is a
-    409 (nothing written)."""
+    """"Use this": job_id is the finished re-transcription; expected_zh and
+    expected_proposed are the base_zh and proposed_zh that
+    GET .../retranscribe showed. Anything else, or a line changed since the
+    job started, is a 409 (nothing written)."""
     model_config = ConfigDict(extra="forbid")
     job_id: str = Field(..., min_length=1, max_length=100)
     expected_zh: str = Field(..., max_length=20000)
+    expected_proposed: str = Field(..., min_length=1, max_length=2000)
 
 
 class RetranscribeApplyResult(BaseModel):
     drama_id: int
     line_id: int
     zh: str
+
+
+class RetranscribeResult(BaseModel):
+    """A finished re-transcription's proposal for one line, raw (held in this
+    API process only; gone after a restart)."""
+    job_id: str
+    line_id: int
+    status: str
+    proposed_zh: str
+    base_zh: str
 
 
 # ---------------------------------------------------------------------------

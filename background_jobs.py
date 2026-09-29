@@ -825,11 +825,13 @@ def is_running(job_id: str) -> bool:
         return bool(job and job["status"] == "running")
 
 
-# Jobs that write to a drama's existing lines (job ids "translate_<id>",
-# "flag_<id>", "fixflag_<id>", "retranscribe_<id>"). Since Step 2 each
-# writes only its own fields by permanent line id, so they can run alongside
-# each other and the user's own edits. Replacing ALL of a drama's lines (a new
-# transcription) is the one thing that makes their work pointless.
+# Jobs that write to, or propose for, a drama's existing lines (job ids
+# "translate_<id>", "flag_<id>", "fixflag_<id>", and "retranscribe_<id>",
+# which only proposes text for one line; its apply is a separate request).
+# Since Step 2 each writes only its own fields by permanent line id, so they
+# can run alongside each other and the user's own edits. Replacing ALL of a
+# drama's lines (a new transcription) is the one thing that makes their work
+# pointless.
 LINE_WRITING_JOB_PREFIXES = ("translate_", "flag_", "fixflag_", "retranscribe_")
 
 

@@ -41,19 +41,15 @@ RESULT_ALLOWED_KEYS = (
     "gpu_fallback", "device", "word_align_error", "forced_align_error",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
-    "status", "stage", "last_error", "proposed_zh", "base_zh",
+    "status", "stage", "last_error", "line_id",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
 _MAX_JSON = 8000
-# A re-transcribed line's proposed and starting text (transcribe_service):
-# longer than _MAX_STR, at most 2000 characters and 3000 UTF-8 bytes each so
-# both fit under _MAX_JSON.
-_LONG_TEXT_KEYS = ("proposed_zh", "base_zh")
 _URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
 
-def _safe_scalar(value, max_str=_MAX_STR):
+def _safe_scalar(value):
     if value is None or isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -61,7 +57,7 @@ def _safe_scalar(value, max_str=_MAX_STR):
     if isinstance(value, float):
         return value if value == value and abs(value) != float("inf") else None
     if isinstance(value, str):
-        return _redact_text(_URL_PATTERN.sub("[URL]", value))[:max_str]
+        return _redact_text(_URL_PATTERN.sub("[URL]", value))[:_MAX_STR]
     return None
 
 
@@ -229,9 +225,7 @@ def project_result(result):
                      for v in list(value)[:_MAX_LIST])
             out[key] = [v for v in items if v is not None]
         else:
-            safe = _safe_scalar(value, 2000 if key in _LONG_TEXT_KEYS else _MAX_STR)
-            if key in _LONG_TEXT_KEYS and isinstance(safe, str):
-                safe = _cap_bytes(safe, 3000)
+            safe = _safe_scalar(value)
             if safe is not None or value is None:
                 out[key] = safe
     while out and _json_len(out) > _MAX_JSON:

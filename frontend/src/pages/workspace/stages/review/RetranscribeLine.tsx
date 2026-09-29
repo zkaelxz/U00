@@ -1,19 +1,28 @@
 import { useEffect, useState } from 'react'
 
 import { cancelJob } from '../../../../api/jobs'
-import { applyRetranscribeLine, getTranscribeConfig, startRetranscribeLine } from '../../../../api/workspace'
+import {
+  applyRetranscribeLine,
+  getRetranscribeResult,
+  getTranscribeConfig,
+  startRetranscribeLine,
+} from '../../../../api/workspace'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { TERMINAL_STATUSES } from '../../../../types/jobs'
-import { canRetranscribe, retranscribeOutcome, type RetranscribeOutcome } from './retranscribeLogic'
+import type { RetranscribeApplyResult, RetranscribeResult } from '../../../../types/workspace'
+import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
 
 // Parity audit B1 (R23): re-run Whisper on just this line's audio window, for
 // one misheard line without redoing the file. A GPU-queued job that writes
-// nothing: when it finishes, "Heard" is shown next to the current text, and
-// only "Use this" writes it (the server refuses with a 409 if the line was
-// edited since the job started). Shown only when the drama has audio.
-// onChanged runs after "Use this"; reloadsEditor says whether that reloads
-// the line editor (otherwise the user is told to reopen the line).
+// nothing. The job record carries no line text: when it finishes, the
+// proposal is read from GET .../retranscribe and shown raw ("Heard" next to
+// "Now"), and only "Use this" writes it, sending back exactly the texts shown
+// (the server refuses with a 409 if the line was edited since the job
+// started, or the run isn't the one shown). Shown only when the drama has
+// audio. onChanged gets the applied line text after "Use this"; reloadsEditor
+// says whether that updates the line editor (otherwise the user is told to
+// reopen the line).
 export function RetranscribeLine({
   dramaId,
   lineId,
@@ -22,7 +31,7 @@ export function RetranscribeLine({
 }: {
   dramaId: number
   lineId: number
-  onChanged?: () => void
+  onChanged?: (applied: RetranscribeApplyResult) => void
   reloadsEditor?: boolean
 }) {
   const [available, setAvailable] = useState(false)
@@ -31,7 +40,8 @@ export function RetranscribeLine({
   const [applying, setApplying] = useState(false)
   const [applied, setApplied] = useState(false)
   const [jobId, setJobId, runKey] = useJobRun()
-  const [outcome, setOutcome] = useState<RetranscribeOutcome | null>(null)
+  const [proposal, setProposal] = useState<RetranscribeResult | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -46,16 +56,31 @@ export function RetranscribeLine({
 
   const { job, error: pollError } = useJob(jobId, {
     runKey,
-    onDone: (j) => setOutcome(retranscribeOutcome(j)),
+    onDone: (j) => {
+      if (!jobIsForLine(j, lineId)) {
+        setJobId(null) // another line's run: not ours to show
+        return
+      }
+      const o = retranscribeOutcome(j)
+      if (o.kind === 'none') {
+        setFailure(o.text)
+        return
+      }
+      getRetranscribeResult(dramaId, lineId).then((r) => {
+        if (r.line_id === lineId) setProposal(r)
+      }, setError)
+    },
   })
 
   if (!available) return null
-  const active = !!job && !TERMINAL_STATUSES.includes(job.status)
+  const ours = jobIsForLine(job, lineId)
+  const active = !!job && ours && !TERMINAL_STATUSES.includes(job.status)
   const busy = starting || active || (!!jobId && !job && !pollError)
 
   const start = () => {
     setError(null)
-    setOutcome(null)
+    setProposal(null)
+    setFailure(null)
     setApplied(false)
     setStarting(true)
     startRetranscribeLine(dramaId, lineId)
@@ -64,17 +89,23 @@ export function RetranscribeLine({
   }
 
   const useThis = () => {
-    if (!jobId || outcome?.kind !== 'proposal') return
+    if (!proposal) return
     setError(null)
     setApplying(true)
-    applyRetranscribeLine(dramaId, lineId, { job_id: jobId, expected_zh: outcome.base })
-      .then(() => {
-        setOutcome(null)
+    applyRetranscribeLine(dramaId, lineId, {
+      job_id: proposal.job_id,
+      expected_zh: proposal.base_zh,
+      expected_proposed: proposal.proposed_zh,
+    })
+      .then((r) => {
+        setProposal(null)
         setApplied(true)
-        onChanged?.()
+        onChanged?.(r)
       }, setError)
       .finally(() => setApplying(false))
   }
+
+  const same = !!proposal && proposal.proposed_zh === proposal.base_zh
 
   return (
     <div className="review-origin" data-testid="retranscribe-line">
@@ -97,35 +128,35 @@ export function RetranscribeLine({
           {job.status === 'queued' ? 'Waiting for the GPU…' : job.message || 'Working…'}
         </p>
       )}
-      {outcome?.kind === 'proposal' && (
+      {proposal && (
         <div data-testid="retranscribe-proposal">
           <dl className="review-origin-list">
             <div>
               <dt>Now</dt>
-              <dd lang="zh">{outcome.base || <span className="muted">(empty)</span>}</dd>
+              <dd lang="zh">{proposal.base_zh || <span className="muted">(empty)</span>}</dd>
             </div>
             <div>
               <dt>Heard</dt>
-              <dd lang="zh" data-testid="retranscribe-heard">{outcome.proposed}</dd>
+              <dd lang="zh" data-testid="retranscribe-heard">{proposal.proposed_zh}</dd>
             </div>
           </dl>
-          {outcome.same ? (
+          {same ? (
             <p className="muted">Whisper heard the same text.</p>
           ) : (
             <div className="review-actions">
               <button type="button" onClick={useThis} disabled={applying}>
                 Use this
               </button>
-              <button type="button" onClick={() => setOutcome(null)} disabled={applying}>
+              <button type="button" onClick={() => setProposal(null)} disabled={applying}>
                 Discard
               </button>
             </div>
           )}
         </div>
       )}
-      {outcome?.kind === 'none' && (
+      {failure && (
         <p className="error" role="alert" data-testid="retranscribe-result">
-          {outcome.text}
+          {failure}
         </p>
       )}
       {applied && (
@@ -134,7 +165,7 @@ export function RetranscribeLine({
           {!reloadsEditor && ' Close this editor and reopen the line to see it.'}
         </p>
       )}
-      {!active && !outcome && !applied && (
+      {!active && !proposal && !failure && !applied && (
         <p className="muted">
           Runs speech recognition again on just this line’s audio and shows what it heard before
           anything changes.

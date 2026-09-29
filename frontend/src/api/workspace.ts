@@ -9,6 +9,7 @@ import type {
   RetranscribeApplyResult,
   RetranscribeLineRequest,
   RetranscribeLineResult,
+  RetranscribeResult,
   TranscribeConfig,
   TranscribeConfigUpdate,
   TranscribeRunRequest,
@@ -90,7 +91,8 @@ export const startNovelOcr = (
 }
 
 // Parity audit B1 (R23): re-run Whisper on one line's audio window; the job
-// proposes text (result.proposed_zh / base_zh) without writing. Poll GET /api/jobs/{job_id}.
+// proposes text without writing. Poll GET /api/jobs/{job_id} for status (its
+// result carries only line_id), then read the proposal with getRetranscribeResult.
 export const startRetranscribeLine = (
   id: number,
   lineId: number,
@@ -98,6 +100,10 @@ export const startRetranscribeLine = (
   f?: Fetch,
 ) => postJson<RetranscribeLineResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe`, req, f)
 
-// "Use this": writes the proposal only if the line still has expected_zh (409 otherwise).
+export const getRetranscribeResult = (id: number, lineId: number, f?: Fetch) =>
+  getJson<RetranscribeResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe`, f)
+
+// "Use this": writes exactly the proposal shown, only if the line still has
+// expected_zh and the run is the one shown (409 otherwise).
 export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
   postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)

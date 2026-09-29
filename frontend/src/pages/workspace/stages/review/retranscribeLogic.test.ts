@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canRetranscribe, retranscribeOutcome } from './retranscribeLogic'
+import { canRetranscribe, jobIsForLine, retranscribeOutcome } from './retranscribeLogic'
 
 const done = (result: Record<string, unknown> | null, outcome: 'ok' | 'failed' | 'cancelled' | 'partial' = 'ok') => ({
   status: 'done',
@@ -17,33 +17,37 @@ describe('canRetranscribe', () => {
   })
 })
 
+describe('jobIsForLine', () => {
+  it('matches by line id, and a record without one counts as ours', () => {
+    expect(jobIsForLine({ result: { line_id: 7 } }, 7)).toBe(true)
+    expect(jobIsForLine({ result: { line_id: 8 } }, 7)).toBe(false)
+    expect(jobIsForLine({ result: null }, 7)).toBe(true)
+    expect(jobIsForLine(null, 7)).toBe(true)
+  })
+})
+
 describe('retranscribeOutcome', () => {
-  it('offers the proposal with the text it started from', () => {
-    expect(retranscribeOutcome(done({ proposed_zh: '新的', base_zh: '旧的' }))).toEqual({
-      kind: 'proposal', proposed: '新的', base: '旧的', same: false,
-    })
+  it('a finished run is ready to fetch', () => {
+    expect(retranscribeOutcome(done({ line_id: 1 }))).toEqual({ kind: 'ready' })
   })
-  it('a CPU fallback (partial) still offers the proposal', () => {
-    expect(retranscribeOutcome(done({ proposed_zh: '新', base_zh: '', gpu_fallback: 'x' }, 'partial')).kind).toBe('proposal')
-  })
-  it('flags a proposal equal to the current text', () => {
-    expect(retranscribeOutcome(done({ proposed_zh: '同', base_zh: '同' }))).toMatchObject({ same: true })
+  it('a CPU fallback (partial) is still ready', () => {
+    expect(retranscribeOutcome(done({ line_id: 1, gpu_fallback: 'x' }, 'partial'))).toEqual({ kind: 'ready' })
   })
   it.each([
     ['empty', /No speech found/],
     ['line_gone', /merged, split or deleted/],
     ['model_download', /could not be downloaded/],
-    ['audio_slice', /failed/],
+    ['audio_slice', /could not be cut/],
+    ['something_else', /failed/],
   ])('explains failed_reason %s', (reason, text) => {
-    const r = retranscribeOutcome(done({ failed_reason: reason }, 'failed'))
+    const r = retranscribeOutcome(done({ line_id: 1, failed_reason: reason }, 'failed'))
     expect(r.kind).toBe('none')
     expect(r.kind === 'none' && r.text).toMatch(text)
   })
-  it('never offers a proposal from a failed, cancelled or result-less job', () => {
+  it('a cancelled or errored run is not ready', () => {
     expect(retranscribeOutcome({ status: 'cancelled', outcome: 'cancelled', result: null })).toEqual({
       kind: 'none', text: 'Cancelled. The line was not changed.',
     })
-    expect(retranscribeOutcome({ status: 'error', outcome: 'failed', result: { proposed_zh: 'x' } }).kind).toBe('none')
-    expect(retranscribeOutcome(done(null)).kind).toBe('none')
+    expect(retranscribeOutcome({ status: 'error', outcome: 'failed', result: null }).kind).toBe('none')
   })
 })

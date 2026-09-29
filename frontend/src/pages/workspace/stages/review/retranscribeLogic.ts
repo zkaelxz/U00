@@ -9,21 +9,22 @@ export function canRetranscribe(
   return !!cfg && cfg.has_audio_pipeline && cfg.audio_available
 }
 
-// A finished re-transcribe job: either a proposal the user can "Use this" or
-// "Discard" (nothing has been written yet), or a plain-words reason why there
-// is none. `same` means Whisper heard the text the line already has.
-export type RetranscribeOutcome =
-  | { kind: 'proposal'; proposed: string; base: string; same: boolean }
-  | { kind: 'none'; text: string }
+// The job id is per drama, so a record can belong to another line's run. The
+// job's result carries only line_id (never line text); a record that names a
+// different line is not ours. No line_id yet counts as ours: this editor
+// started the run it polls.
+export function jobIsForLine(job: Pick<JobRecord, 'result'> | null, lineId: number): boolean {
+  const id = job?.result?.line_id
+  return typeof id !== 'number' || id === lineId
+}
+
+// A finished re-transcribe job: either the proposal is ready to fetch (GET
+// .../retranscribe), or a plain-words reason why there is none.
+export type RetranscribeOutcome = { kind: 'ready' } | { kind: 'none'; text: string }
 
 export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 'result'>): RetranscribeOutcome {
-  const r = job.result ?? {}
-  const proposed = typeof r.proposed_zh === 'string' ? r.proposed_zh : ''
-  const base = typeof r.base_zh === 'string' ? r.base_zh : ''
-  if (job.status === 'done' && !jobFailed(job) && proposed) {
-    return { kind: 'proposal', proposed, base, same: proposed === base }
-  }
-  const reason = r.failed_reason
+  const reason = job.result?.failed_reason
+  if (job.status === 'done' && !jobFailed(job) && !reason) return { kind: 'ready' }
   if (job.outcome === 'cancelled' || job.status === 'cancelled' || reason === 'cancelled') {
     return { kind: 'none', text: 'Cancelled. The line was not changed.' }
   }
@@ -32,5 +33,6 @@ export function retranscribeOutcome(job: Pick<JobRecord, 'status' | 'outcome' | 
     return { kind: 'none', text: 'The line was merged, split or deleted while this ran.' }
   }
   if (reason === 'model_download') return { kind: 'none', text: 'The speech model could not be downloaded.' }
+  if (reason === 'audio_slice') return { kind: 'none', text: "This line's audio could not be cut." }
   return { kind: 'none', text: 'Re-transcribing failed. The line was not changed.' }
 }

@@ -235,8 +235,9 @@ baihe-subtitler/
 │   │                             hardsub_ocr.extract_hardsub_subtitles -- no separate alignment
 │   │                             step, same as Whisper's own text). chunk_and_tag lives in narration_service
 │   │                             (Slice 33); qwen3 backends still stay out of scope
-│   │                             start_retranscribe_line/apply_retranscribe_line: one line's window
-│   │                             re-run through Whisper; the job only proposes, apply writes that
+│   │                             start_retranscribe_line/get_retranscribe_result/apply_retranscribe_line:
+│   │                             one line's window re-run through Whisper; the job only proposes
+│   │                             (text read back via GET, never in job records), apply writes that
 │   │                             line's zh by id with compare-and-set (parity B1, R23)
 │   ├── dub_service.py            Migration Slice 25 -- get_dub_config/get_dub_pacing (read-only:
 │   │                             engines, per-speaker voices, pacing of the last run; no paths)
@@ -345,7 +346,7 @@ baihe-subtitler/
 │       │                         (Migration Slice 16)
 │       ├── source_routes.py      /api/source/dramas/{id}/config (GET + POST, Migration Slice 19)
 │       ├── transcribe_routes.py  /api/transcribe/dramas/{id}/config (GET + POST), POST .../run
-│       │                         (Migration Slice 20), .../autotune, POST .../lines/{line_id}/retranscribe[/apply]
+│       │                         (Migration Slice 20), .../autotune, POST/GET .../lines/{line_id}/retranscribe, POST .../retranscribe/apply
 │       ├── dub_routes.py         /api/dub/dramas/{id}/config, .../pacing (Migration Slice 25, read-only), .../track (Slice 53, WAV download)
 │       ├── drama_routes.py       POST /api/dramas (create), POST /api/dramas/{id}/metadata
 │       │                         (Migration Slice 35), DELETE /api/dramas/{id} (Slice 36)
