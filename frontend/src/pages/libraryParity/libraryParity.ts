@@ -27,8 +27,9 @@ export function countsLine(counts: Record<string, number>, kind: 'status' | 'med
 
 // Token counts in a narrow row: 540000 -> "540k", 1250000 -> "1.3M".
 export function compactCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`
+  // The unit is picked after rounding, so 999,950 is "1M", not "1000k".
+  if (n >= 999_500) return `${(n / 1_000_000).toFixed(n >= 9_950_000 ? 0 : 1).replace(/\.0$/, '')}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 9_950 ? 0 : 1).replace(/\.0$/, '')}k`
   return String(n)
 }
 

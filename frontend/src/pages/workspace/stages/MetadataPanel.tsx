@@ -68,7 +68,7 @@ export function AutofillPanel() {
       try {
         writeSectionOpen(window.localStorage, 'source.autofill', true)
       } catch {
-        // storage unavailable: the panel just opens closed
+        // storage unavailable: defaultOpen still opens the panel
       }
     }
     return want

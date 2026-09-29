@@ -35,6 +35,9 @@ describe('cost rows (parity L04)', () => {
     expect(compactCount(540000)).toBe('540k')
     expect(compactCount(1_250_000)).toBe('1.3M')
     expect(compactCount(2_000_000)).toBe('2M')
+    expect(compactCount(999_950)).toBe('1M')
+    expect(compactCount(9_960)).toBe('10k')
+    expect(compactCount(9_999_999)).toBe('10M')
   })
   it('meta line: tokens in/out, cache hits, calls', () => {
     expect(costMeta({ input_tokens: 540000, output_tokens: 201000, cache_read_tokens: 162000, call_count: 212 }))
