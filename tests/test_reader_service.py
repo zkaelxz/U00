@@ -176,6 +176,22 @@ class TestGetReaderPageRealRender:
         assert "<!DOCTYPE html>" in result["html"]
         assert "Hello 0" in result["html"]
 
+    def test_renders_without_the_word_splitter(self, isolated_db, monkeypatch):
+        # CI installs requirements-core only (no jieba/pypinyin): the page
+        # must still show every line, unsplit, with a note saying why.
+        import segment
+
+        def missing(*a, **k):
+            raise ImportError("No module named 'jieba'", name="jieba")
+        monkeypatch.setattr(segment, "segment_and_annotate", missing)
+        did = _drama(isolated_db, title_en="D")
+        isolated_db.save_lines(did, _lines(3))
+        html_str = reader_service.get_reader_page(did, page=1)["html"]
+        assert html_str.count('class="line-row"') == 3
+        assert "Hello 0" in html_str
+        assert 'class="segmenter-note"' in html_str and "jieba" in html_str
+        assert 'class="word"' not in html_str
+
 
 # ---------------------------------------------------------------------------
 # M4: the rest of the Reader tab's logic, moved here
