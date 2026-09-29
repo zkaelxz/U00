@@ -365,7 +365,8 @@ class TestCsrf:
 class TestLocalOnlyNeedsPreflightedPost:
     """A page on another loopback port passes the Origin check and can send
     a no-cors "simple" POST (text/plain, form-urlencoded). local_only POSTs
-    must be JSON, multipart, or carry X-Baihe-Local: 1."""
+    must be JSON or carry X-Baihe-Local: 1 (multipart is a simple type too,
+    so uploads need the header; the React upload helper sends it)."""
 
     @pytest.fixture(autouse=True)
     def _no_page_server(self, monkeypatch):
@@ -406,10 +407,27 @@ class TestLocalOnlyNeedsPreflightedPost:
                    headers={"Content-Type": "text/plain", "X-Baihe-Local": "1"})
         assert r.status_code not in (401, 403)
 
-    def test_multipart_upload_and_delete_still_work(self, isolated_db):
+    @pytest.mark.parametrize("auth", ["off", "on"])
+    def test_multipart_needs_the_header(self, isolated_db, auth):
+        c = _local(_app(auth))
+        files = {"file": ("a.wav", b"RIFF")}
+        for path in ("/api/media/dramas/999/upload", "/api/novel/dramas/999/attach-epub"):
+            assert c.post(path, files=files).status_code == 403, path
+            r = c.post(path, files=files, headers={"X-Baihe-Local": "1"})
+            assert r.status_code not in (401, 403), path
+        # a JSON-body route sent multipart without the header: refused, not parsed
+        r = c.post("/api/extension/token", files=files, data={"confirm": "true"})
+        assert r.status_code == 403 and "tok" not in r.text
+
+    def test_header_value_must_be_exactly_1(self, isolated_db):
         c = _local(_app("off"))
-        r = c.post("/api/media/dramas/999/upload", files={"file": ("a.wav", b"RIFF")})
-        assert r.status_code not in (401, 403)
+        for v in ("0", "true", "", "1 "):
+            r = c.post("/api/media/dramas/999/upload", files={"file": ("a.wav", b"RIFF")},
+                       headers={"X-Baihe-Local": v})
+            assert r.status_code == 403, v
+
+    def test_delete_and_get_unaffected(self, isolated_db):
+        c = _local(_app("off"))
         assert c.delete("/api/dramas/999").status_code not in (401, 403)
         assert c.get("/api/extension/status").status_code == 200
 

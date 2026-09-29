@@ -81,13 +81,23 @@ export function deleteJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T
   return request<T>(path, { method: 'DELETE', headers: JSON_ACCEPT }, fetchImpl)
 }
 
+// The uploads are PC-only (local_only) routes. multipart/form-data is a
+// CORS "simple" type, so the server also requires this custom header: it
+// forces a preflight, which stops a page on another local port from
+// posting an upload with a no-cors form.
+export const LOCAL_HEADER = { 'X-Baihe-Local': '1' }
+
 // Multipart upload. No Content-Type header: the browser sets it with the boundary.
 export function postMultipart<T>(
   path: string,
   form: FormData,
   fetchImpl: Fetch = fetch,
 ): Promise<T> {
-  return request<T>(path, { method: 'POST', headers: JSON_ACCEPT, body: form }, fetchImpl)
+  return request<T>(
+    path,
+    { method: 'POST', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER }, body: form },
+    fetchImpl,
+  )
 }
 
 // A plain link for the browser to download (Content-Disposition: attachment);

@@ -107,7 +107,7 @@ def public_route():
 
 
 LOCAL_HEADER = "X-Baihe-Local"
-_PREFLIGHTED_TYPES = frozenset(("application/json", "multipart/form-data"))
+_PREFLIGHTED_TYPES = frozenset(("application/json",))
 _BODY_METHODS = frozenset(("POST", "PUT", "PATCH"))
 
 
@@ -116,9 +116,10 @@ def _cross_site_safe(request: Request) -> bool:
     the port) and can send a "simple" POST with no CORS preflight
     (text/plain or form-urlencoded, e.g. a no-cors fetch). So a POST/PUT/
     PATCH to a local_only route must be JSON (forces a preflight, which
-    CORS refuses) or multipart (the upload routes; the JSON-body routes
-    reject it at validation), or carry `X-Baihe-Local: 1` (a custom header
-    also forces a preflight). DELETE is never a simple method."""
+    CORS refuses) or carry `X-Baihe-Local: 1` (a custom header also forces
+    a preflight; the React upload helper sends it with every multipart
+    POST, since multipart/form-data is itself a simple type). DELETE is
+    never a simple method."""
     if request.method.upper() not in _BODY_METHODS:
         return True
     if request.headers.get(LOCAL_HEADER) == "1":
@@ -128,8 +129,8 @@ def _cross_site_safe(request: Request) -> bool:
 
 
 def local_only():
-    """PC-only route. Both modes: a POST/PUT/PATCH must be JSON, multipart
-    or carry X-Baihe-Local (see _cross_site_safe). Off mode: otherwise a
+    """PC-only route. Both modes: a POST/PUT/PATCH must be JSON or carry
+    X-Baihe-Local: 1 (see _cross_site_safe). Off mode: otherwise a
     no-op (today's behaviour; routes that had their own loopback guard
     keep it). On mode: the connection must be a direct loopback one."""
     def dependency(request: Request):

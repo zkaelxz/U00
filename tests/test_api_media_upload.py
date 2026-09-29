@@ -25,7 +25,10 @@ def _fake_extract(src, out):
 @pytest.fixture
 def client(isolated_db, monkeypatch):
     monkeypatch.setattr(core, "extract_audio_from_video", _fake_extract)
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    # X-Baihe-Local: what the React upload helper sends; local_only refuses
+    # a multipart POST without it (api/auth.py _cross_site_safe)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})
 
 
 def _up(client, did, name="clip.mp3", data=b"fakeaudio"):
