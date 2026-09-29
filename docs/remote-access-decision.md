@@ -3,6 +3,8 @@
 Decided by the user on 2026-09-29, from a discussion session. No repo changes were made by that session; this file records the outcome.
 It replaces D6 (Tailscale + Tailscale Serve) in [`migration-review.md`](migration-review.md) and supersedes [`remote-access-design.md`](remote-access-design.md).
 **D5 stays** (admin actions are PC-only, on a separate loopback listener).
+
+**Key entry (decided 2026-09-29):** the launcher (`start.bat`/`start.ps1`) sets `BAIHE_API_ALLOW_KEY_WRITES=1` unless the user already set it (an explicit `0` opts out), so API keys can be entered in the React Settings form at the PC, or by editing `.env`. Key writes stay `local_only()` and still require a direct loopback peer and Host, no proxy headers, and Origin, if sent, is loopback (`api/routers/settings_routes.py:_require_local_admin`); values are written to `.env` and never returned. `python -m api` started directly leaves the flag off.
 Status: step 133 (users, sessions, permissions, static test) is built, see "Step 133" below; the rest is not. Implementation steps are proposed as 133-140 in [`baihe-roadmap-master.md`](baihe-roadmap-master.md) section 5.
 
 ## Context
@@ -44,6 +46,7 @@ Status: step 133 (users, sessions, permissions, static test) is built, see "Step
 - A compromised household Google account gives access to that member's permissions. Sensitive permissions stay off by default.
 - A Google outage blocks new logins; existing sessions keep working.
 - The 24/7 PC exposes Baihe's own login page to the internet, and the user owns the patching.
+- **OCR program path from the browser (`tesseract_cmd`), kept by the owner's decision (2026-09-29).** The transcribe run, upload-and-transcribe and novel-OCR requests can name the OCR program the server runs (transcribe: `api/schemas.py` `TranscribeRunRequest.tesseract_cmd` → `services/transcribe_service.py`; OCR chapter: `api/routers/novel_routes.py` form field → `services/novel_attach_service.py`; both end in `ocr.extract_text_tesseract`, which sets pytesseract's global command at `ocr.py:65-66`). Whoever can send it can therefore make the PC run any program it can reach. Guardrails: with auth off the API only accepts the PC itself (loopback, plus the cross-site POST gate). Remotely (auth on) only accounts holding `jobs.start`, via the transcribe run route (`POST /api/transcribe/dramas/{id}/run`); on the PC itself any loopback client can also send it through the local-only upload-and-transcribe and ocr-chapter routes. The path is set globally in `ocr.py`. Revisit before `jobs.start` goes to anyone not fully trusted. The fallback fix (server-side setting or PATH only, and restoring pytesseract's global) is ready to build on request.
 - Downloads come from the user's home IP.
 
 ## Unverified (not checkable from the session)
