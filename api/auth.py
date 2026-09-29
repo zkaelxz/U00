@@ -8,6 +8,9 @@ Every route in `api/routers/*.py` (and the frontend catch-all in
     dependencies=[require_permission("library.read")]   # a catalogue permission
     dependencies=[public_route()]                        # health-style, no login
     dependencies=[local_only()]                          # PC-only (loopback), see below
+    dependencies=[authenticated()]                       # any signed-in user; only for
+                                                         # routes on the caller's own
+                                                         # session (/api/auth/logout)
 
 `tests/test_api_permissions.py` walks every route (`iter_route_declarations`)
 and fails if one lacks exactly one, so a new route can't ship undeclared.
@@ -18,10 +21,17 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
   (403) every request that isn't a direct loopback one (proxy headers,
   non-loopback peer/Host/Origin), and a non-loopback BAIHE_API_HOST is
   refused at startup (`api_config.check_bind_safety`).
-- `on`: `require_permission` needs a valid session cookie (`baihe_session`),
-  the permission, and, for POST/PUT/PATCH/DELETE, a matching `X-CSRF-Token`
-  header. 401 = no/invalid session, 403 = lacking the permission or CSRF.
-  Messages are generic. `local_only()` needs no session but requires a
+- `on`: `require_permission` needs a valid session cookie
+  (`__Host-baihe_session`; plain `baihe_session` only in the plain-http
+  loopback dev case, see `session_cookie_secure`), the permission, and, for
+  POST/PUT/PATCH/DELETE, a matching `X-CSRF-Token` header. The sign-in
+  callback (step 134, `api/routers/auth_routes.py`) also sets a readable
+  `__Host-baihe_csrf` cookie so the React client can send that header
+  (double submit); the server still checks the header against the hash
+  stored with the session, never against the cookie. 401 = no/invalid
+  session, 403 = lacking the permission (code `forbidden`) or a failed CSRF
+  check (code `csrf_failed`, so the client can tell it apart from a
+  PC-only refusal). Messages are generic. `local_only()` needs no session but requires a
   direct loopback connection (peer, Host, no proxy headers, loopback
   Origin): the owner at the PC. That is a safeguard, not authentication
   (see the key-write note in docs/migration-handoff.md); the real admin
@@ -35,6 +45,7 @@ and its handler calls `require_engines_allowed` with the engines the request
 names, so a user without `engines.paid` can only use `FREE_ENGINES`.
 """
 
+import ipaddress
 from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
@@ -42,12 +53,23 @@ from fastapi import Depends, Request
 from services import auth_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
-COOKIE_NAME = "baihe_session"
+COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
+DEV_COOKIE_NAME = "baihe_session"        # plain-http loopback dev (__Host- needs Secure)
+CSRF_COOKIE_NAME = "__Host-baihe_csrf"
+DEV_CSRF_COOKIE_NAME = "baihe_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 _UNSAFE_METHODS = frozenset(("POST", "PUT", "PATCH", "DELETE"))
 MARKER_ATTR = "_baihe_auth"   # (kind, permission-or-None); read by the static test
 _GENERIC_401 = "Authentication required."
 _GENERIC_403 = "Not allowed."
+
+
+class CsrfFailedError(ForbiddenError):
+    """403 with its own code: the session is fine but the request lacks the
+    session's CSRF token. The React client reloads the token instead of
+    treating the 403 as "this is a PC-only action"."""
+
+    code = "csrf_failed"
 
 
 def _auth_enabled(app) -> bool:
@@ -70,14 +92,21 @@ def _authenticate(request: Request) -> dict:
     """Session + CSRF check shared by the dependency. Returns the principal
     or raises 401/403. Nothing is cached: permissions are re-read from the
     DB on every request so a grant/revoke applies to the next one."""
-    token = request.cookies.get(COOKIE_NAME)
+    token = session_token(request)
     principal = auth_service.resolve_session(token)
     if principal is None:
         raise UnauthenticatedError(_GENERIC_401)
     if request.method.upper() not in ("GET", "HEAD", "OPTIONS") and not auth_service.verify_csrf(
             token, request.headers.get(CSRF_HEADER)):
-        raise ForbiddenError(_GENERIC_403)
+        raise CsrfFailedError(_GENERIC_403)
     return principal
+
+
+def session_token(request: Request):
+    """The raw session cookie under the name for this request's mode. A
+    Secure-mode request only ever reads `__Host-baihe_session`, so a plain
+    `baihe_session` cookie planted by a sibling subdomain is ignored."""
+    return request.cookies.get(session_cookie_name(request))
 
 
 def require_permission(permission: str):
@@ -96,6 +125,21 @@ def require_permission(permission: str):
         return principal
 
     return _marked(dependency, "permission", permission)
+
+
+def authenticated():
+    """Any signed-in user, no permission needed; unsafe methods still need
+    the CSRF token. Only for routes that act on the caller's own session
+    (`POST /api/auth/logout`); the static test keeps it under /api/auth/.
+    With auth off, the caller is the local owner as usual."""
+    def dependency(request: Request):
+        if not _auth_enabled(request.app):
+            request.state.principal = local_owner_principal()
+            return request.state.principal
+        request.state.principal = _authenticate(request)
+        return request.state.principal
+
+    return _marked(dependency, "authenticated")
 
 
 def public_route():
@@ -208,20 +252,66 @@ def session_cookie_secure(request: Request) -> bool:
     return not (request.url.scheme == "http" and is_local_request(request))
 
 
+def session_cookie_name(request: Request) -> str:
+    """`__Host-` prefix (Secure, Path=/, no Domain: a sibling subdomain can't
+    plant or overwrite it) whenever the cookie is Secure; the plain name only
+    in the loopback-http dev case, since a browser drops a `__Host-` cookie
+    that isn't Secure."""
+    return COOKIE_NAME if session_cookie_secure(request) else DEV_COOKIE_NAME
+
+
+def csrf_cookie_name(request: Request) -> str:
+    return CSRF_COOKIE_NAME if session_cookie_secure(request) else DEV_CSRF_COOKIE_NAME
+
+
 def set_session_cookie(response, request: Request, raw_token: str):
-    """For step 134's login route: HttpOnly, SameSite=Lax, Secure per above.
-    The login route must always issue a fresh token from
-    `auth_service.create_session` (never adopt one the client sent) and
-    revoke the client's previous session, so a planted cookie can't be
+    """For the sign-in callback: HttpOnly, SameSite=Lax (Google's redirect
+    back is a cross-site top-level GET), Secure per above, Path=/, no Domain.
+    The callback always issues a fresh token from
+    `auth_service.create_session` (never adopts one the client sent) and
+    revokes the client's previous session, so a planted cookie can't be
     fixed onto a victim's login."""
-    response.set_cookie(COOKIE_NAME, raw_token, httponly=True, samesite="lax",
+    response.set_cookie(session_cookie_name(request), raw_token, httponly=True, samesite="lax",
+                        secure=session_cookie_secure(request), path="/",
+                        max_age=auth_service.ABSOLUTE_TIMEOUT_SECONDS)
+
+
+def set_csrf_cookie(response, request: Request, raw_csrf: str):
+    """Double-submit delivery of the session's CSRF token: readable by the
+    same-origin React client (not HttpOnly), SameSite=Strict. The server
+    verifies the `X-CSRF-Token` header against the session's stored hash
+    (`auth_service.verify_csrf`), not against this cookie."""
+    response.set_cookie(csrf_cookie_name(request), raw_csrf, httponly=False, samesite="strict",
                         secure=session_cookie_secure(request), path="/",
                         max_age=auth_service.ABSOLUTE_TIMEOUT_SECONDS)
 
 
 def clear_session_cookie(response, request: Request):
-    response.delete_cookie(COOKIE_NAME, path="/", httponly=True, samesite="lax",
-                           secure=session_cookie_secure(request))
+    secure = session_cookie_secure(request)
+    response.delete_cookie(session_cookie_name(request), path="/", httponly=True,
+                           samesite="lax", secure=secure)
+    response.delete_cookie(csrf_cookie_name(request), path="/", httponly=False,
+                           samesite="strict", secure=secure)
+
+
+def client_ip(request: Request) -> str:
+    """The address to rate-limit and audit by. A direct connection is its
+    peer. Behind Caddy on the same PC the peer is always loopback, so the
+    rightmost `X-Forwarded-For` entry (the one Caddy itself appends; a client
+    can only add entries to the left of it) is used instead -- but only when
+    the peer is loopback, so a remote client can't pick its own bucket."""
+    from api.routers.settings_routes import _is_loopback_peer
+    peer = request.client.host if request.client else ""
+    if not _is_loopback_peer(peer):
+        return peer or "unknown"
+    entries = [e.strip() for h in request.headers.getlist("x-forwarded-for")
+               for e in h.split(",") if e.strip()]
+    if not entries:
+        return peer
+    try:
+        return str(ipaddress.ip_address(entries[-1]))
+    except ValueError:
+        return peer
 
 
 # --- route enumeration (static test, early gate) ---------------------------

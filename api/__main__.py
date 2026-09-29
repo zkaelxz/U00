@@ -9,6 +9,11 @@ directly, so only someone at the PC (with file access) can run them; they
 print no tokens or hashes:
 
     python -m api grant-admin <email>   # allowlist/reactivate as admin (also recovery)
+    python -m api add-user <email> [--name "Display name"]
+                                        # allowlist a household member (default permissions);
+                                        # their first Google sign-in binds their account
+    python -m api deactivate <email>    # block sign-in and end their sessions
+    python -m api grant <email> <permission>   # e.g. media.stream, engines.paid
     python -m api list-users
 """
 
@@ -22,8 +27,8 @@ import sys
 def _serve():
     import uvicorn
     from api.api_config import check_bind_safety, load_settings
-    settings = load_settings()
     try:
+        settings = load_settings()   # also refuses a non-https BAIHE_PUBLIC_URL
         check_bind_safety(settings)
     except ValueError as e:
         raise SystemExit(f"ERROR: {e}")
@@ -41,6 +46,54 @@ def _grant_admin(email: str) -> int:
         return 2
     print(f"{user['email']} is now an active admin (user id {user['id']}).")
     return 0
+
+
+def _run(fn) -> int:
+    from services.service_errors import ServiceError
+    try:
+        message = fn()
+    except ServiceError as e:
+        print(f"ERROR: {e.message}", file=sys.stderr)
+        return 2
+    print(message)
+    return 0
+
+
+def _user_id(email: str) -> int:
+    from services import auth_service
+    from services.service_errors import NotFoundError
+    user = auth_service.find_user_by_email(email)
+    if user is None:
+        raise NotFoundError("No such user. Add them first with: python -m api add-user <email>")
+    return user["id"]
+
+
+def _add_user(email: str, name: str) -> int:
+    from services import auth_service
+
+    def go():
+        user = auth_service.add_user(email, name or "")
+        return (f"{user['email']} is allowlisted (user id {user['id']}) with: "
+                f"{', '.join(user['permissions'])}. Their first Google sign-in links the account.")
+    return _run(go)
+
+
+def _deactivate(email: str) -> int:
+    from services import auth_service
+
+    def go():
+        user = auth_service.deactivate_user(_user_id(email))
+        return f"{user['email']} is deactivated; their sessions were ended."
+    return _run(go)
+
+
+def _grant(email: str, permission: str) -> int:
+    from services import auth_service
+
+    def go():
+        user = auth_service.grant_permission(_user_id(email), permission)
+        return f"{user['email']} now has: {', '.join(user['permissions'])}"
+    return _run(go)
 
 
 def _list_users() -> int:
@@ -65,10 +118,24 @@ def main(argv=None) -> int:
     sub.add_parser("serve", help="run the API server (the default)")
     grant = sub.add_parser("grant-admin", help="allowlist an email as an active admin")
     grant.add_argument("email")
+    add = sub.add_parser("add-user", help="allowlist an email with the household defaults")
+    add.add_argument("email")
+    add.add_argument("--name", default="", help="display name shown in the app")
+    deactivate = sub.add_parser("deactivate", help="block a user and end their sessions")
+    deactivate.add_argument("email")
+    grant_perm = sub.add_parser("grant", help="grant one permission to a user")
+    grant_perm.add_argument("email")
+    grant_perm.add_argument("permission")
     sub.add_parser("list-users", help="list allowlisted users and their permissions")
     args = parser.parse_args(argv)
     if args.command == "grant-admin":
         return _grant_admin(args.email)
+    if args.command == "add-user":
+        return _add_user(args.email, args.name)
+    if args.command == "deactivate":
+        return _deactivate(args.email)
+    if args.command == "grant":
+        return _grant(args.email, args.permission)
     if args.command == "list-users":
         return _list_users()
     _serve()

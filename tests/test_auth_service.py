@@ -196,3 +196,32 @@ def test_rate_limiter_memory_is_bounded_and_evicts_oldest():
     for i in range(1000):
         lim.hit(f"k{i}")
     assert len(lim._events) == 3
+
+
+@pytest.mark.parametrize("ip, expected", [
+    ("203.0.113.9", "203.0.113"),
+    ("2001:db8::5", "2001:db8::/48"),
+    ("2001:db8:1:2:3:4:5:6", "2001:db8:1::/48"),
+    ("::ffff:203.0.113.9", "203.0.113"),
+    ("::1", "::/48"),
+    ("", ""), ("garbage", ""), ("1.2.3", ""),
+])
+def test_ip_prefix_is_coarse(ip, expected):
+    assert auth._ip_prefix(ip) == expected
+
+
+def test_ipv6_session_stores_only_the_48(adb):
+    u = auth.add_user("a@example.com")
+    auth.create_session(u["id"], ip="2001:db8:aa:bb::5")
+    assert auth.list_sessions(u["id"])[0]["ip_prefix"] == "2001:db8:aa::/48"
+
+
+@pytest.mark.parametrize("ip, expected", [
+    ("203.0.113.9", "203.0.113.9"),
+    ("::ffff:203.0.113.9", "203.0.113.9"),
+    ("2001:db8:1:2::5", "2001:db8:1:2::/64"),
+    ("2001:db8:1:2:ffff:ffff:ffff:ffff", "2001:db8:1:2::/64"),
+    ("", "unknown"),
+])
+def test_rate_limit_key_buckets_ipv6_by_64(ip, expected):
+    assert auth.rate_limit_key(ip) == expected

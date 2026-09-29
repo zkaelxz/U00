@@ -279,6 +279,8 @@ _SECRET_PATTERNS = [
     re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:fx\b',
                re.IGNORECASE),
     re.compile(r'(DeepL-Auth-Key\s+)[A-Za-z0-9:\-]{10,}', re.IGNORECASE),
+    # Google OAuth client secrets (sign-in, step 134): GOCSPX- + ~28 chars.
+    re.compile(r'\bGOCSPX-[A-Za-z0-9_-]{10,}'),
     # Discord webhook URLs (Step 44): the id/token path is the secret.
     re.compile(r'(discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)[^\s"\'<>]+', re.IGNORECASE),
 ]

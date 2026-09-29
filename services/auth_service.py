@@ -21,6 +21,7 @@ Security rules kept here:
 
 import hashlib
 import hmac
+import ipaddress
 import re
 import secrets
 import sqlite3
@@ -159,6 +160,20 @@ def find_user_by_google_sub(google_sub: str):
     return _public_user(row) if row else None
 
 
+def find_user_by_email(email: str):
+    """Allowlist lookup by email, for local administration (the CLI) and
+    the first-login binding in `oidc_service` (a verified email may bind
+    an allowlisted user that has no Google binding yet). Never the way a
+    returning user is identified: that is `find_user_by_google_sub`.
+    None for an unknown or malformed address."""
+    try:
+        email = _norm_email(email)
+    except InvalidInputError:
+        return None
+    row = db.auth_get_user_by_email(email)
+    return _public_user(row) if row else None
+
+
 def bind_google_sub(user_id: int, google_sub: str):
     """Binds an allowlisted user to a Google `sub` once. Never rebinds."""
     row = _require_user(user_id)
@@ -207,12 +222,39 @@ def revoke_permission(user_id: int, permission: str, actor_id=None) -> dict:
 
 # --- sessions --------------------------------------------------------------
 
+def _parse_ip(ip):
+    """An ip_address, IPv4-mapped IPv6 unwrapped to IPv4; None if unparseable."""
+    try:
+        addr = ipaddress.ip_address((ip or "").strip())
+    except ValueError:
+        return None
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    return addr
+
+
 def _ip_prefix(ip: str) -> str:
-    """Coarse address only: first three IPv4 octets / first four IPv6 groups."""
-    ip = (ip or "").strip()
-    if ":" in ip:
-        return ":".join(ip.split(":")[:4])
-    return ".".join(ip.split(".")[:3])
+    """Coarse address only, for storage and audit: IPv4 /24 as its first three
+    octets ("203.0.113"), IPv6 /48 as a network ("2001:db8:1::/48"). IPv4-mapped
+    IPv6 counts as IPv4. Anything unparseable is stored as ""."""
+    addr = _parse_ip(ip)
+    if addr is None:
+        return ""
+    if addr.version == 4:
+        return ".".join(str(addr).split(".")[:3])
+    return str(ipaddress.ip_network(f"{addr}/48", strict=False))
+
+
+def rate_limit_key(ip: str) -> str:
+    """The bucket a client address is rate-limited in: an IPv4 address on its
+    own, an IPv6 address by its /64 (one host usually holds a whole /64, so
+    per-address buckets would be unlimited). IPv4-mapped IPv6 counts as IPv4."""
+    addr = _parse_ip(ip)
+    if addr is None:
+        return (ip or "").strip()[:64] or "unknown"
+    if addr.version == 4:
+        return str(addr)
+    return str(ipaddress.ip_network(f"{addr}/64", strict=False))
 
 
 def create_session(user_id: int, user_agent: str = "", ip: str = "", now: float = None) -> dict:
