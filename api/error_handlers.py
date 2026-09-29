@@ -32,14 +32,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from services.service_errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError, ServiceError, UnsupportedOperationError)
+from services.service_errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
+                                     InvalidInputError, NotFoundError, RateLimitedError,
+                                     ServiceError, UnsupportedOperationError)
 
 _STATUS_BY_ERROR = (
     (InvalidInputError, 422),
     (NotFoundError, 404),
     (UnsupportedOperationError, 400),
+    (ForbiddenError, 403),
     (ConflictError, 409),
+    (RateLimitedError, 429),
     (DependencyUnavailableError, 503),
     (ServiceError, 500),
 )
