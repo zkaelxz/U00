@@ -1,7 +1,8 @@
 """
 api/routers/media_routes.py -- audio/video upload (Slice 31) and Range playback (Slice 52) for one drama (Migration
 Slice 31). Multipart body; see services/media_upload_service.py for the
-filename/size/atomic-write rules. Returns name, size and kind only.
+filename/size/atomic-write rules. Returns name, size, kind and, for a
+video, the job_id of the background audio extraction (B-09).
 """
 
 import os
@@ -58,7 +59,10 @@ def post_upload_and_transcribe(
             tesseract_cmd=tesseract_cmd)
     except ValidationError:
         raise InvalidInputError("Invalid transcribe options.")
-    upload = media_upload_service.upload_media(drama_id, file.filename, file.file)
+    upload = media_upload_service.upload_media(drama_id, file.filename, file.file,
+                                               transcribe_options=opts.model_dump())
+    if upload["job_id"]:  # video: the extraction job starts and follows the run
+        return {"upload": upload, "job_id": upload["job_id"]}
     run = transcribe_service.start_transcribe_run(drama_id, **opts.model_dump())
     return {"upload": upload, "job_id": run["job_id"]}
 

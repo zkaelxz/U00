@@ -44,7 +44,7 @@ def test_upload_then_run_with_use_gpu(client, monkeypatch):
     monkeypatch.setattr(background_jobs, "start_job", fake_start_job)
     r = _post(client, did, {"initial_prompt": "names", "source_language": "ja"})
     assert r.status_code == 200
-    assert r.json() == {"upload": {"name": "source.mp3", "size": 9, "kind": "audio"},
+    assert r.json() == {"upload": {"name": "source.mp3", "size": 9, "kind": "audio", "job_id": None},
                         "job_id": f"transcribe_{did}"}
     assert captured["use_gpu"] is True
     assert captured["initial_prompt"] == "names"
@@ -79,3 +79,53 @@ def test_status(client, monkeypatch):
     client.post(f"/api/media/dramas/{did}/upload", files={"file": ("a.wav", b"x")})
     assert client.get(f"/api/media/dramas/{did}/status").json()["has_audio"] is True
     assert client.get("/api/media/dramas/9999/status").status_code == 404
+
+
+def test_video_upload_and_transcribe_one_job(client, monkeypatch):
+    import time
+    import db
+    did = _drama()
+    monkeypatch.setattr(background_jobs, "run_cancellable",
+                        lambda job_id, cmd, cwd=None, **kw: open(cmd[-1], "wb").close())
+    from services import transcribe_service
+    calls = {}
+
+    def fake_run(drama_id, **opts):
+        calls.update(opts, drama_id=drama_id,
+                     audio=db.get_drama(drama_id)["audio_filename"])
+        background_jobs.start_job(f"transcribe_{drama_id}", lambda: None)
+        return {"job_id": f"transcribe_{drama_id}"}
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run", fake_run)
+    r = client.post(f"/api/media/dramas/{did}/upload-and-transcribe",
+                    files={"file": ("a.mp4", b"vid")}, data={"source_language": "ja"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["job_id"] == f"extract_audio_{did}" == body["upload"]["job_id"]
+    deadline = time.time() + 5
+    while background_jobs.get_status(body["job_id"])["status"] == "running":
+        assert time.time() < deadline
+        time.sleep(0.02)
+    assert background_jobs.get_status(body["job_id"])["status"] == "done"
+    assert calls["audio"] == "audio.wav" and calls["source_language"] == "ja"
+
+
+def test_video_upload_and_transcribe_run_error_surfaces(client, monkeypatch):
+    import time
+    did = _drama()
+    monkeypatch.setattr(background_jobs, "run_cancellable",
+                        lambda job_id, cmd, cwd=None, **kw: open(cmd[-1], "wb").close())
+    from services import transcribe_service
+    from services.service_errors import UnsupportedOperationError
+
+    def refuse(drama_id, **opts):
+        raise UnsupportedOperationError("no transcript")
+    monkeypatch.setattr(transcribe_service, "start_transcribe_run", refuse)
+    r = client.post(f"/api/media/dramas/{did}/upload-and-transcribe",
+                    files={"file": ("a.mp4", b"vid")})
+    job_id = r.json()["job_id"]
+    deadline = time.time() + 5
+    while background_jobs.get_status(job_id)["status"] == "running":
+        assert time.time() < deadline
+        time.sleep(0.02)
+    job = background_jobs.get_status(job_id)
+    assert job["status"] == "error" and "no transcript" in job["error"]
