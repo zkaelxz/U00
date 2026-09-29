@@ -2,6 +2,7 @@
 
 Status: design guidance plus a prioritised change list. Docs only; no code changed by this file.
 Implementation status (2026-09-29): every screen in section 3 is implemented (Library #285 and #302, Source #299, Translate #297/#300, Review #298, Dub #295, Export #296, Settings and Diagnostics #301, shared Section/Field #293). Remaining gaps are backend-blocked (e.g. a pending-batch list endpoint).
+Visual refresh (2026-09-29): `docs/design/ui-refresh-spec.md` revises rules 4 and 8 (common actions visible, only rare/destructive ones folded) and proposes rules 16-22 (Card vs Section, button hierarchy, toggles, humanized labels, badges).
 Written 2026-09-29 after the user reviewed the React app and said: "I want the UI and functionality
 to be more concise, like it was on Streamlit."
 

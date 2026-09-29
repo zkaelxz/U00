@@ -936,6 +936,12 @@ class TestRedactForSupport:
         assert diagnostics.redact_for_support("") == ""
         assert diagnostics.redact_for_support(None) == ""
 
+    def test_strips_ansi_colour_codes(self):
+        raw = "\x1b[0;31mERROR:\x1b[0m [youtube] abc123: Sign in to confirm \x1b[1mnow\x1b[0m\x1b[K"
+        text = diagnostics.redact_for_support(raw)
+        assert text == "ERROR: [youtube] abc123: Sign in to confirm now"
+        assert "\x1b" not in text
+
 
 class TestFormatDiagnosticsReport:
     def _results(self, **overrides):

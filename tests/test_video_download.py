@@ -178,6 +178,22 @@ class TestVideoDownload:
         assert "postprocessors" not in calls["opts"]
         assert calls["opts"]["js_runtimes"] == {"deno": {}, "node": {}, "bun": {}, "quickjs": {}}
 
+    @pytest.mark.parametrize("audio_only", [True, False])
+    def test_asks_yt_dlp_for_uncoloured_output(self, tmp_path, audio_only):
+        """yt-dlp error text ("ERROR: [youtube] ...") must not carry ANSI
+        colour codes into the job error, the log or the support report."""
+        out_dir = str(tmp_path)
+        ext = "m4a" if audio_only else "mp4"
+        calls = _install_fake_yt_dlp(extract_info_fn=lambda url: {"id": "abc", "ext": ext})
+        name = "downloaded_audio.wav" if audio_only else "downloaded_video.mp4"
+        open(os.path.join(out_dir, name), "wb").close()
+
+        import video_download
+        importlib.reload(video_download)
+
+        video_download.download("https://youtu.be/xyz", out_dir, audio_only=audio_only)
+        assert calls["opts"]["no_color"] is True
+
 
 class TestCookieOptions:
     def test_no_cookies_gives_empty_dict(self):

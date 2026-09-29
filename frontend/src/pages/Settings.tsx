@@ -3,6 +3,7 @@ import { getSettings, TOGGLES, updateSetting } from '../api/settings'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Section } from '../components/Section'
+import { Toggle } from '../components/Toggle'
 import { SettingsKeyForm } from './SettingsKeyForm'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { NotificationsSection } from './settings/NotificationsSection'
@@ -48,14 +49,10 @@ export default function SettingsPage() {
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {settings && (
         <>
-          <div className="toggle-list">
+          <div className="setting-list">
             {TOGGLES.map(({ key, label }) => (
               <Field key={key} label={label} help={TOGGLE_HELP[key]}>
-                <input
-                  type="checkbox"
-                  checked={settings[key]}
-                  onChange={(e) => toggle(key, e.target.checked)}
-                />
+                <Toggle checked={settings[key]} onChange={(next) => toggle(key, next)} />
               </Field>
             ))}
           </div>
