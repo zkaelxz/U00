@@ -2827,3 +2827,26 @@ class TranslatePresetSave(BaseModel):
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+# ---------------------------------------------------------------------------
+# Parity X15-X17: add and edit a series' people
+# (services/series_people_service.py). Responses reuse CharactersSeriesEntry.
+# ---------------------------------------------------------------------------
+
+class SeriesPersonCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    character_name: str = Field(max_length=200)
+    pronouns: str = Field("", max_length=40)
+    aliases: str = Field("", max_length=1000)
+    notes: str = Field("", max_length=2000)
+
+
+class SeriesPersonUpdate(BaseModel):
+    """Omitted (or null) leaves a field alone; "" clears it
+    (character_name can't be blank)."""
+    model_config = ConfigDict(extra="forbid")
+    character_name: Optional[str] = Field(None, max_length=200)
+    pronouns: Optional[str] = Field(None, max_length=40)
+    aliases: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=2000)

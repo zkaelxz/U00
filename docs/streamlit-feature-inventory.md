@@ -146,9 +146,9 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | X12 | Delete one term (with confirm) | 2590-2596 | `db.delete_glossary_term` | MISSING | `DELETE /api/glossary/dramas/{id}/terms/{term_id}` | wt TestFourMoreDestructiveActionsNeedConfirmation |
 | X13 | Bulk delete selected terms | 2650-2668 | same | MISSING | single delete only | wt TestBulkGlossaryAndPronounActions |
 | X14 | Add term form | 2670-2697 | `db.upsert_glossary_term` | `stages/GlossaryPanel.tsx` | `POST .../terms` | — |
-| X15 | Series people and pronouns: list, rename, remove (confirm), notes, pronouns (preset or custom) | 2699-2750, `_pronoun_picker` 149 | `db.*_series_character` | MISSING | read-only `GET /api/characters/series/{id}/characters` | wt TestBulkGlossaryAndPronounActions; test_db TestSeriesCharacters |
-| X16 | Bulk set pronouns for selected series people | 2752-2768 | `db.upsert_series_character` | MISSING | no API | wt TestBulkGlossaryAndPronounActions |
-| X17 | Add a known series character | 2770-2777 | same | MISSING | no API | — |
+| X15 | Series people and pronouns: list, rename, remove (confirm), notes, pronouns (preset or custom) | 2699-2750, `_pronoun_picker` 149 | `db.*_series_character`; `series_people_service.update_person` | `stages/SeriesCast.tsx` (list, inline Edit of name/pronouns incl. Custom…/aliases/notes, PC-only Remove…) | `GET /api/characters/series/{id}/characters` (`library.read`), `POST .../characters/{cid}` (`lines.edit`, by id; taken name 409), `POST .../{cid}/delete` (local_only) | wt TestBulkGlossaryAndPronounActions; test_db TestSeriesCharacters; test_api_series_people; seriesPeopleForm.test; e2e series-people |
+| X16 | Bulk set pronouns for selected series people | 2752-2768 | `db.upsert_series_character` | MISSING (per-person Edit only) | no bulk API; one `POST .../characters/{cid}` per person | wt TestBulkGlossaryAndPronounActions |
+| X17 | Add a known series character | 2770-2777 | same; `series_people_service.add_person` (taken name is 409, the tab's upsert silently cleared aliases/notes) | `stages/SeriesCast.tsx` "Add a person" (name, pronouns, aliases, notes) | `POST /api/characters/series/{id}/characters` (`lines.edit`) | test_api_series_people; e2e series-people |
 | X18 | Engine and model pickers (Claude/Gemini/Ollama/NLLB) | 2780-2833 | `translate_engines.ENGINES`, `*_MODELS` | `stages/TranslateStage.tsx` | `GET /api/translate-run/.../config`, run `engine`/`model` | wt TestFreeEngineVersionLabelling, TestGemini31FlashLiteInDropdown |
 | X19 | Gemini free tier blocks Pro | 2810-2813, 2834-2836 | `GEMINI_FREE_TIER_UNAVAILABLE_MODELS` | Server side (`translate_run_service.py`, review jobs, line AI): an omitted `gemini_free_tier` now falls back to the saved Settings value (`settings_service.resolve_gemini_free_tier`), so Pro is blocked for a free-tier user without the client sending the flag | run | wt TestGeminiFreeTierProGating |
 | X20 | Per-engine API key field (test_offline needs none) | 2838-2854 | `synced_api_key_input` | MISSING (see G06) | `POST /api/settings/keys/{engine}` | — |
@@ -559,7 +559,7 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 
 **Workspace: Translate and Characters**
 1. Characters voice fields (C06, C07, C10-C12, C14). M, yes.
-2. Glossary delete, bulk delete, series people (X12, X13, X15-X17). M, part.
+2. Glossary delete, bulk delete, series people (X12, X13, X15-X17). M, part. X15 and X17 done (branch `slice-series-people-edit`); X16 bulk pronouns open.
 3. Bulk-jobs panel and failure notice (X35, X01). M, part.
 4. Presets and tiers (X02, X03, X22). M, no. Genre/she-her toggles (X05, X06) done on branch `fix-translate-preset-parity`.
 5. Reference clip upload, auto-extract, voice suggestions, known series character, remember, save to voice bank (C09, C01, C02, C03, C08, C13). M, no.
