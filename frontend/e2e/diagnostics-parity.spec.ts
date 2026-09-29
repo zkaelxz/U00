@@ -42,14 +42,17 @@ async function mockPage(page: Page) {
 
 const openSection = (page: Page, title: RegExp) => page.locator('summary', { hasText: title }).first().click()
 
-test('core checks sit at the top and flag ffmpeg without libass', async ({ page }) => {
+test('the Setup card shows every check and flags ffmpeg without libass first', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page)
   await page.goto('/#/diagnostics')
-  const core = page.getByRole('list', { name: 'Core checks' })
-  await expect(core).toContainText('Python: 3.11.9')
-  await expect(core).toContainText('Problem: ffmpeg has no libass')
-  await expect(core).toContainText('JS runtime: deno')
+  const rows = page.getByRole('list', { name: 'Setup checks' }).locator('li')
+  await expect(rows.first()).toContainText('ffmpeg has no libass')
+  await expect(rows.first().locator('.pill')).toHaveText('Problem')
+  const python = rows.filter({ hasText: 'Python' })
+  await expect(python).toContainText('3.11.9')
+  await expect(python.locator('.pill')).toHaveText('OK')
+  await expect(rows.filter({ hasText: 'JS runtime' })).toContainText('deno')
   await expect(page.getByTestId('diagnostics-summary')).toContainText('1 setup problem')
   expect(unmocked).toEqual([])
 })

@@ -1,11 +1,14 @@
+import { Badge } from '../../components/Badge'
+import { Card } from '../../components/Card'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import { engineRow, setupRows, setupSummary } from './diagnosticsAdmin'
-import './diagnosticsParity.css'
 
 /**
- * The core checks (Python, ffmpeg with libass, JS runtime for yt-dlp) always
- * shown at the top, then "Setup": GPU, app files, library folder, model engines.
+ * "Setup": every check (Python, ffmpeg with libass, JS runtime, GPU, app
+ * files, library folder) as a row with an OK/Problem badge, always open.
+ * Problems sort first; Model engines stays a fold.
  */
 export function SetupSection({ checks, gpu, engines, checking, onRecheck }: {
   checks: DiagnosticsSetupChecks
@@ -15,41 +18,37 @@ export function SetupSection({ checks, gpu, engines, checking, onRecheck }: {
   onRecheck: () => void
 }) {
   const rows = setupRows(checks, gpu)
-  const core = rows.filter((r) => r.core)
-  const rest = rows.filter((r) => !r.core)
-  const problems = rest.some((r) => r.problem)
+  const sorted = [...rows.filter((r) => r.problem), ...rows.filter((r) => !r.problem)]
   return (
-    <>
-      <ul data-testid="system-summary" className="diag-rows diag-core" aria-label="Core checks">
-        {core.map((r) => (
-          <li key={r.key} className={r.problem ? 'warn' : undefined}>
-            {r.text}
+    <Card
+      title="Setup"
+      meta={<span data-testid="setup-summary">{setupSummary(rows)}</span>}
+      aria-label="Setup"
+      actions={
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={checking} onClick={onRecheck}>
+          {checking ? 'Checking…' : 'Check again'}
+        </button>
+      }
+    >
+      <ul data-testid="setup-rows" className="setup-list" aria-label="Setup checks">
+        {sorted.map((r) => (
+          <li key={r.key} className={r.problem ? 'problem' : undefined}>
+            <span className="setup-name">{r.label}</span>
+            <span className="setup-value">{r.value}</span>
+            <Badge tone={r.problem ? 'warn' : 'ok'}>{r.problem ? 'Problem' : 'OK'}</Badge>
           </li>
         ))}
       </ul>
-      <Section title="Setup" storageKey="diagnostics.setup" defaultOpen={problems} summary={setupSummary(rest)}>
-        <ul data-testid="setup-rows" className="diag-rows">
-          {rest.map((r) => (
-            <li key={r.key} className={r.problem ? 'warn' : undefined}>
-              {r.text}
-            </li>
-          ))}
-        </ul>
-        {engines.length > 0 && (
-          <Section title="Model engines" count={engines.length} storageKey="diagnostics.setupEngines">
-            <ul className="diag-rows" aria-label="Model engines">
-              {engines.map((m) => (
-                <li key={m.name}>{engineRow(m)}</li>
-              ))}
-            </ul>
-          </Section>
-        )}
-        <div className="actions">
-          <button type="button" disabled={checking} onClick={onRecheck}>
-            {checking ? 'Checking…' : 'Check again'}
-          </button>
-        </div>
-      </Section>
-    </>
+      {engines.length > 0 && (
+        <Section title="Model engines" count={engines.length} storageKey="diagnostics.setupEngines"
+          summary={`${engines.filter((m) => m.installed).length} installed`}>
+          <ul className="diag-rows" aria-label="Model engines">
+            {engines.map((m) => (
+              <li key={m.name}>{engineRow(m)}</li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </Card>
   )
 }

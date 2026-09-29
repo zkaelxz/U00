@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsJobHistoryItem } from '../../types/diagnostics'
 import { jobDetail } from '../diagnosticsFormat'
 import { HISTORY_PAGE, historySummary } from './diagnosticsAdmin'
@@ -34,7 +35,7 @@ export function JobHistorySection({ items }: { items: DiagnosticsJobHistoryItem[
       </ul>
       {!all && items.length > HISTORY_PAGE && (
         <div className="actions">
-          <button type="button" className="link" onClick={() => setAll(true)}>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setAll(true)}>
             Show all {items.length}
           </button>
         </div>

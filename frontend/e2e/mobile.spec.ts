@@ -51,7 +51,20 @@ for (const stage of ['source', 'translate', 'review', 'dub', 'export']) {
     await page.goto(`/#/drama/1/${stage}`)
     await expect(page.locator('nav.stage-tabs')).toBeVisible()
     await page.waitForLoadState('networkidle')
-    await checkScreen(page, ['nav.stage-tabs a'])
+    await checkScreen(page, ['nav.stage-tabs a', '.workspace-header .ws-back'])
+    // All five stages in one row: none cut off or pushed off-screen.
+    const boxes = await page.locator('nav.stage-tabs a').evaluateAll((els) =>
+      els.map((e) => { const r = e.getBoundingClientRect(); return { top: Math.round(r.top), right: r.right } }))
+    expect(boxes).toHaveLength(5)
+    expect(new Set(boxes.map((b) => b.top)).size).toBe(1)
+    for (const b of boxes) expect(b.right).toBeLessThanOrEqual(390)
+    // §3.3: the app header and Workspace header are compact enough that stage content starts by y=300.
+    const contentTop = await page.locator('nav.stage-tabs').evaluate((n) => {
+      let s = n.nextElementSibling
+      while (s && s.getBoundingClientRect().height === 0) s = s.nextElementSibling
+      return s ? s.getBoundingClientRect().top : Infinity
+    })
+    expect(contentTop).toBeLessThanOrEqual(300)
   })
 }
 

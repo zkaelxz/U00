@@ -275,16 +275,6 @@ dd { margin: 0; }
 }
 .error-banner { border-color: var(--bad); color: var(--bad); }
 
-.workspace-header { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
-.workspace-header h2 { margin: 0; }
-.stage-tabs { display: flex; gap: var(--space-3); margin: var(--space-3) 0; border-bottom: 1px solid var(--border); }
-.stage-tabs a { padding: 6px 4px; text-decoration: none; color: var(--muted); }
-.stage-tabs a[aria-current='page'] { color: var(--text); border-bottom: 2px solid var(--accent); }
-/* P16: progress marks. "current" is the drama's next step, not the open tab. */
-.stage-tabs a[data-state='current'] { color: var(--accent-text); font-weight: 600; }
-.stage-tabs a[data-state='blocked'] { opacity: 0.7; }
-.stage-tabs .stage-mark { color: var(--ok); }
-.stage-counts { margin: 0 0 var(--space-3); font-size: var(--font-sm); }
 .stage-source { display: grid; gap: var(--space-3); }
 .form-grid { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 6px; margin: 8px 0; }
 .form-grid label { display: grid; gap: 2px; }
@@ -331,7 +321,7 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   button:not(.link, .field-help-btn, .review-hint, .toggle) { padding-block: 10px; }
   a.button-link { min-height: 44px; padding-block: 10px; }
   summary { min-height: 44px; padding-block: 10px; }
-  .app-header nav a, .stage-tabs a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+  .app-header nav a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
   label:has(> input[type='checkbox']), label:has(> input[type='radio']),
   .toggle-list .field-item { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); }
   .toggle-list .field-item { display: flex; }
@@ -343,11 +333,9 @@ details.section > summary { display: flex; align-items: baseline; gap: var(--spa
   .app-header button.report-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
   .app-header button.report-btn > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .app-header { row-gap: var(--space-2); padding-bottom: var(--space-2); }
-  /* Phones: every page in view, 3 per row (no sideways-scrolling nav). */
-  .app-header nav { flex: 1 1 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .app-header nav a { min-width: 0; padding-inline: var(--space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .stage-tabs { overflow-x: auto; flex-wrap: nowrap; scroll-snap-type: x proximity; scrollbar-width: thin; }
-  .stage-tabs a { flex: 0 0 auto; scroll-snap-align: start; padding-inline: var(--space-2); white-space: nowrap; }
+  /* Phones: every page in view, 4 per row in two rows (no sideways-scrolling nav). */
+  .app-header nav { flex: 1 1 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .app-header nav a { min-width: 0; padding-inline: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-sm); }
 }
 @media (pointer: coarse), (max-width: 640px) { .history-read { display: inline-flex; align-items: center; min-height: 44px; } }
 
@@ -393,6 +381,8 @@ input[type='file'] { color: var(--muted); max-width: 100%; }
 @media (pointer: coarse), (max-width: 640px) {
   input[type='file']::file-selector-button { min-height: 44px; }
 }
+/* Narrowest phones (≤380px): smaller nav labels so "Diagnostics" still fits its column. */
+@media (max-width: 380px) { .app-header nav a { font-size: var(--text-xs); } }
 @media (max-width: 640px) {
   .confirm-button { display: flex; flex: 1 1 100%; justify-content: flex-end; }
 }

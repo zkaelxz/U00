@@ -12,6 +12,8 @@ import {
 } from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { jobSucceeded } from '../../../types/jobs'
 import type {
@@ -50,7 +52,7 @@ export function ExportEpub() {
           <option value="zh">Source language</option>
         </select>
       </Field>
-      <button type="button" onClick={download}>Download EPUB</button>
+      <button type="button" className={buttonClass('secondary')} onClick={download}>Download EPUB</button>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>
   )
@@ -104,8 +106,9 @@ function MediaJobSection({ title, label, kind, start, note, testId, children }: 
   return (
     <div className="export-block" role="group" aria-label={title}>
       <h4>{title}</h4>
+      {note && <p className="muted">{note}</p>}
       {children}
-      <button type="button" title={note} disabled={busy} onClick={run}>{label}</button>
+      <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={run}>{label}</button>
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
@@ -183,10 +186,11 @@ function DubbedVideo() {
       note="Replaces the video's sound with the dub track from the Dub stage. Needs an uploaded source video, a finished dub and ffmpeg."
       start={() => startDubbedVideo(dramaId, { keep_original: keepOriginal })}
     >
-      <label className="inline">
-        <input type="checkbox" checked={keepOriginal} onChange={(e) => setKeepOriginal(e.target.checked)} />{' '}
-        Mix the original audio in quietly underneath
-      </label>
+      <div className="setting-list">
+        <Field label="Mix the original audio in quietly underneath">
+          <Toggle checked={keepOriginal} onChange={setKeepOriginal} />
+        </Field>
+      </div>
     </MediaJobSection>
   )
 }
@@ -216,9 +220,12 @@ export function MarkExported() {
       {exported ? (
         <span className="muted" role="status">This drama is marked as exported.</span>
       ) : (
-        <button type="button" disabled={pending} onClick={mark} title="Sets the drama's Library status to exported. Nothing else changes.">
-          Mark as exported
-        </button>
+        <>
+          <button type="button" className={buttonClass('secondary')} disabled={pending} onClick={mark}>
+            Mark as exported
+          </button>
+          <span className="muted">Sets the Library status only; nothing else changes.</span>
+        </>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </div>

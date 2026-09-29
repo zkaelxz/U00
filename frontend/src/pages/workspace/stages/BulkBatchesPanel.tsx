@@ -2,7 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { cancelBulkTranslation, listBulkTranslations, resumeBulkTranslations } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { BulkJobEntry } from '../../../types/translateStage'
 import { useStage } from '../StageContext'
@@ -23,13 +27,11 @@ import {
 const REFRESH_MS = 30_000
 
 type Props = {
-  /** Offer the panel even with no batches yet (a bulk-capable engine exists). */
-  supported: boolean
   /** Bump to re-read the list (e.g. after a translate run finishes). */
   reloadKey: number
 }
 
-export function BulkBatchesPanel({ supported, reloadKey }: Props) {
+export function BulkBatchesPanel({ reloadKey }: Props) {
   const { dramaId } = useStage()
   const phone = useMediaQuery('(max-width: 640px)')
   const [jobs, setJobs] = useState<BulkJobEntry[] | null>(null)
@@ -86,7 +88,8 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
   }, [returnFocusTo, confirmId, jobs, note])
 
   if (jobs === null && !error) return null
-  if (!supported && jobs !== null && jobs.length === 0) return null
+  // Nothing to show or resume until a batch exists (rule 8); Bulk lives under Advanced.
+  if (jobs !== null && jobs.length === 0) return null
 
   const resume = () => {
     setResuming(true)
@@ -124,7 +127,7 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     if (!j.cancellable) return null
     if (confirmId !== j.bulk_job_id) {
       return (
-        <button type="button" className="danger" aria-label={`Cancel batch ${j.bulk_job_id}`}
+        <button type="button" className={buttonClass('danger', 'sm')} aria-label={`Cancel batch ${j.bulk_job_id}`}
           ref={(el) => {
             if (el) cancelButtons.current.set(j.bulk_job_id, el)
             else cancelButtons.current.delete(j.bulk_job_id)
@@ -137,10 +140,10 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     return (
       <span className="bulk-confirm">
         <span role="alert">Cancel batch #{j.bulk_job_id}? Results that arrive later are ignored.</span>
-        <button type="button" className="danger" ref={yesRef} disabled={cancelling} onClick={() => cancel(j.bulk_job_id)}>
+        <button type="button" className={buttonClass('danger', 'sm')} ref={yesRef} disabled={cancelling} onClick={() => cancel(j.bulk_job_id)}>
           {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
         </button>
-        <button type="button" disabled={cancelling} onClick={() => { setConfirmId(null); setReturnFocusTo(j.bulk_job_id) }}>Keep it</button>
+        <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelling} onClick={() => { setConfirmId(null); setReturnFocusTo(j.bulk_job_id) }}>Keep it</button>
       </span>
     )
   }
@@ -156,7 +159,7 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     j.last_error ? <span className="error bulk-error">{plainServerText(j.last_error, 'The provider reported a problem.')}</span> : null
 
   const shown = showFinished ? [...pending, ...finished] : pending
-  const engineText = (j: BulkJobEntry) => `${j.engine}${j.model ? ` (${j.model})` : ''}`
+  const engineText = (j: BulkJobEntry) => `${humanize('engine', j.engine)}${j.model ? ` (${j.model})` : ''}`
 
   return (
     <Section
@@ -168,27 +171,26 @@ export function BulkBatchesPanel({ supported, reloadKey }: Props) {
     >
       <div role="region" aria-label="Bulk batches" className="bulk-batches" ref={regionRef} tabIndex={-1}>
         <div className="bulk-actions">
-          <button type="button" disabled={resuming} onClick={resume}
-            title="After a restart, starts checking each pending batch with its provider again.">
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={resuming} onClick={resume}>
             {resuming ? 'Resuming…' : 'Resume pending batches'}
           </button>
-          <button type="button" onClick={refresh}>Refresh</button>
-          {finished.length > 0 && (
-            <label className="inline">
-              <input type="checkbox" checked={showFinished} onChange={(e) => setShowFinished(e.target.checked)} />{' '}
-              Show finished ({finished.length})
-            </label>
-          )}
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={refresh}>Refresh</button>
         </div>
+        <p className="muted">Resume after a restart to check each pending batch with its provider again.</p>
+        {finished.length > 0 && (
+          <div className="setting-list">
+            <Field label={`Show finished (${finished.length})`}>
+              <Toggle checked={showFinished} onChange={setShowFinished} />
+            </Field>
+          </div>
+        )}
         {resumed && <p className="muted" data-testid="bulk-resume">{resumed}</p>}
         {note && <p className="muted" role="status" ref={noteRef} tabIndex={-1}>{note}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         <ErrorBanner error={actionError} onDismiss={() => setActionError(null)} />
         {jobs && shown.length === 0 && (
           <p className="muted">
-            {jobs.length === 0
-              ? 'No bulk batches yet. Tick Bulk under Advanced to send the drama as one discounted batch.'
-              : 'No pending batches.'}
+            No pending batches.
           </p>
         )}
         {shown.length > 0 && phone && (

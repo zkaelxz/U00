@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { Field } from '../../../../components/Field'
+import { buttonClass } from '../../../../components/uiClasses'
 import type { ReviewLine } from '../../../../types/review'
 import { lineRange, MAX_MERGE_LINES, mergedText } from './reviewLogic'
 
@@ -55,10 +56,10 @@ export function MergeConfirm({ run, busy, blocked, onMerge, onCancel }: Props) {
       </div>
       {blocked && <p className="muted">{blocked}</p>}
       <div className="actions">
-        <button type="submit" className="primary" disabled={busy || !!blocked}>
+        <button type="submit" className={buttonClass('primary')} disabled={busy || !!blocked}>
           {busy ? 'Merging…' : label}
         </button>
-        <button type="button" className="link" onClick={onCancel}>Back</button>
+        <button type="button" className={buttonClass('ghost')} onClick={onCancel}>Back</button>
       </div>
     </form>
   )
