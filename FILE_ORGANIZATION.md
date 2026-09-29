@@ -187,7 +187,7 @@ baihe-subtitler/
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
-│   │                             get_settings_overview; server-side key resolution shared with
+│   │                             get_settings_overview + Slice 24 set/clear_engine_key (atomic .env writer); server-side key resolution shared with
 │   │                             tabs/settings_tab.py; never returns a key value over an API (D2)
 │   ├── translate_service.py      Migration Slices 11+13+17 -- list_engines/list_history
 │   │                             (read-only), translate() (Slice 13, server-side key resolution
@@ -267,7 +267,7 @@ baihe-subtitler/
 │   ├── __init__.py               (empty, marks the package)
 │   ├── __main__.py               `python -m api` -- starts uvicorn with BAIHE_API_* settings
 │   ├── server.py                 create_app(): routers, error handlers, dev-only CORS
-│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/SERVE_FRONTEND
+│   ├── api_config.py             BAIHE_API_HOST/PORT/ENV/CORS_ORIGINS/ALLOW_KEY_WRITES/SERVE_FRONTEND
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
@@ -279,7 +279,7 @@ baihe-subtitler/
 │       ├── reader_routes.py      /api/reader/dramas/{id}/page (Migration Slice 4)
 │       ├── diagnostics_routes.py /api/diagnostics (Migration Slice 5, read-only)
 │       ├── jobs_routes.py        /api/jobs[/{id}] (Migration Slice 8, read-only, no cancel)
-│       ├── settings_routes.py    /api/settings (Slices 10, 23: GET overview, POST non-secret bool toggles)
+│       ├── settings_routes.py    /api/settings (Slices 10, 23, 24: GET overview, POST non-secret bool toggles, write-only key set/clear, off by default)
 │       ├── translate_routes.py   /api/translate/engines, /api/translate/history (Migration Slice 11)
 │       │                         + POST /api/translate (Migration Slice 13)
 │       │                         + DELETE .../history?confirm=true (Migration Slice 17)

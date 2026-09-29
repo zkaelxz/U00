@@ -25,6 +25,12 @@ the same style as the existing `BAIHE_PORTABLE` / `BAIHE_HF_TOKEN` /
 - `BAIHE_API_CORS_ORIGINS` -- comma-separated origins allowed in
   development. Defaults to the Vite dev/preview servers on loopback.
   A literal `*` is refused, not honoured.
+- `BAIHE_API_ALLOW_KEY_WRITES` (`1` to enable, default off) -- turns on
+  the write-only engine-key endpoints (`POST /api/settings/keys/...`,
+  Migration Slice 24). Off: they return 403. On: they still refuse any
+  request that looks remote (non-loopback peer/Host, proxy or identity
+  headers, cross-origin) and need `confirm=true`. That is a safeguard,
+  not authentication -- see docs/migration-review.md.
 - `BAIHE_API_SERVE_FRONTEND` (`1`/`0`, default on) -- serve the built
   React app (`frontend/dist`) at `/` from the same process. Has no
   effect when `frontend/dist/index.html` doesn't exist (API only).
@@ -48,6 +54,7 @@ class ApiSettings:
     port: int = DEFAULT_PORT
     environment: str = "production"
     cors_origins: tuple = field(default_factory=tuple)
+    allow_key_writes: bool = False
     serve_frontend: bool = True
 
     @property
@@ -82,6 +89,7 @@ def load_settings(environ=None) -> ApiSettings:
         if "*" in origins:
             raise ValueError("BAIHE_API_CORS_ORIGINS may not be '*'; list the real origins.")
         cors_origins = tuple(origins)
+    allow_key_writes = (env.get("BAIHE_API_ALLOW_KEY_WRITES") or "").strip() == "1"
     serve_text = (env.get("BAIHE_API_SERVE_FRONTEND") or "1").strip().lower()
     if serve_text in ("1", "true", "yes", "on"):
         serve_frontend = True
@@ -90,4 +98,5 @@ def load_settings(environ=None) -> ApiSettings:
     else:
         raise ValueError(f"BAIHE_API_SERVE_FRONTEND must be 1 or 0, got {serve_text!r}")
     return ApiSettings(host=host, port=port, environment=environment,
-                       cors_origins=cors_origins, serve_frontend=serve_frontend)
+                       cors_origins=cors_origins, allow_key_writes=allow_key_writes,
+                       serve_frontend=serve_frontend)
