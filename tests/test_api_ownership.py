@@ -431,3 +431,13 @@ class TestJobs:
         assert client.get(priv, headers=world["b"]).status_code == 404
         assert client.get(shared, headers=world["b"]).status_code == 200
         assert client.get(priv, headers=world["a"]).status_code == 200
+
+
+def test_new_run_over_a_stale_running_record_takes_the_new_owner(isolated_db):
+    # A crashed process leaves "running" with owner 1; the next run is user 2's.
+    db.save_job_record("sources_search", "running", started_at=1.0, owner_user_id=1)
+    db.save_job_record("sources_search", "running", started_at=2.0, owner_user_id=2)
+    assert db.get_job_record("sources_search")["owner_user_id"] == 2
+    # Progress updates of the same run keep it.
+    db.save_job_record("sources_search", "done", started_at=2.0, owner_user_id=None)
+    assert db.get_job_record("sources_search")["owner_user_id"] == 2

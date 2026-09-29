@@ -3136,6 +3136,11 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
                     WHEN excluded.status IN ('queued', 'running')
                          AND job_records.status NOT IN ('queued', 'running')
                     THEN excluded.owner_user_id
+                    -- A new run (auth B2): a stale "running" row left by a
+                    -- crashed process must not keep its old owner.
+                    WHEN excluded.status IN ('queued', 'running')
+                         AND excluded.started_at IS NOT job_records.started_at
+                    THEN excluded.owner_user_id
                     ELSE COALESCE(job_records.owner_user_id, excluded.owner_user_id) END,
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
