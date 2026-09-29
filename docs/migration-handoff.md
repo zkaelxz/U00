@@ -60,4 +60,4 @@ Also for the planning session: candidate notes on Fanjiao/GLify/YuriAudio2Notion
 - `drama_service` now imports `background_jobs` (Slice 36); import weight unchecked.
 - Slice 36: if the drama folder cannot be fully removed, the DB row is already deleted (500 without paths).
 - Slice 43: `expected` compare and write are two steps, not atomic.
-- Slice 49: API diarization always merges with `overwrite_manual=False` (no confirm step).
+- Slice 49: API diarization merges with `overwrite_manual=False` by default; explicit `overwrite_manual=true` needs `confirm=true` (B-13, fixed).
