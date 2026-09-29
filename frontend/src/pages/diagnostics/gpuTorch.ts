@@ -1,0 +1,64 @@
+// Pure helpers for Packages > "GPU PyTorch" (GET /api/diagnostics/gpu-torch,
+// POST /api/diagnostics/gpu-torch/setup). The versions and index shown come
+// from the server's static table; nothing here builds a pip argument.
+import type {
+  DiagnosticsGpuTorchNvidia, DiagnosticsGpuTorchStatus, DiagnosticsTorchPackage, DiagnosticsTorchVariant,
+  DiagnosticsTorchVerify,
+} from '../../types/diagnostics'
+
+/** One line for the GPU and its driver. */
+export function driverText(n: DiagnosticsGpuTorchNvidia): string {
+  if (!n.found) return 'No NVIDIA GPU found (nvidia-smi did not answer).'
+  const gpu = `${n.gpu_name ?? 'NVIDIA GPU'}, driver ${n.driver_version ?? 'unknown'}`
+  if (n.status === 'too_old') return `${gpu}: too old for CUDA 12.8 (needs ${n.minimum}+, recommended ${n.recommended}+).`
+  if (n.status === 'old') return `${gpu}: works, but ${n.recommended} or newer is recommended for CUDA 12.8.`
+  return gpu
+}
+
+/** "2.11.0+cu128 (CUDA build)", "2.11.0+cpu (CPU only)", "not installed". */
+export function packageVersionText(p: DiagnosticsTorchPackage): string {
+  if (!p.version) return 'not installed'
+  if (p.build === 'cuda') return `${p.version} (CUDA build)`
+  if (p.build === 'cpu') return `${p.version} (CPU only)`
+  return p.version
+}
+
+/** The headline for the current state. */
+export function stateText(s: DiagnosticsGpuTorchStatus): string {
+  switch (s.state) {
+    case 'missing': return 'PyTorch is not installed.'
+    case 'mismatched': return 'torch, torchvision and torchaudio don\'t match. Set them up again together.'
+    case 'cpu_on_gpu': return 'This PC has an NVIDIA GPU, but the installed PyTorch is CPU only.'
+    case 'recommended': return 'The recommended PyTorch is installed.'
+    case 'different': return 'A PyTorch different from the recommended one is installed. It may work; the recommended set is the one the app is tested with.'
+  }
+}
+
+/** True when the state is worth fixing (shown as a warning). */
+export const stateIsProblem = (s: DiagnosticsGpuTorchStatus) =>
+  s.state === 'mismatched' || s.state === 'cpu_on_gpu' || s.nvidia.status === 'too_old'
+
+/** "torch 2.11.0+cu128 · torchvision 0.26.0+cu128 · torchaudio 2.11.0+cu128". */
+export const variantVersionsText = (v: DiagnosticsTorchVariant) =>
+  ['torch', 'torchvision', 'torchaudio'].map((n) => `${n} ${v.versions[n] ?? '?'}`).join(' · ')
+
+/** Why the setup can't run for this variant, or null. */
+export function setupBlockedReason(s: DiagnosticsGpuTorchStatus, v: DiagnosticsTorchVariant): string | null {
+  if (!s.python_supported) return 'This Python version has no PyTorch wheels for the recommended set.'
+  if (v.needs_nvidia && !s.nvidia.found) return 'No NVIDIA GPU found. Install the NVIDIA driver first, or use the CPU version.'
+  if (v.needs_nvidia && s.nvidia.status === 'too_old') return 'Update the NVIDIA driver first (nvidia.com), then set up GPU PyTorch.'
+  return null
+}
+
+/** Second-press label with the download size. */
+export const setupConfirmLabel = (v: DiagnosticsTorchVariant) =>
+  `Confirm install ${v.needs_nvidia ? 'GPU' : 'CPU'} PyTorch (${v.needs_nvidia ? 'about 2.5 GB' : 'about 300 MB'})`
+
+/** One line for a CUDA check result. */
+export function verifyText(v: DiagnosticsTorchVerify): string {
+  if (!v.torch) return `PyTorch didn't import${v.error ? `: ${v.error}` : '.'}`
+  const cuda = v.cuda_available
+    ? `CUDA works${v.device ? ` on ${v.device}` : ''}`
+    : v.cuda_build ? `CUDA ${v.cuda_build} build, but no GPU is available` : 'CPU-only build: CUDA not available'
+  return `torch ${v.torch}: ${cuda}.`
+}

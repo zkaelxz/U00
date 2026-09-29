@@ -52,6 +52,14 @@ def test_pip_can_never_run(stubbed, monkeypatch):
     for action in ("install", "upgrade"):
         r = client.post(f"/api/diagnostics/dependencies/edge_tts/{action}", json={"confirm": True})
         assert r.status_code == 409
+    r = client.post("/api/diagnostics/dependencies/edge_tts/upgrade",
+                    json={"confirm": True, "target": "9.9.9"})
+    assert r.status_code == 409
+    for path, body in (("/api/diagnostics/gpu-torch/setup", {"confirm": True}),
+                       ("/api/diagnostics/gpu-torch/check", {}),
+                       ("/api/diagnostics/package-updates/check", {})):
+        assert client.post(path, json=body).status_code == 409, path
+    assert diag.verify_torch() == {"error": "stubbed in e2e"}
 
 
 def test_reset_and_extension_are_stubbed(stubbed, monkeypatch):

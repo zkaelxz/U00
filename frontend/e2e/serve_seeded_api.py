@@ -50,16 +50,29 @@ def install_e2e_stubs(setattr_=setattr, environ=None):
     from services import settings_service
     from services.service_errors import ConflictError
 
-    def refuse_pip(name, confirm=False):
+    def refuse_pip(name, confirm=False, target=None):
         raise ConflictError("Installing is disabled on the e2e server.")
+
+    def refuse_torch_setup(variant=None, confirm=False):
+        raise ConflictError("Installing is disabled on the e2e server.")
+
+    def refuse_network(*a, **k):
+        # The PyPI update check and the CUDA check (a torch subprocess).
+        raise ConflictError("Disabled on the e2e server.")
 
     def refuse_reset(confirm=False, confirm_text=None):
         raise ConflictError("Resetting is disabled on the e2e server.")
 
     setattr_(diag, "install_dependency", refuse_pip)
     setattr_(diag, "upgrade_dependency", refuse_pip)
-    # Second layer: nothing that reaches the command runner starts a process.
-    setattr_(diag, "_run_commands", lambda cmds: {"ok": False, "output_tail": list(E2E_STUB_OUTPUT)})
+    setattr_(diag, "setup_gpu_torch", refuse_torch_setup)
+    setattr_(diag, "check_package_updates", refuse_network)
+    setattr_(diag, "check_gpu_torch", refuse_network)
+    # Second layer: nothing that reaches the command runner (or the torch
+    # verify subprocess) starts a process.
+    setattr_(diag, "_run_commands", lambda cmds, torch_pins=None: {
+        "ok": False, "output_tail": list(E2E_STUB_OUTPUT)})
+    setattr_(diag, "verify_torch", lambda blocking=True: {"error": "stubbed in e2e"})
     setattr_(diag, "reset_library", refuse_reset)
     setattr_(ext, "set_enabled", lambda enabled, start_now=True: {
         "enabled": bool(enabled), "running": False, "restart_needed": False})

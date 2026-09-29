@@ -49,4 +49,5 @@ def post_series(body: SourcesSeriesRequest, name: str = Path(min_length=1, max_l
             responses=_ERRS)
 def get_job_result(request: Request, job_id: str = Path(min_length=1, max_length=100)):
     # Sign-in and tier-test jobs (PC-only) answer 404 to other devices.
-    return svc.get_job_result(job_id, local=is_local_request(request))
+    return svc.get_job_result(job_id, local=is_local_request(request),
+                              principal=request.state.principal)

@@ -110,6 +110,13 @@ export function suggestionPatch(line: ReviewLine, suggestion: string): LinePatch
   return { en: suggestion, expected: { en: line.en } }
 }
 
+// The line's panel slot: the AI panel (LineAi) or a study tool (LineTools, R17-R19).
+export type ToolMode = 'alternatives' | 'grammar' | 'pronounce'
+export type PanelMode = 'improve' | 'explain' | ToolMode
+
+export const isToolMode = (m: PanelMode): m is ToolMode =>
+  m === 'alternatives' || m === 'grammar' || m === 'pronounce'
+
 // The suggestion was made for current_en; if the row shows something else now
 // it is stale and must not be applied.
 export function suggestionIsStale(line: ReviewLine, currentEn: string): boolean {
@@ -147,6 +154,27 @@ export function nextFlaggedId(lines: ReviewLine[], fromIndex: number, delta: 1 |
   }
   for (let j = fromIndex + delta; j >= 0 && j < lines.length; j += delta) if (lines[j].flag) return lines[j].id
   return null
+}
+
+/**
+ * Where previous/next flagged looks (R08). A page of the "all" or "flagged"
+ * view holds every flagged line near the start row, so it is searched first,
+ * then the server from the page's edge. A page of a filtered view
+ * ("untranslated") leaves flagged lines out, so the server is asked from the
+ * focused row itself and none in between is skipped. `fromId` null = from
+ * the far end.
+ */
+export function flaggedStep(
+  lines: ReviewLine[],
+  filter: LineFilter,
+  fromIndex: number,
+  delta: 1 | -1,
+): { id: number } | { fromId: number | null } {
+  if (filter !== 'all' && filter !== 'flagged' && fromIndex !== -1) return { fromId: lines[fromIndex].id }
+  const id = nextFlaggedId(lines, fromIndex, delta)
+  if (id !== null) return { id }
+  const edge = delta > 0 ? lines[lines.length - 1] : lines[0]
+  return { fromId: edge?.id ?? null }
 }
 
 // ---- structure edits ----

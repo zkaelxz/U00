@@ -77,11 +77,13 @@ def post_bulk_delete(body: LibraryBulkDeleteRequest):
              responses={403: {"model": ErrorResponse}, **_ERR_409},
              summary="Start the bulk translate job for the picked untranslated dramas")
 def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
-    plan = las.bulk_translate_engines(body.drama_ids)
+    principal = request.state.principal
+    plan = las.bulk_translate_engines(body.drama_ids, principal=principal)
     require_engines_allowed(request, *plan["engines"])
     return las.start_bulk_translate(body.drama_ids, body.default_locale,
                                     expected_engines=plan["by_drama"],
-                                    allow_paid_summary=holds_paid_engines(request))
+                                    allow_paid_summary=holds_paid_engines(request),
+                                    principal=principal)
 
 
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,

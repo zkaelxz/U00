@@ -12,7 +12,7 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
@@ -592,6 +592,7 @@ class DramaCreateResult(DramaDetail):
 class TranslateRunStylePreset(BaseModel):
     key: str
     label: str
+    guidance: str = ""   # parity X04: what this style asks the translator for
 
 
 class TranslateRunWorkflowTier(BaseModel):
@@ -664,6 +665,10 @@ class CharactersEntry(BaseModel):
     series_character_id: Optional[int] = None
     series_character_name: str
     line_count: int
+    # C07/C04: the linked series character's pronouns (the default when
+    # this drama sets none) and up to two short sample source lines.
+    series_pronouns: str = ""
+    sample_lines: List[str] = Field(default_factory=list)
 
 
 class CharactersUpdateRequest(BaseModel):
@@ -756,6 +761,37 @@ class GlossaryTermUpsert(BaseModel):
 
 class GlossaryDeleteResult(BaseModel):
     deleted: bool
+
+
+class GlossaryImportRequest(BaseModel):
+    """Parity T03: a glossary file's text (CSV, TSV or JSON), pasted or read
+    by the browser; filename only hints the format. overwrite_existing
+    needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(min_length=1, max_length=1_000_000)
+    filename: str = Field(default="", max_length=255)
+    overwrite_existing: StrictBool = False
+    confirm: StrictBool = False
+
+
+class GlossaryImportResult(BaseModel):
+    added: List[str]
+    overwritten: List[str]
+    skipped_existing: List[str]
+    invalid: List[str]
+    warnings: List[str]
+
+
+class GlossaryBulkDeleteRequest(BaseModel):
+    """Parity X13: term ids (never positions); needs confirm=true."""
+    model_config = ConfigDict(extra="forbid")
+    term_ids: List[StrictInt] = Field(min_length=1, max_length=1000)
+    confirm: StrictBool = False
+
+
+class GlossaryBulkDeleteResult(BaseModel):
+    deleted: List[int]
+    not_found: List[int]
 
 
 class GlossaryInstructions(BaseModel):
@@ -1117,8 +1153,10 @@ class LinesFindReplaceApplyResult(BaseModel):
 
 
 class LinesAcceptTmRequest(BaseModel):
+    """expected_en: the line's English the client saw (409 if it changed)."""
     model_config = ConfigDict(extra="forbid")
     entry_id: int = Field(ge=1)
+    expected_en: str = Field(max_length=20000)
 
 
 class LinesNoteCreate(BaseModel):
@@ -1469,6 +1507,26 @@ class MediaExportStarted(BaseModel):
     job_id: str
 
 
+class SoftsubVideoRequest(BaseModel):
+    """Parity E17: which subtitles go into the muxed track."""
+    model_config = ConfigDict(extra="forbid")
+    field: str = Field(default="en", pattern="^(en|zh|bilingual)$")
+    include_notes: StrictBool = False
+
+
+class DubbedVideoRequest(BaseModel):
+    """Parity E19: keep_original mixes the original audio in at -20 dB
+    instead of replacing it."""
+    model_config = ConfigDict(extra="forbid")
+    keep_original: StrictBool = False
+
+
+class MarkExportedResult(BaseModel):
+    """Parity E22: the drama's status after "Mark as exported"."""
+    drama_id: int
+    status: str
+
+
 class TranslateBulkResumeEntry(BaseModel):
     bulk_job_id: int
     state: str  # "polling" | "needs_key" | "running"
@@ -1618,6 +1676,70 @@ class LineExplanation(BaseModel):
     explanation: str
     engine: str
     model: Optional[str] = None
+
+
+# --- Review per-line tools (review parity R17/R18/R28, R08/R43) ----------
+
+class LineAlternative(BaseModel):
+    translation: str
+    approach: str
+    tradeoff: str
+
+
+class LineAlternatives(BaseModel):
+    line_id: int
+    current_en: str
+    alternatives: List[LineAlternative]
+    engine: str
+    model: Optional[str] = None
+
+
+class LineGrammarPart(BaseModel):
+    word: str
+    reading: str
+    meaning: str
+    function: str
+
+
+class LineGrammar(BaseModel):
+    line_id: int
+    zh: str
+    parts: List[LineGrammarPart]
+    engine: str
+    model: Optional[str] = None
+
+
+class LinesShortenRequest(LineExplainRequest):
+    """Auto-shorten overlong lines. line_ids: only these (still only the
+    ones the pacing check calls too long); omitted = every such line.
+    confirm must be true: it overwrites English."""
+    line_ids: Optional[List[int]] = Field(None, max_length=1000)
+    confirm: StrictBool = False
+
+
+class LinesShortenedLine(BaseModel):
+    id: int
+    idx: int
+    before: str
+    after: str
+
+
+class LinesShortenResult(BaseModel):
+    shortened: int
+    unchanged: int
+    stale: int
+    remaining: int
+    snapshot_saved: bool
+    lines: List[LinesShortenedLine]
+
+
+class ReviewLinePosition(BaseModel):
+    """page: in the requested filter view (None if it hides the line);
+    page_all: with no filter. All None when there's no such line."""
+    line_id: Optional[int] = None
+    idx: Optional[int] = None
+    page: Optional[int] = None
+    page_all: Optional[int] = None
 
 
 # --- Discover catalog (Migration Slice 55) ---------------------------------
@@ -2221,10 +2343,143 @@ class DiagnosticsAdminConfirm(BaseModel):
     confirm: StrictBool = False
 
 
+class DiagnosticsUpgradeRequest(BaseModel):
+    """confirm=true, and the version the user confirmed (the last update
+    check's target); 409 when that check no longer says so."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    target: Optional[StrictStr] = Field(None, max_length=64,
+                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
+
+
 class DiagnosticsInstallResult(BaseModel):
     package: str
     ok: bool
     output_tail: List[str]
+    # A plain-English next step for a known failure (pip's cache unwritable).
+    hint: Optional[str] = None
+
+
+class DiagnosticsPackageInfo(BaseModel):
+    name: str
+    dist: str
+    installed: bool
+    # From installed metadata (the real dist, or a known alternate like
+    # opencv-python-headless); None when not installed or unreadable.
+    installed_version: Optional[str] = None
+    min_version: Optional[str] = None     # the app's minimum (requirements files' >=)
+    below_min: bool = False
+    installable: bool
+    powers: str
+    approx_mb: Optional[int] = None
+    pulls_torch: bool
+    source_url: Optional[str] = None
+    not_offered_reason: Optional[str] = None
+    warning: Optional[str] = None
+
+
+class DiagnosticsInstallTask(BaseModel):
+    id: str
+    group: str
+    label: str
+    help: str
+    packages: List[str]
+    # package -> "required" | "recommended" | "optional" for this task
+    roles: Dict[str, str] = {}
+    installed_count: int
+    required_missing: List[str] = []
+    to_install: List[str]           # missing required + recommended (Install for this task)
+    optional_missing: List[str] = []
+    approx_mb: int
+
+
+class DiagnosticsInstallPresets(BaseModel):
+    """Install presets by task, plus per-package pip name, approx. size,
+    PyPI link and install caveats (GET /api/diagnostics/install-presets)."""
+    tasks: List[DiagnosticsInstallTask]
+    packages: Dict[str, DiagnosticsPackageInfo]
+
+
+class DiagnosticsPackageUpdate(BaseModel):
+    name: str
+    dist: str
+    installed_version: Optional[str] = None
+    # update | up_to_date | held_back | managed | unknown
+    status: str
+    latest: Optional[str] = None
+    target: Optional[str] = None      # the version Upgrade installs (status "update")
+    reason: Optional[str] = None      # what holds a newer release back
+
+
+class DiagnosticsPackageUpdates(BaseModel):
+    """POST /api/diagnostics/package-updates/check: asks PyPI (fixed URL per
+    static dist name) only when called; cached in the server process."""
+    checked_at: float
+    packages: Dict[str, DiagnosticsPackageUpdate]
+
+
+class DiagnosticsGpuTorchNvidia(BaseModel):
+    found: bool
+    gpu_name: Optional[str] = None
+    driver_version: Optional[str] = None
+    # ok | old (works, below CUDA 12.8's own requirement) | too_old | unknown
+    status: str
+    recommended: Optional[str] = None
+    minimum: Optional[str] = None
+
+
+class DiagnosticsTorchPackage(BaseModel):
+    name: str
+    version: Optional[str] = None
+    build: Optional[str] = None      # "cuda", "cpu", or None (no build tag / not installed)
+
+
+class DiagnosticsTorchVariant(BaseModel):
+    variant: str
+    label: str
+    index_url: str
+    versions: Dict[str, str]
+    needs_nvidia: bool
+
+
+class DiagnosticsTorchVerify(BaseModel):
+    torch: Optional[str] = None
+    torchvision: Optional[str] = None
+    torchaudio: Optional[str] = None
+    cuda_build: Optional[str] = None
+    cuda_available: Optional[bool] = None
+    device: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DiagnosticsGpuTorchStatus(BaseModel):
+    """GET /api/diagnostics/gpu-torch: NVIDIA GPU/driver, the installed
+    torch family, mismatches and the recommended matched triple. `probe`
+    only from POST /api/diagnostics/gpu-torch/check (imports torch in a
+    fresh Python)."""
+    nvidia: DiagnosticsGpuTorchNvidia
+    installed: List[DiagnosticsTorchPackage]
+    problems: List[str]
+    # missing | mismatched | cpu_on_gpu | recommended | different
+    state: str
+    python_supported: bool
+    recommended: DiagnosticsTorchVariant
+    variants: List[DiagnosticsTorchVariant]
+    probe: Optional[DiagnosticsTorchVerify] = None
+
+
+class DiagnosticsGpuTorchSetupRequest(BaseModel):
+    """confirm=true; variant is one of the server's fixed variants (omitted:
+    CUDA when an NVIDIA GPU answers, else CPU). No version or index is
+    accepted from the client."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    variant: Optional[Literal["cu128", "cpu"]] = None
+
+
+class DiagnosticsGpuTorchSetupResult(DiagnosticsInstallResult):
+    variant: str
+    verify: Optional[DiagnosticsTorchVerify] = None
 
 
 class DiagnosticsResetRequest(BaseModel):
@@ -2619,6 +2874,8 @@ class NovelGlossaryStatus(BaseModel):
     progress: Optional[float] = None
     message: str = ""
     proposals: Optional[List[NovelGlossaryProposal]] = None
+    # Names this run; the apply sends it back (409 if the run was replaced).
+    run_id: Optional[str] = None
 
 
 class NovelGlossaryApplyRequest(BaseModel):
@@ -2917,6 +3174,25 @@ class WorkflowTierApplied(BaseModel):
     engine_model: Optional[str] = None
     reflect: bool
     auto_qc: bool
+
+
+class TranslatePresetApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preset_id: StrictInt = Field(ge=1, le=2**31 - 1)
+
+
+class TranslatePresetApplied(BaseModel):
+    """Parity X03: the preset's engine (when set) is saved on the drama; the
+    rest is for the form. Nothing is started."""
+    drama_id: int
+    preset_id: int
+    name: str
+    translation_engine: Optional[str] = None
+    engine_model: Optional[str] = None
+    style_preset: Optional[str] = None
+    locale: Optional[str] = None
+    default_female_pronouns: bool
+    include_genre_notes: bool
 
 
 class TranslatePresetSave(BaseModel):
@@ -3240,6 +3516,229 @@ class NovelFileTextRequest(BaseModel):
     the body itself, capped at 32 MB, before this is validated."""
     model_config = ConfigDict(extra="forbid")
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Characters extras (inventory C02, C08): recurring-voice suggestions and
+# "remember as a known series character" (services/characters_service.py).
+# ---------------------------------------------------------------------------
+
+class CharactersVoiceSuggestion(BaseModel):
+    speaker_label: str
+    series_character_id: int
+    character_name: str
+    similarity: float
+
+
+class CharactersVoiceSuggestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=100)
+    series_character_id: int = Field(ge=1, le=2147483647)
+
+
+class CharactersVoiceSuggestionResult(BaseModel):
+    """character: the updated speaker after an accept (null after a
+    reject); suggestions: what is still offered."""
+    character: Optional[CharactersEntry] = None
+    suggestions: List[CharactersVoiceSuggestion]
+
+
+class CharactersRememberRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+
+
+class CharactersRememberResult(BaseModel):
+    character: CharactersEntry
+    series_character: CharactersSeriesEntry
+    created: bool
+
+# Glossary helpers (parity X10/X28): glossary from the drama's source lines,
+# and per-term edits on applying either extraction's proposals.
+# ---------------------------------------------------------------------------
+
+class LinesGlossaryRunResult(BaseModel):
+    job_id: str
+    engine: str
+    line_count: int
+
+
+class GlossaryProposalEdit(BaseModel):
+    """The user's edit of one proposal in review. A field left out keeps
+    the proposal's value; category/policy null means "none"."""
+    model_config = ConfigDict(extra="forbid")
+    translation: Optional[Annotated[str, Field(min_length=1, max_length=200)]] = None
+    category: Optional[Annotated[str, Field(max_length=50)]] = None
+    policy: Optional[Annotated[str, Field(max_length=50)]] = None
+
+
+class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
+    """NovelGlossaryApplyRequest plus optional edits keyed by term text
+    (never by position); edits for terms not in `terms` are ignored.
+    run_id: the status's run_id the user reviewed; a different held run is
+    refused with 409 (optional here for older from-novel callers)."""
+    overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
+        default_factory=dict, max_length=1000)
+    run_id: Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
+
+
+class LinesGlossaryApplyRequest(GlossaryProposalsApplyRequest):
+    """GlossaryProposalsApplyRequest with run_id required (from-lines)."""
+    run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class GlossaryRunCancelRequest(BaseModel):
+    """The run_id from the extraction's status: only that run is cancelled."""
+    model_config = ConfigDict(extra="forbid")
+    run_id: Annotated[str, Field(min_length=1, max_length=64)]
+
+# Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
+# learn my style, SenseVoice audio tags, burned-subtitle preview clip.
+# services/review_extras_service.py; no key, URL or path is accepted or returned.
+# ---------------------------------------------------------------------------
+
+class MergeShortOptions(BaseModel):
+    min_duration: float
+    max_gap: float
+    max_chars: int
+
+
+class MergeShortGroup(BaseModel):
+    line_id: int
+    idx: int
+    merged_line_ids: List[int]
+    start: float
+    end: float
+    zh: str
+    en: str
+
+
+class MergeShortPreview(BaseModel):
+    drama_id: int
+    options: MergeShortOptions
+    source_line_ids: List[int]
+    line_count_before: int
+    line_count_after: int
+    groups: List[List[int]]
+    merges: List[MergeShortGroup]
+
+
+class MergeShortApply(_RestructureBase):
+    expected_groups: List[List[int]] = Field(
+        max_length=50_000,
+        description="The preview's `groups`; 409 if a fresh merge would differ.")
+    min_duration: Optional[float] = Field(None, ge=0.1, le=10)
+    max_gap: Optional[float] = Field(None, ge=0, le=5)
+    max_chars: Optional[int] = Field(None, ge=10, le=500)
+
+
+class MergeShortResult(RestructureResult):
+    merged_groups: int
+
+
+class StyleProfileView(BaseModel):
+    summary: str
+    confidence: Optional[str] = None
+    preferences: List[str]
+    sample_count: int
+    updated_at: Optional[str] = None
+    applied: bool
+
+
+class StyleHistoryEntry(BaseModel):
+    summary: str
+    preference_count: int
+    updated_at: Optional[str] = None
+
+
+class StyleState(BaseModel):
+    drama_id: int
+    scope: str
+    edit_count: int
+    drama_edit_count: int
+    min_samples: int
+    profile: Optional[StyleProfileView] = None
+    history: List[StyleHistoryEntry] = []
+    message: Optional[str] = None
+
+
+class StyleLearnRequest(ReviewJobStart):
+    pass
+
+
+class StyleApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    apply: StrictBool
+
+
+class StyleResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class StyleRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: StrictInt = Field(0, ge=0, le=20)
+
+
+class SenseVoiceStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    line_count: int
+
+
+class SenseVoiceRow(BaseModel):
+    line_id: Optional[int] = None
+    idx: int
+    text: str
+    text_emotion: str
+    audio_emotion: str
+    audio_events: str
+    disagree: bool
+
+
+class SenseVoiceTags(BaseModel):
+    drama_id: int
+    installed: bool
+    has_audio: bool
+    license_note: str
+    tagged: int
+    disagree: int
+    rows: List[SenseVoiceRow]
+
+
+class BurnPreviewStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: int = Field(ge=1)
+    pad_seconds: Optional[float] = Field(None, ge=0, le=5)
+    preset: Optional[str] = Field(None, max_length=40)
+
+
+class BurnPreviewStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    line_id: int
+    start: float
+    end: float
+
+
+class BurnPreviewClip(BaseModel):
+    line_id: Optional[int] = None
+    idx: Optional[int] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    preset: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BurnPreviewInfo(BaseModel):
+    drama_id: int
+    has_video: bool
+    ffmpeg_available: bool
+    presets: List[str]
+    max_clip_seconds: float
+    max_pad_seconds: float
+    clip: Optional[BurnPreviewClip] = None
 
 
 # ---------------------------------------------------------------------------
