@@ -127,6 +127,18 @@ def test_replace_bubbles_if_unchanged(page):
     assert db.replace_bubbles_if_unchanged(999999, [], [_bubble(1)]) is None
 
 
+def test_replace_bubbles_if_unchanged_checks_rev(page):
+    db, did, pid = page
+    ids = _ids(db, pid)
+    rev = _rev(db, pid)
+    # an id-preserving edit (the user fixing a translation mid-run)
+    assert db.update_bubble_fields(ids[0], {"translated_text": "mine"})
+    assert db.replace_bubbles_if_unchanged(pid, ids, [_bubble(7)], expected_rev=rev) is None
+    assert db.load_bubbles(pid)[0]["translated_text"] == "mine"
+    assert db.replace_bubbles_if_unchanged(pid, ids, [_bubble(7)],
+                                           expected_rev=_rev(db, pid)) is not None
+
+
 def test_save_bubbles_unchanged(page):
     # The legacy full replace is untouched: new ids every save, no rev bump.
     db, did, pid = page

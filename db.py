@@ -2181,17 +2181,20 @@ def reorder_bubbles(page_id: int, ordered_ids) -> bool:
         conn.close()
 
 
-def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles):
+def replace_bubbles_if_unchanged(page_id: int, expected_ids, bubbles, expected_rev: int = None):
     """Conditional full replace for a background job: in ONE transaction,
     replaces the page's bubbles with `bubbles` (reading order = list order)
-    only if the page's current bubble-id set is exactly `expected_ids` --
-    so a page the user (or another writer) changed since the job read it is
-    left alone. Returns the new ids in order, or None if nothing was written."""
+    only if the page's current bubble-id set is exactly `expected_ids` and,
+    when given, its rev is still `expected_rev` (an id-preserving edit bumps
+    rev; a legacy save_bubbles changes the ids) -- so a page the user (or
+    another writer) changed since the job read it is left alone. Returns
+    the new ids in order, or None if nothing was written."""
     expected = {int(i) for i in expected_ids}
     conn = get_conn()
     try:
         conn.execute("BEGIN IMMEDIATE")
-        if conn.execute("SELECT 1 FROM pages WHERE id = ?", (page_id,)).fetchone() is None:
+        row = conn.execute("SELECT COALESCE(rev, 0) FROM pages WHERE id = ?", (page_id,)).fetchone()
+        if row is None or (expected_rev is not None and int(row[0]) != int(expected_rev)):
             conn.rollback()
             return None
         current = {r[0] for r in conn.execute(

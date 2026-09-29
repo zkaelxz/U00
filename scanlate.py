@@ -1021,6 +1021,78 @@ def translate_page_with_context(texts, engine, drama_meta: dict, previous_contex
     return data["translations"], data.get("context_summary", previous_context)
 
 
+# Engines translated one region per call instead of one JSON prompt per page:
+# pure-MT engines can't follow the id-keyed prompt, and test_offline has no
+# LLM client (call_llm_json declines for it).
+_PER_REGION_ENGINES = ("test_offline",)
+_MAX_CONTEXT_CHARS = 1000
+
+
+def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
+                            previous_context: str = "", usage_cb=None, glossary_terms=None):
+    """Id-keyed page translation (Scanlate S5; replaces the positional
+    translate_page_with_context for API jobs, which keeps it for Streamlit
+    and the extension bridge). `texts_by_id` maps each region's id to its
+    source text. Returns ({id: translation}, new_context), or (None,
+    previous_context) when the answer can't be trusted as a whole: no
+    answer, unparseable JSON, not an object keyed by id, any sent id
+    missing or not a string, or an id that wasn't sent. Nothing is ever
+    matched by position, so a short or reordered answer applies nothing.
+
+    Engines without the JSON prompt path (pure MT, test_offline) are called
+    once per region with a single text, so each answer belongs to exactly
+    one id; they carry no rolling context."""
+    import json
+    import re
+    from translate_engines import _extract_first_json_value, call_llm_json
+    from translation_guide import build_glossary_block
+
+    ids = [str(k) for k in texts_by_id]
+    if not ids:
+        return {}, previous_context
+    if (not getattr(engine, "supports_reference", False)
+            or getattr(engine, "name", None) in _PER_REGION_ENGINES):
+        out = {}
+        for key, text in zip(ids, texts_by_id.values()):
+            result = engine.translate_batch([text], {"drama_meta": drama_meta,
+                                                     "glossary_terms": glossary_terms})
+            if not isinstance(result, (list, tuple)) or len(result) != 1 \
+                    or not isinstance(result[0], str):
+                return None, previous_context
+            out[key] = result[0]
+        return out, previous_context
+
+    context_block = f"\n\nContext from previous pages: {previous_context}" if previous_context else ""
+    glossary_block = build_glossary_block(glossary_terms)
+    glossary_block = f"\n\n{glossary_block}" if glossary_block else ""
+    payload = json.dumps([{"id": k, "text": t} for k, t in zip(ids, texts_by_id.values())],
+                         ensure_ascii=False)
+    prompt = (
+        "Translate these manga/comic text regions into natural English, keeping character "
+        "voice and plot consistent with the context below if any. They are listed in reading "
+        "order; each has an id."
+        + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
+        'Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
+        '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
+        'next page"}. Use every id exactly once, as given. No preamble, no markdown fences.'
+    )
+    text = call_llm_json(engine, prompt, max_tokens=max(1500, 200 * len(ids)), fallback=None,
+                         usage_cb=usage_cb)
+    if not text:
+        return None, previous_context
+    data = _extract_first_json_value(
+        re.sub(r"^```json|^```|```$", "", text.strip(), flags=re.MULTILINE).strip())
+    if not isinstance(data, dict) or not isinstance(data.get("translations"), dict):
+        return None, previous_context
+    got = {str(k): v for k, v in data["translations"].items()}
+    if set(got) != set(ids) or not all(isinstance(v, str) for v in got.values()):
+        return None, previous_context
+    summary = data.get("context_summary")
+    new_context = (summary.strip()[:_MAX_CONTEXT_CHARS]
+                   if isinstance(summary, str) and summary.strip() else previous_context)
+    return got, new_context
+
+
 def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = None,
                        custom_fonts: dict = None):
     """
@@ -1057,7 +1129,7 @@ def bulk_render_pages(pages_with_bubbles: list, out_dir: str, font_path: str = N
 
 
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str = None,
-                  custom_fonts: dict = None):
+                  custom_fonts: dict = None, notes: list = None):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -1082,8 +1154,15 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     override is set (Step 12d item 6) -- see region_excluded_from_auto().
     Speech/thought bubbles get their text fitted to the bubble's real
     shape (bubble_shape_mask(), Step 12d item 3), not just its rectangle.
+
+    The working copy is a unique temp file next to out_path (removed even
+    on failure), so two renders of the same page can't collide on it; the
+    result replaces out_path atomically. With a `notes` list, an ML
+    inpaint that fell back to OpenCV is recorded there (once) and the render
+    goes on with the OpenCV result instead of raising.
     """
     import shutil
+    import tempfile
 
     def in_auto_pass(b):
         return not b.get("skip") and not region_excluded_from_auto(b)
@@ -1094,26 +1173,42 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str =
     skipped_blank = [b for b in bubbles
                      if in_auto_pass(b) and not (b.get("translated_text") or "").strip()]
 
-    working_path = out_path + ".tmp.png"
-    shutil.copy(image_path, working_path)
-    for b in bubbles:
-        if not has_real_text(b):
-            continue
-        inpaint_region(working_path, b, out_path=working_path)
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+    fd, working_path = tempfile.mkstemp(prefix=".typeset_", suffix=".tmp.png", dir=out_dir)
+    os.close(fd)
+    fd, result_path = tempfile.mkstemp(prefix=".typeset_", suffix=".out.png", dir=out_dir)
+    os.close(fd)
+    try:
+        shutil.copy(image_path, working_path)
+        for b in bubbles:
+            if not has_real_text(b):
+                continue
+            try:
+                inpaint_region(working_path, b, out_path=working_path)
+            except InpaintModelUnavailable as exc:
+                # The OpenCV result is already in working_path.
+                if notes is None:
+                    raise
+                if not any(n[1] == "inpaint_fallback" for n in notes if len(n) > 1):
+                    notes.append(("warning", "inpaint_fallback", str(exc)))
 
-    pil_img = Image.open(working_path).convert("RGB")
-    for b in bubbles:
-        if not has_real_text(b):
-            continue
-        shape_mask = (bubble_shape_mask(image_path, b)
-                      if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
-        render_text_in_box(pil_img, b, b["translated_text"],
-                            font_size=b.get("font_size", 18), font_path=font_path,
-                            font_category=b.get("font_category") or "regular",
-                            custom_fonts=custom_fonts, mask=shape_mask)
-    pil_img.save(out_path)
-    if os.path.exists(working_path):
-        os.remove(working_path)
+        with Image.open(working_path) as opened:
+            pil_img = opened.convert("RGB")
+        for b in bubbles:
+            if not has_real_text(b):
+                continue
+            shape_mask = (bubble_shape_mask(image_path, b)
+                          if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS else None)
+            render_text_in_box(pil_img, b, b["translated_text"],
+                                font_size=b.get("font_size", 18), font_path=font_path,
+                                font_category=b.get("font_category") or "regular",
+                                custom_fonts=custom_fonts, mask=shape_mask)
+        pil_img.save(result_path, "PNG")
+        os.replace(result_path, out_path)
+    finally:
+        for leftover in (working_path, result_path):
+            if os.path.exists(leftover):
+                os.remove(leftover)
     return out_path, skipped_blank
 
 

@@ -20,7 +20,7 @@ import db
 from services.service_errors import InvalidInputError, NotFoundError
 
 ARTIFACT_KINDS = ("subtitle", "epub", "audio", "video", "softsub_video", "dubbed_video",
-                  "archive")
+                  "archive", "scanlate_zip", "scanlate_pdf")
 
 _BAD_NAME = "Invalid artifact filename."
 _MISSING = "No artifact available."
