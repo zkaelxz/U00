@@ -131,7 +131,9 @@ reporting) lives in [`.claude/CLAUDE.md`](.claude/CLAUDE.md); it complements
 this file, and this file and the roadmap win where they overlap. The project
 agents (`codebase-analyst`, `migration-architect`, `roadmap-planner`,
 `implementer`, `code-reviewer`, `qa-runner`, `ux-designer`, `merge-integrator`,
-`api-slice-builder`, `react-page-builder`, `security-reviewer`) are defined in `.claude/agents/`.
+`api-slice-builder`, `react-page-builder`, `security-reviewer`, `security-auditor`,
+`parity-auditor`, `bug-investigator`, `test-author`, `docs-steward`, `source-vetter`) are defined
+in `.claude/agents/`.
 The `/merge-slice` skill (`.claude/skills/merge-slice/SKILL.md`) is the merge recipe for
 migration branches. Delegation never widens the user's requested scope.
 
