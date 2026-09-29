@@ -6,6 +6,7 @@ export type Route =
   | { name: 'settings' }
   | { name: 'diagnostics' }
   | { name: 'translate' }
+  | { name: 'sources' }
   | { name: 'read'; id: number; page: number | null }
 
 export const DEFAULT_STAGE = 'source'
@@ -19,6 +20,7 @@ export function parseRoute(hash: string): Route {
   if (head === 'settings' && parts.length === 1) return { name: 'settings' }
   if (head === 'diagnostics' && parts.length === 1) return { name: 'diagnostics' }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
+  if (head === 'sources' && parts.length === 1) return { name: 'sources' }
   if (head === 'read' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')
