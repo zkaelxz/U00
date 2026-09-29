@@ -88,7 +88,7 @@ def test_flag_writes_flag_fields_only_by_id(monkeypatch):
     assert job["status"] == "done" and job["result"]["flagged_count"] == 1
     rows = db.load_lines(did)
     assert rows[1]["flag"] == "uncertain" and rows[0]["flag"] is None
-    assert calls == [("flag", "flag_note")]
+    assert calls == []  # conditional per-row writes, never a save_lines sync
 
 
 def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
@@ -115,6 +115,36 @@ def test_flag_keeps_manual_flag_change_made_during_job(monkeypatch):
         db.save_lines(did, [Line(id=rows[0]["id"], idx=0, start=0, end=1, zh="你好",
                                  flag="manual", flag_note="mine")],
                       fields=("flag", "flag_note"))
+        lines[0].flag, lines[0].flag_note = "uncertain", "job"
+        lines[1].flag, lines[1].flag_note = "uncertain", "job"
+    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    out = db.load_lines(did)
+    assert (out[0]["flag"], out[0]["flag_note"]) == ("manual", "mine")
+    assert (out[1]["flag"], out[1]["flag_note"]) == ("uncertain", "job")
+    assert job["result"]["flagged_count"] == 2
+
+
+def test_flag_keeps_manual_flag_change_made_just_before_the_write(monkeypatch):
+    """B-02 leftover: the user's edit lands after the job's last read but
+    before its write; the write is conditional on the start value, so the
+    user's flag survives."""
+    did = _seed()
+    rows = db.load_lines(did)
+
+    def user_edit():
+        db.update_line_fields_if(did, rows[0]["id"], {"flag": "manual", "flag_note": "mine"},
+                                 {"flag": "", "flag_note": ""})
+
+    for name in ("save_lines", "update_lines_fields_if_many"):
+        real = getattr(db, name)
+
+        def wrapped(*a, _real=real, **k):
+            user_edit()
+            return _real(*a, **k)
+        monkeypatch.setattr(db, name, wrapped)
+
+    def fake_flag(lines, engine, **kw):
         lines[0].flag, lines[0].flag_note = "uncertain", "job"
         lines[1].flag, lines[1].flag_note = "uncertain", "job"
     monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)

@@ -381,9 +381,11 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
     later, potentially after closing the app, not just within this
     session.
 
-    Compare-and-set: a line whose flag/flag_note the user changed while the
-    job ran (differs from what the job started with) keeps the user's value;
-    the job's result for that line is dropped.
+    Compare-and-set: each line's flag/flag_note is written by one
+    conditional UPDATE keyed on the value the job started with
+    (db.update_lines_fields_if_many), so a line the user changed while the
+    job ran -- even between the job's last read and its write -- keeps the
+    user's value; the job's result for that line is dropped.
     """
     started_with = {ln.id: (ln.flag or "", ln.flag_note or "") for ln in lines}
     translate_engines.flag_uncertain_lines(
@@ -395,14 +397,20 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)),
         cancel_check=lambda: _raise_if_cancelled(job_id))
     _raise_if_cancelled(job_id)
-    current = {r["id"]: (r["flag"] or "", r["flag_note"] or "") for r in db.load_lines(drama_id)}
+    items = []
     for ln in lines:
-        if ln.id in current and current[ln.id] != started_with[ln.id]:
-            ln.flag, ln.flag_note = current[ln.id][0] or None, current[ln.id][1]
-            if getattr(ln, "orig", None) is not None:
-                ln.orig = {**ln.orig, "flag": ln.flag, "flag_note": ln.flag_note}
-    db.save_lines(drama_id, lines, fields=("flag", "flag_note"))
-    background_jobs.set_result(job_id, {"flagged_count": sum(1 for ln in lines if ln.flag)})
+        if ln.id is None:
+            continue
+        before = started_with[ln.id]
+        if (ln.flag or "", ln.flag_note or "") != before:
+            items.append((ln.id, {"flag": ln.flag or None, "flag_note": ln.flag_note or ""},
+                          {"flag": before[0], "flag_note": before[1]}))
+    kept_user = set(db.update_lines_fields_if_many(drama_id, items))
+    flagged = {ln.id: bool(ln.flag) for ln in lines if ln.id not in kept_user}
+    if kept_user:
+        flagged.update({r["id"]: bool(r["flag"]) for r in db.load_lines(drama_id)
+                        if r["id"] in kept_user})
+    background_jobs.set_result(job_id, {"flagged_count": sum(flagged.values())})
 
 
 def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
