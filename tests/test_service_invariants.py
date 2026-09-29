@@ -338,14 +338,20 @@ class TestGlossaryTermDeleteInvariants:
 
 
 # ---------------------------------------------------------------------------
-# From TestContentBlockedRetryWithDifferentEngine::
-#      test_retry_does_not_change_the_drama_s_own_translation_engine
+# B-27: a line-scoped run on another engine keeps the drama's engine
 # ---------------------------------------------------------------------------
 
+class _OllamaResp:
+    status_code = 200
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"message": {"content": '{"1": "Retried."}'}}
+
+
 class TestRetryOnDifferentEngineInvariants:
-    @pytest.mark.xfail(strict=True, reason="B-27: finish_translation_run always writes "
-                       "translation_engine=engine_choice (bulk_translate.py:1539), "
-                       "even for a line-scoped retry")
     def test_line_scoped_run_on_another_engine_keeps_the_dramas_engine(self, monkeypatch):
         from services import translate_run_service, translate_service
         did = db.create_drama(title_en="B", media_type="audio_drama", content_mode="audio_drama",
@@ -356,23 +362,53 @@ class TestRetryOnDifferentEngineInvariants:
                             Line(idx=1, start=1, end=2, zh="别的", en="Other")])
         ids = [ln.id for ln in db.load_line_objects(did)]
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **k: "k")
-
-        class _Resp:
-            status_code = 200
-
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"message": {"content": '{"1": "Retried."}'}}
-        monkeypatch.setattr("requests.post", lambda *a, **k: _Resp())
-        monkeypatch.setattr("requests.get", lambda *a, **k: _Resp())
+        monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
+        monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
         out = translate_run_service.start_translate_run(did, engine_name="ollama",
                                                         line_ids=[ids[0]])
         job = _wait(out["job_id"])
         assert job["status"] == "done", job
         assert db.get_drama(did)["translation_engine"] == "gemini"
         assert db.load_line_objects(did)[1].en == "Other"
+
+    def test_whole_drama_run_still_records_the_engine(self, monkeypatch):
+        from services import translate_run_service, translate_service
+        did = db.create_drama(title_en="W", media_type="audio_drama", content_mode="audio_drama",
+                              status="aligned", translation_engine="gemini",
+                              source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **k: "k")
+        monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
+        monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
+        out = translate_run_service.start_translate_run(did, engine_name="ollama")
+        job = _wait(out["job_id"])
+        assert job["status"] == "done", job
+        assert db.get_drama(did)["translation_engine"] == "ollama"
+
+    def test_line_scoped_run_keeps_errors_record_and_active_version(self, monkeypatch):
+        from services import translate_run_service, translate_service
+        did = db.create_drama(title_en="E", media_type="audio_drama", content_mode="audio_drama",
+                              status="translated", translation_engine="gemini",
+                              source_language="zh")
+        db.save_lines(did, [Line(idx=0, start=0, end=1, zh="敏感内容", en="",
+                                 flag="content_blocked", flag_note="gemini: SAFETY"),
+                            Line(idx=1, start=1, end=2, zh="别的", en="Other")])
+        lines = db.load_line_objects(did)
+        db.save_translation_version(did, lines, label="gemini · natural", engine="gemini",
+                                    model="m", make_active=True)
+        errors = '["line 1: blocked", "line 7: timeout"]'
+        db.update_drama(did, last_translate_errors=errors)
+        before = db.list_translation_versions(did)
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a, **k: "k")
+        monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaResp())
+        monkeypatch.setattr("requests.get", lambda *a, **k: _OllamaResp())
+        out = translate_run_service.start_translate_run(did, engine_name="ollama",
+                                                        line_ids=[lines[0].id])
+        job = _wait(out["job_id"])
+        assert job["status"] == "done", job
+        assert db.load_line_objects(did)[0].en == "Retried."
+        assert db.get_drama(did)["last_translate_errors"] == errors
+        assert db.list_translation_versions(did) == before
 
 
 # ---------------------------------------------------------------------------
