@@ -42,6 +42,28 @@ export function dubBlocker(cfg: DubConfig, form: DubForm): string | null {
   return null
 }
 
+// One line for the Advanced summary: only what differs from the defaults.
+export function dubAdvancedSummary(cfg: DubConfig, form: DubForm): string {
+  const base = initialDubForm(cfg)
+  const parts: string[] = []
+  if (!cfg.is_narration) {
+    if (form.maxSpeedup !== base.maxSpeedup) parts.push(`speed-up ${form.maxSpeedup}x`)
+    if (form.maxSlowdown !== base.maxSlowdown) parts.push(`slow-down ${form.maxSlowdown}x`)
+  }
+  if (cfg.can_keep_background && form.keepBackground) parts.push('keep background music')
+  return parts.length ? parts.join(' · ') : 'defaults'
+}
+
+// The settings a run would use, on one line under the primary button.
+export function dubSettingsLine(cfg: DubConfig, form: DubForm): string {
+  const engine = cfg.tts_engines.find((t) => t.key === form.engine)?.label ?? form.engine
+  const parts = [engine]
+  if (cfg.is_narration) parts.push(form.language)
+  else parts.push(`speed ${form.maxSlowdown}x to ${form.maxSpeedup}x`)
+  parts.push(cfg.can_keep_background && form.keepBackground ? 'background music kept' : 'no background music')
+  return parts.join(' · ')
+}
+
 export function formatMs(ms: number | null | undefined): string {
   return typeof ms === 'number' && Number.isFinite(ms) ? `${Math.round(ms)} ms` : 'n/a'
 }
