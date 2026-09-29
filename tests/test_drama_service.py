@@ -307,3 +307,40 @@ def test_delete_other_dramas_job_record_does_not_block(isolated_db):
     db.save_job_record(f"transcribe_{did}", "done")
     ds.delete_drama(did, confirm=True, confirm_text="DELETE")
     assert db.get_drama(did) is None and db.get_drama(other) is not None
+
+
+def test_delete_folder_removal_fails_still_succeeds_with_warning(isolated_db, monkeypatch):
+    did, folder = _drama_with_files()
+
+    def boom(path, *a, **k):
+        raise OSError(f"in use: {path}")
+    monkeypatch.setattr(ds.shutil, "rmtree", boom)
+    res = ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert res["deleted"] is True and res["drama_id"] == did
+    assert res["warning"] and folder not in res["warning"]
+    assert db.get_drama(did) is None
+
+
+def test_delete_db_failure_restores_folder(isolated_db, monkeypatch):
+    did, folder = _drama_with_files()
+
+    def boom(_id):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(ds.db, "delete_drama", boom)
+    from services.service_errors import ServiceError
+    with pytest.raises(ServiceError) as ei:
+        ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert folder not in str(ei.value)
+    assert _intact(did, folder)
+
+
+def test_delete_rename_failure_leaves_everything(isolated_db, monkeypatch):
+    did, folder = _drama_with_files()
+
+    def boom(*a, **k):
+        raise OSError("locked")
+    monkeypatch.setattr(ds.os, "rename", boom)
+    from services.service_errors import ServiceError
+    with pytest.raises(ServiceError):
+        ds.delete_drama(did, confirm=True, confirm_text="DELETE")
+    assert _intact(did, folder)

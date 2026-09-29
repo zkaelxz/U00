@@ -998,6 +998,7 @@ class SettingsUpdateRequest(BaseModel):
 class DramaDeleteResult(BaseModel):
     deleted: bool
     drama_id: int
+    warning: Optional[str] = None
 
 
 # --- Migration Slice 43: per-line edit writes (services/lines_service.py) ---
