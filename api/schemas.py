@@ -3291,6 +3291,12 @@ class StyleProfileView(BaseModel):
     applied: bool
 
 
+class StyleHistoryEntry(BaseModel):
+    summary: str
+    preference_count: int
+    updated_at: Optional[str] = None
+
+
 class StyleState(BaseModel):
     drama_id: int
     scope: str
@@ -3298,6 +3304,7 @@ class StyleState(BaseModel):
     drama_edit_count: int
     min_samples: int
     profile: Optional[StyleProfileView] = None
+    history: List[StyleHistoryEntry] = []
     message: Optional[str] = None
 
 
@@ -3313,6 +3320,11 @@ class StyleApplyRequest(BaseModel):
 class StyleResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     confirm: StrictBool = False
+
+
+class StyleRestoreRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    index: StrictInt = Field(0, ge=0, le=20)
 
 
 class SenseVoiceStarted(BaseModel):

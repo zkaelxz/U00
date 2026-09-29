@@ -383,6 +383,85 @@ class TestStyleRemote:
         assert r.status_code == 200 and r.json()["profile"]["applied"] is False
 
 
+    def test_global_learn_and_pause_are_pc_only(self, isolated_db, fake_engine, monkeypatch):
+        """No series: the library-wide profile feeds every drama's prompts."""
+        called = []
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: called.append(1) or {"preferences": ["Short"]})
+        did = db.create_drama(title_en="Solo", translation_engine="claude")
+        for i in range(8):
+            db.record_edit_sample(did, f"中{i}", f"AI {i}", f"Mine {i}")
+        db.save_style_profile("global", {"preferences": ["Keep it short"]}, 8)
+        c = _remote_client()
+        h = _session("owner@example.com", "engines.paid")
+        assert c.post(f"{BASE}/{did}/style/learn", json={"engine": "ollama"},
+                      headers=h).status_code == 403
+        assert c.post(f"{BASE}/{did}/style/apply", json={"apply": False},
+                      headers=h).status_code == 403
+        assert c.post(f"{BASE}/{did}/style/restore", json={}, headers=h).status_code == 403
+        assert called == []
+        assert db.get_style_profile("global")["profile"] == {"preferences": ["Keep it short"]}
+        # reading it stays allowed
+        assert c.get(f"{BASE}/{did}/style", headers=h).status_code == 200
+
+    def test_series_learn_is_allowed_remotely(self, isolated_db, fake_engine, monkeypatch):
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: {"preferences": ["Short"]})
+        did, sid = _style_drama()
+        r = _remote_client().post(f"{BASE}/{did}/style/learn", json={"engine": "ollama"},
+                                  headers=_session())
+        assert r.status_code == 200, r.text
+        assert db.get_style_profile("global") is None
+
+
+class TestStyleHistory:
+    def test_learn_keeps_the_previous_profile_restorable(self, client, fake_engine, monkeypatch):
+        did, sid = _style_drama()
+        scope = f"series:{sid}"
+        db.save_style_profile(scope, {"preferences": ["Keep it short"], "summary": "Old"}, 8)
+        monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
+                            lambda *a, **k: {"preferences": ["Rewrite everything"],
+                                             "summary": "New"})
+        s = client.post(f"{BASE}/{did}/style/learn", json={}).json()
+        assert s["profile"]["preferences"] == ["Rewrite everything"]
+        assert [(h["summary"], h["preference_count"]) for h in s["history"]] == [("Old", 1)]
+        r = client.post(f"{BASE}/{did}/style/restore", json={})
+        assert r.status_code == 200, r.text
+        assert r.json()["profile"]["preferences"] == ["Keep it short"]
+        # the replaced one is kept in turn, so the restore is itself undoable
+        assert [h["summary"] for h in r.json()["history"]] == ["New"]
+        assert db.get_style_profile(scope)["profile"]["preferences"] == ["Keep it short"]
+
+    def test_reset_is_restorable_and_history_is_bounded(self, client):
+        did, sid = _style_drama()
+        scope = f"series:{sid}"
+        for i in range(db.STYLE_HISTORY_KEEP + 3):
+            db.replace_style_profile(scope, {"preferences": [f"p{i}"]}, i)
+        assert len(db.get_style_profile(scope)["history"]) == db.STYLE_HISTORY_KEEP
+        assert client.post(f"{BASE}/{did}/style/reset", json={"confirm": True}).status_code == 200
+        hist = db.get_style_profile(scope)["history"]
+        assert hist[0]["profile"]["preferences"] == [f"p{db.STYLE_HISTORY_KEEP + 2}"]
+        r = client.post(f"{BASE}/{did}/style/restore", json={"index": 0})
+        assert r.json()["profile"]["preferences"] == [f"p{db.STYLE_HISTORY_KEEP + 2}"]
+        # the empty (reset) profile isn't kept as a history entry
+        assert all(h["profile"]["preferences"] for h in db.get_style_profile(scope)["history"])
+
+    def test_restore_without_history_is_404(self, client):
+        did, _ = _style_drama()
+        _error(client.post(f"{BASE}/{did}/style/restore", json={}), 404, "not_found")
+        _error(client.post(f"{BASE}/{did}/style/restore", json={"index": -1}), 422,
+               "validation_error")
+
+    def test_restore_is_pc_only_for_a_series_too(self, isolated_db):
+        did, sid = _style_drama()
+        db.replace_style_profile(f"series:{sid}", {"preferences": ["a"]}, 1)
+        db.replace_style_profile(f"series:{sid}", {"preferences": ["b"]}, 1)
+        r = _remote_client().post(f"{BASE}/{did}/style/restore", json={},
+                                  headers=_session("owner@example.com", "engines.paid"))
+        assert r.status_code == 403
+        assert db.get_style_profile(f"series:{sid}")["profile"]["preferences"] == ["b"]
+
+
 # ---------------------------------------------------------------------------
 # R35: SenseVoice tagging
 # ---------------------------------------------------------------------------

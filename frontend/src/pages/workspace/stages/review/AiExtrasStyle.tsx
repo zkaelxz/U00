@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { getStyle, learnStyle, resetStyle, setStyleApplied } from '../../../../api/reviewExtras'
+import { getStyle, learnStyle, resetStyle, restoreStyle, setStyleApplied } from '../../../../api/reviewExtras'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
@@ -18,8 +18,9 @@ interface Props {
 
 // Learn my style: one LLM call over every recorded edit; the learned
 // preferences go into future translations (series-wide, else global) unless
-// paused here. Reset is PC-only (it wipes a series-wide or library-wide
-// profile); pausing works from anywhere.
+// paused here. Reset and restore are PC-only; learning or pausing the
+// library-wide profile (a drama with no series) is PC-only too, while a
+// series profile can be learned or paused from anywhere.
 export function AiExtrasStyle({ dramaId, reloads }: Props) {
   const pc = usePcOnly()
   const [state, setState] = useState<StyleState | null>(null)
@@ -55,6 +56,8 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
   const profile = state?.profile ?? null
   const tooFew = !!state && state.edit_count < state.min_samples
   const scope = state?.scope === 'series' ? 'this series' : 'all projects'
+  const globalLocked = pc === 'remote' && state?.scope === 'global'
+  const previous = state?.history?.[0] ?? null
 
   return (
     <Section storageKey="review.aiExtras.style" title="Learn my style" summary={state ? styleSummary(state) : 'Loading…'}>
@@ -76,7 +79,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
             ))}
           </ul>
           <Field label="Use in future translations" help="Off pauses the learned style without forgetting it.">
-            <Toggle checked={profile.applied} disabled={busy} onChange={(next) => run(setStyleApplied(dramaId, next))} />
+            <Toggle checked={profile.applied} disabled={busy || globalLocked} onChange={(next) => run(setStyleApplied(dramaId, next))} />
           </Field>
         </div>
       )}
@@ -94,7 +97,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
         <button
           type="button"
           className={buttonClass('primary')}
-          disabled={busy || !state || tooFew}
+          disabled={busy || !state || tooFew || globalLocked}
           onClick={() => run(learnStyle(dramaId, { engine: engine.trim() || null, model: model.trim() || null }))}
         >
           {busy ? 'Working…' : profile ? 'Learn again' : 'Learn my style'}
@@ -102,8 +105,20 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
         {profile && pc !== 'remote' && (
           <ConfirmButton name="learned style" label="Reset…" verb="reset" busy={busy} onConfirm={() => run(resetStyle(dramaId), setResetError)} />
         )}
+        {previous && pc !== 'remote' && (
+          <button
+            type="button"
+            className={buttonClass()}
+            disabled={busy}
+            title={`${previous.preference_count} preference(s)${previous.summary ? `: ${previous.summary}` : ''}`}
+            onClick={() => run(restoreStyle(dramaId, 0), setResetError)}
+          >
+            Restore previous
+          </button>
+        )}
       </div>
-      {profile && pc === 'remote' && <p className="muted">Resetting the learned style is PC only.</p>}
+      {globalLocked && <p className="muted">Learning or pausing the style for all projects is PC only.</p>}
+      {(profile || previous) && pc === 'remote' && <p className="muted">Resetting or restoring the learned style is PC only.</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ErrorBanner error={resetError} describe={{ pcOnly: true }} onDismiss={() => setResetError(null)} />
     </Section>

@@ -94,10 +94,10 @@ db.save_lines(3, lines)
   await expect(extras.getByRole('alert')).toContainText('changed')
 })
 
-test('learn my style: learn, pause, reset (LLM mocked)', async ({ page }) => {
-  const base = { drama_id: 3, scope: 'global', edit_count: 9, drama_edit_count: 9, min_samples: 8, message: null }
+test('learn my style: learn, pause, reset, restore (LLM mocked)', async ({ page }) => {
+  const base = { drama_id: 3, scope: 'global', edit_count: 9, drama_edit_count: 9, min_samples: 8, history: [], message: null }
   const profile = { summary: 'Terse', confidence: 'high', preferences: ['Keep lines short'], sample_count: 9, updated_at: null, applied: true }
-  const bodies: Record<string, unknown[]> = { learn: [], apply: [], reset: [] }
+  const bodies: Record<string, unknown[]> = { learn: [], apply: [], reset: [], restore: [] }
   await page.route('**/api/review-extras/dramas/3/style', (route) => route.fulfill({ json: { ...base, profile: null } }))
   await page.route('**/api/review-extras/dramas/3/style/learn', (route) => {
     bodies.learn.push(route.request().postDataJSON())
@@ -112,7 +112,11 @@ test('learn my style: learn, pause, reset (LLM mocked)', async ({ page }) => {
   await page.route('**/api/review-extras/dramas/3/style/reset', (route) => {
     bodies.reset.push(route.request().postDataJSON())
     resetHeaders.push(route.request().headers()['x-baihe-local'] ?? null)
-    return route.fulfill({ json: { ...base, profile: null } })
+    return route.fulfill({ json: { ...base, profile: null, history: [{ summary: 'Terse', preference_count: 1, updated_at: null }] } })
+  })
+  await page.route('**/api/review-extras/dramas/3/style/restore', (route) => {
+    bodies.restore.push(route.request().postDataJSON())
+    return route.fulfill({ json: { ...base, profile, message: 'Restored an earlier learned style.' } })
   })
 
   const extras = await openExtras(page)
@@ -135,10 +139,14 @@ test('learn my style: learn, pause, reset (LLM mocked)', async ({ page }) => {
   await expect(page.getByTestId('style-preferences')).toHaveCount(0)
   expect(bodies.reset).toEqual([{ confirm: true }])
   expect(resetHeaders).toEqual(['1'])
+
+  await extras.getByRole('button', { name: 'Restore previous' }).click()
+  await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
+  expect(bodies.restore).toEqual([{ index: 0 }])
 })
 
 test('learn my style when remote: pausing works, Reset is PC only', async ({ page }) => {
-  const base = { drama_id: 3, scope: 'series', edit_count: 9, drama_edit_count: 9, min_samples: 8, message: null }
+  const base = { drama_id: 3, scope: 'series', edit_count: 9, drama_edit_count: 9, min_samples: 8, history: [{ summary: '', preference_count: 1, updated_at: null }], message: null }
   const profile = { summary: '', confidence: 'high', preferences: ['Keep lines short'], sample_count: 9, updated_at: null, applied: true }
   const applied: unknown[] = []
   await page.route('**/api/meta', (route) =>
@@ -153,11 +161,27 @@ test('learn my style when remote: pausing works, Reset is PC only', async ({ pag
   const extras = await openExtras(page)
   await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
-  await expect(extras.getByText('Resetting the learned style is PC only.')).toBeVisible()
+  await expect(extras.getByText('Resetting or restoring the learned style is PC only.')).toBeVisible()
   await expect(extras.getByRole('button', { name: /Reset/ })).toHaveCount(0)
+  await expect(extras.getByRole('button', { name: 'Restore previous' })).toHaveCount(0)
   await extras.getByRole('switch', { name: 'Use in future translations' }).click()
   await expect(extras.getByRole('switch', { name: 'Use in future translations' })).toHaveAttribute('aria-checked', 'false')
   expect(applied).toEqual([{ apply: false }])
+})
+
+test('learn my style when remote: the all-projects style is PC only to learn or pause', async ({ page }) => {
+  const base = { drama_id: 3, scope: 'global', edit_count: 9, drama_edit_count: 9, min_samples: 8, history: [], message: null }
+  const profile = { summary: '', confidence: 'high', preferences: ['Keep lines short'], sample_count: 9, updated_at: null, applied: true }
+  await page.route('**/api/meta', (route) =>
+    route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await page.route('**/api/review-extras/dramas/3/style', (route) => route.fulfill({ json: { ...base, profile } }))
+
+  const extras = await openExtras(page)
+  await openSub(page, 'Learn my style')
+  await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
+  await expect(extras.getByText('Learning or pausing the style for all projects is PC only.')).toBeVisible()
+  await expect(extras.getByRole('button', { name: 'Learn again' })).toBeDisabled()
+  await expect(extras.getByRole('switch', { name: 'Use in future translations' })).toBeDisabled()
 })
 
 test('SenseVoice: start the job, then show the side-by-side table (model mocked)', async ({ page }) => {

@@ -55,6 +55,10 @@ export const setStyleApplied = (id: number, apply: boolean, f?: Fetch) =>
 export const resetStyle = (id: number, f?: Fetch) =>
   postJson<StyleState>(`${base(id)}/style/reset`, { confirm: true }, pcOnlyFetch(f))
 
+// PC-only: brings back an earlier profile (index 0 = the one the last learn or reset replaced).
+export const restoreStyle = (id: number, index = 0, f?: Fetch) =>
+  postJson<StyleState>(`${base(id)}/style/restore`, { index }, pcOnlyFetch(f))
+
 export const startSenseVoice = (id: number, f?: Fetch) =>
   postJson<SenseVoiceStarted>(`${base(id)}/sensevoice`, undefined, f)
 

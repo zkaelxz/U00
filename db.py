@@ -1046,6 +1046,11 @@ def init_db():
             # Anki card type, set from the Reader right where the word was
             # looked up, rather than only via a bulk end-of-session export.
             _safe_alter(conn, "ALTER TABLE vocab_lookups ADD COLUMN export_rich INTEGER DEFAULT 0")
+        style_cols = {r[1] for r in conn.execute("PRAGMA table_info(style_profile)").fetchall()}
+        if "history_json" not in style_cols:
+            # Earlier learned-style profiles (newest first, at most
+            # STYLE_HISTORY_KEEP), so a learn or reset can be undone.
+            _safe_alter(conn, "ALTER TABLE style_profile ADD COLUMN history_json TEXT")
         # Auth slice B1: ownership and sharing (services/ownership_service.py).
         # Existing rows keep owner_user_id NULL / is_private 0, meaning "the PC
         # owner / admins, shared" -- no admin id is guessed.
@@ -2671,6 +2676,92 @@ def save_style_profile(scope: str, profile: dict, sample_count: int = 0):
         conn.commit()
 
 
+STYLE_HISTORY_KEEP = 5
+
+
+def _style_history(raw) -> list:
+    try:
+        hist = json.loads(raw) if raw else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [h for h in hist if isinstance(h, dict)] if isinstance(hist, list) else []
+
+
+def replace_style_profile(scope: str, profile: dict, sample_count: int = 0):
+    """save_style_profile for a learn or reset: in one transaction, the
+    profile being replaced (when it had preferences) is kept first in the
+    scope's history (at most STYLE_HISTORY_KEEP), so restore_style_profile
+    can bring it back."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
+                           "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
+        hist = _style_history(row["history_json"]) if row else []
+        if row:
+            try:
+                old = json.loads(row["profile_json"]) if row["profile_json"] else {}
+            except (json.JSONDecodeError, TypeError):
+                old = {}
+            if isinstance(old, dict) and old.get("preferences"):
+                hist.insert(0, {"profile": old, "sample_count": row["sample_count"] or 0,
+                                "updated_at": row["updated_at"]})
+        conn.execute("""
+            INSERT INTO style_profile (scope, profile_json, sample_count, updated_at, history_json)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(scope) DO UPDATE SET
+                profile_json = excluded.profile_json,
+                sample_count = excluded.sample_count,
+                updated_at = excluded.updated_at,
+                history_json = excluded.history_json
+        """, (scope, json.dumps(profile, ensure_ascii=False), sample_count,
+              datetime.datetime.utcnow().isoformat(),
+              json.dumps(hist[:STYLE_HISTORY_KEEP], ensure_ascii=False)))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def restore_style_profile(scope: str, index: int = 0):
+    """Makes history entry `index` (0 = the most recent earlier profile)
+    current again, in one transaction; the profile it replaces (when it had
+    preferences) takes its place first in the history, so nothing is lost.
+    Returns False when there is no such entry."""
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT profile_json, sample_count, updated_at, history_json "
+                           "FROM style_profile WHERE scope = ?", (scope,)).fetchone()
+        hist = _style_history(row["history_json"]) if row else []
+        if not 0 <= index < len(hist):
+            conn.rollback()
+            return False
+        chosen = hist.pop(index)
+        try:
+            cur = json.loads(row["profile_json"]) if row["profile_json"] else {}
+        except (json.JSONDecodeError, TypeError):
+            cur = {}
+        if isinstance(cur, dict) and cur.get("preferences"):
+            hist.insert(0, {"profile": cur, "sample_count": row["sample_count"] or 0,
+                            "updated_at": row["updated_at"]})
+        conn.execute("UPDATE style_profile SET profile_json = ?, sample_count = ?, "
+                     "updated_at = ?, history_json = ? WHERE scope = ?",
+                     (json.dumps(chosen.get("profile") or {}, ensure_ascii=False),
+                      int(chosen.get("sample_count") or 0),
+                      datetime.datetime.utcnow().isoformat(),
+                      json.dumps(hist[:STYLE_HISTORY_KEEP], ensure_ascii=False), scope))
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def get_style_profile(scope: str = "global"):
     with contextlib.closing(get_conn()) as conn:
         row = conn.execute("SELECT * FROM style_profile WHERE scope = ?", (scope,)).fetchone()
@@ -2681,6 +2772,7 @@ def get_style_profile(scope: str = "global"):
         d["profile"] = json.loads(d["profile_json"]) if d["profile_json"] else {}
     except (json.JSONDecodeError, TypeError):
         d["profile"] = {}
+    d["history"] = _style_history(d.get("history_json"))
     return d
 
 

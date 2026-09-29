@@ -49,6 +49,13 @@ export interface StyleProfile {
   applied: boolean
 }
 
+// An earlier profile a learn or reset replaced (newest first, at most 5).
+export interface StyleHistoryEntry {
+  summary: string
+  preference_count: number
+  updated_at: string | null
+}
+
 export interface StyleState {
   drama_id: number
   scope: 'series' | 'global' | string
@@ -56,6 +63,7 @@ export interface StyleState {
   drama_edit_count: number
   min_samples: number
   profile: StyleProfile | null
+  history: StyleHistoryEntry[]
   message: string | null
 }
 

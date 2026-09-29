@@ -34,7 +34,7 @@ describe('summaries', () => {
   })
 
   it('style', () => {
-    const base = { drama_id: 1, scope: 'global', drama_edit_count: 0, min_samples: 8, message: null }
+    const base = { drama_id: 1, scope: 'global', drama_edit_count: 0, min_samples: 8, history: [], message: null }
     expect(styleSummary({ ...base, edit_count: 3, profile: null })).toBe('3 of 8 edits needed to learn a style.')
     expect(styleSummary({ ...base, edit_count: 9, profile: null })).toBe('9 edits recorded. Nothing learned yet.')
     expect(

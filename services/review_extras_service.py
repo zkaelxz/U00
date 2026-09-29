@@ -179,7 +179,19 @@ def _style_view(drama_id: int, drama: dict, message: Optional[str] = None) -> di
             "edit_count": len(db.list_edit_samples()),
             "drama_edit_count": len(db.list_edit_samples(drama_id)),
             "min_samples": adaptive_style.MIN_SAMPLES_TO_LEARN,
-            "profile": profile, "message": message}
+            "profile": profile,
+            "history": [{"summary": str(((h.get("profile") or {}).get("summary")) or ""),
+                         "preference_count": len((h.get("profile") or {}).get("preferences")
+                                                 or []),
+                         "updated_at": h.get("updated_at")}
+                        for h in ((stored or {}).get("history") or [])],
+            "message": message}
+
+
+def style_scope_is_global(drama_id: int) -> bool:
+    """True when this drama's learned style is the library-wide profile
+    (no series), which the API keeps PC-only to change."""
+    return _scope(_require_drama(drama_id)) == "global"
 
 
 def get_style(drama_id: int) -> dict:
@@ -255,7 +267,7 @@ def learn_style(drama_id: int, engine_name: str = None, model: str = None,
                                 "nothing was saved. Learn again if you still want to.")
         if current.get("apply") is False:
             profile["apply"] = False
-        db.save_style_profile(scope, profile, sample_count=len(samples))
+        db.replace_style_profile(scope, profile, sample_count=len(samples))
     return _style_view(drama_id, drama, message=f"Learned {len(prefs)} preference(s).")
 
 
@@ -279,11 +291,25 @@ def set_style_applied(drama_id: int, apply: bool) -> dict:
 
 
 def reset_style(drama_id: int) -> dict:
-    """Forgets the learned profile for this drama's scope (as the tab's Reset)."""
+    """Forgets the learned profile for this drama's scope (as the tab's
+    Reset); the forgotten profile stays restorable (restore_style)."""
     drama = _require_drama(drama_id)
     with _STYLE_LOCK:
-        db.save_style_profile(_scope(drama), {"preferences": []}, 0)
+        db.replace_style_profile(_scope(drama), {"preferences": []}, 0)
     return _style_view(drama_id, drama)
+
+
+def restore_style(drama_id: int, index: int = 0) -> dict:
+    """Brings back an earlier learned profile for this drama's scope
+    (index 0 = the one the last learn or reset replaced). The profile it
+    replaces is kept in the history in its place."""
+    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+        raise InvalidInputError("index must be a non-negative integer.")
+    drama = _require_drama(drama_id)
+    with _STYLE_LOCK:
+        if not db.restore_style_profile(_scope(drama), index):
+            raise NotFoundError("No earlier learned style to restore.")
+    return _style_view(drama_id, drama, message="Restored an earlier learned style.")
 
 
 # ---------------------------------------------------------------------------

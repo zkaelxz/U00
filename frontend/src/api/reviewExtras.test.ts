@@ -51,6 +51,19 @@ describe('review extras api', () => {
     expect(new Headers(calls[3].init?.headers).get('X-Baihe-Local')).toBe('1')
   })
 
+  it('style restore is PC-only and sends the history index', async () => {
+    const calls: Call[] = []
+    await rx.restoreStyle(2, 0, fakeFetch({}, calls))
+    expect(calls[0].url).toBe('/api/review-extras/dramas/2/style/restore')
+    expect(sent(calls[0])).toEqual({ index: 0 })
+    expect(new Headers(calls[0].init?.headers).get('X-Baihe-Local')).toBe('1')
+    const refused = fakeFetch({ error: { code: 'forbidden', message: 'no' } }, [], 403)
+    resetPcModeForTests('local')
+    await expect(rx.restoreStyle(2, 0, refused)).rejects.toBeTruthy()
+    expect(getPcMode()).toBe('remote')
+    resetPcModeForTests()
+  })
+
   it('style reset is PC-only: its 403 marks the tab remote, a pause 403 does not', async () => {
     const refused = fakeFetch({ error: { code: 'forbidden', message: 'no' } }, [], 403)
     resetPcModeForTests('local')
