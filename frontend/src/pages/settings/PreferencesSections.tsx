@@ -202,7 +202,7 @@ export function PreferencesSections({ settings, onSettings }: Props) {
                 ))}
               </select>
             </Field>
-            <Field label="cookies.txt file" help="The path to a cookies.txt file on the Baihe PC (export one with a browser extension). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
+            <Field label="cookies.txt file" help="The path to a cookies.txt file on the Baihe PC (export one with a browser add-on such as Get cookies.txt). Used instead of the browser above when set. Only the path is saved here, never the file's contents.">
               <input type="text" spellCheck={false} value={String(d.cookies_file)} onChange={(e) => set('cookies_file', e.target.value)} />
             </Field>
           </>
