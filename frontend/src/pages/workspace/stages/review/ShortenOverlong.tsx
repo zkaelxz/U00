@@ -67,7 +67,7 @@ export function ShortenOverlong({ dramaId, count, jobRunning, onChanged, result,
           <p>
             {result.shortened === 0
               ? 'No line was changed.'
-              : `Shortened ${result.shortened} line${result.shortened === 1 ? '' : 's'}. The lines before are saved in Records → Line history.`}
+              : `Shortened ${result.shortened} line${result.shortened === 1 ? '' : 's'}. The lines before are saved in Records → Line history (it keeps the last 10 saves; runs in a row share one).`}
             {result.stale > 0 && ` ${result.stale} changed while the AI worked and were left as they are.`}
             {result.remaining > 0 && ` ${result.remaining} more are left; run it again for those.`}
           </p>

@@ -280,6 +280,8 @@ class TestShorten:
         r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama", "line_ids": [ids[0], ids[1]]})
         body = r.json()
         assert body["shortened"] == 0 and body["stale"] == 1
+        # nothing could be written, so no snapshot either
+        assert not body["snapshot_saved"] and db.list_line_history(did) == []
         rows = {x["id"]: x for x in db.load_lines(did)}
         assert rows[ids[0]]["en"] == "user edit"
         assert rows[ids[2]]["en"] == LONG + " again"   # not in line_ids
@@ -313,6 +315,27 @@ class TestShorten:
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
         body = client.post(_shorten(did), json={"confirm": True}).json()
         assert seen == [2] and body["shortened"] == 2 and body["remaining"] == 3
+
+    def test_repeated_runs_share_one_snapshot_per_pass(self, client, monkeypatch):
+        did, ids = _seed([Line(idx=i, start=i, end=i + 1, zh="字", en=LONG) for i in range(5)])
+        monkeypatch.setattr(line_tools_service, "MAX_SHORTEN_LINES", 2)
+
+        def fake(work, engine, usage_cb=None):
+            for w in work:
+                w.en = "s"
+            return work
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
+        first = client.post(_shorten(did), json={"confirm": True}).json()
+        second = client.post(_shorten(did), json={"confirm": True}).json()
+        assert first["snapshot_saved"] and not second["snapshot_saved"]
+        assert second["shortened"] == 2 and second["remaining"] == 1
+        hist = db.list_line_history(did)
+        assert [h["label"] for h in hist] == ["before auto-shorten"]
+        assert [r["en"] for r in db.get_line_history_snapshot(hist[0]["id"])] == [LONG] * 5
+        # any other edit since starts a new pass with its own snapshot
+        db.update_line_fields_if(did, ids[4], {"zh": "改"}, {"zh": "字"})
+        third = client.post(_shorten(did), json={"confirm": True}).json()
+        assert third["snapshot_saved"] and len(db.list_line_history(did)) == 2
 
     def test_needs_confirm(self, client, monkeypatch):
         did, _ = _overlong_drama()

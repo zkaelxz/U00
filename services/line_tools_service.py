@@ -18,7 +18,9 @@ grammar) live in services/line_ai_service.py.
     compare-and-set UPDATE per line against the text the model was shown,
     so a line edited while the model ran is skipped as stale rather than
     overwritten. A line_history snapshot of the whole drama is saved before
-    the first overwrite, so the change can be undone from History. A paid
+    the first overwrite, so the change can be undone from History -- none
+    when no line will be written, and none when the newest snapshot is the
+    same shortening pass's (only overlong lines' English changed since). A paid
     engine is refused once the monthly spending cap is used up.
 """
 import asyncio
@@ -87,6 +89,37 @@ def _too_long_lines(lines) -> list:
     return [ln for ln in lines if ln.idx in too_long and (ln.en or "").strip()]
 
 
+def _snapshot_row(ln) -> dict:
+    return {"id": ln.id, "idx": ln.idx, "start": ln.start, "end": ln.end, "zh": ln.zh,
+            "speaker": getattr(ln, "speaker", None),
+            "dub_filename": getattr(ln, "dub_filename", None),
+            "speaker_manual": bool(getattr(ln, "speaker_manual", False))}
+
+
+def _continues_last_shorten(drama_id: int, current) -> bool:
+    """True when the drama's newest line_history snapshot is an auto-shorten
+    one and nothing has changed since except the English of lines that were
+    too long in it -- i.e. this run continues the same shortening pass (the
+    "N more are left" re-run), so that snapshot already holds the lines
+    before it and a second one would only push older history out of the
+    10 kept."""
+    hist = db.list_line_history(drama_id)
+    if not hist or hist[0]["label"] != SHORTEN_SNAPSHOT_LABEL:
+        return False
+    snap = db.get_line_history_snapshot(hist[0]["id"]) or []
+    if len(snap) != len(current):
+        return False
+    snap_lines = [Line(idx=r["idx"], start=r["start"], end=r["end"], zh=r.get("zh") or "",
+                       en=r.get("en") or "", id=r.get("id")) for r in snap]
+    was_long = {ln.id for ln in _too_long_lines(snap_lines)}
+    for row, ln in zip(snap, current):
+        if {k: row.get(k) for k in _snapshot_row(ln)} != _snapshot_row(ln):
+            return False
+        if (row.get("en") or "") != (ln.en or "") and ln.id not in was_long:
+            return False
+    return True
+
+
 def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
                      model: str = None, gemini_free_tier: bool = None,
                      confirm: bool = False) -> dict:
@@ -135,12 +168,19 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
 
     changed = [w for w in work if (w.en or "").strip() and w.en.strip() != before[w.id].strip()]
     out = dict(empty, remaining=remaining, unchanged=len(work) - len(changed))
-    if not changed:
+    current = db.load_line_objects(drama_id)
+    current_en = {ln.id: ln.en for ln in current}
+    # A line edited (or removed) while the model ran would be skipped by the
+    # compare-and-set below anyway; count it now so a run that can't write
+    # anything saves no snapshot.
+    writable = [w for w in changed if current_en.get(w.id) == before[w.id]]
+    out["stale"] = len(changed) - len(writable)
+    if not writable:
         return out
-    db.save_line_history_snapshot(drama_id, db.load_line_objects(drama_id),
-                                  SHORTEN_SNAPSHOT_LABEL)
-    out["snapshot_saved"] = True
-    for w in changed:
+    if not _continues_last_shorten(drama_id, current):
+        db.save_line_history_snapshot(drama_id, current, SHORTEN_SNAPSHOT_LABEL)
+        out["snapshot_saved"] = True
+    for w in writable:
         new_en = w.en.strip()[:lines_service.MAX_LINE_TEXT_CHARS]
         if db.update_line_fields_if(drama_id, w.id, {"en": new_en}, {"en": before[w.id]}):
             out["shortened"] += 1
