@@ -41,6 +41,22 @@ def _restore_library(previous, temp_dir):
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def _private_library():
+    """Every test here gets its own library, not just the classes with a
+    setup_method. Job status is mirrored to job_records and GPU-touching
+    jobs take db.gpu_lock, both in whatever library db points at; left at
+    the default that is the repo's own library/library.db, shared by all
+    pytest-xdist workers. Another worker's GPU job holding that lock made
+    a GPU job here queue instead of run
+    (test_a_process_job_queues_behind_a_running_gpu_thread_job saw
+    'running' where it expected 'queued'). Classes that isolate again in
+    setup_method nest inside this and restore back to it."""
+    state = _isolate_library()
+    yield
+    _restore_library(*state)
+
+
 def _wait(job_id, timeout=2.0):
     start = time.time()
     while bg.is_running(job_id) and time.time() - start < timeout:
@@ -113,29 +129,43 @@ class TestSurvivesWithNoPolling:
     someone is looking at a different tab."""
 
     def test_progress_advances_during_a_silent_period(self):
+        # Waits on the worker's own signal instead of a fixed sleep, so a
+        # loaded machine (pytest-xdist) can't make the check run before
+        # the first step; still nothing polls background_jobs meanwhile.
         sink = []
+        first_step = threading.Event()
 
         def work():
             for i in range(5):
                 time.sleep(0.03)
                 sink.append(i)
                 bg.update_progress("t5", (i + 1) / 5)
+                first_step.set()
 
         bg.start_job("t5", work)
-        time.sleep(0.1)  # nobody polls during this window
+        assert first_step.wait(10)  # nobody polls during this window
         status = bg.get_status("t5")
         assert status["progress"] > 0
         assert len(sink) > 0
-        _wait("t5")
+        _wait("t5", timeout=10)
         assert len(sink) == 5
         bg.clear_job("t5")
 
     def test_job_finishes_even_if_never_polled_until_the_end(self):
+        # The work signals when it has returned; the test blocks on that
+        # (zero polling of background_jobs in between) rather than on a
+        # fixed 0.15 s sleep that a busy xdist worker could overrun. The
+        # "done" transition lands just after the target returns, so that
+        # one read is polled with a deadline.
+        returned = threading.Event()
+
         def work():
             time.sleep(0.05)
+            returned.set()
 
         bg.start_job("t6", work)
-        time.sleep(0.15)  # long enough to finish, zero polling in between
+        assert returned.wait(10)
+        assert _wait_for(lambda: bg.get_status("t6")["status"] == "done", timeout=10)
         assert bg.get_status("t6")["status"] == "done"
         bg.clear_job("t6")
 

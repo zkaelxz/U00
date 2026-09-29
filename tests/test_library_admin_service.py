@@ -14,13 +14,6 @@ from services import workspace_job_service as wjs
 from services.service_errors import ConflictError, InvalidInputError
 
 
-@pytest.fixture(autouse=True)
-def _clean_jobs():
-    background_jobs.clear_all_jobs()
-    yield
-    background_jobs.clear_all_jobs()
-
-
 def _new(title="T", status="aligned"):
     did = db.create_drama(title_en=title, source_language="zh")
     db.update_drama(did, status=status)
