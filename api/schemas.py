@@ -1947,7 +1947,7 @@ class LiveSessionStart(BaseModel):
     segment_seconds: float = 20
     overlap_seconds: float = 3
     engine: Optional[str] = Field(None, max_length=40,
-                                  description="None = Claude, the Discover default (checked as paid).")
+                                  description="None = the Settings default engine (checked as paid).")
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
