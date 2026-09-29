@@ -43,6 +43,14 @@ if (-not $PythonVersion) {
 
 # Loopback only until the API has authentication -- never 0.0.0.0.
 $env:BAIHE_API_HOST = "127.0.0.1"
+# Turn on the PC-only API-key form in Settings (decided 2026-09-29).
+# Key writes are still refused unless the request comes from this PC
+# itself (loopback peer and Host, no proxy headers, and Origin, if sent,
+# is loopback;
+# api/routers/settings_routes.py:_require_local_admin). Keys go to .env
+# and their values are never returned. Set BAIHE_API_ALLOW_KEY_WRITES=0
+# before running this script to opt out.
+if (-not $env:BAIHE_API_ALLOW_KEY_WRITES) { $env:BAIHE_API_ALLOW_KEY_WRITES = "1" }
 if (-not $env:BAIHE_API_PORT) { $env:BAIHE_API_PORT = "8600" }
 $Port = [int]$env:BAIHE_API_PORT
 $AppUrl = "http://127.0.0.1:$Port/"

@@ -305,6 +305,8 @@ baihe-subtitler/
 │   │                             English (snapshot, then `en`-only write by line id; refuses restructured lines)
 │   ├── blocked_retry_service.py  Review parity R10 -- retry one content-blocked line with another engine
 │   │                             (synchronous, id-keyed result, compare-and-set write of en/flag/flag_note)
+│   ├── series_people_service.py  Parity X15-X17 -- add a series person and edit name/pronouns/aliases/
+│   │                             notes by id (field-scoped UPDATE; taken name = 409)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
@@ -394,6 +396,7 @@ baihe-subtitler/
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
 │       ├── translation_version_routes.py /api/review/dramas/{id}/versions/{vid}/activate (POST, lines.edit, confirm=true; R39)
 │       ├── blocked_retry_routes.py /api/lines/dramas/{id}/lines/{lid}/retry-blocked (POST, jobs.start + engine gate; R10)
+│       ├── series_people_routes.py POST /api/characters/series/{id}/characters[/{cid}] (add / edit, lines.edit; X15-X17)
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
 │       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
 │       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
@@ -425,12 +428,16 @@ baihe-subtitler/
 │   │                              X-Baihe-Local header, 403 -> remote); types in src/types/<area>.ts
 │   ├── src/components/            LibraryList, DramaDetailPanel, Section, Field, ErrorBanner, Sheet (<dialog>;
 │   │                              bottom sheet on phones), TypedConfirm (type-a-word destructive confirm),
-│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code)
+│   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
+│   │                              ErrorBoundary (page crash fallback, resets on route change) +
+│   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
+│   │                              when React never mounts; index.html also holds a static no-JS note)
 │   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
 │   │                              errors, failed API calls (method/path/status/code only) and route history;
 │   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),
 │   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
 │   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
+│   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
 │   │                              usePcOnly ('local'|'remote'|'unknown' from /api/meta `local`)
@@ -466,9 +473,12 @@ baihe-subtitler/
 │   │                              PacingForm, useSourcesJob (job-result polling + reattach), sourcesFormat.ts
 │   │                              (pure, unit-tested), sources.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
-│   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
+│   │                              novel), SeriesCast (Characters > Series cast: list, add, inline edit of
+│   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
+│   │                              unit-tested), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
+│   │                              + src/api/seriesPeople.ts (add/edit series people)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

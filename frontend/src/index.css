@@ -21,6 +21,7 @@
   --space-4: 16px;
   --font-sm: 0.85rem;
   --font-md: 1rem;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-family: system-ui, -apple-system, 'Segoe UI', 'Noto Sans CJK SC', sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -362,4 +363,13 @@ ul.drama-cards.selecting > li { cursor: pointer; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* ---- crash fallback (ErrorBoundary + boot fallback in bootFallback.ts) ---- */
+.error-fallback, .boot-fallback { max-width: 48rem; margin: var(--space-4) auto; padding: var(--space-4); border: 1px solid var(--bad); border-radius: var(--radius); background: var(--surface); color: var(--text); }
+.error-fallback h2, .boot-fallback h2 { margin-top: 0; color: var(--bad); }
+.error-fallback-text { font-family: var(--font-mono); font-size: var(--font-sm); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; margin: var(--space-3) 0; padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); }
+.error-fallback-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+@media (pointer: coarse), (max-width: 640px) {
+  .error-fallback-actions a { display: inline-flex; align-items: center; min-height: 44px; }
 }

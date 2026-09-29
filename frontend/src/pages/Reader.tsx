@@ -26,6 +26,7 @@ import type {
 } from '../types/reader'
 import type { TranslateEngine } from '../types/translate'
 import type { GlossaryTerm } from '../types/translateStage'
+import { isComicType } from './comic/comicLogic'
 import { ActionError } from './reader/ReaderAction'
 import { useAction } from './reader/useReaderAction'
 import { ReaderPrefsControl } from './reader/ReaderPrefs'
@@ -194,6 +195,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   const [prefs, setPrefsState] = useState<ReaderPrefs>(() => loadPrefs(browserStorage()))
   const [title, setTitle] = useState<string | null>(null)
   const [sourceLanguage, setSourceLanguage] = useState('und')
+  const [mediaType, setMediaType] = useState<string | null>(null)
   const [overview, setOverview] = useState<ReaderOverview | null>(null)
   const [data, setData] = useState<ReaderPageData | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -215,6 +217,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
       (d) => {
         setTitle(d.title_en || d.title_zh || `Drama #${d.id}`)
         if (d.source_language) setSourceLanguage(d.source_language)
+        setMediaType(d.media_type)
       },
       setError,
     )
@@ -236,6 +239,11 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
   }, [id, vocabTick])
 
   const empty = overview !== null && overview.line_count === 0
+
+  // A manga/manhua/manhwa with no lines is read as pages (History links carry no type).
+  useEffect(() => {
+    if (empty && isComicType(mediaType)) window.location.replace(routeHref({ name: 'comic', id, page: initialPage }))
+  }, [empty, mediaType, id, initialPage])
   const count = overview ? pageCount(overview.line_count, prefs.chapterSize) : data?.page_count ?? 1
 
   // No ?page: resume where the reader left off.

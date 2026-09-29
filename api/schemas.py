@@ -278,6 +278,11 @@ class DiarizationConfig(BaseModel):
     drama_id: int
     hf_token_configured: bool
     expected_speakers: Optional[int] = None
+    # Step 105: the speaker-count range the last run used, if any.
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
+    # Step 101: "cuda" or "cpu" -- where the last run's pipeline ran.
+    last_device: Optional[str] = None
     audio_available: bool
 
 
@@ -2766,6 +2771,7 @@ class TranslationVersionActivateResult(BaseModel):
     label: str
     activated: bool
     lines_changed: int
+    conflicts: list[int] = []  # line ids edited meanwhile; left as they were
 
 
 class BlockedRetryRequest(BaseModel):
@@ -2831,6 +2837,29 @@ class TranslatePresetSave(BaseModel):
 class TranslatePresetSaved(BaseModel):
     preset: LibraryPreset
     replaced: bool
+
+
+# ---------------------------------------------------------------------------
+# Parity X15-X17: add and edit a series' people
+# (services/series_people_service.py). Responses reuse CharactersSeriesEntry.
+# ---------------------------------------------------------------------------
+
+class SeriesPersonCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    character_name: str = Field(max_length=200)
+    pronouns: str = Field("", max_length=40)
+    aliases: str = Field("", max_length=1000)
+    notes: str = Field("", max_length=2000)
+
+
+class SeriesPersonUpdate(BaseModel):
+    """Omitted (or null) leaves a field alone; "" clears it
+    (character_name can't be blank)."""
+    model_config = ConfigDict(extra="forbid")
+    character_name: Optional[str] = Field(None, max_length=200)
+    pronouns: Optional[str] = Field(None, max_length=40)
+    aliases: Optional[str] = Field(None, max_length=1000)
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 # ---------------------------------------------------------------------------
