@@ -10,7 +10,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Path, Query
 
-from api.schemas import (ErrorResponse, TranslateBulkResumeResult, TranslateRunConfig,
+from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulkList,
+                         TranslateBulkResumeResult, TranslateRunConfig,
                          TranslateRunEstimate, TranslateRunStart, TranslateRunStarted)
 from services import translate_run_service
 
@@ -66,3 +67,18 @@ def start_translate_run(body: TranslateRunStart, drama_id: int = Path(ge=1)):
              responses={404: {"model": ErrorResponse}})
 def resume_bulk_translations(drama_id: int = Path(ge=1)):
     return translate_run_service.resume_bulk_translations(drama_id)
+
+
+@router.get("/dramas/{drama_id}/bulk", response_model=TranslateBulkList,
+            summary="List this drama's bulk batches with their last recorded state",
+            responses={404: {"model": ErrorResponse}})
+def list_bulk_translations(drama_id: int = Path(ge=1)):
+    return translate_run_service.list_bulk_translations(drama_id)
+
+
+@router.post("/dramas/{drama_id}/bulk/{bulk_job_id}/cancel",
+             response_model=TranslateBulkCancelResult,
+             summary="Cancel one pending bulk batch (at the provider when possible)",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
+def cancel_bulk_translation(drama_id: int = Path(ge=1), bulk_job_id: int = Path(ge=1)):
+    return translate_run_service.cancel_bulk_translation(drama_id, bulk_job_id)

@@ -73,3 +73,33 @@ def test_no_secrets_in_responses(client, monkeypatch):
     did = _seed()
     for path in ("config", "estimate"):
         assert fake not in client.get(f"{BASE}/{did}/{path}").text
+
+
+# --- Slice 51: bulk batch list + cancel -------------------------------------
+
+def test_bulk_list_and_cancel(client, monkeypatch):
+    import bulk_translate
+    did = _seed()
+    other = _seed()
+    jid = db.create_bulk_job(did, "claude", "m", "submitted", [(1, "k", "h", "")],
+                             provider_batch_id="msgbatch_SECRET",
+                             translate_args={"prompt": "SECRETPROMPT"})
+    done = db.create_bulk_job(did, "gemini", None, "applied", [])
+    foreign = db.create_bulk_job(other, "claude", "m", "submitted", [])
+    assert client.get("/api/translate-run/dramas/9999/bulk").status_code == 404
+    r = client.get(f"{BASE}/{did}/bulk")
+    assert r.status_code == 200
+    jobs = r.json()["jobs"]
+    assert [j["bulk_job_id"] for j in jobs] == [done, jid]
+    assert jobs[1]["pending"] and jobs[1]["cancellable"] and jobs[1]["line_count"] == 1
+    assert not jobs[0]["pending"] and not jobs[0]["cancellable"]
+    assert "SECRET" not in r.text
+
+    calls = []
+    monkeypatch.setattr(bulk_translate, "cancel_bulk_job",
+                        lambda i, p=None: calls.append((i, p)) or db.update_bulk_job(i, status="cancelled") or "ok")
+    assert client.post(f"{BASE}/{did}/bulk/{foreign}/cancel").status_code == 404
+    assert client.post(f"{BASE}/{did}/bulk/{done}/cancel").status_code == 409
+    c = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    assert c.status_code == 200 and c.json()["bulk_job"]["status"] == "cancelled"
+    assert calls and calls[0][0] == jid

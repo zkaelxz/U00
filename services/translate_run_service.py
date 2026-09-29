@@ -502,3 +502,52 @@ def resume_bulk_translations(drama_id: int) -> dict:
     out = bulk_translate.resume_pending(drama_id, factory, _monthly_cap() or None)
     return {"drama_id": drama_id,
             "jobs": [{"bulk_job_id": k, "state": v} for k, v in sorted(out.items())]}
+
+
+_BULK_CANCELLABLE = ("submitting",) + db.BULK_PENDING_STATUSES
+
+
+def _bulk_entry(job: dict) -> dict:
+    """Public view of one bulk_jobs row: no prompts, no translate_args, no
+    provider batch id, no raw error text beyond the redacted last_error."""
+    summary = job.get("result_summary")
+    err = job.get("last_error")
+    return {
+        "bulk_job_id": job["id"], "engine": job["engine"], "model": job.get("model"),
+        "kind": job.get("kind") or "translate", "stage": job.get("stage"),
+        "pipeline_id": job.get("pipeline_id"), "status": job["status"],
+        "pending": job["status"] in db.BULK_PENDING_STATUSES + ("submitting", "running"),
+        "cancellable": job["status"] in _BULK_CANCELLABLE,
+        "line_count": len(db.list_bulk_job_lines(job["id"])),
+        "scheduled_for": job.get("scheduled_for"),
+        "result_summary": summary if isinstance(summary, dict) else None,
+        "last_error": translate_engines.redact_secrets(err) if err else None,
+        "submitted_at": job.get("submitted_at"), "updated_at": job.get("updated_at"),
+    }
+
+
+def list_bulk_translations(drama_id: int) -> dict:
+    """Read-only: this drama's bulk jobs (newest first) with the status
+    last recorded in the database. Never contacts a provider; polling stays
+    with resume_bulk_translations."""
+    _require_drama(drama_id)
+    return {"drama_id": drama_id,
+            "jobs": [_bulk_entry(j) for j in db.list_bulk_jobs(drama_id)]}
+
+
+def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
+    """The tab's Cancel button: stops polling, marks the job cancelled and
+    asks the provider to cancel when a server-side key exists (best effort,
+    same as bulk_translate.cancel_bulk_job)."""
+    _require_drama(drama_id)
+    job = db.get_bulk_job(bulk_job_id)
+    if not job or job["drama_id"] != drama_id:
+        raise NotFoundError(f"Bulk job {bulk_job_id} not found for drama {drama_id}.")
+    if job["status"] not in _BULK_CANCELLABLE:
+        raise ConflictError(f"Bulk job {bulk_job_id} is {job['status']} and cannot be cancelled.")
+    key = translate_service._resolve_api_key(job["engine"])
+    engine = translate_engines.get_engine(job["engine"], key, job.get("model") or None) if key else None
+    provider = bulk_translate.make_provider(job["engine"], engine) if engine else None
+    note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
+    return {"drama_id": drama_id, "bulk_job": _bulk_entry(db.get_bulk_job(bulk_job_id)),
+            "message": note}
