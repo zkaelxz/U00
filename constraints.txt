@@ -31,3 +31,5 @@ streamlit<2           # this app targets Streamlit's current widget API
                        # (width='stretch', st.dialog, AppTest, etc.) -- a 2.x
                        # could remove or rename any of it.
 faster-whisper<2       # core.transcribe_for_timing's main transcription backend.
+urllib3>=2.6           # a floor, not a cap: requests alone would allow 1.26, which has no
+                       # read1 (sources/http.py, url_media_service) and CVE-2025-66471.

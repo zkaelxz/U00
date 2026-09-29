@@ -274,6 +274,8 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
+│   ├── url_media_service.py      Workspace "From a URL" -- yt-dlp download job urlmedia_ (public-URL check,
+│   │                             size/time/live/playlist caps, no cookies, temp dir, field-scoped write)
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
 │   ├── comic_view_service.py     comic viewer: page list, contained page-image lookup (magic-byte type,
 │   │                             no symlinks, 50 MB cap, no PIL), visible text regions, page progress
@@ -291,6 +293,10 @@ baihe-subtitler/
 │   │                             temp dir, use_gpu, max_minutes stop, redacted cues); router: live_routes.py
 │   ├── sources_search_service.py Sources S-3 -- search and series jobs with error mapping, scrubbed
 │   │                             results, known-chapter helper (router: sources_search_routes.py)
+│   ├── sources_import_service.py Sources S-4 -- chapter import into an existing drama by chapter id
+│   │                             (per-drama sourceimport_ job, idempotent via store.imported_chapters);
+│   │                             S-5 novel text from a pasted URL
+│   ├── sources_url_service.py    Sources S-5 -- pasted-URL public check and the paste-a-URL preview job
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
@@ -419,6 +425,8 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
+│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       │                         (sources.import; specs S-4, S-5)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)

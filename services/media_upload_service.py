@@ -150,8 +150,10 @@ def _extract_audio_job(job_id, drama_id, ext, transcribe_options=None):
     video_path = os.path.join(ddir, f"source{ext}")
     part_path = os.path.join(ddir, ".audio.extract.wav")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
-    cmd = ["ffmpeg", "-y", "-i", video_path, "-vn", "-acodec", "pcm_s16le",
-           "-ar", "16000", "-ac", "1", part_path]
+    # -protocol_whitelist file: an upload named .mp4 could really be an HLS
+    # playlist naming network URLs; ffmpeg may only open local files.
+    cmd = ["ffmpeg", "-y", "-protocol_whitelist", "file", "-i", video_path, "-vn",
+           "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", part_path]
     try:
         background_jobs.run_cancellable(job_id, cmd, cwd=ddir, timeout=EXTRACT_TIMEOUT_SECONDS)
         os.replace(part_path, os.path.join(ddir, "audio.wav"))

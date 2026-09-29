@@ -343,11 +343,13 @@ def extract_novel(html: str, url: str, engine=None, use_cache: bool = True,
 
 
 def import_novel(url: str, engine=None, client=None, rendered_fetch=None, user_html: str = None,
-                 use_cache: bool = True):
+                 use_cache: bool = True, allow_signed_in: bool = True,
+                 allow_browser: bool = True):
     """The generic novel import with the Step 23g ladder. Returns
     (NovelImportResult, report); raises NoContentFound (with `.report`)."""
     report = ExtractionReport(url, "novel")
-    lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html)
+    lr = generic_import.fetch_page(url, generic_import._client(client, url), rendered_fetch, user_html,
+                                   allow_signed_in=allow_signed_in, allow_browser=allow_browser)
     _note_access(report, lr)
     if lr.handoff:
         report.reason = f"Stopped at a browser verification page ({lr.handoff['reason']}) -- handed to you."

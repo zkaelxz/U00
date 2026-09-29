@@ -377,9 +377,18 @@ def dismiss_notification(notification_id: int) -> dict:
 
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
                 drama_id: int = None) -> list:
-    """Untrack one series. Tracking a NEW series is refused (400) until a
-    chapter-fetch slice can mark the current chapters as known; see
-    docs/migration-review.md Slice 56b."""
+    """Track or untrack one series. Tracking a new series needs this
+    process's finished `sources_series_<source>` result for the same
+    series (POST /api/sources/{name}/series): its chapters are recorded as
+    known, so the first check announces (and auto-imports) nothing old.
+    Without one: 409 "Open the series first". The stored URL is that
+    result's scheme+host+path URL; the client's `url` is not used."""
+    from types import SimpleNamespace
+
+    import background_jobs
+    from services import sources_search_service as search
+    from services.service_errors import ConflictError
+
     _require_source(source)
     series_id = (series_id or "").strip()
     if not series_id:
@@ -391,10 +400,20 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
             raise NotFoundError("That series isn't tracked.")
         store.untrack_series(source, series_id)
         return list_tracked()
-    # Tracking a new series would record no chapters as known, so the first
-    # check would announce (and, with auto_queue_new_chapters on, import) the
-    # whole back catalogue. It needs the fetched chapter list (Sources search
-    # slice) before it is safe to expose.
-    raise UnsupportedOperationError(
-        "Tracking a new series needs its current chapter list, which the API "
-        "cannot fetch yet. Track it in the Sources tab for now.")
+    if drama_id is not None and db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
+    result = status.get("result") if status.get("status") == "done" else None
+    if (not isinstance(result, dict) or result.get("series_id") != series_id
+            or result.get("error")):
+        raise ConflictError("Open the series first, so its current chapters can be "
+                            "recorded as already known.", details={"reason": "SERIES_NOT_LOADED"})
+    ids = search.known_chapter_ids(result)
+    titles = {str(c.get("chapter_id")): c.get("title") or "" for c in result["chapters"]}
+    info = result.get("info") or {}
+    store.track_series(source, series_id,
+                       (title or "").strip() or info.get("title") or series_id,
+                       safe_url(info.get("url")), drama_id,
+                       known_chapters=[SimpleNamespace(chapter_id=i, title=titles.get(i, ""))
+                                       for i in ids])
+    return list_tracked()

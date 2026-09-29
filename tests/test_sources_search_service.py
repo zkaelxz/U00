@@ -14,7 +14,8 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 from sources import registry
 from sources.base import SourceAdapter
-from sources.http import PacingPolicy
+from sources.http import (PacingPolicy, ResponseRefused, ResponseTooLarge, ResponseTooSlow,
+                          UnsupportedEncoding)
 from sources.models import (ChallengeDetected, ChapterInfo, ContentHidden, FailureReason,
                             NotSupportedError, SearchResult, SeriesInfo, SourceUnavailable,
                             TermsProhibited)
@@ -195,6 +196,10 @@ def test_result_404_after_clear_and_for_foreign_ids(fakes):
      lambda d: d["reason"] == "TOS_PROHIBITED"),
     (ContentHidden("hidden"), UnsupportedOperationError, 400,
      lambda d: d["hint"] == "adult_toggle" and d["source"] == "alpha"),
+    (ResponseTooLarge(), InvalidInputError, 422, lambda d: d["reason"] == "RESPONSE_REFUSED"),
+    (UnsupportedEncoding(), InvalidInputError, 422, lambda d: d["reason"] == "RESPONSE_REFUSED"),
+    (ResponseTooSlow(), DependencyUnavailableError, 503,
+     lambda d: d["reason"] == "RESPONSE_REFUSED"),
 ])
 def test_series_exception_mapping(fakes, exc, cls, status, check):
     fakes["alpha"] = _make("alpha", series_exc=exc)
@@ -284,3 +289,10 @@ def test_search_job_has_no_series_identity(fakes):
     _wait("sources_search")
     r = svc.get_job_result("sources_search")
     assert "source" not in r and "series_id" not in r
+
+
+def test_refused_response_with_an_unmapped_status_is_a_500_not_a_keyerror():
+    exc = ResponseRefused("Refused.")
+    exc.status = 418
+    view = svc._error_view(exc, "alpha")
+    assert view["status"] == 500 and view["code"] == svc.ServiceError.code

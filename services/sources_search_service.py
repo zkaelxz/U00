@@ -29,12 +29,16 @@ from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      UnsupportedOperationError)
 from services.sources_registry_service import _require_source, _scrub, _scrub_any, safe_url
 from sources import chapter_order, ladder, registry
-from sources.http import Cancelled
+from sources.http import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, NotSupportedError, SourceError,
                             SourceUnavailable, TermsProhibited)
 
 SEARCH_JOB_ID = "sources_search"
 SERIES_JOB_PREFIX = "sources_series_"
+# Chapter import (S-4) and pasted-URL novel import (S-5), one per drama.
+IMPORT_JOB_PREFIX = "sourceimport_"
+# Paste-a-URL preview (S-5), one at a time in the process.
+URL_PREVIEW_JOB_ID = "sources_url_preview"
 MAX_QUERY_LEN = 200
 MAX_ID_LEN = 200
 
@@ -70,6 +74,10 @@ def _error_view(exc, source: str = None) -> dict:
     if isinstance(exc, Cancelled):
         return {"status": 409, "code": ConflictError.code, "message": "Cancelled.",
                 "details": {"reason": "CANCELLED"}}
+    if isinstance(exc, ResponseRefused):
+        status = exc.status if exc.status in _CLASS_BY_STATUS else 500
+        return {"status": status, "code": _CLASS_BY_STATUS.get(status, ServiceError).code,
+                "message": str(exc), "details": {"reason": "RESPONSE_REFUSED"}}
     if isinstance(exc, SourceError):
         return {"status": 500, "code": ServiceError.code, "message": msg,
                 "details": {"reason": exc.reason.value}}
@@ -77,8 +85,8 @@ def _error_view(exc, source: str = None) -> dict:
             "message": f"{type(exc).__name__}: {msg}", "details": None}
 
 
-_CLASS_BY_STATUS = {400: UnsupportedOperationError, 409: ConflictError,
-                    503: DependencyUnavailableError}
+_CLASS_BY_STATUS = {400: UnsupportedOperationError, 404: NotFoundError, 409: ConflictError,
+                    422: InvalidInputError, 503: DependencyUnavailableError}
 
 
 def _raise_error_view(err: dict):
@@ -276,8 +284,12 @@ _IDENTITY_LOCK = threading.Lock()
 # ---------------------------------------------------------------------------
 
 def _is_ours(job_id: str) -> bool:
-    return job_id == SEARCH_JOB_ID or (job_id.startswith(SERIES_JOB_PREFIX)
-                                       and len(job_id) > len(SERIES_JOB_PREFIX))
+    if job_id in (SEARCH_JOB_ID, URL_PREVIEW_JOB_ID):
+        return True
+    if job_id.startswith(SERIES_JOB_PREFIX):
+        return len(job_id) > len(SERIES_JOB_PREFIX)
+    return (job_id.startswith(IMPORT_JOB_PREFIX)
+            and job_id[len(IMPORT_JOB_PREFIX):].isdigit())
 
 
 def get_job_result(job_id) -> dict:

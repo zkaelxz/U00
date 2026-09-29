@@ -114,6 +114,21 @@ def test_video_extract_failure_is_job_error_and_cleans_up(client, isolated_db, m
     assert not db.get_drama(did).get("audio_filename")
 
 
+def test_extract_ffmpeg_opens_local_files_only(client, isolated_db, monkeypatch):
+    # an uploaded "mp4" could really be an HLS playlist naming network URLs
+    import db
+    cmds = []
+
+    def recording(job_id, cmd, cwd=None, **kw):
+        cmds.append(cmd)
+        _fake_ffmpeg(job_id, cmd)
+    monkeypatch.setattr(background_jobs, "run_cancellable", recording)
+    did = db.create_drama(title_en="D")
+    assert _wait(_up(client, did, "a.mp4").json()["job_id"])["status"] == "done"
+    i = cmds[0].index("-i")
+    assert cmds[0][i - 2:i] == ["-protocol_whitelist", "file"]
+
+
 def test_video_extract_cancel_is_cancelled_and_cleans_up(client, isolated_db, monkeypatch):
     import db
 

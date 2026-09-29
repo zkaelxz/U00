@@ -9,6 +9,8 @@ streamlit>=1.56          # Step 73: the real minimum, not a guess -- st.iframe (
                          # >=1.49 floor, 1.49 itself crashed Workspace and Read & Watch outright.
 pandas>=2.0
 requests>=2.32.2
+urllib3>=2.6             # requests pulls it in; the floor is for sources/http.py's raw read1
+                         # (2.x only) and CVE-2025-66471 (unbounded decompression before 2.6).
 beautifulsoup4>=4.12
 anthropic>=0.34
 fastapi>=0.115           # the HTTP API (api/) the React frontend talks to -- core, not optional,
