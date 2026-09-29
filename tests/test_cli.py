@@ -513,7 +513,7 @@ class TestCmdAlignUsesDramaSettings:
         import forced_align
         calls = []
 
-        def fake_align_with_qwen3(audio_path, user_lines, segments, language):
+        def fake_align_with_qwen3(audio_path, user_lines, segments, language, **kw):
             calls.append(language)
             return [Line(idx=0, start=0.0, end=1.0, zh="你好")]
         monkeypatch.setattr(forced_align, "align_with_qwen3", fake_align_with_qwen3)
@@ -1038,3 +1038,152 @@ class TestNarratePrepIdKeyed:
                             lambda chunks, engine, known, **k: {2: "Cara", 42: "Ghost"})
         _, speakers = self._run(isolated_db, monkeypatch, _SeqEngine([]))
         assert speakers == ["Narrator", "Narrator", "Cara"]
+
+
+class TestCliServiceParity:
+    """Parity-audit fixes: cli align/narrate-prep use the service safeguards,
+    translate defaults to the drama's saved engine and the service's
+    per-drama context/batch defaults, and align reads the saved tuning."""
+
+    def _align_drama(self, isolated_db, **kw):
+        did = isolated_db.create_drama(title_en="A", status="aligned",
+                                       audio_filename="audio.wav", **kw)
+        ddir = isolated_db.drama_dir(did)
+        with open(os.path.join(ddir, "audio.wav"), "wb") as f:
+            f.write(b"x")
+        with open(os.path.join(ddir, "transcript.txt"), "w", encoding="utf-8") as f:
+            f.write("你好")
+        return did
+
+    def _align_args(self, did):
+        return argparse.Namespace(id=did, whisper_size=None, fast=False)
+
+    def test_align_snapshots_existing_lines_before_replacing(self, isolated_db, monkeypatch):
+        did = self._align_drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        monkeypatch.setattr(cli, "transcribe_for_timing",
+                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "你好"}])
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._align_args(did))
+        assert [h["label"] for h in isolated_db.list_line_history(did)] == ["before re-transcribe"]
+        assert isolated_db.load_lines(did)[0]["zh"] == "你好"
+
+    def test_align_empty_result_keeps_existing_lines(self, isolated_db, monkeypatch):
+        did = self._align_drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        monkeypatch.setattr(cli, "transcribe_for_timing", lambda *a, **k: [])
+        monkeypatch.setattr(cli, "align_transcript_to_timing", lambda *a, **k: [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._align_args(did))
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧"]
+        assert isolated_db.list_line_history(did) == []
+
+    def test_align_uses_the_dramas_saved_tuning(self, isolated_db, monkeypatch):
+        did = self._align_drama(isolated_db)
+        isolated_db.update_drama(did, beam_size=3, min_silence_ms=800, vad_threshold=0.3,
+                                 whisper_fast_mode=1)
+        seen = {}
+
+        def fake(audio_path, model_size, **kw):
+            seen.update(kw)
+            return [{"start": 0.0, "end": 1.0, "text": "你好"}]
+        monkeypatch.setattr(cli, "transcribe_for_timing", fake)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_align(self._align_args(did))
+        assert (seen["beam_size"], seen["min_silence_duration_ms"], seen["vad_threshold"],
+                seen["fast_mode"]) == (3, 800, 0.3, True)
+        assert "use_gpu" in seen
+
+    def test_narrate_prep_snapshots_existing_lines(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        with open(os.path.join(isolated_db.drama_dir(did), "novel_narration_source.txt"),
+                  "w", encoding="utf-8") as f:
+            f.write("一。\n\n二。")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did, engine=None, api_key=None, model=None, ollama_url=None))
+        assert [h["label"] for h in isolated_db.list_line_history(did)] == [
+            "before chunk & tag speakers"]
+
+    def test_narrate_prep_empty_result_changes_nothing(self, isolated_db, monkeypatch):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        with open(os.path.join(isolated_db.drama_dir(did), "novel_narration_source.txt"),
+                  "w", encoding="utf-8") as f:
+            f.write("")
+        monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did, engine=None, api_key=None, model=None, ollama_url=None))
+        assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧"]
+        assert isolated_db.list_characters(did) == []
+        assert isolated_db.list_line_history(did) == []
+
+    def test_replacing_lines_flags_cross_process_line_jobs_for_cancel(self, isolated_db):
+        did = isolated_db.create_drama(title_en="J")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="旧")])
+        isolated_db.save_job_record(f"translate_{did}", "running")
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli._replace_drama_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="新")], "x")
+        assert isolated_db.is_job_record_cancel_requested(f"translate_{did}")
+
+    def _translate(self, isolated_db, monkeypatch, drama_kw, **arg_overrides):
+        did = isolated_db.create_drama(title_en="T", status="aligned", **drama_kw)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        engines, seen = [], {}
+        # (name, api_key, model) for every translate engine built; the
+        # summary engine (ollama, default) is filtered out.
+        monkeypatch.setattr(
+            translate_engines, "get_engine",
+            lambda name, key=None, model=None, **k: engines.append((name, key, model)) or object())
+        from services import translate_service
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, *a: f"saved-{name}")
+
+        def fake_translate(lines, engine, **kwargs):
+            seen.update(kwargs)
+            return lines, []
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine", fake_translate)
+        overrides = dict(engine=None, style_preset=None)
+        overrides.update(arg_overrides)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            cli.cmd_translate(_translate_args(id=did, **overrides))
+        self.out = out.getvalue()
+        return [e for e in engines if e[0] != "ollama"], seen
+
+    def test_translate_uses_the_dramas_saved_engine_and_its_own_key(self, isolated_db, monkeypatch):
+        engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                                        api_key=None, model="claude-x")
+        assert engines == [("deepseek", "saved-deepseek", None)]
+        assert seen  # it actually translated
+
+    def test_a_bare_api_key_is_never_sent_to_a_different_saved_engine(self, isolated_db, monkeypatch):
+        engines, seen = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                                        api_key="sk-ant-secret", model="claude-x")
+        assert engines == [] and not seen
+        assert "saved engine deepseek" in self.out and "sk-ant" not in self.out
+
+    def test_a_bare_api_key_still_works_for_claude_dramas(self, isolated_db, monkeypatch):
+        engines, _ = self._translate(isolated_db, monkeypatch, {}, api_key="sk-ant", model="m")
+        assert engines == [("claude", "sk-ant", "m")]
+
+    def test_translate_explicit_engine_flag_still_wins(self, isolated_db, monkeypatch):
+        engines, _ = self._translate(isolated_db, monkeypatch, {"translation_engine": "deepseek"},
+                                     engine="gemini", api_key="g-key", model="gm")
+        assert engines == [("gemini", "g-key", "gm")]
+
+    def test_translate_novel_drama_gets_10_6_30(self, isolated_db, monkeypatch):
+        _, seen = self._translate(isolated_db, monkeypatch, {"content_mode": "novel_narration"})
+        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (10, 6, 30)
+
+    def test_translate_non_novel_drama_keeps_6_3_20(self, isolated_db, monkeypatch):
+        _, seen = self._translate(isolated_db, monkeypatch, {})
+        assert (seen["context_window"], seen["context_window_ahead"], seen["batch_size"]) == (6, 3, 20)
+
+    def test_run_parser_leaves_engine_and_sizes_unset(self, monkeypatch):
+        captured = {}
+        monkeypatch.setattr(sys, "argv", ["cli.py", "run", "--id", "1", "--api-key", "k"])
+        monkeypatch.setattr(cli, "cmd_run", lambda a: captured.update(vars(a)))
+        cli.main()
+        assert captured["engine"] is None and captured["batch_size"] is None
+        assert captured["whisper_size"] is None
