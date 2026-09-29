@@ -541,20 +541,22 @@ class TestPaidEngines:
     def test_household_limited_to_free_engines(self, isolated_db):
         c = _remote(_app())
         _u, s = _user()
-        url = "/api/translate-run/dramas/999/run"
+        did = db.create_drama(title_en="T", source_language="zh")   # the B2 guard 404s a missing one
+        url = f"/api/translate-run/dramas/{did}/run"
         assert c.post(url, json={"engine": "claude"}, headers=_h(s)).status_code == 403
         assert c.post(url, json={}, headers=_h(s)).status_code == 403   # default: maybe paid
         assert c.post(url, json={"engine": "ollama",
                                  "fallback_chain": [{"engine": "claude"}]},
                       headers=_h(s)).status_code == 403
         assert c.post(url, json={"engine": "ollama"}, headers=_h(s)).status_code not in (401, 403)
-        assert c.post("/api/review-jobs/dramas/999/flag", json={"engine": "gemini"},
+        assert c.post(f"/api/review-jobs/dramas/{did}/flag", json={"engine": "gemini"},
                       headers=_h(s)).status_code == 403
 
     def test_resegment_llm_is_gated(self, isolated_db):
         c = _remote(_app())
         _u, s = _user()
-        url = "/api/restructure/dramas/999/resegment"
+        did = db.create_drama(title_en="T", source_language="zh")
+        url = f"/api/restructure/dramas/{did}/resegment"
         base = {"expected_line_ids": [1], "confirm": True}
         for body in ({**base, "use_llm": True}, {**base, "use_llm": True, "engine": "claude"}):
             assert c.post(url, json=body, headers=_h(s)).status_code == 403

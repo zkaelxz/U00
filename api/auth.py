@@ -50,7 +50,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, Request
 
-from services import auth_service
+from services import auth_service, ownership_service
 from services.service_errors import ForbiddenError, UnauthenticatedError
 
 COOKIE_NAME = "__Host-baihe_session"     # Secure mode (always, except loopback-http dev)
@@ -122,9 +122,28 @@ def require_permission(permission: str):
         if permission not in principal["permissions"]:
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = principal
+        require_path_visible(request, principal)
         return principal
 
     return _marked(dependency, "permission", permission)
+
+
+# Path parameters that name an owned item (auth B2). Every route whose path
+# has one is ownership-checked here, so a new route is covered by default;
+# tests/test_api_ownership.py fails if a route names a drama or series some
+# other way without being listed there.
+OWNED_PATH_PARAMS = {"drama_id": "drama", "series_id": "series"}
+
+
+def require_path_visible(request: Request, principal) -> None:
+    """404 (never 403, so a private item's existence isn't revealed) when a
+    `{drama_id}`/`{series_id}` path parameter names an item the principal
+    can't see. Runs after the permission check, so a caller without the
+    permission still gets a plain 403. Editing is visibility-based
+    (ownership_service.can_edit_drama), so reads and writes share it."""
+    for name, kind in OWNED_PATH_PARAMS.items():
+        if name in request.path_params:
+            ownership_service.require_visible(principal, kind, request.path_params[name])
 
 
 def authenticated():
