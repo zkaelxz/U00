@@ -76,8 +76,8 @@ def post_bulk_extract(body: DiscoverBulkExtractRequest, request: Request):
             response_model=DiscoverJobResult,
             summary="The bulk-extract job's status and result (this process only)",
             responses=_ERRS)
-def get_bulk_extract_result():
-    return svc.bulk_extract_result()
+def get_bulk_extract_result(request: Request):
+    return svc.bulk_extract_result(principal=request.state.principal)
 
 
 @router.post("/bulk-commit", dependencies=[require_permission("admin.library")],
@@ -101,5 +101,5 @@ def post_navigation_help(body: DiscoverNavigationHelpRequest, request: Request):
             response_model=DiscoverJobResult,
             summary="The navigation-help job's status and result (this process only)",
             responses=_ERRS)
-def get_navigation_help_result():
-    return svc.navigation_help_result()
+def get_navigation_help_result(request: Request):
+    return svc.navigation_help_result(principal=request.state.principal)

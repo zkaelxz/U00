@@ -24,6 +24,7 @@ import sqlite3
 
 import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
+from services import ownership_service
 
 
 def cache_hit_share(usage: dict) -> float:
@@ -40,7 +41,8 @@ def split_custom_tags(drama: dict) -> list:
 
 def list_library_dramas(search: str = "", studio: str = "", author: str = "",
                         voice_actor: str = "", status: str = "", source_language: str = "",
-                        media_type: str = "", quick_filter: str = None, custom_tags=()):
+                        media_type: str = "", quick_filter: str = None, custom_tags=(),
+                        principal=None):
     """Every drama matching all the given filters, newest first -- the
     Library tab's "All dramas" list.
 
@@ -48,14 +50,16 @@ def list_library_dramas(search: str = "", studio: str = "", author: str = "",
     `quick_filter` must be one of `db.ORGANIZATIONAL_TAGS` or None;
     anything else raises `InvalidInputError` rather than silently
     matching nothing, since those tags are a fixed set the UI offers.
-    `custom_tags` is free-form: a drama must carry every one listed."""
+    `custom_tags` is free-form: a drama must carry every one listed.
+    `principal` (None = auth off): only dramas it may see (auth B2)."""
     if quick_filter and quick_filter not in db.ORGANIZATIONAL_TAGS:
         raise InvalidInputError(
             f"Unknown quick filter {quick_filter!r}.",
             details={"allowed": list(db.ORGANIZATIONAL_TAGS)})
     dramas = db.list_dramas(search=search, studio=studio, author=author,
                             voice_actor=voice_actor, status=status,
-                            source_language=source_language, media_type=media_type)
+                            source_language=source_language, media_type=media_type,
+                            visible_to=ownership_service.visible_to_filter(principal))
     if quick_filter:
         dramas = [d for d in dramas if db.has_custom_tag(d, quick_filter)]
     if custom_tags:
@@ -99,33 +103,39 @@ def _clean_name(name) -> str:
     return name
 
 
-def get_library_dashboard() -> dict:
-    """The Dashboard's counts and spend (whole library)."""
-    stats = db.get_library_stats()
-    usage = db.get_usage_summary()
+def get_library_dashboard(principal=None) -> dict:
+    """The Dashboard's counts and spend (whole library, or what `principal`
+    may see)."""
+    visible_to = ownership_service.visible_to_filter(principal)
+    stats = db.get_library_stats(visible_to=visible_to)
+    usage = db.get_usage_summary(visible_to=visible_to)
     return {**stats, "usage": {k: usage[k] for k in (
         "input_tokens", "output_tokens", "cache_read_tokens",
         "estimated_cost_usd", "call_count")}}
 
 
-def list_recently_active(limit: int = 8) -> list:
+def list_recently_active(limit: int = 8, principal=None) -> list:
     limit = max(1, min(int(limit), 50))
+    visible_to = ownership_service.visible_to_filter(principal)
     return [{k: d.get(k) for k in ("id", "title_en", "title_zh", "status", "updated_at")}
-            for d in db.list_dramas_recently_active(limit)]
+            for d in db.list_dramas_recently_active(limit, visible_to=visible_to)]
 
 
-def list_cost_by_drama() -> list:
+def list_cost_by_drama(principal=None) -> list:
     """Dramas with at least one logged call (free-engine runs included)."""
     return [{k: d.get(k) for k in (
         "id", "title_en", "title_zh", "translation_engine", "input_tokens",
         "output_tokens", "cache_read_tokens", "estimated_cost_usd", "call_count")}
-        for d in db.get_usage_by_drama() if d["call_count"] > 0]
+        for d in db.get_usage_by_drama(visible_to=ownership_service.visible_to_filter(principal))
+        if d["call_count"] > 0]
 
 
-def list_series_with_dramas() -> list:
-    """Series holding two or more dramas (what the Series expander shows)."""
+def list_series_with_dramas(principal=None) -> list:
+    """Series holding two or more dramas (what the Series expander shows).
+    Only series `principal` may see; every drama in a visible series is
+    visible to it (ownership_service's rule)."""
     out = []
-    for s in db.list_series():
+    for s in db.list_series(visible_to=ownership_service.visible_to_filter(principal)):
         dramas = db.list_dramas_by_series(s["id"])
         if len(dramas) < 2:
             continue
@@ -138,25 +148,27 @@ def list_series_with_dramas() -> list:
     return out
 
 
-def search_lines(query: str, limit: int = 50) -> dict:
+def search_lines(query: str, limit: int = 50, principal=None) -> dict:
     """Global line search across every drama (Chinese or English text)."""
     query = query.strip() if isinstance(query, str) else ""
     if not query or len(query) > 200:
         raise InvalidInputError("A search is 1-200 characters.")
     limit = max(1, min(int(limit), 100))
-    rows = db.search_lines_globally(query, limit=limit)
+    rows = db.search_lines_globally(query, limit=limit,
+                                    visible_to=ownership_service.visible_to_filter(principal))
     return {"count": len(rows), "items": [
         {k: r.get(k) for k in ("drama_id", "idx", "zh", "en", "title_en", "title_zh")}
         for r in rows]}
 
 
-def list_history(limit: int = 25) -> list:
+def list_history(limit: int = 25, principal=None) -> list:
     """Reading history for the default profile (the API has no profile
     selector yet)."""
     limit = max(1, min(int(limit), 100))
     return [{k: h.get(k) for k in ("drama_id", "line_idx", "percent_complete",
                                    "accessed_at", "title_en", "title_zh")}
-            for h in db.list_reading_history(limit=limit)]
+            for h in db.list_reading_history(
+                limit=limit, visible_to=ownership_service.visible_to_filter(principal))]
 
 
 _CONTINUE_FIELDS = ("percent_complete", "last_page", "last_accessed_at", "title_en", "title_zh")
