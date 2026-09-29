@@ -36,7 +36,7 @@ import background_jobs
 import db
 import dub
 import ocr as ocr_module
-from services import drama_service
+from services import drama_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 
@@ -313,10 +313,12 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
                       tesseract_cmd: Optional[str] = None) -> dict:
     """images: list of (client_filename, fileobj). Stages them under
     generated names, then starts the job that OCRs them in order and writes
-    the text. Returns {"job_id"}."""
+    the text. Returns {"job_id"}. tesseract_cmd None: the Settings
+    Tesseract path (as the Streamlit tab)."""
     drama = _require_drama(drama_id)
     _check_mode(mode)
     language = drama.get("source_language") or "zh"
+    tesseract_cmd = tesseract_cmd or settings_service.get_tesseract_cmd()
     if backend not in _BACKENDS.get(language, ("tesseract",)):
         raise InvalidInputError(f"OCR backend {backend!r} is not available for {language}.")
     if not images:
