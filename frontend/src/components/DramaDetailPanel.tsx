@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api, ApiError } from '../api/client'
 import { deleteDrama } from '../api/library'
 import type { DramaDetail } from '../api/types'
+import type { DramaDeleteResult } from '../types/library'
 import { canConfirmDelete } from '../pages/libraryForm'
 import { routeHref } from '../router'
 import { ErrorBanner } from './ErrorBanner'
@@ -15,7 +16,7 @@ function credit(name: string | null, romanized: string | null) {
 interface Props {
   dramaId: number
   // When given, the panel offers a typed-confirmation delete.
-  onDeleted?: () => void
+  onDeleted?: (result: DramaDeleteResult) => void
 }
 
 export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
@@ -27,7 +28,7 @@ export function DramaDetailPanel({ dramaId, onDeleted }: Props) {
 
   const remove = () => {
     deleteDrama(dramaId).then(
-      () => onDeleted?.(),
+      (r) => onDeleted?.(r),
       (e: unknown) => setDeleteError(e),
     )
   }
