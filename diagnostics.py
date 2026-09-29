@@ -135,6 +135,10 @@ OPTIONAL_DEPENDENCIES = {
     "fastapi": ("fastapi", "the HTTP API the React frontend talks to (python -m api)",
                 "required"),
     "uvicorn": ("uvicorn", "serves the HTTP API (python -m api)", "required"),
+    "python-multipart": ("multipart", "file uploads through the HTTP API (media upload, "
+                                      "novel attach)", "required"),
+    "numpy": ("numpy", "keeping background music in a dub, Scanlate, hard-subtitle OCR",
+              "feature"),
     "pytest": ("pytest", "running the test suite", "dev"),
     "httpx": ("httpx", "running the HTTP API's tests (FastAPI TestClient)", "dev"),
 }

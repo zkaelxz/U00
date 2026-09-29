@@ -93,6 +93,14 @@ class TestDiagnostics:
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
 
+    def test_upload_and_numpy_deps_are_registered(self):
+        """python-multipart (requirements-core; the upload routes) and numpy
+        (imported directly by dub_service/scanlate/hardsub_ocr)."""
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        assert deps["python-multipart"][0] == "multipart"
+        assert deps["python-multipart"][2] == "required"
+        assert deps["numpy"][0] == "numpy" and deps["numpy"][2] == "feature"
+
     def test_media_only_deps_are_not_tagged_required(self):
         """Step 83: faster_whisper, cv2, and PIL are only in
         requirements-media.txt, not requirements-core.txt, so the Core
