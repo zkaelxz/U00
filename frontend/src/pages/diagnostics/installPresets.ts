@@ -50,6 +50,12 @@ export function taskStatus(t: DiagnosticsInstallTask): string {
   return `Works; ${rec} recommended to add`
 }
 
+/** The status badge's tone: Ready green, a missing required package amber, anything else neutral. */
+export function taskTone(t: DiagnosticsInstallTask): 'ok' | 'warn' | 'neutral' {
+  if (taskReady(t)) return 'ok'
+  return (t.required_missing ?? []).length ? 'warn' : 'neutral'
+}
+
 /** Ready tasks move last, so the ones that still need something come first. */
 export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): DiagnosticsInstallTask[] {
   return [...tasks.filter((t) => !taskReady(t)), ...tasks.filter(taskReady)]

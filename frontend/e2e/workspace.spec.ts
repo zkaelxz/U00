@@ -36,12 +36,15 @@ async function openAdvanced(page: Page) {
 
 test('opens the workspace from the library and navigates stages', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('row').filter({ hasText: 'Signal' }).click()
-  await page.getByRole('link', { name: 'Open workspace' }).click()
+  await page.getByRole('button', { name: 'Details: Signal' }).click()
+  await page.getByRole('dialog', { name: 'Signal' }).getByRole('link', { name: 'Open workspace' }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source here -- the seeded drama has no lines yet).
   await expect(page).toHaveURL(/#\/drama\/3$/)
   await expect(page.getByTestId('drama-title')).toHaveText('Signal')
+  // Header: humanized badges and a real back button.
+  await expect(page.locator('.workspace-header .pill').first()).not.toHaveText(/_/)
+  await expect(page.getByRole('link', { name: 'Back to Library' })).toHaveClass(/btn/)
   await expect(page.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByTestId('media-status')).toContainText('limit')
 
@@ -66,9 +69,11 @@ test('opens on the reported stage and marks progress in the stepper (P16/P17)', 
   await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('region', { name: 'Review' })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('data-state', 'done')
-  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: next step')
+  await expect(nav.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('title', 'Review: next step · 1 flagged')
+  await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('title', 'Translate: done · 2 left')
+  await expect(nav.getByRole('link', { name: 'Translate', exact: true })).toContainText('Translate· 2 left')
   await expect(nav.getByRole('link', { name: 'Dub', exact: true })).toHaveAttribute('data-state', 'optional')
-  await expect(page.getByTestId('stage-counts')).toHaveText('12 lines · 2 untranslated · 1 flagged')
+  await expect(page.getByTestId('stage-counts')).toHaveText('12 lines')
 
   // A stage named in the URL wins over the reported one.
   await page.goto('/#/drama/1/export')
@@ -107,6 +112,7 @@ test('starts a transcription with the right body, polls the job and cancels it',
   await openAdvanced(page)
   await expect(page.getByLabel('Beam size', { exact: true })).toBeVisible()
   await page.getByLabel('Extra names to expect', { exact: true }).fill('names: Wei')
+  await page.locator('details.section', { hasText: 'Speakers' }).first().locator(':scope > summary').click()
   await page.getByLabel('Expected speakers', { exact: true }).fill('2')
   const transcript = page.getByLabel('Transcript text', { exact: true })
   if (await transcript.count()) await transcript.fill('line one')
@@ -232,7 +238,7 @@ test('the primary action is Transcribe, options are collapsed and changed option
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
   // Collapsed: the tuning fields are not visible until Advanced is opened.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
-  await expect(region.locator('details.section > summary').first()).toContainText('defaults')
+  await expect(region.locator('details.section > summary').filter({ hasText: 'Advanced' }).first()).toContainText('defaults')
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('7')
   const transcript = page.getByLabel('Transcript text', { exact: true })

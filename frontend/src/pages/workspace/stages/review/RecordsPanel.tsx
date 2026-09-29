@@ -20,6 +20,7 @@ import type { GoToLine } from './reviewResults'
 import { dismissTmEverywhere, useTmDismissed, visibleTm } from './tmDismiss'
 import { lineNumber } from '../../../../lineNumber'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
+import { buttonClass } from '../../../../components/uiClasses'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
 
 interface Records {
@@ -189,11 +190,11 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
               <li key={n.id}>
                 <span className="muted">#{n.line_idx === null ? '?' : lineNumber(n.line_idx)}</span> <strong>{n.term}</strong> ({n.note_type}) {n.note}{' '}
                 {n.line_id !== null && (
-                  <button type="button" className="link review-jump" onClick={() => jumpTo(n.line_id as number)}>
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => jumpTo(n.line_id as number)}>
                     Go to line
                   </button>
                 )}{' '}
-                <button type="button" className="link" onClick={() => act(deleteNote(dramaId, n.id))}>
+                <button type="button" className={buttonClass('danger', 'sm')} onClick={() => act(deleteNote(dramaId, n.id))}>
                   Delete
                 </button>
               </li>
@@ -213,13 +214,13 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
                 {s.line_id !== null && (
                   <button
                     type="button"
-                    className="link"
+                    className={buttonClass('secondary', 'sm')}
                     onClick={() => act(acceptTm(dramaId, s.line_id as number, s.entry_id, s.en))}
                   >
                     Accept
                   </button>
                 )}{' '}
-                <button type="button" className="link review-jump" onClick={() => dismissTmEverywhere(dramaId, s)}>
+                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => dismissTmEverywhere(dramaId, s)}>
                   Dismiss
                 </button>
               </li>
@@ -272,7 +273,7 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning, onGoTo }
               <li key={h.id}>
                 {h.label ?? `Snapshot ${h.id}`} <span className="muted">{h.created_at}</span>{' '}
                 {restoring?.id !== h.id && (
-                  <button type="button" className="link" onClick={() => { setRestored(null); setRestoring(h) }}>
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => { setRestored(null); setRestoring(h) }}>
                     Restore…
                   </button>
                 )}

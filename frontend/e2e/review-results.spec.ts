@@ -200,9 +200,10 @@ test('AI checks send the chosen engine and model; emotion sends the audio-cues c
   const opts = await open(page, 'Check options')
   await opts.getByRole('combobox', { name: 'Engine' }).selectOption(eng.name)
   await opts.getByRole('combobox', { name: 'Model' }).selectOption(eng.models[0])
-  const cues = opts.getByRole('checkbox', { name: /audio delivery cues/ })
-  const wasOn = await cues.isChecked()
-  await cues.setChecked(!wasOn)
+  const cues = opts.getByRole('switch', { name: /audio delivery cues/ })
+  const wasOn = (await cues.getAttribute('aria-checked')) === 'true'
+  await cues.click()
+  await expect(cues).toHaveAttribute('aria-checked', String(!wasOn))
 
   await ai.getByRole('button', { name: 'Tag emotion' }).click()
   await expect.poll(() => bodies.emotion).toEqual({ engine: eng.name, model: eng.models[0], use_audio_cues: !wasOn })

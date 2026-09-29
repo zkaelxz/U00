@@ -164,7 +164,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   await expect(into.locator('option')).toHaveText(['Choose a drama…', 'Alpha Comic', 'Radio Play', 'Stream VOD'])
   await into.selectOption({ label: 'Stream VOD' })
   // Streamer VOD: audio only starts off; the drama has audio, so replacing needs a tick.
-  await expect(card.getByRole('checkbox', { name: 'Audio only' })).not.toBeChecked()
+  await expect(card.getByRole('switch', { name: 'Audio only' })).not.toBeChecked()
   const download = card.getByRole('button', { name: 'Download' })
   await expect(download).toBeDisabled()
   await expect(card.getByText('Still needed: tick “Replace the current audio”.')).toBeVisible()
@@ -182,7 +182,7 @@ test('video link: download into an audio drama (PC only), and the remote 403', a
   // The finished download was Stream VOD's: it is not shown under Radio Play.
   await expect(card.getByRole('link', { name: /in the workspace$/ })).toHaveCount(0)
   await expect(card.getByTestId('job-status')).toHaveCount(0)
-  await expect(card.getByRole('checkbox', { name: 'Audio only' })).toBeChecked()
+  await expect(card.getByRole('switch', { name: 'Audio only' })).toBeChecked()
   await card.getByRole('checkbox', { name: 'Replace the current audio' }).check()
   await card.getByRole('button', { name: 'Download' }).click()
   await expect(page.getByText('Importing from a link is PC only for now.')).toBeVisible()

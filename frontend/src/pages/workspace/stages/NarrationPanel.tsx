@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react'
 import { narrationApi } from '../../../api/dub'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { buttonClass } from '../../../components/uiClasses'
 import type { NarrationConfig } from '../../../types/dub'
 import './dub.css'
 
@@ -55,7 +57,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
     ? 'Attach the novel text on the Source stage first'
     : cfg.job_running
       ? 'A chunk-and-tag job is already running'
-      : `${engine || 'no engine'}${model.trim() ? ` · ${model.trim()}` : ''}`
+      : `${engine ? humanize('engine', engine) : 'no engine'}${model.trim() ? ` · ${model.trim()}` : ''}`
 
   return (
     <Section storageKey="dub.narration" title="Chunk and tag speakers" summary={summary}>
@@ -68,7 +70,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
           <select value={engine} onChange={(e) => setEngine(e.target.value)}>
             {cfg.engines.map((o) => (
               <option key={o.key} value={o.key}>
-                {o.key}
+                {humanize('engine', o.key)}
                 {o.key_configured ? '' : ' (no key set)'}
               </option>
             ))}
@@ -87,7 +89,7 @@ export function NarrationPanel({ dramaId, busy, onJobStarted }: Props) {
       )}
       {cfg.job_running && <p className="muted">A chunk-and-tag job is already running.</p>}
       <div className="dub-actions">
-        <button type="button" disabled={disabled} onClick={start}>
+        <button type="button" className={buttonClass('secondary')} disabled={disabled} onClick={start}>
           Chunk and tag
         </button>
       </div>
