@@ -314,7 +314,11 @@ baihe-subtitler/
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
 │   ├── line_ai_service.py        Migration Slice 50 -- per-line Improve translation / Why this?
-│   │                             (synchronous, read-only suggestions; id-addressed)
+│   │                             (synchronous, read-only suggestions; id-addressed); also
+│   │                             Alternatives / Grammar (review parity R17/R18)
+│   ├── line_tools_service.py     Review parity R19/R28 -- Pronounce (bounded edge-tts MP3 of a line's
+│   │                             source) and auto-shorten overlong lines (snapshot, then `en`-only
+│   │                             compare-and-set per line)
 │   ├── translation_version_service.py  Review parity R39 -- make a saved translation version the current
 │   │                             English (snapshot, then `en`-only write by line id; refuses restructured lines)
 │   ├── blocked_retry_service.py  Review parity R10 -- retry one content-blocked line with another engine
@@ -522,7 +526,9 @@ baihe-subtitler/
 │   │                              (consistency, emotion), ReviewChecks (coverage/pacing, tendencies, version
 │   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
 │   │                              text) with RetranscribeLine (one-line re-transcribe job,
-│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested)
+│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested);
+│   │                              LineTools (alternatives, grammar, pronounce), ShortenOverlong (pacing
+│   │                              auto-shorten), tmDismiss.ts (per-session TM dismissals)
 │   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
