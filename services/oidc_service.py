@@ -53,6 +53,7 @@ CALLBACK_PATH = "/api/auth/callback"
 HTTP_TIMEOUT_SECONDS = 10
 TRANSACTION_TTL_SECONDS = 600
 MAX_PENDING_TRANSACTIONS = 1000
+MAX_PENDING_PER_SOURCE = 20       # per rate-limit bucket (IPv4 address / IPv6 /64)
 JWKS_TTL_SECONDS = 3600
 JWKS_MIN_REFETCH_SECONDS = 60
 CLOCK_LEEWAY_SECONDS = 60
@@ -62,7 +63,7 @@ _MAX_PARAM = 4096
 # (max events, window seconds)
 LOGIN_RATE = (20, 600)            # per client address
 CALLBACK_RATE = (20, 600)         # per client address
-CALLBACK_GLOBAL_RATE = (200, 600)
+CALLBACK_GLOBAL_RATE = (200, 600)  # callbacks that carry a live transaction only
 _AUDIT_RATE_LIMITED = (30, 600)   # cap on login.rate_limited audit rows
 
 # The only values a failed sign-in redirect carries (`/?login_error=<code>`).
@@ -205,12 +206,18 @@ class SignIn:
     # --- rate limiting -------------------------------------------------------
 
     def check_rate(self, kind: str, client_ip: str):
-        """Raises RateLimitedError (429). Rate-limited attempts are audited,
-        themselves capped so a flood can't grow the audit table."""
+        """Per-source limit ("login" or "callback"), keyed by
+        auth_service.rate_limit_key. Raises RateLimitedError (429). The global
+        callback cap is charged separately, in complete(), and only for a
+        callback that carries a live transaction -- so junk callbacks can't
+        use it up for everyone."""
+        self._limit(kind, auth_service.rate_limit_key(client_ip), client_ip)
+
+    def _limit(self, kind: str, key: str, client_ip: str):
+        """Rate-limited attempts are audited, themselves capped so a flood
+        can't grow the audit table."""
         try:
-            self._limiters[kind].hit(client_ip)
-            if kind == "callback":
-                self._limiters["callback_global"].hit("*")
+            self._limiters[kind].hit(key)
         except RateLimitedError:
             try:
                 self._audit_limiter.hit("*")
@@ -222,28 +229,51 @@ class SignIn:
 
     # --- pending transactions -------------------------------------------------
 
-    def _store(self, record: dict) -> str:
+    def _store(self, record: dict, source: str = "") -> str:
+        """Keeps at most MAX_PENDING_PER_SOURCE per source and
+        MAX_PENDING_TRANSACTIONS overall. When full, the oldest transaction of
+        the source holding the most is dropped, so one source flooding /login
+        evicts its own transactions, not other people's."""
         txn_id = secrets.token_urlsafe(32)
         now = self._clock()
         with self._pending_lock:
             while self._pending:
                 oldest = next(iter(self._pending.values()))
-                if now - oldest["created"] < TRANSACTION_TTL_SECONDS \
-                        and len(self._pending) < MAX_PENDING_TRANSACTIONS:
+                if now - oldest["created"] < TRANSACTION_TTL_SECONDS:
                     break
                 self._pending.popitem(last=False)
-            self._pending[txn_id] = dict(record, created=now)
+            counts = {}
+            for rec in self._pending.values():
+                counts[rec["source"]] = counts.get(rec["source"], 0) + 1
+            if counts.get(source, 0) >= MAX_PENDING_PER_SOURCE:
+                self._evict_oldest_of(source)
+            elif len(self._pending) >= MAX_PENDING_TRANSACTIONS:
+                self._evict_oldest_of(max(counts, key=counts.get))
+            self._pending[txn_id] = dict(record, created=now, source=source)
         return txn_id
 
-    def _take(self, txn_id):
-        """Single use: removed whether or not it is still valid."""
+    def _evict_oldest_of(self, source: str):
+        for key, rec in self._pending.items():
+            if rec["source"] == source:
+                del self._pending[key]
+                return
+
+    def _take(self, txn_id, charge=None):
+        """Single use: removed whether or not it is still valid. `charge` is
+        called only for a live transaction, before it is removed; if it raises
+        (a rate limit), the transaction is kept and the error propagates."""
         if not isinstance(txn_id, str) or not txn_id or len(txn_id) > 200:
             return None
         with self._pending_lock:
-            record = self._pending.pop(txn_id, None)
-        if record is None or self._clock() - record["created"] >= TRANSACTION_TTL_SECONDS:
-            return None
-        return record
+            record = self._pending.get(txn_id)
+            if record is None:
+                return None
+            if self._clock() - record["created"] >= TRANSACTION_TTL_SECONDS:
+                del self._pending[txn_id]
+                return None
+            if charge is not None:
+                charge()
+            return self._pending.pop(txn_id)
 
     def pending_count(self) -> int:
         with self._pending_lock:
@@ -251,14 +281,15 @@ class SignIn:
 
     # --- the flow ---------------------------------------------------------------
 
-    def begin(self, config: dict, return_to) -> tuple:
+    def begin(self, config: dict, return_to, client_ip: str = "") -> tuple:
         """-> (transaction id for the cookie, Google authorization URL)."""
         verifier = secrets.token_urlsafe(64)   # 86 chars, within RFC 7636's 43-128
         state, nonce = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         challenge = _s256(verifier)
         _jose()   # fail before redirecting if the callback couldn't verify
         txn_id = self._store({"state": state, "nonce": nonce, "verifier": verifier,
-                              "return_to": safe_return_to(return_to)})
+                              "return_to": safe_return_to(return_to)},
+                             source=auth_service.rate_limit_key(client_ip))
         query = urlencode({
             "response_type": "code", "client_id": config["client_id"],
             "redirect_uri": config["redirect_uri"], "scope": "openid email profile",
@@ -276,7 +307,8 @@ class SignIn:
         ip = auth_service._ip_prefix(client_ip)
         email = None
         try:
-            record = self._take(txn_id)
+            record = self._take(txn_id, charge=lambda: self._limit(
+                "callback_global", "*", client_ip))
             state = _bounded(state)
             if record is None or not state or not hmac.compare_digest(record["state"], state):
                 raise LoginError("expired", "login.error", "state")

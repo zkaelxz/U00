@@ -117,8 +117,9 @@ def _redirect(request: Request, location: str) -> RedirectResponse:
 def login(request: Request, return_to: str = "/"):
     _require_auth_on(request)
     sign_in = _sign_in(request)
-    sign_in.check_rate("login", client_ip(request))
-    txn_id, url = sign_in.begin(_config(request), return_to)
+    ip = client_ip(request)
+    sign_in.check_rate("login", ip)
+    txn_id, url = sign_in.begin(_config(request), return_to, client_ip=ip)
     resp = RedirectResponse(url, status_code=302, headers=dict(_NO_STORE))
     resp.set_cookie(_oidc_cookie_name(request), txn_id, httponly=True, samesite="lax",
                     secure=session_cookie_secure(request), path="/",

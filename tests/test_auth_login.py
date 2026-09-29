@@ -300,6 +300,16 @@ class TestStateAndTransaction:
         assert s.pending_count() == 5
         assert s._take(ids[0]) is None and s._take(ids[-1]) is not None
 
+    def test_pending_cap_is_per_source(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(oidc_service, "MAX_PENDING_PER_SOURCE", 3)
+        s = oidc_service.SignIn(provider=FakeGoogle(), clock=lambda: 0.0)
+        cfg = {"client_id": CLIENT_ID, "redirect_uri": PUBLIC + "/api/auth/callback"}
+        other = s.begin(cfg, "/", client_ip="203.0.113.9")[0]
+        flood = [s.begin(cfg, "/", client_ip=f"2001:db8::{i:x}")[0] for i in range(8)]
+        assert s.pending_count() == 4
+        assert s._take(other) is not None
+        assert s._take(flood[0]) is None and s._take(flood[-1]) is not None
+
 
 class TestTokenValidation:
     @pytest.mark.parametrize("over", [
@@ -526,17 +536,64 @@ class TestRateLimits:
         assert c.get("/api/auth/login").status_code == 302
         assert _audit("login.rate_limited")
 
-    def test_callback_per_ip_and_global(self, isolated_db, app):
+    def test_callback_per_ip_and_global(self, isolated_db, app, fake, monkeypatch):
         c = _client(app)
         codes = [c.get("/api/auth/callback").status_code for _ in range(21)]
         assert codes[:20] == [302] * 20 and codes[20] == 429
-        # Global cap: 200 per window across all addresses (here: 200 clients
-        # behind Caddy, each its own per-address bucket).
+        _add()
+        # The global cap counts only callbacks that carry a live transaction.
+        monkeypatch.setattr(oidc_service, "CALLBACK_GLOBAL_RATE", (3, 600))
+        app.state.sign_in = None
+        users = [_client(app, peer=(f"198.51.100.{i}", 1)) for i in range(4)]
+        for i, u in enumerate(users[:3]):
+            assert _sign_in(u, fake, code=f"g{i}").headers["location"] == "/library"
+        r = _sign_in(users[3], fake, code="g3")
+        assert r.status_code == 429
+
+    def test_junk_callbacks_from_many_addresses_dont_block_a_real_one(self, isolated_db,
+                                                                       app, fake):
+        _add()
         via_caddy = _client(app, peer=("127.0.0.1", 5000))
-        seen = [via_caddy.get("/api/auth/callback", headers={
-            "X-Forwarded-For": f"198.51.100.{i % 250}, 198.51.{i // 250}.{i % 250}"}).status_code
-            for i in range(200)]
-        assert seen.count(302) == 180 and seen[-1] == 429
+        seen = {via_caddy.get("/api/auth/callback", params={"state": "junk", "code": "x"},
+                              headers={"X-Forwarded-For": f"198.51.{i // 250}.{i % 250}"}
+                              ).status_code for i in range(300)}
+        assert seen == {302}
+        r = _sign_in(_client(app), fake)
+        assert r.status_code == 302 and r.headers["location"] == "/library"
+
+    def test_ipv6_rate_limit_is_per_64(self, isolated_db, app):
+        via_caddy = _client(app, peer=("127.0.0.1", 5000))
+        codes = [via_caddy.get("/api/auth/login", headers={
+            "X-Forwarded-For": f"2001:db8:1:2::{i:x}"}).status_code for i in range(21)]
+        assert codes[:20] == [302] * 20 and codes[20] == 429
+        assert via_caddy.get("/api/auth/login", headers={
+            "X-Forwarded-For": "2001:db8:1:3::1"}).status_code == 302
+        # IPv4-mapped IPv6 shares the IPv4 address's bucket.
+        for _ in range(20):
+            assert via_caddy.get("/api/auth/login", headers={
+                "X-Forwarded-For": "203.0.113.77"}).status_code == 302
+        assert via_caddy.get("/api/auth/login", headers={
+            "X-Forwarded-For": "::ffff:203.0.113.77"}).status_code == 429
+
+    def test_login_flood_from_one_64_keeps_other_users_transaction(self, isolated_db, app,
+                                                                   fake, monkeypatch):
+        monkeypatch.setattr(oidc_service, "MAX_PENDING_TRANSACTIONS", 10)
+        monkeypatch.setattr(oidc_service, "MAX_PENDING_PER_SOURCE", 5)
+        _add()
+        victim = _client(app)
+        _r, q = _start(victim)
+        via_caddy = _client(app, peer=("127.0.0.1", 5000))
+        for net in range(3):    # three /64s, flooding until rate-limited
+            codes = [via_caddy.get("/api/auth/login", headers={
+                "X-Forwarded-For": f"2001:db8:0:{net}::{i:x}"}).status_code
+                for i in range(25)]
+            assert codes.count(302) == 20 and codes[-1] == 429
+        sign_in = app.state.sign_in
+        assert sign_in.pending_count() == 10
+        fake.codes["v"] = {"challenge": q["code_challenge"],
+                           "id_token": fake.sign(fake.claims(q["nonce"]))}
+        r = victim.get("/api/auth/callback", params={"state": q["state"], "code": "v"})
+        assert r.status_code == 302 and r.headers["location"] == "/library"
 
     def test_rightmost_forwarded_for_when_peer_is_loopback(self, isolated_db, app):
         via_caddy = _client(app, peer=("127.0.0.1", 5000))
