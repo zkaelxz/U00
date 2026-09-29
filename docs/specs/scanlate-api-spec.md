@@ -122,4 +122,6 @@ Research (read-only; WebSearch plus shallow clones of the public repos) on how o
 **Decisions (user, 2026-09-29):**
 - **Q4 spend cap:** none. No monthly or per-run cap for Scanlate translation.
 - **Q1 freeze:** confirmed again: Streamlit and the extension bridge stop writing bubbles once the editor ships.
-- Still open: Q2 (preview approach) and Q3 (durable layers) pending the recommendations above; Q5-Q12.
+- **Q2 text preview: hybrid, approved.** Approximate CSS text on the canvas while dragging or typing; after a short pause the editor fetches a server-rendered PNG crop of that region from the same `process_page`/`render_text_in_box` path and shows it as exact, with an overflow flag. Needs a region-preview endpoint (new; add to slice S6).
+- **Q3 durable cleanup layers: approved.** Per-page cleanup and paint layers are stored as files with a path and version on the page (stroke paths plus inpaint patches, or mask PNG plus cleanup PNG; choose in S7). Render order: original, cleanup, paint, text. Auto-inpaint re-runs only on request and is skipped when a cleanup layer exists. Undo is a client-side stack of inverse patches. Per-series erase presets are deferred until after the editor works.
+- Still open: Q5-Q12 (detect overwrite policy, page delete/reorder, new columns, job semantics, upload caps, content-type gating, tesseract/OCR defaults, EXIF/strip height).
