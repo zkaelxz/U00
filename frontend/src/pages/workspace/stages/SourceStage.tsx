@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { getJob } from '../../../api/jobs'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { useJob } from '../../../hooks/useJob'
+import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { MediaStatus } from '../../../types/workspace'
 import { TERMINAL_STATUSES } from '../../../types/jobs'
 import { checkUploadFile, sourceJobIds } from '../sourceForm'
@@ -19,7 +19,7 @@ export default function SourceStage() {
   const [fileProblem, setFileProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [uploaded, setUploaded] = useState<string | null>(null)
-  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobId, setJobId, runKey] = useJobRun()
   const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
@@ -33,6 +33,11 @@ export default function SourceStage() {
     }
   }, [dramaId, reloads])
 
+  const startedRef = useRef(false)
+  useEffect(() => {
+    startedRef.current = jobId !== null
+  })
+
   // Reattach to a run started before this stage was left/reloaded: the job
   // keeps running server-side. 404 or a finished job means nothing to show.
   useEffect(() => {
@@ -40,7 +45,7 @@ export default function SourceStage() {
     for (const id of sourceJobIds(dramaId)) {
       getJob(id).then(
         (j) => {
-          if (!cancelled && !TERMINAL_STATUSES.includes(j.status)) setJobId((cur) => cur ?? id)
+          if (!cancelled && !startedRef.current && !TERMINAL_STATUSES.includes(j.status)) setJobId(id)
         },
         () => undefined,
       )
@@ -48,9 +53,10 @@ export default function SourceStage() {
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, setJobId])
 
   const { job, done, error: pollError } = useJob(jobId, {
+    runKey,
     onDone: () => {
       onJobDone()
       setReloads((n) => n + 1)

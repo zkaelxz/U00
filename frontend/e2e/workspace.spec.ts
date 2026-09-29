@@ -140,3 +140,22 @@ test('form state and the running job survive a stage-tab switch', async ({ page 
   await expect(page.getByRole('button', { name: 'Start transcription' })).toBeDisabled()
   await expect(page.getByText(/already running/)).toBeVisible()
 })
+
+test('a second run with the same job id shows the new run, not the stale done', async ({ page }) => {
+  let runs = 0
+  await page.route('**/api/transcribe/dramas/1/run', (route) => { runs += 1; return route.fulfill({ json: { job_id: 'transcribe_1' } }) })
+  await page.route('**/api/jobs/transcribe_1', (route) => {
+    // Run one has finished; run two (same job id) is in progress.
+    return route.fulfill({ json: job(runs >= 2 ? 'running' : 'done', { job_id: 'transcribe_1', message: runs >= 2 ? 'second' : 'first' }) })
+  })
+  await page.goto('/#/drama/1/source')
+  await expect(page.getByLabel('Beam size (1-10)')).toBeVisible()
+  const transcript = page.getByLabel('Transcript text')
+  if (await transcript.count()) await transcript.fill('line one')
+  await page.getByRole('button', { name: 'Start transcription' }).click()
+  await expect(page.getByTestId('job-status')).toContainText('done')
+  await expect(page.getByRole('button', { name: 'Start transcription' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Start transcription' }).click()
+  await expect(page.getByTestId('job-status')).toContainText('second')
+  await expect(page.getByRole('button', { name: 'Start transcription' })).toBeDisabled()
+})

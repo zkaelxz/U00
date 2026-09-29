@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
 import type { JobRecord } from '../types/jobs'
-import { startJobPolling } from './useJob'
+import { pickRunState, startJobPolling } from './useJob'
 
 const job = (status: string): JobRecord => ({
   job_id: 'j', status, progress: null, message: '', error: null, description: null,
@@ -63,5 +63,26 @@ describe('startJobPolling', () => {
     expect(onError).toHaveBeenCalledTimes(1)
     expect(onError.mock.calls[0][0].code).toBe('not_found')
     expect(fetchJob).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('restarting a run with the same fixed job id', () => {
+  it('a second polling loop on the same id polls again and reports the new run', async () => {
+    const fetchJob = vi.fn().mockResolvedValueOnce(job('done')).mockResolvedValueOnce(job('running'))
+    const seen: string[] = []
+    const opts = { intervalMs: 100, fetchJob, onUpdate: (j: JobRecord) => seen.push(j.status), onError: vi.fn() }
+    startJobPolling('transcribe_1', opts)
+    await vi.advanceTimersByTimeAsync(0)
+    startJobPolling('transcribe_1', opts) // second run, same id
+    await vi.advanceTimersByTimeAsync(0)
+    expect(seen).toEqual(['done', 'running'])
+  })
+
+  it('pickRunState drops the previous run\'s state when the run key changes', () => {
+    const state = { id: 'transcribe_1', runKey: 1, job: job('done') }
+    expect(pickRunState(state, 'transcribe_1', 1)).toBe(state)
+    expect(pickRunState(state, 'transcribe_1', 2)).toBeNull()
+    expect(pickRunState(state, 'transcribe_2', 1)).toBeNull()
+    expect(pickRunState(null, 'transcribe_1', 1)).toBeNull()
   })
 })
