@@ -22,8 +22,10 @@ import re
 from urllib.parse import urlsplit
 
 import db
-from services.service_errors import NotFoundError
+from services.service_errors import (InvalidInputError, NotFoundError,
+                                     UnsupportedOperationError)
 from sources import auth_browser, cache as src_cache, health, ladder, registry, store
+from sources import http as src_http
 from sources import profiles as src_profiles
 from translate_engines import redact_secrets
 
@@ -255,3 +257,145 @@ def list_notifications(include_dismissed: bool = False) -> list:
              "chapter_id": r["chapter_id"], "title": _scrub(r.get("title")),
              "created_at": r["created_at"], "dismissed": bool(r["dismissed"])}
             for r in store.list_notifications(include_dismissed=include_dismissed)]
+
+
+# ---------------------------------------------------------------------------
+# Writes (S-2). All POST at the router; each verifies the source, domain or id
+# exists before it changes anything.
+# ---------------------------------------------------------------------------
+
+# Same ranges as tabs/sources_tab.py's settings form. http_proxy_url and
+# page_server_enabled are NOT settable here (a proxy URL set by a remote
+# client is an exfiltration/SSRF pivot; the page server opens a port).
+_RANGES = {
+    "pace_min_delay": (0.0, 60.0), "pace_max_delay": (0.0, 120.0),
+    "max_concurrent": (1, 4), "max_retries": (0, 6),
+    "session_break_min_requests": (0, 200), "session_break_max_requests": (0, 200),
+    "session_break_min_delay": (0.0, 600.0), "session_break_max_delay": (0.0, 900.0),
+    "check_interval_hours": (0, 168),
+}
+_BOOLS = ("auto_queue_new_chapters", "demo_source_enabled", "extraction_diagnostics")
+
+
+def _num(key, value):
+    lo, hi = _RANGES[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InvalidInputError(f"{key} must be a number.")
+    if not lo <= value <= hi:
+        raise InvalidInputError(f"{key} must be between {lo} and {hi}.")
+    return type(store.DEFAULT_SETTINGS[key])(value)
+
+
+def set_source_enabled(name: str, enabled: bool) -> dict:
+    cls = _require_source(name)
+    registry.set_enabled(name, bool(enabled))
+    return _summary(name, cls)
+
+
+def set_adult_enabled(name: str, enabled: bool) -> dict:
+    cls = _require_source(name)
+    if not cls.supports_adult_toggle:
+        raise UnsupportedOperationError("This source has no adult-content switch.")
+    store.set_adult_enabled(name, bool(enabled))
+    return _summary(name, cls)
+
+
+def update_settings(changes: dict) -> dict:
+    """Partial update of the whitelisted settings. Unknown keys (including
+    http_proxy_url and page_server_enabled) are rejected. The pacing floor:
+    pace_min_delay may not go below the built-in default (the tab lets a
+    local user pick 0; the API does not). reset_pacing_state() runs after
+    saving, as the tab does."""
+    changes = dict(changes or {})
+    if not changes:
+        raise InvalidInputError("No settings to change.")
+    unknown = sorted(set(changes) - set(SETTING_KEYS))
+    if unknown:
+        raise InvalidInputError("These settings can't be changed through the API: "
+                                + ", ".join(unknown))
+    clean = {}
+    for k, v in changes.items():
+        if k in _RANGES:
+            clean[k] = _num(k, v)
+        elif k in _BOOLS:
+            if not isinstance(v, bool):
+                raise InvalidInputError(f"{k} must be true or false.")
+            clean[k] = v
+        elif k == "cache_mode":
+            if v not in src_cache.MODES:
+                raise InvalidInputError("cache_mode must be one of: " + ", ".join(src_cache.MODES))
+            clean[k] = v
+    floor = float(store.DEFAULT_SETTINGS["pace_min_delay"])
+    if "pace_min_delay" in clean and clean["pace_min_delay"] < floor:
+        raise InvalidInputError(f"pace_min_delay can't be below {floor:g} seconds.")
+    cur = store.all_settings()
+    merged = {**{k: cur[k] for k in SETTING_KEYS}, **clean}
+    # Same normalisation as the tab: a max is never below its min.
+    for lo_key, hi_key in (("pace_min_delay", "pace_max_delay"),
+                           ("session_break_min_requests", "session_break_max_requests"),
+                           ("session_break_min_delay", "session_break_max_delay")):
+        if lo_key in clean or hi_key in clean:
+            clean[hi_key] = max(merged[lo_key], merged[hi_key])
+    for k, v in clean.items():
+        store.set_setting(k, v)
+    src_http.reset_pacing_state()
+    return get_settings()
+
+
+def reset_health(name: str) -> dict:
+    _require_source(name)
+    health.reset(name)
+    return _health_view(name)
+
+
+def clear_cache(confirm: bool) -> dict:
+    if confirm is not True:
+        raise InvalidInputError("Clearing the raw-content cache needs confirm=true.")
+    src_cache.RawCache().clear_all()
+    stats = src_cache.RawCache().stats()
+    return {"entries": stats["entries"], "bytes": stats["bytes"]}
+
+
+def rollback_profile(domain: str, kind: str, version: int) -> list:
+    """Makes an earlier saved profile version active again (nothing is
+    deleted). ProfileRejected is not a ServiceError, so it is mapped here."""
+    if domain not in src_profiles.list_domains():
+        raise NotFoundError("No saved profile for that domain.")
+    try:
+        src_profiles.rollback(domain, kind, version)
+    except src_profiles.ProfileRejected:
+        raise NotFoundError("No such profile version.") from None
+    return next(d for d in list_profiles() if d["domain"] == _scrub(domain))["versions"]
+
+
+def dismiss_notification(notification_id: int) -> dict:
+    if notification_id not in {n["id"] for n in store.list_notifications(include_dismissed=True)}:
+        raise NotFoundError("No such notification.")
+    store.dismiss_notification(notification_id)
+    return next(n for n in list_notifications(include_dismissed=True) if n["id"] == notification_id)
+
+
+def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
+                drama_id: int = None) -> list:
+    """Track or untrack one series. Tracking here fetches nothing, so no
+    chapters are marked known: the first check announces the whole back
+    catalogue (see docs/migration-review.md Slice 56b)."""
+    _require_source(source)
+    series_id = (series_id or "").strip()
+    if not series_id:
+        raise InvalidInputError("series_id is required.")
+    exists = any(r["source"] == source and r["series_id"] == series_id
+                 for r in store.list_tracked_series())
+    if not tracked:
+        if not exists:
+            raise NotFoundError("That series isn't tracked.")
+        store.untrack_series(source, series_id)
+        return list_tracked()
+    title = (title or "").strip() or series_id
+    url = (url or "").strip()
+    if url and urlsplit(url).scheme not in ("http", "https"):
+        raise InvalidInputError("url must be an http(s) address.")
+    if drama_id is not None and db.get_drama(drama_id) is None:
+        raise NotFoundError("Drama not found.")
+    store.track_series(source, series_id, title, url=url, drama_id=drama_id)
+    return list_tracked()

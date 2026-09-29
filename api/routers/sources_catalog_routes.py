@@ -12,8 +12,11 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query
 
-from api.schemas import (ErrorResponse, SourceAttempt, SourceDetail, SourceNotification,
-                         SourceProfileDomain, SourcesSettings, SourceSummary, TrackedSeries)
+from api.schemas import (ErrorResponse, SourceAttempt, SourceCacheClearRequest,
+                         SourceCacheStats, SourceDetail, SourceHealth, SourceNotification,
+                         SourceProfileDomain, SourceProfileRollbackRequest,
+                         SourceProfileVersion, SourcesSettings, SourcesSettingsUpdate,
+                         SourceSummary, SourceToggle, SourceTrackRequest, TrackedSeries)
 from services import sources_registry_service as svc
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
@@ -54,6 +57,62 @@ def list_notifications(include_dismissed: bool = False):
             responses={404: {"model": ErrorResponse}})
 def get_source(name: str = _NAME):
     return svc.get_source(name)
+
+
+_ERR = {404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}}
+
+
+@router.post("/settings", response_model=SourcesSettings,
+             summary="Update whitelisted source settings (no proxy URL; pacing floor enforced)",
+             responses=_ERR)
+def post_settings(payload: SourcesSettingsUpdate):
+    return svc.update_settings(payload.model_dump(exclude_unset=True))
+
+
+@router.post("/cache/clear", response_model=SourceCacheStats,
+             summary="Clear the raw-content cache (needs confirm=true)", responses=_ERR)
+def post_cache_clear(payload: SourceCacheClearRequest):
+    return svc.clear_cache(payload.confirm)
+
+
+@router.post("/tracked", response_model=List[TrackedSeries],
+             summary="Track or untrack one series (fetches nothing)", responses=_ERR)
+def post_tracked(payload: SourceTrackRequest):
+    return svc.set_tracked(payload.source, payload.series_id, payload.tracked, payload.title,
+                           payload.url, payload.drama_id)
+
+
+@router.post("/notifications/{notification_id}/dismiss", response_model=SourceNotification,
+             summary="Dismiss one new-chapter notification", responses=_ERR)
+def post_dismiss(notification_id: int = Path(ge=1)):
+    return svc.dismiss_notification(notification_id)
+
+
+@router.post("/profiles/{domain}/{kind}/rollback", response_model=List[SourceProfileVersion],
+             summary="Make an earlier saved profile version active again", responses=_ERR)
+def post_profile_rollback(payload: SourceProfileRollbackRequest,
+                          domain: str = Path(min_length=1, max_length=200),
+                          kind: str = Path(min_length=1, max_length=40)):
+    return svc.rollback_profile(domain, kind, payload.version)
+
+
+@router.post("/{name}/enabled", response_model=SourceSummary,
+             summary="Switch one source on or off", responses=_ERR)
+def post_enabled(payload: SourceToggle, name: str = _NAME):
+    return svc.set_source_enabled(name, payload.enabled)
+
+
+@router.post("/{name}/adult", response_model=SourceSummary,
+             summary="Adult-flagged works toggle (only sources that support it)",
+             responses={**_ERR, 400: {"model": ErrorResponse}})
+def post_adult(payload: SourceToggle, name: str = _NAME):
+    return svc.set_adult_enabled(name, payload.enabled)
+
+
+@router.post("/{name}/health/reset", response_model=SourceHealth,
+             summary="Clear a source's backoff window (an explicit user action)", responses=_ERR)
+def post_health_reset(name: str = _NAME):
+    return svc.reset_health(name)
 
 
 @router.get("/{name}/attempts", response_model=List[SourceAttempt],

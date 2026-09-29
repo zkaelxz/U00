@@ -1663,3 +1663,51 @@ class SourceNotification(BaseModel):
     title: Optional[str] = None
     created_at: float
     dismissed: bool
+
+
+# Sources config writes (Migration Slice 56, S-2).
+
+class SourceToggle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+
+
+class SourcesSettingsUpdate(BaseModel):
+    """Partial update. `extra=forbid`: http_proxy_url, page_server_enabled and
+    any unknown key are rejected (422). Ranges match the Streamlit form;
+    pace_min_delay also has a floor at the built-in default (service check)."""
+    model_config = ConfigDict(extra="forbid")
+    pace_min_delay: Optional[float] = None
+    pace_max_delay: Optional[float] = None
+    max_concurrent: Optional[int] = None
+    max_retries: Optional[int] = None
+    session_break_min_requests: Optional[int] = None
+    session_break_max_requests: Optional[int] = None
+    session_break_min_delay: Optional[float] = None
+    session_break_max_delay: Optional[float] = None
+    cache_mode: Optional[str] = Field(None, max_length=40)
+    check_interval_hours: Optional[int] = None
+    auto_queue_new_chapters: Optional[StrictBool] = None
+    demo_source_enabled: Optional[StrictBool] = None
+    extraction_diagnostics: Optional[StrictBool] = None
+
+
+class SourceCacheClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class SourceProfileRollbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=1)
+
+
+class SourceTrackRequest(BaseModel):
+    """Track (`tracked=true`) or untrack one series. Fetches nothing."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    tracked: StrictBool = True
+    title: str = Field("", max_length=300)
+    url: str = Field("", max_length=1000)
+    drama_id: Optional[int] = Field(None, ge=1)
