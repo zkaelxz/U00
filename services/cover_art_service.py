@@ -50,7 +50,9 @@ def _clean_image(data: bytes):
     except ImportError:
         raise DependencyUnavailableError("Pillow is not installed, so covers can't be checked.")
     try:
-        with Image.open(io.BytesIO(data)) as img:
+        # formats= so only these three parsers ever see an upload, never
+        # Pillow's others (TIFF, EPS, ...).
+        with Image.open(io.BytesIO(data), formats=tuple(_FORMATS)) as img:
             fmt = img.format
             if fmt not in _FORMATS:
                 raise InvalidInputError("Upload a PNG, JPEG or WebP image.")

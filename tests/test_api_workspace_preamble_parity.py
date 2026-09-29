@@ -215,6 +215,51 @@ class TestCover:
         assert db.get_drama(did)["cover_art_filename"] is None
         assert client.get(f"/api/dramas/{did}/cover").status_code == 404
 
+    def test_only_png_jpeg_webp_parsers_see_an_upload(self, client, monkeypatch):
+        pytest.importorskip("PIL")
+        from PIL import Image
+        seen = []
+        real_open = Image.open
+
+        def spy(fp, mode="r", formats=None):
+            seen.append(formats)
+            return real_open(fp, mode, formats)
+        monkeypatch.setattr(Image, "open", spy)
+        did = _drama()
+        tiff = io.BytesIO()
+        Image.new("RGB", (2, 2)).save(tiff, "TIFF")
+        eps = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 2 2\n"
+        for name, payload in (("c.tif", tiff.getvalue()), ("c.eps", eps)):
+            r = client.post(f"/api/dramas/{did}/cover", files={"file": (name, payload, "image/png")})
+            assert r.status_code == 422, name
+        assert seen and all(f is not None and set(f) == {"PNG", "JPEG", "WEBP"} for f in seen)
+        assert db.get_drama(did)["cover_art_filename"] is None
+
+    def test_content_length_over_the_cap_is_refused_before_the_body_is_read(self, client, monkeypatch):
+        pytest.importorskip("PIL")
+        from api.routers import drama_routes
+        from services import cover_art_service
+        did = _drama()
+        monkeypatch.setattr(cover_art_service, "MAX_COVER_BYTES", 10)
+        monkeypatch.setattr(drama_routes, "_COVER_MULTIPART_OVERHEAD", 0)
+        monkeypatch.setattr(drama_routes, "_capped", lambda *a: (_ for _ in ()).throw(
+            AssertionError("body read")))
+        r = client.post(f"/api/dramas/{did}/cover", files={"file": ("c.png", _image(), "image/png")})
+        assert r.status_code == 413
+        assert db.get_drama(did)["cover_art_filename"] is None
+
+    def test_chunked_or_no_file_field_is_refused(self, client):
+        did = _drama()
+
+        def chunks():
+            yield b"--x\r\n"
+        r = client.post(f"/api/dramas/{did}/cover", content=chunks(),
+                        headers={"content-type": "multipart/form-data; boundary=x"})
+        assert r.status_code == 422
+        r = client.post(f"/api/dramas/{did}/cover", files={"other": ("c.png", b"x", "image/png")})
+        assert r.status_code == 422
+        assert db.get_drama(did)["cover_art_filename"] is None
+
     def test_replacing_a_legacy_upper_case_cover_keeps_the_new_file(self, client):
         # Streamlit kept the client's extension ("cover.JPG"); on Windows/macOS
         # that is the same file as the new "cover.jpg", so it must not be removed.

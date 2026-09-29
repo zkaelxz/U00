@@ -9,20 +9,30 @@ partial update: only fields present in the JSON body are passed on
 Delete (Slice 36) needs confirm=true and confirm_text=DELETE as query
 params, like translate history's confirm gate. Cover art (inventory P14):
 upload is PC-only (local_only, uploads are PC-only) and checked/re-encoded by
-services/cover_art_service.py; reading it is library.read. Series
+services/cover_art_service.py; reading it is library.read. The upload's
+Content-Length is checked against the cap before any of the body is read
+(chunked bodies are refused), and the body stream itself is counted, like
+the bug-report upload. Series
 rename/unassign and presets CRUD are out of scope -- see
 services/drama_service.py.
 """
 
 import os
 
-from fastapi import APIRouter, File, Path, Query, Request, UploadFile
+from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse
+from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.formparsers import MultiPartException
+
 from api.auth import local_only, require_permission
+from api.routers.bug_report_routes import _BodyTooLarge, _capped
 from api.routers.library_routes import _to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaMetadataUpdate, ErrorResponse)
 from services import cover_art_service, drama_service
+from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 
@@ -49,12 +59,41 @@ def post_drama_metadata(payload: DramaMetadataUpdate, request: Request,
         **payload.model_dump(exclude_unset=True)))
 
 
+_COVER_MULTIPART_OVERHEAD = 64 * 1024
+_COVER_TOO_LARGE = "That image is too large (at most 10 MB)."
+_COVER_BODY = {"requestBody": {"required": True, "content": {"multipart/form-data": {"schema": {
+    "type": "object", "required": ["file"],
+    "properties": {"file": {"type": "string", "format": "binary"}}}}}}}
+
+
 @router.post("/{drama_id}/cover", dependencies=[local_only()], response_model=CoverArtResult,
              summary="Set or replace the cover art (PNG/JPEG/WebP, max 10 MB; metadata stripped)",
-             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                        503: {"model": ErrorResponse}})
-def post_cover(drama_id: int = Path(ge=1), file: UploadFile = File(...)):
-    return cover_art_service.save_cover(drama_id, file.file)
+             openapi_extra=_COVER_BODY,
+             responses={404: {"model": ErrorResponse}, 413: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+async def post_cover(request: Request, drama_id: int = Path(ge=1)):
+    if "transfer-encoding" in request.headers:
+        raise InvalidInputError("Send the image with a Content-Length, not chunked.")
+    try:
+        length = int(request.headers.get("content-length", ""))
+    except ValueError:
+        raise InvalidInputError("An upload needs a Content-Length.")
+    cap = cover_art_service.MAX_COVER_BYTES + _COVER_MULTIPART_OVERHEAD
+    if length > cap:
+        raise StarletteHTTPException(413, _COVER_TOO_LARGE)
+    try:
+        form = await _capped(request, cap).form(max_files=1, max_fields=0)
+    except _BodyTooLarge:
+        raise StarletteHTTPException(413, _COVER_TOO_LARGE)
+    except (MultiPartException, StarletteHTTPException):
+        raise InvalidInputError("Send the image as multipart/form-data in a 'file' field.") from None
+    try:
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile):
+            raise InvalidInputError("Send the image as multipart/form-data in a 'file' field.")
+        return await run_in_threadpool(cover_art_service.save_cover, drama_id, upload.file)
+    finally:
+        await form.close()
 
 
 @router.get("/{drama_id}/cover", dependencies=[require_permission("library.read")],
