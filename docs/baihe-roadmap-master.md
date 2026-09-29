@@ -128,6 +128,7 @@ The 13 false leads (pure keyword collisions, nothing to adopt): baihepailei, bai
 | 138 | Remote access: PWA manifest + minimal service worker (app shell only); check session cookies in installed PWAs on real devices | user checks |
 | 139 | Remote access: hardening (no public `/api/docs`, production mode, Streamlit never exposed) and operations (services on boot, uptime alert, backups, dynamic DNS, cert renewal monitoring, per-device session list and revocation) | needs 133-134 |
 | 140 | Remote access: Caddy config, LAN test with a real certificate, then open the router port last | needs 133-139 |
+| 141 | Spec (migration-architect) for a standalone PC shell and a connection toggle. The PC shell is a desktop window (pywebview or Tauri) with an icon, tray and installer, running the local API. The toggle is an app-shell setting: "This PC" (local, no login) or "Connect to my PC" (server URL plus Google login through Caddy). The phone is a PWA client (a Capacitor wrapper can come later) with only "Connect". Offline or standalone phone use is deferred. User approved writing the spec 2026-09-29. | needs 140 |
 
 ## 5b. Needs to be added to the roadmap (3 items)
 Real findings with nowhere to live yet: flagged in review, not written up as a numbered step in `docs/baihe-roadmap.md`, or waiting on their own verification before they can be.
