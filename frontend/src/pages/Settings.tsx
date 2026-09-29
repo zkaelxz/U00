@@ -8,6 +8,7 @@ import { Toggle } from '../components/Toggle'
 import { SettingsKeyForm } from './SettingsKeyForm'
 import { ExtensionSection } from './settings/ExtensionSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { PreferencesSections } from './settings/PreferencesSections'
 import { SECRET_ENGINES } from './settingsKeys'
 import type { SettingsOverview, SettingsToggleKey } from '../types/settings'
 
@@ -95,6 +96,7 @@ export default function SettingsPage() {
                 ))}
             </dl>
           </Section>
+          <PreferencesSections settings={settings} onSettings={setSettings} />
           <NotificationsSection />
           <ExtensionSection />
         </>

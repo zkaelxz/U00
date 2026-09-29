@@ -38,7 +38,7 @@ def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier):
         raise NotFoundError(f"No line with id {line_id} in this drama.")
     if not (line.zh or "").strip() or not (line.en or "").strip():
         raise UnsupportedOperationError("This line needs both source text and a translation.")
-    engine_name = engine_name or drama.get("translation_engine") or "claude"
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:

@@ -22,13 +22,14 @@ job started.
 from typing import Optional
 
 from fastapi import APIRouter, Path, Request
-from api.auth import require_paid_engines, require_permission
+from api.auth import is_local_request, require_paid_engines, require_permission
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
                          AutotuneStatus, ErrorResponse, RetranscribeApplyRequest,
                          RetranscribeApplyResult, RetranscribeLineRequest,
                          RetranscribeLineResult, RetranscribeResult, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
 from services import transcribe_service
+from services.service_errors import ForbiddenError
 
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
 
@@ -59,6 +60,11 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
                           drama_id: int = Path(ge=1)):
     if transcribe_service.get_transcribe_config(drama_id).get("use_groq"):
         require_paid_engines(request)   # the stored config sends audio to Groq cloud
+    if payload.tesseract_cmd and not is_local_request(request):
+        # The server executes this path: only the PC may pick it. Remote runs
+        # use the Tesseract path saved in Settings.
+        raise ForbiddenError("A Tesseract path can only be set at the PC; leave it empty "
+                             "to use the one saved in Settings.")
     return transcribe_service.start_transcribe_run(
         drama_id, source_language=payload.source_language, chinese_script=payload.chinese_script,
         transcript_text=payload.transcript_text, run_diarize=payload.run_diarize,

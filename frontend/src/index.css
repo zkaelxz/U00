@@ -53,8 +53,10 @@
   color-scheme: light dark;
 }
 
+/* Dark tokens: the system's choice unless Settings > Appearance picked light
+   (data-theme="light"), and always when it picked dark (src/theme.ts). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #16161a;
     --accent-text: #b8a3ea;
     --field-bg: #17171c;
@@ -69,6 +71,27 @@
     --info: #9cc3f5;
     --shadow-1: 0 1px 2px color-mix(in srgb, #000 40%, transparent), 0 4px 14px color-mix(in srgb, #000 25%, transparent);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #16161a;
+  --accent-text: #b8a3ea;
+  --field-bg: #17171c;
+  --surface: #202026;
+  --text: #ececf1;
+  --muted: #9d9daa;
+  --border: #33333c;
+  --bad: #f2b8b5;
+  --ok: #8fd6a0;
+  --warn: #f0c36d;
+  --surface-2: #28282f;
+  --info: #9cc3f5;
+  --shadow-1: 0 1px 2px color-mix(in srgb, #000 40%, transparent), 0 4px 14px color-mix(in srgb, #000 25%, transparent);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -436,9 +459,11 @@ button.toggle {
 }
 button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--muted) 85%, var(--text)); border-color: var(--muted); }
 @media (prefers-color-scheme: dark) {
-  button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
-  button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
+  :root:not([data-theme="light"]) button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
+  :root:not([data-theme="light"]) button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
 }
+:root[data-theme="dark"] button.toggle { background: color-mix(in srgb, var(--text) 18%, var(--surface)); border-color: var(--border); }
+:root[data-theme="dark"] button.toggle:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 26%, var(--surface)); border-color: var(--border); }
 button.toggle[aria-checked='true'] { background: var(--accent); border-color: var(--accent); }
 button.toggle[aria-checked='true']:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, var(--text)); border-color: var(--accent); }
 .toggle-thumb {

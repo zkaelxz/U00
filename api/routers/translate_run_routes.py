@@ -14,7 +14,8 @@ deletes: refused with 403 from a non-loopback client when auth is on).
 from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Request
-from api.auth import _auth_enabled, is_local_request, require_engines_allowed, require_permission
+from api.auth import (_auth_enabled, holds_paid_engines, is_local_request,
+                      require_engines_allowed, require_permission)
 from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulkList,
                          TranslateBulkResumeResult, TranslateErrorsDismissed,
                          TranslatePresetSave, TranslatePresetSaved, TranslateRunConfig,
@@ -71,7 +72,10 @@ def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int
         if body.fallback_chain else None,
         reflect=body.reflect, bulk=body.bulk,
         default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes)
+        include_genre_notes=body.include_genre_notes,
+        # The Settings episode-summary engine may be a cloud one: skipped
+        # for a caller without engines.paid rather than refusing the run.
+        allow_paid_summary=holds_paid_engines(request))
 
 
 @router.post("/dramas/{drama_id}/bulk/resume", dependencies=[require_permission("jobs.start")], response_model=TranslateBulkResumeResult,
