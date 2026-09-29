@@ -159,6 +159,10 @@ def create_drama(*, source_language, title_en="", title_zh="", author="", studio
         "locale": preset.get("locale"),
         "default_female_pronouns": bool(preset.get("default_female_pronouns")),
         "include_genre_notes": bool(preset.get("include_genre_notes", True)),
+        # The tab applies the preset's model only to the preset's own engine
+        # (apply_preset_to_session), which is the engine saved on the drama.
+        "engine_model": (preset.get("engine_model") or None)
+        if preset.get("translation_engine") else None,
     }
     return detail
 

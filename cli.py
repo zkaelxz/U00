@@ -47,8 +47,7 @@ import diagnostics
 from core import (
     Line, split_user_transcript, transcribe_for_timing, align_transcript_to_timing,
     chunk_novel_text, lines_from_rows, release_gpu_models, WHISPER_MODELS,
-    DEFAULT_WHISPER_SIZE, build_initial_prompt, combine_initial_prompt,
-    extract_novel_excerpt_for_prompt, ModelDownloadError,
+    DEFAULT_WHISPER_SIZE, ModelDownloadError,
 )
 import translate_engines
 import translation_guide as tguide
@@ -59,12 +58,27 @@ import emotion
 import dub as dub_module
 import background_jobs
 from services import settings_service, transcribe_service, translate_service
-from services.translate_run_service import get_translate_config_defaults
+from services.narration_service import TAG_ENGINES
+from services.translate_run_service import _cap_applies, get_translate_config_defaults
 
 
 def _gemini_free_tier(engine_name: str) -> bool:
     """The saved Settings "Gemini free tier" toggle, for the gemini engine only."""
     return engine_name == "gemini" and settings_service.get_gemini_free_tier()
+
+
+def _ollama_url(args):
+    """--ollama-url when given, else the saved Settings Ollama URL."""
+    return getattr(args, "ollama_url", None) or settings_service.resolve_key("ollama_url") or None
+
+
+def _monthly_cap_setting():
+    """The saved monthly cap (Settings, then .env), same source as the service."""
+    raw = settings_service.resolve_key("monthly_cap_usd")
+    try:
+        return max(0.0, float(raw)) or None if raw else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
@@ -145,9 +159,22 @@ def cmd_narrate_prep(args):
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status="not started")
     dramas = [d for d in dramas if d.get("content_mode") == "novel_narration"]
     engine_name = args.engine or "claude"
+    # Same rules as narration_service.start_narration_run: only engines
+    # that can tag speakers, and a clear error (never a silent all-
+    # "Narrator" result) when no key is configured.
+    if engine_name not in TAG_ENGINES:
+        print(f"Engine {engine_name!r} cannot tag speakers; use one of "
+              f"{', '.join(TAG_ENGINES)}.", file=sys.stderr)
+        sys.exit(2)
+    api_key = args.api_key or ("local" if engine_name == "ollama"
+                               else settings_service.resolve_key(engine_name))
+    if not api_key:
+        print(f"No {engine_name} key is configured. Set one in Settings first, "
+              f"or pass --api-key.", file=sys.stderr)
+        sys.exit(2)
     engine = translate_engines.get_engine(
-        engine_name, args.api_key, args.model, free_tier=_gemini_free_tier(engine_name),
-        base_url=getattr(args, "ollama_url", None)) if args.api_key else None
+        engine_name, api_key, args.model, free_tier=_gemini_free_tier(engine_name),
+        base_url=_ollama_url(args) if engine_name == "ollama" else None)
 
     def step(d):
         ddir = db.drama_dir(d["id"])
@@ -159,16 +186,16 @@ def cmd_narrate_prep(args):
             text = f.read()
         chunks = chunk_novel_text(text)
         lines = [Line(idx=i, start=float(i), end=float(i) + 1.0, zh=c) for i, c in enumerate(chunks)]
-        if engine:
-            known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
-            # Labels come back keyed by each chunk's idx; a chunk with no
-            # label defaults to "Narrator" -- never paired by list position.
-            by_idx = translate_engines.tag_speakers_by_id({ln.idx: ln.zh for ln in lines}, engine, known)
-            for ln in lines:
-                ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
-        else:
-            for ln in lines:
-                ln.speaker = "Narrator"
+        known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
+        # Labels come back keyed by each chunk's idx; a chunk with no
+        # label defaults to "Narrator" -- never paired by list position.
+        by_idx = translate_engines.tag_speakers_by_id(
+            {ln.idx: ln.zh for ln in lines}, engine, known,
+            usage_cb=lambda inp, out, did=d["id"]: db.log_usage(
+                did, engine_name, getattr(engine, "model", engine_name), "tag_speakers",
+                inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+        for ln in lines:
+            ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
         if not _replace_drama_lines(d["id"], lines, "before chunk & tag speakers"):
             return
         # After the empty-result check, so an empty result changes nothing.
@@ -321,13 +348,8 @@ def cmd_align(args):
         # never applies here and there's nothing to read for it.)
         whisper_size = args.whisper_size or d.get("whisper_size") or DEFAULT_WHISPER_SIZE
         alignment_method = d.get("alignment_method") or "whisper_diff"
-        glossary_terms = db.list_glossary_terms(d["series_id"]) if d.get("series_id") else []
-        initial_prompt = build_initial_prompt(glossary_terms)
-        raw_novel_path = os.path.join(ddir, "raw_novel_context.txt")
-        if os.path.exists(raw_novel_path):
-            with open(raw_novel_path, "r", encoding="utf-8") as f:
-                initial_prompt = combine_initial_prompt(
-                    initial_prompt, extract_novel_excerpt_for_prompt(f.read()))
+        # Glossary names plus raw-novel excerpt, shared with the API path.
+        initial_prompt = transcribe_service.build_auto_initial_prompt(d["id"])
         # Same saved tuning the service's transcribe job uses
         # (transcribe_service.get_transcribe_config); --fast still wins.
         cfg = transcribe_service.get_transcribe_config(d["id"])
@@ -410,7 +432,7 @@ def cmd_translate(args):
                  else translate_service.resolve_api_key(name)),
                 args.model if own_flags else None,
                 free_tier=_gemini_free_tier(name),
-                base_url=getattr(args, "ollama_url", None))
+                base_url=_ollama_url(args) if name == "ollama" else None)
         return _engines[name]
     # Step 74: UI parity -- Workspace's own Translate button builds this
     # same optional summary_engine before starting the job (defaulting to
@@ -420,7 +442,7 @@ def cmd_translate(args):
     try:
         summary_engine = translate_engines.get_engine(
             summary_engine_choice, getattr(args, "episode_summary_api_key", None),
-            base_url=getattr(args, "ollama_url", None) if summary_engine_choice == "ollama" else None)
+            base_url=_ollama_url(args) if summary_engine_choice == "ollama" else None)
     except Exception:
         summary_engine = None
 
@@ -448,9 +470,10 @@ def cmd_translate(args):
         drama_chars = db.list_characters_with_series_names(d["id"])
         # Step 25r: Workspace's own translate path also folds in the learned
         # style profile and per-line emotion guidance -- both DB-backed, so
-        # (unlike the pronoun-default/genre-notes toggles, which only ever
-        # live in browser session state) there's no structural reason for the
-        # CLI to leave them out.
+        # there's no structural reason for the CLI to leave them out. The
+        # pronoun-default/genre-notes toggles aren't stored on the drama, so
+        # they come from --female-pronouns / --no-genre-notes (defaults match
+        # the Workspace checkboxes and the API: she/her off, genre notes on).
         _scope = f"series:{d['series_id']}" if d.get("series_id") else "global"
         _prof = db.get_style_profile(_scope)
         _learned = adaptive_style.profile_to_prompt_block(_prof["profile"]) if _prof else ""
@@ -461,6 +484,8 @@ def cmd_translate(args):
             "novel" if d.get("content_mode") == "novel_narration" else "audio_drama")
         style_guidelines = tguide.build_style_guidelines(
             style_preset=style_preset, glossary_terms=glossary_terms,
+            include_genre_notes=not getattr(args, "no_genre_notes", False),
+            default_female_pronouns=getattr(args, "female_pronouns", False),
             custom_notes="\n\n".join(b for b in (
                 _learned, _emotion_block,
                 tguide.build_character_gender_hints(series_chars, drama_chars)) if b))
@@ -470,7 +495,13 @@ def cmd_translate(args):
         _id_by_idx = {ln.idx: ln.id for ln in lines if getattr(ln, "id", None) is not None}
         # Same caps as the Workspace Translate job: per job (--cost-cap)
         # and per calendar month (--monthly-cap, or BAIHE_MONTHLY_CAP_USD).
+        # Like the service, the monthly cap only covers paid engines
+        # (_cap_applies: not local/free engines, not Gemini's free tier).
         monthly_cap = getattr(args, "monthly_cap", None)
+        if monthly_cap is None:
+            monthly_cap = _monthly_cap_setting()
+        if not _cap_applies(engine_name, _gemini_free_tier(engine_name)):
+            monthly_cap = None
         cost_cap, refusal = translate_engines.resolve_cost_cap(
             getattr(args, "cost_cap", None), monthly_cap,
             db.get_month_spend() if monthly_cap else 0.0)
@@ -560,7 +591,8 @@ def cmd_dub(args):
         offline_voice_map = {c["speaker_label"]: c["offline_voice"] for c in chars
                              if c.get("offline_voice")}
         clone_map = dub_module.clone_map_from_characters(
-            chars, ddir, gpt_sovits_url=getattr(args, "gpt_sovits_url", None),
+            chars, ddir, gpt_sovits_url=(getattr(args, "gpt_sovits_url", None)
+                                          or settings_service.resolve_key("gpt_sovits_url") or None),
             ref_language=source_lang)
         speakers = {ln.speaker for ln in lines if ln.speaker}
         voice_map = dub_module.fill_missing_voices(voice_map, speakers, default_voice_pool)
@@ -675,7 +707,7 @@ def cmd_doctor(args):
     unreachable local Ollama server up front, with a real (but minimal,
     single-line) call, instead of discovering it mid-job."""
     result = diagnostics.check_engine_reachable(
-        args.engine, args.api_key, args.model, getattr(args, "ollama_url", None))
+        args.engine, args.api_key, args.model, _ollama_url(args))
     if result["ok"]:
         print(f"OK: {result['engine']} is reachable and responding.")
     else:
@@ -727,7 +759,8 @@ def main():
     p_translate.add_argument("--id", type=int, default=None)
     p_translate.add_argument("--status", default=None)
     p_translate.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
-    p_translate.add_argument("--api-key", required=True)
+    p_translate.add_argument("--api-key", default=None,
+                             help="Key for --engine; omit to use the saved key.")
     p_translate.add_argument("--model", default=None)
     p_translate.add_argument("--episode-summary-engine", default="ollama",
                              choices=list(translate_engines.ENGINES),
@@ -748,6 +781,12 @@ def main():
                                    "(\"novel\" for a novel-narration drama, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
     p_translate.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_translate.add_argument("--female-pronouns", action="store_true",
+                           help="Default ambiguous pronouns to she/her (the Workspace "
+                                "checkbox / a preset's pronoun default).")
+    p_translate.add_argument("--no-genre-notes", action="store_true",
+                           help="Leave out the baihe/GL genre guidance (on by default, "
+                                "as in the Workspace).")
     p_translate.add_argument("--force", action="store_true",
                               help="Re-translate everything, including lines that already have a translation")
     p_translate.add_argument("--ollama-num-ctx", type=int, default=None,
@@ -765,9 +804,9 @@ def main():
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
     p_translate.add_argument("--monthly-cap", type=float,
-                           default=float(os.environ.get("BAIHE_MONTHLY_CAP_USD") or 0) or None,
+                           default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
-                                "reaches this many USD. Defaults to BAIHE_MONTHLY_CAP_USD.")
+                                "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     # Step 32: matches the Workspace tab's own three sliders. Unset means
     # the service's per-drama defaults (translate_run_service.
     # get_translate_config_defaults): 6/3/20, or 10/6/30 for novel narration.
@@ -816,7 +855,8 @@ def main():
     p_run.add_argument("--id", type=int, required=True)
     p_run.add_argument("--whisper-size", default=None)
     p_run.add_argument("--engine", default=None, choices=list(translate_engines.ENGINES))
-    p_run.add_argument("--api-key", required=True)
+    p_run.add_argument("--api-key", default=None,
+                             help="Key for --engine; omit to use the saved key.")
     p_run.add_argument("--model", default=None)
     p_run.add_argument("--style-note", default=None)
     # cmd_run calls cmd_translate(args) directly, reusing this same
@@ -827,6 +867,12 @@ def main():
     p_run.add_argument("--status", default=None)
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
     p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_run.add_argument("--female-pronouns", action="store_true",
+                           help="Default ambiguous pronouns to she/her (the Workspace "
+                                "checkbox / a preset's pronoun default).")
+    p_run.add_argument("--no-genre-notes", action="store_true",
+                           help="Leave out the baihe/GL genre guidance (on by default, "
+                                "as in the Workspace).")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--ollama-num-ctx", type=int, default=None)
     p_run.add_argument("--ollama-url", default=None)
@@ -838,9 +884,9 @@ def main():
                            help="Stop a drama's translation once its estimated spend reaches this "
                                 "many USD (finished lines are kept).")
     p_run.add_argument("--monthly-cap", type=float,
-                           default=float(os.environ.get("BAIHE_MONTHLY_CAP_USD") or 0) or None,
+                           default=None,
                            help="Refuse to start / stop once this calendar month's logged spend "
-                                "reaches this many USD. Defaults to BAIHE_MONTHLY_CAP_USD.")
+                                "reaches this many USD. Defaults to the saved Settings/.env monthly cap.")
     p_run.set_defaults(func=cmd_run)
 
     p_export_video = sub.add_parser("export-video")

@@ -77,6 +77,41 @@ class TestCmdTranslateParity:
         # was actually computed and passed, not left as the default "".
         assert seen["style_guidelines"]
 
+    @pytest.mark.parametrize("flags,female,genre", [
+        ({}, False, True),
+        ({"female_pronouns": True, "no_genre_notes": True}, True, False),
+    ])
+    def test_pronoun_and_genre_toggles_reach_the_style_guidelines(
+            self, isolated_db, monkeypatch, flags, female, genre):
+        """Parity with the Workspace checkboxes / API TranslateRunStart:
+        she/her off and genre notes on unless a flag says otherwise."""
+        did = isolated_db.create_drama(title_en="Test", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好")])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "translate_lines_with_engine",
+                            lambda lines, engine, **kw: (lines, []))
+        seen = {}
+        real = cli.tguide.build_style_guidelines
+        def spy(*a, **k):
+            seen.update(k)
+            return real(*a, **k)
+        monkeypatch.setattr(cli.tguide, "build_style_guidelines", spy)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_translate(_translate_args(id=did, **flags))
+        assert seen["default_female_pronouns"] is female
+        assert seen["include_genre_notes"] is genre
+
+    @pytest.mark.parametrize("command", ["translate", "run"])
+    def test_real_parser_has_the_toggle_flags(self, monkeypatch, command):
+        captured = {}
+        monkeypatch.setattr(cli, "cmd_translate", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(cli, "cmd_run", lambda a: captured.setdefault("args", a))
+        monkeypatch.setattr(sys, "argv", ["cli.py", command, "--id", "1", "--api-key", "k",
+                                          "--female-pronouns", "--no-genre-notes"])
+        cli.main()
+        assert captured["args"].female_pronouns is True
+        assert captured["args"].no_genre_notes is True
+
     def test_context_window_ahead_and_batch_size_default_to_the_same_values_as_before(
             self, isolated_db, monkeypatch):
         """Step 32: this command used to have no way to set any of these
@@ -1100,9 +1135,11 @@ class TestCliServiceParity:
         with open(os.path.join(isolated_db.drama_dir(did), "novel_narration_source.txt"),
                   "w", encoding="utf-8") as f:
             f.write("一。\n\n二。")
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", lambda *a, **k: {})
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_narrate_prep(argparse.Namespace(
-                id=did, engine=None, api_key=None, model=None, ollama_url=None))
+                id=did, engine=None, api_key="k", model=None, ollama_url=None))
         assert [h["label"] for h in isolated_db.list_line_history(did)] == [
             "before chunk & tag speakers"]
 
@@ -1113,9 +1150,11 @@ class TestCliServiceParity:
                   "w", encoding="utf-8") as f:
             f.write("")
         monkeypatch.setattr(cli, "chunk_novel_text", lambda text: [])
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", lambda *a, **k: {})
         with contextlib.redirect_stdout(io.StringIO()):
             cli.cmd_narrate_prep(argparse.Namespace(
-                id=did, engine=None, api_key=None, model=None, ollama_url=None))
+                id=did, engine=None, api_key="k", model=None, ollama_url=None))
         assert [r["zh"] for r in isolated_db.load_lines(did)] == ["旧"]
         assert isolated_db.list_characters(did) == []
         assert isolated_db.list_line_history(did) == []
@@ -1187,3 +1226,132 @@ class TestCliServiceParity:
         cli.main()
         assert captured["engine"] is None and captured["batch_size"] is None
         assert captured["whisper_size"] is None
+
+
+class TestCliSavedSettingsFallbacks:
+    """Parity audit (B2): the CLI falls back to saved Settings the way the
+    services do -- keys, Ollama/GPT-SoVITS URLs, the monthly cap -- and
+    narrate-prep errors instead of silently tagging everyone "Narrator"."""
+
+    def _narration_drama(self, isolated_db):
+        did = isolated_db.create_drama(title_en="N", content_mode="novel_narration")
+        with open(os.path.join(isolated_db.drama_dir(did), "novel_narration_source.txt"),
+                  "w", encoding="utf-8") as f:
+            f.write("一。")
+        return did
+
+    @pytest.mark.parametrize("command", ["translate", "run"])
+    def test_api_key_is_optional(self, command):
+        import sys as _sys
+        seen = {}
+        orig = _sys.argv
+        try:
+            _sys.argv = ["cli.py", command, "--id", "1"]
+            import unittest.mock as mock
+            with mock.patch.object(cli, "cmd_translate", lambda a: seen.update(ns=a)), \
+                    mock.patch.object(cli, "cmd_run", lambda a: seen.update(ns=a)):
+                cli.main()
+            parser_args = seen["ns"]
+        finally:
+            _sys.argv = orig
+        assert parser_args.api_key is None
+        assert parser_args.monthly_cap is None
+
+    def test_narrate_prep_without_any_key_exits_nonzero(self, isolated_db, monkeypatch):
+        did = self._narration_drama(isolated_db)
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda *a, **k: None)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), pytest.raises(SystemExit) as exc:
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did, engine="claude", api_key=None, model=None, ollama_url=None))
+        assert exc.value.code != 0
+        assert "No claude key is configured" in err.getvalue()
+        assert isolated_db.load_lines(did) == []
+
+    def test_narrate_prep_rejects_non_tag_engine(self, isolated_db):
+        did = self._narration_drama(isolated_db)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), pytest.raises(SystemExit):
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did, engine="deepl", api_key="k", model=None, ollama_url=None))
+        assert "cannot tag speakers" in err.getvalue()
+
+    def test_narrate_prep_uses_saved_key_ollama_url_free_tier_and_logs_usage(
+            self, isolated_db, monkeypatch):
+        did = self._narration_drama(isolated_db)
+        saved = {"gemini": "saved-gemini", "ollama_url": "http://saved:11434"}
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda k, *a: saved.get(k))
+        monkeypatch.setattr(cli.settings_service, "get_gemini_free_tier", lambda: True)
+        built = []
+
+        class _E:
+            model = "m"
+        monkeypatch.setattr(translate_engines, "get_engine",
+                            lambda name, key=None, model=None, **k: built.append((name, key, k)) or _E())
+
+        def fake_tag(id_to_zh, engine, known, usage_cb=None, **k):
+            usage_cb(10, 5)
+            return {i: "Lin" for i in id_to_zh}
+        monkeypatch.setattr(translate_engines, "tag_speakers_by_id", fake_tag)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did, engine="gemini", api_key=None, model=None, ollama_url=None))
+        assert built == [("gemini", "saved-gemini", {"free_tier": True, "base_url": None})]
+        assert [r["speaker"] for r in isolated_db.load_lines(did)] == ["Lin"]
+        assert isolated_db.get_usage_summary(did)["call_count"] == 1
+
+        built.clear()
+        did2 = self._narration_drama(isolated_db)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cli.cmd_narrate_prep(argparse.Namespace(
+                id=did2, engine="ollama", api_key=None, model=None, ollama_url=None))
+        assert built[0][2]["base_url"] == "http://saved:11434"
+
+    def test_ollama_url_flag_wins_over_saved(self, monkeypatch):
+        monkeypatch.setattr(cli.settings_service, "resolve_key", lambda k, *a: "http://saved")
+        assert cli._ollama_url(argparse.Namespace(ollama_url="http://flag")) == "http://flag"
+        assert cli._ollama_url(argparse.Namespace(ollama_url=None)) == "http://saved"
+        assert cli._ollama_url(argparse.Namespace()) == "http://saved"
+
+    def test_monthly_cap_setting_parsing(self, monkeypatch):
+        for raw, want in (("20", 20.0), ("0", None), ("", None), ("junk", None), (None, None)):
+            monkeypatch.setattr(cli.settings_service, "resolve_key", lambda k, *a, r=raw: r)
+            assert cli._monthly_cap_setting() == want
+
+    def _cap_run(self, isolated_db, monkeypatch, engine_name):
+        engine = TestCmdTranslateSpendingCaps._Engine()
+        engine.name = engine_name
+        monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: engine)
+        monkeypatch.setattr(cli.settings_service, "resolve_key",
+                            lambda k, *a: "20" if k == "monthly_cap_usd" else None)
+        did = isolated_db.create_drama(title_en="T", status="aligned")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你")])
+        isolated_db.log_usage(did, "claude", "m", "translate", 1, 1, 50.0)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            try:
+                cli.cmd_translate(_translate_args(id=did, engine=engine_name,
+                                                  cost_cap=None, monthly_cap=None))
+            except SystemExit:
+                pass
+        return engine
+
+    def test_saved_monthly_cap_applies_to_paid_engine(self, isolated_db, monkeypatch):
+        assert self._cap_run(isolated_db, monkeypatch, "claude").calls == 0
+
+    def test_monthly_cap_skips_non_cap_engine(self, isolated_db, monkeypatch):
+        assert self._cap_run(isolated_db, monkeypatch, "test_offline").calls == 1
+
+    def test_dub_falls_back_to_saved_gpt_sovits_url(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(cli.settings_service, "resolve_key",
+                            lambda k, *a: "http://sovits" if k == "gpt_sovits_url" else None)
+        seen = {}
+
+        def fake_clone_map(chars, ddir, gpt_sovits_url=None, **k):
+            seen["url"] = gpt_sovits_url
+            raise RuntimeError("stop here")
+        monkeypatch.setattr(dub_module, "clone_map_from_characters", fake_clone_map)
+        did = isolated_db.create_drama(title_en="D", status="translated")
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你", en="hi")])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            cli.cmd_dub(_dub_args(id=did))
+        assert seen.get("url") == "http://sovits"

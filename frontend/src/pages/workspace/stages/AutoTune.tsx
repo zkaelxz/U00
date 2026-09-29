@@ -10,6 +10,7 @@ import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { AutotuneCandidateScore } from '../../../types/autotuneGlossary'
 import type { TranscribeConfig } from '../../../types/workspace'
 import { useStage } from '../StageContext'
+import { promptFields } from './transcribePrompt'
 import {
   autotuneApplyErrorText,
   autotuneBlocker,
@@ -23,8 +24,10 @@ interface Props {
   hasAudio: boolean
   // Another job for this drama (transcribe, diarize, upload) is running.
   busy: boolean
-  // The Advanced "Initial prompt", used for every test run.
-  prompt: string
+  // The Transcribe prompt inputs, used for every test run: a replacement prompt
+  // (wins when set) or extra names added to the automatic prompt.
+  override: string
+  extraNames: string
   onApplied: (config: TranscribeConfig) => void
 }
 
@@ -32,7 +35,7 @@ const BEST = 'Fewest long lines'
 
 // Transcribe → Advanced → "Auto-tune min silence": transcribes the audio once
 // per candidate and scores how many long lines each gives (local ASR only).
-export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
+export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Props) {
   const { dramaId } = useStage()
   const isPhone = useMediaQuery('(max-width: 640px)')
   const { status, error: loadError, refresh, clearError } = useRunStatus(dramaId, getAutotune)
@@ -51,7 +54,7 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
     setError(null)
     setProblem(null)
     setNote(null)
-    startAutotune(dramaId, prompt.trim() ? { initial_prompt: prompt } : {})
+    startAutotune(dramaId, promptFields(override, extraNames))
       .then(
         () => refresh(),
         (e: unknown) => {
@@ -107,7 +110,7 @@ export function AutoTune({ hasAudio, busy, prompt, onApplied }: Props) {
       <div className="autotune" data-testid="autotune">
         <p className="muted">
           Transcribes the audio once per test value and counts the long lines each gives. Uses
-          the GPU and can take a while. It uses the Initial prompt above.
+          the GPU and can take a while. It uses the same Whisper prompt as Transcribe.
         </p>
         {active && status ? (
           <p className="actions" role="status" data-testid="autotune-running">

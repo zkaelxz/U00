@@ -27,7 +27,8 @@ from core import Line
 
 @pytest.fixture
 def client(isolated_db):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 def _error(resp):
@@ -773,7 +774,7 @@ class TestTranscribeConfigEndpoints:
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "paddle",
-            "hardsub_interval_sec": 1.0,
+            "hardsub_interval_sec": 1.0, "auto_initial_prompt": "",
         }
 
     def test_get_config_unknown_drama_is_404(self, client, isolated_db):

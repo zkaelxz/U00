@@ -336,6 +336,9 @@ class TranscribeConfig(BaseModel):
     has_video_source: bool
     hardsub_ocr_backend: str
     hardsub_interval_sec: float
+    # Whisper prompt built from the series glossary and raw-novel excerpt;
+    # a run with an empty initial_prompt uses this.
+    auto_initial_prompt: str = ""
 
 
 class TranscribeConfigUpdate(BaseModel):
@@ -368,7 +371,10 @@ class TranscribeRunRequest(BaseModel):
     transcript_text: Optional[str] = None
     run_diarize: bool = False
     expected_speakers: Optional[int] = Field(default=None, ge=0, le=20)
+    # Non-empty: replaces the automatic prompt entirely. Empty: the server
+    # builds glossary names + extra_names + raw-novel excerpt.
     initial_prompt: str = ""
+    extra_names: str = Field("", max_length=1000)
     tesseract_cmd: Optional[str] = None
 
 
@@ -531,6 +537,7 @@ class DramaPresetDefaults(BaseModel):
     locale: Optional[str] = None
     default_female_pronouns: bool
     include_genre_notes: bool
+    engine_model: Optional[str] = None  # applies to the drama's saved translation_engine
 
 
 class DramaCreateResult(DramaDetail):
@@ -1150,6 +1157,9 @@ class TranslateRunStart(BaseModel):
     fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=3)
     reflect: bool = False  # Slice 41: Step 7's three-pass Reflect mode
     bulk: bool = False  # Slice 41: batch API / DeepSeek off-peak, job bulk_translate_{id}
+    # A preset's prompt toggles; None = the tab's defaults (she/her off, genre notes on).
+    default_female_pronouns: Optional[bool] = None
+    include_genre_notes: Optional[bool] = None
 
 
 class TranslateRunStarted(BaseModel):
@@ -2456,6 +2466,7 @@ class AutotuneRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     candidates: Optional[List[AutotuneCandidateMs]] = Field(None, min_length=1, max_length=6)
     initial_prompt: str = Field("", max_length=1000)
+    extra_names: str = Field("", max_length=1000)
 
 
 class AutotuneRunResult(BaseModel):

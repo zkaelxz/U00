@@ -69,7 +69,8 @@ def fake_live(monkeypatch, isolated_db):
 
 @pytest.fixture
 def client(fake_live):
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
+                      headers={"X-Baihe-Local": "1"})  # as the React client sends
 
 
 def _no_leak(r, extra=()):

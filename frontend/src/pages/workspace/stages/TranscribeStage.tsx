@@ -27,6 +27,7 @@ import {
 } from '../sourceForm'
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
+import { promptFields } from './transcribePrompt'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
@@ -94,7 +95,9 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [transcriptText, setTranscriptText] = useState(restored.transcriptText ?? '')
   const [runDiarize, setRunDiarize] = useState(restored.runDiarize ?? false)
   const [speakers, setSpeakers] = useState(restored.speakers ?? '')
-  const [prompt, setPrompt] = useState(restored.prompt ?? '')
+  // Names added to the automatic prompt (kept per drama); the full override is not kept.
+  const [extraNames, setExtraNames] = useState(restored.extraNames ?? '')
+  const [override, setOverride] = useState('')
   const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -115,8 +118,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }, [dramaId])
 
   useEffect(() => {
-    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, prompt })
-  }, [dramaId, language, script, transcriptText, runDiarize, speakers, prompt])
+    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, extraNames })
+  }, [dramaId, language, script, transcriptText, runDiarize, speakers, extraNames])
 
   useEffect(() => {
     let cancelled = false
@@ -185,7 +188,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       ...(haveTranscript ? { transcript_text: transcriptText } : {}),
       run_diarize: runDiarize,
       ...(expected !== undefined ? { expected_speakers: expected } : {}),
-      initial_prompt: prompt,
+      ...promptFields(override, extraNames),
     }
   }
 
@@ -325,7 +328,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <Section
           storageKey="source.advanced"
           title="Advanced"
-          summary={advancedSummary({ ...cf, prompt })}
+          summary={advancedSummary({ ...cf, prompt: override })}
         >
           <div className="source-grid">
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
@@ -337,9 +340,30 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
             {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
           </div>
-          <Field label="Initial prompt" help="Names or terms that help the model spell things correctly.">
-            <input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <p className="muted" data-testid="auto-prompt">
+            {config?.auto_initial_prompt
+              ? `Automatic prompt, from glossary and novel: ${config.auto_initial_prompt}`
+              : 'Automatic prompt: no glossary names or raw novel yet. Extra names below still help.'}
+          </p>
+          <Field
+            label="Extra names to expect"
+            help="Added to the automatic prompt. Separate names with 、 or commas."
+          >
+            <input
+              value={extraNames}
+              placeholder="沈清疑、云隐宗"
+              onChange={(e) => setExtraNames(e.target.value)}
+            />
           </Field>
+          <details>
+            <summary>Advanced: replace the automatic prompt</summary>
+            <Field
+              label="Replacement prompt"
+              help="Used instead of the automatic prompt and extra names. Leave empty to keep the automatic one."
+            >
+              <input value={override} onChange={(e) => setOverride(e.target.value)} />
+            </Field>
+          </details>
           <div className="source-checks">
             {check('Separate vocals first', 'separate_vocals_first')}
             {check('Realign long segments', 'realign_long_segments')}
@@ -353,7 +377,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
           <AutoTune
             hasAudio={!!media?.has_audio}
             busy={busy}
-            prompt={prompt}
+            override={override}
+            extraNames={extraNames}
             onApplied={(c) => {
               setConfig(c)
               // Keep any other unsaved edits; only min silence changed.

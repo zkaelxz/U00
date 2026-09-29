@@ -227,7 +227,10 @@ def autofill_suggestion(drama_id: int, url: Optional[str] = None,
     if not text.strip():
         return {"drama_id": drama_id, "suggestion": {}, "found": False}
     try:
-        engine = translate_engines.get_engine(engine_name, api_key)
+        engine = translate_engines.get_engine(
+            engine_name, api_key, free_tier=settings_service.get_gemini_free_tier(),
+            base_url=(settings_service.resolve_key("ollama_url") or None)
+            if engine_name == "ollama" else None)
         found = metadata_lookup.extract_metadata_llm(text, engine)
     except Exception as e:
         raise DependencyUnavailableError("The metadata lookup service is unavailable.") from e

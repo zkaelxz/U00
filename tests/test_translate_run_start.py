@@ -137,3 +137,54 @@ def test_api_endpoint_status_codes(isolated_db):
     assert r.status_code == 200 and r.json()["target_line_count"] == 1
     _wait(r.json()["job_id"])
     assert db.load_lines(did)[0]["en"]
+
+
+def _spy_guidelines(monkeypatch):
+    seen = []
+    real = svc.translation_guide.build_style_guidelines
+
+    def spy(*a, **k):
+        seen.append(k)
+        return real(*a, **k)
+    monkeypatch.setattr(svc.translation_guide, "build_style_guidelines", spy)
+    return seen
+
+
+def test_prompt_toggles_default_to_the_tab_widget_defaults(isolated_db, monkeypatch):
+    seen = _spy_guidelines(monkeypatch)
+    did = _seed([("你好", "")])
+    _wait(svc.start_translate_run(did, engine_name="test_offline")["job_id"])
+    assert seen[-1]["include_genre_notes"] is True
+    assert seen[-1]["default_female_pronouns"] is False
+
+
+def test_prompt_toggles_override_reach_the_guidelines(isolated_db, monkeypatch):
+    seen = _spy_guidelines(monkeypatch)
+    did = _seed([("你好", "")])
+    _wait(svc.start_translate_run(did, engine_name="test_offline",
+                                  default_female_pronouns=True,
+                                  include_genre_notes=False)["job_id"])
+    assert seen[-1]["include_genre_notes"] is False
+    assert seen[-1]["default_female_pronouns"] is True
+
+
+def test_api_passes_prompt_toggles_and_validates_them(isolated_db, monkeypatch):
+    seen = _spy_guidelines(monkeypatch)
+    client = TestClient(create_app())
+    did = _seed([("你好", "")])
+    assert client.post(f"/api/translate-run/dramas/{did}/run",
+                       json={"engine": "test_offline",
+                             "include_genre_notes": "maybe"}).status_code == 422
+    r = client.post(f"/api/translate-run/dramas/{did}/run",
+                    json={"engine": "test_offline", "default_female_pronouns": True,
+                          "include_genre_notes": False})
+    assert r.status_code == 200, r.text
+    _wait(r.json()["job_id"])
+    assert seen[-1]["default_female_pronouns"] is True
+    assert seen[-1]["include_genre_notes"] is False
+    r = client.post(f"/api/translate-run/dramas/{did}/run",
+                    json={"engine": "test_offline", "force_retranslate": True})
+    assert r.status_code == 200, r.text
+    _wait(r.json()["job_id"])
+    assert seen[-1]["default_female_pronouns"] is False
+    assert seen[-1]["include_genre_notes"] is True
