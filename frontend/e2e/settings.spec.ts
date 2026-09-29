@@ -9,12 +9,15 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await expect(page.getByText(/API-key entry is not available/)).toBeVisible()
   const before = await box.isChecked()
 
-  await box.click()
+  // The toggle updates optimistically; wait for the save to finish before reloading,
+  // or the reload can read the old server value.
+  const saved = () => page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'POST')
+  await Promise.all([saved(), box.click()])
   await expect(box).toBeChecked({ checked: !before })
   await page.reload()
   await expect(box).toBeChecked({ checked: !before })
 
-  await box.click() // restore
+  await Promise.all([saved(), box.click()]) // restore
   await expect(box).toBeChecked({ checked: before })
   for (const dd of await page.locator('[data-testid^="key-"]').all())
     await expect(dd).toHaveText(/^(Yes|No)$/)
