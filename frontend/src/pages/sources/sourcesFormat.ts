@@ -3,6 +3,7 @@
 import { ApiError } from '../../api/client'
 import { safeDetail } from '../../components/errorMessages'
 import type { DramaSummary } from '../../api/types'
+import { humanizeValue } from '../../components/labels'
 import type {
   CheckResult,
   SeriesChapter,
@@ -143,14 +144,7 @@ export function healthText(light: string): string {
   if (light === 'green') return 'OK'
   if (light === 'yellow') return 'Failing'
   if (light === 'red') return 'Paused'
-  return humanize(light)
-}
-
-/** "UNTESTED" -> "Untested", "STATIC_HTTP" -> "Static http". */
-export function humanize(value: string | null | undefined): string {
-  if (!value) return '—'
-  const t = String(value).replace(/_/g, ' ').toLowerCase()
-  return t.charAt(0).toUpperCase() + t.slice(1)
+  return humanizeValue(light)
 }
 
 // ---------------------------------------------------------------- series
@@ -279,10 +273,10 @@ const TIER_LABELS: Record<string, string> = {
 
 export function tierLines(tiers: Record<string, SourceTierResult>): string[] {
   return Object.entries(tiers).map(([key, t]) => {
-    const label = TIER_LABELS[key] ?? humanize(key)
+    const label = TIER_LABELS[key] ?? humanizeValue(key)
     if (!t.tested) return `${label}: untested`
     if (t.ok) return `${label}: works`
-    const why = t.reason ? humanize(t.reason).toLowerCase() : ''
+    const why = t.reason ? humanizeValue(t.reason).toLowerCase() : ''
     return `${label}: failed${why ? ` (${why})` : ''}`
   })
 }
@@ -487,7 +481,7 @@ export const tierLabel = (tier: SourceTier) => TIER_LABELS[TIER_TESTS.find((t) =
 export function tierTestLine(r: TierTestResult): string {
   const label = tierLabel(r.tier)
   if (r.ok) return `${label}: works.`
-  const why = r.reason ? humanize(r.reason).toLowerCase() : 'failed'
+  const why = r.reason ? humanizeValue(r.reason).toLowerCase() : 'failed'
   return `${label}: ${why}${r.detail ? ` (${r.detail})` : ''}.`
 }
 

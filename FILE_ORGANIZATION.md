@@ -526,6 +526,14 @@ baihe-subtitler/
 │   │                              SourceSettings, SourceDetail, SourceAccess (sign-in, per-tier tests),
 │   │                              PacingForm, ProxyForm, useSourcesJob (job-result polling + reattach),
 │   │                              sourcesFormat.ts (pure, unit-tested), sources.css
+│   ├── src/pages/Discover.tsx     Discover page (#/discover): one AI-engine picker, the known-titles catalogue
+│   │                              (search, filters, add to Library, PC-only remove), platform search links,
+│   │                              baihehub search, navigation helper, add a title (from a URL or by hand),
+│   │                              bulk import; api/discover.ts, types/discover.ts
+│   ├── src/pages/discover/        CatalogPanel, FindPanel (+ PlatformList), BaihehubPanel, NavigationHelp,
+│   │                              AddTitle, BulkImport, ExternalLink (http(s)-only links), useDiscoverJob
+│   │                              (fixed-id job polling via pollSourcesJob), discoverFormat.ts (pure,
+│   │                              unit-tested), discover.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
 │   │                              novel), SeriesCast (Characters > Series cast: list, add, inline edit of
 │   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,

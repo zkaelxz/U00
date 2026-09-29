@@ -408,20 +408,20 @@ The API covers the registry and settings (56a/56b), search/series jobs (S-3, #37
 
 ## 9. Discover (`tabs/discover_tab.py`, 394 lines)
 
-The whole page is MISSING in React. The API covers the catalog (D-0/D-1) and the D-2 network helpers (#372).
+React: the Discover page `#/discover` (branch `react-discover-page`) covers DI01-DI10 over the catalog (D-0/D-1) and D-2 helper routes (#372); DI08 opens a new tab instead of an in-app frame, and DI07 has no pasted-text fallback (no API).
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
-| DI01 | Shared engine and API key for every AI action on the page | 36-56 | `translate_engines.get_engine` | no API | test_discover_tab TestKeyGatingIsEngineAware |
-| DI02 | Load starter titles | 60-70 | `title_library.seed_known_titles` | `POST /api/discover/titles/seed` | test_discover_tab |
-| DI03 | Search the saved catalog, import a title into the Library, remove it | 72-113 | `db.list_known_titles`, `db.create_drama`, `delete_known_title` | `GET /api/discover/titles`, `POST .../import-to-library`, `POST .../delete` | test_discover_tab TestDiscoverConsolidation |
-| DI04 | Find a title on official platforms (query translated to Chinese, cached; search links) | 115-158 | `title_library.translate_query_to_zh`, `known_sites.build_search_links` | `GET /api/discover/search-links` (translation: no API) | test_discover_tab TestFindATitleTranslationCaching |
-| DI05 | Site navigation helper (translate a page and give steps) | 160-221 | `navigator` | no API (D-2 prune candidate) | test_discover_tab TestSiteNavigationHelperButton |
-| DI06 | Search baihehub.com | 223-242 | — | no API (D-2 prune candidate) | test_discover_tab TestBaihehubSearch |
-| DI07 | Bulk import from listing pages: URL pattern generator, extract, manual paste, review, add | 244-334 | `title_library.*` | no API (D-2 prune candidate) | test_discover_tab TestBulkImportUrlPatternGenerator |
-| DI08 | Browse a site in-app (iframe) | 336-355 | `st.iframe` | no API | test_dark_mode_step68 |
-| DI09 | Import a title from a URL into the catalog | 357-376 | `title_library.import_title_from_url`, `db.create_known_title` | no API | test_discover_tab |
-| DI10 | Add a title manually | 378-394 | `db.create_known_title` | `POST /api/discover/titles` | test_discover_tab |
+| DI01 | Shared engine and API key for every AI action on the page | 36-56 | `translate_engines.get_engine` | no API (engine name per request; keys resolved on the PC). React: DONE (one picker, configured engines the routes accept) | test_discover_tab TestKeyGatingIsEngineAware |
+| DI02 | Load starter titles | 60-70 | `title_library.seed_known_titles` | `POST /api/discover/titles/seed`. React: DONE (shown when the catalogue is empty) | test_discover_tab |
+| DI03 | Search the saved catalog, import a title into the Library, remove it | 72-113 | `db.list_known_titles`, `db.create_drama`, `delete_known_title` | `GET /api/discover/titles`, `POST .../import-to-library`, `POST .../delete`. React: DONE (search, language/format filters, details, add to Library with the 409 "already in your Library" link, PC-only remove) | test_discover_tab TestDiscoverConsolidation |
+| DI04 | Find a title on official platforms (query translated to Chinese, cached; search links) | 115-158 | `title_library.translate_query_to_zh`, `known_sites.build_search_links` | `GET /api/discover/search-links`, `POST /api/discover/translate-query` (#372). React: DONE (translation on Find, cached per query and engine; the JJWXC tag link is not ported) | test_discover_tab TestFindATitleTranslationCaching |
+| DI05 | Site navigation helper (translate a page and give steps) | 160-221 | `navigator` | `POST /api/discover/navigation-help` + `GET .../result` (#372). React: DONE (steps as plain text, translated labels; known-platforms list under Find) | test_discover_tab TestSiteNavigationHelperButton |
+| DI06 | Search baihehub.com | 223-242 | — | `POST /api/discover/baihehub-search` (#372). React: DONE (browser fallback link) | test_discover_tab TestBaihehubSearch |
+| DI07 | Bulk import from listing pages: URL pattern generator, extract, manual paste, review, add | 244-334 | `title_library.*` | `POST /api/discover/bulk-extract` + `GET .../result`, `POST /api/discover/bulk-commit` (#372). React: PARTIAL (pattern generator, extract job, review, add with dedup; no pasted-text extraction: no API) | test_discover_tab TestBulkImportUrlPatternGenerator |
+| DI08 | Browse a site in-app (iframe) | 336-355 | `st.iframe` | no API. React: CHANGED (opens the site in a new tab; no in-app frame or embeddability check) | test_dark_mode_step68 |
+| DI09 | Import a title from a URL into the catalog | 357-376 | `title_library.import_title_from_url`, `db.create_known_title` | `POST /api/discover/import-suggestion` (#372) + `POST /api/discover/titles`. React: DONE (the suggestion fills the add form; nothing is saved until Add) | test_discover_tab |
+| DI10 | Add a title manually | 378-394 | `db.create_known_title` | `POST /api/discover/titles`. React: DONE | test_discover_tab |
 
 ## 10. Live (`tabs/live_tab.py`, 149 lines)
 
@@ -605,5 +605,5 @@ Size: **S** is under half a session, **M** is about one session, **L** is severa
 
 **Reader** (L; needs the Range endpoint): RD01-RD14.
 **Sources** (L; S-3..S-7): SO01-SO19, including the scheduler move in M0-b.
-**Discover** (M/L; D-2): DI01, DI04-DI09.
+**Discover** (M/L; D-2): DI01, DI04-DI09. React page built (`react-discover-page`); left: DI07 pasted-text extraction (needs an API), DI08 in-app frame (replaced by a new tab).
 **Live** (L; L-1): LV01-LV06 built (React `#/live`, branch `react-live-page`); tab deletion waits on the real-stream check.
