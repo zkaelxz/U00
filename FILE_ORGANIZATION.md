@@ -471,7 +471,9 @@ baihe-subtitler/
 │   │                              ConfirmButton (two-step delete), errorMessages.ts (error copy per code),
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
-│   │                              when React never mounts; index.html also holds a static no-JS note)
+│   │                              when React never mounts; index.html also holds a static no-JS note);
+│   │                              src/labels.ts (display labels for status, media type, language and
+│   │                              engine codes; unknown codes title-cased; unit-tested)
 │   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
 │   │                              errors, failed API calls (method/path/status/code only) and route history;
 │   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),
