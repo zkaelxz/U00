@@ -26,6 +26,7 @@ import {
   whisperModelWarning,
 } from '../sourceForm'
 import { useStage } from '../StageContext'
+import { AutoTune } from './AutoTune'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
@@ -328,7 +329,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         >
           <div className="source-grid">
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
-            {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines.', 'ms')}
+            {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines. Auto-tune below can pick it.', 'ms')}
             {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
             {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
             {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
@@ -349,6 +350,16 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             <button type="button" onClick={saveOptions}>Save options</button>
             {saved && <span role="status" className="muted">Saved.</span>}
           </div>
+          <AutoTune
+            hasAudio={!!media?.has_audio}
+            busy={busy}
+            prompt={prompt}
+            onApplied={(c) => {
+              setConfig(c)
+              // Keep any other unsaved edits; only min silence changed.
+              setCf((cur) => (cur ? { ...cur, min_silence_ms: String(c.min_silence_ms) } : formFromConfig(c)))
+            }}
+          />
         </Section>
       )}
     </section>

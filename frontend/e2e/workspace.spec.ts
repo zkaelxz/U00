@@ -30,7 +30,7 @@ async function mockRun(page: Page, dramaId: number) {
 async function openAdvanced(page: Page) {
   const details = page.locator('details.section').filter({ has: page.getByText('Advanced', { exact: true }) })
   await expect(details).toBeVisible()
-  if ((await details.getAttribute('open')) === null) await details.locator('summary').click()
+  if ((await details.getAttribute('open')) === null) await details.locator(':scope > summary').click()
   await expect(details).toHaveAttribute('open', '')
 }
 
@@ -198,7 +198,7 @@ test('the primary action is Transcribe, options are collapsed and changed option
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
   // Collapsed: the tuning fields are not visible until Advanced is opened.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
-  await expect(region.locator('details.section summary')).toContainText('defaults')
+  await expect(region.locator('details.section > summary').first()).toContainText('defaults')
   await openAdvanced(page)
   await page.getByLabel('Beam size', { exact: true }).fill('7')
   const transcript = page.getByLabel('Transcript text', { exact: true })

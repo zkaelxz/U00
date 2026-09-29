@@ -9,4 +9,11 @@ describe('typedMatches', () => {
     expect(typedMatches('restor', 'restore')).toBe(false)
     expect(typedMatches('', 'restore')).toBe(false)
   })
+
+  it('exact mode also needs the letter case', () => {
+    expect(typedMatches('DELETE', 'DELETE', true)).toBe(true)
+    expect(typedMatches(' DELETE ', 'DELETE', true)).toBe(true)
+    expect(typedMatches('delete', 'DELETE', true)).toBe(false)
+    expect(typedMatches('Delete', 'DELETE', true)).toBe(false)
+  })
 })
