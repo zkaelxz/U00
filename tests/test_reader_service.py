@@ -175,3 +175,406 @@ class TestGetReaderPageRealRender:
         result = reader_service.get_reader_page(did, page=1)
         assert "<!DOCTYPE html>" in result["html"]
         assert "Hello 0" in result["html"]
+
+
+# ---------------------------------------------------------------------------
+# M4: the rest of the Reader tab's logic, moved here
+# ---------------------------------------------------------------------------
+
+import os  # noqa: E402
+
+from services.service_errors import (DependencyUnavailableError,  # noqa: E402
+                                      ServiceError)
+
+
+class TestCaptionTracks:
+    """Moved from tests/test_reader_tab.py with the function (assertions
+    unchanged): CC tracks only for languages that actually have text."""
+
+    def test_both_sides_filled_gives_three_tracks(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")]
+        tracks = reader_service.caption_tracks(lines)
+        assert list(tracks) == ["Source", "English", "Bilingual"]
+        assert "你好" in tracks["Source"] and "Hello" not in tracks["Source"]
+        assert "Hello" in tracks["English"]
+        assert "Hello\n你好" in tracks["Bilingual"]
+
+    def test_untranslated_drama_gets_source_only(self):
+        lines = [Line(idx=0, start=0.0, end=1.0, zh="你好", en=""),
+                 Line(idx=1, start=1.0, end=2.0, zh="再见", en="   ")]
+        assert list(reader_service.caption_tracks(lines)) == ["Source"]
+
+    def test_no_text_at_all_gives_no_tracks(self):
+        assert reader_service.caption_tracks([Line(idx=0, start=0.0, end=1.0, zh=" ", en="")]) == {}
+
+    def test_tab_uses_the_service_function(self):
+        import tabs.reader_tab as rt
+        assert rt.caption_tracks is reader_service.caption_tracks
+
+    def test_get_caption_tracks_by_drama(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        assert list(reader_service.get_caption_tracks(did)["tracks"]) == ["Source"]
+
+    def test_caption_readout_audio_fallback(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=65.0, end=66.0, zh="第一行", en="Line one"),
+                                     Line(idx=1, start=70.0, end=71.0, zh="", en="")])
+        src = reader_service.get_caption_readout(did, "Source")["lines"]
+        assert [r["text"] for r in src] == ["第一行"]
+        assert src[0]["timestamp"] == "01:05"
+        assert src[0]["line_id"] is not None
+        bi = reader_service.get_caption_readout(did, "Bilingual")["lines"]
+        assert bi[0]["text"] == "Line one  \n第一行"
+        with pytest.raises(InvalidInputError):
+            reader_service.get_caption_readout(did, "French")
+
+
+class TestOwnership:
+    """Every public function 404s on an unknown drama."""
+
+    @pytest.mark.parametrize("call", [
+        lambda: reader_service.get_caption_tracks(999),
+        lambda: reader_service.get_caption_readout(999),
+        lambda: reader_service.get_media_availability(999),
+        lambda: reader_service.media_file_path(999, "original"),
+        lambda: reader_service.get_series_glossary(999),
+        lambda: reader_service.get_reading_overview(999),
+        lambda: reader_service.save_reading_position(999, 1),
+        lambda: reader_service.get_notes(999),
+        lambda: reader_service.save_notes(999, "x"),
+        lambda: reader_service.lookup_page_definitions(999, 1),
+        lambda: reader_service.list_vocab(999),
+        lambda: reader_service.set_rich_export(999, ["x"]),
+        lambda: reader_service.export_vocab_csv(999),
+        lambda: reader_service.export_vocab_apkg(999),
+        lambda: reader_service.who_is_character(999, "A"),
+        lambda: reader_service.explain_reference(999, "A"),
+        lambda: reader_service.recap(999, 1),
+        lambda: reader_service.relationship_map(999),
+        lambda: reader_service.list_wiki(999),
+        lambda: reader_service.update_wiki(999),
+        lambda: reader_service.clear_wiki(999),
+        lambda: reader_service.export_wiki_markdown(999),
+        lambda: reader_service.ask_about_drama(999, "Q?"),
+    ])
+    def test_unknown_drama_is_not_found(self, isolated_db, call):
+        with pytest.raises(NotFoundError):
+            call()
+
+    def test_bad_id_is_invalid(self, isolated_db):
+        with pytest.raises(InvalidInputError):
+            reader_service.get_notes(0)
+
+    def test_cannot_queue_another_dramas_word(self, isolated_db):
+        a, b = _drama(isolated_db), _drama(isolated_db)
+        isolated_db.save_vocab_lookup(b, "猫", "māo", ["cat"], "zh", 0)
+        with pytest.raises(NotFoundError):
+            reader_service.set_rich_export(a, ["猫"])
+        assert isolated_db.list_vocab_lookups(b, rich_only=True) == []
+
+    def test_vocab_and_wiki_are_per_drama(self, isolated_db):
+        a, b = _drama(isolated_db), _drama(isolated_db)
+        isolated_db.save_vocab_lookup(b, "猫", "māo", ["cat"], "zh", 0)
+        isolated_db.upsert_wiki_entry(b, "character", "B-only")
+        assert reader_service.list_vocab(a)["words"] == []
+        assert reader_service.list_wiki(a)["entries"] == []
+        reader_service.clear_wiki(a)
+        assert len(isolated_db.list_wiki_entries(b)) == 1
+
+
+class TestMedia:
+    def _media(self, db, did, name, data=b"\x00" * 16):
+        d = db.drama_dir(did)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(data)
+
+    def test_video_preferred_and_no_paths_returned(self, isolated_db):
+        did = _drama(isolated_db, source_video_filename="v.mp4", audio_filename="a.wav")
+        isolated_db.save_lines(did, _lines(1))
+        self._media(isolated_db, did, "v.mp4")
+        self._media(isolated_db, did, "a.wav")
+        self._media(isolated_db, did, "dub_track.wav")
+        info = reader_service.get_media_availability(did)
+        assert info["original"] == "video" and info["dub"] is True and info["narration"] is False
+        assert info["captions_overlay"] is True
+        assert os.sep not in repr(info)
+        kind, path = reader_service.media_file_path(did, "original")
+        assert kind == "video" and path.endswith("v.mp4")
+
+    def test_audio_only_has_no_overlay_and_missing_file_is_404(self, isolated_db):
+        did = _drama(isolated_db, audio_filename="a.wav", source_video_filename="gone.mp4")
+        isolated_db.save_lines(did, _lines(1))
+        self._media(isolated_db, did, "a.wav")
+        info = reader_service.get_media_availability(did)
+        assert info["original"] == "audio" and info["captions_overlay"] is False
+        with pytest.raises(NotFoundError):
+            reader_service.media_file_path(did, "narration")
+        with pytest.raises(InvalidInputError):
+            reader_service.media_file_path(did, "../etc")
+
+
+class TestGlossaryProgressNotes:
+    def test_series_glossary(self, isolated_db):
+        sid = isolated_db.get_or_create_series("S")
+        did = _drama(isolated_db, series_id=sid)
+        isolated_db.upsert_glossary_term(sid, "师尊", "Master")
+        g = reader_service.get_series_glossary(did)
+        assert g["series_id"] == sid
+        assert g["terms"][0]["term_original"] == "师尊"
+        assert g["terms"][0]["term_translation"] == "Master"
+
+    def test_no_series_gives_empty_glossary(self, isolated_db):
+        did = _drama(isolated_db)
+        assert reader_service.get_series_glossary(did) == {"drama_id": did, "series_id": None,
+                                                           "terms": []}
+
+    def test_progress_round_trip(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, _lines(50))
+        saved = reader_service.save_reading_position(did, page=2, chapter_size=20)
+        assert saved["last_line_idx"] == 39 and saved["percent_complete"] == 80.0
+        ov = reader_service.get_reading_overview(did)
+        assert ov["last_page"] == 2 and ov["percent_complete"] == 80.0 and ov["line_count"] == 50
+        with pytest.raises(InvalidInputError):
+            reader_service.save_reading_position(did, page=4, chapter_size=20)
+
+    def test_notes_round_trip_and_validation(self, isolated_db):
+        did = _drama(isolated_db)
+        assert reader_service.get_notes(did)["notes"] == ""
+        reader_service.save_notes(did, "remember X")
+        assert reader_service.get_notes(did)["notes"] == "remember X"
+        with pytest.raises(InvalidInputError):
+            reader_service.save_notes(did, "x" * (reader_service.MAX_NOTES_CHARS + 1))
+
+
+class _FakeEngine:
+    supports_reference = True
+    model = "fake"
+
+
+def _fake_engine(monkeypatch):
+    from services import translate_service
+    import translate_engines
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "k")
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: _FakeEngine())
+
+
+class TestLookupDefinitions:
+    def _setup(self, isolated_db, monkeypatch, lang="zh"):
+        import dictionary
+        import segment
+        monkeypatch.setattr(segment, "segment_and_annotate",
+                            lambda text, language, chinese_script="simplified":
+                            [(w, "") for w in text.split(" ")])
+        monkeypatch.setattr(dictionary, "lookup_cedict",
+                            lambda w: {"word": w, "pinyin": "māo", "definitions": ["cat"]}
+                            if w == "猫" else None)
+        did = _drama(isolated_db, source_language=lang)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="猫 狗 鸟", en="")])
+        return did
+
+    def test_local_only_by_default_and_saves_vocab(self, isolated_db, monkeypatch):
+        did = self._setup(isolated_db, monkeypatch)
+        import translate_engines
+        monkeypatch.setattr(translate_engines, "call_llm_json",
+                            lambda *a, **k: pytest.fail("no paid call without use_llm"))
+        out = reader_service.lookup_page_definitions(did, 1)
+        assert out["definitions"] == {"猫": {"reading": "māo", "definitions": ["cat"]}}
+        assert [r["word"] for r in isolated_db.list_vocab_lookups(did)] == ["猫"]
+
+    def test_llm_fallback_matches_by_id_not_position(self, isolated_db, monkeypatch):
+        did = self._setup(isolated_db, monkeypatch)
+        _fake_engine(monkeypatch)
+        import translate_engines
+        # Reordered, and word 1 missing: 鸟 (id 2) must get "bird", 狗 nothing.
+        monkeypatch.setattr(translate_engines, "call_llm_json", lambda *a, **k:
+                            '{"2": {"reading": "niǎo", "definitions": ["bird"]}}')
+        out = reader_service.lookup_page_definitions(did, 1, use_llm=True)
+        assert out["definitions"]["鸟"] == {"reading": "niǎo", "definitions": ["bird"]}
+        assert "狗" not in out["definitions"]
+
+    def test_llm_requested_without_key_is_dependency_error(self, isolated_db, monkeypatch):
+        did = self._setup(isolated_db, monkeypatch)
+        from services import translate_service
+        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
+        with pytest.raises(DependencyUnavailableError):
+            reader_service.lookup_page_definitions(did, 1, use_llm=True)
+
+    def test_engine_error_is_redacted(self, isolated_db, monkeypatch):
+        did = self._setup(isolated_db, monkeypatch)
+        _fake_engine(monkeypatch)
+        import translate_engines
+        secret = "sk-ant-api03-" + "A" * 40
+
+        def boom(*a, **k):
+            raise RuntimeError(f"bad key {secret}")
+        monkeypatch.setattr(translate_engines, "call_llm_json", boom)
+        with pytest.raises(ServiceError) as ei:
+            reader_service.lookup_page_definitions(did, 1, use_llm=True)
+        assert secret not in ei.value.message
+
+
+class TestVocabExport:
+    def _vocab(self, db):
+        did = _drama(db, title_en="My/Drama")
+        db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="我有一只猫", en="I have a cat")])
+        db.save_vocab_lookup(did, "猫", "māo", ["cat", "feline"], "zh", 0)
+        db.save_vocab_lookup(did, "有", "yǒu", ["to have"], "zh", 0)
+        return did
+
+    def test_csv(self, isolated_db):
+        did = self._vocab(isolated_db)
+        out = reader_service.export_vocab_csv(did)
+        assert out["filename"] == "My_Drama.csv"
+        assert "猫 (māo),cat; feline" in out["content"]
+
+    def test_empty_vocab_is_not_found(self, isolated_db):
+        did = _drama(isolated_db)
+        with pytest.raises(NotFoundError):
+            reader_service.export_vocab_csv(did)
+        with pytest.raises(NotFoundError):
+            reader_service.export_vocab_apkg(did, rich=True)
+
+    def test_rich_queue(self, isolated_db):
+        did = self._vocab(isolated_db)
+        r = reader_service.set_rich_export(did, ["猫", "猫"])
+        assert r["updated"] == 1 and r["rich_count"] == 1
+        words = reader_service.list_vocab(did, rich_only=True)["words"]
+        assert [w["word"] for w in words] == ["猫"] and words[0]["export_rich"] is True
+        with pytest.raises(InvalidInputError):
+            reader_service.set_rich_export(did, [])
+
+    def _notes(self, content: bytes, tmp_path):
+        import sqlite3
+        import zipfile
+        p = tmp_path / "deck.apkg"
+        p.write_bytes(content)
+        with zipfile.ZipFile(p) as z:
+            z.extract("collection.anki2", tmp_path)
+        conn = sqlite3.connect(tmp_path / "collection.anki2")
+        try:
+            return [r[0].split("\x1f") for r in conn.execute("SELECT flds FROM notes")]
+        finally:
+            conn.close()
+
+    def test_apkg_content(self, isolated_db, tmp_path):
+        pytest.importorskip("genanki")
+        did = self._vocab(isolated_db)
+        out = reader_service.export_vocab_apkg(did)
+        assert out["filename"] == "vocab.apkg" and isinstance(out["content"], bytes)
+        notes = self._notes(out["content"], tmp_path)
+        assert sorted(notes) == sorted([["猫 (māo)", "cat; feline"], ["有 (yǒu)", "to have"]])
+        assert not os.path.exists(os.path.join(isolated_db.drama_dir(did), "vocab.apkg"))
+
+    def test_rich_apkg_content_text_only_without_audio(self, isolated_db, tmp_path):
+        pytest.importorskip("genanki")
+        did = self._vocab(isolated_db)
+        reader_service.set_rich_export(did, ["猫"])
+        out = reader_service.export_vocab_apkg(did, rich=True)
+        assert out["filename"] == "vocab_sentence.apkg"
+        [[sentence, back]] = self._notes(out["content"], tmp_path)
+        assert sentence == "我有一只猫"
+        assert "I have a cat" in back and "猫 (māo)" in back and "[sound:" not in sentence
+
+    def test_apkg_without_genanki_is_dependency_error(self, isolated_db, monkeypatch):
+        did = self._vocab(isolated_db)
+        import vocab_export
+
+        def missing(*a, **k):
+            raise ImportError("genanki")
+        monkeypatch.setattr(vocab_export, "export_vocab_apkg", missing)
+        with pytest.raises(DependencyUnavailableError):
+            reader_service.export_vocab_apkg(did)
+
+
+class TestStoryWikiQa:
+    def _drama_lines(self, db, n=10):
+        did = _drama(db, title_en="Story")
+        db.save_lines(did, _lines(n))
+        return did
+
+    def test_story_tools_are_spoiler_scoped(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db)
+        _fake_engine(monkeypatch)
+        import story_context
+        seen = {}
+        monkeypatch.setattr(story_context, "who_is_character",
+                            lambda name, lines, meta, eng: seen.setdefault("n", len(lines)) and "A hero")
+        out = reader_service.who_is_character(did, "沈清疑", up_to_line_idx=3)
+        assert out["answer"] == "A hero" and seen["n"] == 4
+        monkeypatch.setattr(story_context, "explain_reference",
+                            lambda p, lines, eng, source_language="zh": f"{p}/{len(lines)}/{source_language}")
+        assert reader_service.explain_reference(did, "一石二鸟")["answer"] == "一石二鸟/10/zh"
+        with pytest.raises(InvalidInputError):
+            reader_service.who_is_character(did, "  ")
+
+    def test_recap_uses_lines_before_the_page(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db, 30)
+        _fake_engine(monkeypatch)
+        import story_context
+        monkeypatch.setattr(story_context, "summarize_section",
+                            lambda lines, eng, section_label="": f"{len(lines)} {section_label}")
+        assert reader_service.recap(did, 2, chapter_size=10)["summary"] == "10 up to page 2"
+        assert reader_service.recap(did, 1, chapter_size=10)["summary"] == "10 up to page 1"
+
+    def test_relationship_map(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db)
+        _fake_engine(monkeypatch)
+        import story_context
+        monkeypatch.setattr(story_context, "build_relationship_map", lambda lines, eng: {
+            "characters": [{"name": "A", "role": "lead", "description": "d"}],
+            "relationships": []})
+        out = reader_service.relationship_map(did)
+        assert out["characters"][0]["name"] == "A" and "A" in out["mermaid"]
+
+    def test_update_wiki_upserts_by_name_and_hides_spoilers(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db)
+        _fake_engine(monkeypatch)
+        import universe_wiki
+        calls = {}
+
+        def fake_extract(lines, eng, up_to, meta, existing_entries=None):
+            calls["up_to"] = up_to
+            return [{"entry_type": "character", "name": "Early", "description": "e",
+                     "first_seen_line_idx": 1, "known_through_line_idx": up_to},
+                    {"entry_type": "place", "name": "Late", "first_seen_line_idx": 8,
+                     "known_through_line_idx": up_to}]
+        monkeypatch.setattr(universe_wiki, "extract_wiki_entries", fake_extract)
+        assert reader_service.update_wiki(did, up_to_line_idx=500)["updated"] == 2
+        assert calls["up_to"] == 9  # clamped to the drama's last line
+        shown = reader_service.list_wiki(did, up_to_line_idx=3)["entries"]
+        assert [e["name"] for e in shown] == ["Early"]
+        md = reader_service.export_wiki_markdown(did, up_to_line_idx=3)
+        assert "Early" in md["content"] and "Late" not in md["content"]
+        assert "Built from lines 1–4." in md["content"]
+        with pytest.raises(InvalidInputError):
+            reader_service.list_wiki(did, entry_type="spaceship")
+        reader_service.clear_wiki(did)
+        assert reader_service.list_wiki(did)["entries"] == []
+
+    def test_qa_passes_history_and_validates(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db)
+        _fake_engine(monkeypatch)
+        import qa
+        got = {}
+
+        def fake(q, lines, meta, eng, chat_history=None):
+            got.update(q=q, n=len(lines), h=chat_history)
+            return "answer"
+        monkeypatch.setattr(qa, "ask_about_drama", fake)
+        hist = [{"role": "user", "content": "hi", "extra": 1}, {"role": "assistant", "content": "yo"}]
+        assert reader_service.ask_about_drama(did, "Who?", hist)["answer"] == "answer"
+        assert got["h"] == [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]
+        assert got["n"] == 10
+        with pytest.raises(InvalidInputError):
+            reader_service.ask_about_drama(did, "Who?", [{"role": "system", "content": "x"}])
+
+    def test_translation_only_engine_rejected(self, isolated_db, monkeypatch):
+        did = self._drama_lines(isolated_db)
+        import translate_engines
+        name = sorted(translate_engines.TRANSLATION_ONLY_ENGINES)[0]
+        from services.service_errors import UnsupportedOperationError
+        with pytest.raises(UnsupportedOperationError):
+            reader_service.ask_about_drama(did, "Q?", engine_name=name)
