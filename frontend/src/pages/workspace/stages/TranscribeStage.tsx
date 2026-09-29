@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { getSettings } from '../../../api/settings'
 import {
@@ -9,12 +9,16 @@ import {
   uploadAndTranscribe,
 } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import type {
+  MediaStatus,
   TranscribeConfig,
   TranscribeConfigUpdate,
   TranscribeRunRequest,
 } from '../../../types/workspace'
 import {
+  advancedSummary,
   loadSourceForm,
   parseExpectedSpeakers,
   saveSourceForm,
@@ -22,124 +26,66 @@ import {
   whisperModelWarning,
 } from '../sourceForm'
 import { useStage } from '../StageContext'
+import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
+const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
 
 interface Props {
-  // A pre-checked file chosen in the media panel, or null.
+  // The media picker (status, file input, Upload), rendered at the top of the panel.
+  mediaSlot: ReactNode
+  media: MediaStatus | null
+  // A pre-checked file chosen in the media picker, or null.
   file: File | null
   busy: boolean
   onJobStarted: (jobId: string) => void
 }
 
-function ConfigForm({
-  config,
-  language,
-  onSaved,
-}: {
-  config: TranscribeConfig
-  language: string
-  onSaved: (c: TranscribeConfig) => void
-}) {
-  const { dramaId } = useStage()
-  const [f, setF] = useState({
-    whisper_size: config.whisper_size,
-    alignment_method: config.alignment_method,
-    asr_backend_choice: config.asr_backend_choice,
-    separation_backend: config.separation_backend,
-    hardsub_ocr_backend: config.hardsub_ocr_backend,
-    beam_size: String(config.beam_size),
-    min_silence_ms: String(config.min_silence_ms),
-    vad_threshold: String(config.vad_threshold),
-    hardsub_interval_sec: String(config.hardsub_interval_sec),
-    separate_vocals_first: config.separate_vocals_first,
-    realign_long_segments: config.realign_long_segments,
-    whisper_fast_mode: config.whisper_fast_mode,
-    use_groq: config.use_groq,
-  })
-  const [problem, setProblem] = useState<string | null>(null)
-  const [error, setError] = useState<unknown>(null)
-  const [saved, setSaved] = useState(false)
-  const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => {
-    setSaved(false)
-    setF((s) => ({ ...s, [k]: v }))
-  }
-
-  const save = () => {
-    const update: TranscribeConfigUpdate = {
-      ...f,
-      beam_size: Number(f.beam_size),
-      min_silence_ms: Number(f.min_silence_ms),
-      vad_threshold: Number(f.vad_threshold),
-      hardsub_interval_sec: Number(f.hardsub_interval_sec),
-    }
-    const bad = validateConfig(update)
-    setProblem(bad)
-    if (bad) return
-    updateTranscribeConfig(dramaId, update).then(
-      (c) => {
-        setError(null)
-        setSaved(true)
-        onSaved(c)
-      },
-      setError,
-    )
-  }
-
-  const select = (label: string, key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend' | 'whisper_size', options: string[]) => (
-    <label>
-      {label}
-      <select value={f[key]} onChange={(e) => set(key, e.target.value)}>
-        {(options.includes(f[key]) ? options : [f[key], ...options]).map((o) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
-    </label>
-  )
-  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hardsub_interval_sec', step: number) => (
-    <label>
-      {label}
-      <input type="number" step={step} value={f[key]} onChange={(e) => set(key, e.target.value)} />
-    </label>
-  )
-  const check = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq') => (
-    <label>
-      <input type="checkbox" checked={f[key]} onChange={(e) => set(key, e.target.checked)} /> {label}
-    </label>
-  )
-
-  return (
-    <fieldset className="form-grid">
-      <legend>Transcribe options</legend>
-      {select('Whisper size', 'whisper_size', WHISPER_SIZES)}
-      {whisperModelWarning(f.whisper_size, language) && (
-        <p className="muted" role="note">{whisperModelWarning(f.whisper_size, language)}</p>
-      )}
-      {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
-      {select('ASR backend', 'asr_backend_choice', ['whisper', 'qwen3_asr'])}
-      {select('Vocal separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'])}
-      {select('Hardsub OCR backend', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
-      {num('Beam size (1-10)', 'beam_size', 1)}
-      {num('Min silence ms (300-3000)', 'min_silence_ms', 50)}
-      {num('VAD threshold (0.1-0.9)', 'vad_threshold', 0.05)}
-      {num('Hardsub interval sec (0.5-3.0)', 'hardsub_interval_sec', 0.1)}
-      {check('Separate vocals first', 'separate_vocals_first')}
-      {check('Realign long segments', 'realign_long_segments')}
-      {check('Whisper fast mode', 'whisper_fast_mode')}
-      {check('Use Groq', 'use_groq')}
-      <div>
-        <button type="button" onClick={save}>Save options</button>
-        {saved && <span role="status"> Saved.</span>}
-      </div>
-      {problem && <p className="error" role="alert">{problem}</p>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-    </fieldset>
-  )
+type ConfigForm = {
+  whisper_size: string
+  alignment_method: string
+  asr_backend_choice: string
+  separation_backend: string
+  hardsub_ocr_backend: string
+  beam_size: string
+  min_silence_ms: string
+  vad_threshold: string
+  hardsub_interval_sec: string
+  separate_vocals_first: boolean
+  realign_long_segments: boolean
+  whisper_fast_mode: boolean
+  use_groq: boolean
 }
 
-export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
+const formFromConfig = (c: TranscribeConfig): ConfigForm => ({
+  whisper_size: c.whisper_size,
+  alignment_method: c.alignment_method,
+  asr_backend_choice: c.asr_backend_choice,
+  separation_backend: c.separation_backend,
+  hardsub_ocr_backend: c.hardsub_ocr_backend,
+  beam_size: String(c.beam_size),
+  min_silence_ms: String(c.min_silence_ms),
+  vad_threshold: String(c.vad_threshold),
+  hardsub_interval_sec: String(c.hardsub_interval_sec),
+  separate_vocals_first: c.separate_vocals_first,
+  realign_long_segments: c.realign_long_segments,
+  whisper_fast_mode: c.whisper_fast_mode,
+  use_groq: c.use_groq,
+})
+
+const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
+  ...f,
+  beam_size: Number(f.beam_size),
+  min_silence_ms: Number(f.min_silence_ms),
+  vad_threshold: Number(f.vad_threshold),
+  hardsub_interval_sec: Number(f.hardsub_interval_sec),
+})
+
+export default function TranscribeStage({ mediaSlot, media, file, busy, onJobStarted }: Props) {
   const { dramaId, drama } = useStage()
   const [config, setConfig] = useState<TranscribeConfig | null>(null)
+  const [cf, setCf] = useState<ConfigForm | null>(null)
+  const [saved, setSaved] = useState(false)
   // Restored from sessionStorage (per drama) so switching stage tabs keeps the form.
   const [restored] = useState(() => loadSourceForm(dramaId))
   const [language, setLanguage] = useState(restored.language ?? drama.source_language ?? 'zh')
@@ -155,7 +101,11 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
   useEffect(() => {
     let cancelled = false
     getTranscribeConfig(dramaId).then(
-      (c) => !cancelled && setConfig(c),
+      (c) => {
+        if (cancelled) return
+        setConfig(c)
+        setCf(formFromConfig(c))
+      },
       (e: unknown) => !cancelled && setError(e),
     )
     return () => {
@@ -178,7 +128,43 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
     }
   }, [])
 
+  const setC = <K extends keyof ConfigForm>(k: K, v: ConfigForm[K]) => {
+    setSaved(false)
+    setCf((s) => (s ? { ...s, [k]: v } : s))
+  }
+
   const haveTranscript = config?.transcript_mode === 'have_transcript'
+  const hasMedia = !!media && (media.has_audio || media.has_source_video)
+  // What the primary button still needs, in words (empty = ready).
+  const needed = !config || !media
+    ? ''
+    : !file && !hasMedia && !haveTranscript
+      ? 'an audio or video file'
+      : haveTranscript && !transcriptText.trim()
+        ? 'the transcript text'
+        : ''
+
+  // Validates the options; null means "ok" (problem is set otherwise).
+  const checkConfig = (): TranscribeConfigUpdate | null => {
+    if (!cf) return null
+    const update = toUpdate(cf)
+    const bad = validateConfig(update)
+    setProblem(bad)
+    return bad ? null : update
+  }
+
+  const saveOptions = () => {
+    const update = checkConfig()
+    if (!update) return
+    updateTranscribeConfig(dramaId, update).then(
+      (c) => {
+        setError(null)
+        setSaved(true)
+        setConfig(c)
+      },
+      setError,
+    )
+  }
 
   // Builds the run body, or reports why it can't (returns null).
   const buildRequest = (): TranscribeRunRequest | null => {
@@ -202,10 +188,22 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
     }
   }
 
-  const run = (start: (req: TranscribeRunRequest) => Promise<{ job_id: string }>) => {
+  const transcribe = () => {
     const req = buildRequest()
-    if (!req) return
-    start(req).then((r) => {
+    if (!req || !config || !cf) return
+    const update = checkConfig()
+    if (!update) return
+    const start = () => (file ? uploadAndTranscribe(dramaId, file, req) : startTranscribe(dramaId, req))
+    // Auto-save changed options first so the run uses what the form shows.
+    const current = toUpdate(formFromConfig(config))
+    const changed = (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== current[k])
+    const saveFirst = changed
+      ? updateTranscribeConfig(dramaId, update).then((c) => {
+          setConfig(c)
+          setSaved(true)
+        })
+      : Promise.resolve()
+    saveFirst.then(start).then((r) => {
       setError(null)
       onJobStarted(r.job_id)
     }, setError)
@@ -224,80 +222,135 @@ export default function TranscribeStage({ file, busy, onJobStarted }: Props) {
     }, setError)
   }
 
+  const select = (
+    label: string,
+    key: 'alignment_method' | 'asr_backend_choice' | 'separation_backend' | 'hardsub_ocr_backend',
+    options: string[],
+    help?: string,
+  ) =>
+    cf && (
+      <Field label={label} help={help}>
+        <select value={cf[key]} onChange={(e) => setC(key, e.target.value)}>
+          {(options.includes(cf[key]) ? options : [cf[key], ...options]).map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+      </Field>
+    )
+  const num = (label: string, key: 'beam_size' | 'min_silence_ms' | 'vad_threshold' | 'hardsub_interval_sec', step: number, help: string, unit?: string) =>
+    cf && (
+      <Field label={label} help={help} unit={unit}>
+        <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
+      </Field>
+    )
+  const check = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq') =>
+    cf && (
+      <label className="check">
+        <input type="checkbox" checked={cf[key]} onChange={(e) => setC(key, e.target.checked)} /> {label}
+      </label>
+    )
+
+  const turboWarning = cf ? whisperModelWarning(cf.whisper_size, language) : ''
+
   return (
-    <section className="panel" aria-label="Transcribe">
+    <section className="panel source-panel" aria-label="Transcribe">
       <h3>Transcribe</h3>
-      {config && (
-        <p className="muted">
-          Mode: {config.transcript_mode}. Whisper model {config.whisper_model_cached ? 'is downloaded' : 'will be downloaded on first use'}.
+      {mediaSlot}
+      <div className="actions">
+        <button type="button" className="primary" disabled={busy || !cf || !!needed} onClick={transcribe}>
+          Transcribe
+        </button>
+        <button type="button" disabled={busy} onClick={diarize}>
+          Detect speakers only
+        </button>
+      </div>
+      {needed && !busy && <p className="muted source-needed">Still needed: {needed}.</p>}
+      {busy && (
+        <p className="muted" role="status">
+          A job for this drama is already running. Wait for it to finish or cancel it before starting another.
         </p>
       )}
-      {config && <ConfigForm config={config} language={language} onSaved={setConfig} />}
-      <fieldset className="form-grid">
-        <legend>Run options</legend>
-        <label>
-          Source language
+      {problem && <p className="error" role="alert">{problem}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
+      {cf && (
+        <p className="muted source-summary" data-testid="settings-summary">
+          {cf.whisper_size} · {LANGUAGE_NAMES[language] ?? language}
+          {useGpu !== null && <span data-testid="gpu-note"> · GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a></span>}
+        </p>
+      )}
+
+      <div className="source-grid">
+        <Field label="Source language">
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
             <option value="zh">Chinese</option>
             <option value="ja">Japanese</option>
             <option value="ko">Korean</option>
           </select>
-        </label>
+        </Field>
         {language === 'zh' && (
-          <label>
-            Chinese script
+          <Field label="Chinese script">
             <select value={script} onChange={(e) => setScript(e.target.value)}>
               <option value="">Keep current</option>
               <option value="simplified">Simplified (Mainland)</option>
               <option value="traditional">Traditional (Taiwan, Hong Kong)</option>
             </select>
-          </label>
+          </Field>
         )}
-        {haveTranscript && (
-          <label>
-            Transcript text
-            <textarea rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
-          </label>
+        {cf && (
+          <Field label="Whisper model" help={config && !config.whisper_model_cached ? 'This model will be downloaded on first use.' : undefined}>
+            <select value={cf.whisper_size} onChange={(e) => setC('whisper_size', e.target.value)}>
+              {(WHISPER_SIZES.includes(cf.whisper_size) ? WHISPER_SIZES : [cf.whisper_size, ...WHISPER_SIZES]).map((o) => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </Field>
         )}
-        <label>
-          Initial prompt
-          <input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-        </label>
-        <label>
-          Expected speakers (0-20, blank = auto)
+        <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
           <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
-        </label>
-        <label>
-          <input type="checkbox" checked={runDiarize} onChange={(e) => setRunDiarize(e.target.checked)} /> Detect speakers after transcribing
-        </label>
-        {useGpu !== null && (
-          <p className="muted" data-testid="gpu-note">
-            GPU: {useGpu ? 'on' : 'off'} - change in <a href="#/settings">Settings</a>
-          </p>
-        )}
-        {busy && (
-          <p className="muted" role="status">
-            A job for this drama is already running. Wait for it to finish or cancel it before starting another.
-          </p>
-        )}
-        <div className="actions">
-          <button type="button" disabled={busy} onClick={() => run((r) => startTranscribe(dramaId, r))}>
-            Start transcription
-          </button>
-          <button
-            type="button"
-            disabled={busy || !file}
-            onClick={() => file && run((r) => uploadAndTranscribe(dramaId, file, r))}
-          >
-            Upload selected file and transcribe
-          </button>
-          <button type="button" disabled={busy} onClick={diarize}>
-            Detect speakers only
-          </button>
-        </div>
-      </fieldset>
-      {problem && <p className="error" role="alert">{problem}</p>}
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        </Field>
+      </div>
+      {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
+      {haveTranscript && (
+        <Field label="Transcript text">
+          <textarea rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
+        </Field>
+      )}
+      <label className="check">
+        <input type="checkbox" checked={runDiarize} onChange={(e) => setRunDiarize(e.target.checked)} /> Detect speakers after transcribing
+      </label>
+
+      {cf && (
+        <Section
+          storageKey="source.advanced"
+          title="Advanced"
+          summary={advancedSummary({ ...cf, prompt })}
+        >
+          <div className="source-grid">
+            {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
+            {num('Min silence', 'min_silence_ms', 50, '300-3000. Silence that splits lines; longer gives fewer, longer lines.', 'ms')}
+            {num('VAD threshold', 'vad_threshold', 0.05, '0.1-0.9. Higher ignores more quiet sound.')}
+            {num('Hardsub interval', 'hardsub_interval_sec', 0.1, '0.5-3.0. How often video frames are read for on-screen text.', 's')}
+            {select('Alignment method', 'alignment_method', ['whisper_diff', 'qwen3_forced_align'])}
+            {select('ASR backend', 'asr_backend_choice', ['whisper', 'qwen3_asr'])}
+            {select('Separation backend', 'separation_backend', ['auto', 'audio_separator', 'demucs'], 'Used when vocals are separated first.')}
+            {select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle'])}
+          </div>
+          <Field label="Initial prompt" help="Names or terms that help the model spell things correctly.">
+            <input value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          </Field>
+          <div className="source-checks">
+            {check('Separate vocals first', 'separate_vocals_first')}
+            {check('Realign long segments', 'realign_long_segments')}
+            {check('Whisper fast mode', 'whisper_fast_mode')}
+            {check('Use Groq', 'use_groq')}
+          </div>
+          <div className="actions">
+            <button type="button" onClick={saveOptions}>Save options</button>
+            {saved && <span role="status" className="muted">Saved.</span>}
+          </div>
+        </Section>
+      )}
     </section>
   )
 }
