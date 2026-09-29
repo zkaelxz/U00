@@ -158,6 +158,14 @@ CREATE TABLE IF NOT EXISTS seen_images (
     chapter_url TEXT NOT NULL,
     PRIMARY KEY (domain, sha256, chapter_url)
 );
+CREATE TABLE IF NOT EXISTS imported_chapters (
+    source TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    chapter_id TEXT NOT NULL,
+    drama_id INTEGER NOT NULL,
+    imported_at REAL NOT NULL,
+    PRIMARY KEY (source, series_id, chapter_id, drama_id)
+);
 CREATE TABLE IF NOT EXISTS extraction_cache (
     kind TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -277,6 +285,23 @@ def track_series(source: str, series_id: str, title: str, url: str = "",
         conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, title, "
                          "first_seen) VALUES(?, ?, ?, ?, ?)",
                          [(source, series_id, c.chapter_id, c.title, now) for c in known_chapters])
+
+
+def record_imported(source: str, series_id: str, chapter_id: str, drama_id: int):
+    """Records that one chapter was imported into one drama, so a later
+    import of the same chapter into the same drama is skipped (the API's
+    chapter import; pipeline.run_import_job calls this after each success)."""
+    with connect() as conn:
+        conn.execute("INSERT OR IGNORE INTO imported_chapters(source, series_id, chapter_id, "
+                     "drama_id, imported_at) VALUES(?, ?, ?, ?, ?)",
+                     (source, str(series_id), str(chapter_id), int(drama_id), time.time()))
+
+
+def imported_chapter_ids(source: str, series_id: str, drama_id: int) -> set:
+    with connect() as conn:
+        return {r["chapter_id"] for r in conn.execute(
+            "SELECT chapter_id FROM imported_chapters WHERE source=? AND series_id=? "
+            "AND drama_id=?", (source, str(series_id), int(drama_id)))}
 
 
 def untrack_series(source: str, series_id: str):

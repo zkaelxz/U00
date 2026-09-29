@@ -544,6 +544,24 @@ class TestHttpCallsHaveTimeouts:
             problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
             assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
 
+    def test_url_import_modules(self):
+        # Sources S-4/S-5 and the URL download: the modules those routes
+        # reach outside services/ and api/.
+        for name in ("video_download.py", "sources/pipeline.py", "sources/front_door.py",
+                     "sources/generic_import.py", "sources/store.py", "sources/adaptive.py"):
+            problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
+            assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
+
+    def test_notification_service(self):
+        # Step 44: the Discord/ntfy push runs from a timer thread after a
+        # job ends; a hung webhook must never hold it (Session.post checked).
+        problems = _find_requests_calls_missing_timeout(
+            os.path.join(PROJECT_ROOT, "services", "notification_service.py"), session_verbs=True)
+        assert problems == [], f"call(s) missing timeout= at line(s): {problems}"
+        src = open(os.path.join(PROJECT_ROOT, "services", "notification_service.py"),
+                   encoding="utf-8").read()
+        assert "session.post(" in src, "the timeout check no longer sees the send call"
+
     def test_services_and_api_packages(self):
         # B-07: the FastAPI layer's services/ (metadata autofill's page
         # fetch, etc.) and api/ must never make an untimed HTTP call.
@@ -622,6 +640,17 @@ class TestConstraintsFile:
         for pinned in ("pyannote.audio<5", "transformers<6", "torch<3",
                        "torchaudio<3", "streamlit<2", "faster-whisper<2"):
             assert pinned in text, f"missing pin: {pinned}"
+
+    def test_urllib3_has_the_2_6_floor(self):
+        """Security review L-1: requests alone allows urllib3 1.26 (no
+        read1, CVE-2025-66471); the floor is in the requirements, the
+        constraints and both launchers' "already installed?" checks."""
+        assert "urllib3>=2.6" in self._read_constraints()
+        core = open(os.path.join(PROJECT_ROOT, "requirements-core.txt"), encoding="utf-8").read()
+        assert "urllib3>=2.6" in core
+        for launcher in ("start.bat", "start.ps1"):
+            text = open(os.path.join(PROJECT_ROOT, launcher), encoding="utf-8").read()
+            assert ">= (2, 6)" in text, launcher
 
     def test_yt_dlp_and_edge_tts_are_left_uncapped(self):
         """Both need to stay current against sites/services that change

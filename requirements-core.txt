@@ -9,11 +9,14 @@ streamlit>=1.56          # Step 73: the real minimum, not a guess -- st.iframe (
                          # >=1.49 floor, 1.49 itself crashed Workspace and Read & Watch outright.
 pandas>=2.0
 requests>=2.32.2
+urllib3>=2.6             # requests pulls it in; the floor is for sources/http.py's raw read1
+                         # (2.x only) and CVE-2025-66471 (unbounded decompression before 2.6).
 beautifulsoup4>=4.12
 anthropic>=0.34
 fastapi>=0.115           # the HTTP API (api/) the React frontend talks to -- core, not optional,
                          # since the React + FastAPI migration is the app's direction
                          # (docs/migration-review.md, decision D3). Start with: python -m api
-starlette>=0.39          # FileResponse Range/If-Range (media playback, Slice 52); fastapi pulls it in
+starlette>=0.40          # FileResponse Range/If-Range (media playback, Slice 52); form(max_part_size=)
+                         # for the bug-report upload cap (api/routers/bug_report_routes.py); fastapi pulls it in
 python-multipart>=0.0.9  # multipart parsing for the media upload endpoint (api/routers/media_routes.py)
 uvicorn>=0.30           # the server that runs it

@@ -44,6 +44,7 @@ class Preview:
     chapter_count: int = None
     adapter: str = None
     series_id: str = None
+    chapter_id: str = None
     image_count: int = None
     text_length: int = None
     notes: list = field(default_factory=list)
@@ -106,9 +107,14 @@ def classify_html(url: str, html: str) -> Preview:
     return p
 
 
-def preview(url: str, client=None, rendered_fetch=None) -> Preview:
+def preview(url: str, client=None, rendered_fetch=None, allow_signed_in: bool = True,
+            allow_browser: bool = True, cancel_check=None) -> Preview:
+    """`allow_signed_in`/`allow_browser`: see generic_import.fetch_page (the
+    API turns both off for a request not from this PC). `cancel_check`
+    reaches a registered adapter's paced client (raises Cancelled)."""
     url = (url or "").strip()
-    adapter = registry.find_for_url(url)
+    adapter = (registry.find_for_url(url, cancel_check=cancel_check) if cancel_check
+               else registry.find_for_url(url))
     if adapter is not None:
         ladder.check_terms(adapter.name, adapter.capabilities())
         p = Preview(url=url, adapter=adapter.name, platform=adapter.display_name,
@@ -131,6 +137,7 @@ def preview(url: str, client=None, rendered_fetch=None) -> Preview:
         elif parsed and parsed[0] == "chapter":
             p.chapter = parsed[1].title
             p.series_id = parsed[1].series_id
+            p.chapter_id = parsed[1].chapter_id
         elif p.content_type == VIDEO and hasattr(adapter, "get_metadata"):
             # Step 23d: a real VideoSource adapter (e.g. BilibiliSource) --
             # metadata shown before any download, same guarantee item 2
@@ -148,7 +155,8 @@ def preview(url: str, client=None, rendered_fetch=None) -> Preview:
     if is_video_url(url):
         return Preview(url=url, content_type=VIDEO, platform=urlsplit(url).netloc,
                        notes=["Downloads through yt-dlp, the same as Workspace's Video URL."])
-    lr = generic_import.fetch_page(url, client, rendered_fetch)
+    lr = generic_import.fetch_page(url, client, rendered_fetch, allow_signed_in=allow_signed_in,
+                                   allow_browser=allow_browser)
     if not lr.ok:
         p = Preview(url=url, ladder=lr, platform=urlsplit(url).netloc)
         p.notes.extend(lr.summary_lines())

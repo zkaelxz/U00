@@ -16,6 +16,9 @@ import pytest
 # extension endpoint) from a test that enters TestClient's lifespan with
 # settings built by load_settings(); see api/background.py.
 os.environ["BAIHE_API_BACKGROUND"] = "0"
+# Never push a Discord/ntfy notification from a finished test job, even when
+# the machine's .env has a webhook configured (services/notification_service).
+os.environ["BAIHE_NOTIFY_DISABLED"] = "1"
 
 # Make the project root importable when running `pytest` from anywhere
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

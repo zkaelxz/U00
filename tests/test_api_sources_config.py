@@ -167,15 +167,16 @@ def test_dismiss_notification(client):
     assert client.post("/api/sources/notifications/9999/dismiss").status_code == 404
 
 
-def test_track_is_refused_but_untrack_works(client, isolated_db):
+def test_track_needs_loaded_series_but_untrack_works(client, isolated_db):
     import db
     from sources import store
     did = db.create_drama(title_en="D")
     body = {"source": "manhuagui", "series_id": "77", "title": "T",
             "url": "https://www.manhuagui.com/comic/77/", "drama_id": did}
-    # tracking a new series would announce the whole back catalogue: refused
+    # tracking a new series needs its loaded chapter list (this process's
+    # series result), else the whole back catalogue would be announced: 409
     r = client.post("/api/sources/tracked", json=body)
-    assert r.status_code == 400
+    assert r.status_code == 409
     assert client.get("/api/sources/tracked").json() == []
     assert client.post("/api/sources/tracked", json={**body, "source": "nope"}).status_code == 404
     # a series tracked elsewhere (Streamlit) can still be untracked
