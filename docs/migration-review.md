@@ -884,8 +884,8 @@ returns a `suggestion` of title/author/studio/director/voice_actors/summary
 resolved address (and redirect hop, followed manually, max 3) must be global,
 else 422; no key, unreachable page, LLM failure or missing ffprobe is a 503
 with fixed text (exceptions are never echoed); unknown drama 404. Keys come
-from server settings, never the request. Residual risk: DNS rebinding between
-the check and the fetch; the LLM call's timeout is the engine's own. No
+from server settings, never the request. The connection is pinned to the validated IP
+(Host/SNI/cert keep the hostname), closing the DNS-rebinding gap; the LLM call's timeout is the engine's own. No
 JS-rendered fetch (Streamlit's fallback) -- paste text instead. Not verified
 against a real LLM or site (tests mock everything).
 

@@ -122,7 +122,6 @@ def test_autofill_private_hosts_422(client, drama, monkeypatch, ip):
 
 
 def test_redirect_to_private_blocked(monkeypatch):
-    import requests
     calls = []
     _dns(monkeypatch, "93.184.216.34")
 
@@ -131,10 +130,10 @@ def test_redirect_to_private_blocked(monkeypatch):
         headers = {"Location": "http://127.0.0.1/admin"}
         def close(self): pass
 
-    def fake_get(url, **kw):
-        calls.append((url, kw))
+    def fake_get(url, ip, headers):
+        calls.append((url, ip))
         return Resp()
-    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.setattr(metadata_service, "_pinned_get", fake_get)
     # second hop resolves to loopback
     monkeypatch.setattr(metadata_service.socket, "getaddrinfo",
                         lambda host, port, **kw: [(2, 1, 6, "", (
@@ -142,8 +141,45 @@ def test_redirect_to_private_blocked(monkeypatch):
     from services.service_errors import InvalidInputError
     with pytest.raises(InvalidInputError):
         metadata_service._fetch_page_text("http://ok.example/")
-    assert len(calls) == 1
-    assert calls[0][1]["timeout"] and calls[0][1]["allow_redirects"] is False
+    assert calls == [("http://ok.example/", "93.184.216.34")]
+
+
+def test_connection_pinned_to_validated_ip(monkeypatch):
+    """A second DNS answer (private) must not be used for the connection."""
+    import requests
+    answers = iter(["93.184.216.34", "127.0.0.1"])
+    monkeypatch.setattr(metadata_service.socket, "getaddrinfo",
+                        lambda host, port, **kw: [(2, 1, 6, "", (next(answers), port))])
+    sent = []
+
+    def fake_send(self, request, **kw):
+        sent.append((request.url, request.headers["Host"], kw))
+        r = requests.Response()
+        r.status_code = 200
+        return r
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", fake_send)
+    ip = metadata_service._check_public_url("https://ok.example:8443/p?q=1")
+    assert ip == "93.184.216.34"
+    metadata_service._pinned_get("https://ok.example:8443/p?q=1", ip, {})
+    url, host, kw = sent[0]
+    assert url == "https://93.184.216.34:8443/p?q=1"
+    assert host == "ok.example:8443"
+    assert kw["timeout"] and next(answers) == "127.0.0.1"  # never re-resolved
+
+
+def test_pinned_adapter_keeps_hostname_for_tls(monkeypatch):
+    import requests
+    seen = {}
+    real = requests.adapters.HTTPAdapter.init_poolmanager
+
+    def spy(self, *a, **kw):
+        seen.update(kw)
+        return real(self, *a, **kw)
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "init_poolmanager", spy)
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send",
+                        lambda self, r, **kw: requests.Response())
+    metadata_service._pinned_get("https://ok.example/", "2606:4700::1", {})
+    assert seen["server_hostname"] == "ok.example" == seen["assert_hostname"]
 
 
 def test_autofill_errors(client, drama, monkeypatch):
