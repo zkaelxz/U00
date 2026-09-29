@@ -14,7 +14,10 @@ Migration Slice 41 adds reflect=True (Step 7's three-pass Reflect mode, live)
 and bulk=True (Step 9/9d's Claude/Gemini batch APIs, DeepSeek off-peak, and
 bulk Reflect) to the same start, plus resume_bulk_translations().
 
-Out of scope here: glossary review, style presets CRUD and characters CRUD.
+Parity X02/X22 add apply_workflow_tier() and save_translate_preset() (the
+tab's "Apply tier" and "Save as preset" buttons).
+
+Out of scope here: glossary review, preset rename/delete and characters CRUD.
 
 Every knob (engine, model, context window, batch size, reflect, bulk, caps)
 is a request-time parameter with the widget's own default as fallback -- no
@@ -36,7 +39,7 @@ import db
 import emotion
 import translate_engines
 import translation_guide
-from services import settings_service, translate_service, workspace_job_service
+from services import library_service, settings_service, translate_service, workspace_job_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
@@ -567,3 +570,62 @@ def cancel_bulk_translation(drama_id: int, bulk_job_id: int) -> dict:
     note = bulk_translate.cancel_bulk_job(bulk_job_id, provider)
     return {"drama_id": drama_id, "bulk_job": _bulk_entry(db.get_bulk_job(bulk_job_id)),
             "message": note}
+
+
+# ---------------------------------------------------------------------------
+# Parity X02/X22: apply a workflow tier, save the current settings as a preset.
+# ---------------------------------------------------------------------------
+
+def apply_workflow_tier(drama_id: int, tier: str) -> dict:
+    """tabs/workspace_tab.py apply_workflow_tier: the tier's engine goes onto
+    the drama row (the only field with a per-drama DB home); the model,
+    Reflect and Auto QC are returned for the client to put into its form,
+    which Streamlit did through session_state. Starts nothing."""
+    drama = _require_drama(drama_id)
+    t = translate_engines.WORKFLOW_TIERS.get(tier) if isinstance(tier, str) else None
+    if t is None:
+        raise InvalidInputError("Unknown workflow tier.")
+    if drama.get("translation_engine") != t["translation_engine"]:
+        db.update_drama(drama_id, translation_engine=t["translation_engine"])
+    return {"drama_id": drama_id, "tier": tier, "label": t["label"],
+            "translation_engine": t["translation_engine"], "engine_model": t["engine_model"],
+            "reflect": bool(t["reflect"]), "auto_qc": bool(t["auto_qc"])}
+
+
+_PRESET_NAME_MAX = 100   # services/library_service._clean_name's limit
+
+
+def save_translate_preset(name: str, translation_engine: str, engine_model: Optional[str] = None,
+                          style_preset: Optional[str] = None, locale: Optional[str] = None,
+                          default_female_pronouns: bool = False,
+                          include_genre_notes: bool = True, overwrite: bool = False) -> dict:
+    """tabs/workspace_tab.py "Save as preset": db.save_preset with the
+    Translate form's engine, model, style, locale and the two toggles.
+    Streamlit silently replaced a preset of the same name; here that needs
+    overwrite=True (otherwise ConflictError), so a remote user can't wipe a
+    saved preset by accident. engine_model is None for engines without a
+    model picker, and None (engine default) is allowed for the others."""
+    name = name.strip() if isinstance(name, str) else ""
+    if not name or len(name) > _PRESET_NAME_MAX:
+        raise InvalidInputError(f"A preset name is 1-{_PRESET_NAME_MAX} characters.")
+    if translation_engine not in translate_engines.ENGINES:
+        raise InvalidInputError("Unknown translation engine.")
+    models = next((e["models"] for e in translate_service.list_engines()
+                   if e["name"] == translation_engine), None)
+    if engine_model is not None and (models is None or engine_model not in models):
+        raise InvalidInputError("That model isn't offered for this engine.")
+    if style_preset is not None and style_preset not in translation_guide.STYLE_PRESETS:
+        raise InvalidInputError("Unknown style preset.")
+    if locale is not None and locale not in LOCALES:
+        raise InvalidInputError("Unknown English variant.")
+    replaced = any(p["name"] == name for p in db.list_presets())
+    if replaced and not overwrite:
+        raise ConflictError("A preset with that name already exists; save again with "
+                            "overwrite to replace it.")
+    preset_id = db.save_preset(
+        name, translation_engine=translation_engine, engine_model=engine_model,
+        style_preset=style_preset, locale=locale,
+        default_female_pronouns=bool(default_female_pronouns),
+        include_genre_notes=bool(include_genre_notes))
+    preset = next(p for p in library_service.list_presets() if p["id"] == preset_id)
+    return {"preset": preset, "replaced": replaced}

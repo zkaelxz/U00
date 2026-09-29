@@ -4,8 +4,10 @@
 import type {
   EstimateParams,
   FallbackEngine,
+  TranslatePresetBody,
   TranslateRunConfig,
   TranslateRunStartBody,
+  WorkflowTierApplied,
 } from '../../types/translateStage'
 
 export const MAX_FALLBACKS = 3
@@ -221,4 +223,50 @@ export function monthSpendText(spend: number, cap: number): string {
 // One entry per line; blanks dropped, duplicates removed, order kept.
 export function splitLines(raw: string): string[] {
   return [...new Set(raw.split('\n').map((s) => s.trim()).filter(Boolean))]
+}
+
+// Parity X02: fill the form from an applied workflow tier, the way Streamlit's
+// apply_workflow_tier set the engine, model and Reflect widgets. The engine is
+// set explicitly (the drama's saved engine changed on the server, so the
+// loaded config's default is stale). A model the engine doesn't list falls
+// back to the engine default. Bulk is kept only if it still fits; nothing else
+// (style, locale, toggles, fallbacks) changes, and no run is started.
+export function applyTierToForm(f: RunForm, t: WorkflowTierApplied, c: TranslateRunConfig): RunForm {
+  const engine = t.translation_engine
+  const models = c.engines?.find((e) => e.name === engine)?.models ?? []
+  const model = t.engine_model && models.includes(t.engine_model) ? t.engine_model : ''
+  const reflect = t.reflect && reflectAvailable(engine)
+  const supported = c.bulk_supported_engines ?? []
+  const bulk = f.bulk && (reflect ? bulkReflectAvailable(engine, supported) : bulkAvailable(engine, supported))
+  return { ...f, engine, model, reflect, bulk }
+}
+
+export const PRESET_NAME_MAX = 100
+
+export function validatePresetName(name: string): string | null {
+  const t = name.trim()
+  if (!t) return 'Give the preset a name.'
+  if (t.length > PRESET_NAME_MAX) return `A preset name is at most ${PRESET_NAME_MAX} characters.`
+  return null
+}
+
+// Parity X22: the same fields Streamlit's "Save as preset" captured (engine,
+// model, style, locale, the she/her and genre toggles). A blank model means
+// the engine default and is saved as null.
+export function buildPresetBody(
+  f: RunForm,
+  defaultEngine: string,
+  name: string,
+  overwrite = false,
+): TranslatePresetBody {
+  return {
+    name: name.trim(),
+    translation_engine: f.engine || defaultEngine,
+    engine_model: f.model || null,
+    style_preset: f.style_preset || null,
+    locale: f.locale || null,
+    default_female_pronouns: f.female_pronouns,
+    include_genre_notes: f.genre_notes,
+    ...(overwrite ? { overwrite: true } : {}),
+  }
 }

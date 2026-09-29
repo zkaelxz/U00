@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { TranslateRunConfig } from '../../types/translateStage'
+import type { TranslateRunConfig, WorkflowTierApplied } from '../../types/translateStage'
 import {
+  applyTierToForm,
   buildEstimateParams,
+  buildPresetBody,
   buildRunBody,
   bulkAvailable,
   bulkReflectAvailable,
@@ -13,6 +15,7 @@ import {
   reflectAvailable,
   savePresetStart,
   splitLines,
+  validatePresetName,
   validateRun,
 } from './translateForm'
 
@@ -182,5 +185,65 @@ describe('preset start values', () => {
     vi.stubGlobal('localStorage', { getItem: boom, setItem: boom, removeItem: boom })
     expect(loadPresetStart(1)).toEqual({})
     expect(() => savePresetStart(1, { locale: 'en-GB' })).not.toThrow()
+  })
+})
+
+describe('workflow tiers (X02) and save as preset (X22)', () => {
+  const withEngines = {
+    ...config,
+    translation_engine: 'deepl',
+    engines: [
+      { name: 'claude', models: ['claude-sonnet-5', 'claude-opus-4-8'] },
+      { name: 'deepseek', models: null },
+      { name: 'deepl', models: null },
+    ],
+    bulk_supported_engines: ['claude', 'deepseek'],
+  } as unknown as TranslateRunConfig
+  const release: WorkflowTierApplied = {
+    drama_id: 1, tier: 'release', label: 'Release', translation_engine: 'claude',
+    engine_model: 'claude-opus-4-8', reflect: true, auto_qc: true,
+  }
+  const draft: WorkflowTierApplied = {
+    drama_id: 1, tier: 'draft', label: 'Draft', translation_engine: 'deepseek',
+    engine_model: null, reflect: false, auto_qc: false,
+  }
+
+  it('fills engine, model and Reflect and leaves the rest alone', () => {
+    const base = { ...initialForm(withEngines), style_note: 'keep', locale: 'en-GB', genre_notes: false }
+    const f = applyTierToForm(base, release, withEngines)
+    expect(f).toMatchObject({ engine: 'claude', model: 'claude-opus-4-8', reflect: true })
+    expect(f).toMatchObject({ style_note: 'keep', locale: 'en-GB', genre_notes: false, force: false })
+    const d = applyTierToForm(f, draft, withEngines)
+    expect(d).toMatchObject({ engine: 'deepseek', model: '', reflect: false })
+  })
+
+  it('drops an unlisted model and a bulk choice that no longer fits', () => {
+    const noOpus = { ...withEngines, engines: [{ name: 'claude', models: ['claude-sonnet-5'] }] } as unknown as TranslateRunConfig
+    expect(applyTierToForm(initialForm(noOpus), release, noOpus).model).toBe('')
+    const bulky = { ...initialForm(withEngines), engine: 'claude', bulk: true }
+    // Release: Reflect + bulk needs a batch API; claude has one.
+    expect(applyTierToForm(bulky, release, withEngines).bulk).toBe(true)
+    // Draft on DeepSeek: plain bulk (off-peak) still fits.
+    expect(applyTierToForm(bulky, draft, withEngines).bulk).toBe(true)
+    const noBulk = { ...withEngines, bulk_supported_engines: [] } as unknown as TranslateRunConfig
+    expect(applyTierToForm(bulky, release, noBulk).bulk).toBe(false)
+  })
+
+  it('validates the preset name', () => {
+    expect(validatePresetName('   ')).toMatch(/name/)
+    expect(validatePresetName('x'.repeat(101))).toMatch(/100/)
+    expect(validatePresetName(' Mine ')).toBeNull()
+  })
+
+  it('builds the preset body from the form', () => {
+    const f = { ...initialForm(withEngines), style_preset: 'wuxia', locale: 'en-GB', female_pronouns: true, genre_notes: false }
+    expect(buildPresetBody(f, 'deepl', ' Mine ')).toEqual({
+      name: 'Mine', translation_engine: 'deepl', engine_model: null, style_preset: 'wuxia',
+      locale: 'en-GB', default_female_pronouns: true, include_genre_notes: false,
+    })
+    const g = { ...f, engine: 'claude', model: 'claude-sonnet-5' }
+    expect(buildPresetBody(g, 'deepl', 'Mine', true)).toMatchObject({
+      translation_engine: 'claude', engine_model: 'claude-sonnet-5', overwrite: true,
+    })
   })
 })

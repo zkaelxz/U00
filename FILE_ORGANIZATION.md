@@ -243,7 +243,8 @@ baihe-subtitler/
 │   │                             cover upload stays out of scope (auto-fill is metadata_service, Slice 37)
 │   ├── translate_run_service.py  Migration Slice 39 -- READ-ONLY per-drama Translate stage:
 │   │                             get_translate_config + estimate_translate_cost (advisory cost
-│   │                             estimate / cap gating); start-translate job is a later slice
+│   │                             estimate / cap gating); start-translate job is a later slice;
+│   │                             parity X02/X22: apply_workflow_tier, save_translate_preset
 │   ├── characters_service.py     Migration Slice 42 -- per-drama speakers' character/voice config:
 │   │                             list/update (None = leave alone, "" = clear), series-character
 │   │                             list, clone-engine picklist (Step 26c language rule), voice bank

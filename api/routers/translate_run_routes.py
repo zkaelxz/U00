@@ -4,6 +4,10 @@ drama (Migration Slice 39): the read-only stage config and the advisory
 pre-run cost estimate. Distinct from Slice 13's standalone translator
 under /api/translate. Slice 40 adds the start-translate job;
 see services/translate_run_service.py for the scope decision.
+Parity X02/X22 add "Apply tier" (lines.edit: per-drama stage config) and
+"Save as preset" (admin.library, like preset rename: a library catalogue
+write; not local_only because it deletes nothing, and replacing a preset of
+the same name needs overwrite=true, else 409).
 """
 
 from typing import Optional
@@ -11,8 +15,9 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import require_engines_allowed, require_permission
 from api.schemas import (ErrorResponse, TranslateBulkCancelResult, TranslateBulkList,
-                         TranslateBulkResumeResult, TranslateRunConfig,
-                         TranslateRunEstimate, TranslateRunStart, TranslateRunStarted)
+                         TranslateBulkResumeResult, TranslatePresetSave, TranslatePresetSaved,
+                         TranslateRunConfig, TranslateRunEstimate, TranslateRunStart,
+                         TranslateRunStarted, WorkflowTierApplied, WorkflowTierApply)
 from services import translate_run_service
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
@@ -88,3 +93,23 @@ def list_bulk_translations(drama_id: int = Path(ge=1)):
              responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse}})
 def cancel_bulk_translation(drama_id: int = Path(ge=1), bulk_job_id: int = Path(ge=1)):
     return translate_run_service.cancel_bulk_translation(drama_id, bulk_job_id)
+
+
+@router.post("/dramas/{drama_id}/workflow-tier", dependencies=[require_permission("lines.edit")],
+             response_model=WorkflowTierApplied,
+             summary="Apply a workflow tier: saves its engine on the drama, returns the form values",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def apply_workflow_tier(body: WorkflowTierApply, drama_id: int = Path(ge=1, le=2**31 - 1)):
+    return translate_run_service.apply_workflow_tier(drama_id, body.tier)
+
+
+@router.post("/presets", dependencies=[require_permission("admin.library")],
+             response_model=TranslatePresetSaved,
+             summary="Save the Translate form's settings as a named preset",
+             responses={409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def save_translate_preset(body: TranslatePresetSave):
+    return translate_run_service.save_translate_preset(
+        body.name, body.translation_engine, engine_model=body.engine_model,
+        style_preset=body.style_preset, locale=body.locale,
+        default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes, overwrite=body.overwrite)
