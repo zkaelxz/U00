@@ -14,6 +14,7 @@ import { ApiError } from '../../../api/client'
 import { startUrlDownload } from '../../../api/sourcesImport'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { Toggle } from '../../../components/Toggle'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { MAX_URL_LEN, defaultAudioOnly, downloadReason } from '../../sources/urlImportFormat'
 import './urlDownload.css'
@@ -84,18 +85,19 @@ export function UrlDownload({ dramaId, contentMode, hasAudio, url: fixedUrl, bus
           />
         </Field>
       )}
-      <div className="url-download-checks">
-        <label>
-          <input type="checkbox" checked={audioOnly} onChange={(e) => setAudioOnly(e.target.checked)} />
-          Audio only
-        </label>
-        {audioThere && (
+      <div className="setting-list">
+        <Field label="Audio only">
+          <Toggle checked={audioOnly} onChange={setAudioOnly} />
+        </Field>
+      </div>
+      {audioThere && (
+        <div className="url-download-checks">
           <label>
             <input type="checkbox" checked={replace} onChange={(e) => setReplace(e.target.checked)} />
             Replace the current audio
           </label>
-        )}
-      </div>
+        </div>
+      )}
       <p className="muted">
         {audioOnly ? 'Keeps just the audio track.' : 'Keeps the video too and extracts its audio.'}
       </p>

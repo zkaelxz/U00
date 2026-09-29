@@ -4,7 +4,11 @@ import { ApiError } from '../../../api/client'
 import { getGlossaryTerms } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { safeDetail } from '../../../components/errorMessages'
+import { Field } from '../../../components/Field'
+import { humanize } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import { useStage } from '../StageContext'
@@ -86,7 +90,7 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
   const chosen = chosenTerms(proposals, sel)
   const missing = missingTranslations(proposals, chosen, edits)
   const catalogues = useGlossaryCatalogues(proposals.length > 0)
-  const engine = drama.translation_engine || 'claude'
+  const engine = humanize('engine', drama.translation_engine || 'claude')
 
   const start = () => {
     setBusy(true)
@@ -176,13 +180,13 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
         {active && status ? (
           <p className="actions" role="status" data-testid={`${text.testId}-running`}>
             <span>{extractionProgressText(source, status.status, status.progress)}</span>
-            <button type="button" disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={cancelSentFor === status || !status.run_id} onClick={cancel}>
               Cancel
             </button>
           </p>
         ) : (
           <div className="actions">
-            <button type="button" disabled={!!blocker || hasNovel === null || busy} onClick={start}>
+            <button type="button" className={buttonClass('secondary')} disabled={!!blocker || hasNovel === null || busy} onClick={start}>
               {proposals.length ? 'Extract terms again' : 'Extract terms'}
             </button>
             {blocker && (
@@ -213,17 +217,17 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
         )}
         {proposals.length > 0 && (
           <div className="novel-glossary-apply">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={overwrite}
-                onChange={(e) => {
-                  setConfirming(false)
-                  setOverwrite(e.target.checked)
-                }}
-              />{' '}
-              Overwrite existing terms
-            </label>
+            <div className="setting-list">
+              <Field label="Overwrite existing terms">
+                <Toggle
+                  checked={overwrite}
+                  onChange={(v) => {
+                    setConfirming(false)
+                    setOverwrite(v)
+                  }}
+                />
+              </Field>
+            </div>
             {overwrite && (
               <p className="muted">Tick terms marked "already in glossary" to replace them.</p>
             )}
@@ -243,10 +247,10 @@ export function GlossaryExtract({ source, title, storageKey }: Props) {
             ) : (
               <div className="actions" role="alert">
                 <span>{overwriteConfirmText(existing)}</span>
-                <button type="button" className="danger" disabled={busy} onClick={apply}>
+                <button type="button" className={buttonClass('danger')} disabled={busy} onClick={apply}>
                   Yes, overwrite
                 </button>
-                <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
+                <button type="button" className={buttonClass('secondary')} onClick={() => setConfirming(false)}>Cancel</button>
               </div>
             )}
           </div>

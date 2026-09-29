@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { getSettings } from '../../../api/settings'
 import {
@@ -10,7 +10,10 @@ import {
 } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import type {
   MediaStatus,
   TranscribeConfig,
@@ -29,11 +32,39 @@ import {
 import { useStage } from '../StageContext'
 import { AutoTune } from './AutoTune'
 import { NovelFilePanel } from './NovelFilePanel'
+import { mediaFileInputId } from './stageBlockers'
 import { promptFields } from './transcribePrompt'
 import './source.css'
 
 const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3', 'large-v3-turbo']
 const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
+// Display names for the Advanced backend choices (the option value stays raw).
+const OPTION_LABELS: Record<string, string> = {
+  whisper_diff: 'Whisper (diff)',
+  qwen3_forced_align: 'Qwen3 forced alignment',
+  whisper: 'Whisper',
+  qwen3_asr: 'Qwen3 ASR',
+  auto: 'Automatic',
+  audio_separator: 'Audio Separator',
+  demucs: 'Demucs',
+  tesseract: 'Tesseract',
+  paddle: 'PaddleOCR',
+}
+const optionLabel = (o: string) => OPTION_LABELS[o] ?? humanizeValue(o)
+
+// advancedSummary names changed backends by their raw value; show their labels.
+const readableSummary = (summary: string) =>
+  summary
+    .split(' · ')
+    .map((p) => (p.startsWith('separation ') ? `separation ${optionLabel(p.slice(11))}` : (OPTION_LABELS[p] ?? p)))
+    .join(' · ')
+
+// "3 expected", "2-4", or "auto": the Speakers section's one-line summary.
+function speakersSummary(expected: string, min: string, max: string): string {
+  if (expected.trim()) return `${expected.trim()} expected`
+  if (min.trim() || max.trim()) return `${min.trim() || '?'}-${max.trim() || '?'}`
+  return 'auto'
+}
 
 interface Props {
   // The media picker (status, file input, Upload), rendered at the top of the panel.
@@ -105,6 +136,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [useGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const transcriptRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -252,7 +284,7 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       <Field label={label} help={help}>
         <select value={cf[key]} onChange={(e) => setC(key, e.target.value)}>
           {(options.includes(cf[key]) ? options : [cf[key], ...options]).map((o) => (
-            <option key={o} value={o}>{o}</option>
+            <option key={o} value={o}>{optionLabel(o)}</option>
           ))}
         </select>
       </Field>
@@ -263,12 +295,24 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         <input type="number" step={step} value={cf[key]} onChange={(e) => setC(key, e.target.value)} />
       </Field>
     )
-  const check = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq') =>
+  const toggle = (label: string, key: 'separate_vocals_first' | 'realign_long_segments' | 'whisper_fast_mode' | 'use_groq') =>
     cf && (
-      <label className="check">
-        <input type="checkbox" checked={cf[key]} onChange={(e) => setC(key, e.target.checked)} /> {label}
-      </label>
+      <Field label={label}>
+        <Toggle checked={cf[key]} onChange={(v) => setC(key, v)} />
+      </Field>
     )
+  // Rule 22: the reason's fix focuses the missing field.
+  const fixNeeded = () => {
+    if (needed === 'the transcript text') return transcriptRef.current?.focus()
+    const input = document.getElementById(mediaFileInputId(dramaId))
+    if (input) {
+      input.scrollIntoView({ block: 'center' })
+      input.focus()
+    } else {
+      // "From a URL" is showing: switch back to the file picker.
+      document.querySelector<HTMLInputElement>('.source-from input[type="radio"]')?.click()
+    }
+  }
 
   const turboWarning = cf ? whisperModelWarning(cf.whisper_size, language) : ''
 
@@ -277,14 +321,24 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       <h3>Transcribe</h3>
       {mediaSlot}
       <div className="actions">
-        <button type="button" className="primary" disabled={busy || !cf || !!needed} onClick={transcribe}>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || !cf || !!needed}
+          aria-describedby={needed && !busy ? 'transcribe-needed' : undefined}
+          onClick={transcribe}
+        >
           Transcribe
         </button>
-        <button type="button" disabled={busy} onClick={diarize}>
-          Detect speakers only
-        </button>
       </div>
-      {needed && !busy && <p className="muted source-needed">Still needed: {needed}.</p>}
+      {needed && !busy && (
+        <p className="muted source-needed" id="transcribe-needed">
+          <span>Still needed: {needed}.</span>
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={fixNeeded}>
+            {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
+          </button>
+        </p>
+      )}
       {busy && (
         <p className="muted" role="status">
           A job for this drama is already running. Wait for it to finish or cancel it before starting another.
@@ -326,31 +380,42 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
             </select>
           </Field>
         )}
-        <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
-          <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
-        </Field>
-        <Field label="Min speakers" help="1-20. For Detect speakers only, when you know a range but not the exact count.">
-          <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} />
-        </Field>
-        <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
-          <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} />
-        </Field>
       </div>
       {turboWarning && <p className="muted" role="note">{turboWarning}</p>}
       {haveTranscript && (
         <Field label="Transcript text">
-          <textarea rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
+          <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
         </Field>
       )}
-      <label className="check">
-        <input type="checkbox" checked={runDiarize} onChange={(e) => setRunDiarize(e.target.checked)} /> Detect speakers after transcribing
-      </label>
+      <div className="setting-list">
+        <Field label="Detect speakers after transcribing">
+          <Toggle checked={runDiarize} onChange={setRunDiarize} />
+        </Field>
+      </div>
+      <Section storageKey="source.speakers" title="Speakers" summary={speakersSummary(speakers, minSpeakers, maxSpeakers)}>
+        <div className="source-grid">
+          <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
+            <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
+          </Field>
+          <Field label="Min speakers" help="1-20. For Detect speakers only, when you know a range but not the exact count.">
+            <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} />
+          </Field>
+          <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
+            <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} />
+          </Field>
+        </div>
+        <div className="actions">
+          <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={diarize}>
+            Detect speakers only
+          </button>
+        </div>
+      </Section>
 
       {cf && (
         <Section
           storageKey="source.advanced"
           title="Advanced"
-          summary={advancedSummary({ ...cf, prompt: override })}
+          summary={readableSummary(advancedSummary({ ...cf, prompt: override }))}
         >
           <div className="source-grid">
             {num('Beam size', 'beam_size', 1, '1-10. Higher is slower and a little more accurate.')}
@@ -386,14 +451,14 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
               <input value={override} onChange={(e) => setOverride(e.target.value)} />
             </Field>
           </details>
-          <div className="source-checks">
-            {check('Separate vocals first', 'separate_vocals_first')}
-            {check('Realign long segments', 'realign_long_segments')}
-            {check('Whisper fast mode', 'whisper_fast_mode')}
-            {check('Use Groq', 'use_groq')}
+          <div className="setting-list">
+            {toggle('Separate vocals first', 'separate_vocals_first')}
+            {toggle('Realign long segments', 'realign_long_segments')}
+            {toggle('Whisper fast mode', 'whisper_fast_mode')}
+            {toggle('Use Groq', 'use_groq')}
           </div>
           <div className="actions">
-            <button type="button" onClick={saveOptions}>Save options</button>
+            <button type="button" className={buttonClass('secondary', 'sm')} onClick={saveOptions}>Save options</button>
             {saved && <span role="status" className="muted">Saved.</span>}
           </div>
           <AutoTune

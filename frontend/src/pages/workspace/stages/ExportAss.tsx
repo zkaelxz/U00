@@ -1,5 +1,7 @@
 import { Field } from '../../../components/Field'
+import { humanizeValue } from '../../../components/labels'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
 import type { AssStyleOptions } from '../../../types/export'
 import { MAX_SPEAKER_COLORS, resolveAssStyle, type AssForm } from '../exportForm'
 
@@ -18,7 +20,7 @@ export function ExportAss({ form, setForm, options }: Props) {
       <select value={form[key]} onChange={(e) => set(key, e.target.value)}>
         <option value="">Preset default</option>
         {Object.keys(options.alignments).map((a) => (
-          <option key={a} value={a}>{a}</option>
+          <option key={a} value={a}>{humanizeValue(a)}</option>
         ))}
       </select>
     </Field>
@@ -44,7 +46,7 @@ export function ExportAss({ form, setForm, options }: Props) {
   )
 
   const look = resolveAssStyle(form, options)
-  const summary = `${form.preset || 'default'} · ${form.font || 'preset font'} · ${form.size ? `${form.size} pt` : 'preset size'}`
+  const summary = `${form.preset ? humanizeValue(form.preset) : 'Default'} · ${form.font || 'preset font'} · ${form.size ? `${form.size} pt` : 'preset size'}`
   return (
     <Section title="ASS style" summary={summary}>
       <p className="muted">Used for the ASS file and the burned-in video.</p>
@@ -73,7 +75,7 @@ export function ExportAss({ form, setForm, options }: Props) {
         <Field label="Preset">
           <select value={form.preset} onChange={(e) => set('preset', e.target.value)}>
             {Object.keys(options.presets).map((p) => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>{humanizeValue(p)}</option>
             ))}
           </select>
         </Field>
@@ -99,18 +101,22 @@ export function ExportAss({ form, setForm, options }: Props) {
         {align('alignment', 'Position')}
         {align('sfxAlignment', 'Sound-effect position')}
         {align('notesAlignment', 'Notes position')}
+      </div>
+      <div className="setting-list">
         <Field label="Colour each speaker">
-          <input type="checkbox" checked={form.perSpeakerColors} onChange={(e) => set('perSpeakerColors', e.target.checked)} />
+          <Toggle checked={form.perSpeakerColors} onChange={(v) => set('perSpeakerColors', v)} />
         </Field>
         <Field label="Notes on own line">
-          <input
-            type="checkbox"
+          <Toggle
             checked={form.notesAsSeparateLine}
             disabled={!form.includeNotes}
-            onChange={(e) => set('notesAsSeparateLine', e.target.checked)}
+            onChange={(v) => set('notesAsSeparateLine', v)}
           />
         </Field>
       </div>
+      {!form.includeNotes && (
+        <p className="muted" data-testid="ass-notes-reason">Turn on Include notes under Advanced to place notes.</p>
+      )}
       <Field label="Speaker colours" help={`One "Name = #RRGGBB" per line, at most ${MAX_SPEAKER_COLORS}.`}>
         <textarea rows={3} value={form.speakerColors} onChange={(e) => set('speakerColors', e.target.value)} />
       </Field>
