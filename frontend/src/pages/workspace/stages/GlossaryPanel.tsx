@@ -15,6 +15,7 @@ import type { GlossaryCatalogues, GlossaryTerm } from '../../../types/translateS
 import { splitLines } from '../translateForm'
 import { pruneSelection, selectedInOrder, toggleAll, toggleId } from './glossarySelection'
 import { useStage } from '../StageContext'
+import { NovelGlossary } from './NovelGlossary'
 
 interface TermForm {
   id?: number
@@ -301,6 +302,7 @@ export function GlossaryPanel() {
         <button type="button" onClick={() => setEditing(EMPTY)}>Add term</button>
       )}
       <ErrorBanner error={saveError} onDismiss={() => setSaveError(null)} />
+      <NovelGlossary onApplied={() => setReloads((n) => n + 1)} />
       {instructions && (
         <>
           <InstructionsEditor scope="project" initial={instructions.project} />

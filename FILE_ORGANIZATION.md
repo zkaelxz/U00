@@ -416,6 +416,10 @@ baihe-subtitler/
 │   │                              ReaderStory (story tools, wiki, Q&A), ReaderEngine, ReaderAction +
 │   │                              useReaderAction (per-action error/429 retry), readerPrefs.ts and
 │   │                              readerErrors.ts (pure, unit-tested), reader.css
+│   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
+│   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
+│   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
+│   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
