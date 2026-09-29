@@ -160,7 +160,7 @@ baihe-subtitler/
 │   ├── profiles.py                per-domain extraction profiles
 │   ├── site_terms.py              terms-of-service findings for sites with no adapter
 │   ├── store.py                   persistence for the source-adapter system
-│   └── adapters/                  one file per supported site (15 sites)
+│   └── adapters/                  one file per supported site (14 sites)
 │       ├── __init__.py            BUILTIN: which adapter modules get loaded
 │       ├── 52shuku.py, baozimh.py, bilibili.py, bilibili_manga.py, guazimanhua.py,
 │       └── kuaikan.py, mangaz.py, manhuagui.py, manhuaku.py, miaoqumh.py, missevan.py,
@@ -253,11 +253,9 @@ baihe-subtitler/
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
 │   │                             suggestion/apply (public-host-only URL fetch, whitelisted fields)
+│   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
-│   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
-│   │                             attempts, settings, profiles, tracked, notifications) and config
-│   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
@@ -266,9 +264,12 @@ baihe-subtitler/
 │   │                             (synchronous, read-only suggestions; id-addressed)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
-│   └── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
-│                                 preview + apply job, version-history restore (snapshot first,
-│                                 expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
+│   │                             preview + apply job, version-history restore (snapshot first,
+│   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│                                 attempts, settings, profiles, tracked, notifications) and config
+│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -329,13 +330,14 @@ baihe-subtitler/
 │       ├── narration_routes.py   /api/narration/dramas/{id}/config, POST .../run (Migration Slice 33)
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
-│       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
-│       └── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
-│                                 lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
+│       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
+│       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       └── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
