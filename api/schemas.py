@@ -1473,3 +1473,21 @@ class RestoreVersionRequest(_RestructureBase):
 class RestoreVersionResult(BaseModel):
     history_id: int
     line_ids: List[int]
+
+
+class EngineKeySetRequest(BaseModel):
+    """Write-only engine key (Migration Slice 24). `value` is a secret:
+    it is never echoed back and validation errors never include it."""
+    model_config = ConfigDict(extra="forbid")
+    value: str = Field(..., repr=False)
+    confirm: StrictBool = False
+
+
+class EngineKeyClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class EngineKeyResult(BaseModel):
+    engine: str
+    configured: bool
