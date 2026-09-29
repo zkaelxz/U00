@@ -159,6 +159,22 @@ def test_ocr_chapter_job(client, monkeypatch):
     assert [n for n in os.listdir(db.drama_dir(did)) if n.startswith(".ocr_")] == []
 
 
+def test_ocr_chapter_passes_tesseract_cmd(client, monkeypatch):
+    did = _drama()
+    seen = {}
+
+    def fake_ocr(paths, backend, source_language, chinese_script, tesseract_cmd=None, **kw):
+        seen["cmd"] = tesseract_cmd
+        return "OCR text"
+    monkeypatch.setattr(ocr, "extract_text_from_images", fake_ocr)
+    r = client.post(f"/api/novel/dramas/{did}/ocr-chapter",
+                    files=[("files", ("a.png", b"img"))],
+                    data={"tesseract_cmd": "D:/Tesseract/tesseract.exe"})
+    assert r.status_code == 200
+    _wait(f"ocrchapter_{did}")
+    assert seen["cmd"] == "D:/Tesseract/tesseract.exe"
+
+
 def test_ocr_chapter_errors(client, monkeypatch):
     did = _drama()
     url = f"/api/novel/dramas/{did}/ocr-chapter"

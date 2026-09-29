@@ -42,3 +42,53 @@ export function parseExpectedSpeakers(raw: string): number | undefined | null {
   const n = Number(raw)
   return Number.isInteger(n) && n >= 0 && n <= 20 ? n : null
 }
+
+// Mirrors core.whisper_model_warning: large-v3-turbo is weaker on ja/ko.
+export function whisperModelWarning(size: string, language: string): string {
+  if (size === 'large-v3-turbo' && (language === 'ja' || language === 'ko')) {
+    return 'large-v3-turbo is reported noticeably weaker on Japanese and Korean -- large-v3 (or medium) is the safer choice for this drama.'
+  }
+  return ''
+}
+
+// Source-stage run options kept for the browser session, per drama, so a
+// stage-tab switch or navigation does not wipe them.
+export interface SourceFormState {
+  language: string
+  script: string
+  transcriptText: string
+  runDiarize: boolean
+  speakers: string
+  prompt: string
+}
+
+const formKey = (dramaId: number) => `baihe.sourceForm.${dramaId}`
+
+export function loadSourceForm(dramaId: number): Partial<SourceFormState> {
+  try {
+    const raw = sessionStorage.getItem(formKey(dramaId))
+    const v: unknown = raw ? JSON.parse(raw) : null
+    if (!v || typeof v !== 'object') return {}
+    const o = v as Record<string, unknown>
+    const out: Partial<SourceFormState> = {}
+    for (const k of ['language', 'script', 'transcriptText', 'speakers', 'prompt'] as const) {
+      if (typeof o[k] === 'string') out[k] = o[k]
+    }
+    if (typeof o.runDiarize === 'boolean') out.runDiarize = o.runDiarize
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function saveSourceForm(dramaId: number, state: SourceFormState): void {
+  try {
+    sessionStorage.setItem(formKey(dramaId), JSON.stringify(state))
+  } catch {
+    // storage unavailable: the form just will not persist
+  }
+}
+
+// Job ids a Source-stage run can be reattached to (services/transcribe_service.py,
+// services/diarization_service.py).
+export const sourceJobIds = (dramaId: number) => [`transcribe_${dramaId}`, `diarize_${dramaId}`]

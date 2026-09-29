@@ -106,6 +106,25 @@ def test_flag_does_not_overwrite_concurrent_user_edit(monkeypatch):
     assert row["en"] == "mine" and row["flag"] == "uncertain"
 
 
+def test_flag_keeps_manual_flag_change_made_during_job(monkeypatch):
+    did = _seed()
+    rows = db.load_lines(did)
+
+    def fake_flag(lines, engine, **kw):
+        # the user clears/sets flags by hand while the job runs
+        db.save_lines(did, [Line(id=rows[0]["id"], idx=0, start=0, end=1, zh="你好",
+                                 flag="manual", flag_note="mine")],
+                      fields=("flag", "flag_note"))
+        lines[0].flag, lines[0].flag_note = "uncertain", "job"
+        lines[1].flag, lines[1].flag_note = "uncertain", "job"
+    monkeypatch.setattr(translate_engines, "flag_uncertain_lines", fake_flag)
+    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    out = db.load_lines(did)
+    assert (out[0]["flag"], out[0]["flag_note"]) == ("manual", "mine")
+    assert (out[1]["flag"], out[1]["flag_note"]) == ("uncertain", "job")
+    assert job["result"]["flagged_count"] == 2
+
+
 def test_consistency_saves_issues(monkeypatch):
     did = _seed()
     monkeypatch.setattr(translate_engines, "check_consistency_llm",

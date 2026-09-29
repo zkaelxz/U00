@@ -23,6 +23,7 @@ import stat
 import tempfile
 import zipfile
 from html.parser import HTMLParser
+from typing import Optional
 from xml.etree import ElementTree
 
 import background_jobs
@@ -241,7 +242,8 @@ def get_status(drama_id: int) -> dict:
 
 
 def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
-                      mode: str = "append") -> dict:
+                      mode: str = "append",
+                      tesseract_cmd: Optional[str] = None) -> dict:
     """images: list of (client_filename, fileobj). Stages them under
     generated names, then starts the job that OCRs them in order and writes
     the text. Returns {"job_id"}."""
@@ -281,7 +283,8 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
         job_id = _job_id(drama_id)
         started = background_jobs.start_job(
             job_id, _run_ocr_job, job_id, drama_id, stage, paths, backend, mode, language,
-            drama.get("chinese_script") or "simplified", gpu_touching=True,
+            drama.get("chinese_script") or "simplified", tesseract_cmd or None,
+            gpu_touching=True,
             description=f"Chapter OCR (drama {drama_id})")
         if not started:
             raise ConflictError("A chapter OCR run is already active for this drama.")
@@ -291,11 +294,13 @@ def start_ocr_chapter(drama_id: int, images, backend: str = "tesseract",
     return {"job_id": job_id}
 
 
-def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script):
+def _run_ocr_job(job_id, drama_id, stage, paths, backend, mode, language, script,
+                 tesseract_cmd=None):
     try:
         background_jobs.update_progress(job_id, 0.1, "Running OCR...")
         text = _clean(ocr_module.extract_text_from_images(
-            paths, backend=backend, source_language=language, chinese_script=script))
+            paths, backend=backend, source_language=language, chinese_script=script,
+            tesseract_cmd=tesseract_cmd))
         if not text:
             background_jobs.set_result(job_id, {"failed_reason": "empty"})
             return
