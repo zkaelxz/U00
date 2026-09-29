@@ -226,3 +226,43 @@ def test_http_statuses(client, monkeypatch):
     monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: None)
     r = client.post(f"/api/review-jobs/dramas/{did}/emotion", json={"engine": "claude"})
     assert r.status_code == 503
+
+
+# ---- B-05: cancel between batches ------------------------------------------
+
+def _cancel_then_check(job_id):
+    def fake(lines, engine, **kw):
+        background_jobs.request_cancel(job_id)
+        kw["cancel_check"]()        # the next batch boundary raises
+        raise AssertionError("cancel_check did not stop the run")
+    return fake
+
+
+def test_flag_cancel_skips_save(monkeypatch):
+    did = _seed()
+    calls = _spy_save_lines(monkeypatch)
+    monkeypatch.setattr(translate_engines, "flag_uncertain_lines",
+                        _cancel_then_check(f"flag_{did}"))
+    job = _wait(svc.start_flag_review(did, engine_name="claude")["job_id"])
+    assert job["status"] == "cancelled"
+    assert calls == []
+
+
+def test_consistency_cancel_skips_save(monkeypatch):
+    did = _seed()
+    saved = []
+    monkeypatch.setattr(db, "save_consistency_issues", lambda *a, **k: saved.append(a))
+    monkeypatch.setattr(translate_engines, "check_consistency_llm",
+                        _cancel_then_check(f"consistency_{did}"))
+    job = _wait(svc.start_consistency_check(did, engine_name="claude")["job_id"])
+    assert job["status"] == "cancelled" and saved == []
+
+
+def test_notes_cancel_skips_save(monkeypatch):
+    did = _seed()
+    saved = []
+    monkeypatch.setattr(db, "save_translation_notes", lambda *a, **k: saved.append(a))
+    monkeypatch.setattr(translation_guide, "generate_translation_notes_llm",
+                        _cancel_then_check(f"notes_{did}"))
+    job = _wait(svc.start_translation_notes(did, engine_name="claude")["job_id"])
+    assert job["status"] == "cancelled" and saved == []

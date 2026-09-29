@@ -446,7 +446,8 @@ def build_translation_notes_prompt(batch: list, id_fn=lambda ln: ln.idx) -> str:
     )
 
 
-def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb=None):
+def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb=None,
+                                   cancel_check=None):
     """
     Reviews translated lines for things that lost something in translation
     and are worth a translation note: idioms, puns, meaningful names,
@@ -454,6 +455,8 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
 
     Returns a list of {line_idx, term, note_type, note} -- for review and
     optional export as a notes appendix. Doesn't modify any line text.
+    cancel_check (B-05): called before each batch; it may raise to stop the
+    run between batches (a batch already sent still finishes).
     """
     if not getattr(engine, "supports_reference", False):
         return []
@@ -465,6 +468,8 @@ def generate_translation_notes_llm(lines, engine, batch_size: int = 40, usage_cb
     all_notes = []
 
     for start in range(0, len(translated), batch_size):
+        if cancel_check:
+            cancel_check()
         batch = translated[start:start + batch_size]
         prompt = build_translation_notes_prompt(batch)
         text = call_llm_json(engine, prompt, max_tokens=3000, fallback="[]", usage_cb=usage_cb)
