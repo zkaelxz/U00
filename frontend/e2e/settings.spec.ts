@@ -7,7 +7,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   const box = page.getByRole('checkbox', { name: /Notify when a job finishes/ })
   await expect(box).toBeVisible()
   await page.locator('details.section', { hasText: 'API keys configured' }).locator('summary').click()
-  await expect(page.getByText(/API-key entry is not available/)).toBeVisible()
+  await expect(page.getByText(/Setting keys works only on that PC/)).toBeVisible()
   await page.evaluate(() => localStorage.removeItem('baihe.section.settings.api-keys'))
   const before = await box.isChecked()
 
@@ -22,7 +22,7 @@ test('settings toggles round-trip and keys are yes/no only', async ({ page }) =>
   await Promise.all([saved(), box.click()]) // restore
   await expect(box).toBeChecked({ checked: before })
   for (const dd of await page.locator('[data-testid^="key-"]').all())
-    await expect(dd).toHaveText(/^(Yes|No)$/)
+    await expect(dd).toHaveText(/^(Yes|No|Configured: yes|Configured: no)$/) // secret keys (#345) vs URL fields
 })
 
 test('a failed update rolls the toggle back and shows an error', async ({ page }) => {
