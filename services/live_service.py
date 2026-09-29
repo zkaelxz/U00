@@ -99,6 +99,7 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     try:
         engine = translate_engines.get_engine(
             engine_name, api_key, model or None,
+            free_tier=settings_service.get_gemini_free_tier(),
             base_url=(settings_service.resolve_key("ollama_url") or None)
             if engine_name == "ollama" else None)
     except ServiceError:

@@ -252,6 +252,7 @@ def _llm_engine(engine_name=None, model=None):
             f"No {engine_name} key is configured. Set one in Settings first.")
     engine = translate_engines.get_engine(
         engine_name, api_key, model,
+        free_tier=settings_service.get_gemini_free_tier(),
         base_url=(settings_service.resolve_key("ollama_url") or None)
         if engine_name == "ollama" else None)
     if not getattr(engine, "supports_reference", False):
