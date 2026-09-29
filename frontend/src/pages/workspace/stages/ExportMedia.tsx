@@ -1,12 +1,26 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { artifactUrl } from '../../../api/client'
-import { getArtifactInfo, getEpub, startAudiobook, startBurnedVideo } from '../../../api/export'
+import {
+  getArtifactInfo,
+  getEpub,
+  markExported,
+  startAudiobook,
+  startBurnedVideo,
+  startDubbedVideo,
+  startSoftsubVideo,
+} from '../../../api/export'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import { jobSucceeded } from '../../../types/jobs'
-import type { ArtifactInfo, AssExportRequest, MediaExportStarted, MediaKind } from '../../../types/export'
+import type {
+  ArtifactInfo,
+  AssExportRequest,
+  MediaExportStarted,
+  MediaKind,
+  SoftsubVideoRequest,
+} from '../../../types/export'
 import { formatBytes } from '../exportForm'
 import { useStage } from '../StageContext'
 import { JobPanel } from './JobPanel'
@@ -49,9 +63,12 @@ interface JobProps {
   // Starts the job, or returns a plain-language reason it cannot start yet.
   start: () => Promise<MediaExportStarted> | string
   note: string
+  // Distinguishes the download link when several sections share a kind.
+  testId?: string
+  children?: ReactNode
 }
 
-function MediaJobSection({ title, label, kind, start, note }: JobProps) {
+function MediaJobSection({ title, label, kind, start, note, testId, children }: JobProps) {
   const { dramaId } = useStage()
   const [jobId, setJobId, runKey] = useJobRun()
   const [error, setError] = useState<unknown>(null)
@@ -87,12 +104,13 @@ function MediaJobSection({ title, label, kind, start, note }: JobProps) {
   return (
     <div className="export-block" role="group" aria-label={title}>
       <h4>{title}</h4>
+      {children}
       <button type="button" title={note} disabled={busy} onClick={run}>{label}</button>
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
       {artifact && jobSucceeded(job) && (
-        <p data-testid={`artifact-${kind}`}>
+        <p data-testid={`artifact-${testId ?? kind}`}>
           <a href={artifactUrl(dramaId, kind)} download>Download {artifact.name}</a>{' '}
           <span className="muted">({formatBytes(artifact.size)})</span>
         </p>
@@ -122,6 +140,87 @@ export function ExportMediaJobs({ request }: { request: () => { request?: AssExp
           return r.request ? startBurnedVideo(dramaId, r.request) : (r.error ?? 'Fix the ASS style settings first.')
         }}
       />
+      <SoftsubVideo />
+      <DubbedVideo />
     </>
+  )
+}
+
+// Parity E17: the subtitles as a track viewers can switch on and off.
+function SoftsubVideo() {
+  const { dramaId } = useStage()
+  const [field, setField] = useState<SoftsubVideoRequest['field']>('en')
+  return (
+    <MediaJobSection
+      title="Video with a subtitle track"
+      label="Start subtitle-track video export"
+      kind="video"
+      testId="softsub"
+      note="Adds the subtitles as a track the viewer can turn on and off; the picture and sound are copied unchanged. MP4 and MKV keep their format, others become MP4. Needs an uploaded source video and ffmpeg."
+      start={() => startSoftsubVideo(dramaId, { field })}
+    >
+      <Field label="Subtitles">
+        <select value={field} onChange={(e) => setField(e.target.value as SoftsubVideoRequest['field'])}>
+          <option value="en">English</option>
+          <option value="bilingual">Bilingual</option>
+          <option value="zh">Source language</option>
+        </select>
+      </Field>
+    </MediaJobSection>
+  )
+}
+
+// Parity E19: the dub track in place of (or over) the original audio.
+function DubbedVideo() {
+  const { dramaId } = useStage()
+  const [keepOriginal, setKeepOriginal] = useState(false)
+  return (
+    <MediaJobSection
+      title="Video with the dub audio"
+      label="Start dubbed video export"
+      kind="video"
+      testId="dubbed"
+      note="Replaces the video's sound with the dub track from the Dub stage. Needs an uploaded source video, a finished dub and ffmpeg."
+      start={() => startDubbedVideo(dramaId, { keep_original: keepOriginal })}
+    >
+      <label className="inline">
+        <input type="checkbox" checked={keepOriginal} onChange={(e) => setKeepOriginal(e.target.checked)} />{' '}
+        Mix the original audio in quietly underneath
+      </label>
+    </MediaJobSection>
+  )
+}
+
+// Parity E22: Streamlit's "Mark as exported" (sets the drama's status only).
+export function MarkExported() {
+  const { dramaId, drama, refetchDrama } = useStage()
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  const [done, setDone] = useState(false)
+  const exported = done || drama.status === 'exported'
+  const mark = () => {
+    setPending(true)
+    markExported(dramaId)
+      .then(
+        () => {
+          setError(null)
+          setDone(true)
+          refetchDrama()
+        },
+        setError,
+      )
+      .finally(() => setPending(false))
+  }
+  return (
+    <div className="export-actions" data-testid="mark-exported">
+      {exported ? (
+        <span className="muted" role="status">This drama is marked as exported.</span>
+      ) : (
+        <button type="button" disabled={pending} onClick={mark} title="Sets the drama's Library status to exported. Nothing else changes.">
+          Mark as exported
+        </button>
+      )}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
   )
 }

@@ -1415,6 +1415,26 @@ class MediaExportStarted(BaseModel):
     job_id: str
 
 
+class SoftsubVideoRequest(BaseModel):
+    """Parity E17: which subtitles go into the muxed track."""
+    model_config = ConfigDict(extra="forbid")
+    field: str = Field(default="en", pattern="^(en|zh|bilingual)$")
+    include_notes: StrictBool = False
+
+
+class DubbedVideoRequest(BaseModel):
+    """Parity E19: keep_original mixes the original audio in at -20 dB
+    instead of replacing it."""
+    model_config = ConfigDict(extra="forbid")
+    keep_original: StrictBool = False
+
+
+class MarkExportedResult(BaseModel):
+    """Parity E22: the drama's status after "Mark as exported"."""
+    drama_id: int
+    status: str
+
+
 class TranslateBulkResumeEntry(BaseModel):
     bulk_job_id: int
     state: str  # "polling" | "needs_key" | "running"

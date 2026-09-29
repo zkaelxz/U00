@@ -83,3 +83,20 @@ export interface ArtifactInfo {
 }
 
 export type MediaKind = 'audio' | 'video'
+
+// Parity E17: which subtitles go into the muxed track.
+export interface SoftsubVideoRequest {
+  field: 'en' | 'zh' | 'bilingual'
+  include_notes?: boolean
+}
+
+// Parity E19: keep_original mixes the original audio in quietly underneath.
+export interface DubbedVideoRequest {
+  keep_original: boolean
+}
+
+// Parity E22.
+export interface MarkExportedResult {
+  drama_id: number
+  status: string
+}

@@ -269,12 +269,12 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | E14 | Generate audiobook .m4b | 5817-5831 | `dub.export_narration_m4b` | `stages/ExportMedia.tsx` | `POST .../audiobook` + `/api/artifacts` | — |
 | E15 | Burn subtitles into the episode (ASS, per-speaker colours) | 5840-5900 | `video_export.burn_ass` | `stages/ExportMedia.tsx` | `POST .../burned-video` + `/api/artifacts` | test_export_formats TestHardsub |
 | E16 | Burn in from SRT with style settings (non-ASS path) | 5883-5890 | `video_export.burn_subtitles` | Covered by E15 (the ASS burn carries the same style) | — | test_export_formats TestHardsub |
-| E17 | Soft subtitle track muxed into the video | 5892-5894 | `video_export.mux_soft_subtitles` | MISSING | no API | — |
+| E17 | Soft subtitle track muxed into the video | 5892-5894 | `video_export.mux_soft_subtitles` | `stages/ExportMedia.tsx` "Video with a subtitle track" | `POST .../softsub-video` + `/api/artifacts` | test_api_media_export (softsub) |
 | E18 | Choose which subtitles go on the video (English, bilingual, Chinese) and download the matching file | 5854-5872 | — | `stages/ExportMedia.tsx` (`field`) | `AssExportRequest.field` | wt TestSection10StandaloneSubtitleDownload |
-| E19 | Export the video with the dub audio (replace, or mix the original quietly underneath) | 5902-5921 | `video_export.replace_audio_with_dub` | MISSING | no API | — |
+| E19 | Export the video with the dub audio (replace, or mix the original quietly underneath) | 5902-5921 | `video_export.replace_audio_with_dub` | `stages/ExportMedia.tsx` "Video with the dub audio" | `POST .../dubbed-video` + `/api/artifacts` | test_api_media_export (dubbed) |
 | E20 | Vertical/shorts export (9:16 crop, clip range) | 5923-5981 | `video_export.render_vertical_clip` | **DROPPED** (section 10) | no API | wt TestVerticalShortsExport |
 | E21 | Export this drama as a package (.zip) | 5984-6010 | `export_package.build_drama_export_package` | **DROPPED** (section 10) | no API | test_diagnostics_and_export TestExportPackage |
-| E22 | Mark as exported | 6012-6014 | `db.update_drama(status="exported")` | MISSING | no API (status is not updatable) | — |
+| E22 | Mark as exported | 6012-6014 | `db.update_drama(status="exported")` | `stages/ExportMedia.tsx` `MarkExported` (Export panel) | `POST /api/export/dramas/{id}/mark-exported` (admin.library) | test_api_media_export (mark_exported) |
 
 ## 3. Library (`tabs/library_tab.py`, 550 lines)
 

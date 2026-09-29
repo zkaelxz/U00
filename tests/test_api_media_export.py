@@ -265,3 +265,162 @@ def test_burned_video_cancel_ends_cancelled_no_artifact(client, drama, isolated_
     client.post(f"/api/export/dramas/{drama}/burned-video")
     assert _wait(f"burned_video_{drama}")["status"] == "cancelled"
     _no_artifact(drama, "video")
+
+
+# ---- Parity E17: soft-subtitle video ----------------------------------------
+
+def test_new_video_prefixes_registered():
+    assert "softsub_video_" in background_jobs.DRAMA_JOB_PREFIXES
+    assert "dubbed_video_" in background_jobs.DRAMA_JOB_PREFIXES
+
+
+def test_softsub_runs_and_writes_artifact(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama, "source.mkv")
+    r = client.post(f"/api/export/dramas/{drama}/softsub-video", json={"field": "bilingual"})
+    assert r.status_code == 200
+    assert r.json() == {"job_id": f"softsub_video_{drama}"}
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert artifact_service.get_artifact(drama, "video")["name"] == f"softsub_video_{drama}.mkv"
+    cmd, kwargs = fake_ffmpeg.calls[0]
+    assert cmd[0] == "ffmpeg" and "shell" not in kwargs and kwargs["cwd"]
+    assert "subs.srt" in cmd and cmd[cmd.index("-c:s") + 1] == "srt"
+    assert "language=und" in cmd
+
+
+def test_softsub_other_container_becomes_mp4(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama, "source.webm")
+    assert client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 200
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert artifact_service.get_artifact(drama, "video")["name"] == f"softsub_video_{drama}.mp4"
+    cmd, _ = fake_ffmpeg.calls[0]
+    assert cmd[cmd.index("-c:s") + 1] == "mov_text" and "language=eng" in cmd
+
+
+def test_softsub_srt_holds_the_lines(client, drama, isolated_db, monkeypatch):
+    _add_video(isolated_db, drama)
+    seen = {}
+
+    def fake(job_id, cmd, cwd=None, **kw):
+        with open(os.path.join(cwd, "subs.srt"), encoding="utf-8") as f:
+            seen["srt"] = f.read()
+        with open(os.path.join(cwd, cmd[-1]), "wb") as f:
+            f.write(b"x")
+        seen["timeout"] = kw.get("timeout")
+    monkeypatch.setattr(background_jobs, "run_cancellable", fake)
+    client.post(f"/api/export/dramas/{drama}/softsub-video", json={"field": "zh"})
+    assert _wait(f"softsub_video_{drama}")["status"] == "done"
+    assert "你好" in seen["srt"] and "Hello" not in seen["srt"]
+    assert seen["timeout"] and seen["timeout"] > 0
+
+
+@pytest.mark.parametrize("body", [{"field": "fr"}, {"field": "en", "extra": 1},
+                                  {"include_notes": "yes"}])
+def test_softsub_bad_body_422(client, drama, isolated_db, body, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    assert client.post(f"/api/export/dramas/{drama}/softsub-video", json=body).status_code == 422
+    assert not fake_ffmpeg.calls
+
+
+def test_softsub_guards(client, drama, isolated_db, monkeypatch):
+    assert client.post("/api/export/dramas/999/softsub-video").status_code == 404
+    r = client.post(f"/api/export/dramas/{drama}/softsub-video")
+    assert r.status_code == 422 and _error(r)["message"] == "No source video uploaded for this drama."
+    empty = isolated_db.create_drama(title_en="Empty")
+    _add_video(isolated_db, empty)
+    assert client.post(f"/api/export/dramas/{empty}/softsub-video").status_code == 422
+    _add_video(isolated_db, drama)
+    monkeypatch.setattr(media_export_service.shutil, "which", lambda name: None)
+    assert client.post(f"/api/export/dramas/{drama}/softsub-video").status_code == 503
+
+
+@pytest.mark.parametrize("running", ["burned_video_", "softsub_video_", "dubbed_video_"])
+def test_video_jobs_one_at_a_time(client, drama, isolated_db, running):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    with background_jobs._lock:
+        background_jobs._jobs[f"{running}{drama}"] = {"status": "running"}
+    for path in ("softsub-video", "dubbed-video", "burned-video"):
+        assert client.post(f"/api/export/dramas/{drama}/{path}").status_code == 409, path
+
+
+def test_softsub_failure_and_timeout_no_artifact_no_paths(client, drama, isolated_db, monkeypatch):
+    _add_video(isolated_db, drama)
+
+    def hang(job_id, cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    monkeypatch.setattr(background_jobs, "run_cancellable", hang)
+    client.post(f"/api/export/dramas/{drama}/softsub-video")
+    st = _wait(f"softsub_video_{drama}")
+    assert st["status"] == "error" and "too long" in st["error"]
+    assert isolated_db.drama_dir(drama) not in st["error"]
+    _no_artifact(drama, "video")
+
+
+def test_softsub_cancel(client, drama, isolated_db, fake_ffmpeg, cancelled_ffmpeg):
+    _add_video(isolated_db, drama)
+    client.post(f"/api/export/dramas/{drama}/softsub-video")
+    assert _wait(f"softsub_video_{drama}")["status"] == "cancelled"
+    _no_artifact(drama, "video")
+
+
+# ---- Parity E19: dubbed video ------------------------------------------------
+
+def test_dubbed_replace_runs_and_writes_artifact(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
+    assert r.status_code == 200 and r.json() == {"job_id": f"dubbed_video_{drama}"}
+    assert _wait(f"dubbed_video_{drama}")["status"] == "done"
+    assert artifact_service.get_artifact(drama, "video")["name"] == f"dubbed_video_{drama}.mp4"
+    cmd, kwargs = fake_ffmpeg.calls[0]
+    assert "-filter_complex" not in cmd and "-shortest" in cmd and "shell" not in kwargs
+    assert os.path.join(isolated_db.drama_dir(drama), "dub_track.wav") in cmd
+
+
+def test_dubbed_mix_keeps_original_quietly(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    client.post(f"/api/export/dramas/{drama}/dubbed-video", json={"keep_original": True})
+    assert _wait(f"dubbed_video_{drama}")["status"] == "done"
+    cmd, _ = fake_ffmpeg.calls[0]
+    assert "volume=-20.0dB" in cmd[cmd.index("-filter_complex") + 1]
+
+
+def test_dubbed_guards(client, drama, isolated_db, monkeypatch, fake_ffmpeg):
+    assert client.post("/api/export/dramas/999/dubbed-video").status_code == 404
+    assert client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 422
+    _add_video(isolated_db, drama)
+    r = client.post(f"/api/export/dramas/{drama}/dubbed-video")
+    assert r.status_code == 422 and "dub" in _error(r)["message"]
+    _touch(isolated_db, drama, "dub_track.wav")
+    assert client.post(f"/api/export/dramas/{drama}/dubbed-video",
+                       json={"keep_original": 1}).status_code == 422
+    monkeypatch.setattr(media_export_service.shutil, "which", lambda name: None)
+    assert client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 503
+    assert not fake_ffmpeg.calls
+
+
+def test_dubbed_failure_no_artifact_no_paths(client, drama, isolated_db, fake_ffmpeg):
+    _add_video(isolated_db, drama)
+    _touch(isolated_db, drama, "dub_track.wav")
+    fake_ffmpeg.fail = True
+    client.post(f"/api/export/dramas/{drama}/dubbed-video")
+    st = _wait(f"dubbed_video_{drama}")
+    assert st["status"] == "error"
+    assert "/secret" not in st["error"] and isolated_db.drama_dir(drama) not in st["error"]
+    _no_artifact(drama, "video")
+
+
+# ---- Parity E22: mark as exported --------------------------------------------
+
+def test_mark_exported_sets_status_only(client, drama, isolated_db):
+    isolated_db.update_drama(drama, status="translated", title_en="Keep")
+    r = client.post(f"/api/export/dramas/{drama}/mark-exported")
+    assert r.status_code == 200 and r.json() == {"drama_id": drama, "status": "exported"}
+    d = isolated_db.get_drama(drama)
+    assert d["status"] == "exported" and d["title_en"] == "Keep"
+    assert [ln.en for ln in isolated_db.load_line_objects(drama)] == ["Hello", "Bye"]
+
+
+def test_mark_exported_unknown_drama_404(client):
+    assert client.post("/api/export/dramas/999/mark-exported").status_code == 404
