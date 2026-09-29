@@ -85,15 +85,14 @@ merged.
   (This bullet is for implementers. A reviewer follows the scope bound in
   `docs/engineering-standards.md` §3 and does not report pre-existing issues
   the diff neither depends on nor worsens.)
-- **Default to Sonnet. Check the roadmap's §4 "Model recommendation per
-  step" table before starting each step** (reversed 2026-09-26 from an
-  earlier "run everything on Opus" decision — cost was higher than
-  expected). If the step you're about to start is listed there, stop and
-  ask the user to confirm switching to Opus for that step specifically
-  before starting it, then switch back to Sonnet once it's done. If the
-  roadmap's own table disagrees with this summary, the roadmap is the
-  source of truth — it may have changed since this file was last copied
-  in.
+- **Default to Opus (user decision, 2026-09-29).** Sessions and subagents
+  run on Opus 5.5 unless the user says otherwise; the project agents in
+  `.claude/agents/` are set to `model: opus`. This supersedes the earlier
+  "default to Sonnet, ask before Opus" rule (2026-09-26, made for cost).
+  The roadmap's §4 "Model recommendation per step" table no longer needs a
+  separate confirmation to use Opus; if the user later asks for a cheaper
+  model for a specific step, follow that instruction. Commit trailers name
+  the model actually used.
 - **Re-verify before fixing.** The roadmap was written by reading the code
   at a point in time; re-read the files it names and confirm the problem
   still exists as described before changing anything. If the code has
