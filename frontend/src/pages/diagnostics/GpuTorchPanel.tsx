@@ -36,7 +36,7 @@ export function GpuTorchPanel({ refreshKey, action }: {
   const summary = status ? stateText(status) : undefined
   return (
     <Section storageKey="diagnostics.gpuTorch" title="GPU PyTorch" summary={summary}>
-      <div className="diag-stack" data-testid="gpu-torch">
+      <div className="diag-stack gpu-torch" data-testid="gpu-torch">
         {failed && !status && <p className="muted">Couldn't read the PyTorch status.</p>}
         {!status && !failed && <p className="muted">Checking…</p>}
         {status && (

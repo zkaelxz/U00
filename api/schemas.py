@@ -2166,6 +2166,8 @@ class DiagnosticsPackageInfo(BaseModel):
     # From installed metadata (the real dist, or a known alternate like
     # opencv-python-headless); None when not installed or unreadable.
     installed_version: Optional[str] = None
+    min_version: Optional[str] = None     # the app's minimum (requirements files' >=)
+    below_min: bool = False
     installable: bool
     powers: str
     approx_mb: Optional[int] = None
@@ -2181,8 +2183,12 @@ class DiagnosticsInstallTask(BaseModel):
     label: str
     help: str
     packages: List[str]
+    # package -> "required" | "recommended" | "optional" for this task
+    roles: Dict[str, str] = {}
     installed_count: int
-    to_install: List[str]
+    required_missing: List[str] = []
+    to_install: List[str]           # missing required + recommended (Install for this task)
+    optional_missing: List[str] = []
     approx_mb: int
 
 

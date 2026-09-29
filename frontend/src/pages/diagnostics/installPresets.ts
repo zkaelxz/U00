@@ -1,7 +1,7 @@
 // Pure helpers for Packages > "By task" (install presets from
 // GET /api/diagnostics/install-presets). Sizes are the server's static
 // estimates, always shown as "approx.".
-import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
+import type { DiagnosticsInstallTask, DiagnosticsPackageInfo, TaskRole } from '../../types/diagnostics'
 
 /** "approx. 45 MB", "approx. 2.5 GB", "under 1 MB"; null when unknown. */
 export function formatApproxMb(mb: number | null | undefined): string | null {
@@ -34,17 +34,42 @@ export function groupTasks(tasks: DiagnosticsInstallTask[]): TaskGroup[] {
   return out
 }
 
-/** "Ready" or "2 of 3 installed". */
+/** Ready: every required and recommended package is there (optional extras don't count). */
+export function taskReady(t: DiagnosticsInstallTask): boolean {
+  if (!t.roles) return t.installed_count >= t.packages.length
+  return !(t.required_missing ?? []).length && !t.to_install.length
+}
+
+/** "Ready", "Needs 2 required packages", "Works; 1 recommended to add" (or "2 of 3 installed" without roles). */
 export function taskStatus(t: DiagnosticsInstallTask): string {
-  if (t.installed_count >= t.packages.length) return 'Ready'
-  return `${t.installed_count} of ${t.packages.length} installed`
+  if (taskReady(t)) return 'Ready'
+  if (!t.roles) return `${t.installed_count} of ${t.packages.length} installed`
+  const req = (t.required_missing ?? []).length
+  if (req) return `Needs ${req} required ${req === 1 ? 'package' : 'packages'}`
+  const rec = t.to_install.length
+  return `Works; ${rec} recommended to add`
 }
 
 /** Ready tasks move last, so the ones that still need something come first. */
 export function sortTasksNeedingInstall(tasks: DiagnosticsInstallTask[]): DiagnosticsInstallTask[] {
-  const ready = (t: DiagnosticsInstallTask) => t.installed_count >= t.packages.length
-  return [...tasks.filter((t) => !ready(t)), ...tasks.filter(ready)]
+  return [...tasks.filter((t) => !taskReady(t)), ...tasks.filter(taskReady)]
 }
+
+const ROLE_LABELS: Record<TaskRole, string> = { required: 'Required', recommended: 'Recommended', optional: 'Optional' }
+
+/** "Required" / "Recommended" / "Optional", or null when the server sent no roles. */
+export const roleLabel = (t: DiagnosticsInstallTask, name: string): string | null =>
+  t.roles?.[name] ? ROLE_LABELS[t.roles[name]] : null
+
+/** "≥ 0.42" when the app needs a minimum version. */
+export const minVersionText = (p: DiagnosticsPackageInfo | undefined): string | null =>
+  p?.min_version ? `≥ ${p.min_version}` : null
+
+/** "jieba 0.40 is older than the 0.42 the app needs." for an installed package below the minimum. */
+export const belowMinText = (p: DiagnosticsPackageInfo | undefined): string | null =>
+  p?.installed && p.below_min && p.min_version
+    ? `${p.name} ${p.installed_version ?? ''} is older than the ${p.min_version} the app needs.`.replace('  ', ' ')
+    : null
 
 /** Second-press label, with the approximate download. */
 export function taskConfirmLabel(t: DiagnosticsInstallTask): string {
@@ -53,17 +78,26 @@ export function taskConfirmLabel(t: DiagnosticsInstallTask): string {
   return `Confirm install ${n} ${n === 1 ? 'package' : 'packages'}${size ? ` (${size})` : ''}`
 }
 
-/** Warnings and not-offered reasons for a task's packages, as "name: text". */
+/** Warnings and not-offered reasons for a task's packages, as "name: text"; installed ones below the app's minimum. */
 export function taskNotes(t: DiagnosticsInstallTask, packages: Record<string, DiagnosticsPackageInfo>): string[] {
   const notes: string[] = []
   for (const name of t.packages) {
     const p = packages[name]
-    if (!p || p.installed) continue
+    if (!p) continue
+    if (p.installed) {
+      const old = belowMinText(p)
+      if (old) notes.push(old)
+      continue
+    }
     if (p.not_offered_reason) notes.push(`${name}: ${p.not_offered_reason}`)
     else if (p.warning && t.to_install.includes(name)) notes.push(`${name}: ${p.warning}`)
   }
   return notes
 }
+
+/** "Optional, not installed by this button: paddleocr" (install them from Missing packages). */
+export const optionalMissingText = (t: DiagnosticsInstallTask): string | null =>
+  t.optional_missing?.length ? `Optional, not installed by this button: ${t.optional_missing.join(', ')}` : null
 
 export type TaskRunResult = { name: string; ok: boolean; output: string[]; hint?: string | null }
 

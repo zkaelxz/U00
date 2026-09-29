@@ -719,8 +719,10 @@ def _package_installed(name: str) -> bool:
     return diagnostics.get_installed_version(diagnostics.pip_install_name(name)) is not None
 
 
-def _package_info(name: str, installed: bool, offered: set) -> dict:
+def _package_info(name: str, installed: bool, offered: set, mins: dict = None) -> dict:
     dist = diagnostics.pip_install_name(name)
+    installed_version = diagnostics.installed_dist_version(name)[1] if installed else None
+    min_version = (mins or {}).get(diagnostics.canonical_dist(dist))
     dep = diagnostics.OPTIONAL_DEPENDENCIES.get(name)
     reason = diagnostics.NOT_OFFERED_FOR_INSTALL.get(diagnostics.canonical_dist(dist))
     # A Python-version limitation (e.g. audio-separator on 3.14) is a warning,
@@ -730,7 +732,11 @@ def _package_info(name: str, installed: bool, offered: set) -> dict:
         "name": name,
         "dist": dist,
         "installed": installed,
-        "installed_version": diagnostics.installed_dist_version(name)[1] if installed else None,
+        "installed_version": installed_version,
+        # The app's minimum (the requirements files' `>=`), and whether the
+        # installed version is below it.
+        "min_version": min_version,
+        "below_min": diagnostics.below_min_version(installed_version, min_version),
         "installable": name in offered and not installed and reason is None,
         "powers": dep[1] if dep else "",
         "approx_mb": diagnostics.approx_download_mb(name),
@@ -744,24 +750,35 @@ def _package_info(name: str, installed: bool, offered: set) -> dict:
 
 def get_install_presets() -> dict:
     """{"tasks": [...], "packages": {name: info}} for the Packages section:
-    install presets by task (diagnostics.INSTALL_TASKS) and, for every
-    installable package, its pip name, approx. download size, PyPI link,
-    and any reason not to offer it or warning before installing it. Local
-    checks only (import specs, installed metadata), no network."""
+    install presets by task (diagnostics.INSTALL_TASKS), each package's
+    role for the task (required / recommended / optional) and, for every
+    package, its pip name, installed version, the app's minimum version,
+    approx. download size, PyPI link, and any reason not to offer it or
+    warning before installing it. "to_install" is what "Install for this
+    task" installs: missing, offered, required or recommended packages;
+    missing optional ones are listed in "optional_missing". Local checks
+    only (import specs, installed metadata, requirements files), no network."""
     offered = installable_packages()
+    mins = diagnostics.required_min_versions(_project_root())
     names = set(offered) | {n for t in diagnostics.INSTALL_TASKS for n in t["packages"]}
     names |= set(diagnostics.OPTIONAL_DEPENDENCIES)    # versions for required ones too
-    packages = {n: _package_info(n, _package_installed(n), offered) for n in sorted(names)}
+    packages = {n: _package_info(n, _package_installed(n), offered, mins) for n in sorted(names)}
     tasks = []
     for t in diagnostics.INSTALL_TASKS:
+        roles = {n: diagnostics.task_package_role(t, n) for n in t["packages"]}
         rows = [packages[n] for n in t["packages"]]
         missing = [r for r in rows if not r["installed"]]
+        to_install = [r for r in missing if r["installable"] and roles[r["name"]] != "optional"]
         tasks.append({
             "id": t["id"], "group": t["group"], "label": t["label"], "help": t["help"],
             "packages": list(t["packages"]),
+            "roles": roles,
             "installed_count": len(rows) - len(missing),
-            "to_install": [r["name"] for r in missing if r["installable"]],
-            "approx_mb": sum(r["approx_mb"] or 0 for r in missing if r["installable"]),
+            "required_missing": [r["name"] for r in missing if roles[r["name"]] == "required"],
+            "to_install": [r["name"] for r in to_install],
+            "optional_missing": [r["name"] for r in missing
+                                 if r["installable"] and roles[r["name"]] == "optional"],
+            "approx_mb": sum(r["approx_mb"] or 0 for r in to_install),
         })
     return {"tasks": tasks, "packages": packages}
 

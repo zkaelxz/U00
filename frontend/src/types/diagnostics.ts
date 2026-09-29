@@ -111,6 +111,9 @@ export interface DiagnosticsPackageInfo {
   installed: boolean
   // From installed metadata; null when not installed or unreadable.
   installed_version?: string | null
+  // The app's minimum (requirements files' >=) and whether the installed one is older.
+  min_version?: string | null
+  below_min?: boolean
   installable: boolean
   powers: string
   approx_mb: number | null
@@ -120,14 +123,22 @@ export interface DiagnosticsPackageInfo {
   warning: string | null
 }
 
+export type TaskRole = 'required' | 'recommended' | 'optional'
+
 export interface DiagnosticsInstallTask {
   id: string
   group: string
   label: string
   help: string
   packages: string[]
+  // Per package: required (the task needs it), recommended, optional.
+  roles?: Record<string, TaskRole>
   installed_count: number
+  required_missing?: string[]
+  // Missing required + recommended: what "Install for this task" installs.
   to_install: string[]
+  // Missing optional extras, installed one by one from Missing packages.
+  optional_missing?: string[]
   approx_mb: number
 }
 

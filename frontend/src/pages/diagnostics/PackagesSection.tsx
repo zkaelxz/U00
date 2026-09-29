@@ -17,8 +17,9 @@ import { GpuTorchPanel } from './GpuTorchPanel'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
 import { canUpdate, markUpdated, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import {
-  firstHint, groupTasks, packageSizeText, safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes,
-  taskOutput, taskResultText, taskStatus, type TaskRunResult,
+  belowMinText, firstHint, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel, safeSourceUrl,
+  sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus,
+  type TaskRunResult,
 } from './installPresets'
 
 type Kind = 'install' | 'upgrade'
@@ -308,6 +309,7 @@ function PackageText({ name, text, info, torchInstalled, installed = false, upda
         <span className="muted">{text}</span>
       </span>
       {line && <span className={line.tone === 'muted' ? 'muted' : line.tone} data-testid="pkg-update">{line.text}</span>}
+      {installed && belowMinText(info) && <span className="warn" data-testid="pkg-below-min">{belowMinText(info)}</span>}
       {(size || url) && (
         <span className="pkg-meta muted">
           {size && <span data-testid="pkg-size">{size}</span>}
@@ -331,6 +333,7 @@ function TaskRow({ task, packages, action }: {
   action: ReactNode
 }) {
   const notes = taskNotes(task, packages)
+  const optional = optionalMissingText(task)
   const size = task.to_install.length ? packageSizeText({ approx_mb: task.approx_mb, pulls_torch: false }, true) : null
   return (
     <li data-testid={`task-${task.id}`}>
@@ -339,17 +342,25 @@ function TaskRow({ task, packages, action }: {
           <strong>{task.label}</strong> <span className="muted">{task.help}</span>
         </span>
         <span className="pkg-meta muted">
-          <span className={task.to_install.length ? undefined : 'ok'}>{taskStatus(task)}</span>
+          <span className={taskReady(task) ? 'ok' : undefined}>{taskStatus(task)}</span>
           {size && <span>· {size} to download</span>}
         </span>
         <span className="task-pkgs muted">
-          {task.packages.map((n) => (
-            <span key={n} className={packages[n]?.installed ? 'task-pkg installed' : 'task-pkg'}>
-              {packages[n]?.installed ? '✓ ' : ''}{n}
-            </span>
-          ))}
+          {task.packages.map((n) => {
+            const role = roleLabel(task, n)
+            const min = minVersionText(packages[n])
+            return (
+              <span key={n} data-testid={`task-pkg-${n}`}
+                className={`task-pkg${packages[n]?.installed ? ' installed' : ''}${role ? ` role-${task.roles?.[n]}` : ''}`}>
+                {packages[n]?.installed ? '✓ ' : ''}{n}
+                {role && <span className="task-role"> · {role}</span>}
+                {min && <span className="task-min"> {min}</span>}
+              </span>
+            )
+          })}
         </span>
         {notes.map((n) => <span key={n} className="warn">{n}</span>)}
+        {optional && <span className="muted" data-testid="task-optional">{optional}</span>}
       </span>
       {action}
     </li>

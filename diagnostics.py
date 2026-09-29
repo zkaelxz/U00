@@ -246,26 +246,34 @@ def install_downgrade_warning(name: str):
 
 # Install presets: what the user wants to do -> the packages it needs (by
 # OPTIONAL_DEPENDENCIES key, or MODEL_ENGINE_REGISTRY package when it has
-# no key). Derived from the "feature" descriptions above.
+# no key). Derived from the "feature" descriptions above. Each package is
+# "required" for its task (the task doesn't work without it) unless listed
+# under "recommended" (better results, or one of several interchangeable
+# engines) or "optional" (a heavier or niche extra). "Install for this
+# task" installs required and recommended ones; optional ones are offered
+# one by one.
 INSTALL_TASKS = [
     {"id": "transcribe", "group": "Audio", "label": "Transcribe speech (Whisper)",
      "help": "Turn a drama's audio into timed lines.",
      "packages": ["faster_whisper", "soundfile", "numpy"]},
     {"id": "music_removal", "group": "Audio", "label": "Remove background music",
      "help": "Clean the audio before transcribing so dialogue is easier to hear.",
-     "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"]},
+     "packages": ["demucs", "audio-separator", "torch", "soundfile", "numpy"],
+     "recommended": ["audio-separator"]},
     {"id": "speakers", "group": "Audio", "label": "Speaker detection",
      "help": "Split and label lines by who is speaking (needs a Hugging Face token).",
      "packages": ["pyannote.audio", "soundfile", "torch"]},
     {"id": "alt_asr", "group": "Audio", "label": "Qwen3-ASR / SenseVoice transcription",
      "help": "Alternative transcription engines; SenseVoice also tags emotion and sounds.",
-     "packages": ["qwen-asr", "funasr", "torch"]},
+     "packages": ["qwen-asr", "funasr", "torch"],
+     "recommended": ["qwen-asr", "funasr"]},
     {"id": "word_timing", "group": "Audio", "label": "Word-level timing",
      "help": "Re-align lines to individual words (experimental).",
      "packages": ["torch", "torchaudio", "uroman", "soundfile"]},
     {"id": "tts_online", "group": "Dubbing", "label": "Dubbing: free online voice (edge-tts)",
      "help": "Microsoft-hosted voices; needs internet, no GPU.",
-     "packages": ["edge_tts", "pydub", "numpy"]},
+     "packages": ["edge_tts", "pydub", "numpy"],
+     "recommended": ["numpy"]},
     {"id": "tts_piper", "group": "Dubbing", "label": "Dubbing: offline voice (Piper)",
      "help": "Small offline voices, no cloning.",
      "packages": ["piper-tts", "pydub"]},
@@ -283,34 +291,46 @@ INSTALL_TASKS = [
      "packages": ["hume-tada", "torch", "pydub", "huggingface_hub"]},
     {"id": "hardsub_ocr", "group": "Video", "label": "Read burned-in captions (OCR)",
      "help": "Pull hard-coded subtitles out of video frames.",
-     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"]},
+     "packages": ["cv2", "numpy", "PIL", "pytesseract", "paddleocr"],
+     "recommended": ["pytesseract"],
+     "optional": ["paddleocr"]},
     {"id": "url_import", "group": "Video", "label": "Import from a URL",
      "help": "Download video from YouTube, Bilibili and other sites.",
      "packages": ["yt-dlp"]},
     {"id": "reader_zh", "group": "Novels & reader", "label": "Chinese reader tools",
      "help": "Word splitting, pinyin and Traditional Chinese support.",
-     "packages": ["jieba", "pypinyin", "opencc-python-reimplemented"]},
+     "packages": ["jieba", "pypinyin", "opencc-python-reimplemented"],
+     "recommended": ["pypinyin"],
+     "optional": ["opencc-python-reimplemented"]},
     {"id": "reader_ja", "group": "Novels & reader", "label": "Japanese reader tools",
      "help": "Word splitting and furigana.",
-     "packages": ["sudachipy", "sudachidict_core", "pykakasi"]},
+     "packages": ["sudachipy", "sudachidict_core", "pykakasi"],
+     "recommended": ["pykakasi"]},
     {"id": "reader_ko", "group": "Novels & reader", "label": "Korean reader tools",
      "help": "Word splitting.", "packages": ["kiwipiepy"]},
     {"id": "books", "group": "Novels & reader", "label": "EPUB and Anki export",
      "help": "Import/export EPUB books and export vocab to Anki.",
-     "packages": ["ebooklib", "genanki"]},
+     "packages": ["ebooklib", "genanki"],
+     "recommended": ["ebooklib", "genanki"]},
     {"id": "web_sources", "group": "Novels & reader", "label": "Novel sources from websites",
      "help": "Read chapters from pasted URLs and JavaScript-heavy sites.",
-     "packages": ["bs4", "trafilatura", "playwright", "cryptography"]},
+     "packages": ["bs4", "trafilatura", "playwright", "cryptography"],
+     "recommended": ["trafilatura"],
+     "optional": ["playwright", "cryptography"]},
     {"id": "scanlate", "group": "Scanlate", "label": "Scanlate (manga/manhua pages)",
      "help": "Bubble detection, Japanese OCR, inpainting and PDF import.",
      "packages": ["cv2", "PIL", "numpy", "manga_ocr", "pypdf", "transformers", "torch",
-                  "safetensors", "huggingface_hub", "streamlit_drawable_canvas"]},
+                  "safetensors", "huggingface_hub", "streamlit_drawable_canvas"],
+     "recommended": ["manga_ocr", "pypdf", "transformers", "torch", "safetensors",
+                     "huggingface_hub"],
+     "optional": ["streamlit_drawable_canvas"]},
     {"id": "nllb", "group": "Translation", "label": "Free local translation (NLLB-200)",
      "help": "Translate offline on this PC.",
      "packages": ["transformers", "sentencepiece", "torch"]},
     {"id": "paid_engines", "group": "Translation", "label": "Claude, DeepSeek and DeepL",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
-     "packages": ["anthropic", "openai", "deepl"]},
+     "packages": ["anthropic", "openai", "deepl"],
+     "recommended": ["anthropic", "openai", "deepl"]},
     {"id": "sign_in", "group": "App", "label": "Google sign-in for household access",
      "help": "Needed only when BAIHE_API_AUTH=on.",
      "packages": ["authlib", "httpx", "cryptography"]},
@@ -2122,3 +2142,50 @@ def classify_update(name: str, installed_version: str, releases, constraints: di
         return {"status": "update", "latest": str(latest), "target": str(allowed[-1]),
                 "reason": reason if allowed[-1] != latest else None}
     return {"status": "held_back", "latest": str(latest), "target": None, "reason": reason}
+
+
+TASK_ROLES = ("required", "recommended", "optional")
+
+
+def task_package_role(task: dict, name: str) -> str:
+    """"required", "recommended" or "optional" for a package in an
+    INSTALL_TASKS entry (unlisted packages are required)."""
+    for role in ("optional", "recommended"):
+        if name in task.get(role, ()):
+            return role
+    return "required"
+
+
+# The requirements files whose `name>=X` lines are the app's minimums.
+REQUIREMENTS_FILES = ("requirements-core.txt", "requirements-media.txt",
+                      "requirements-optional.txt")
+
+
+def required_min_versions(project_root: str = None) -> dict:
+    """{canonical dist: minimum version} from the requirements files'
+    active `>=` lines (commented-out lines are skipped, as pip would)."""
+    _v, _s, requirements = _packaging()
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    out = {}
+    for fname in REQUIREMENTS_FILES:
+        for spec in parse_requirements_file(os.path.join(project_root, fname)):
+            try:
+                req = requirements.Requirement(spec)
+            except Exception:
+                continue
+            for s in req.specifier:
+                if s.operator == ">=":
+                    out[canonical_dist(req.name)] = s.version
+    return out
+
+
+def below_min_version(installed_version, min_version) -> bool:
+    """True when both are known and installed < minimum (public versions)."""
+    if not installed_version or not min_version:
+        return False
+    version_mod, _s, _r = _packaging()
+    try:
+        return (version_mod.Version(version_mod.Version(installed_version).public)
+                < version_mod.Version(min_version))
+    except Exception:
+        return False

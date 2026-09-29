@@ -238,3 +238,56 @@ def test_python_version_limitation_is_a_warning_not_a_refusal(monkeypatch):
     info = svc.get_install_presets()["packages"]["audio-separator"]
     assert info["not_offered_reason"] is None and info["installable"] is True
     assert "3.14" in info["warning"]
+
+
+# ---- Required / recommended / optional, and minimum versions ----
+
+def test_task_roles_name_the_tasks_own_packages():
+    for t in diagnostics.INSTALL_TASKS:
+        rec, opt = set(t.get("recommended", ())), set(t.get("optional", ()))
+        assert rec <= set(t["packages"]) and opt <= set(t["packages"]), t["id"]
+        assert not rec & opt, t["id"]
+        # every task needs at least one package it can't work without, unless
+        # it is a set of interchangeable engines or independent extras
+        required = [n for n in t["packages"] if diagnostics.task_package_role(t, n) == "required"]
+        assert required or t["id"] in {"books", "paid_engines"}, t["id"]
+
+
+def test_install_for_a_task_skips_optional_packages(monkeypatch):
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: False)
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda dist: None)
+    t = next(t for t in svc.get_install_presets()["tasks"] if t["id"] == "hardsub_ocr")
+    assert t["roles"] == {"cv2": "required", "numpy": "required", "PIL": "required",
+                          "pytesseract": "recommended", "paddleocr": "optional"}
+    assert "paddleocr" not in t["to_install"] and t["optional_missing"] == ["paddleocr"]
+    assert set(t["required_missing"]) == {"cv2", "numpy", "PIL"}
+    assert t["approx_mb"] == sum(diagnostics.approx_download_mb(n) for n in t["to_install"])
+
+
+def test_required_min_versions_from_active_requirement_lines(tmp_path):
+    (tmp_path / "requirements-core.txt").write_text(
+        "requests>=2.32.2\nauthlib>=1.3,<2   # comment\n# jieba>=9.9\n")
+    (tmp_path / "requirements-optional.txt").write_text("Sudachidict_Core>=20240716\n")
+    assert diagnostics.required_min_versions(str(tmp_path)) == {
+        "requests": "2.32.2", "authlib": "1.3", "sudachidict-core": "20240716"}
+
+
+def test_real_requirements_give_known_minimums():
+    mins = diagnostics.required_min_versions()
+    assert mins["jieba"] == "0.42" and mins["opencv-python"] == "4.8"
+    assert "paddleocr" not in mins               # commented out in requirements-optional.txt
+
+
+@pytest.mark.parametrize("have,need,below", [
+    ("0.41", "0.42", True), ("0.42.1", "0.42", False), ("2.11.0+cu128", "2.0", False),
+    (None, "1.0", False), ("1.0", None, False), ("garbage", "1.0", False)])
+def test_below_min_version(have, need, below):
+    assert diagnostics.below_min_version(have, need) is below
+
+
+def test_package_info_reports_min_version_and_below_min(monkeypatch):
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda imp: imp == "jieba")
+    monkeypatch.setattr(diagnostics, "get_installed_version", {"jieba": "0.40"}.get)
+    p = svc.get_install_presets()["packages"]
+    assert p["jieba"]["min_version"] == "0.42" and p["jieba"]["below_min"] is True
+    assert p["pypinyin"]["below_min"] is False

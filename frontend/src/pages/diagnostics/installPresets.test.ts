@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import type { DiagnosticsInstallTask, DiagnosticsPackageInfo } from '../../types/diagnostics'
 import {
-  firstHint, formatApproxMb, groupTasks, packageSizeText, safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel,
-  taskNotes, taskOutput, taskResultText, taskStatus, type TaskRunResult,
+  belowMinText, firstHint, formatApproxMb, groupTasks, minVersionText, optionalMissingText, packageSizeText, roleLabel,
+  safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes, taskOutput, taskReady, taskResultText, taskStatus,
+  type TaskRunResult,
 } from './installPresets'
 
 const task = (o: Partial<DiagnosticsInstallTask> = {}): DiagnosticsInstallTask => ({
@@ -43,6 +44,31 @@ describe('install presets helpers', () => {
     expect(taskStatus(ready)).toBe('Ready')
     expect(taskStatus(task())).toBe('1 of 3 installed')
     expect(sortTasksNeedingInstall([ready, task({ id: 'n' })]).map((t) => t.id)).toEqual(['n', 'r'])
+  })
+
+  it('uses roles: required missing, recommended to add, optional never blocks Ready', () => {
+    const roles = { a: 'required', b: 'recommended', c: 'optional' } as const
+    const t = (o: Partial<DiagnosticsInstallTask>) => task({ roles, required_missing: [], optional_missing: [], ...o })
+    expect(taskStatus(t({ required_missing: ['a'], to_install: ['a', 'b'] }))).toBe('Needs 1 required package')
+    expect(taskStatus(t({ to_install: ['b'] }))).toBe('Works; 1 recommended to add')
+    const ready = t({ to_install: [], optional_missing: ['c'] })
+    expect(taskReady(ready)).toBe(true)
+    expect(taskStatus(ready)).toBe('Ready')
+    expect(optionalMissingText(ready)).toBe('Optional, not installed by this button: c')
+    expect(optionalMissingText(t({}))).toBeNull()
+    expect(roleLabel(ready, 'b')).toBe('Recommended')
+    expect(roleLabel(task(), 'b')).toBeNull()
+  })
+
+  it('shows the app\'s minimum version and flags an older install', () => {
+    expect(minVersionText(pkg({ min_version: '0.42' }))).toBe('≥ 0.42')
+    expect(minVersionText(pkg())).toBeNull()
+    const old = pkg({ name: 'jieba', installed: true, installed_version: '0.40', min_version: '0.42', below_min: true })
+    expect(belowMinText(old)).toBe('jieba 0.40 is older than the 0.42 the app needs.')
+    expect(belowMinText({ ...old, below_min: false })).toBeNull()
+    expect(taskNotes(task({ packages: ['jieba'], to_install: [] }), { jieba: old })).toEqual([
+      'jieba 0.40 is older than the 0.42 the app needs.',
+    ])
   })
 
   it('builds the confirm label with count and size', () => {

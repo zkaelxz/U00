@@ -52,7 +52,15 @@ const presets = {
     {
       id: 'scanlate', group: 'Scanlate', label: 'Scanlate (manga/manhua pages)', help: 'Bubble detection.',
       packages: ['cv2', 'torch', 'streamlit_drawable_canvas'], installed_count: 0,
+      roles: { cv2: 'required', torch: 'recommended', streamlit_drawable_canvas: 'optional' },
+      required_missing: ['cv2'], optional_missing: [],
       to_install: ['cv2', 'torch'], approx_mb: 2545,
+    },
+    {
+      id: 'hardsub_ocr', group: 'Video', label: 'Read burned-in captions (OCR)', help: 'Hard subtitles.',
+      packages: ['pypinyin', 'transformers', 'paddleocr'], installed_count: 2,
+      roles: { pypinyin: 'required', transformers: 'recommended', paddleocr: 'optional' },
+      required_missing: [], optional_missing: ['paddleocr'], to_install: [], approx_mb: 0,
     },
     {
       id: 'alt_asr', group: 'Audio', label: 'Qwen3-ASR / SenseVoice transcription', help: 'Alternative engines.',
@@ -61,8 +69,11 @@ const presets = {
   ],
   packages: {
     jieba: pkg('jieba', { approx_mb: 20 }),
-    pypinyin: pkg('pypinyin', { installed: true, installable: false, installed_version: '0.53.0' }),
-    transformers: pkg('transformers', { installed: true, installable: false, installed_version: '5.2.0' }),
+    pypinyin: pkg('pypinyin', { installed: true, installable: false, installed_version: '0.53.0', min_version: '0.50' }),
+    transformers: pkg('transformers', {
+      installed: true, installable: false, installed_version: '4.40.0', min_version: '4.46', below_min: true,
+    }),
+    paddleocr: pkg('paddleocr', { approx_mb: 600 }),
     pandas: pkg('pandas', { installed: true, installable: false, installed_version: '2.2.3' }),
     'opencc-python-reimplemented': pkg('opencc-python-reimplemented'),
     cv2: pkg('cv2', { dist: 'opencv-python', approx_mb: 45, source_url: 'https://pypi.org/project/opencv-python/' }),
@@ -109,7 +120,7 @@ const UPDATES = {
       target: '0.55.0', reason: null,
     },
     transformers: {
-      name: 'transformers', dist: 'transformers', installed_version: '5.2.0', status: 'held_back', latest: '6.0.0',
+      name: 'transformers', dist: 'transformers', installed_version: '4.40.0', status: 'held_back', latest: '6.0.0',
       target: null, reason: 'held back by constraints.txt (transformers<6)',
     },
   },
@@ -274,5 +285,31 @@ test('installed packages show versions; Update appears only after a check, with 
   expect(new URL(sent[1].url()).pathname).toBe('/api/diagnostics/dependencies/pypinyin/upgrade')
   await expect(pinyin.getByTestId('pkg-update')).toHaveText('Up to date')
   await expect(pinyin.getByTestId('pkg-version')).toHaveText('v0.55.0')
+  expect(unmocked).toEqual([])
+})
+
+test('tasks label each package Required / Recommended / Optional with the app\'s minimum version', async ({ page }) => {
+  const { unmocked } = await mockPage(page)
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await openSection(page, /^Install by task/)
+
+  const scan = page.getByTestId('task-scanlate')
+  await expect(scan).toContainText('Needs 1 required package')
+  await expect(scan.getByTestId('task-pkg-cv2')).toContainText('cv2 · Required')
+  await expect(scan.getByTestId('task-pkg-torch')).toContainText('torch · Recommended')
+  await expect(scan.getByTestId('task-pkg-streamlit_drawable_canvas')).toContainText('· Optional')
+
+  const ocr = page.getByTestId('task-hardsub_ocr')
+  await expect(ocr).toContainText('Ready')
+  await expect(ocr.getByTestId('task-pkg-pypinyin')).toHaveText('✓ pypinyin · Required ≥ 0.50')
+  await expect(ocr.getByTestId('task-optional')).toHaveText('Optional, not installed by this button: paddleocr')
+  await expect(ocr).toContainText('transformers 4.40.0 is older than the 4.46 the app needs.')
+  await expect(ocr.getByRole('button')).toHaveCount(0)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-roles.png`, fullPage: true })
+
+  await openSection(page, /^Installed packages/)
+  await expect(page.getByRole('list', { name: 'Installed packages' }).locator('li', { hasText: 'transformers' })
+    .getByTestId('pkg-below-min')).toBeVisible()
   expect(unmocked).toEqual([])
 })
