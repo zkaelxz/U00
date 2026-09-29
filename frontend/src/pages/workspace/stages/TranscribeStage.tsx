@@ -21,6 +21,7 @@ import {
   advancedSummary,
   loadSourceForm,
   parseExpectedSpeakers,
+  parseSpeakerHints,
   saveSourceForm,
   validateConfig,
   whisperModelWarning,
@@ -95,6 +96,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   const [transcriptText, setTranscriptText] = useState(restored.transcriptText ?? '')
   const [runDiarize, setRunDiarize] = useState(restored.runDiarize ?? false)
   const [speakers, setSpeakers] = useState(restored.speakers ?? '')
+  const [minSpeakers, setMinSpeakers] = useState(restored.minSpeakers ?? '')
+  const [maxSpeakers, setMaxSpeakers] = useState(restored.maxSpeakers ?? '')
   // Names added to the automatic prompt (kept per drama); the full override is not kept.
   const [extraNames, setExtraNames] = useState(restored.extraNames ?? '')
   const [override, setOverride] = useState('')
@@ -118,8 +121,8 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }, [dramaId])
 
   useEffect(() => {
-    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, extraNames })
-  }, [dramaId, language, script, transcriptText, runDiarize, speakers, extraNames])
+    saveSourceForm(dramaId, { language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames })
+  }, [dramaId, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames])
 
   useEffect(() => {
     let cancelled = false
@@ -177,6 +180,10 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
       setProblem('Expected speakers must be a whole number from 0 to 20.')
       return null
     }
+    if (runDiarize && (minSpeakers.trim() || maxSpeakers.trim())) {
+      setProblem('A speaker range works with "Detect speakers only". Clear Min/Max speakers, or use Expected speakers, to detect speakers after transcribing.')
+      return null
+    }
     if (haveTranscript && !transcriptText.trim()) {
       setProblem('Paste the transcript first: this drama transcribes from a transcript you supply.')
       return null
@@ -214,13 +221,13 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
   }
 
   const diarize = () => {
-    const expected = parseExpectedSpeakers(speakers)
-    if (expected === null) {
-      setProblem('Expected speakers must be a whole number from 0 to 20.')
+    const hints = parseSpeakerHints(speakers, minSpeakers, maxSpeakers)
+    if (typeof hints === 'string') {
+      setProblem(hints)
       return
     }
     setProblem(null)
-    startDiarization(dramaId, expected).then((r) => {
+    startDiarization(dramaId, { expectedSpeakers: hints.expected, minSpeakers: hints.min, maxSpeakers: hints.max }).then((r) => {
       setError(null)
       onJobStarted(r.job_id)
     }, setError)
@@ -312,6 +319,12 @@ export default function TranscribeStage({ mediaSlot, media, file, busy, onJobSta
         )}
         <Field label="Expected speakers" help="0-20. Blank lets the app decide.">
           <input type="number" value={speakers} onChange={(e) => setSpeakers(e.target.value)} />
+        </Field>
+        <Field label="Min speakers" help="1-20. For Detect speakers only, when you know a range but not the exact count.">
+          <input type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} />
+        </Field>
+        <Field label="Max speakers" help="1-20. Leave Expected speakers blank when using a range.">
+          <input type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} />
         </Field>
       </div>
       {turboWarning && <p className="muted" role="note">{turboWarning}</p>}

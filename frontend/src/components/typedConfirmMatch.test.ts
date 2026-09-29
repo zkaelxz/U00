@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { typedMatches } from './typedConfirm'
+import { typedMatches } from './typedConfirmMatch'
 
 describe('typedMatches', () => {
   it('needs the exact word, ignoring spaces and case', () => {

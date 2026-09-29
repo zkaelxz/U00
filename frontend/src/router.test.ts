@@ -37,6 +37,17 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'read', id: 3, page: null })).toBe('#/read/3')
   })
 
+  it('parses the comic route with an optional page', () => {
+    expect(parseRoute('#/comic/3?page=2')).toEqual({ name: 'comic', id: 3, page: 2 })
+    expect(parseRoute('#/comic/3')).toEqual({ name: 'comic', id: 3, page: null })
+    expect(parseRoute('#/comic/3?page=0')).toEqual({ name: 'comic', id: 3, page: null })
+    for (const h of ['#/comic', '#/comic/0', '#/comic/x', '#/comic/3/extra']) {
+      expect(parseRoute(h)).toEqual({ name: 'library' })
+    }
+    expect(routeHref({ name: 'comic', id: 3, page: 2 })).toBe('#/comic/3?page=2')
+    expect(routeHref({ name: 'comic', id: 3, page: null })).toBe('#/comic/3')
+  })
+
   it('round-trips through routeHref', () => {
     for (const r of [{ name: 'library' }, { name: 'settings' }, { name: 'diagnostics' }, { name: 'sources' }, { name: 'drama', id: 4, stage: 'export' }] as const) {
       expect(parseRoute(routeHref(r))).toEqual(r)

@@ -156,7 +156,8 @@ def fake_process(monkeypatch):
 def fake_diarize(monkeypatch):
     calls = []
 
-    def fake(audio_path, hf_token, num_speakers=None, return_model=False, return_embeddings=False):
+    def fake(audio_path, hf_token, num_speakers=None, return_model=False, return_embeddings=False,
+             **kwargs):
         calls.append(num_speakers)
         turns = THREE if num_speakers == 3 else TWO
         if return_model and return_embeddings:

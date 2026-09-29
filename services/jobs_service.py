@@ -41,7 +41,7 @@ RESULT_ALLOWED_KEYS = (
     "gpu_fallback", "device", "word_align_error", "forced_align_error",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
-    "status", "stage", "last_error", "line_id",
+    "status", "stage", "last_error", "line_id", "candidate_count",
     # Sources chapter import (S-4): int counts only, never text.
     "imported_count", "skipped_count", "failed_count",
 )
