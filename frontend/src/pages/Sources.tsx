@@ -5,7 +5,9 @@
  * series to see its chapter list (another job, per source), follow tracked
  * series' new chapters, and (PC only) the per-source switches, pacing and
  * cache. Cover images are never rendered: loading them would bypass pacing.
- * No Import and no Track: those have no API yet.
+ * Paste a link (UrlBox, S-5) to preview it and open its series, import a
+ * novel page or download a video; tick chapters in an open series to import
+ * them into a drama, or track it for new chapters (SeriesPanel, S-4).
  *
  * Desktop (>=1024 px): search and results left, the open series right
  * (sticky), New chapters and Source settings below both. Narrower: one
@@ -31,6 +33,8 @@ import { NewChapters } from './sources/NewChapters'
 import { SearchPanel } from './sources/SearchPanel'
 import { SeriesPanel } from './sources/SeriesPanel'
 import { SourceSettings } from './sources/SourceSettings'
+import { UrlBox } from './sources/UrlBox'
+import { IMPORT_REMOTE_ALLOWED } from './sources/urlImportFormat'
 import { SEARCH_REMOTE_ALLOWED, pageSummary, seriesView } from './sources/sourcesFormat'
 import { useSourcesJob } from './sources/useSourcesJob'
 import './sources/sources.css'
@@ -60,6 +64,8 @@ export default function SourcesPage() {
   const [cleared, setCleared] = useState(false)
   const [focusKey, setFocusKey] = useState(0)
   const opener = useRef<{ key: string; scrollY: number } | null>(null)
+  // A chapter to tick in the series opened from a pasted chapter link.
+  const [preselect, setPreselect] = useState<{ source: string; series_id: string; chapter_id: string } | null>(null)
 
   const search = useSourcesJob<SearchResult>(SEARCH_JOB_ID)
   const seriesId = open ? seriesJobId(open.source) : null
@@ -92,6 +98,11 @@ export default function SourcesPage() {
     setCleared(false)
     setFocusKey((k) => k + 1)
     series.start(() => startSeries(s.source, s.series_id), seriesJobId(s.source))
+  }
+
+  function openFromUrl(s: OpenSeries, chapterId: string | null) {
+    setPreselect(chapterId ? { source: s.source, series_id: s.series_id, chapter_id: chapterId } : null)
+    openSeries(s)
   }
 
   function reloadSeries() {
@@ -162,6 +173,11 @@ export default function SourcesPage() {
           )}
         </p>
         <ErrorBanner error={loadError} />
+        {remote && !IMPORT_REMOTE_ALLOWED ? (
+          <p className="muted">Importing from a link is PC only for now.</p>
+        ) : (
+          <UrlBox display={display} onOpenSeries={openFromUrl} />
+        )}
         {searchBlocked ? (
           <p className="muted">Searching sources is PC only for now.</p>
         ) : (
@@ -193,6 +209,14 @@ export default function SourcesPage() {
           onClose={closeSeries}
           onUntrack={untrack}
           untrackBusy={!!openTracked && untrackBusy === `${openTracked.source}:${openTracked.series_id}`}
+          sourceInfo={sources?.find((x) => x.name === open.source) ?? null}
+          preselect={
+            preselect && preselect.source === open.source && preselect.series_id === open.series_id
+              ? preselect.chapter_id
+              : null
+          }
+          phone={phone}
+          onTracked={setTracked}
         />
       )}
 

@@ -125,12 +125,13 @@ export function advancedSummary(v: AdvancedValues): string {
 }
 
 // Job ids a Source-stage run can be reattached to (services/transcribe_service.py,
-// services/diarization_service.py).
+// services/diarization_service.py, services/url_media_service.py).
 export const sourceJobIds = (dramaId: number) => [
   `transcribe_${dramaId}`,
   `diarize_${dramaId}`,
   `ocrchapter_${dramaId}`,
   `extract_audio_${dramaId}`,
+  `urlmedia_${dramaId}`,
 ]
 
 // Chapter OCR (services/novel_attach_service.py _BACKENDS, MAX_IMAGES, _IMAGE_EXTENSIONS).
