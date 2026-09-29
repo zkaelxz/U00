@@ -1,4 +1,4 @@
-"""Tests for services/line_ai_service.py + /api/line-ai (Migration Slice 49).
+"""Tests for services/line_ai_service.py + /api/line-ai (Migration Slice 50).
 Fully mocked: fake engine and stubbed LLM helpers, no network."""
 import pytest
 

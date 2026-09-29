@@ -195,7 +195,7 @@ tests select by label text, so shortening a label also means updating those test
 
 - Some Streamlit behaviour has no API yet (OCR, EPUB import, playback, dub download; Auto-fill and Analyze
   are live on the React Source stage, and per-line "Improve translation"/"Why this?" now have an API,
-  `/api/line-ai` from Slice 49, with UI pending). These guidelines do not ask
+  `/api/line-ai` from Slice 50, with UI pending). These guidelines do not ask
   React to add UI for endpoints that do not exist.
 - The user asked for "concise like Streamlit". Streamlit is concise mainly because it hides options in
   expanders, not because it has fewer options. These guidelines keep every existing React function

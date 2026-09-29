@@ -1,6 +1,6 @@
 """
 api/routers/line_ai_routes.py -- per-line AI helpers for the Review stage
-(Migration Slice 49): an improved-translation suggestion and a "why this
+(Migration Slice 50): an improved-translation suggestion and a "why this
 translation" explanation. Both are synchronous, address the line by
 permanent id, never write, and never accept or return a key. Apply a
 suggestion via the Slice 43 compare-and-set line patch. Logic lives in

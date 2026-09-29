@@ -1,5 +1,5 @@
 """
-services/line_ai_service.py -- Migration Slice 49: the two per-line AI
+services/line_ai_service.py -- Migration Slice 50: the two per-line AI
 helpers from the Review tab's line popover, "Improve translation" and
 "Why this?". Streamlit-free; plain dicts in and out.
 

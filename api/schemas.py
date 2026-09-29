@@ -1494,7 +1494,7 @@ class EngineKeyResult(BaseModel):
 
 
 class LineExplainRequest(BaseModel):
-    """Per-line AI helper request (Migration Slice 49). No keys/URLs."""
+    """Per-line AI helper request (Migration Slice 50). No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
