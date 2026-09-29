@@ -2130,3 +2130,35 @@ class DiagnosticsResetRequest(BaseModel):
 class DiagnosticsResetResult(BaseModel):
     ok: bool
     reset_at: float
+
+
+# ---------------------------------------------------------------------------
+# API batch 1: browser-extension bridge control (PC only) -- /api/extension/...
+# ---------------------------------------------------------------------------
+
+class ExtensionStatus(BaseModel):
+    """No port and no token, ever."""
+    enabled: bool
+    running: bool
+
+
+class ExtensionEnabledRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+
+
+class ExtensionEnabledResult(BaseModel):
+    """`restart_needed`: turned off, but this process still serves the
+    endpoint until the API restarts (page_server has no stop)."""
+    enabled: bool
+    running: bool
+    restart_needed: bool
+
+
+class ExtensionTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class ExtensionToken(BaseModel):
+    token: str

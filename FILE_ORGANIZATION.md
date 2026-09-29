@@ -191,6 +191,8 @@ baihe-subtitler/
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
 │   │                             versions, running jobs, log tail); no admin action, no network call
+│   ├── extension_service.py      API batch 1 -- browser-extension bridge (page_server) status, on/off
+│   │                             (persists page_server_enabled) and token reveal; for local_only routes
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -369,9 +371,11 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
-│       └── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│                                 support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
-│                                 reset-library (POST, local_only + confirm; API batch 1)
+│       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
+│       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
+│       │                         reset-library (POST, local_only + confirm; API batch 1)
+│       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
+│                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html

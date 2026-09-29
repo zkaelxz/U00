@@ -40,6 +40,7 @@ from api.routers import (
     drama_routes,
     dub_routes,
     export_routes,
+    extension_routes,
     glossary_routes,
     jobs_routes,
     library_routes,
@@ -152,6 +153,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(discover_lookup_routes.router)
     app.include_router(sources_search_routes.router)
     app.include_router(diagnostics_gaps_routes.router)
+    app.include_router(extension_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app
