@@ -24,3 +24,10 @@ These instructions complement the root `CLAUDE.md`; the root file and the active
 ## Reporting
 
 Track each delegated task as `agent | scope/owned paths | status | blocker`. Summarize completed results with evidence, tests run and outcomes, unresolved questions, and any files changed. Distinguish confirmed findings from hypotheses.
+
+## Specialized agents (added 2026-09-29)
+
+- `api-slice-builder`: one FastAPI slice in the repo pattern. The task packet gives the service to expose, the routes wanted and the permission for each route (from `docs/remote-access-decision.md`), plus the branch name.
+- `react-page-builder`: one React page or panel against existing routes. The task packet gives the UX spec path if there is one, the routes and the screenshot output path.
+- `security-reviewer`: read-only. Needs the same inputs as `code-reviewer`. Run it before merging anything that adds routes or touches `api/auth.py`, URL fetching, file serving or keys.
+- `merge-integrator`: lands branches with `/merge-slice`. The task packet must say that merging is authorized, and give the branch order and each branch's stems and known doubts.

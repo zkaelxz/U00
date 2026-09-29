@@ -2944,8 +2944,39 @@ def request_job_record_cancel(job_id: str) -> bool:
     it did."""
     with contextlib.closing(get_conn()) as conn:
         cur = conn.execute(
-            "UPDATE job_records SET cancel_requested = 1, updated_at = ? "
-            "WHERE job_id = ? AND status IN ('queued', 'running')", (time.time(), job_id))
+            "UPDATE job_records SET cancel_requested = 1 "
+            "WHERE job_id = ? AND status IN ('queued', 'running')", (job_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def touch_job_records(job_ids) -> None:
+    """B-04: the owning process's heartbeat (background_jobs) -- bumps
+    updated_at on its still queued/running rows so a job that is alive
+    but not changing status never looks abandoned. updated_at is only ever
+    written by the owner (request_job_record_cancel leaves it alone)."""
+    job_ids = list(job_ids)
+    if not job_ids:
+        return
+    now = time.time()
+    with contextlib.closing(get_conn()) as conn:
+        conn.executemany(
+            "UPDATE job_records SET updated_at = ? "
+            "WHERE job_id = ? AND status IN ('queued', 'running')",
+            [(now, j) for j in job_ids])
+        conn.commit()
+
+
+def close_stale_job_record(job_id: str, cutoff: float) -> bool:
+    """B-04: marks a queued/running row cancelled only if its owner has not
+    written or heartbeated since `cutoff` -- a single conditional UPDATE,
+    so a row the owner just finished ("done") or just touched is never
+    overwritten. Returns whether it closed the row."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "UPDATE job_records SET status = 'cancelled', finished_at = ?, cancel_requested = 0 "
+            "WHERE job_id = ? AND status IN ('queued', 'running') "
+            "AND COALESCE(updated_at, 0) < ?", (time.time(), job_id, cutoff))
         conn.commit()
         return cur.rowcount > 0
 
@@ -3241,6 +3272,12 @@ def update_bulk_job(bulk_job_id: int, **fields):
         conn.execute(f"UPDATE bulk_jobs SET {', '.join(k + ' = ?' for k in fields)} WHERE id = ?",
                      list(fields.values()) + [bulk_job_id])
         conn.commit()
+
+
+def count_bulk_job_lines(bulk_job_id: int) -> int:
+    with contextlib.closing(get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM bulk_job_lines WHERE bulk_job_id = ?",
+                            (bulk_job_id,)).fetchone()[0]
 
 
 def list_bulk_job_lines(bulk_job_id: int) -> list:
