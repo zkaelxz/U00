@@ -273,6 +273,17 @@ def _candidate_ids(lines, language: str) -> set:
     return {ln.id for ln in lines if resegment._length(ln.zh or "") > cap}
 
 
+_CONFIRM_NEEDED = ("Re-segmenting would clear translations, flags or notes on the lines being "
+                   "split -- pass confirm=true.")
+
+
+def _needs_confirm(drama_id: int, lines, language: str) -> bool:
+    """True when any line long enough to be split carries a translation,
+    flag or translation note (all lost on a split)."""
+    need = _affected_counts(drama_id, lines, _candidate_ids(lines, language))
+    return bool(need["translated"] or need["flagged"] or need["notes"])
+
+
 def _reseg_inputs(drama_id: int, drama: dict):
     language = drama.get("source_language") or "zh"
     raw = raw_transcript.load_latest(db.drama_dir(drama_id))
@@ -382,10 +393,8 @@ def start_resegmentation(drama_id: int, expected_line_ids, confirm: bool = False
     _refuse_if_job_running(drama_id)
     lines = db.load_line_objects(drama_id)
     _check_expected(lines, expected_line_ids)
-    need = _affected_counts(drama_id, lines, _candidate_ids(lines, language))
-    if (need["translated"] or need["flagged"] or need["notes"]) and confirm is not True:
-        raise InvalidInputError("Re-segmenting would clear translations, flags or notes on the "
-                                "lines being split -- pass confirm=true.")
+    if confirm is not True and _needs_confirm(drama_id, lines, language):
+        raise InvalidInputError(_CONFIRM_NEEDED)
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     desc = f"Re-segmenting (drama #{drama_id})"
     if engine_name == "ollama":
@@ -426,7 +435,6 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
     use_preview=true commits exactly what was shown without a second LLM
     call."""
     changed_ids = {c[0] for c in changed}
-    need = _affected_counts(drama_id, source_lines, _candidate_ids(source_lines, language))
     preview = {
         "drama_id": drama_id, "engine": engine_name,
         "source_line_ids": [ln.id for ln in source_lines],
@@ -434,8 +442,12 @@ def _store_llm_preview(drama_id, source_lines, language, new_lines, changed, eng
         "changed": [{"line_id": lid, "idx": idx, "zh": zh, "pieces": list(pieces)}
                     for lid, idx, zh, pieces in changed],
         **_affected_counts(drama_id, source_lines, changed_ids),
-        "needs_confirm": bool(need["translated"] or need["flagged"] or need["notes"])}
-    preview["_apply"] = {"lines": list(new_lines), "fingerprint": _line_fingerprint(source_lines)}
+        "needs_confirm": _needs_confirm(drama_id, source_lines, language)}
+    # language: the apply step recounts what a split would lose on the lines
+    # as they are THEN (a note added since the preview isn't in the
+    # fingerprint, so needs_confirm above can be stale).
+    preview["_apply"] = {"lines": list(new_lines), "fingerprint": _line_fingerprint(source_lines),
+                         "language": language}
     with _llm_previews_lock:
         _llm_previews[drama_id] = preview
 
@@ -505,9 +517,10 @@ def get_llm_resegment_preview(drama_id: int) -> dict:
     return {k: v for k, v in preview.items() if not k.startswith("_")}
 
 
-def _apply_llm_preview_job(job_id, drama_id, preview):
+def _apply_llm_preview_job(job_id, drama_id, preview, confirm: bool = False):
     """Commits a stored LLM preview's lines (no LLM call). Refused, with
-    nothing written, if any line changed since the preview was made."""
+    nothing written, if any line changed since the preview was made, or if
+    (without confirm) a split would now lose a translation, flag or note."""
     state = preview["_apply"]
     if not preview["changed"]:
         background_jobs.set_result(job_id, {"changed": 0})
@@ -517,6 +530,10 @@ def _apply_llm_preview_job(job_id, drama_id, preview):
         if _line_fingerprint(current) != state["fingerprint"]:
             raise RuntimeError("This drama's lines changed since the preview -- nothing was "
                                "changed; run the preview again.")
+        if confirm is not True and _needs_confirm(drama_id, current, state["language"]):
+            raise RuntimeError("Re-segmenting would now clear translations, flags or notes on "
+                               "the lines being split -- nothing was changed; apply again "
+                               "with confirm=true.")
         new_lines = [dataclasses.replace(ln, merged_ids=list(ln.merged_ids))
                      for ln in state["lines"]]
         _commit(drama_id, current, new_lines, "before re-segment")
@@ -539,12 +556,13 @@ def _start_preview_apply(drama_id: int, expected_line_ids: list, confirm: bool) 
     if _line_fingerprint(lines) != preview["_apply"]["fingerprint"]:
         raise ConflictError("This drama's lines changed since the preview -- run the preview "
                             "again.")
-    if preview["needs_confirm"] and confirm is not True:
-        raise InvalidInputError("Re-segmenting would clear translations, flags or notes on the "
-                                "lines being split -- pass confirm=true.")
+    # Recounted on the lines as they are now, not the preview's needs_confirm:
+    # a translation note added since isn't in the fingerprint.
+    if confirm is not True and _needs_confirm(drama_id, lines, preview["_apply"]["language"]):
+        raise InvalidInputError(_CONFIRM_NEEDED)
     job_id = f"{RESEGMENT_JOB_PREFIX}{drama_id}"
     started = background_jobs.start_job(
-        job_id, _apply_llm_preview_job, job_id, drama_id, preview,
+        job_id, _apply_llm_preview_job, job_id, drama_id, preview, confirm is True,
         description=f"Applying re-segmentation preview (drama #{drama_id})")
     if not started:
         raise ConflictError("A re-segmentation is already running for this drama.")

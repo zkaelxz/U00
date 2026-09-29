@@ -252,3 +252,49 @@ def test_api_apply_preview(monkeypatch):
     r = c.post(f"/api/restructure/dramas/{did}/resegment",
                json={"expected_line_ids": [], "use_preview": "yes"})
     assert r.status_code == 422
+
+
+def _seed_unconfirmed():
+    """The long line has no translation, flag or note: no confirm needed yet."""
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="短", en="short"),
+                        Line(idx=1, start=1.0, end=9.0, zh=LONG, en="")])
+    return did
+
+
+def test_note_added_after_the_preview_needs_confirm_on_apply(monkeypatch):
+    """Review fix: a translation note isn't in the preview's fingerprint, so
+    the preview's needs_confirm can be stale; apply recounts on the lines
+    as they are now and refuses without confirm, keeping the note."""
+    from services import lines_service
+    from services.service_errors import InvalidInputError
+    did = _seed_unconfirmed()
+    _preview(monkeypatch, did)
+    p = svc.get_llm_resegment_preview(did)
+    assert p["needs_confirm"] is False and p["changed"]
+    long_id = p["changed"][0]["line_id"]
+    lines_service.add_note(did, long_id, "公园", "cultural", "a park")
+    before = _snapshot(did)
+    with pytest.raises(InvalidInputError):
+        svc.start_resegmentation(did, p["source_line_ids"], use_preview=True)
+    assert _snapshot(did) == before
+    assert [n["line_id"] for n in db.list_translation_notes(did)] == [long_id]
+    out = svc.start_resegmentation(did, p["source_line_ids"], confirm=True, use_preview=True)
+    assert _wait(out["job_id"])["status"] == "done"
+    assert len(db.load_lines(did)) == p["line_count_after"]
+
+
+def test_note_racing_the_apply_job_needs_confirm(monkeypatch):
+    """The same recount runs inside the job, under the drama lock: a note
+    added between the start check and the write stops an unconfirmed apply."""
+    from services import lines_service
+    did = _seed_unconfirmed()
+    _preview(monkeypatch, did)
+    preview = svc._llm_previews[did]
+    lines_service.add_note(did, preview["changed"][0]["line_id"], "公园", "cultural", "a park")
+    before = _snapshot(did)
+    background_jobs.start_job("resegment_x", svc._apply_llm_preview_job, "resegment_x", did,
+                              preview, False)
+    job = _wait("resegment_x")
+    assert job["status"] == "error" and "confirm=true" in job["error"]
+    assert _snapshot(did) == before and len(db.list_translation_notes(did)) == 1
