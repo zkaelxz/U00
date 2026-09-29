@@ -2861,3 +2861,19 @@ class SourcesUrlImportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     url: StrictStr = Field(min_length=1, max_length=2000)
     drama_id: int = Field(ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Workspace video-URL download (services/url_media_service.py); PC-only.
+# The job is read with GET /api/jobs/{job_id}.
+# ---------------------------------------------------------------------------
+
+class MediaUrlDownloadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field(min_length=1, max_length=2000)
+    audio_only: StrictBool
+    confirm_replace_audio: StrictBool = False
+
+
+class MediaUrlDownloadStarted(BaseModel):
+    job_id: str

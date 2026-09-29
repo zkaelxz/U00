@@ -271,6 +271,8 @@ baihe-subtitler/
 │   │                             (whitelisted kind, no symlinks, stays inside drama folder)
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
+│   ├── url_media_service.py      Workspace "From a URL" -- yt-dlp download job urlmedia_ (public-URL check,
+│   │                             size/time/live/playlist caps, no cookies, temp dir, field-scoped write)
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
