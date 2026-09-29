@@ -7,6 +7,7 @@ import { Field } from '../../../../components/Field'
 import { Section } from '../../../../components/Section'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
+import { humanize } from '../../../../components/labels'
 import { usePcOnly } from '../../../../hooks/usePcOnly'
 import type { StyleState } from '../../../../types/reviewExtras'
 import { styleSummary } from './aiExtrasLogic'
@@ -83,7 +84,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
           </Field>
         </div>
       )}
-      <Section title="Advanced" summary={`engine ${engine || 'default'} · model ${model || 'default'}`}>
+      <Section title="Advanced" summary={`${engine ? humanize('engine', engine) : 'Default engine'} · ${model || 'default model'}`}>
         <div className="review-edit-row">
           <Field label="Engine" help="Blank uses the project's translation engine. Needs an LLM engine.">
             <input value={engine} onChange={(e) => setEngine(e.target.value)} />

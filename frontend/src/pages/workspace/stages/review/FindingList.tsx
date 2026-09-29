@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { buttonClass } from '../../../../components/uiClasses'
 
 import { FINDINGS_SHOWN, type Finding, type GoToLine, type LineTarget } from './reviewResults'
 
@@ -58,7 +59,7 @@ export function FindingList({ items, onGoTo, testId }: { items: Finding[]; onGoT
         ))}
       </ul>
       {items.length > shown.length && (
-        <button type="button" className="link review-jump" onClick={() => setAll(true)}>
+        <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setAll(true)}>
           Show all {items.length}
         </button>
       )}

@@ -86,7 +86,7 @@ test('starts on the flagged line; J/K and arrows move the active line; ? lists t
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Keys ?' }).click()
+  await page.getByRole('button', { name: 'Shortcuts' }).click()
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Save and edit the next line')
 })
 
@@ -94,7 +94,7 @@ test('lists, filters, searches and edits a line against the real API', async ({ 
   await open(page)
   await expect(page.getByTestId('line-counts')).toContainText('3 in this view · 1 flagged · 1 untranslated')
   await expect(page.getByRole('radio', { name: 'All lines 3' })).toBeChecked()
-  await expect(page.getByTestId('line-flag')).toContainText('uncertain')
+  await expect(page.getByTestId('line-flag')).toContainText('Uncertain')
   await expect(page.getByTestId('page-label')).toHaveCount(0)
 
   await page.getByRole('radio', { name: 'Flagged 1' }).check()
@@ -668,7 +668,9 @@ test('subtitles follow the playhead, switch language, and pick up an edit', asyn
 test('with a source video, it shows by default with English subtitles drawn on it', async ({ page }) => {
   test.skip(!withVideo(), 'OpenCV is not installed, so there is no test video')
   await open(page)
-  const video = page.locator('.review-player video')
+  // Wide screens: the video, seek bar and subtitles sit in their own card beside the lines.
+  const card = page.getByRole('complementary', { name: 'Video with subtitles' })
+  const video = card.locator('video.review-video')
   await expect(video).toBeVisible()
   await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
   await expect
@@ -676,12 +678,23 @@ test('with a source video, it shows by default with English subtitles drawn on i
     .toEqual({ mode: 'showing', cues: 3 })
   await expect(video.locator('track')).toHaveAttribute('src', /\/api\/reader\/dramas\/3\/captions\/English\?v=\d+$/)
   const player = page.getByRole('group', { name: 'Player' })
-  await player.getByLabel('Jump to time').fill('0.5')
-  await player.getByRole('button', { name: 'Jump' }).click()
+  await card.getByLabel('Jump to time').fill('0.5')
+  await card.getByRole('button', { name: 'Jump' }).click()
+  await card.getByLabel('Subtitles').selectOption({ label: 'English' })
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.textTracks[0]?.activeCues?.length ?? 0)).toBe(1)
   await page.screenshot({ path: 'test-results/review-player-desktop.png' })
+  // Loop is an on/off switch in the player strip.
+  const loop = player.getByRole('switch', { name: 'Loop line' })
+  await expect(loop).toHaveAttribute('aria-checked', 'false')
+  await loop.click()
+  await expect(loop).toHaveAttribute('aria-checked', 'true')
+  await loop.click()
+  // Hiding the video folds the card away; the strip (and the sound) stay.
   await player.getByRole('button', { name: 'Hide player' }).click()
   await expect(video).toBeHidden()
+  await expect(card).toBeHidden()
+  await player.getByRole('button', { name: 'Show player' }).click()
+  await expect(video).toBeVisible()
 })
 
 test('crossing the phone width keeps the same video, its position and its play state', async ({ page }) => {
@@ -751,7 +764,7 @@ test.describe('phone', () => {
     }))
     expect(scroll).toBeLessThanOrEqual(client)
     const small = await page
-      .locator('.review-player button, .review-player select, .review-player input[type=text], .review-player input[type=range]')
+      .locator('.review-player button:not(.toggle), .review-player select, .review-player input[type=text], .review-player input[type=range]')
       .evaluateAll((els) =>
         els
           .filter((e) => (e as HTMLElement).offsetParent !== null)
@@ -759,6 +772,12 @@ test.describe('phone', () => {
           .filter(({ h }) => h < 44),
       )
     expect(small).toEqual([])
+    // The Loop switch draws a 24px track; its ::after hit area (index.css) makes the target 44px+.
+    const loopHit = await page.getByRole('switch', { name: 'Loop line' }).evaluate((e) => {
+      const after = getComputedStyle(e, '::after')
+      return e.getBoundingClientRect().height - parseFloat(after.top) - parseFloat(after.bottom)
+    })
+    expect(loopHit).toBeGreaterThanOrEqual(44)
     await page.screenshot({ path: 'test-results/review-player-phone.png' })
   })
 
@@ -769,8 +788,8 @@ test.describe('phone', () => {
       client: document.documentElement.clientWidth,
     }))
     expect(scroll).toBeLessThanOrEqual(client)
-    // (i) help buttons are left out: they get the shared ::after hit area (index.css).
-    const small = await page.locator('.stage-review button:not(.link, .review-en, .field-help-btn), .stage-review .review-chip').evaluateAll((els) =>
+    // (i) help buttons and switches are left out: they get the shared ::after hit area (index.css).
+    const small = await page.locator('.stage-review button:not(.link, .review-en, .field-help-btn, .toggle), .stage-review .review-chip').evaluateAll((els) =>
       els
         .filter((e) => (e as HTMLElement).offsetParent !== null)
         .map((e) => ({ h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width, t: (e.textContent ?? '').trim() }))
