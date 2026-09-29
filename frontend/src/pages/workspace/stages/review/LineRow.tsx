@@ -138,6 +138,13 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
           ⋯
         </button>
       </div>
+      {/* Phones show only ⚑ in the meta line; the active row spells the reason out. */}
+      {isPhone && active && line.flag && (
+        <div className="review-flag review-flag-line" aria-hidden="true">
+          Flagged: {line.flag}
+          {line.flag_note ? ` · ${line.flag_note}` : ''}
+        </div>
+      )}
       <div className="review-body">
         <div lang="zh" className="review-zh">{line.zh}</div>
         {draft ? (

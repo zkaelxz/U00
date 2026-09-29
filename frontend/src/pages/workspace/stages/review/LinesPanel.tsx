@@ -112,12 +112,16 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const pending = useRef<Pending | null>(null)
   const loadedOnce = useRef(false)
   const focusActive = useRef(false)
+  const scrollActive = useRef(false)
+  const sectionRef = useRef<HTMLElement>(null)
 
   const shown = useMemo(() => found ?? data?.lines ?? [], [found, data])
   const pages = data ? pageCount(data.total) : 1
   const searching = term !== ''
   // Merge and add need the true neighbour, which only the All view shows.
   const limited = searching || filter !== 'all'
+  // An empty drama needs no filters, search or paging: just the way forward.
+  const emptyDrama = allTotal === 0 && !searching && filter === 'all'
 
   useEffect(() => {
     if (allTotal !== null) onLineCount?.(allTotal)
@@ -147,6 +151,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         if (p?.edit) setEdit({ lineId: target.id, base: target, draft: draftFromLine(target), details: false, note: null })
       } else {
         const first = !loadedOnce.current
+        // On load, bring the starting line into view (without taking focus).
+        if (first) scrollActive.current = true
         setActiveId((cur) =>
           cur !== null && lines.some((l) => l.id === cur)
             ? cur
@@ -179,15 +185,30 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
     }
   }, [dramaId, page, filter, term, reloads])
 
-  // Keyboard moves bring the active row into view and give it focus.
+  // Keyboard moves bring the active row into view and give it focus; the
+  // first load only scrolls. Rows keep clear of the sticky toolbar through
+  // scroll-margin-top, which follows the toolbar's measured height.
   useEffect(() => {
-    if (!focusActive.current || activeId === null) return
-    focusActive.current = false
+    if ((!focusActive.current && !scrollActive.current) || activeId === null) return
     const el = listRef.current?.querySelector<HTMLElement>(`[data-line-id="${activeId}"]`)
     if (!el) return
-    el.focus({ preventScroll: true })
+    if (focusActive.current) el.focus({ preventScroll: true })
+    focusActive.current = false
+    scrollActive.current = false
     el.scrollIntoView?.({ block: 'nearest' })
   })
+  useEffect(() => {
+    const section = sectionRef.current
+    const bar = section?.querySelector<HTMLElement>('.review-toolbar')
+    if (!section || !bar || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => section.style.setProperty('--review-toolbar-h', `${bar.offsetHeight}px`))
+    ro.observe(bar)
+    return () => ro.disconnect()
+  })
+  const showActive = () => {
+    const el = activeId !== null ? listRef.current?.querySelector<HTMLElement>(`[data-line-id="${activeId}"]`) : null
+    el?.scrollIntoView?.({ block: 'nearest' })
+  }
 
   // Everything the stable row callbacks need, read at call time.
   const st = useRef({ shown, edit, page, pages, filter, searching, onChanged, jobRunning, activeId })
@@ -716,7 +737,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   const pagerInPlayer = isPhone && mediaKind !== null && showPager
 
   return (
-    <section className="review-editor" aria-label="Lines">
+    <section className="review-editor" aria-label="Lines" ref={sectionRef}>
+      {!emptyDrama && (
       <ReviewToolbar
         isPhone={isPhone}
         filter={filter}
@@ -745,6 +767,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           ) : null
         }
       />
+      )}
       {data && (
         <p className="sr-only" data-testid="line-counts">
           {data.total} in this view · {data.flagged_count} flagged · {data.untranslated_count} untranslated
@@ -780,7 +803,9 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           <p className="muted">{emptyMessage(filter, term)}</p>
           {filter === 'all' && !searching ? (
             <div className="actions">
-              <a href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>Go to Source</a>
+              <a className="review-primary-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+                Go to Source
+              </a>
               <button type="button" disabled={jobRunning} onClick={() => void ctl.openSheet(null, 'add')}>
                 Add first line
               </button>
@@ -827,11 +852,28 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           ) : (
             <>
               {mediaKind && (
-                <button type="button" onClick={() => player.current?.toggleLine(active)}>▶ #{lineNumber(active.idx)}</button>
+                <button
+                  type="button"
+                  aria-label={`Play line ${lineNumber(active.idx)}`}
+                  onClick={() => {
+                    showActive()
+                    player.current?.toggleLine(active)
+                  }}
+                >
+                  ▶ #{lineNumber(active.idx)}
+                </button>
               )}
               <button type="button" aria-label="Previous line" onClick={() => ctl.move(-1)}>‹ Prev</button>
               <button type="button" aria-label="Next line" onClick={() => ctl.move(1)}>Next ›</button>
-              <button type="button" onClick={() => void ctl.openEdit(active.id)}>Edit</button>
+              <button
+                type="button"
+                onClick={() => {
+                  showActive()
+                  void ctl.openEdit(active.id)
+                }}
+              >
+                Edit #{lineNumber(active.idx)}
+              </button>
             </>
           )}
         </div>

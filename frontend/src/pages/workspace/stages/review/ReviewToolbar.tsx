@@ -54,6 +54,7 @@ export function Pager({ page, pages, onPage, labelled }: { page: number; pages: 
 // under it when the drama has media.
 export function ReviewToolbar({ searchRef, ...p }: Props) {
   const [searchOpen, setSearchOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [goTo, setGoTo] = useState('')
   const showSearch = !p.isPhone || searchOpen || p.search !== ''
 
@@ -124,33 +125,47 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
       <button type="button" aria-haspopup="dialog" onClick={p.onKeys}>
         Keys ?
       </button>
-      {p.resultCount !== null && (
-        <span className="muted" role="status" data-testid="search-count">
-          {p.resultCount} match{p.resultCount === 1 ? '' : 'es'}
-          {p.resultCount >= 200 ? ' (max 200)' : ''}
-        </span>
-      )}
     </div>
   )
+  const count =
+    p.resultCount !== null ? (
+      <span className="muted review-count" role="status" data-testid="search-count">
+        {p.resultCount} match{p.resultCount === 1 ? '' : 'es'}
+        {p.resultCount >= 200 ? ' (max 200)' : ''}
+      </span>
+    ) : null
 
+  // Phones: Search and More are buttons on the chip row; each opens its own
+  // row inside the toolbar box.
   return (
-    <>
-      <div className="review-toolbar">
-        <div className="review-toolbar-row">
-          {chips}
-          {p.isPhone && !showSearch && (
-            <button type="button" className="review-search-toggle" aria-label="Search lines" onClick={() => setSearchOpen(true)}>
-              ⌕
-            </button>
-          )}
-          {!p.isPhone && searchBox}
-          {p.showPager && <Pager page={p.page} pages={p.pages} onPage={p.onPage} labelled />}
-        </div>
-        {p.isPhone && showSearch && <div className="review-toolbar-row">{searchBox}</div>}
-        {!p.isPhone && extras}
-        {p.player}
+    <div className="review-toolbar">
+      <div className="review-toolbar-row">
+        {chips}
+        {p.isPhone && !showSearch && (
+          <button type="button" className="review-search-toggle" aria-label="Search lines" onClick={() => setSearchOpen(true)}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+              <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" strokeWidth="2" />
+              <line x1="15.5" y1="15.5" x2="21" y2="21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+        {p.isPhone && (
+          <button type="button" className="review-more-toggle" aria-expanded={moreOpen} onClick={() => setMoreOpen(!moreOpen)}>
+            More
+          </button>
+        )}
+        {!p.isPhone && searchBox}
+        {!p.isPhone && count}
+        {p.showPager && <Pager page={p.page} pages={p.pages} onPage={p.onPage} labelled />}
       </div>
-      {p.isPhone && extras}
-    </>
+      {p.isPhone && showSearch && (
+        <div className="review-toolbar-row">
+          {searchBox}
+          {count}
+        </div>
+      )}
+      {(!p.isPhone || moreOpen) && extras}
+      {p.player}
+    </div>
   )
 }

@@ -4,6 +4,7 @@
   --touch: 44px;
   --row-active: color-mix(in srgb, var(--accent) 9%, transparent);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   min-width: 0;
 }
@@ -13,7 +14,7 @@
 }
 
 /* ---- editor frame: no overflow here, so the toolbar can stick ---- */
-.review-editor { display: grid; gap: var(--space-2); min-width: 0; }
+.review-editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); min-width: 0; }
 
 /* ---- sticky toolbar ---- */
 .review-toolbar {
@@ -38,7 +39,8 @@
   border-radius: 999px; font-size: var(--font-sm); color: var(--text); background: var(--field-bg);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.review-chip input:checked + span { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+/* Selected chip: tinted, accent border; the one filled accent stays the primary action. */
+.review-chip input:checked + span { background: color-mix(in srgb, var(--accent) 16%, var(--field-bg)); border-color: var(--accent); color: var(--text); font-weight: 600; }
 .review-chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
 .review-search { position: relative; display: flex; flex: 1 1 16rem; min-width: 0; }
 .review-search input { padding-right: 2.4rem; }
@@ -70,7 +72,7 @@ button.review-play { min-width: 2.75rem; padding-inline: 10px; }
 .review-line {
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
-  scroll-margin-top: calc(var(--bar-h, 0px) + 9rem);
+  scroll-margin-top: calc(var(--bar-h, 0px) + var(--review-toolbar-h, 9rem) + var(--space-2));
   scroll-margin-bottom: 5rem;
   min-width: 0;
 }
@@ -82,14 +84,22 @@ button.review-play { min-width: 2.75rem; padding-inline: 10px; }
 .review-idx { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .review-time { font-variant-numeric: tabular-nums; }
 .review-flag { color: var(--bad); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
-button.review-more { margin-left: auto; padding: 0 10px; line-height: 1.4; border-color: transparent; background: none; color: var(--muted); font-weight: 700; }
+button.review-more { margin-left: auto; min-width: 2.25rem; padding: 2px 10px; font-size: 1.1rem; line-height: 1.2; border-color: transparent; background: none; color: var(--muted); font-weight: 700; }
 .review-line.is-active button.review-more, button.review-more:focus-visible { border-color: var(--border); color: var(--text); }
 .review-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-1) var(--space-4); align-items: start; margin-top: 2px; }
 .review-zh { overflow-wrap: anywhere; }
-.stage-review button.review-en { min-height: 0; text-align: left; background: none; border: 1px dashed transparent; padding: 0 4px; font: inherit; color: inherit; cursor: text; overflow-wrap: anywhere; min-width: 0; }
-button.review-en:hover:not(:disabled), button.review-en:focus-visible { background: none; border-color: var(--border); }
+/* The translation is a button but reads as text: no padding or border offset, so it lines up with the source. */
+.stage-review button.review-en { min-height: 0; text-align: left; background: none; border: none; border-radius: 2px; padding: 0; font: inherit; color: inherit; cursor: text; overflow-wrap: anywhere; min-width: 0; }
+button.review-en:focus-visible { background: none; outline: 1px dashed var(--border); outline-offset: 2px; }
+@media (hover: hover) {
+  button.review-en:hover:not(:disabled) { background: none; outline: 1px dashed var(--border); outline-offset: 2px; }
+}
+@media (hover: none) {
+  .stage-review button:hover:not(:disabled):not(.primary) { background: var(--surface); border-color: var(--border); }
+  .stage-review button.review-en:hover, .stage-review button.review-more:hover { background: none; border-color: transparent; }
+}
 .review-en-edit { display: grid; gap: var(--space-1); min-width: 0; }
-.review-en-edit textarea { width: 100%; font: inherit; }
+.review-en-edit textarea { width: 100%; font: inherit; field-sizing: content; min-height: 3.2lh; }
 .review-keys { font-size: var(--font-sm); }
 .review-tools { display: flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; margin-top: var(--space-2); }
 .review-tools button { padding: 3px 10px; font-size: var(--font-sm); }
@@ -127,13 +137,18 @@ button.review-en:hover:not(:disabled), button.review-en:focus-visible { backgrou
   .review-chips { flex-wrap: nowrap; min-width: 0; }
   .review-chip span { min-height: var(--touch); padding-inline: 10px; }
   .review-pager { margin-left: auto; }
-  .review-pager button, button.review-search-toggle { min-width: var(--touch); padding-inline: 0; }
+  .review-pager button { min-width: var(--touch); padding-inline: 0; }
+  button.review-search-toggle { min-width: var(--touch); padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  button.review-more-toggle { padding-inline: 10px; }
   button.review-clear { min-width: var(--touch); min-height: var(--touch); }
   .review-body { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .review-line { padding: var(--space-1) var(--space-2); }
   .review-line-meta { flex-wrap: nowrap; }
   .review-speaker { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  button.review-more { min-width: var(--touch); min-height: var(--touch); padding: 0; flex: 0 0 auto; }
+  /* ⋯ sits in the row's top-right corner, out of the meta line's height; its 44px box overlaps only padding. */
+  .review-line { position: relative; }
+  .review-line-meta { padding-right: calc(var(--touch) - var(--space-2)); }
+  button.review-more { position: absolute; top: 0; right: 0; min-width: var(--touch); min-height: var(--touch); padding: 0; margin: 0; }
   .review-ai-compare { grid-template-columns: minmax(0, 1fr); }
   .review-editbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky, 3);
@@ -142,6 +157,7 @@ button.review-en:hover:not(:disabled), button.review-en:focus-visible { backgrou
     background: var(--surface); border-top: 1px solid var(--border);
   }
   .review-editbar button { flex: 1 1 0; min-width: 0; min-height: var(--touch); padding-inline: var(--space-1); white-space: nowrap; }
+  .review-editbar button.primary { flex-grow: 1.7; }
 }
 @media (pointer: coarse) {
   .review-chip span { min-height: var(--touch); }
@@ -153,10 +169,33 @@ button.review-en:hover:not(:disabled), button.review-en:focus-visible { backgrou
 @media (max-width: 640px) {
   .review-chip span { padding-inline: 8px; min-width: var(--touch); justify-content: center; }
   .review-player-row .review-pager { margin-left: auto; }
-  button.review-search-toggle { font-size: 1.3rem; line-height: 1; }
   .stage-review textarea, .stage-review input { scroll-margin-top: 9rem; scroll-margin-bottom: 5rem; }
   .review-loop-word { display: none; }
   .review-player-row:has(.review-pager) .review-duration { display: none; }
   .review-player-row { gap: var(--space-1); }
   .review-page-label { min-width: 2.5em; }
+}
+
+/* Flag reason: one truncated line on the active phone row; in full at the top of the ⋯ sheet. */
+.review-flag-line { font-size: var(--font-sm); margin-top: 2px; }
+.review-flag-full { margin: 0; color: var(--bad); overflow-wrap: anywhere; }
+.review-hint-text { margin: 0; }
+.review-count { white-space: nowrap; }
+/* Empty drama: the way forward is the one filled button. */
+a.review-primary-link {
+  display: inline-flex; align-items: center; min-height: 2.5rem; padding: 7px 14px; border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--on-accent); font-weight: 600; text-decoration: none;
+}
+@media (hover: hover) {
+  a.review-primary-link:hover { background: color-mix(in srgb, var(--accent) 85%, black); }
+}
+@media (max-width: 640px), (pointer: coarse) {
+  a.review-primary-link { min-height: var(--touch); }
+}
+@media (max-width: 640px) {
+  /* Keep the first text line clear of the ⋯ corner: a float carves out only the part the button covers. */
+  .review-body { display: block; }
+  .review-body::before { content: ''; float: right; width: calc(var(--touch) - var(--space-2)); height: calc(var(--touch) - 1.5rem); }
+  .stage-review button.review-en { display: block; width: 100%; }
+  .review-flag-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: calc(var(--touch) - var(--space-2)); }
 }

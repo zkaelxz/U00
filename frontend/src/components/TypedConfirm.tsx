@@ -7,10 +7,10 @@
  *     Your current lines are saved as a snapshot first.
  *   </TypedConfirm>
  */
-import { useState, type ReactNode } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 
-import { Field } from './Field'
 import { typedMatches } from './typedConfirm'
+import './typedConfirm.css'
 
 type TypedConfirmProps = {
   word: string
@@ -25,6 +25,7 @@ type TypedConfirmProps = {
 
 export function TypedConfirm({ word, action, busy, blocked, onConfirm, onCancel, children }: TypedConfirmProps) {
   const [typed, setTyped] = useState('')
+  const id = useId()
   const ready = typedMatches(typed, word) && !busy && !blocked
   return (
     <form
@@ -35,15 +36,24 @@ export function TypedConfirm({ word, action, busy, blocked, onConfirm, onCancel,
       }}
     >
       {children}
-      <Field label={`Type ${word} to confirm`}>
-        <input
-          value={typed}
-          autoComplete="off"
-          autoCapitalize="none"
-          spellCheck={false}
-          onChange={(e) => setTyped(e.target.value)}
-        />
-      </Field>
+      {/* Same look as Field; the word is code-styled so it reads as something to type. */}
+      <div className="field-item">
+        <div className="field-label-row">
+          <label htmlFor={id}>
+            Type <code className="typed-word">{word}</code> to confirm
+          </label>
+        </div>
+        <div className="field-control">
+          <input
+            id={id}
+            value={typed}
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            onChange={(e) => setTyped(e.target.value)}
+          />
+        </div>
+      </div>
       {blocked && <p className="muted">{blocked}</p>}
       <div className="actions">
         <button type="submit" className="danger" disabled={!ready}>

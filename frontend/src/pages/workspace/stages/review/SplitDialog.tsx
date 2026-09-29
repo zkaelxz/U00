@@ -65,7 +65,8 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
         if (valid && !busy && !blocked) onSplit({ at_char: at, en_at_char: splitEn ? enAt : null, at_time: timeNum })
       }}
     >
-      <Field label="Source" help="Put the cursor where the line should break.">
+      <p className="muted review-hint-text">Tap where the line should break, or set the character count.</p>
+      <Field label="Source">
         <textarea
           lang="zh"
           rows={2}
@@ -85,8 +86,8 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
             onChange={(e) => setAt(clampInside(Number(e.target.value) || 1, zhLen))}
           />
         </Field>
-        <Field label="Split at (s)" help={`Blank splits in proportion to the text (about ${estimate}s).`} error={timeBad ? `Enter a time between ${line.start} and ${line.end}.` : null}>
-          <input inputMode="decimal" placeholder={String(estimate)} value={time} onChange={(e) => setTime(e.target.value)} />
+        <Field label="Split at (s)" help="Blank splits the timing in proportion to the text." error={timeBad ? `Enter a time between ${line.start} and ${line.end}.` : null}>
+          <input inputMode="decimal" placeholder={`blank ≈ ${estimate} s`} value={time} onChange={(e) => setTime(e.target.value)} />
         </Field>
       </div>
       {enLen > 1 && (
@@ -95,7 +96,7 @@ export function SplitDialog({ line, initialAt, initialEnAt, busy, blocked, onSpl
         </label>
       )}
       {splitEn && (
-        <Field label="Translation" help="Put the cursor where the translation should break.">
+        <Field label="Translation" help="Tap where the translation should break.">
           <textarea rows={2} value={line.en} readOnly onSelect={fromCaret(setEnAt, enLen)} />
         </Field>
       )}

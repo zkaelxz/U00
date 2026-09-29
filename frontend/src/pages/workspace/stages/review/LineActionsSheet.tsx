@@ -132,6 +132,12 @@ export function LineActionsSheet(p: Props) {
           {line && view === 'merge' && (
             <MergeConfirm key={line.id} run={p.run} busy={p.busy} blocked={blocked} onMerge={p.onMerge} onCancel={back} />
           )}
+          {line && view === 'menu' && line.flag && (
+            <p className="review-flag-full" data-testid="sheet-flag">
+              <span aria-hidden="true">⚑ </span>Flagged: {line.flag}
+              {line.flag_note ? ` · ${line.flag_note}` : ''}
+            </p>
+          )}
           {line && view === 'menu' && (
             <ul className="sheet-menu">
               {p.hasMedia && (
