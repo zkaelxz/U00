@@ -44,6 +44,15 @@ export function jobStatusLine(job: JobRecord, nowSec: number): string {
   return `${statusLabel(job.status)}${pct} · ${formatDuration(job, nowSec)}`
 }
 
+// The small line under a job's status: live progress text while it runs,
+// the error for a failed job, nothing once it is done or cancelled (its
+// last progress text, e.g. "Transcribing... 99%", would read as stuck).
+export function jobDetail(job: Pick<JobRecord, 'status' | 'message' | 'error'>): string | null {
+  if (job.status === 'done' || job.status === 'cancelled') return null
+  if (job.status === 'error') return job.error || job.message || null
+  return job.message || null
+}
+
 export function statusLabel(status: string): string {
   const labels: Record<string, string> = {
     queued: 'Queued',
