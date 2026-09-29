@@ -37,7 +37,7 @@ Written 2026-09-29, for the Streamlit deletion (`docs/streamlit-retirement-plan.
 - **Files that break at import when the UI modules go**, even though they hold LOGIC tests: `test_app.py` (`streamlit.testing`), `test_app_help.py` (`from common import *`), `test_media_preview.py` and `test_review_workspace.py` (`tabs.workspace_tab`), `test_step20_ux_polish.py` (`tabs.workspace_tab`), `test_settings_tab.py` (`streamlit`, `tabs.settings_tab`), `test_ui_components.py` (`ui`), `test_dark_mode_step68.py` (`ui_theme`), `test_common.py`. Move the KEEP/REPOINTED tests out, or remove the import, before deleting the modules.
 - **`app_help.py` is grounded in `tabs/*_tab.py` source.** Once `tabs/` is gone, the App Assistant (Diagnostics Q16) has nothing to ground on and `test_real_app_tabs_dir_produces_nonempty_grounding` fails. Its fate follows the still-open "Diagnostics extras" decision.
 - **`diagnostics.py`** lists `streamlit` as required and keeps `EXPECTED_TABS_FILES`. `test_expected_tabs_files_list_is_not_stale` and the file-completeness tests must be updated in the same PR (plan section 2).
-- **Extraction targets**, all small and pure: `ui.workflow.stage_statuses_from_index` → `services/workflow_service.py`; `library_tab.cache_hit_share` → `services/library_service.py`; `diagnostics_tab._describe_job` → `services/jobs_service.py`; `reader_tab.caption_tracks` → a reader/export service; `workspace_tab.parse_timestamp`, `_burn_preview_ass`, `_line_audio_clip` and `_adjacent_flagged_idx` → when the backlog item that needs them is built (R02, R03, R22, R08), or lift them from the `pre-streamlit-removal` tag then; `scanlate_tab.add_uploaded_pages` → the Scanlate port (deferred); `workspace_tab._diarization_estimate_caption` → only if React shows the estimate; `ui_theme.resolve_reader_theme` → only if the Reader port wants it.
+- **Extraction targets**, all small and pure: done (branch `extract-misc-tab-fns`): `ui.workflow.stage_statuses_from_index` → `services/workflow_service.py`; `library_tab.cache_hit_share` → `services/library_service.py`; `diagnostics_tab._describe_job` (already `services/diagnostics_gaps_service.describe_job`, tests repointed); `scanlate_tab.add_uploaded_pages` → `services/scanlate_service.py`. Still open: `reader_tab.caption_tracks` → a reader/export service; `workspace_tab.parse_timestamp`, `_burn_preview_ass`, `_line_audio_clip` and `_adjacent_flagged_idx` → when the backlog item that needs them is built (R02, R03, R22, R08), or lift them from the `pre-streamlit-removal` tag then; `workspace_tab._diarization_estimate_caption` → only if React shows the estimate; `ui_theme.resolve_reader_theme` → only if the Reader port wants it.
 - Several "UI" AppTest tests assert behaviour whose logic lives **only in the tab**, not in a service: transcription completion (`TestTranscriptionCompletionDoesNotWipeExistingLines`), stale-snapshot guards on merge/restore/re-segment, destructive-action confirmations, and the per-drama widget-key isolation classes. The server-side equivalents have their own service tests (`services/transcribe_service.py`, `restructure_service.py`), but the React features they guard are mostly MISSING (inventory R46-R48, S04, T01). When each React feature is built, its API/service test should restate the invariant named in the Streamlit test class.
 - One flaky AppTest seen during the baseline under load: `test_workspace_tab.py::TestLineEditingNotLockedDuringAJob::test_save_edits_stays_enabled_while_translate_is_running` failed once while another pytest process was running, then passed alone (4/4). It is UI and goes with the tab.
 
@@ -513,10 +513,10 @@ Top-level UI/Streamlit imports: none
 | 249 | `TestExportPackage::test_nonexistent_drama_raises_value_error` | LOGIC | KEEP |  |
 | 255 | `TestExportPackage::test_manifest_matches_zip_contents` | LOGIC | KEEP |  |
 | 289 | `TestBenchmarkRunnerEnginePassesOllamaUrlAndFreeTier::test_ollama_base_url_is_passed_through` | UI | DELETE with tab | AppTest |
-| 315 | `TestDescribeJob::test_live_capture_has_a_fixed_label` | LOGIC | NEEDS EXTRACTION | tabs.diagnostics_tab._describe_job -> services/jobs_service if React wants readable job labels; else drop |
-| 319 | `TestDescribeJob::test_known_prefix_includes_the_drama_title` | LOGIC | NEEDS EXTRACTION | tabs.diagnostics_tab._describe_job -> services/jobs_service if React wants readable job labels; else drop |
-| 326 | `TestDescribeJob::test_deleted_drama_says_so_instead_of_crashing` | LOGIC | NEEDS EXTRACTION | tabs.diagnostics_tab._describe_job -> services/jobs_service if React wants readable job labels; else drop |
-| 331 | `TestDescribeJob::test_unrecognized_job_id_falls_back_to_the_raw_string` | LOGIC | NEEDS EXTRACTION | tabs.diagnostics_tab._describe_job -> services/jobs_service if React wants readable job labels; else drop |
+| 315 | `TestDescribeJob::test_live_capture_has_a_fixed_label` | LOGIC | DONE | dropped: exact duplicate of tests/test_diagnostics_gaps_service.py::test_describe_job_moved |
+| 319 | `TestDescribeJob::test_known_prefix_includes_the_drama_title` | LOGIC | DONE | moved to tests/test_diagnostics_gaps_service.py::TestDescribeJob (services.diagnostics_gaps_service.describe_job) |
+| 326 | `TestDescribeJob::test_deleted_drama_says_so_instead_of_crashing` | LOGIC | DONE | moved to tests/test_diagnostics_gaps_service.py::TestDescribeJob (services.diagnostics_gaps_service.describe_job) |
+| 331 | `TestDescribeJob::test_unrecognized_job_id_falls_back_to_the_raw_string` | LOGIC | DONE | moved to tests/test_diagnostics_gaps_service.py::TestDescribeJob (services.diagnostics_gaps_service.describe_job) |
 | 352 | `TestRunningJobsPanelAutoRefresh::test_panel_is_an_auto_refreshing_fragment` | UI | DELETE with tab | tab source inspection |
 | 366 | `TestRunningJobsPanelAutoRefresh::test_shows_nothing_running_caption_when_idle` | UI | DELETE with tab | tab source inspection |
 | 373 | `TestRunningJobsPanelAutoRefresh::test_shows_a_real_running_job_with_progress_and_cancel` | UI | DELETE with tab | tab source inspection |
@@ -788,9 +788,9 @@ Top-level UI/Streamlit imports: none
 | 166 | `TestWebtoonSlicing::test_slices_cover_entire_strip` | LOGIC | KEEP |  |
 | 175 | `TestWebtoonSlicing::test_all_slices_have_positive_height` | LOGIC | KEEP |  |
 | 183 | `TestWebtoonSlicing::test_short_image_not_sliced` | LOGIC | KEEP |  |
-| 220 | `TestWebtoonUpload::test_tall_strip_is_sliced_into_pages` | LOGIC | NEEDS EXTRACTION | tabs.scanlate_tab.add_uploaded_pages -> scanlate service (Scanlate deferred: extract before deletion or lift from the tag later) |
-| 231 | `TestWebtoonUpload::test_strip_is_kept_whole_when_slicing_is_off` | LOGIC | NEEDS EXTRACTION | tabs.scanlate_tab.add_uploaded_pages -> scanlate service (Scanlate deferred: extract before deletion or lift from the tag later) |
-| 236 | `TestWebtoonUpload::test_ordinary_page_is_never_sliced` | LOGIC | NEEDS EXTRACTION | tabs.scanlate_tab.add_uploaded_pages -> scanlate service (Scanlate deferred: extract before deletion or lift from the tag later) |
+| 220 | `TestWebtoonUpload::test_tall_strip_is_sliced_into_pages` | LOGIC | DONE | moved to tests/test_scanlate_service.py (services.scanlate_service.add_uploaded_pages) |
+| 231 | `TestWebtoonUpload::test_strip_is_kept_whole_when_slicing_is_off` | LOGIC | DONE | moved to tests/test_scanlate_service.py (services.scanlate_service.add_uploaded_pages) |
+| 236 | `TestWebtoonUpload::test_ordinary_page_is_never_sliced` | LOGIC | DONE | moved to tests/test_scanlate_service.py (services.scanlate_service.add_uploaded_pages) |
 | 243 | `TestTextRegionClassification::test_returns_valid_kind` | LOGIC | KEEP |  |
 | 257 | `TestTextRegionClassification::test_missing_file_defaults_to_bubble` | LOGIC | KEEP |  |
 | 261 | `TestTextRegionClassification::test_all_kinds_documented` | LOGIC | KEEP |  |
@@ -1000,8 +1000,8 @@ Top-level UI/Streamlit imports: none
 | 468 | `TestCostDashboardShowsFreeEngineUsage::test_a_drama_with_no_usage_at_all_is_not_in_the_table` | UI | DELETE with tab | AppTest |
 | 490 | `TestAnimeInLibraryTypeFilter::test_anime_is_a_type_filter_option` | UI | DELETE with tab | AppTest |
 | 495 | `TestAnimeInLibraryTypeFilter::test_filtering_by_anime_shows_only_anime_dramas` | UI | DELETE with tab | AppTest |
-| 507 | `TestCacheHitShare::test_share_of_input_tokens` | LOGIC | NEEDS EXTRACTION | tabs.library_tab.cache_hit_share -> services/library_service (3-line pure function) |
-| 511 | `TestCacheHitShare::test_no_usage_is_zero_not_a_division_error` | LOGIC | NEEDS EXTRACTION | tabs.library_tab.cache_hit_share -> services/library_service (3-line pure function) |
+| 507 | `TestCacheHitShare::test_share_of_input_tokens` | LOGIC | DONE | moved to tests/test_library_service.py::TestCacheHitShare (services.library_service.cache_hit_share) |
+| 511 | `TestCacheHitShare::test_no_usage_is_zero_not_a_division_error` | LOGIC | DONE | moved to tests/test_library_service.py::TestCacheHitShare (services.library_service.cache_hit_share) |
 | 541 | `TestBulkSeriesTranslate::test_translates_every_eligible_drama_with_its_own_saved_engine` | LOGIC | REPOINTED | services.workspace_job_service.run_bulk_series_translate_job (the tab only re-exported it) |
 | 551 | `TestBulkSeriesTranslate::test_a_drama_already_running_is_skipped_not_queued` | LOGIC | REPOINTED | services.workspace_job_service.run_bulk_series_translate_job (the tab only re-exported it) |
 | 562 | `TestBulkSeriesTranslate::test_a_drama_needing_a_key_with_none_supplied_is_skipped` | LOGIC | REPOINTED | services.workspace_job_service.run_bulk_series_translate_job (the tab only re-exported it) |
@@ -1514,7 +1514,7 @@ Top-level UI/Streamlit imports: `streamlit`, `streamlit.testing.v1 (AppTest)`, `
 | 95 | `TestProjectState::test_reset_project_gives_back_fresh_defaults` | UI | DELETE with tab | ui.project_state is a Streamlit session-state store |
 | 102 | `TestProjectState::test_new_state_dicts_are_never_shared` | UI | DELETE with tab | ui.project_state is a Streamlit session-state store |
 | 111 | `TestProjectState::test_does_not_touch_narrowly_scoped_keys` | UI | DELETE with tab | ui.project_state is a Streamlit session-state store |
-| 149 | `TestWorkflowStepper::test_stage_statuses_from_index` | LOGIC | NEEDS EXTRACTION | ui.workflow.stage_statuses_from_index -> services.workflow_service |
+| 149 | `TestWorkflowStepper::test_stage_statuses_from_index` | LOGIC | DONE | moved to tests/test_workflow_service.py::test_stage_statuses_from_index (services.workflow_service) |
 | 158 | `TestWorkflowStepper::test_render_stepper_rejects_mismatched_lengths` | UI | DELETE with tab | stepper rendering |
 | 170 | `TestWorkflowStepper::test_render_stepper_shows_a_check_for_done_stages` | UI | DELETE with tab | stepper rendering |
 | 177 | `TestWorkflowStepper::test_render_stepper_shows_a_dot_for_the_current_stage` | UI | DELETE with tab | stepper rendering |
@@ -1549,10 +1549,10 @@ Top-level UI/Streamlit imports: none
 | 41 | `TestWorkspaceStageIndex::test_novel_narration_with_saved_novel_text_is_on_transcript` | LOGIC | KEEP |  |
 | 47 | `TestWorkspaceStageIndex::test_lines_with_no_speaker_yet_is_on_diarize` | LOGIC | KEEP |  |
 | 52 | `TestWorkspaceStageIndex::test_novel_narration_has_no_diarize_stage` | LOGIC | KEEP |  |
-| 60 | `TestWorkspaceStageIndex::test_partway_translated_shows_transcribe_diarize_done_translate_current` | LOGIC | NEEDS EXTRACTION | imports ui.workflow.stage_statuses_from_index; move it into services.workflow_service |
+| 60 | `TestWorkspaceStageIndex::test_partway_translated_shows_transcribe_diarize_done_translate_current` | LOGIC | DONE | stage_statuses_from_index now imported from services.workflow_service |
 | 77 | `TestWorkspaceStageIndex::test_fully_translated_not_yet_dubbed_or_exported_is_on_review` | LOGIC | KEEP |  |
 | 82 | `TestWorkspaceStageIndex::test_dub_track_on_disk_moves_to_export` | LOGIC | KEEP |  |
-| 88 | `TestWorkspaceStageIndex::test_exported_status_is_fully_done` | LOGIC | NEEDS EXTRACTION | same |
+| 88 | `TestWorkspaceStageIndex::test_exported_status_is_fully_done` | LOGIC | DONE | stage_statuses_from_index now imported from services.workflow_service |
 | 97 | `TestWorkspaceStageIndex::test_exported_with_no_persisted_speaker_still_shows_export_not_diarize` | LOGIC | KEEP |  |
 | 110 | `TestWorkspaceStageIndex::test_fully_translated_with_no_persisted_speaker_shows_review_not_diarize` | LOGIC | KEEP |  |
 
@@ -1849,10 +1849,10 @@ Top-level UI/Streamlit imports: none
 | 6899 | `TestWorkspaceStageIndex::test_novel_narration_with_saved_novel_text_is_on_transcript` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
 | 6905 | `TestWorkspaceStageIndex::test_lines_with_no_speaker_yet_is_on_diarize` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
 | 6910 | `TestWorkspaceStageIndex::test_novel_narration_has_no_diarize_stage` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
-| 6918 | `TestWorkspaceStageIndex::test_partway_translated_shows_transcribe_diarize_done_translate_current` | LOGIC | REPOINTED + NEEDS EXTRACTION | stage index now from services.workflow_service; still imports ui.workflow.stage_statuses_from_index (move that 8-line pure function into services.workflow_service) |
+| 6918 | `TestWorkspaceStageIndex::test_partway_translated_shows_transcribe_diarize_done_translate_current` | LOGIC | DONE | removed: exact duplicate of the tests/test_workflow_service.py test |
 | 6935 | `TestWorkspaceStageIndex::test_fully_translated_not_yet_dubbed_or_exported_is_on_review` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
 | 6940 | `TestWorkspaceStageIndex::test_dub_track_on_disk_moves_to_export` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
-| 6946 | `TestWorkspaceStageIndex::test_exported_status_is_fully_done` | LOGIC | REPOINTED + NEEDS EXTRACTION | same as above |
+| 6946 | `TestWorkspaceStageIndex::test_exported_status_is_fully_done` | LOGIC | DONE | removed: exact duplicate of the tests/test_workflow_service.py test |
 | 6955 | `TestWorkspaceStageIndex::test_exported_with_no_persisted_speaker_still_shows_export_not_diarize` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
 | 6968 | `TestWorkspaceStageIndex::test_fully_translated_with_no_persisted_speaker_shows_review_not_diarize` | LOGIC | REPOINTED | file-level import now from services.workflow_service.compute_workspace_stage_index |
 | 7006 | `TestStageTabsReplaceTheExpanderScroll::test_seven_stage_tabs_replace_the_old_numbered_expanders` | UI | DELETE with tab | AppTest |

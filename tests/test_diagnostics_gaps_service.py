@@ -52,11 +52,29 @@ def dirty_log(isolated_db):
         f.write(f"ERROR {DIRTY}\n")
 
 
-def test_describe_job_moved_and_tab_reexports():
-    from tabs.diagnostics_tab import _describe_job
-    assert _describe_job is svc.describe_job
+def test_describe_job_moved():
     assert svc.describe_job("live_capture") == "🔴 Live capture"
     assert svc.describe_job("x_y") == "x_y"
+
+
+class TestDescribeJob:
+    """describe_job() turns a raw job_id like 'emotion_42' into a
+    human-readable line for the Running jobs panel (moved from
+    tests/test_diagnostics_and_export.py; the live_capture case was an
+    exact duplicate of test_describe_job_moved above)."""
+
+    def test_known_prefix_includes_the_drama_title(self, isolated_db):
+        did = isolated_db.create_drama(title_en="Test Drama")
+        result = svc.describe_job(f"emotion_{did}")
+        assert "Detecting emotional register" in result
+        assert "Test Drama" in result
+
+    def test_deleted_drama_says_so_instead_of_crashing(self, isolated_db):
+        result = svc.describe_job("flag_999999")
+        assert "deleted" in result
+
+    def test_unrecognized_job_id_falls_back_to_the_raw_string(self):
+        assert svc.describe_job("some_custom_thing") == "some_custom_thing"
 
 
 def test_setup_checks_have_no_paths(isolated_db, monkeypatch):

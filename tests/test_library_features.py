@@ -500,19 +500,6 @@ class TestAnimeInLibraryTypeFilter:
         assert any(c.value == "1 drama(s)" for c in at.caption)
 
 
-class TestCacheHitShare:
-    """Step 9: the Library dashboard shows what share of input tokens were
-    prompt-cache reads, next to the cost."""
-
-    def test_share_of_input_tokens(self):
-        from tabs.library_tab import cache_hit_share
-        assert cache_hit_share({"input_tokens": 1000, "cache_read_tokens": 250}) == 0.25
-
-    def test_no_usage_is_zero_not_a_division_error(self):
-        from tabs.library_tab import cache_hit_share
-        assert cache_hit_share({"input_tokens": 0, "cache_read_tokens": 0}) == 0.0
-
-
 # ---------------------------------------------------------------------------
 # Step 9b.3: bulk "translate everything untranslated" across a series.
 # ---------------------------------------------------------------------------

@@ -12,19 +12,9 @@ It reuses `ui_theme`'s existing
 CSS, and adds an explicit checkmark / dot / circle marker per stage.
 """
 
+from services.workflow_service import stage_statuses_from_index  # noqa: F401  (re-export)
+
 STAGE_ICONS = {"done": "✓", "current": "●", "not_started": "○"}
-
-
-def stage_statuses_from_index(stages, current_index):
-    """Convenience for the common linear case: everything before
-    current_index is done, current_index is current, everything after is
-    not started. current_index of None means nothing has started yet."""
-    if current_index is None:
-        return ["not_started"] * len(stages)
-    return [
-        "done" if i < current_index else "current" if i == current_index else "not_started"
-        for i in range(len(stages))
-    ]
 
 
 def render_stepper(stages, statuses):

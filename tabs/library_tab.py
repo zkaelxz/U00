@@ -7,13 +7,8 @@ from common import *
 from sources import store as src_store
 import subtitle_formats
 from services import library_service
+from services.library_service import cache_hit_share
 from services.workspace_job_service import restore_library_backup, run_bulk_series_translate_job
-
-
-def cache_hit_share(usage: dict) -> float:
-    """Share of logged input tokens that were prompt-cache reads."""
-    total = usage.get("input_tokens") or 0
-    return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
 
 
 BULK_SERIES_TRANSLATE_JOB_ID = "bulk_series_translate"
