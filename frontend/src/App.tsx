@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api/client'
 import type { MetaResponse } from './api/types'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
+import ComicPage from './pages/Comic'
 import DiagnosticsPage from './pages/Diagnostics'
 import LibraryPage from './pages/Library'
 import ReaderPage from './pages/Reader'
@@ -32,7 +33,7 @@ function ApiStatus() {
 
 // [label, target, route names that count as being on this page]
 const NAV: [string, Route, Route['name'][]][] = [
-  ['Library', { name: 'library' }, ['library', 'drama', 'read']],
+  ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
   ['Translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
   ['Settings', { name: 'settings' }, ['settings']],
@@ -64,6 +65,7 @@ export default function App() {
         {route.name === 'library' && <LibraryPage />}
         {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
         {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
+        {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'translate' && <TranslatePage />}
         {route.name === 'sources' && <SourcesPage />}
