@@ -1,14 +1,27 @@
 .stage-review { display: grid; gap: var(--space-4); }
+.review-head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+.review-head h3 { margin: 0; }
+.review-head p { margin: 0; flex: 1 1 14rem; }
+.review-hint { min-width: 0; padding: 0 7px; border-radius: 50%; font-size: 0.8rem; line-height: 1.4; cursor: help; }
 .review-lines { list-style: none; margin: 0; padding: 0; }
-.review-line { padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
-.review-line-meta { font-size: 0.85rem; }
-.review-flag { color: var(--bad); font-size: 0.9rem; }
-.review-text { display: grid; gap: 4px; }
+.review-line { padding: 6px 4px; border-bottom: 1px solid var(--border); border-radius: var(--radius-sm); }
+.review-line:focus { outline: 2px solid var(--accent, currentColor); outline-offset: -2px; }
+.review-line[data-flagged='true'] { border-left: 3px solid var(--bad); padding-left: 8px; }
+.review-line-meta { font-size: 0.8rem; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; }
+.review-flag { color: var(--bad); }
+.review-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px 16px; align-items: start; }
+.review-zh { overflow-wrap: anywhere; }
+button.review-en { text-align: left; background: none; border: 1px dashed transparent; padding: 0 4px; font: inherit; color: inherit; cursor: text; overflow-wrap: anywhere; min-width: 0; }
+button.review-en:hover:not(:disabled), button.review-en:focus-visible { background: none; border-color: var(--border); }
+.review-en-edit textarea { width: 100%; box-sizing: border-box; font: inherit; }
+.review-keys { font-size: 0.75rem; }
 .review-edit { display: grid; gap: 6px; margin-top: 6px; }
 .review-edit label { display: grid; gap: 2px; font-size: 0.9rem; }
-.review-edit textarea, .review-edit input { font: inherit; }
-.review-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.review-edit-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); gap: 6px; }
+.review-edit textarea, .review-edit input { font: inherit; min-width: 0; }
+.review-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
 .review-pager { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
 .review-matches { list-style: none; padding: 0; }
 .review-matches del { color: var(--bad); }
 .review-matches ins { color: var(--ok); text-decoration: none; }
+@media (max-width: 640px) { .review-body { grid-template-columns: minmax(0, 1fr); } }
