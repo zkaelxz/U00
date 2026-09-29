@@ -6,6 +6,11 @@ toggles. Never returns a key's value (D2). POST (Slice 23): non-secret
 boolean toggles only -- writing a secret to disk over HTTP is a
 separate, higher-risk slice of its own (see docs/migration-review.md).
 
+Settings parity: POST also takes the persisted preferences (defaults for
+new dramas, spending cap, Ollama num_ctx, offline Whisper folder, OCR
+defaults, yt-dlp cookies); `/endpoints/{name}` sets or clears the Ollama,
+LibreTranslate and GPT-SoVITS URLs in .env behind the same guard as keys.
+
 Slice 24: write-only engine key endpoints (`POST /keys/{engine}` and
 `/keys/{engine}/clear`). Off by default (BAIHE_API_ALLOW_KEY_WRITES=1) and
 guarded by `_require_local_admin`. The guard is a safeguard against
@@ -17,8 +22,9 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from api.auth import local_only, require_permission
-from api.schemas import (EngineKeyClearRequest, EngineKeyResult, EngineKeySetRequest,
-                         SettingsOverview, SettingsUpdateRequest)
+from api.schemas import (EndpointUrlResult, EndpointUrlSetRequest, EngineKeyClearRequest,
+                         EngineKeyResult, EngineKeySetRequest, SettingsOverview,
+                         SettingsUpdateRequest)
 from services import settings_service
 from services.service_errors import InvalidInputError
 
@@ -32,7 +38,7 @@ def get_overview():
 
 
 @router.post("", dependencies=[local_only()], response_model=SettingsOverview,
-             summary="Update non-secret boolean settings (never keys/URLs/paths)")
+             summary="Update non-secret toggles and preferences (never keys or endpoint URLs)")
 def update_settings(body: SettingsUpdateRequest):
     return settings_service.set_settings(body.model_dump(exclude_unset=True))
 
@@ -121,3 +127,22 @@ async def clear_engine_key(engine: str, request: Request):
     body = await _read_body(request, EngineKeyClearRequest)
     _require_confirm(body.confirm)
     return settings_service.clear_engine_key(engine)
+
+
+@router.post("/endpoints/{name}", dependencies=[local_only()], response_model=EndpointUrlResult,
+             summary="Set the Ollama, LibreTranslate or GPT-SoVITS URL in .env (local PC only)")
+async def set_endpoint_url(name: str, request: Request):
+    _require_local_admin(request)
+    body = await _read_body(request, EndpointUrlSetRequest)
+    _require_confirm(body.confirm)
+    return settings_service.set_endpoint_url(name, body.url)
+
+
+@router.post("/endpoints/{name}/clear", dependencies=[local_only()],
+             response_model=EndpointUrlResult,
+             summary="Remove an endpoint URL from .env (local PC only)")
+async def clear_endpoint_url(name: str, request: Request):
+    _require_local_admin(request)
+    body = await _read_body(request, EngineKeyClearRequest)
+    _require_confirm(body.confirm)
+    return settings_service.clear_endpoint_url(name)

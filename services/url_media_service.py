@@ -15,8 +15,10 @@ drama, and no other URL download runs in this process.
 Job `urlmedia_<drama_id>` downloads into a fresh `.urldl_*` temp folder in
 the drama folder (removed in `finally`) with capped yt-dlp options (see
 `ydl_options`): one item, no live streams, at most 6 h long, at most the
-upload cap in bytes and 2 h of wall clock, native downloader only, never
-cookies, and never yt-dlp's `generic` extractor (security review LOW-1: it
+upload cap in bytes and 2 h of wall clock, native downloader only, no
+cookie option in those caps (the saved Settings yt-dlp cookies, a browser
+or a cookies.txt path, are passed separately: the route is PC-only), and
+never yt-dlp's `generic` extractor (security review LOW-1: it
 follows any embedded media URL and redirect without our address guard).
 A plain direct media link (the URL path ends in an audio/video extension
 the upload accepts) is fetched by `_direct_download` instead, without
@@ -45,7 +47,7 @@ from urllib.parse import urljoin, urlsplit
 
 import background_jobs
 import db
-from services import drama_service, media_upload_service
+from services import drama_service, media_upload_service, settings_service
 from services.service_errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
 from services.sources_url_service import check_public_url
@@ -270,7 +272,7 @@ def _download(job_id: str, url: str, tmp: str, audio_only: bool) -> tuple:
         path = video_download.download(
             url, tmp, audio_only=audio_only,
             title_cb=lambda t: fetched.setdefault("title", t),
-            extra_opts=ydl_options(tmp, caps))
+            extra_opts=ydl_options(tmp, caps), **settings_service.get_cookie_settings())
     except video_download.DownloadAborted as e:
         reason = str(e)
         if reason == "cancelled":

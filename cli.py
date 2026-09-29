@@ -76,11 +76,7 @@ def _ollama_url(args):
 
 def _monthly_cap_setting():
     """The saved monthly cap (Settings, then .env), same source as the service."""
-    raw = settings_service.resolve_key("monthly_cap_usd")
-    try:
-        return max(0.0, float(raw)) or None if raw else None
-    except (TypeError, ValueError):
-        return None
+    return settings_service.get_monthly_cap_usd() or None
 
 
 def _replace_drama_lines(drama_id: int, lines, snapshot_label: str) -> bool:
@@ -377,6 +373,7 @@ def cmd_align(args):
                 backend=cfg["separation_backend"])
         segments = transcribe_for_timing(
             audio_path, whisper_size, language=language, use_gpu=use_gpu,
+            local_model_path=settings_service.get_whisper_model_path(),
             fast_mode=getattr(args, "fast", False) or cfg["whisper_fast_mode"],
             initial_prompt=initial_prompt, beam_size=cfg["beam_size"],
             min_silence_duration_ms=cfg["min_silence_ms"], vad_threshold=cfg["vad_threshold"])
@@ -429,9 +426,9 @@ def cmd_translate(args):
     query_status = args.status or "aligned"
     dramas = [db.get_drama(args.id)] if args.id else db.list_dramas(status=query_status)
     # Same default as the service: an explicit --engine, else the drama's
-    # saved translation_engine, else claude.
+    # saved translation_engine, else the Settings default engine.
     def _engine_name_for(d):
-        return args.engine or d.get("translation_engine") or "claude"
+        return args.engine or d.get("translation_engine") or settings_service.get_default_engine()
     _engines = {}
 
     def _engine_for(name):
@@ -452,10 +449,16 @@ def cmd_translate(args):
     # same optional summary_engine before starting the job (defaulting to
     # local Ollama); a missing/unreachable one just skips the summary
     # rather than failing the translate command.
-    summary_engine_choice = getattr(args, "episode_summary_engine", None) or "ollama"
+    summary_engine_choice = (getattr(args, "episode_summary_engine", None)
+                             or settings_service.get_preference("episode_summary_engine"))
+    summary_key = getattr(args, "episode_summary_api_key", None) or (
+        None if summary_engine_choice == "ollama"
+        else translate_service.resolve_api_key(summary_engine_choice))
     try:
+        if summary_engine_choice != "ollama" and not summary_key:
+            raise ValueError("no key for the episode-summary engine")
         summary_engine = translate_engines.get_engine(
-            summary_engine_choice, getattr(args, "episode_summary_api_key", None),
+            summary_engine_choice, summary_key,
             base_url=_ollama_url(args) if summary_engine_choice == "ollama" else None)
     except Exception:
         summary_engine = None
@@ -532,11 +535,15 @@ def cmd_translate(args):
             print(f"  #{did}: {frac*100:.0f}%", end="\r")
 
         _, batch_errors = translate_engines.translate_lines_with_engine(
-            lines, engine, drama_meta=d, style_note=args.style_note or "",
+            lines, engine, drama_meta=d,
+            style_note=(args.style_note if args.style_note is not None
+                        else settings_service.get_preference("default_style_note")),
             novel_reference=novel_reference, force_retranslate=args.force,
-            locale=args.locale, glossary_terms=glossary_terms,
+            locale=args.locale or settings_service.get_preference("default_locale"),
+            glossary_terms=glossary_terms,
             style_guidelines=style_guidelines, character_names=character_names,
-            ollama_num_ctx_override=args.ollama_num_ctx,
+            ollama_num_ctx_override=(args.ollama_num_ctx if args.ollama_num_ctx is not None
+                                     else settings_service.get_ollama_num_ctx_override() or None),
             context_window=_flag_or(args, "context_window", tdefaults),
             context_window_ahead=_flag_or(args, "context_window_ahead", tdefaults),
             batch_size=_flag_or(args, "batch_size", tdefaults),
@@ -780,12 +787,13 @@ def main():
     p_translate.add_argument("--api-key", default=None,
                              help="Key for --engine; omit to use the saved key.")
     p_translate.add_argument("--model", default=None)
-    p_translate.add_argument("--episode-summary-engine", default="ollama",
+    p_translate.add_argument("--episode-summary-engine", default=None,
                              choices=list(translate_engines.ENGINES),
                              help="Step 74: engine for the once-per-episode running-summary call "
                                   "made after a drama finishes translating, fed forward as "
                                   "continuity context into the next episode of the same series. "
-                                  "Defaults to local Ollama (a fixed once-per-episode cost); if "
+                                  "Defaults to the Settings episode-summary engine (local Ollama "
+                                  "until changed; a fixed once-per-episode cost); if "
                                   "it's unreachable, or a cloud engine is picked with no key, the "
                                   "summary is skipped rather than failing the translate run.")
     p_translate.add_argument("--episode-summary-api-key", default=None,
@@ -798,7 +806,8 @@ def main():
                                    "Defaults to the same per-content-mode preset Workspace picks "
                                    "(\"novel\" for a novel-narration drama, \"audio_drama\" "
                                    "otherwise) unless set explicitly.")
-    p_translate.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_translate.add_argument("--locale", default=None, choices=["en-US", "en-GB", "en-AU"],
+                             help="Default: the Settings English variant (en-US until changed).")
     p_translate.add_argument("--female-pronouns", action="store_true",
                            help="Default ambiguous pronouns to she/her (the Workspace "
                                 "checkbox / a preset's pronoun default).")
@@ -884,7 +893,8 @@ def main():
     # reached cmd_translate, since these were never defined here.
     p_run.add_argument("--status", default=None)
     p_run.add_argument("--style-preset", default=None, choices=list(tguide.STYLE_PRESETS))
-    p_run.add_argument("--locale", default="en-US", choices=["en-US", "en-GB", "en-AU"])
+    p_run.add_argument("--locale", default=None, choices=["en-US", "en-GB", "en-AU"],
+                        help="Default: the Settings English variant (en-US until changed).")
     p_run.add_argument("--female-pronouns", action="store_true",
                            help="Default ambiguous pronouns to she/her (the Workspace "
                                 "checkbox / a preset's pronoun default).")

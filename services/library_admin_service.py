@@ -41,6 +41,7 @@ import tempfile
 import time
 import zipfile
 import zlib
+from typing import Optional
 
 import background_jobs
 import db
@@ -48,7 +49,7 @@ import storage
 import subtitle_formats
 import translate_engines
 from core import Line, lines_to_bilingual_srt, lines_to_srt
-from services import drama_service, translate_service
+from services import drama_service, settings_service, translate_service
 from services import workspace_job_service as wjs
 from services.service_errors import (ConflictError, InvalidInputError, NotFoundError,
                                      ServiceError)
@@ -279,7 +280,7 @@ def _bulk_translate_plan(ids):
             skipped.append({"drama_id": did, "reason": "job_running"})
         else:
             queued.append(did)
-            engines[did] = drama.get("translation_engine") or "claude"
+            engines[did] = drama.get("translation_engine") or settings_service.get_default_engine()
     return queued, skipped, engines
 
 
@@ -308,7 +309,7 @@ def _check_expected_engines(expected) -> dict:
     return out
 
 
-def start_bulk_translate(drama_ids, default_locale: str = "en-US",
+def start_bulk_translate(drama_ids, default_locale: Optional[str] = None,
                         expected_engines=None) -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
@@ -320,8 +321,9 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US",
     when the job reaches it, is skipped ("engine_changed"), so the engines
     a caller was authorized for are the only ones used.
     Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
-    from services import settings_service
     ids = _check_ids(drama_ids)
+    if default_locale is None:
+        default_locale = settings_service.get_preference("default_locale")
     if not isinstance(default_locale, str) or not re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]{2})?",
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
@@ -342,10 +344,7 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US",
             api_keys[engine] = translate_service.resolve_api_key(engine)
         except Exception:
             api_keys[engine] = None
-    try:
-        cap = max(0.0, float(settings_service.resolve_key("monthly_cap_usd") or 0))
-    except (TypeError, ValueError):
-        cap = 0.0
+    cap = settings_service.get_monthly_cap_usd()
     started = background_jobs.start_job(
         BULK_TRANSLATE_JOB_ID, wjs.run_bulk_series_translate_job,
         BULK_TRANSLATE_JOB_ID, queued, api_keys,

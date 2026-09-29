@@ -12,9 +12,9 @@ field is a compatible change; renaming or removing one is not -- bump
 `API_VERSION` when that has to happen.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StrictStr
 
 API_VERSION = "0.1"
 
@@ -185,15 +185,48 @@ class JobListResponse(BaseModel):
     count: int
 
 
+class SettingsPreferences(BaseModel):
+    """Persisted PC-side preferences (settings parity G05, G08, G09, G13,
+    G14, G15). Paths are paths only: a cookies file's contents are never
+    read or returned."""
+    default_engine: str
+    default_locale: str
+    default_style_note: str
+    episode_summary_engine: str
+    monthly_cap_usd: Optional[float] = None
+    ollama_num_ctx_override: int
+    whisper_model_path: str
+    ocr_backend: str
+    ocr_prefer_paddle_vl_manga: bool
+    tesseract_cmd: str
+    cookies_browser: Optional[str] = None
+    cookies_file: str
+
+
+class SettingsChoices(BaseModel):
+    engines: List[str]
+    locales: List[str]
+    summary_engines: List[str]
+    ocr_backends: List[str]
+    cookie_browsers: List[str]
+
+
 class SettingsOverview(BaseModel):
     """Non-secret settings snapshot (Migration Slice 10) -- engine_keys
     reports only whether a key/endpoint is configured, never its value
-    (D2: keys are server-side only)."""
+    (D2: keys are server-side only). endpoints carries the Ollama,
+    LibreTranslate and GPT-SoVITS URLs only when they have no userinfo,
+    query or fragment (settings_service.validate_endpoint_url)."""
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
+    preferences: SettingsPreferences
+    endpoints: Dict[str, Optional[str]]
+    monthly_cap_env_usd: float = 0.0
+    effective_monthly_cap_usd: float = 0.0
+    choices: SettingsChoices
 
 
 class TranslateEngine(BaseModel):
@@ -583,6 +616,8 @@ class TranslateRunConfig(BaseModel):
     locales: List[str]
     workflow_tiers: List[TranslateRunWorkflowTier]
     defaults: TranslateRunDefaults
+    default_locale: str = "en-US"
+    default_style_note: str = ""
     project_instructions: Optional[str] = None
     series_instructions: Optional[str] = None
     has_novel_reference: bool
@@ -1012,13 +1047,28 @@ class ReviewRecordsTmSuggestion(BaseModel):
 
 
 class SettingsUpdateRequest(BaseModel):
-    """Non-secret Settings writes (Migration Slice 23). Booleans only;
-    unknown fields are rejected -- keys/URLs/paths are never accepted."""
+    """Non-secret Settings writes (Migration Slice 23; preferences added for
+    settings parity). Unknown fields are rejected; keys and endpoint URLs
+    are never accepted here (they have their own guarded routes).
+    settings_service.set_settings re-validates every value. For
+    monthly_cap_usd, null clears the saved cap (the .env value applies)."""
     model_config = ConfigDict(extra="forbid")
     gpu_limit_enabled: Optional[StrictBool] = None
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
+    default_engine: Optional[StrictStr] = Field(None, max_length=40)
+    default_locale: Optional[StrictStr] = Field(None, max_length=8)
+    default_style_note: Optional[StrictStr] = Field(None, max_length=2000)
+    episode_summary_engine: Optional[StrictStr] = Field(None, max_length=40)
+    monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
+    ollama_num_ctx_override: Optional[StrictInt] = None
+    whisper_model_path: Optional[StrictStr] = Field(None, max_length=1024)
+    ocr_backend: Optional[StrictStr] = Field(None, max_length=40)
+    ocr_prefer_paddle_vl_manga: Optional[StrictBool] = None
+    tesseract_cmd: Optional[StrictStr] = Field(None, max_length=1024)
+    cookies_browser: Optional[StrictStr] = Field(None, max_length=40)
+    cookies_file: Optional[StrictStr] = Field(None, max_length=1024)
 
 
 class DramaDeleteResult(BaseModel):
@@ -1524,6 +1574,20 @@ class EngineKeyResult(BaseModel):
     configured: bool
 
 
+class EndpointUrlSetRequest(BaseModel):
+    """Ollama / LibreTranslate / GPT-SoVITS URL (settings parity G06). An
+    http(s) URL with no userinfo, query or fragment."""
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(..., max_length=300)
+    confirm: StrictBool = False
+
+
+class EndpointUrlResult(BaseModel):
+    name: str
+    url: Optional[str] = None
+    configured: bool
+
+
 class LineExplainRequest(BaseModel):
     """Per-line AI helper request (Migration Slice 50). No keys/URLs."""
     model_config = ConfigDict(extra="forbid")
@@ -1878,7 +1942,8 @@ class LiveSessionStart(BaseModel):
     whisper_size: str = Field("small", max_length=10)
     segment_seconds: float = 20
     overlap_seconds: float = 3
-    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+    engine: Optional[str] = Field(None, max_length=40,
+                                  description="None = the Settings default engine (checked as paid).")
     model: Optional[str] = Field(None, max_length=100)
     max_minutes: float = 60
     use_gpu: StrictBool = False
@@ -1923,7 +1988,8 @@ class LiveSessionStopped(BaseModel):
 class DiscoverTranslateQueryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     q: str = Field(max_length=500)
-    engine: Optional[str] = Field(None, max_length=40, description="None = claude (paid).")
+    engine: Optional[str] = Field(None, max_length=40,
+                                  description="None = the Settings default engine (checked as paid).")
 
 
 class DiscoverTranslateQueryResult(BaseModel):
@@ -2605,7 +2671,8 @@ class LibraryBulkDeleteRequest(BaseModel):
 class LibraryBulkTranslateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     drama_ids: LibraryDramaIds
-    default_locale: str = Field("en-US", max_length=5)
+    # Omitted: the Settings default English variant.
+    default_locale: Optional[str] = Field(None, max_length=5)
 
 
 class LibraryExportRequest(BaseModel):

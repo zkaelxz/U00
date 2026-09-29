@@ -488,7 +488,11 @@ baihe-subtitler/
 │   │                              the token lives in component state only); API in src/api/extension.ts.
 │   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
 │   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
-│   │                              src/api/notifications.ts
+│   │                              src/api/notifications.ts. PreferencesSections + preferences.ts (Settings >
+│   │                              Appearance, Defaults for new dramas, Spending, OCR, Offline and performance,
+│   │                              Downloads, Server addresses; persisted PC-side, PC only); API in
+│   │                              src/api/settings.ts. src/theme.ts: light/dark/system theme (localStorage,
+│   │                              <html data-theme>, applied in main.tsx)
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
