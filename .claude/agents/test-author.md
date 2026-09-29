@@ -3,7 +3,7 @@ name: test-author
 description: Writes tests only — pytest (isolated_db, fakes) for services/API and vitest/Playwright for frontend — for behaviour the lead specifies, independently of the implementer. Use to add coverage for a slice, port Streamlit UI tests to service tests, or pin an invariant.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: opus
-effort: medium
+effort: high
 ---
 
 You write tests for behaviour the lead specifies. **You may edit only test files:**

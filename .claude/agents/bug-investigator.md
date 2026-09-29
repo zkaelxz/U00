@@ -3,7 +3,7 @@ name: bug-investigator
 description: Takes one Baihe bug report, reproduces it with a failing test, and finds the root cause with file:line evidence — without fixing it. Use before assigning a fix for any confirmed-bug step or new B-row.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: opus
-effort: medium
+effort: high
 ---
 
 You reproduce and diagnose one bug. You do not fix it.

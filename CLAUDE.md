@@ -88,7 +88,8 @@ merged.
   the diff neither depends on nor worsens.)
 - **Default to Opus (user decision, 2026-09-29).** Sessions and subagents
   run on Opus 5.5 unless the user says otherwise; the project agents in
-  `.claude/agents/` are set to `model: opus`. This supersedes the earlier
+  `.claude/agents/` are set to `model: opus` and `effort: high`
+  (effort: user decision, 2026-09-29). This supersedes the earlier
   "default to Sonnet, ask before Opus" rule (2026-09-26, made for cost).
   The roadmap's §4 "Model recommendation per step" table no longer needs a
   separate confirmation to use Opus; if the user later asks for a cheaper
