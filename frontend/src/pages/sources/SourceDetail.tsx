@@ -1,21 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { getSource, listAttempts, resetSourceHealth } from '../../api/sources'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Section } from '../../components/Section'
 import type { SourceAttempt, SourceDetail as Detail, SourceHealth } from '../../types/sources'
+import { SourceAccess } from './SourceAccess'
 import { ago, healthLine, humanize, isoTime, pausedFor, tierLines } from './sourcesFormat'
 
 type Props = {
   name: string
   onHealth: (name: string, h: SourceHealth) => void
+  onSignin: (name: string, has: boolean) => void
 }
 
 /** A source's record, loaded when Details is opened. Information only. */
-export function SourceDetail({ name, onHealth }: Props) {
+export function SourceDetail({ name, onHealth, onSignin }: Props) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [resetting, setResetting] = useState(false)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let off = false
@@ -26,7 +29,10 @@ export function SourceDetail({ name, onHealth }: Props) {
     return () => {
       off = true
     }
-  }, [name])
+  }, [name, reload])
+
+  const refresh = useCallback(() => setReload((n) => n + 1), [])
+  const signinChanged = useCallback((has: boolean) => onSignin(name, has), [name, onSignin])
 
   async function tryNow() {
     setError(null)
@@ -89,6 +95,7 @@ export function SourceDetail({ name, onHealth }: Props) {
         </p>
       )}
       {detail.auth_supported && <p>Sign-in: {detail.has_saved_signin ? 'saved' : 'none'}</p>}
+      <SourceAccess detail={detail} onChanged={refresh} onSignin={signinChanged} />
       {terms.length > 0 && (
         <Section title="Terms notes" summary="Information only">
           <dl className="source-dl">

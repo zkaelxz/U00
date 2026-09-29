@@ -342,6 +342,36 @@ def update_settings(changes: dict) -> dict:
     return get_settings()
 
 
+MAX_PROXY_URL_LEN = 500
+
+
+def set_proxy_url(url) -> dict:
+    """PC-only (the route is local_only): sets or clears ("") the HTTP(S)
+    proxy every source request goes through. Never echoed back: settings
+    show `proxy_configured` only, and no error names the value. A loopback
+    or private address is allowed here (a local proxy is the usual case)."""
+    if not isinstance(url, str):
+        raise InvalidInputError("The proxy must be text.")
+    text = url.strip()
+    if text:
+        bad = InvalidInputError("Use an http:// or https:// proxy address, e.g. "
+                                "http://127.0.0.1:8080.")
+        if len(text) > MAX_PROXY_URL_LEN or any(c.isspace() or ord(c) < 32 or ord(c) == 127
+                                                for c in text):
+            raise bad
+        try:
+            parts = urlsplit(text)
+            host = parts.hostname
+            parts.port  # noqa: B018 -- raises ValueError on a bad port
+        except ValueError:
+            raise bad from None
+        if parts.scheme.lower() not in ("http", "https") or not host or parts.query \
+                or parts.fragment or parts.path not in ("", "/"):
+            raise bad
+    store.set_setting("http_proxy_url", text)   # read per request (sources.http)
+    return get_settings()
+
+
 def reset_health(name: str) -> dict:
     _require_source(name)
     health.reset(name)
