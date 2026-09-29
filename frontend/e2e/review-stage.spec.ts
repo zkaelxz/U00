@@ -678,6 +678,55 @@ test('with a source video, it shows by default with English subtitles drawn on i
   await expect(video).toBeHidden()
 })
 
+test('crossing the phone width keeps the same video, its position and its play state', async ({ page }) => {
+  test.skip(!withVideo(), 'OpenCV is not installed, so there is no test video')
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await open(page)
+  const video = page.locator('video.review-video')
+  const playButton = page.locator('.review-player button.review-play')
+  const jumpTo = async (t: number) => {
+    await page.getByLabel('Jump to time').fill(String(t))
+    await page.getByRole('button', { name: 'Jump' }).click()
+  }
+  await expect(page.getByTestId('player-time')).toContainText('/ 0:06')
+  // Tag the element: a remount would give a fresh <video> without the tag.
+  await video.evaluate((v) => ((v as HTMLVideoElement & { e2eTag?: string }).e2eTag = 'first'))
+  const state = () =>
+    video.evaluate((v: HTMLVideoElement & { e2eTag?: string }) => ({
+      tag: v.e2eTag,
+      paused: v.paused,
+      time: v.currentTime,
+      docked: !!v.closest('.review-player-dock'),
+    }))
+
+  // Playing: turn to a phone; it keeps playing from where it was.
+  await jumpTo(1)
+  await playButton.click()
+  await expect.poll(async () => (await state()).time).toBeGreaterThan(1.2)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(async () => (await state()).docked).toBe(true)
+  const turned = await state()
+  expect(turned.tag).toBe('first')
+  expect(turned.paused).toBe(false)
+  expect(turned.time).toBeGreaterThan(1.2)
+  await expect(playButton).toHaveAccessibleName('Pause')
+
+  // Paused after a seek: back to the wide layout; still paused at that spot.
+  await playButton.click()
+  await expect.poll(async () => (await state()).paused).toBe(true)
+  await jumpTo(4)
+  await expect.poll(async () => (await state()).time).toBeCloseTo(4, 1)
+  await page.setViewportSize({ width: 1024, height: 800 })
+  await expect.poll(async () => (await state()).docked).toBe(false)
+  const back = await state()
+  expect(back.tag).toBe('first')
+  expect(back.paused).toBe(true)
+  expect(back.time).toBeCloseTo(4, 1)
+  await expect(playButton).toHaveAccessibleName('Play')
+  await expect(page.getByTestId('player-time')).toContainText('0:04.00')
+  await expect(video).toBeVisible()
+})
+
 // ---- phone layout (390x844, touch) ----
 
 test.describe('phone', () => {

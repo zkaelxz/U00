@@ -67,6 +67,8 @@ button.review-play { min-width: 2.75rem; padding-inline: 10px; }
 .review-seek { flex: 1 1 16rem; min-width: 0; margin: 0; accent-color: var(--accent); }
 /* Phones: the open player sits under the sticky toolbar and scrolls away with the page. */
 .review-player-dock:empty { display: none; }
+/* The panel's stable wrapper (moved between the strip and the dock) adds no box. */
+.review-player-slot, .review-player-host { display: contents; }
 .review-player-dock .review-player-panel { padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .review-player-tools { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; font-size: var(--font-sm); min-width: 0; }
 .review-jump { display: inline-flex; gap: var(--space-1); min-width: 0; }

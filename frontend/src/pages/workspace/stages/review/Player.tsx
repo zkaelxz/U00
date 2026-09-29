@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type FormEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type Ref, type SyntheticEvent } from 'react'
 
 import { createPortal } from 'react-dom'
 
@@ -66,6 +66,17 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   const [jumpError, setJumpError] = useState<string | null>(null)
   const loopRef = useRef(loop)
   const segRef = useRef<Segment | null>(null)
+  // The panel (with the <video>) is portalled into one element for the
+  // player's whole life, and that element is moved between the inline slot and
+  // the phone dock. Rendering the panel under a different parent instead would
+  // remount the <video> when a phone turns or a window crosses 640px, which
+  // stops playback and starts it over at 0:00.
+  const [panelBox] = useState(() => {
+    const box = document.createElement('div')
+    box.className = 'review-player-host'
+    return box
+  })
+  const slotRef = useRef<HTMLDivElement | null>(null)
   const src = subtitleSrc(dramaId, subs, captionVersion)
   const cue = cueFor && cueFor.src === src ? cueFor.text : ''
   const subsMissing = src !== null && missingSrc === src
@@ -73,6 +84,14 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
   useEffect(() => {
     loopRef.current = loop
   }, [loop])
+
+  // Move (never detach) the panel: while the dock isn't mounted yet (null) it
+  // stays where it is, so the video never leaves the page and keeps playing.
+  useLayoutEffect(() => {
+    const target = panelHost === undefined ? slotRef.current : panelHost
+    if (target && panelBox.parentNode !== target) target.appendChild(panelBox)
+  }, [panelHost, panelBox])
+  useLayoutEffect(() => () => panelBox.remove(), [panelBox])
 
   const setSeg = (s: Segment | null) => {
     segRef.current = s
@@ -113,7 +132,7 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
     }
     t.addEventListener('cuechange', onCue)
     return () => t.removeEventListener('cuechange', onCue)
-  }, [src, kind, panelHost])
+  }, [src, kind])
 
   const play = useCallback(() => {
     const el = media.current
@@ -323,7 +342,8 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           {PLAY_ERROR}
         </p>
       )}
-      {panelHost === undefined ? panel : panelHost ? createPortal(panel, panelHost) : null}
+      <div className="review-player-slot" ref={slotRef} />
+      {createPortal(panel, panelBox)}
       {kind === 'audio' && (
         <audio
           ref={(el) => {
