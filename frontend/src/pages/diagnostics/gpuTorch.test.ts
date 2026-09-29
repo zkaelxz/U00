@@ -61,5 +61,8 @@ describe('gpuTorch', () => {
     expect(stateBadge(status({ state: 'cpu_on_gpu' })).tone).toBe('warn')
     expect(stateBadge(status({ state: 'recommended' }))).toEqual({ text: 'Recommended set', tone: 'ok' })
     expect(stateBadge(status({ state: 'different' })).tone).toBe('neutral')
+    const oldDriver = { ...status().nvidia, status: 'too_old' as const }
+    expect(stateBadge(status({ state: 'recommended', nvidia: oldDriver }))).toEqual({ text: 'Driver too old', tone: 'warn' })
+    expect(stateBadge(status({ nvidia: oldDriver })).text).toBe('Not installed')
   })
 })

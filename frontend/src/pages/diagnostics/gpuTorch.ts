@@ -61,6 +61,8 @@ export function verifyText(v: DiagnosticsTorchVerify): string {
 
 /** The short badge next to the "GPU PyTorch" heading. */
 export function stateBadge(s: DiagnosticsGpuTorchStatus): { text: string; tone: 'ok' | 'warn' | 'neutral' } {
+  // A too-old driver breaks CUDA whatever is installed, so it outranks the package state.
+  if (s.nvidia.status === 'too_old' && s.state !== 'missing') return { text: 'Driver too old', tone: 'warn' }
   switch (s.state) {
     case 'missing': return { text: 'Not installed', tone: 'neutral' }
     case 'mismatched': return { text: 'Versions don\'t match', tone: 'warn' }
