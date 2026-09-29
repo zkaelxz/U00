@@ -201,7 +201,7 @@ def get_style(drama_id: int) -> dict:
 
 def _style_engine(drama: dict, engine_name, model, gemini_free_tier):
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
-    engine_name = engine_name or drama.get("translation_engine") or "claude"
+    engine_name = engine_name or drama.get("translation_engine") or settings_service.get_default_engine()
     if engine_name not in translate_engines.ENGINES:
         raise InvalidInputError("Unknown engine.")
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:

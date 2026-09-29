@@ -980,6 +980,42 @@ class TestFinishTranslationRunEpisodeSummary:
         assert engine.call_count == 1
         assert isolated_db.get_drama(did)["episode_summary"] == "Auto-generated summary."
 
+    def test_paid_summary_skipped_once_the_monthly_cap_is_used_up(self, isolated_db):
+        """Security review (PR #439): a cloud summary spends the owner's key,
+        so it counts against the monthly cap like the translation does."""
+        did, lines = self._translated_drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "m", "translate", estimated_cost_usd=5.0)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine,
+                                  summary_engine_choice="claude", summary_monthly_cap_usd=5.0)
+
+        assert engine.call_count == 0
+        assert isolated_db.get_drama(did)["episode_summary"] is None
+
+    def test_paid_summary_runs_while_under_the_monthly_cap(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "m", "translate", estimated_cost_usd=1.0)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine,
+                                  summary_engine_choice="claude", summary_monthly_cap_usd=5.0)
+
+        assert engine.call_count == 1
+
+    def test_free_summary_engine_ignores_a_used_up_cap(self, isolated_db):
+        did, lines = self._translated_drama(isolated_db)
+        isolated_db.log_usage(did, "claude", "m", "translate", estimated_cost_usd=9.0)
+        engine = _FakeSummaryEngine()
+
+        bt.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
+                                  glossary_terms=None, errors=[], summary_engine=engine,
+                                  summary_engine_choice="ollama", summary_monthly_cap_usd=5.0)
+
+        assert engine.call_count == 1
+
     def test_no_summary_engine_skips_generation_entirely(self, isolated_db):
         """summary_engine=None (its default) -- e.g. no engine could be
         built -- must never fail or alter the translation run itself."""

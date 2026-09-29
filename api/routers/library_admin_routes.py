@@ -17,7 +17,7 @@ import re
 from fastapi import APIRouter, File, Form, Path, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from api.auth import local_only, require_engines_allowed, require_permission
+from api.auth import holds_paid_engines, local_only, require_engines_allowed, require_permission
 from api.schemas import (
     ErrorResponse, LibraryArtifactInfo, LibraryArtifactKind, LibraryBackupRequest,
     LibraryBulkDeleteRequest, LibraryBulkDeleteResult, LibraryBulkResult,
@@ -80,7 +80,8 @@ def post_bulk_translate(body: LibraryBulkTranslateRequest, request: Request):
     plan = las.bulk_translate_engines(body.drama_ids)
     require_engines_allowed(request, *plan["engines"])
     return las.start_bulk_translate(body.drama_ids, body.default_locale,
-                                    expected_engines=plan["by_drama"])
+                                    expected_engines=plan["by_drama"],
+                                    allow_paid_summary=holds_paid_engines(request))
 
 
 @router.post("/export", dependencies=[local_only()], response_model=LibraryExportStarted,
