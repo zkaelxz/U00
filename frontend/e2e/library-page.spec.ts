@@ -8,7 +8,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   await expect(page.getByTestId('stats')).toContainText('3 dramas')
   const shelf = page.getByRole('region', { name: 'Continue' })
   const resume = shelf.getByRole('link', { name: 'Resume work on Signal' })
-  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+\/source$/)
+  await expect(resume).toHaveAttribute('href', /#\/drama\/\d+$/)
   await expect(resume).toHaveClass(/btn/)
 
   await page.getByRole('radio', { name: 'Lines' }).check()

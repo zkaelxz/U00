@@ -96,3 +96,41 @@ test('glossary and characters panels load; a term for a drama without a series s
   await glossary.getByRole('button', { name: 'Save term' }).click()
   await expect(glossary.getByRole('alert')).toBeVisible()
 })
+
+test('the last run\'s failed batches show a notice; Dismiss clears it (X01)', async ({ page }) => {
+  const real = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
+  const errors = [
+    { batch_index: 0, lines: [0, 1, 2], error: 'engine timed out' },
+    { batch_index: 2, lines: [8], error: 'engine timed out' },
+  ]
+  await page.route('**/api/translate-run/dramas/1/config', (route) =>
+    route.fulfill({ json: { ...real, last_translate_errors: errors } }))
+  const dismissed: string[] = []
+  await page.route('**/api/translate-run/dramas/1/errors/dismiss', (route) => {
+    dismissed.push(route.request().method())
+    return route.fulfill({ json: { drama_id: 1, dismissed: true } })
+  })
+
+  await page.goto('/#/drama/1/translate')
+  const notice = page.getByRole('region', { name: 'Failed batches' })
+  await expect(notice).toContainText('2 failed batches; lines 1-3, 9 are still untranslated')
+  await expect(notice.getByRole('listitem')).toHaveText(['engine timed out'])
+  await notice.getByRole('button', { name: 'Dismiss notice' }).click()
+  await expect(notice).toHaveCount(0)
+  expect(dismissed).toEqual(['POST'])
+})
+
+test('a failed dismiss keeps the notice and shows the error (X01)', async ({ page }) => {
+  const real = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
+  await page.route('**/api/translate-run/dramas/1/config', (route) =>
+    route.fulfill({ json: { ...real, last_translate_errors: [{ batch_index: 0, lines: [4] }] } }))
+  await page.route('**/api/translate-run/dramas/1/errors/dismiss', (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'forbidden', message: 'You do not have permission to do that.' } } }))
+
+  await page.goto('/#/drama/1/translate')
+  const notice = page.getByRole('region', { name: 'Failed batches' })
+  await expect(notice).toContainText('1 failed batch; line 5 is still untranslated')
+  await notice.getByRole('button', { name: 'Dismiss notice' }).click()
+  await expect(notice.getByRole('alert')).toContainText('Not allowed')
+  await expect(notice.getByRole('button', { name: 'Dismiss notice' })).toBeEnabled()
+})

@@ -11,9 +11,8 @@ export const dramaName = (d: Titled & { id?: number }) => d.title_en || d.title_
 
 const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/
 
-// Links still name the Source stage until the workspace can land on the
-// drama's current stage (ui-refresh-spec rollout task 3).
-export const workspaceHref = (id: number, stage = 'source') => routeHref({ name: 'drama', id, stage })
+// No stage by default: the workspace opens on the drama's current stage.
+export const workspaceHref = (id: number, stage: string | null = null) => routeHref({ name: 'drama', id, stage })
 export const readHref = (d: { id: number; media_type: string | null }) =>
   routeHref({ name: isComicType(d.media_type) ? 'comic' : 'read', id: d.id, page: null })
 

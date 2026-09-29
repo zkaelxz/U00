@@ -7,6 +7,7 @@ import { gateView, menuUser, signOut, useSession } from './hooks/useSession'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import ComicPage from './pages/Comic'
 import DiagnosticsPage from './pages/Diagnostics'
+import DiscoverPage from './pages/Discover'
 import LibraryPage from './pages/Library'
 import LivePage from './pages/Live'
 import LoginPage from './pages/Login'
@@ -100,6 +101,7 @@ const NAV: [string, Route, Route['name'][]][] = [
   ['Library', { name: 'library' }, ['library', 'drama', 'read', 'comic']],
   ['Translate', { name: 'translate' }, ['translate']],
   ['Sources', { name: 'sources' }, ['sources']],
+  ['Discover', { name: 'discover' }, ['discover']],
   ['Live', { name: 'live' }, ['live']],
   ['Settings', { name: 'settings' }, ['settings']],
   ['Diagnostics', { name: 'diagnostics' }, ['diagnostics']],
@@ -152,6 +154,7 @@ export default function App() {
         {route.name === 'settings' && <SettingsPage />}
         {route.name === 'translate' && <TranslatePage />}
         {route.name === 'sources' && <SourcesPage />}
+        {route.name === 'discover' && <DiscoverPage />}
         {route.name === 'live' && <LivePage />}
         {route.name === 'diagnostics' && <DiagnosticsPage />}
       </RouteErrorBoundary>

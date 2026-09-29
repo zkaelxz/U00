@@ -54,7 +54,7 @@ test('grid and list views; the choice is remembered', async ({ page }) => {
   await expect(page.locator('.drama-grid .drama-card')).toHaveCount(3)
   await page.getByRole('radio', { name: 'List' }).check()
   const row = page.getByRole('row').filter({ hasText: 'Signal' })
-  await expect(row.getByRole('link', { name: 'Signal', exact: true })).toHaveAttribute('href', /#\/drama\/\d+\/source$/)
+  await expect(row.getByRole('link', { name: 'Signal', exact: true })).toHaveAttribute('href', /#\/drama\/\d+$/)
   await expect(row).toContainText('Korean')
   await row.getByRole('button', { name: 'Details: Signal' }).click()
   await expect(page.getByRole('dialog', { name: 'Signal' })).toBeVisible()
@@ -67,5 +67,5 @@ test('grid and list views; the choice is remembered', async ({ page }) => {
 test('the card title opens the workspace in one click', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('link', { name: 'Signal', exact: true }).click()
-  await expect(page).toHaveURL(/#\/drama\/\d+\/source$/)
+  await expect(page).toHaveURL(/#\/drama\/\d+$/)
 })

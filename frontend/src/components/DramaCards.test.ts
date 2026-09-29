@@ -18,7 +18,7 @@ const html = (items: DramaSummary[], selectedId: number | null = null) =>
 describe('DramaCards', () => {
   it('links the title to the workspace, with Read and Details as quiet buttons', () => {
     const out = html([drama({})])
-    expect(out).toContain('href="#/drama/7/source">Moonlit</a>')
+    expect(out).toContain('href="#/drama/7">Moonlit</a>')
     expect(out).toContain('月光')
     expect(out).toContain('aria-label="Details: Moonlit"')
     expect(out).toContain('href="#/read/7" aria-label="Read Moonlit" class="btn btn-ghost btn-sm drama-card-read"')
