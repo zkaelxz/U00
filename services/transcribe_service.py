@@ -712,7 +712,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
         import diarize as diarize_module
         diarize_started = background_jobs.start_process_job(
             f"diarize_{drama_id}", diarize_module.diarize_subprocess_worker,
-            args=(diarize_audio_path, hf_token, expected_speakers or None),
+            args=(diarize_audio_path, hf_token, expected_speakers or None,
+                  diarization_service.worker_options()),
             gpu_touching=True, description=f"Diarization (drama #{drama_id})",
             on_done=diarization_service.make_apply_on_done(drama_id, expected_speakers))
 
