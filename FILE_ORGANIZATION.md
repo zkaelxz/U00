@@ -257,6 +257,8 @@ baihe-subtitler/
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
+│   ├── line_ai_service.py        Migration Slice 50 -- per-line Improve translation / Why this?
+│   │                             (synchronous, read-only suggestions; id-addressed)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │   └── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
@@ -325,6 +327,7 @@ baihe-subtitler/
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
+│       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
 │       └── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │                                 lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
 │

@@ -98,7 +98,7 @@ building blocks (section 4) should land first.
 |---|---|---|---|---|
 | `Dashboard` expander (open): 4 metrics (Total dramas, Lines translated, API calls logged, Estimated spend), status and type captions, "Continue reading" cards. Recently active, Cost breakdown, Series, Reading history, Presets, Voice bank, Storage, Backup are all collapsed expanders. | 7 always-open panels (Stats, Recently active, Series, Cost by drama, Reading history, Presets, Voice bank) above everything, often with empty lists. 7 API calls on load. | Replace with one line "N dramas - X/Y lines translated - $Z spent". Put Recently active, Series, Cost by drama, Reading history, Presets, Voice bank in one collapsed `More` section, each rendered only if non-empty. Keep the API calls (lazy-load on open is P3). | P1 | `pages/Library.tsx` (Summaries) |
 | "All dramas" expander (open): filter row (Search title/summary, Studio, Author, Voice actor, Status, Language, Type), quick-filter pills, tag multiselect, then a table. Search across all lines is its own expander. | Page order: summaries, Search lines, New drama form, drama list, detail panel. The list (the main content) is fourth. | Order: drama list first with one search box, plus status/language/type selects; "Search lines" becomes a toggle beside the search box; detail opens under the selected row. Which filters `LibraryList.tsx` supports today was not fully read **(inferred)**; check first. | P1 | `pages/Library.tsx`, `components/LibraryList.tsx` |
-| New drama: choose "New drama" in the Workspace picker; metadata fields, with two optional expanders (Auto-fill from a listing page, Analyze a media file). | Always-open "New drama" panel: 2 title inputs, 2 selects, button; no Enter-to-create shortcut beyond form submit. | Collapse to a `+ New drama` button that expands one row: title, language (last used), media type inside `Advanced`. Auto-fill and Analyze have no API; do not add them. | P2 | `pages/Library.tsx` (CreateForm), `pages/libraryForm.ts` |
+| New drama: choose "New drama" in the Workspace picker; metadata fields, with two optional expanders (Auto-fill from a listing page, Analyze a media file). | Always-open "New drama" panel: 2 title inputs, 2 selects, button; no Enter-to-create shortcut beyond form submit. | Collapse to a `+ New drama` button that expands one row: title, language (last used), media type inside `Advanced`. Auto-fill and Analyze now have an API (Slice 37) and are live on the React Source stage (PR #304); do not duplicate them here. | P2 | `pages/Library.tsx` (CreateForm), `pages/libraryForm.ts` |
 | Actions per drama sit in the expander below the table. | `DramaDetailPanel.tsx` (113 lines) not fully read; **(inferred)** it mirrors the endpoint set. | Audit against rules 5, 6, 8; hide empty sections. | P3 | `components/DramaDetailPanel.tsx` |
 
 ### 3.2 Workspace shell
@@ -193,8 +193,9 @@ tests select by label text, so shortening a label also means updating those test
 
 ## 6. Limits and open questions
 
-- Some Streamlit behaviour has no API yet (Auto-fill from a listing, Analyze a media file, OCR, EPUB
-  import, per-line "Improve translation"/"Why this?", playback, dub download). These guidelines do not ask
+- Some Streamlit behaviour has no API yet (OCR, EPUB import, playback, dub download; Auto-fill and Analyze
+  are live on the React Source stage, and per-line "Improve translation"/"Why this?" now have an API,
+  `/api/line-ai` from Slice 50, with UI pending). These guidelines do not ask
   React to add UI for endpoints that do not exist.
 - The user asked for "concise like Streamlit". Streamlit is concise mainly because it hides options in
   expanders, not because it has fewer options. These guidelines keep every existing React function
