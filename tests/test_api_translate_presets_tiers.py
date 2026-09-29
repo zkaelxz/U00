@@ -228,3 +228,58 @@ def test_overwrite_is_pc_only_when_auth_on(isolated_db):
     r = local.post(PRESETS, json=_preset_body(locale="en-US", overwrite=True), headers=h)
     assert r.status_code == 200 and r.json()["replaced"] is True
     assert db.list_presets()[0]["locale"] == "en-US"
+
+
+# --- Parity X03: apply a saved preset to an existing drama --------------------
+
+APPLY = "/api/translate-run/dramas/{}/apply-preset"
+
+
+def test_apply_preset_saves_engine_and_returns_form_values(client, isolated_db, monkeypatch):
+    monkeypatch.setattr(background_jobs, "start_job",
+                        lambda *a, **k: pytest.fail("applying a preset must not start a job"))
+    did = db.create_drama(title_zh="D", translation_engine="deepl")
+    pid = db.save_preset("Mine", translation_engine="gemini", engine_model="gemini-2.5-pro",
+                         style_preset="subtitle", locale="en-GB",
+                         default_female_pronouns=True, include_genre_notes=False)
+    r = client.post(APPLY.format(did), json={"preset_id": pid})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"drama_id": did, "preset_id": pid, "name": "Mine",
+                        "translation_engine": "gemini", "engine_model": "gemini-2.5-pro",
+                        "style_preset": "subtitle", "locale": "en-GB",
+                        "default_female_pronouns": True, "include_genre_notes": False}
+    d = db.get_drama(did)
+    assert d["translation_engine"] == "gemini" and d["title_zh"] == "D"
+
+
+def test_apply_preset_without_engine_keeps_the_drama_engine(client, isolated_db):
+    did = db.create_drama(title_zh="D", translation_engine="deepl")
+    pid = db.save_preset("Bare", style_preset="bogus", locale="xx")
+    body = client.post(APPLY.format(did), json={"preset_id": pid}).json()
+    assert body["translation_engine"] is None and body["engine_model"] is None
+    assert body["style_preset"] is None and body["locale"] is None
+    assert body["include_genre_notes"] is True and body["default_female_pronouns"] is False
+    assert db.get_drama(did)["translation_engine"] == "deepl"
+
+
+@pytest.mark.parametrize("body", [{}, {"preset_id": "1"}, {"preset_id": 0}, {"preset_id": 1, "x": 1}])
+def test_apply_preset_bad_body_422(client, isolated_db, body):
+    did = db.create_drama(title_zh="D")
+    assert client.post(APPLY.format(did), json=body).status_code == 422
+
+
+def test_apply_preset_unknown_404(client, isolated_db):
+    did = db.create_drama(title_zh="D")
+    pid = db.save_preset("P", translation_engine="claude")
+    assert client.post(APPLY.format(did), json={"preset_id": pid + 50}).status_code == 404
+    assert client.post(APPLY.format(9999), json={"preset_id": pid}).status_code == 404
+
+
+# --- Parity X04: style guidance text in the config -----------------------------
+
+def test_config_style_presets_carry_guidance(client, isolated_db):
+    import translation_guide
+    did = db.create_drama(title_zh="D")
+    presets = client.get(f"/api/translate-run/dramas/{did}/config").json()["style_presets"]
+    assert {p["key"]: p["guidance"] for p in presets} == {
+        k: v["guidance"] for k, v in translation_guide.STYLE_PRESETS.items()}

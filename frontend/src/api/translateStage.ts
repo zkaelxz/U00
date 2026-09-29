@@ -8,6 +8,9 @@ import type {
   EstimateParams,
   GlossaryCatalogues,
   GlossaryInstructions,
+  GlossaryBulkDeleteResult,
+  GlossaryImportBody,
+  GlossaryImportResult,
   GlossaryTerm,
   GlossaryTermUpsert,
   TranslateErrorsDismissed,
@@ -18,9 +21,10 @@ import type {
   TranslateRunStartBody,
   TranslateRunStarted,
   VoiceBankEntry,
+  TranslatePresetApplied,
   WorkflowTierApplied,
 } from '../types/translateStage'
-import { deleteJson, getJson, postJson } from './client'
+import { apiUrl, getJson, postJson } from './client'
 
 type Fetch = typeof fetch
 
@@ -44,6 +48,9 @@ export const startTranslateRun = (id: number, body: TranslateRunStartBody, f?: F
   postJson<TranslateRunStarted>(`/api/translate-run/dramas/${id}/run`, body, f)
 export const applyWorkflowTier = (id: number, tier: string, f?: Fetch) =>
   postJson<WorkflowTierApplied>(`/api/translate-run/dramas/${id}/workflow-tier`, { tier }, f)
+export const applyTranslatePreset = (id: number, presetId: number, f?: Fetch) =>
+  postJson<TranslatePresetApplied>(`/api/translate-run/dramas/${id}/apply-preset`, { preset_id: presetId }, f)
+
 // X01: clears only the last run's failed-batch record; lines are untouched.
 export const dismissTranslateErrors = (id: number, f?: Fetch) =>
   postJson<TranslateErrorsDismissed>(`/api/translate-run/dramas/${id}/errors/dismiss`, {}, f)
@@ -60,27 +67,13 @@ export const getGlossaryTerms = (id: number, f?: Fetch) =>
   getJson<GlossaryTerm[]>(`/api/glossary/dramas/${id}/terms`, f)
 export const saveGlossaryTerm = (id: number, term: GlossaryTermUpsert, f?: Fetch) =>
   postJson<GlossaryTerm>(`/api/glossary/dramas/${id}/terms`, term, f)
-export const deleteGlossaryTerm = (id: number, termId: number, f?: Fetch) =>
-  deleteJson<{ deleted: boolean }>(`/api/glossary/dramas/${id}/terms/${termId}?confirm=true`, f)
-
-/** Deletes terms one by one (there is no bulk endpoint); reports which failed. */
-export async function deleteGlossaryTerms(
-  id: number,
-  termIds: number[],
-  f?: Fetch,
-): Promise<{ deleted: number[]; failed: { id: number; error: unknown }[] }> {
-  const deleted: number[] = []
-  const failed: { id: number; error: unknown }[] = []
-  for (const termId of termIds) {
-    try {
-      await deleteGlossaryTerm(id, termId, f)
-      deleted.push(termId)
-    } catch (error) {
-      failed.push({ id: termId, error })
-    }
-  }
-  return { deleted, failed }
-}
+/** Deletes the named terms in one request (by id); ids no longer in the glossary come back in not_found. */
+export const deleteGlossaryTerms = (id: number, termIds: number[], f?: Fetch) =>
+  postJson<GlossaryBulkDeleteResult>(`/api/glossary/dramas/${id}/terms/bulk-delete`, { term_ids: termIds, confirm: true }, f)
+export const importGlossary = (id: number, body: GlossaryImportBody, f?: Fetch) =>
+  postJson<GlossaryImportResult>(`/api/glossary/dramas/${id}/import`, body, f)
+/** A plain download link (Content-Disposition: attachment). */
+export const glossaryCsvUrl = (id: number) => apiUrl(`/api/glossary/dramas/${id}/export.csv`)
 export const getGlossaryCatalogues = (f?: Fetch) =>
   getJson<GlossaryCatalogues>('/api/glossary/catalogues', f)
 export const getInstructions = (id: number, f?: Fetch) =>

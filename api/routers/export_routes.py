@@ -11,15 +11,19 @@ adds EPUB export (novel-narration dramas only) as a binary download.
 Migration Slice 27 adds ASS subtitle text (POST, per-request style, plain-text
 download) and the style-options listing. Migration Slice 29 adds the audiobook export
 job and Slice 30 the burned-in video job
-(POST, returns {job_id}, output downloads via /api/artifacts).
+(POST, returns {job_id}, output downloads via /api/artifacts). Parity
+E17/E19 add the soft-subtitle and dubbed video jobs (same shape), and E22
+"Mark as exported" (status only; admin.library like the other drama status
+writes).
 """
 
 from typing import Optional
 
 from fastapi import APIRouter, Path, Query, Response
 from api.auth import require_permission
-from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, ErrorResponse,
-                         ExportReadiness, FlagActionResult, MediaExportStarted)
+from api.schemas import (AssExportRequest, AssStyleOptions, AutoQcFlagResult, DubbedVideoRequest,
+                         ErrorResponse, ExportReadiness, FlagActionResult, MarkExportedResult,
+                         MediaExportStarted, SoftsubVideoRequest)
 from services import export_service, media_export_service
 
 router = APIRouter(prefix="/api/export", tags=["export"])
@@ -129,3 +133,29 @@ def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
         wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
+
+
+@router.post("/dramas/{drama_id}/softsub-video", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,
+             summary="Start the soft-subtitle video export job (subtitle track muxed in)",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_softsub_video(drama_id: int = Path(ge=1), req: Optional[SoftsubVideoRequest] = None):
+    req = req or SoftsubVideoRequest()
+    return media_export_service.start_softsub_video_export(
+        drama_id, field=req.field, include_notes=req.include_notes)
+
+
+@router.post("/dramas/{drama_id}/dubbed-video", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,
+             summary="Start the dubbed video export job (dub audio replaces, or mixes over, the original)",
+             responses={404: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
+                        422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_dubbed_video(drama_id: int = Path(ge=1), req: Optional[DubbedVideoRequest] = None):
+    req = req or DubbedVideoRequest()
+    return media_export_service.start_dubbed_video_export(drama_id, keep_original=req.keep_original)
+
+
+@router.post("/dramas/{drama_id}/mark-exported", dependencies=[require_permission("admin.library")], response_model=MarkExportedResult,
+             summary="Mark the drama as exported (sets its status only)",
+             responses={404: {"model": ErrorResponse}})
+def post_mark_exported(drama_id: int = Path(ge=1)):
+    return export_service.mark_exported(drama_id)

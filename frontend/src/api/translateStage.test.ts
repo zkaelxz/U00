@@ -7,6 +7,9 @@ import {
   buildEstimateQuery,
   cancelBulkTranslation,
   deleteGlossaryTerms,
+  glossaryCsvUrl,
+  importGlossary,
+
   dismissTranslateErrors,
   getTranslateEstimate,
   listBulkTranslations,
@@ -75,22 +78,20 @@ describe('translate stage api', () => {
     expect((err as ApiError).status).toBe(409)
   })
 
-  it('bulk-deletes terms one by one with confirm=true and reports failures', async () => {
+  it('bulk-deletes terms in one request with confirm=true', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
-    const f = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: String(input), init })
-      const ok = !String(input).includes('/terms/2?')
-      return new Response(JSON.stringify(ok ? { deleted: true } : { detail: 'gone' }), { status: ok ? 200 : 404 })
-    }) as typeof fetch
-    const r = await deleteGlossaryTerms(7, [1, 2, 3], f)
-    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([
-      ['DELETE', '/api/glossary/dramas/7/terms/1?confirm=true'],
-      ['DELETE', '/api/glossary/dramas/7/terms/2?confirm=true'],
-      ['DELETE', '/api/glossary/dramas/7/terms/3?confirm=true'],
-    ])
-    expect(r.deleted).toEqual([1, 3])
-    expect(r.failed.map((x) => x.id)).toEqual([2])
-    expect(r.failed[0].error).toBeInstanceOf(ApiError)
+    const r = await deleteGlossaryTerms(7, [1, 2, 3], fakeFetch(200, { deleted: [1, 3], not_found: [2] }, calls))
+    expect(calls.map((c) => [c.init?.method, c.url])).toEqual([['POST', '/api/glossary/dramas/7/terms/bulk-delete']])
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ term_ids: [1, 2, 3], confirm: true })
+    expect(r).toEqual({ deleted: [1, 3], not_found: [2] })
+  })
+
+  it('posts glossary import text and builds the CSV link', async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    await importGlossary(7, { text: 'a,b', filename: 'g.csv' }, fakeFetch(200, {}, calls))
+    expect(calls[0].url).toBe('/api/glossary/dramas/7/import')
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ text: 'a,b', filename: 'g.csv' })
+    expect(glossaryCsvUrl(7)).toMatch(/\/api\/glossary\/dramas\/7\/export\.csv$/)
   })
 
   it('posts a voice bank apply body', async () => {

@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 
 import {
   createDrama, getCosts, getHistory, getPresets, getRecent, getSeries, getStats, getVoiceBank,
-  searchLines,
+  renamePreset, renameVoiceBankEntry, searchLines,
 } from '../api/library'
 import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
 import type { DramaSummary } from '../api/types'
@@ -22,8 +22,8 @@ import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/l
 import { useAdminJob } from './libraryAdmin/useAdminJob'
 import type { DramaCreateRequest, LibraryDashboard, LibrarySearchHit } from '../types/library'
 import {
-  MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
-  validateCreate, type CreateExtras,
+  MEDIA_TYPES, NEW_SERIES, RENAME_MAX, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
+  validateCreate, validateRename, type CreateExtras,
 } from './libraryForm'
 import { savePresetStart } from './workspace/translateForm'
 import { lineNumber } from '../lineNumber'
@@ -83,15 +83,57 @@ function StatsStrip({ stats }: { stats: { data: LibraryDashboard | null; error: 
   )
 }
 
-// A Library list whose rows have a PC-only two-step delete (presets, voice bank).
-function DeletableList({ pc, help, items, remove, onDeleted }: {
+// Parity L18/L19: an inline rename for one row of a Library list.
+function RenameForm({ current, onSave, onCancel }: {
+  current: string
+  onSave: (name: string) => Promise<unknown>
+  onCancel: () => void
+}) {
+  const [value, setValue] = useState(current)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const [pending, setPending] = useState(false)
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const bad = validateRename(value, current)
+    if (bad) {
+      setProblem(bad)
+      return
+    }
+    setProblem(null)
+    setPending(true)
+    onSave(value.trim()).then(
+      () => setPending(false),
+      (err: unknown) => {
+        setPending(false)
+        setError(err)
+      },
+    )
+  }
+  return (
+    <form className="rename-form" onSubmit={submit}>
+      <Field label={`New name for ${current}`}>
+        <input value={value} maxLength={RENAME_MAX} onChange={(e) => setValue(e.target.value)} autoFocus />
+      </Field>
+      <button type="submit" className="primary" disabled={pending}>Save name</button>
+      <button type="button" disabled={pending} onClick={onCancel}>Cancel</button>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
+    </form>
+  )
+}
+
+// A Library list whose rows have a rename and a PC-only two-step delete (presets, voice bank).
+function DeletableList({ pc, help, items, remove, rename, onDeleted }: {
   pc: PcMode
   help: string
   items: { id: number; name: string; meta: string | null }[] | undefined
   remove: (id: number) => Promise<unknown>
+  rename: (id: number, name: string) => Promise<unknown>
   onDeleted: () => void
 }) {
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [renamingId, setRenamingId] = useState<number | null>(null)
   const [error, setError] = useState<unknown>(null)
   const run = (id: number) => {
     setBusyId(id)
@@ -106,8 +148,21 @@ function DeletableList({ pc, help, items, remove, onDeleted }: {
       <ul className="deletable-list">
         {items?.map((x) => (
           <li key={x.id}>
-            <span>{x.name} <span className="muted">{x.meta}</span></span>
-            {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
+            {renamingId === x.id ? (
+              <RenameForm
+                current={x.name}
+                onSave={(n) => rename(x.id, n).then(() => { setRenamingId(null); onDeleted() })}
+                onCancel={() => setRenamingId(null)}
+              />
+            ) : (
+              <>
+                <span>{x.name} <span className="muted">{x.meta}</span></span>
+                <span className="row-actions">
+                  <button type="button" aria-label={`Rename ${x.name}`} onClick={() => setRenamingId(x.id)}>Rename</button>
+                  {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
+                </span>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -168,6 +223,7 @@ function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcM
           help="Dramas that used it keep their settings."
           items={presets.data?.items.map((p) => ({ id: p.id, name: p.name, meta: p.translation_engine }))}
           remove={deletePreset}
+          rename={renamePreset}
           onDeleted={onChanged}
         />
       </Fold>
@@ -177,6 +233,7 @@ function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcM
           help="Characters that used it keep their own copy."
           items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language }))}
           remove={deleteVoiceBankEntry}
+          rename={renameVoiceBankEntry}
           onDeleted={onChanged}
         />
       </Fold>

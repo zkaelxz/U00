@@ -58,6 +58,18 @@ export function buildCreateRequest(form: DramaCreateRequest, extras: CreateExtra
 
 export const canConfirmDelete = (typed: string) => typed === 'DELETE'
 
+// Parity L18/L19: the same limit services/library_service._clean_name applies.
+export const RENAME_MAX = 100
+
+// null when the name can be sent; unchanged names are not sent at all.
+export function validateRename(name: string, current: string): string | null {
+  const t = name.trim()
+  if (!t) return 'Give it a name.'
+  if (t.length > RENAME_MAX) return `A name is at most ${RENAME_MAX} characters.`
+  if (t === current) return 'That is already its name.'
+  return null
+}
+
 // The note to keep on screen after a delete: the server's own plain-English
 // warning when the drama is gone but some of its files were left behind.
 export const deleteNotice = (r: DramaDeleteResult): string | null => r.warning?.trim() || null

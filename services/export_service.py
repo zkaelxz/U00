@@ -15,7 +15,8 @@ overwrite another job's work"). Audiobook/burned-in-video export
 (each its own subprocess dependency, ffmpeg) live in
 services/media_export_service.py (Slices 29-30), not here. Slice 27 adds ASS text
 generation (generate_ass_text) with per-request style (not persisted) and
-get_ass_style_options.
+get_ass_style_options. Parity E22 adds mark_exported (writes only the
+drama's `status`).
 
 No Streamlit or FastAPI import: plain functions, plain dicts/bytes in and
 out, so a CLI or another service could call them too.
@@ -396,3 +397,12 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
 
     with open(out_path, "rb") as f:
         return f.read()
+
+
+def mark_exported(drama_id: int) -> dict:
+    """The Export tab's "Mark as exported": sets only the drama's status
+    to "exported" (no other field is touched). Raises NotFoundError."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    db.update_drama(drama_id, status="exported")
+    return {"drama_id": drama_id, "status": "exported"}
