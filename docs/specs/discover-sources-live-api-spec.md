@@ -114,3 +114,10 @@ Also add a paragraph to `docs/migration-review.md` per slice (format as earlier 
 10. `_pinned_get` ignores the configured proxy. Acceptable?
 11. Router and prefix naming, to avoid confusion with `/api/source`.
 12. Cross-process file safety: `profiles._write` does an unlocked read-modify-write JSON (`profiles.py:113-129`), and `sources.db` and health state are shared by two processes. Acceptable for the API to write?
+
+## 9. Decisions (user, 2026-09-29)
+
+- **Q1 ToS/robots:** enforcement stays OFF for the API too (same as Step 90). Services still call `ladder.check_terms(...)` at the fetch boundary so one function re-enables it everywhere; the UI shows recorded terms as information only and must not label anything "permitted".
+- **Q2 What other devices may trigger:** deferred until the remote-access route is decided (child session "Remote access route", reopens D6). Until then keep the proposed interim default: read and search allowed; sign-in, proxy, pacing floors and cookies local-only. S-3 to S-6 must not ship to non-local clients before this is answered.
+- **Q3 Live scope:** accept any public URL that yt-dlp can resolve (no platform allowlist). This does not remove the scheme and public-host validation, the per-session temp dir, the `max_minutes` stop or the "no cookies over the API" rule; the residual yt-dlp/ffmpeg DNS TOCTOU is accepted for now.
+- Still open: Q4 to Q12.
