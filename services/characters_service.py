@@ -4,10 +4,13 @@ services/characters_service.py -- per-drama characters / voice config
 pronouns" panel and "Section 6" per-character voice config in
 `tabs/workspace_tab.py`.
 
-Covers: listing a drama's speakers with their character/voice settings,
-a validated field-scoped partial update, series-character listing, the
-clone-engine picklist (Step 26c language rule), and the voice bank
-(list + apply).
+Covers: listing a drama's speakers with their character/voice settings
+(plus a couple of sample lines and the linked series character's
+pronoun default), a validated field-scoped partial update,
+series-character listing, the clone-engine picklist (Step 26c language
+rule), the voice bank (list + apply), recurring-voice suggestions
+("sounds like X": list, accept, reject) and "remember as a known series
+character".
 
 Speaker set: like the tab (`sorted({ln.speaker for ln in lines if
 ln.speaker})`), a speaker label is known for a drama when it appears on
@@ -25,8 +28,8 @@ filename -- only `has_ref_audio` / `ref_text_present` booleans.
 Deliberately NOT here:
   - Reference-audio upload / auto-extract, saving to the voice bank and
     the series-character link: services/voice_clone_service.py.
-  - Character deletion and series-character create/rename/delete
-    (only listing is covered).
+  - Character deletion and series-character rename/delete (the only
+    series write here is "remember as a known series character").
   - Dub generation itself.
 
 No Streamlit or FastAPI import.
@@ -35,11 +38,12 @@ import os
 
 import db
 import dub
+import translation_guide as tguide
 from db import (apply_voice_bank_entry as _db_apply_voice_bank_entry, drama_dir, get_drama,
                 get_voice_bank_entry, list_characters_with_series_names,
                 list_series_characters as _db_list_series_characters,
                 list_voice_bank_entries, load_lines, upsert_character)
-from services.service_errors import InvalidInputError, NotFoundError
+from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 MAX_NAME_LEN = 200
 MAX_PRONOUNS_LEN = 40
@@ -48,6 +52,10 @@ MAX_VOICE_DESIGN_LEN = 1000
 MAX_REF_TEXT_LEN = 5000
 MAX_ID = 2**31 - 1  # sqlite ints are 64-bit; anything larger is an OverflowError (500)
 MAX_SPEAKER_LABEL_LEN = 100  # only enforced where the label becomes a filename
+# C04: like the tab, the first line and the middle one; each clipped so
+# the list payload stays bounded however long a line is.
+MAX_SAMPLE_LINES = 2
+MAX_SAMPLE_CHARS = 160
 
 
 def _check_id(name: str, value):
@@ -69,7 +77,24 @@ def _source_language(drama: dict) -> str:
     return drama.get("source_language") or "zh"
 
 
-def _character_dict(row: dict, line_count: int) -> dict:
+def _clip_sample(text: str) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= MAX_SAMPLE_CHARS else text[:MAX_SAMPLE_CHARS - 1] + "\u2026"
+
+
+def _samples(texts: list) -> list:
+    """The tab's pick: the speaker's first line and, when there's more
+    than one, the middle one (so the two usually come from different
+    scenes)."""
+    if not texts:
+        return []
+    picked = [texts[0]]
+    if len(texts) > 1:
+        picked.append(texts[len(texts) // 2])
+    return [_clip_sample(t) for t in picked[:MAX_SAMPLE_LINES]]
+
+
+def _character_dict(row: dict, line_count: int, sample_lines: list = ()) -> dict:
     return {
         "speaker_label": row["speaker_label"],
         "character_name": row.get("character_name") or "",
@@ -83,7 +108,11 @@ def _character_dict(row: dict, line_count: int) -> dict:
         "ref_text_present": bool((row.get("ref_text") or "").strip()),
         "series_character_id": row.get("series_character_id"),
         "series_character_name": row.get("series_character_name") or "",
+        # The linked series character's pronouns: shown as the default
+        # when this drama sets none, never copied into this drama's row.
+        "series_pronouns": tguide.normalize_pronouns(row.get("series_pronouns")),
         "line_count": line_count,
+        "sample_lines": list(sample_lines),
     }
 
 
@@ -91,18 +120,22 @@ def list_characters(drama_id: int) -> list:
     """One entry per known speaker (line speakers plus stored character
     rows), sorted by label. A speaker with no stored row gets blank
     fields. A linked series character's current name wins for
-    character_name (db.list_characters_with_series_names). Raises
-    NotFoundError for an unknown drama."""
+    character_name (db.list_characters_with_series_names). sample_lines:
+    up to MAX_SAMPLE_LINES of the speaker's non-blank source lines, each
+    clipped to MAX_SAMPLE_CHARS. Raises NotFoundError for an unknown
+    drama."""
     _require_drama(drama_id)
-    counts = {}
+    counts, texts = {}, {}
     for ln in load_lines(drama_id):
         if ln.get("speaker"):
             counts[ln["speaker"]] = counts.get(ln["speaker"], 0) + 1
+            if (ln.get("zh") or "").strip():
+                texts.setdefault(ln["speaker"], []).append(ln["zh"])
     rows = {r["speaker_label"]: r for r in list_characters_with_series_names(drama_id)}
     out = []
     for label in sorted(set(counts) | set(rows)):
         row = rows.get(label) or {"speaker_label": label}
-        out.append(_character_dict(row, counts.get(label, 0)))
+        out.append(_character_dict(row, counts.get(label, 0), _samples(texts.get(label, []))))
     return out
 
 
@@ -256,3 +289,160 @@ def apply_voice_bank_entry(drama_id: int, speaker_label: str, voice_bank_id: int
             "That voice bank entry's clone_engine doesn't support the drama's source language.")
     _db_apply_voice_bank_entry(voice_bank_id, drama_dir(drama_id), drama_id, speaker_label)
     return _get_one(drama_id, speaker_label)
+
+
+# --- C02: recurring-voice suggestions ("sounds like X") ------------------------
+
+def _series_characters_of(drama: dict) -> list:
+    series_id = drama.get("series_id")
+    return db.list_series_characters(series_id) if series_id else []
+
+
+def _load_voice_embeddings(drama_id: int) -> dict:
+    """The drama's stored diarization voice embeddings, or {} when there
+    are none (no speaker run yet, pyannote 3.x, an unreadable file)."""
+    try:
+        import diarize
+        embeddings = diarize.load_embeddings(drama_dir(drama_id))
+    except (ImportError, OSError, ValueError):
+        return {}
+    return embeddings if isinstance(embeddings, dict) else {}
+
+
+def _current_suggestions(drama_id: int, drama: dict):
+    """(suggestions, embeddings) as the tab computes them: only for a
+    drama in a series with characters and stored embeddings; speakers
+    that already have a name and dismissed pairs are skipped."""
+    series_chars = _series_characters_of(drama)
+    if not series_chars:
+        return [], {}
+    embeddings = _load_voice_embeddings(drama_id)
+    if not embeddings:
+        return [], {}
+    try:
+        import voice_id
+    except ImportError:
+        return [], {}
+    already_named = {c["speaker_label"] for c in list_characters(drama_id) if c["character_name"]}
+    try:
+        suggestions = voice_id.suggest_speaker_matches(
+            embeddings, series_chars, already_named=already_named,
+            dismissed=db.list_dismissed_voice_suggestions(drama_id))
+    except (TypeError, ValueError):
+        # A malformed stored embedding: no suggestions rather than a 500.
+        return [], {}
+    return [{"speaker_label": s["speaker_label"],
+             "series_character_id": s["series_character_id"],
+             "character_name": s["character_name"],
+             "similarity": round(float(s["similarity"]), 4)} for s in suggestions], embeddings
+
+
+def list_voice_suggestions(drama_id: int) -> list:
+    """Experimental "this speaker sounds like <series character>"
+    suggestions, best first. Empty (never an error) when the drama has no
+    series, the series has no characters with a voice fingerprint, or no
+    voice embeddings were stored by speaker detection. Nothing here names
+    a speaker; accept/reject do that on an explicit request. Raises
+    NotFoundError for an unknown drama."""
+    drama = _require_drama(drama_id)
+    return _current_suggestions(drama_id, drama)[0]
+
+
+def _check_suggestion_args(speaker_label, series_character_id):
+    if (not isinstance(speaker_label, str) or not speaker_label
+            or len(speaker_label) > MAX_SPEAKER_LABEL_LEN):
+        raise InvalidInputError("speaker_label is missing or too long.")
+    _check_id("series_character_id", series_character_id)
+
+
+def accept_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int) -> dict:
+    """Accept one CURRENTLY offered suggestion, as the tab does: name the
+    speaker after the series character, link it (series_character_id)
+    and blend this drama's embedding into that character's voice
+    fingerprint. Only this drama's row and that one series character are
+    written. A pair that isn't offered any more (already named,
+    dismissed, below threshold, embeddings gone) is a NotFoundError.
+    Returns {"character": list_characters entry, "suggestions": [...]}."""
+    drama = _require_drama(drama_id)
+    _check_suggestion_args(speaker_label, series_character_id)
+    suggestions, embeddings = _current_suggestions(drama_id, drama)
+    match = next((s for s in suggestions if s["speaker_label"] == speaker_label
+                  and s["series_character_id"] == series_character_id), None)
+    if match is None:
+        raise NotFoundError("That voice suggestion isn't offered any more.")
+    # One conditional transaction: a concurrent accept (or a name saved
+    # meanwhile) makes this a no-op, never a second link or blend.
+    if not db.accept_voice_link(drama_id, speaker_label, series_character_id,
+                                match["character_name"], embeddings[speaker_label]):
+        raise NotFoundError("That voice suggestion isn't offered any more.")
+    return {"character": _get_one(drama_id, speaker_label),
+            "suggestions": _current_suggestions(drama_id, drama)[0]}
+
+
+def reject_voice_suggestion(drama_id: int, speaker_label: str, series_character_id: int) -> dict:
+    """Record that this (speaker, series character) suggestion was wrong
+    for this drama (db.dismiss_voice_suggestion; idempotent). Nothing
+    else changes; a different candidate for the same speaker can still
+    surface. The series character must belong to the drama's series and
+    the speaker must be known to this drama or its stored embeddings.
+    Returns {"character": None, "suggestions": [...]}."""
+    drama = _require_drama(drama_id)
+    _check_suggestion_args(speaker_label, series_character_id)
+    if not any(sc["id"] == series_character_id for sc in _series_characters_of(drama)):
+        raise NotFoundError("No such character in this drama's series.")
+    if (speaker_label not in _known_speakers(drama_id)
+            and speaker_label not in _load_voice_embeddings(drama_id)):
+        raise NotFoundError("No such speaker in this drama.")
+    db.dismiss_voice_suggestion(drama_id, speaker_label, series_character_id)
+    return {"character": None, "suggestions": _current_suggestions(drama_id, drama)[0]}
+
+
+# --- C08: remember as a known series character ----------------------------------
+
+def remember_series_character(drama_id: int, speaker_label: str) -> dict:
+    """The tab's opt-in "Remember <name> as a known character in this
+    series": uses the speaker's SAVED name (never a half-typed one), adds
+    it to the drama's series (db.upsert_series_character, with this
+    drama's pronouns as the series default when set) and links the
+    speaker to it. When the series already has that name, the speaker is
+    linked to the existing character and nothing about it (aliases,
+    notes, pronouns) is overwritten. Voice: when speaker detection stored
+    an embedding for this speaker, it is blended into the character's
+    voice fingerprint (as an accepted suggestion does), so later dramas
+    can be offered the match.
+
+    Not repeatable: a speaker already linked to a series character (by an
+    earlier Remember or an accepted voice suggestion) is refused with
+    ConflictError and nothing changes -- no relink, no second blend of the
+    same embedding into the fingerprint.
+
+    Raises NotFoundError (unknown drama or speaker), InvalidInputError
+    (the drama has no series, or the speaker has no saved name),
+    ConflictError (the speaker is already linked to a series character).
+    Returns {"character": entry, "series_character": series entry,
+    "created": bool}."""
+    drama = _require_drama(drama_id)
+    if not isinstance(speaker_label, str) or speaker_label not in _known_speakers(drama_id):
+        raise NotFoundError("No such speaker in this drama.")
+    series_id = drama.get("series_id")
+    if not series_id:
+        raise InvalidInputError("This drama isn't in a series, so there is no series cast to add to.")
+    entry = _get_one(drama_id, speaker_label)
+    if entry["series_character_id"]:
+        raise ConflictError("This speaker is already linked to a character in this series.")
+    name = entry["character_name"].strip()
+    if not name:
+        raise InvalidInputError("Save a name for this speaker first.")
+    embedding = _load_voice_embeddings(drama_id).get(speaker_label)
+    # One conditional transaction (link only while still unlinked and still
+    # so named; insert-only into the series cast).
+    linked = db.remember_speaker_as_series_character(
+        drama_id, speaker_label, series_id, name,
+        gender=tguide.normalize_pronouns(entry["pronouns"]) or None,
+        embedding=embedding if isinstance(embedding, list) and embedding else None)
+    if linked is None:
+        raise ConflictError("This speaker was linked or renamed meanwhile; reload and try again.")
+    sc_id, created = linked
+    series_entry = next(sc for sc in list_series_characters(series_id) if sc["id"] == sc_id)
+    return {"character": _get_one(drama_id, speaker_label), "series_character": series_entry,
+            "created": created}

@@ -14,6 +14,7 @@ import {
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { Toggle } from '../../../components/Toggle'
 import { useJob, useJobRun } from '../../../hooks/useJob'
 import type { LibraryPreset } from '../../../types/library'
 import type {
@@ -50,6 +51,7 @@ import {
 import { BulkBatchesPanel } from './BulkBatchesPanel'
 import { CharactersPanel } from './CharactersPanel'
 import { GlossaryPanel } from './GlossaryPanel'
+import { GlossaryReview } from './GlossaryReview'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
 import './translate.css'
@@ -263,8 +265,14 @@ function RunPanel({
   onPresetApplied: (p: TranslatePresetApplied) => void
   busy: boolean
 }) {
-  const { dramaId } = useStage()
+  const { dramaId, drama } = useStage()
   const [base] = useState<RunForm>(() => initialForm(config, loadPresetStart(dramaId)))
+  // Parity X28: review proposed glossary terms before the run starts.
+  // reviewing counts presses (0 = closed) so each press extracts afresh.
+  const [reviewFirst, setReviewFirst] = useState(false)
+  const [reviewing, setReviewing] = useState(0)
+  const [reviewNote, setReviewNote] = useState<string | null>(null)
+  const canReview = !!drama.series_id
   const [f, setF] = useState<RunForm>(base)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
@@ -298,10 +306,15 @@ function RunPanel({
     )
   }
 
-  const start = () => {
+  const start = (afterReview = false) => {
     const bad = validateRun(f, config.translation_engine, config.bulk_supported_engines)
     setProblem(bad)
     if (bad) return
+    if (reviewFirst && canReview && !afterReview) {
+      setReviewNote(null)
+      setReviewing((n) => n + 1)
+      return
+    }
     startTranslateRun(dramaId, buildRunBody(f)).then((r) => {
       setError(null)
       onStarted(r.job_id)
@@ -359,12 +372,34 @@ function RunPanel({
         </details>
       )}
       <div className="translate-go">
-        <button type="button" className="primary" disabled={busy} onClick={start}>
+        <button type="button" className="primary" disabled={busy || reviewing > 0} onClick={() => start()}>
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
         </button>
         <button type="button" className="link" onClick={runEstimate}>Estimate cost</button>
         {estimate && <EstimateView e={estimate} />}
       </div>
+      {canReview && (
+        <div className="setting-list">
+          <Field
+            label="Review glossary before translating"
+            help="Before the run starts, proposes glossary terms from the attached novel (or the source lines) with this drama's engine, so you can fix them first. A glossary mistake repeats on every line."
+          >
+            <Toggle checked={reviewFirst} disabled={reviewing > 0} onChange={setReviewFirst} />
+          </Field>
+        </div>
+      )}
+      {reviewing > 0 && (
+        <GlossaryReview
+          key={reviewing}
+          onStart={(note) => {
+            setReviewing(0)
+            setReviewNote(note)
+            start(true)
+          }}
+          onCancel={() => setReviewing(0)}
+        />
+      )}
+      {reviewNote && <p className="muted" role="status">Glossary: {reviewNote}</p>}
       {busy && <p className="muted">A translate job is running. Progress is shown below.</p>}
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={estimateError} onDismiss={() => setEstimateError(null)} />

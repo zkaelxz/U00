@@ -80,8 +80,10 @@ def analyze_edit_patterns(edit_samples, engine, existing_profile: dict = None, u
 
 def profile_to_prompt_block(profile: dict) -> str:
     """Renders a learned profile as prompt text. Returns empty string if
-    there's nothing worth injecting, so callers can concatenate safely."""
-    if not profile or not profile.get("preferences"):
+    there's nothing worth injecting, so callers can concatenate safely.
+    A profile saved with "apply": false (the Review stage's toggle) is
+    paused: every translate path skips it."""
+    if not profile or not profile.get("preferences") or profile.get("apply") is False:
         return ""
     rules = "\n".join(f"- {p}" for p in profile["preferences"])
     return (

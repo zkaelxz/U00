@@ -62,6 +62,7 @@ from api.routers import (
     novel_routes,
     reader_routes,
     restructure_routes,
+    review_extras_routes,
     review_jobs_routes,
     review_lines_routes,
     review_records_routes,
@@ -174,6 +175,7 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(metadata_routes.router)
     app.include_router(novel_routes.router)
     app.include_router(review_jobs_routes.router)
+    app.include_router(review_extras_routes.router)
     app.include_router(line_ai_routes.router)
     app.include_router(restructure_routes.router)
     app.include_router(discover_routes.router)
