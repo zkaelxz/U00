@@ -35,7 +35,7 @@ Job-apply: job does everything. Tuning knobs: persisted (columns added in init_d
 Uploads/exports: multipart + drama-folder outputs. `use_gpu`: persisted, default off. Process-job results: `on_done` hook (Slice 49).
 
 ## Queue (not yet built)
-24 API-key writes (user requirement 2026-09-29: keys stay on the main PC and are never sent to other devices; remote devices use server-side keys, so no remote key-write endpoint; entry on the PC stays in Streamlit until a PC-only admin listener exists, D5); 34 qwen3 backends (gated on a real-model check).
+24 API-key writes (user requirement 2026-09-29: keys stay on the main PC and are never sent to other devices; remote devices use server-side keys, so no remote key-write endpoint; entry on the PC stays in Streamlit until a PC-only admin listener exists, D5); 34 qwen3 backends (built with mocks; the real-model check is still owed by the user).
 Small bug/cleanup steps 121-132: see `docs/baihe-roadmap-master.md` section 2 (bug tracker).
 Deferred inside merged slices: E0 destructive bulk/backup/restore/storage clean (need server-side typed confirm + running-job refusal);
 transcribe/narration docs and docstrings that still say chunk_and_tag or audiobook/auto-fill are out of scope are stale (cosmetic cleanup step).
