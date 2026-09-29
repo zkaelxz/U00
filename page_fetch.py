@@ -311,23 +311,22 @@ class _PinningProxy:
 
 @contextmanager
 def _guarded_chromium(p):
-    """A headless Chromium launched behind a fresh `_PinningProxy`."""
+    """(browser, proxy): a headless Chromium launched behind a fresh
+    `_PinningProxy`. Pass the proxy to `_goto`."""
     proxy = None
     try:
         proxy = _PinningProxy()
         browser = p.chromium.launch(headless=True, **proxy.launch_kwargs())
-        _PROXIES[id(browser)] = proxy
         try:
-            yield browser
+            yield browser, proxy
         finally:
-            _PROXIES.pop(id(browser), None)
             browser.close()
     finally:
         if proxy is not None:
             proxy.stop()
 
 
-# id(browser) or id(persistent context) -> its _PinningProxy
+# id(persistent context) -> its _PinningProxy (stopped in _shut)
 _PROXIES = {}
 
 
@@ -335,20 +334,22 @@ class ProxyBypassed(RuntimeError):
     """The browser loaded a page without going through the pinning proxy."""
 
 
-def _goto(page, url: str, **kwargs):
-    """`page.goto`, then fail closed: if an http(s) navigation returned a
-    response but the launch's pinning proxy saw no request at all, the proxy
-    setting was overridden (e.g. by a managed browser policy) and the B-28
-    protection is not in force."""
+_BYPASSED = ("The browser did not use Baihe's address-checking proxy, so the page "
+             "was not loaded. (A browser policy may be overriding it.)")
+
+
+def _goto(page, url: str, proxy, allow_unguarded: bool = False, **kwargs):
+    """`page.goto`, then fail closed: with no proxy for this launch, or when
+    an http(s) navigation returned a response but the pinning proxy saw no
+    request at all (e.g. a managed browser policy overriding the proxy
+    setting), the B-28 protection is not in force. `allow_unguarded` is
+    only for an injected test launcher, which has no proxy."""
+    if proxy is None and not allow_unguarded:
+        raise ProxyBypassed(_BYPASSED)
     response = page.goto(url, **kwargs)
-    context = getattr(page, "context", None)
-    owners = (context, getattr(context, "browser", None)) if context is not None else ()
-    proxy = next((_PROXIES[id(o)] for o in owners if o is not None and id(o) in _PROXIES),
-                 None)
     if (proxy is not None and response is not None and proxy.proxied == 0
             and url.split(":", 1)[0].lower() in ("http", "https")):
-        raise ProxyBypassed("The browser did not use Baihe's address-checking proxy, so the "
-                            "page was not loaded. (A browser policy may be overriding it.)")
+        raise ProxyBypassed(_BYPASSED)
     return response
 
 
@@ -511,11 +512,11 @@ def rendered_session(url: str, timeout: int = 30, wait_ms: int = 2500,
     """
     sync_playwright = _require_playwright()
     with sync_playwright() as p:
-        with _guarded_chromium(p) as browser:
+        with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             if keep_blobs:
                 page.add_init_script(_BLOB_KEEPALIVE_JS)
-            _goto(page, url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page
 
@@ -610,10 +611,10 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
                                        body, max_body_bytes))
 
     with sync_playwright() as p:
-        with _guarded_chromium(p) as browser:
+        with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             page.on("response", on_response)
-            _goto(page, url, timeout=timeout * 1000, wait_until="domcontentloaded")
+            _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
             page.wait_for_timeout(wait_ms)
             yield page, captured
 
@@ -635,9 +636,9 @@ def _rendered_page(url: str, timeout: int, wait_selector: str, wait_ms: int):
     that isn't fatal, just settled with another wait."""
     sync_playwright = _require_playwright()
     with sync_playwright() as p:
-        with _guarded_chromium(p) as browser:
+        with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
-            _goto(page, url, timeout=timeout * 1000, wait_until="networkidle")
+            _goto(page, url, proxy, timeout=timeout * 1000, wait_until="networkidle")
             try:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_load_state("networkidle", timeout=timeout * 1000)
@@ -758,7 +759,8 @@ def fetch_with_profile(url: str, profile_dir: str, timeout: int = 30, wait_selec
         try:
             _guard_context(context)
             page = context.new_page()
-            _goto(page, url, timeout=timeout * 1000, wait_until="networkidle")
+            _goto(page, url, _PROXIES.get(id(context)), allow_unguarded=launcher is not None,
+                  timeout=timeout * 1000, wait_until="networkidle")
             if wait_selector:
                 try:
                     page.wait_for_selector(wait_selector, timeout=timeout * 1000)
@@ -789,12 +791,17 @@ def open_login_window(url: str, profile_dir: str, launcher=None):
         try:
             _guard_context(context)
             page = context.pages[0] if context.pages else context.new_page()
+            proxy = _PROXIES.get(id(context))
             try:
-                _goto(page, url, wait_until="domcontentloaded")
+                _goto(page, url, proxy, allow_unguarded=launcher is not None,
+                      wait_until="domcontentloaded")
             except ProxyBypassed:
                 raise
             except Exception:
-                pass  # the window is still open; the person can navigate there themselves
+                # The window stays open for the person to navigate -- but only
+                # if the proxy demonstrably carries this browser's traffic.
+                if proxy is not None and proxy.proxied == 0:
+                    raise ProxyBypassed(_BYPASSED) from None  # the window is still open; the person can navigate there themselves
             context.wait_for_event("close", timeout=0)   # 0 = wait for the person, however long
         finally:
             _shut(pw, context)

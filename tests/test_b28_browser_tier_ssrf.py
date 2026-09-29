@@ -273,6 +273,14 @@ def test_real_browser_public_page_still_renders_through_the_proxy(monkeypatch):
     srv = http.server.HTTPServer(("127.0.0.1", 0), Page)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     monkeypatch.setattr(url_guard, "resolve_public", lambda url: "127.0.0.1")
+    made = []
+    real_proxy = page_fetch._PinningProxy
+
+    def recording_proxy():
+        px = real_proxy()
+        made.append(px)
+        return px
+    monkeypatch.setattr(page_fetch, "_PinningProxy", recording_proxy)
     try:
         try:
             html, _ = page_fetch.fetch_rendered("http://127.0.0.1:%d/" % srv.server_port,
@@ -282,6 +290,7 @@ def test_real_browser_public_page_still_renders_through_the_proxy(monkeypatch):
                 pytest.skip("Playwright's Chromium build is not installed")
             raise
         assert "PUBLIC-OK" in html
+        assert len(made) == 1 and made[0].proxied > 0   # the page really came via the proxy
     finally:
         srv.shutdown()
 
@@ -414,14 +423,57 @@ def test_goto_fails_closed_when_the_proxy_saw_nothing(proxy):
             return object()     # a "response" that never touched the proxy
 
     page = Page()
-    page_fetch._PROXIES[id(page.context)] = proxy
-    try:
-        with pytest.raises(page_fetch.ProxyBypassed):
-            page_fetch._goto(page, "https://public.example/")
-        proxy.proxied = 1
-        page_fetch._goto(page, "https://public.example/")
-    finally:
-        page_fetch._PROXIES.pop(id(page.context), None)
+    with pytest.raises(page_fetch.ProxyBypassed):
+        page_fetch._goto(page, "https://public.example/", proxy)
+    proxy.proxied = 1
+    page_fetch._goto(page, "https://public.example/", proxy)
+
+
+def test_goto_fails_closed_without_a_proxy():
+    class Page:
+        def goto(self, url, **kw):
+            raise AssertionError("must not navigate without a proxy")
+
+    with pytest.raises(page_fetch.ProxyBypassed):
+        page_fetch._goto(Page(), "https://public.example/", None)
+
+
+def test_login_window_fails_closed_when_the_first_load_saw_no_proxy_traffic(tmp_path, proxy):
+    class Page:
+        def goto(self, url, **kw):
+            raise RuntimeError("net::ERR_SOMETHING")
+
+    class Ctx:
+        pages = []
+        waited = False
+
+        def route(self, *a):
+            pass
+
+        def new_page(self):
+            return Page()
+
+        def wait_for_event(self, *a, **k):
+            Ctx.waited = True
+
+        def close(self):
+            pass
+
+    class PW:
+        def stop(self):
+            pass
+
+    ctx = Ctx()
+
+    def launcher(profile_dir, headless):
+        page_fetch._PROXIES[id(ctx)] = proxy    # as _launch_persistent does
+        return PW(), ctx
+
+    with pytest.raises(page_fetch.ProxyBypassed):
+        page_fetch.open_login_window("https://public.example/", str(tmp_path / "p"),
+                                     launcher=launcher)
+    assert not Ctx.waited
+    assert id(ctx) not in page_fetch._PROXIES
 
 
 @pytest.mark.skipif(not _CHROMIUM, reason="no Playwright Chromium installed")
@@ -463,3 +515,61 @@ def test_real_browser_redirect_to_link_local_is_refused_by_the_proxy(monkeypatch
         assert "ami-id" not in html
     finally:
         pub.shutdown()
+
+
+@pytest.mark.skipif(not _CHROMIUM, reason="no Playwright Chromium installed")
+def test_real_browser_https_goes_through_the_authenticated_connect_tunnel(monkeypatch, tmp_path):
+    pytest.importorskip("playwright.sync_api")
+    import ssl
+    import subprocess
+    if subprocess.run(["openssl", "version"], capture_output=True).returncode != 0:
+        pytest.skip("openssl not available to make a test certificate")
+    cert, key = tmp_path / "c.pem", tmp_path / "k.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                    "-subj", "/CN=localhost", "-keyout", str(key), "-out", str(cert)],
+                   check=True, capture_output=True, timeout=60)
+
+    class Page(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<html><body>TLS-OK</body></html>")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Page)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(str(cert), str(key))
+    srv.socket = tls.wrap_socket(srv.socket, server_side=True)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    checked = []
+
+    def resolver(url):
+        checked.append(url)
+        return "127.0.0.1"
+    monkeypatch.setattr(url_guard, "resolve_public", resolver)
+    url = "https://127.0.0.1:%d/" % srv.server_port
+    try:
+        from playwright.sync_api import sync_playwright
+        try:
+            with sync_playwright() as p:
+                with page_fetch._guarded_chromium(p) as (browser, proxy):
+                    context = browser.new_context(ignore_https_errors=True,
+                                                  service_workers="block")
+                    page_fetch._guard_context(context)
+                    page = context.new_page()
+                    page_fetch._goto(page, url, proxy, timeout=10000)
+                    html = page.content()
+                    tunnelled = proxy.proxied
+        except Exception as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip("Playwright's Chromium build is not installed")
+            raise
+        assert "TLS-OK" in html
+        assert tunnelled > 0
+        # the CONNECT path validated the target by name as https://host:port/
+        assert "https://127.0.0.1:%d/" % srv.server_port in checked
+    finally:
+        srv.shutdown()

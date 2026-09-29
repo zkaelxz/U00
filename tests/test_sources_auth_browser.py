@@ -116,6 +116,13 @@ class FakePlaywright:
         self.stopped = True
 
 
+class _FakeProxy:
+    proxied = 1
+
+    def stop(self):
+        pass
+
+
 class FakeLauncher:
     """launcher(profile_dir, headless) -> (playwright, context)."""
 
@@ -129,6 +136,9 @@ class FakeLauncher:
         self.launches.append((profile_dir, headless))
         ctx = FakeContext(self, profile_dir, headless)
         self.contexts.append(ctx)
+        # Stands in for _launch_persistent's pinning proxy (B-28): _goto fails
+        # closed without one. It reports traffic, as a real proxied load would.
+        page_fetch._PROXIES[id(ctx)] = _FakeProxy()
         return FakePlaywright(), ctx
 
     @property
