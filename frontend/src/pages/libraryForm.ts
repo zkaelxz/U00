@@ -4,9 +4,12 @@ import type { DramaCreateRequest } from '../types/library'
 export const MAX_NAME_LEN = 300
 export const MAX_SUMMARY_LEN = 5000
 export const SOURCE_LANGUAGES = ['zh', 'ja', 'ko']
+// Choices offered when creating a drama. 'music' and 'other' were dropped from
+// the picker (user decision 2026-09-29); the API still accepts them so older
+// dramas that use them keep loading and saving.
 export const MEDIA_TYPES = [
   'audio_drama', 'video_drama', 'anime', 'novel', 'manhwa', 'manga', 'manhua',
-  'asmr', 'streamer_vod', 'music', 'other',
+  'asmr', 'streamer_vod',
 ]
 
 export function validateCreate(form: DramaCreateRequest): string | null {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { canConfirmDelete, groupHistory, validateCreate } from './libraryForm'
+import { MEDIA_TYPES, canConfirmDelete, groupHistory, validateCreate } from './libraryForm'
 
 describe('groupHistory', () => {
   it('collapses consecutive rows of one drama and keeps the newest', () => {
@@ -41,5 +41,13 @@ describe('canConfirmDelete', () => {
     expect(canConfirmDelete('DELETE')).toBe(true)
     expect(canConfirmDelete('delete')).toBe(false)
     expect(canConfirmDelete('DELETE ')).toBe(false)
+  })
+})
+
+describe('MEDIA_TYPES', () => {
+  it('does not offer music or other for new dramas', () => {
+    expect(MEDIA_TYPES).not.toContain('music')
+    expect(MEDIA_TYPES).not.toContain('other')
+    expect(MEDIA_TYPES).toContain('audio_drama')
   })
 })
