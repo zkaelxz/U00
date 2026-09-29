@@ -247,6 +247,8 @@ export function Player({ dramaId, kind, ref, lines = [], selected = null, captio
           }}
           className="review-video"
           playsInline
+          // A click on the picture plays or pauses; the Play button above stays the keyboard control.
+          onClick={failed ? undefined : togglePlay}
           {...common}
         >
           {track}

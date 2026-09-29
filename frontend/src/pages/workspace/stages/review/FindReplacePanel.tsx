@@ -67,7 +67,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
       </div>
       <div className="review-actions">
         <button type="button" className={buttonClass('secondary')} disabled={!find} onClick={preview}>Preview</button>
-        <button type="button" className={buttonClass('primary')} disabled={!matches?.length} onClick={apply}>
+        <button type="button" className={buttonClass('secondary')} disabled={!matches?.length} onClick={apply}>
           Apply {matches?.length ?? 0} change{matches?.length === 1 ? '' : 's'}
         </button>
       </div>

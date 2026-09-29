@@ -349,7 +349,7 @@ function LineRowImpl({ dramaId, line, active, isPhone, hasMedia, jobRunning, lim
             <textarea value={edit.note.text} onChange={(e) => edit.note && actions.setNote({ ...edit.note, text: e.target.value })} rows={2} />
           </Field>
           <div className="review-actions">
-            <button type="button" className={buttonClass('primary', 'sm')} disabled={!edit.note.term.trim() || !edit.note.text.trim()} onClick={actions.saveNote}>
+            <button type="button" className={buttonClass('secondary', 'sm')} disabled={!edit.note.term.trim() || !edit.note.text.trim()} onClick={actions.saveNote}>
               Save note
             </button>
           </div>
