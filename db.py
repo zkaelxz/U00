@@ -782,6 +782,10 @@ def init_db():
         jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
         if "cancel_requested" not in jr_cols:
             _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
+        # A job's redacted, allowlisted result (services/jobs_service.project_result),
+        # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
+        if "result_json" not in jr_cols:
+            _safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")
         # Step 133: API users, permissions, server-side sessions, audit log.
         # Additive only; nothing above is touched. Session ids / CSRF tokens
         # are stored as SHA-256 hashes only (see services/auth_service.py).
@@ -2911,7 +2915,8 @@ def set_app_setting(key: str, value):
 
 def save_job_record(job_id: str, status: str, progress: float = None, message: str = None,
                     error: str = None, description: str = None, gpu_touching: bool = False,
-                    started_at: float = None, finished_at: float = None):
+                    started_at: float = None, finished_at: float = None,
+                    result_json: str = None):
     """Mirrors one background_jobs.py job's status-transition fields into
     the cross-process job_records table (Migration Slice 7) -- records
     only, no resume: this is the *last written* state, not necessarily
@@ -2922,18 +2927,18 @@ def save_job_record(job_id: str, status: str, progress: float = None, message: s
     with contextlib.closing(get_conn()) as conn:
         conn.execute("""
             INSERT INTO job_records (job_id, status, progress, message, error, description,
-                gpu_touching, started_at, finished_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                gpu_touching, started_at, finished_at, updated_at, result_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(job_id) DO UPDATE SET
                 status = excluded.status, progress = excluded.progress,
                 message = excluded.message, error = excluded.error,
                 description = excluded.description, gpu_touching = excluded.gpu_touching,
                 started_at = excluded.started_at, finished_at = excluded.finished_at,
-                updated_at = excluded.updated_at,
+                updated_at = excluded.updated_at, result_json = excluded.result_json,
                 cancel_requested = CASE WHEN excluded.status IN ('queued', 'running')
                     THEN job_records.cancel_requested ELSE 0 END
         """, (job_id, status, progress, message, error, description, int(bool(gpu_touching)),
-              started_at, finished_at, time.time()))
+              started_at, finished_at, time.time(), result_json))
         conn.commit()
 
 

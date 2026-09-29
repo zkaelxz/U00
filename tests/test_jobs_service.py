@@ -28,11 +28,72 @@ class TestListJobs:
         jobs = jobs_service.list_jobs()
         assert "sk-ABCDEFGHIJKLMNOP12345" not in jobs[0]["error"]
 
-    def test_result_field_is_never_present(self, isolated_db):
-        # job_records has no result column at all -- confirms the schema
-        # itself, not just the service, keeps arbitrary job output out.
+    def test_done_job_without_result_is_ok(self, isolated_db):
         db.save_job_record("j1", status="done")
-        assert "result" not in jobs_service.list_jobs()[0]
+        job = jobs_service.list_jobs()[0]
+        assert job["result"] is None
+        assert job["outcome"] == "ok"
+
+
+def _run_job_with_result(job_id, result):
+    import time
+    import background_jobs
+    background_jobs.start_job(job_id, lambda: background_jobs.set_result(job_id, result))
+    deadline = time.time() + 3
+    while (background_jobs.get_status(job_id) or {}).get("status") != "done":
+        assert time.time() < deadline
+        time.sleep(0.01)
+
+
+class TestJobResults:
+    def test_failed_transcribe_result_is_failed_and_redacted(self, isolated_db):
+        _run_job_with_result("transcribe_1", {
+            "failed_reason": "model_download",
+            "detail": "could not fetch /home/someone/models/large-v3 with key sk-ABCDEFGHIJKLMNOP12345"})
+        job = jobs_service.get_job("transcribe_1")
+        assert job["status"] == "done"
+        assert job["outcome"] == "failed"
+        assert "sk-ABCDEFGHIJKLMNOP12345" not in job["outcome_message"]
+        assert "/home/someone" not in job["outcome_message"]
+        assert "downloaded" in job["outcome_message"]
+
+    def test_result_survives_a_restart(self, isolated_db):
+        import background_jobs
+        _run_job_with_result("translate_2", {"errors": ["batch 1: timeout"], "cap_reached": None,
+                                             "lines_replaced": True})
+        background_jobs._jobs.clear()  # the owning process is gone
+        job = jobs_service.get_job("translate_2")
+        assert job["result"]["lines_replaced"] is True
+        assert job["result"]["errors"] == ["batch 1: timeout"]
+        assert job["outcome"] == "partial"
+
+    def test_no_path_url_or_unlisted_key_in_result(self, isolated_db):
+        _run_job_with_result("dub_3", {
+            "failed_reason": "empty", "detail": r"C:\Users\kae\Videos\ep1.mp4 at https://x.example/a?k=1",
+            "output_path": "/srv/library/1/out.wav", "segments": [{"start": 0}]})
+        result = jobs_service.get_job("dub_3")["result"]
+        text = str(result)
+        assert "output_path" not in result and "segments" not in result
+        assert "Users" not in text and "/srv" not in text and "x.example" not in text
+
+    def test_outcomes_per_job_shape(self):
+        d = jobs_service.derive_outcome
+        assert d("done", None, {"failed_reason": "cancelled"})[0] == "cancelled"
+        assert d("done", None, {"failed_reason": "empty_kept_existing",
+                                "existing_line_count": 4})[0] == "kept_existing"
+        assert d("done", None, {"fixed_count": 2, "total_flagged": 3, "errors": ["x"],
+                                "cap_reached": None})[0] == "partial"
+        assert d("done", None, {"fixed_count": 3, "total_flagged": 3, "errors": [],
+                                "cap_reached": None}) == ("ok", "Fixed 3 of 3 flagged line(s).")
+        assert d("done", None, {"errors": [], "cap_reached": 1.5})[0] == "partial"
+        assert d("done", None, {"stats": {}, "partial": True})[0] == "partial"
+        assert d("cancelled", None, None)[0] == "cancelled"
+        assert d("error", "boom", None) == ("failed", "boom")
+        assert d("running", None, None) == (None, None)
+
+    def test_oversized_result_is_capped(self):
+        out = jobs_service.project_result({"errors": ["e" * 400] * 500})
+        assert len(str(out)) <= 9000
 
 
 class TestGetJob:
