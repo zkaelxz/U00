@@ -32,7 +32,9 @@ def _load_serve():
 @pytest.fixture
 def stubbed(isolated_db, monkeypatch):
     serve = _load_serve()
-    serve.install_e2e_stubs(monkeypatch.setattr)
+    env = dict(os.environ)
+    serve.install_e2e_stubs(monkeypatch.setattr, env)
+    serve.stubbed_env = env
     return serve
 
 
@@ -64,3 +66,26 @@ def test_reset_and_extension_are_stubbed(stubbed, monkeypatch):
     r = client.post("/api/extension/enabled", json={"enabled": True})
     assert r.status_code == 200 and r.json() == {"enabled": True, "running": False, "restart_needed": False}
     assert ext.reveal_token(confirm=True) == {"token": stubbed.E2E_STUB_TOKEN}
+
+
+def test_no_key_is_ever_resolved(stubbed, tmp_path, monkeypatch):
+    from services import settings_service as ss
+    env_file = tmp_path / ".env"
+    env_file.write_text("BAIHE_CLAUDE_KEY=sk-ant-REALKEY\nHF_TOKEN=hf_REAL\n", encoding="utf-8")
+    for key in ss.KEY_WRITE_ENGINES:
+        assert ss.resolve_key(key) is None
+        assert ss.resolve_key(key, str(env_file)) is None
+    assert ss._read_env_file(str(env_file)) == {}
+    assert not any(ss.key_status().values())
+    client = TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    items = client.get("/api/translate/engines").json()["items"]
+    assert not any(i["key_configured"] for i in items if i["name"] in ss.KEY_WRITE_ENGINES)
+
+
+def test_key_env_vars_are_removed(isolated_db, monkeypatch):
+    from services import settings_service as ss
+    env = {name: "secret" for k in ss.KEY_WRITE_ENGINES for name in ss.ENV_NAMES[k]}
+    env["BAIHE_OLLAMA_URL"] = "http://127.0.0.1:11434"
+    _load_serve().install_e2e_stubs(monkeypatch.setattr, env)
+    assert env == {"BAIHE_OLLAMA_URL": "http://127.0.0.1:11434",
+                   "HF_HUB_DISABLE_IMPLICIT_TOKEN": "1"}
