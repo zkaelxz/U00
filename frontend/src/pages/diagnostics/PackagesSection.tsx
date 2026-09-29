@@ -93,13 +93,15 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
-  const run = async (kind: Kind, name: string) => {
+  const run = async (kind: Kind, name: string, target?: string) => {
     onBusy({ kind, name })
     setOutcome(null)
     try {
-      const r = await (kind === 'install' ? installDependency(name) : upgradeDependency(name))
+      const r = await (kind === 'install' ? installDependency(name) : upgradeDependency(name, target ?? ''))
       setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint })
       if (r.ok && kind === 'upgrade') setUpdates((u) => (u ? markUpdated(u, name) : u))
+      // A new package can hold back (or allow) others: the server dropped its check too.
+      if (kind === 'install') setUpdates(null)
       if (r.ok) changed()
     } catch (e) {
       setOutcome({ kind, name, error: e })
@@ -115,6 +117,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     setOutcome(null)
     try {
       const r = await setupGpuTorch(v.variant)
+      setUpdates(null)
       const check = r.verify ? ` ${verifyText(r.verify)}` : ''
       setOutcome({
         kind: 'install', name: GPU_NAME, ok: r.ok, output: r.output_tail, hint: r.hint,
@@ -135,6 +138,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     setOutcome(null)
     setTaskRunning(t.id)
     const results: TaskRunResult[] = []
+    setUpdates(null)
     try {
       for (const [i, name] of t.to_install.entries()) {
         onBusy({ kind: 'install', name: `${name} (${i + 1} of ${t.to_install.length})` })
@@ -173,7 +177,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
-        onConfirm={() => void run(kind, name)}
+        onConfirm={() => void run(kind, name, target)}
       />
     )
 

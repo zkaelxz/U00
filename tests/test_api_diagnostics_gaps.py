@@ -79,7 +79,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(svc, "_stream_tree", fake_stream)
     monkeypatch.setattr(diagnostics, "nvidia_driver_info",
                         lambda: {"gpu_name": "NVIDIA GeForce RTX 3080 Ti", "driver_version": "580.97"})
-    monkeypatch.setattr(svc, "verify_torch", lambda: {
+    monkeypatch.setattr(svc, "verify_torch", lambda blocking=True: {
         "torch": "2.11.0+cu128", "torchvision": "0.26.0+cu128", "torchaudio": "2.11.0+cu128",
         "cuda_build": "12.8", "cuda_available": True, "device": "RTX", "error": None})
     monkeypatch.setattr(db, "reset_library", lambda: calls.append(("reset",)))
@@ -205,7 +205,11 @@ def test_gpu_torch_status_and_setup(client, fakes):
     assert b["nvidia"]["found"] is True and b["nvidia"]["status"] == "ok"
     assert b["recommended"]["variant"] == "cu128" and b["probe"] is None
     assert b["recommended"]["index_url"] == "https://download.pytorch.org/whl/cu128"
-    assert _clean(client.get("/api/diagnostics/gpu-torch?probe=true"))["probe"]["cuda_available"]
+    assert _clean(client.get("/api/diagnostics/gpu-torch?probe=true"))["probe"] is None
+    assert _clean(client.post("/api/diagnostics/gpu-torch/check", json={}))["probe"]["cuda_available"]
+    RUNNING["on"] = True        # the CUDA check takes VRAM: not while a job runs
+    assert client.post("/api/diagnostics/gpu-torch/check", json={}).status_code == 409
+    RUNNING["on"] = False
     r = client.post("/api/diagnostics/gpu-torch/setup", json={"confirm": True})
     out = _clean(r)
     assert r.status_code == 200 and out["ok"] is True and out["variant"] == "cu128"
@@ -280,4 +284,21 @@ def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monk
     assert r.status_code == 200 and asked
     assert b["packages"]["edge_tts"]["status"] == "update"
     assert b["packages"]["edge_tts"]["target"] == "99.0.0"
+    assert c.post("/api/diagnostics/gpu-torch/check", json={}).status_code in (401, 403)
+    svc._UPDATES.update(checked_at=None, packages={})
+
+
+def test_upgrade_binds_the_confirmed_target(client, fakes, monkeypatch):
+    monkeypatch.setattr(diagnostics, "pypi_release_versions", lambda dist: ["1.0.0", "2.0.0"])
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
+    svc._UPDATES.update(checked_at=None, packages={})
+    assert client.post("/api/diagnostics/package-updates/check", json={}).status_code == 200
+    url = "/api/diagnostics/dependencies/edge_tts/upgrade"
+    for bad in ("--index-url=x", "1.0 --pre", "", "a" * 65):
+        assert client.post(url, json={"confirm": True, "target": bad}).status_code == 422, bad
+    r = client.post(url, json={"confirm": True, "target": "1.5.0"})
+    assert r.status_code == 409 and fakes == []
+    r = client.post(url, json={"confirm": True, "target": "2.0.0"})
+    assert r.status_code == 200
+    assert "edge_tts==2.0.0" in fakes[0][1] or "edge-tts==2.0.0" in fakes[0][1]
     svc._UPDATES.update(checked_at=None, packages={})

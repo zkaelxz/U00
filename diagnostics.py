@@ -2104,9 +2104,17 @@ def classify_update(name: str, installed_version: str, releases, constraints: di
         return {"status": "unknown", **empty}
     try:
         have = version_mod.Version(installed_version)
-        versions = sorted({version_mod.Version(r) for r in releases})
     except Exception:
         return {"status": "unknown", **empty}
+    versions = set()
+    for r in releases:
+        try:
+            versions.add(version_mod.Version(r))
+        except Exception:
+            continue          # never a pip argument: only str(Version) is used below
+    if not versions:
+        return {"status": "unknown", **empty}
+    versions = sorted(versions)
     latest = versions[-1]
     # Compare on the public version: 2.11.0+cu128 is not "older" than 2.11.0.
     newer = [v for v in versions if v > version_mod.Version(have.public)]

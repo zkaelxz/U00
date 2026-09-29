@@ -2151,6 +2151,15 @@ class DiagnosticsAdminConfirm(BaseModel):
     confirm: StrictBool = False
 
 
+class DiagnosticsUpgradeRequest(BaseModel):
+    """confirm=true, and the version the user confirmed (the last update
+    check's target); 409 when that check no longer says so."""
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+    target: Optional[StrictStr] = Field(None, max_length=64,
+                                        pattern=r"^[0-9][0-9A-Za-z.+!_-]*$")
+
+
 class DiagnosticsInstallResult(BaseModel):
     package: str
     ok: bool
@@ -2254,7 +2263,8 @@ class DiagnosticsTorchVerify(BaseModel):
 class DiagnosticsGpuTorchStatus(BaseModel):
     """GET /api/diagnostics/gpu-torch: NVIDIA GPU/driver, the installed
     torch family, mismatches and the recommended matched triple. `probe`
-    only with ?probe=true (imports torch in a subprocess)."""
+    only from POST /api/diagnostics/gpu-torch/check (imports torch in a
+    fresh Python)."""
     nvidia: DiagnosticsGpuTorchNvidia
     installed: List[DiagnosticsTorchPackage]
     problems: List[str]

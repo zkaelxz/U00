@@ -60,9 +60,10 @@ export const installDependency = (name: string, f?: Fetch) =>
     `${BASE}/dependencies/${encodeURIComponent(name)}/install`, { confirm: true }, pcOnlyFetch(f),
   )
 
-export const upgradeDependency = (name: string, f?: Fetch) =>
+// target: the version the user confirmed (the last update check's); 409 if that check changed.
+export const upgradeDependency = (name: string, target: string, f?: Fetch) =>
   postJson<DiagnosticsInstallResult>(
-    `${BASE}/dependencies/${encodeURIComponent(name)}/upgrade`, { confirm: true }, pcOnlyFetch(f),
+    `${BASE}/dependencies/${encodeURIComponent(name)}/upgrade`, { confirm: true, target }, pcOnlyFetch(f),
   )
 
 // Asks PyPI on the server (only when called; cached there, and Update installs
@@ -70,9 +71,11 @@ export const upgradeDependency = (name: string, f?: Fetch) =>
 export const checkPackageUpdates = (f?: Fetch) =>
   postJson<DiagnosticsPackageUpdates>(`${BASE}/package-updates/check`, {}, f)
 
-// probe: the server also imports torch in a fresh Python to test CUDA (a few seconds).
-export const getGpuTorch = (probe = false, f?: Fetch) =>
-  getJson<DiagnosticsGpuTorchStatus>(`${BASE}/gpu-torch${probe ? '?probe=true' : ''}`, f)
+export const getGpuTorch = (f?: Fetch) => getJson<DiagnosticsGpuTorchStatus>(`${BASE}/gpu-torch`, f)
+
+// The same status plus a CUDA check: the server imports torch in a fresh Python
+// (a few seconds; 409 while a job or another check runs).
+export const checkGpuTorch = (f?: Fetch) => postJson<DiagnosticsGpuTorchStatus>(`${BASE}/gpu-torch/check`, {}, f)
 
 // Synchronous like installDependency: ~2.5 GB for the CUDA build.
 export const setupGpuTorch = (variant: 'cu128' | 'cpu', f?: Fetch) =>

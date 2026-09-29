@@ -142,8 +142,9 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   await page.route('**/api/diagnostics/setup-checks', (r) => r.fulfill({ json: setup }))
   await page.route('**/api/diagnostics/install-presets', (r) => r.fulfill({ json: presets }))
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
-  await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch',
-    (r) => r.fulfill({ json: gpuTorch(new URL(r.request().url()).searchParams.get('probe') === 'true') }))
+  await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch', (r) => r.fulfill({ json: gpuTorch(false) }))
+  // The CUDA check is a POST (CSRF-checked); it doesn't count as an install.
+  await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch/check', (r) => r.fulfill({ json: gpuTorch(true) }))
   await page.route((u) => u.pathname === '/api/diagnostics/package-updates/check', (r) => {
     sent.push(r.request())
     return r.fulfill({ json: UPDATES })
@@ -283,6 +284,7 @@ test('installed packages show versions; Update appears only after a check, with 
   await page.getByRole('button', { name: 'Confirm update pypinyin to 0.55.0' }).click()
   await expect(page.getByTestId('install-result')).toContainText('Updated pypinyin.')
   expect(new URL(sent[1].url()).pathname).toBe('/api/diagnostics/dependencies/pypinyin/upgrade')
+  expect(sent[1].postDataJSON()).toEqual({ confirm: true, target: '0.55.0' })
   await expect(pinyin.getByTestId('pkg-update')).toHaveText('Up to date')
   await expect(pinyin.getByTestId('pkg-version')).toHaveText('v0.55.0')
   expect(unmocked).toEqual([])

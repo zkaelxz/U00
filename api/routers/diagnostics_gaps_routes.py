@@ -8,13 +8,17 @@ only), pyannote readiness (Q15; `check_access=true` asks Hugging Face with
 the server-side token and returns booleans only), finished-job history
 (Q09), log tail with keyword filter (Q18), the support report (Q17) and
 install presets (packages grouped by task, installed versions, approx.
-sizes, PyPI links) and GPU PyTorch status (`probe=true` imports torch in a
-subprocess). `POST /package-updates/check` is also `admin.diagnostics`: it
+sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
+status plus a CUDA check in a fresh Python; 409 while a job or another
+check runs) and `POST /package-updates/check` are also `admin.diagnostics`;
+the latter
 asks PyPI (a fixed https://pypi.org/pypi/<dist>/json per static dist name,
 with a timeout) only when called, and caches the answer for Upgrade.
 
 Writes are `local_only()` plus `confirm=true`: dependency install and
-upgrade (Q06, package names from the service's whitelist only), the GPU
+upgrade (Q06, package names from the service's whitelist only; upgrade
+takes the `target` the user confirmed and is 409 when the last update check
+no longer says so), the GPU
 PyTorch setup (a fixed variant; versions and index come from diagnostics.py's
 static table, never the request) and the
 library reset (Q20, also `confirm_text` "RESET"). Each refuses while any
@@ -30,7 +34,7 @@ from api.auth import local_only, require_permission
 from api.schemas import (DiagnosticsAdminConfirm, DiagnosticsGpuTorchSetupRequest,
                          DiagnosticsGpuTorchSetupResult, DiagnosticsGpuTorchStatus,
                          DiagnosticsInstallPresets, DiagnosticsInstallResult,
-                         DiagnosticsPackageUpdates,
+                         DiagnosticsPackageUpdates, DiagnosticsUpgradeRequest,
                          DiagnosticsJobHistoryItem, DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
@@ -105,10 +109,18 @@ def post_package_updates_check():
 
 @router.get("/gpu-torch", dependencies=[require_permission("admin.diagnostics")],
             response_model=DiagnosticsGpuTorchStatus,
-            summary="NVIDIA GPU/driver, installed torch family, recommended matched triple "
-                    "(probe=true also imports torch in a subprocess)")
-def get_gpu_torch(probe: bool = Query(False)):
-    return svc.get_gpu_torch_status(probe=probe)
+            summary="NVIDIA GPU/driver, installed torch family, recommended matched triple")
+def get_gpu_torch():
+    return svc.get_gpu_torch_status()
+
+
+@router.post("/gpu-torch/check", dependencies=[require_permission("admin.diagnostics")],
+             response_model=DiagnosticsGpuTorchStatus,
+             summary="The same status plus a CUDA check (imports torch in a fresh Python; "
+                     "409 while a job or another check runs)",
+             responses={409: {"model": ErrorResponse}})
+def post_gpu_torch_check():
+    return svc.check_gpu_torch()
 
 
 @router.post("/gpu-torch/setup", dependencies=[local_only()],
@@ -133,9 +145,9 @@ def post_install(body: DiagnosticsAdminConfirm,
              response_model=DiagnosticsInstallResult,
              summary="PC only: upgrade a whitelisted optional package (confirm=true)",
              responses=_ERRS)
-def post_upgrade(body: DiagnosticsAdminConfirm,
+def post_upgrade(body: DiagnosticsUpgradeRequest,
                  package: str = Path(min_length=1, max_length=80, pattern=_PACKAGE_PATTERN)):
-    return svc.upgrade_dependency(package, confirm=body.confirm)
+    return svc.upgrade_dependency(package, confirm=body.confirm, target=body.target)
 
 
 @router.post("/reset-library", dependencies=[local_only()],

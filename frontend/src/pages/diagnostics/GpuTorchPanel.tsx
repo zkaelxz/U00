@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 
-import { getGpuTorch } from '../../api/diagnostics'
+import { checkGpuTorch, getGpuTorch } from '../../api/diagnostics'
 import { Section } from '../../components/Section'
+import { adminErrorText } from './diagnosticsAdmin'
 import type { DiagnosticsGpuTorchStatus, DiagnosticsTorchVariant } from '../../types/diagnostics'
 import {
   driverText, packageVersionText, setupBlockedReason, stateIsProblem, stateText, variantVersionsText, verifyText,
@@ -22,15 +23,18 @@ export function GpuTorchPanel({ refreshKey, action }: {
   const [status, setStatus] = useState<DiagnosticsGpuTorchStatus | null>(null)
   const [failed, setFailed] = useState(false)
   const [probing, setProbing] = useState(false)
+  const [probeError, setProbeError] = useState<string | null>(null)
 
-  const fetchStatus = useCallback((probe: boolean) => getGpuTorch(probe).then(
+  const fetchStatus = useCallback(() => getGpuTorch().then(
     (s) => { setStatus(s); setFailed(false) },
     () => setFailed(true),
   ), [])
-  useEffect(() => { void fetchStatus(false) }, [fetchStatus, refreshKey])
+  useEffect(() => { void fetchStatus() }, [fetchStatus, refreshKey])
   const probe = () => {
     setProbing(true)
-    void fetchStatus(true).finally(() => setProbing(false))
+    setProbeError(null)
+    checkGpuTorch().then(setStatus, (e) => setProbeError(adminErrorText(e, 'install')))
+      .finally(() => setProbing(false))
   }
 
   const summary = status ? stateText(status) : undefined
@@ -60,6 +64,7 @@ export function GpuTorchPanel({ refreshKey, action }: {
               Recommended ({status.recommended.label}): {variantVersionsText(status.recommended)}, from{' '}
               <code>{status.recommended.index_url}</code>.
             </p>
+            {probeError && <p className="error" role="alert">{probeError}</p>}
             {status.probe && (
               <p data-testid="gpu-torch-probe" className={status.probe.cuda_available ? 'ok' : 'warn'}>
                 {verifyText(status.probe)}

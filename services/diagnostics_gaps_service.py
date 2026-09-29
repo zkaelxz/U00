@@ -240,6 +240,11 @@ class AdminActionJobsRunning(AdminActionRefused, ConflictError):
     pass
 
 
+class AdminActionStale(AdminActionRefused, ConflictError):
+    """The confirmed version is no longer what the last update check found,
+    or a check/probe is already running (409)."""
+
+
 class AdminActionNotPossible(AdminActionRefused, InvalidInputError):
     """The action can't work on this machine (no NVIDIA GPU, a driver too
     old for CUDA 12, an unsupported Python) or goes through another action
@@ -470,19 +475,27 @@ def _run_pip(name: str, confirm, cmds_for) -> dict:
 
 
 def install_dependency(name: str, confirm: bool = False) -> dict:
-    return _run_pip(name, confirm, _install_commands)
+    try:
+        return _run_pip(name, confirm, _install_commands)
+    finally:
+        _clear_update_cache()      # a new package can hold back (or allow) others
 
 
-def upgrade_dependency(name: str, confirm: bool = False) -> dict:
+def upgrade_dependency(name: str, confirm: bool = False, target: str = None) -> dict:
     """Upgrades to the version the last "Check for updates" found allowed
     (pinned exactly, with constraints.txt); refuses when that check found
-    no allowed update. Without a check, `--upgrade` with constraints.txt as
-    before."""
+    no allowed update, or (409) when `target`, the version the user
+    confirmed, isn't that check's target any more. Without a check (and no
+    target), `--upgrade` with constraints.txt as before."""
     if name in diagnostics.TORCH_FAMILY:
         _guard(confirm)
         raise AdminActionNotPossible(
             "torch, torchvision and torchaudio are upgraded together: use GPU PyTorch setup.")
     checked = _cached_update(name)
+    if target is not None and (checked is None or checked["status"] != "update"
+                               or checked["target"] != target):
+        _guard(confirm)
+        raise AdminActionStale("The update check has changed since; check for updates again.")
     if checked is not None and checked["status"] != "update":
         _guard(confirm)
         raise AdminActionNotPossible(
@@ -514,7 +527,15 @@ def upgrade_dependency(name: str, confirm: bool = False) -> dict:
 UPDATE_CHECK_MIN_INTERVAL = 60
 UPDATE_CHECK_WORKERS = 8
 _UPDATES_LOCK = threading.Lock()
+_UPDATES_FETCH = threading.Lock()      # one PyPI fan-out at a time
 _UPDATES = {"checked_at": None, "packages": {}}
+
+
+def _clear_update_cache() -> None:
+    """After an install or a PyTorch setup the installed set changed, so a
+    cached target may no longer be safe: the next Update needs a new check."""
+    with _UPDATES_LOCK:
+        _UPDATES.update(checked_at=None, packages={})
 
 
 def _cached_update(name: str):
@@ -542,13 +563,31 @@ def check_package_updates(force: bool = False) -> dict:
     known limitations (diagnostics.classify_update). torch/torchvision/
     torchaudio are "managed" (GPU PyTorch setup), never an update here.
     One PyPI request per distribution, in parallel, each with a timeout."""
-    from concurrent.futures import ThreadPoolExecutor
+    def cached():
+        with _UPDATES_LOCK:
+            if _UPDATES["checked_at"] is None:
+                return None
+            return {"checked_at": _UPDATES["checked_at"],
+                    "packages": {k: dict(v) for k, v in _UPDATES["packages"].items()}}
     with _UPDATES_LOCK:
         recent = (_UPDATES["checked_at"] is not None and
                   time.time() - _UPDATES["checked_at"] < UPDATE_CHECK_MIN_INTERVAL)
-        if recent and not force:
-            return {"checked_at": _UPDATES["checked_at"],
-                    "packages": {k: dict(v) for k, v in _UPDATES["packages"].items()}}
+    if recent and not force:
+        return cached()
+    if not _UPDATES_FETCH.acquire(blocking=False):
+        # Another check is asking PyPI right now: never a second fan-out.
+        last = cached()
+        if last is not None:
+            return last
+        raise AdminActionStale("An update check is already running; try again in a moment.")
+    try:
+        return _check_package_updates_now()
+    finally:
+        _UPDATES_FETCH.release()
+
+
+def _check_package_updates_now() -> dict:
+    from concurrent.futures import ThreadPoolExecutor
     names = sorted(n for n in installable_packages() if _package_installed(n))
     installed = {n: diagnostics.installed_dist_version(n) for n in names}
     to_fetch = sorted({dist for n, (dist, v) in installed.items()
@@ -582,12 +621,17 @@ def check_package_updates(force: bool = False) -> dict:
 _VERIFY_LOCK = threading.Lock()
 
 
-def verify_torch() -> dict:
+def verify_torch(blocking: bool = True) -> dict:
     """Imports torch/torchvision/torchaudio in a fresh interpreter (this
     process may hold an older torch) and reports versions and whether CUDA
-    works. Error text is redacted. One check at a time."""
-    with _VERIFY_LOCK:
+    works. Error text is redacted. One check at a time: blocking=False
+    raises AdminActionStale (409) instead of queueing behind another."""
+    if not _VERIFY_LOCK.acquire(blocking=blocking):
+        raise AdminActionStale("A CUDA check is already running; try again in a moment.")
+    try:
         return _verify_torch_once()
+    finally:
+        _VERIFY_LOCK.release()
 
 
 def _verify_torch_once() -> dict:
@@ -622,11 +666,23 @@ def _python_supported() -> bool:
     return lo <= tuple(sys.version_info[:2]) <= hi
 
 
+def check_gpu_torch() -> dict:
+    """get_gpu_torch_status plus a CUDA check in a fresh interpreter. It
+    takes a CUDA context (VRAM), so it refuses (409) while a job, restore,
+    cleanup or install runs, or while another check does."""
+    from services import library_admin_service
+    if (background_jobs.exclusive_active() or _maintenance_active()
+            or library_admin_service._any_job_running()):
+        raise AdminActionJobsRunning(
+            "Wait for running jobs (or the install) to finish before checking CUDA.")
+    return get_gpu_torch_status(probe=True)
+
+
 def get_gpu_torch_status(probe: bool = False) -> dict:
     """NVIDIA GPU and driver (nvidia-smi), the installed torch family and
     its build, mismatches, and the recommended matched triple. probe=True
-    also imports torch in a subprocess to report torch.cuda.is_available()
-    (a few seconds); otherwise "probe" is None."""
+    (check_gpu_torch) also imports torch in a subprocess to report
+    torch.cuda.is_available() (a few seconds); otherwise "probe" is None."""
     nvidia = diagnostics.nvidia_driver_info()
     versions = diagnostics.torch_family_versions()
     problems = diagnostics.torch_family_problems(versions)
@@ -657,7 +713,7 @@ def get_gpu_torch_status(probe: bool = False) -> dict:
         "python_supported": _python_supported(),
         "recommended": recommended,
         "variants": [_variant_row(v) for v in diagnostics.TORCH_VARIANTS],
-        "probe": verify_torch() if probe else None,
+        "probe": verify_torch(blocking=False) if probe else None,
     }
 
 
@@ -697,7 +753,10 @@ def setup_gpu_torch(variant: str = None, confirm: bool = False) -> dict:
         result = _run_commands(_torch_setup_commands(variant))
         result["verify"] = verify_torch() if result["ok"] else None
         return result
-    result = _under_install_hold(run)
+    try:
+        result = _under_install_hold(run)
+    finally:
+        _clear_update_cache()
     verify = result["verify"]
     if verify is not None:
         good = verify.get("torch") == spec["versions"]["torch"] and not verify.get("error")

@@ -203,3 +203,53 @@ def test_presets_carry_installed_versions(monkeypatch):
     assert p["streamlit"]["installed_version"] == "1.56.0"      # required ones too
     assert p["streamlit"]["installable"] is False
     assert p["pypinyin"]["installed_version"] is None
+
+
+def test_hostile_release_keys_never_become_a_target():
+    """PyPI's release keys only reach pip as str(packaging.Version)."""
+    releases = ["--index-url=https://evil.example/simple", "1.0 --pre", "9.9; rm -rf /", "1.1"]
+    out = _c("jieba", "1.0", releases)
+    assert out["status"] == "update" and out["target"] == "1.1"
+
+
+def test_a_concurrent_check_never_starts_a_second_fan_out(monkeypatch):
+    calls = _fake_env(monkeypatch, {"jieba": "0.42.0"}, {"jieba": ["0.42.0"]})
+    assert svc._UPDATES_FETCH.acquire(blocking=False)
+    try:
+        with pytest.raises(svc.AdminActionStale):       # nothing cached yet
+            svc.check_package_updates()
+        svc._UPDATES.update(checked_at=1.0, packages={"jieba": {"name": "jieba"}})
+        assert svc.check_package_updates()["packages"] == {"jieba": {"name": "jieba"}}
+    finally:
+        svc._UPDATES_FETCH.release()
+    assert calls == []
+
+
+def test_upgrade_refuses_a_target_the_check_no_longer_offers(monkeypatch):
+    _fake_env(monkeypatch, {"jieba": "0.42.0"}, {"jieba": ["0.42.0", "0.42.1"]})
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+    monkeypatch.setattr(svc, "_stream_tree", lambda *a, **k: pytest.fail("no pip"))
+    with pytest.raises(svc.AdminActionStale):              # no check yet
+        svc.upgrade_dependency("jieba", confirm=True, target="0.42.1")
+    svc.check_package_updates()
+    with pytest.raises(svc.AdminActionStale):              # a newer check changed it
+        svc.upgrade_dependency("jieba", confirm=True, target="0.42.0")
+
+
+def test_install_and_torch_setup_clear_the_cached_check(monkeypatch):
+    _fake_env(monkeypatch, {"jieba": "0.42.0"}, {"jieba": ["0.42.0", "0.42.1"]})
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: False)
+
+    def fake(cmd, timeout):
+        yield {"returncode": 0, "timed_out": False}
+    monkeypatch.setattr(svc, "_stream_tree", fake)
+    svc.check_package_updates()
+    svc.install_dependency("jieba", confirm=True)
+    assert svc._cached_update("jieba") is None
+    svc.check_package_updates()
+    monkeypatch.setattr(diagnostics, "nvidia_driver_info", lambda: None)
+    monkeypatch.setattr(svc, "verify_torch", lambda: {"torch": "2.11.0+cpu", "error": None})
+    svc.setup_gpu_torch("cpu", confirm=True)
+    assert svc._cached_update("jieba") is None

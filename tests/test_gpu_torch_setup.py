@@ -311,3 +311,21 @@ def test_verify_timeout(monkeypatch):
         raise subprocess.TimeoutExpired(cmd, 1)
     monkeypatch.setattr(subprocess, "run", run)
     assert "too long" in svc.verify_torch()["error"]
+
+
+def test_cuda_check_never_queues_behind_another(monkeypatch):
+    monkeypatch.setattr(svc, "_verify_torch_once", lambda: pytest.fail("no second check"))
+    assert svc._VERIFY_LOCK.acquire(blocking=False)
+    try:
+        with pytest.raises(svc.AdminActionStale):
+            svc.verify_torch(blocking=False)
+    finally:
+        svc._VERIFY_LOCK.release()
+
+
+def test_cuda_check_refused_while_a_job_runs(monkeypatch):
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "_any_job_running", lambda: True)
+    monkeypatch.setattr(svc, "_verify_torch_once", lambda: pytest.fail("no check"))
+    with pytest.raises(svc.AdminActionJobsRunning):
+        svc.check_gpu_torch()
