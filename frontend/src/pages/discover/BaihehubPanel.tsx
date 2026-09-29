@@ -9,6 +9,7 @@ import { baihehubSearch, translateQuery } from '../../api/discover'
 import { ExternalLink } from './ExternalLink'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import type { BaihehubResult } from '../../types/discover'
 import { hasChinese } from './discoverFormat'
 
@@ -50,7 +51,7 @@ export function BaihehubPanel({ engine, canTranslate }: { engine: string; canTra
         <Field label="Title to search">
           <input type="search" value={q} maxLength={200} onChange={(e) => setQ(e.target.value)} />
         </Field>
-        <button type="submit" disabled={!q.trim() || busy} aria-busy={busy}>
+        <button type="submit" className={buttonClass('secondary')} disabled={!q.trim() || busy} aria-busy={busy}>
           {busy ? 'Searching…' : 'Search'}
         </button>
       </div>

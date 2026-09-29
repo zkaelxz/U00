@@ -10,6 +10,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { NAV_JOB_ID, getNavigationHelpResult, listPlatforms, startNavigationHelp } from '../../api/discover'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import type { NavigationHelpResult, Platform } from '../../types/discover'
 import { TARGET_LANGUAGES, isHttpUrl } from './discoverFormat'
 import { useDiscoverJob } from './useDiscoverJob'
@@ -76,7 +77,7 @@ export function NavigationHelp({ engine, aiReady }: { engine: string; aiReady: b
       </Field>
       {missing.length > 0 && <p className="muted">Still needed: {missing.join('; ')}.</p>}
       <div className="discover-row">
-        <button type="submit" className="primary" disabled={missing.length > 0 || running} aria-busy={running}>
+        <button type="submit" className={buttonClass('secondary')} disabled={missing.length > 0 || running} aria-busy={running}>
           {running ? 'Working…' : 'Get navigation steps'}
         </button>
         {running && (

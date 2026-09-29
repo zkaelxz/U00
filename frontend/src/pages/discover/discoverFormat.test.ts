@@ -40,8 +40,8 @@ describe('text helpers', () => {
     expect(mediaLabel('audio_drama')).toBe('Audio drama')
     expect(mediaLabel('')).toBe('—')
     const t = { author: 'Mo', media_type: 'novel', language: 'zh', tags: 'gl' } as KnownTitle
-    expect(titleMeta(t)).toBe('Mo · Novel · Chinese · gl')
-    expect(titleMeta({ ...t, author: null, tags: null })).toBe('— · Novel · Chinese')
+    expect(titleMeta(t)).toBe('Mo · gl')
+    expect(titleMeta({ ...t, author: null, tags: null })).toBe('Unknown author')
   })
 
   it('writes the count line', () => {

@@ -13,10 +13,11 @@ async function noSideways(page: Page) {
 }
 
 // Visible buttons, selects, text inputs, summaries and checkbox rows are at least 44 px tall.
+// (The Toggle's track is 24 px; its hit area is widened by CSS, checked below.)
 async function tallTargets(page: Page) {
   const small = await page.locator('.discover-page').evaluate((root) => {
     const sel =
-      'button:not(.link):not(.field-help-btn), select, input:not([type="checkbox"]), textarea, summary, .discover-review label, .discover-in-library'
+      'button:not(.link):not(.field-help-btn):not(.toggle), select, input:not([type="checkbox"]), textarea, summary, .discover-review label, a.btn'
     return [...root.querySelectorAll<HTMLElement>(sel)]
       .filter((e) => e.offsetParent !== null)
       .map((e) => ({ h: e.getBoundingClientRect().height, text: (e.textContent || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) }))
@@ -29,7 +30,7 @@ test('phone: every section open, no sideways scroll, 44 px targets', async ({ pa
   const s = await mockDiscover(page, { bulk: 'done', nav: 'done' })
   await page.goto('/#/discover')
   await expect(page.getByTestId('catalog-count')).toHaveText('2 of 2 saved titles')
-  for (const name of ['Search baihehub', 'Site navigation helper', 'Open a site', 'Add a title', 'Bulk import from listing pages']) {
+  for (const name of ['Search baihehub', 'Site navigation helper', 'Open a site', 'Bulk import from listing pages']) {
     await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${name}$`) }) }).click()
   }
   await expect(page.getByTestId('bulk-review')).toBeVisible()
@@ -45,6 +46,10 @@ test('phone: every section open, no sideways scroll, 44 px targets', async ({ pa
   await page.getByLabel('Site URL').fill('https://www.jjwxc.net/a/very/long/path/that/should/not/push/the/page/sideways/at/all')
   await noSideways(page)
   await tallTargets(page)
+  const hit = await page.getByRole('switch', { name: 'Translate English to Chinese first' }).evaluate(
+    (el) => parseFloat(getComputedStyle(el, '::after').height) || el.getBoundingClientRect().height,
+  )
+  expect(hit).toBeGreaterThanOrEqual(44)
   await page.screenshot({ path: 'test-results/discover-phone.png', fullPage: true })
   expect(s.unmocked).toEqual([])
 })

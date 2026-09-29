@@ -10,6 +10,9 @@ import { listPlatforms, searchLinks, translateQuery } from '../../api/discover'
 import { ExternalLink } from './ExternalLink'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
+import { Toggle } from '../../components/Toggle'
+import { buttonClass } from '../../components/uiClasses'
 import type { Platform, SearchLink } from '../../types/discover'
 import { LANGUAGES, LINK_FORMATS, PLATFORM_TYPES, hasChinese, mediaLabel } from './discoverFormat'
 
@@ -83,15 +86,16 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
             ))}
           </select>
         </Field>
-        <button type="submit" className="primary" disabled={!q.trim() || busy} aria-busy={busy}>
+        <button type="submit" className={buttonClass('primary')} disabled={!q.trim() || busy} aria-busy={busy}>
           {busy ? 'Finding…' : 'Find'}
         </button>
       </form>
       {canTranslate ? (
-        <label className="discover-check">
-          <input type="checkbox" checked={translate} onChange={(e) => setTranslate(e.target.checked)} />
-          Translate an English title to Chinese first (one AI call)
-        </label>
+        <div className="setting-list">
+          <Field label="Translate English to Chinese first" help="One AI call with the engine above, only when you press Find.">
+            <Toggle checked={translate} onChange={setTranslate} />
+          </Field>
+        </div>
       ) : (
         <p className="muted">No AI engine is set up, so the title is searched as typed.</p>
       )}
@@ -114,10 +118,9 @@ export function FindPanel({ engine, canTranslate }: { engine: string; canTransla
           ))}
         </ul>
       )}
-      <details className="discover-sub" onToggle={(e) => e.currentTarget.open && setShowPlatforms(true)}>
-        <summary>Known official platforms</summary>
+      <Section title="Known official platforms" summary="Chinese, Korean and Japanese sites" onToggle={(open) => open && setShowPlatforms(true)}>
         {showPlatforms && <PlatformList />}
-      </details>
+      </Section>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { useState, type FormEvent } from 'react'
 import { createTitle, importSuggestion } from '../../api/discover'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import type { KnownTitleCreate } from '../../types/discover'
 import { EMPTY_TITLE, LANGUAGES, TITLE_MEDIA_TYPES, applySuggestion, isHttpUrl, mediaLabel, titleFormProblems } from './discoverFormat'
 
@@ -82,7 +83,7 @@ export function AddTitle({ engine, aiReady, onAdded }: { engine: string; aiReady
         <Field label="Fill from a page (optional)">
           <input type="url" value={pageUrl} maxLength={2000} onChange={(e) => setPageUrl(e.target.value)} placeholder="https://" />
         </Field>
-        <button type="button" onClick={readPage} disabled={!aiReady || !isHttpUrl(pageUrl) || reading} aria-busy={reading}>
+        <button type="button" className={buttonClass('secondary')} onClick={readPage} disabled={!aiReady || !isHttpUrl(pageUrl) || reading} aria-busy={reading}>
           {reading ? 'Reading…' : 'Read page'}
         </button>
       </div>
@@ -138,7 +139,7 @@ export function AddTitle({ engine, aiReady, onAdded }: { engine: string; aiReady
           </p>
         )}
         <div>
-          <button type="submit" className="primary" disabled={saving} aria-busy={saving}>
+          <button type="submit" className={buttonClass('primary')} disabled={saving} aria-busy={saving}>
             {saving ? 'Adding…' : 'Add to catalogue'}
           </button>
         </div>

@@ -2,6 +2,7 @@
  * Discover page: pure helpers (unit-tested in discoverFormat.test.ts).
  * Limits mirror services/discover_lookup_service.py and bulk_import.py.
  */
+import { humanize } from '../../components/labels'
 import type { TranslateEngine } from '../../types/translate'
 import type { BulkEntry, KnownTitle, KnownTitleCreate } from '../../types/discover'
 
@@ -29,13 +30,11 @@ export function discoverEngines(all: TranslateEngine[]): TranslateEngine[] {
 }
 
 export function languageLabel(code: string | null | undefined): string {
-  return LANGUAGES.find((l) => l.code === code)?.label ?? (code || '—')
+  return humanize('language', code) || '—'
 }
 
 export function mediaLabel(type: string | null | undefined): string {
-  if (!type) return '—'
-  const s = type.replace(/_/g, ' ')
-  return s.charAt(0).toUpperCase() + s.slice(1)
+  return humanize('mediaType', type) || '—'
 }
 
 /** True if the text has a CJK ideograph (the server's own "already Chinese" test). */
@@ -43,11 +42,9 @@ export function hasChinese(text: string): boolean {
   return /[一-鿿]/.test(text)
 }
 
-/** "Author · Novel · Chinese · tags" for a catalogue card. */
+/** "Author · tags" for a catalogue card (type and language are badges). */
 export function titleMeta(t: KnownTitle): string {
-  return [t.author || '—', mediaLabel(t.media_type), languageLabel(t.language), t.tags || '']
-    .filter(Boolean)
-    .join(' · ')
+  return [t.author || 'Unknown author', t.tags || ''].filter(Boolean).join(' · ')
 }
 
 /** The count line under the catalogue search. */

@@ -10,6 +10,8 @@ import { useState, type FormEvent } from 'react'
 import { BULK_JOB_ID, bulkCommit, getBulkExtractResult, startBulkExtract } from '../../api/discover'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { BulkCommitResult, BulkExtractResult } from '../../types/discover'
 import { MAX_BULK_URLS, bulkUrlsProblem, commitEntries, paginateUrls, parseUrlList } from './discoverFormat'
 import { ExternalLink } from './ExternalLink'
@@ -40,8 +42,7 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
         For pages that list many titles (a tag or ranking listing). Extracts title, author, tags and whether there is an
         audio drama, never chapter or episode content. Review before adding.
       </p>
-      <details className="discover-sub">
-        <summary>Fill in page URLs from a pattern</summary>
+      <Section title="Fill in page URLs from a pattern" summary="Optional, for paginated listings">
         <div className="discover-block">
           <p className="muted">Copy page 2's address, put {'{page}'} where the page number goes.</p>
           <Field label="URL pattern">
@@ -61,14 +62,14 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
               <input type="number" min={1} value={to} onChange={(e) => setTo(Number(e.target.value))} />
             </Field>
           </div>
-          <button type="button" disabled={generated.length === 0} onClick={() => setUrlsText(generated.join('\n'))}>
+          <button type="button" className={buttonClass('ghost')} disabled={generated.length === 0} onClick={() => setUrlsText(generated.join('\n'))}>
             Fill in {generated.length || ''} URL{generated.length === 1 ? '' : 's'}
           </button>
           {generated.length > MAX_BULK_URLS && (
             <p className="muted">One run reads at most {MAX_BULK_URLS} pages; split the rest into later runs.</p>
           )}
         </div>
-      </details>
+      </Section>
       <form className="discover-block" onSubmit={extract}>
         <Field label="Listing page URLs" help={`One per line, up to ${MAX_BULK_URLS}.`} error={problem}>
           <textarea rows={3} value={urlsText} onChange={(e) => setUrlsText(e.target.value)} placeholder="https://" />
@@ -78,7 +79,7 @@ export function BulkImport({ engine, aiReady, onAdded }: { engine: string; aiRea
         </Field>
         {!aiReady && <p className="muted">Still needed: an AI engine (set a key in Settings).</p>}
         <div className="discover-row">
-          <button type="submit" className="primary" disabled={!aiReady || running || !!bulkUrlsProblem(urls)} aria-busy={running}>
+          <button type="submit" className={buttonClass('secondary')} disabled={!aiReady || running || !!bulkUrlsProblem(urls)} aria-busy={running}>
             {running ? 'Extracting…' : 'Extract entries'}
           </button>
           {running && (
@@ -177,7 +178,7 @@ function BulkReview({ result, onAdded }: { result: BulkExtractResult; onAdded: (
             ))}
           </ul>
           <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
-          <button type="button" className="primary" disabled={toAdd.length === 0 || busy} aria-busy={busy} onClick={add}>
+          <button type="button" className={buttonClass('secondary')} disabled={toAdd.length === 0 || busy} aria-busy={busy} onClick={add}>
             {busy ? 'Adding…' : `Add ${toAdd.length} to catalogue`}
           </button>
         </>

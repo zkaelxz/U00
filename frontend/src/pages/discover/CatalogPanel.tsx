@@ -6,10 +6,13 @@
 import { useEffect, useState } from 'react'
 
 import { deleteTitle, importToLibrary, listTitles, seedTitles } from '../../api/discover'
+import { Badge } from '../../components/Badge'
+import { ButtonLink } from '../../components/Button'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ExternalLink } from './ExternalLink'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { buttonClass } from '../../components/uiClasses'
 import { PC_ONLY_DELETE_NOTE, type PcMode } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { KnownTitle, KnownTitleList } from '../../types/discover'
@@ -131,7 +134,7 @@ export function CatalogPanel({ pc, reloadKey }: { pc: PcMode; reloadKey: number 
       {empty && (
         <div className="discover-empty">
           <p className="muted">Load a few known baihe titles to start with, or add titles below.</p>
-          <button type="button" className="primary" onClick={seed} disabled={busy === 'seed'} aria-busy={busy === 'seed'}>
+          <button type="button" className={buttonClass('primary')} onClick={seed} disabled={busy === 'seed'} aria-busy={busy === 'seed'}>
             {busy === 'seed' ? 'Loading…' : 'Load starter titles'}
           </button>
         </div>
@@ -171,7 +174,11 @@ function TitleCard({ t, pc, dramaId, busy, onAdd, onRemove }: {
         <strong lang={t.language || undefined}>{t.title_original}</strong>
         {t.title_en && <em>{t.title_en}</em>}
       </div>
-      <p className="muted discover-card-meta">{titleMeta(t)}</p>
+      <p className="discover-card-meta">
+        <Badge kind="mediaType" value={t.media_type} />
+        <Badge kind="language" value={t.language} />
+        <span className="muted">{titleMeta(t)}</span>
+      </p>
       {(t.summary_en || t.summary_original || t.source_url) && (
         <details className="discover-card-detail">
           <summary>Details</summary>
@@ -189,11 +196,11 @@ function TitleCard({ t, pc, dramaId, busy, onAdd, onRemove }: {
       )}
       <div className="discover-card-actions">
         {dramaId !== null ? (
-          <a className="discover-in-library" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+          <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
             In your Library — open
-          </a>
+          </ButtonLink>
         ) : (
-          <button type="button" onClick={onAdd} disabled={adding} aria-busy={adding} aria-label={`Add ${name} to Library`}>
+          <button type="button" className={buttonClass('secondary', 'sm')} onClick={onAdd} disabled={adding} aria-busy={adding} aria-label={`Add ${name} to Library`}>
             {adding ? 'Adding…' : 'Add to Library'}
           </button>
         )}

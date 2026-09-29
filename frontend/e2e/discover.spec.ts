@@ -119,7 +119,6 @@ test('baihehub search falls back to a browser link; navigation helper shows step
 test('add a title from a URL suggestion, then by hand', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
-  await openSection(page, 'Add a title')
   await page.getByLabel('Fill from a page (optional)').fill('https://example.cn/snow')
   await page.getByRole('button', { name: 'Read page' }).click()
   await expect(page.getByLabel('Title (original language)')).toHaveValue('雪夜')
