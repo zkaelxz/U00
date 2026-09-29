@@ -1,13 +1,16 @@
 import { useState } from 'react'
 
 import { getAssText, getSubtitleText } from '../../../api/export'
+import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
+import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
 import { buildAssRequest, exportFilename, MAX_BASE_NAME, parseWrap, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { ExportTextResult } from './ExportTextResult'
+import { exportBlocked } from './stageBlockers'
 
 export type ExportFormat = 'srt' | 'vtt' | 'ass'
 
@@ -19,12 +22,15 @@ interface Props {
   form: AssForm
   setForm: (f: AssForm) => void
   options: AssStyleOptions | null
+  // Lines in the drama from the readiness check; null while it loads or if it failed.
+  totalLines: number | null
 }
 
 // The one primary panel: Format, Language and a single Export (download) button.
 // Notes and line wrapping live in Advanced; the shared form also feeds ASS and burned-in video.
-export function ExportSubtitles({ fmt, setFmt, form, setForm, options }: Props) {
+export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines }: Props) {
   const { dramaId } = useStage()
+  const blocked = exportBlocked(totalLines)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: ExportFormat } | null>(null)
@@ -89,8 +95,24 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options }: Props) 
             <option value="bilingual">Both</option>
           </select>
         </Field>
-        <button type="button" className="primary" onClick={exportFile}>Export</button>
+        <button
+          type="button"
+          className="primary"
+          disabled={blocked}
+          aria-describedby={blocked ? 'export-blocker' : undefined}
+          onClick={exportFile}
+        >
+          Export
+        </button>
       </div>
+      {blocked && (
+        <p className="stage-blocker" id="export-blocker" data-testid="export-blocker">
+          <span>No lines to export yet.</span>
+          <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+            Go to Source
+          </ButtonLink>
+        </p>
+      )}
       <Section
         title="Advanced"
         summary={`${form.includeNotes ? 'with notes' : 'no notes'} · wrap ${form.wrapEn || 'off'}/${form.wrapSource || 'off'} · ${exportFilename(form.baseName, dramaId, form.field, fmt)}`}

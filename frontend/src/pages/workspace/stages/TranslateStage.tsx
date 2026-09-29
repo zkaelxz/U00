@@ -11,11 +11,14 @@ import {
   saveTranslatePreset,
   startTranslateRun,
 } from '../../../api/translateStage'
+import { ButtonLink } from '../../../components/Button'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
+import { buttonClass } from '../../../components/uiClasses'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { routeHref } from '../../../router'
 import type { LibraryPreset } from '../../../types/library'
 import type {
   TranslatePresetApplied,
@@ -54,6 +57,7 @@ import { GlossaryPanel } from './GlossaryPanel'
 import { GlossaryReview } from './GlossaryReview'
 import { JobPanel } from './JobPanel'
 import { NovelFilePanel } from './NovelFilePanel'
+import { translateBlocker } from './stageBlockers'
 import './translate.css'
 
 function EstimateView({ e }: { e: TranslateRunEstimate }) {
@@ -291,6 +295,7 @@ function RunPanel({
   const canBulk = bulkAvailable(effEngine, config.bulk_supported_engines) && !(f.reflect && !bulkReflectAvailable(effEngine, config.bulk_supported_engines))
   const lineCount = f.force && f.forceConfirmed ? config.line_count : config.untranslated_count
   const guidance = styleGuidance(config, f.style_preset)
+  const blocker = translateBlocker(config.line_count, config.untranslated_count, f.force, f.forceConfirmed)
 
   const runEstimate = () => {
     const params = buildEstimateParams(f)
@@ -372,12 +377,49 @@ function RunPanel({
         </details>
       )}
       <div className="translate-go">
-        <button type="button" className="primary" disabled={busy || reviewing > 0} onClick={() => start()}>
+        <button
+          type="button"
+          className="primary"
+          disabled={busy || reviewing > 0 || blocker !== null}
+          aria-describedby={blocker ? 'translate-blocker' : undefined}
+          onClick={() => start()}
+        >
           Translate {lineCount} line{lineCount === 1 ? '' : 's'}
         </button>
         <button type="button" className="link" onClick={runEstimate}>Estimate cost</button>
         {estimate && <EstimateView e={estimate} />}
       </div>
+      {blocker && (
+        <p className="stage-blocker" id="translate-blocker" data-testid="translate-blocker">
+          {blocker.kind === 'no-lines' && (
+            <>
+              <span>Still needed: lines to translate.</span>
+              <ButtonLink variant="ghost" size="sm" href={routeHref({ name: 'drama', id: dramaId, stage: 'source' })}>
+                Go to Source
+              </ButtonLink>
+            </>
+          )}
+          {blocker.kind === 'all-translated' && (
+            <>
+              <span>All {blocker.total} line{blocker.total === 1 ? ' has' : 's have'} English.</span>
+              <button
+                type="button"
+                className={buttonClass('ghost', 'sm')}
+                onClick={() => setF((s) => ({ ...s, force: true, forceConfirmed: false }))}
+              >
+                Re-translate existing…
+              </button>
+            </>
+          )}
+          {blocker.kind === 'confirm-force' && <span>Still needed: confirm replacing the existing English below.</span>}
+        </p>
+      )}
+      {f.force && (
+        <label className="inline stage-ack">
+          <input type="checkbox" checked={f.forceConfirmed} onChange={(e) => set('forceConfirmed', e.target.checked)} />{' '}
+          I understand this replaces existing English (a snapshot is saved first)
+        </label>
+      )}
       {canReview && (
         <div className="setting-list">
           <Field
@@ -487,16 +529,6 @@ function RunPanel({
               />{' '}
               Re-translate existing
             </label>
-            {f.force && (
-              <label className="inline">
-                <input
-                  type="checkbox"
-                  checked={f.forceConfirmed}
-                  onChange={(e) => set('forceConfirmed', e.target.checked)}
-                />{' '}
-                I understand this replaces existing English (a snapshot is saved first)
-              </label>
-            )}
           </div>
           <SavePreset f={f} defaultEngine={config.translation_engine} />
         </div>

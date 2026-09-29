@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { withExportLines } from './stageLineMocks'
+
 // Reads, the ASS/subtitle text and the flag actions hit the real seeded API
 // (the seeded dramas have no lines, so counts are zero and flags write
 // nothing). Job starts are mocked: no ffmpeg runs.
@@ -28,9 +30,22 @@ async function mockJob(page: Page, startPath: string, finalStatus: 'done' | 'can
   return { bodies, finish: () => (finished = true) }
 }
 
-test('shows readiness and generates subtitle and ASS text', async ({ page }) => {
+test('with no lines, Export is disabled and links to Source (rule 22)', async ({ page }) => {
   await page.goto('/#/drama/1/export')
   await expect(page.getByTestId('readiness')).toContainText('0 lines')
+  await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeDisabled()
+  const blocker = page.getByTestId('export-blocker')
+  await expect(blocker).toContainText('No lines to export yet.')
+  await blocker.getByRole('link', { name: 'Go to Source' }).click()
+  await expect(page).toHaveURL(/#\/drama\/1\/source$/)
+})
+
+test('shows readiness and generates subtitle and ASS text', async ({ page }) => {
+  // The seeded drama has no lines; pretend it has some so Export is enabled
+  // (the real subtitle text is still empty).
+  await withExportLines(page)
+  await page.goto('/#/drama/1/export')
+  await expect(page.getByTestId('readiness')).toContainText('3 lines')
 
   const srt = page.waitForResponse((r) => r.url().includes('/subtitle?') && r.status() === 200)
   await page.getByRole('button', { name: 'Export', exact: true }).click()
@@ -44,6 +59,7 @@ test('shows readiness and generates subtitle and ASS text', async ({ page }) => 
 })
 
 test('bad ASS settings are explained before any request', async ({ page }) => {
+  await withExportLines(page)
   await page.goto('/#/drama/1/export')
   await page.getByLabel('Format', { exact: true }).selectOption('ass')
   await page.getByText('ASS style', { exact: true }).click()

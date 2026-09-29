@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { withTranslateLines } from './stageLineMocks'
+
 // Parity X02 (apply a workflow tier) and X22 (save as preset). The two write
 // routes are mocked so the shared seeded library is left as it was; config
 // reads hit the real seeded API. pytest covers the real routes.
@@ -112,6 +114,7 @@ test('after a tier, Default runs and saves with the new engine', async ({ page }
     })
   })
 
+  await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await run.getByLabel('Starting tier', { exact: true }).selectOption(tier.key)

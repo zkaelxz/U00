@@ -114,7 +114,14 @@ export default function ExportStage() {
             )}
           </>
         )}
-        <ExportSubtitles fmt={fmt} setFmt={setFmt} form={form} setForm={setForm} options={options} />
+        <ExportSubtitles
+          fmt={fmt}
+          setFmt={setFmt}
+          form={form}
+          setForm={setForm}
+          options={options}
+          totalLines={r ? r.total_lines : null}
+        />
         <MarkExported />
       </section>
       {options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />}

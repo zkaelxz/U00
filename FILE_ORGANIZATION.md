@@ -596,7 +596,10 @@ baihe-subtitler/
 │   │                              CharactersPanel's sample lines, custom pronouns and "Remember in this series"
 │   │                              use characterForm.ts (pure, unit-tested); API in src/api/characters.ts,
 │   │                              types in src/types/characters.ts
+│   │                              stageBlockers.ts (pure, unit-tested: why Translate/Export can't run yet,
+│   │                              shown under the disabled primary with a one-tap fix)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
+│   │                              (stageLineMocks.ts: give the 0-line seeded dramas a line count)
 │   └── playwright.config.ts
 │
 ├── extension/                  ← BROWSER SIDE. Loaded unpacked, not a Python package.
