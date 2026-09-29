@@ -49,7 +49,14 @@ def fake_live(monkeypatch, isolated_db):
             {"start": 2, "end": 4, "text": "再见",
              "translated": f"[translation failed: /home/me/x key {SECRET}]"}])
         background_jobs.update_progress(job_id, 0.5, f"Capturing into {out_dir}")
-        _wait(lambda: background_jobs.is_cancel_requested(job_id))
+        # Runs until stopped, like the real capture. A short cutoff here let
+        # the session end on its own while a test was still relying on it
+        # being active (the 409 check in test_auth_on_permissions comes after
+        # a cold Claude-engine build, over 1 s even on an idle machine), so
+        # the one-session guard let a second start through. The teardown
+        # below always cancels; the job-gone check covers a cleared record.
+        _wait(lambda: background_jobs.is_cancel_requested(job_id)
+              or background_jobs.get_status(job_id) is None, timeout=60.0)
     monkeypatch.setattr(live_translate, "run_live_job", fake_run)
     yield seen
     for sid in list(live_service._sessions):
@@ -75,6 +82,8 @@ def test_start_poll_stop_flow(client, fake_live):
                                                 "max_minutes": 5, "use_gpu": True})
     assert r.status_code == 200, r.text
     sid = r.json()["session_id"]
+    # the job thread may not have reached the fake runner yet
+    assert _wait(lambda: "kw" in fake_live)
     assert fake_live["kw"]["use_gpu"] is True and fake_live["kw"]["max_seconds"] == 300
     assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["next_index"] == 2)
     g = client.get(f"/api/live/sessions/{sid}")
@@ -183,7 +192,7 @@ def test_one_session_at_a_time(client, fake_live):
 def test_streamlit_capture_job_blocks_a_start(client, fake_live):
     import threading
     gate = threading.Event()
-    assert background_jobs.start_job("live_capture", lambda: gate.wait(5))
+    assert background_jobs.start_job("live_capture", lambda: gate.wait(60))  # set in finally
     try:
         r = client.post("/api/live/sessions", json={"url": URL, "engine": "test_offline"})
         assert r.status_code == 409
