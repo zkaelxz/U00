@@ -882,44 +882,6 @@ class TestBulkReflectPipeline:
             bt.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), NS(model="m"),
                                        "deepseek", {})
 
-    def test_panel_shows_the_current_stage_not_just_pending(self, isolated_db, monkeypatch):
-        """UI-level half of the exit condition: the Bulk jobs panel shows
-        which Reflect stage is current, not a generic status."""
-        import tabs.workspace_tab as wt
-        engine = _claude_engine()
-        monkeypatch.setattr(bt, "make_provider", lambda engine_choice, e: bt.ClaudeBatchProvider(engine))
-        # Avoids a real background poller thread racing this test's own
-        # already-consumed fake results -- the panel's own rendering (what
-        # this test actually checks) doesn't depend on resume_pending.
-        monkeypatch.setattr(bt, "resume_pending", lambda *a, **kw: {})
-        did = _drama(isolated_db, n=1)
-        lines = isolated_db.load_line_objects(did)
-        jid1 = bt.submit_reflect_pipeline(did, lines, engine, "claude", {"locale": "en-US"})
-        assert wt._bulk_job_title(isolated_db.get_bulk_job(jid1)) == (
-            "Bulk Reflect -- faithfulness pass (stage 1/3)")
-
-        self._drive_stage(isolated_db, engine, jid1, lambda i: "draft")
-        stage2 = bt._sibling_stage_job(isolated_db.get_bulk_job(jid1)["pipeline_id"], "reflect")
-        assert wt._bulk_job_title(isolated_db.get_bulk_job(stage2["id"])) == (
-            "Bulk Reflect -- reflection pass (stage 2/3)")
-
-        from streamlit.testing.v1 import AppTest
-
-        def _render():
-            import tabs.workspace_tab as wt
-            wt.render_workspace_tab()
-
-        at = AppTest.from_function(_render)
-        at.session_state["active_drama_id"] = did
-        at.session_state["lines"] = None
-        at.session_state["settings_claude"] = "sk-ant-fake"
-        at.run(timeout=30)
-        at.run(timeout=30)
-        assert any("Bulk Reflect -- reflection pass (stage 2/3)" in m.value for m in at.markdown)
-        # Stage 1 (already applied, superseded) is not shown as its own
-        # separate card -- only the pipeline's current stage is.
-        assert not any("faithfulness pass" in m.value for m in at.markdown)
-
 
 class TestFinishTranslationRunGlossaryEnforcement:
     """Step 25d item 5: the enforce_exact glossary substitution pass used

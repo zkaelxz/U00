@@ -94,7 +94,7 @@ def test_caches_are_empty_after_the_transcription_stage_completes(loaded_models,
     job_id = "test_release_after_transcribe"
     background_jobs._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
                                       "error": None, "cancel_requested": False, "result": None}
-    # Repointed from tabs.workspace_tab.run_transcribe_job (a re-export of this).
+    # Repointed from the Workspace tab's run_transcribe_job (a re-export of this).
     workspace_job_service.run_transcribe_job(job_id, "a.wav", "medium", "zh", True, None, None, None, 5, 2000)
     assert background_jobs.get_status(job_id)["result"]["segments"]
     assert core._whisper_model_cache == {}

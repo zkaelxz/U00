@@ -226,10 +226,6 @@ class TestCaptionTracks:
     def test_no_text_at_all_gives_no_tracks(self):
         assert reader_service.caption_tracks([Line(idx=0, start=0.0, end=1.0, zh=" ", en="")]) == {}
 
-    def test_tab_uses_the_service_function(self):
-        import tabs.reader_tab as rt
-        assert rt.caption_tracks is reader_service.caption_tracks
-
     def test_get_caption_tracks_by_drama(self, isolated_db):
         did = _drama(isolated_db)
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])

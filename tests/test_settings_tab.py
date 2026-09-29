@@ -1,13 +1,11 @@
 """
-tests/test_settings_tab.py -- _load_env_defaults(), the .env -> Settings
-sidebar loader.
+tests/test_settings_tab.py -- Streamlit widget and AppTest tests for the
+Settings sidebar (tabs/settings_tab.py), plus the _load_env_defaults cases
+that an equivalent service test already covers.
 
-Regression coverage for a real reported bug: adding a key to .env while
-the app was already running never took effect until a full process
-restart, because the loader only ever ran once per session. Fixed by
-dropping that once-per-session gate; these tests lock in both that fix
-and the "already-set values always win" protection it still needs to
-provide instead.
+Delete this file together with the Streamlit tabs (docs/streamlit-retirement-plan.md
+section 9, guardrail 4). The .env loader/writer logic tests moved to
+tests/test_settings_env_file.py and run against services/settings_service.py.
 """
 import os
 import sys
@@ -17,8 +15,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tabs.settings_tab import _load_env_defaults, save_key_to_env
-from services import settings_service
+from tabs.settings_tab import _load_env_defaults
 
 
 @pytest.fixture(autouse=True)
@@ -54,17 +51,6 @@ class TestLoadsFromEnvFile:
         _load_env_defaults(env_path)
         assert st.session_state.get("settings_hf_token") == "hf_abc123"
 
-    def test_strips_quotes_and_whitespace(self, tmp_path):
-        env_path = _write_env(tmp_path / ".env", '  BAIHE_HF_TOKEN = "hf_abc123"  \n')
-        _load_env_defaults(env_path)
-        assert st.session_state.get("settings_hf_token") == "hf_abc123"
-
-    def test_ignores_comments_and_blank_lines(self, tmp_path):
-        env_path = _write_env(tmp_path / ".env",
-                               "# a comment\n\nBAIHE_HF_TOKEN=hf_abc123\n# BAIHE_DEEPL_KEY=unused\n")
-        _load_env_defaults(env_path)
-        assert st.session_state.get("settings_hf_token") == "hf_abc123"
-        assert not st.session_state.get("settings_deepl")
 
     def test_first_matching_name_wins(self, tmp_path):
         # hf_token checks BAIHE_HF_TOKEN, then HF_TOKEN, then HUGGINGFACE_TOKEN --
@@ -78,10 +64,6 @@ class TestLoadsFromEnvFile:
         _load_env_defaults(str(tmp_path / "does_not_exist.env"))
         assert not st.session_state.get("settings_hf_token")
 
-    def test_malformed_file_does_not_crash(self, tmp_path):
-        env_path = _write_env(tmp_path / ".env", "this is not a valid env line at all")
-        _load_env_defaults(env_path)  # must not raise
-        assert not st.session_state.get("settings_hf_token")
 
     def test_a_utf8_bom_on_the_first_line_does_not_break_that_variable(self, tmp_path):
         """Regression test for a real reported failure: a .env saved by
@@ -101,20 +83,6 @@ class TestLoadsFromEnvFile:
             f.write(b"HF_TOKEN=hf_abc123\n")
         _load_env_defaults(env_path)
         assert st.session_state.get("settings_hf_token") == "hf_abc123"
-
-    def test_loads_gemini_key(self, tmp_path):
-        env_path = _write_env(tmp_path / ".env", "GEMINI_API_KEY=g_abc123\n")
-        _load_env_defaults(env_path)
-        assert st.session_state.get("settings_gemini") == "g_abc123"
-
-    def test_gemini_does_not_fall_back_to_google_api_key(self, tmp_path):
-        # GOOGLE_API_KEY belongs to the separate Google Translate engine --
-        # a Cloud Translation key isn't guaranteed to also work as a Gemini
-        # key, so gemini must not silently pick it up.
-        env_path = _write_env(tmp_path / ".env", "GOOGLE_API_KEY=translate_key_only\n")
-        _load_env_defaults(env_path)
-        assert st.session_state.get("settings_google") == "translate_key_only"
-        assert not st.session_state.get("settings_gemini")
 
 
 class TestAlreadySetValuesWin:
@@ -298,56 +266,6 @@ class TestCookieBasedLoginSettings:
         assert self._browser_box(at).options[1:] == video_download.COOKIE_BROWSERS
 
 
-class TestSaveKeyToEnv:
-    """Step 16 item 6: a "Save to .env" action next to each API-key field,
-    writing/updating the matching BAIHE_<NAME>_KEY line in place -- so a
-    typed key survives a restart without requiring the user to hand-edit
-    .env themselves."""
-
-    def test_creates_the_file_when_it_does_not_exist_yet(self, tmp_path):
-        env_path = str(tmp_path / ".env")
-        var_name = save_key_to_env("hf_token", "hf_new_value", env_path)
-        assert var_name == "BAIHE_HF_TOKEN"
-        with open(env_path, encoding="utf-8") as f:
-            content = f.read()
-        assert content == "BAIHE_HF_TOKEN=hf_new_value\n"
-
-    def test_appends_a_new_line_when_the_file_exists_but_lacks_that_key(self, tmp_path):
-        env_path = _write_env(tmp_path / ".env", "BAIHE_CLAUDE_KEY=sk-ant-x\n")
-        # Repointed from tabs.settings_tab.save_key_to_env (Streamlit retirement):
-        # settings_service.set_engine_key writes the same canonical line.
-        settings_service.set_engine_key("hf_token", "hf_new_value", env_path)
-        with open(env_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        assert lines == ["BAIHE_CLAUDE_KEY=sk-ant-x\n", "BAIHE_HF_TOKEN=hf_new_value\n"]
-
-    def test_updates_an_existing_line_in_place_rather_than_appending_a_duplicate(self, tmp_path):
-        env_path = _write_env(
-            tmp_path / ".env",
-            "BAIHE_CLAUDE_KEY=sk-ant-old\nBAIHE_HF_TOKEN=hf_old\n")
-        settings_service.set_engine_key("claude", "sk-ant-new", env_path)  # was save_key_to_env
-        with open(env_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        assert lines == ["BAIHE_CLAUDE_KEY=sk-ant-new\n", "BAIHE_HF_TOKEN=hf_old\n"]
-        assert lines.count("BAIHE_CLAUDE_KEY=sk-ant-new\n") == 1
-
-    def test_preserves_comments_and_other_lines(self, tmp_path):
-        env_path = _write_env(
-            tmp_path / ".env",
-            "# a comment\nBAIHE_CLAUDE_KEY=sk-ant-old\n\nBAIHE_HF_TOKEN=hf_old\n")
-        settings_service.set_engine_key("claude", "sk-ant-new", env_path)  # was save_key_to_env
-        with open(env_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        assert lines == [
-            "# a comment\n", "BAIHE_CLAUDE_KEY=sk-ant-new\n", "\n", "BAIHE_HF_TOKEN=hf_old\n"]
-
-    def test_round_trips_through_load_env_defaults(self, tmp_path):
-        env_path = str(tmp_path / ".env")
-        save_key_to_env("deepl", "dl-abc123", env_path)
-        _load_env_defaults(env_path)
-        assert st.session_state.get("settings_deepl") == "dl-abc123"
-
-
 class TestApiKeySaveToEnvButton:
     """UI wiring for TestSaveKeyToEnv's underlying function -- clicking
     the button calls save_key_to_env with the field's current value,
@@ -422,16 +340,3 @@ class TestOcrDefaultBackendSetting:
         assert at.session_state.get("settings_ocr_prefer_paddle_vl_manga") is False
 
 
-class TestRepeatedCallsPickUpLateEdits:
-    """The actual bug fix: editing .env while the app is running (no
-    restart) must take effect on the next call, as long as the session
-    hasn't already set that specific key."""
-
-    def test_a_key_added_to_env_after_the_first_call_is_picked_up_on_the_second(self, tmp_path):
-        env_path = _write_env(tmp_path / ".env", "BAIHE_CLAUDE_KEY=sk-ant-x\n")
-        _load_env_defaults(env_path)
-        assert not st.session_state.get("settings_hf_token")  # not in .env yet
-
-        _write_env(tmp_path / ".env", "BAIHE_CLAUDE_KEY=sk-ant-x\nBAIHE_HF_TOKEN=hf_added_later\n")
-        _load_env_defaults(env_path)
-        assert st.session_state.get("settings_hf_token") == "hf_added_later"

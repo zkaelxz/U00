@@ -133,6 +133,36 @@ Status (docs sync 2026-09-29, base 4b2d5e5): step 133 (#339), B-04/B-05 (#350) a
 
 Until React catches up, these are unavailable: video URL import, Reader, the Sources and Discover screens, media playback, vertical/shorts and package export, Live (planned port) and Scanlate (held until after removal).
 
+### Deletion PR checklist (prepared in branch `streamlit-removal-prep`, 2026-09-29)
+
+Guardrail 4 is done for the `tabs` imports: every logic test that lived in a file importing `tabs` now runs from a file that does not (tests split into `*_streamlit.py` files, or logic moved out of a tab-named file). After that branch, `grep -rn "from tabs\|import tabs" tests/` hits only the files in the first list below.
+
+**Test files to delete with the tabs** (whole files; every test in them is widget, AppTest, tab-source or a Streamlit-only helper):
+
+- Tab-named and UI-only: `test_workspace_tab.py`, `test_settings_tab.py`, `test_reader_tab.py`, `test_discover_tab.py`, `test_live_tab.py`, `test_scanlate_tab.py`, `test_sources_tab.py`, `test_translate_tab.py`, `test_review_workspace.py`, `test_step20_ux_polish.py`, `test_workspace_raw_novel.py`, `test_diagnostics_regrouping.py`, `test_diagnostics_source_access.py`, `test_page_server_settings.py`, `test_gui_polish.py`, `test_dark_mode_step68.py`.
+- Split out in `streamlit-removal-prep`: `test_adaptive_extraction_streamlit.py`, `test_auto_qc_streamlit.py`, `test_benchmark_streamlit.py`, `test_bulk_translate_streamlit.py`, `test_diagnostics_and_export_streamlit.py`, `test_dub_streamlit.py`, `test_emotion_manhua_ui_streamlit.py`, `test_export_formats_streamlit.py`, `test_install_buttons_streamlit.py`, `test_library_features_streamlit.py`, `test_media_preview_streamlit.py`, `test_project_instructions_streamlit.py`, `test_raw_transcript_streamlit.py`, `test_sources_auth_browser_streamlit.py`, `test_sources_preflight_streamlit.py`, `test_speaker_rerun_streamlit.py`, `test_transcription_quality_streamlit.py`, `test_translation_memory_streamlit.py`, `test_workspace_job_service_streamlit.py`.
+- Other Streamlit-only files (import `streamlit`, `common`, `ui` or `ui_theme`, not `tabs`): `test_app.py` (the icon check moved to `test_app_icon.py`), `test_common.py`, `test_ui_components.py`, `test_dark_mode_consistency.py`, `test_streamlit_floor.py`, and `test_app_help.py` with `app_help.py` (section 10).
+
+**Tests to edit, not delete:**
+
+- [ ] `tests/test_static_analysis.py`: delete the `tabs/`-scanning classes and their checker self-tests (triage section 3); keep the timeout, constraints and requirements classes. Re-check `TestConstraintsFile` once `streamlit` leaves `constraints.txt`.
+- [ ] `tests/test_diagnostics_and_export.py::test_expected_tabs_files_list_is_not_stale` and the file-completeness tests: update or drop with `EXPECTED_TABS_FILES`.
+- [ ] `tests/test_api_foundation.py:304` asserts `"streamlit" in body["dependencies"]`: use another required package.
+- [ ] `tests/test_diagnostics_gaps_service.py:222` uses `streamlit` as the example of a required-tier package: use another one.
+
+**Dependencies and launchers** (line numbers at base `7da3ba3`):
+
+- [ ] `requirements-core.txt:6-9` (`streamlit>=1.56` and its comment) and `:10` (`pandas>=2.0`): remove.
+- [ ] `requirements-optional.txt:139-145`: remove `streamlit-drawable-canvas` and its comment block.
+- [ ] `constraints.txt:30` (`streamlit<2`): remove.
+- [ ] `start.bat:162` and `start.ps1:148`: drop `streamlit, pandas` from the "already installed?" import check; keep the rest of the list and the urllib3 `>= (2, 6)` assert (`test_static_analysis.py::test_urllib3_has_the_2_6_floor` checks it).
+- [ ] `diagnostics.py:61-62`: remove the `streamlit` and `pandas` entries (both marked "required") from `OPTIONAL_DEPENDENCIES`; the `streamlit_drawable_canvas` entry (currently around lines 114-117): remove it.
+- [ ] `diagnostics.py:30,37,40`: remove `app.py`, `common.py`, `ui_theme.py` and `app_help.py` from `EXPECTED_TOP_LEVEL_FILES`; `:51-56`: remove `EXPECTED_TABS_FILES` and its callers.
+- [ ] `check_setup.py:3-5`: the docstring still says it runs "before Streamlit starts" and refers to `app.py`; reword (no code change needed).
+- [ ] `.github/workflows/windows-bootstrap.yml`: no Streamlit step is left; its `paths:` filters list `requirements-core.txt` and `constraints.txt`, so the dependency PR triggers it (Actions minutes are exhausted, so run `start.bat --ci` locally instead).
+- [ ] Files to delete: `app.py`, `common.py`, `ui_theme.py`, `ui/`, `tabs/`, `.streamlit/config.toml`, `app_help.py`.
+- [ ] `FILE_ORGANIZATION.md`, `README.md` and `docs/migration-handoff.md`: remove the deleted modules and the Streamlit launch text.
+
 ## 10. Prune decisions (user, 2026-09-29)
 
 - **Vertical/shorts export and "package" export: dropped.** Not ported to React; they go with `tabs/workspace_tab.py` (~l.5971, ~l.6032). The feature inventory marks them DROPPED, not MISSING.
