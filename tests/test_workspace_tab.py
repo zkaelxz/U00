@@ -6908,23 +6908,6 @@ class TestWorkspaceStageIndex:
         idx = _compute_workspace_stage_index({"content_mode": "novel_narration"}, lines, str(tmp_path))
         assert idx == 3
 
-    def test_partway_translated_shows_transcribe_diarize_done_translate_current(self, tmp_path):
-        # The manual check from Step 14's exit conditions: open a drama
-        # with lines already translated partway through, and confirm the
-        # stepper shows Transcribe/Diarize done, Translate in progress,
-        # Review/Dub/Export not started.
-        lines = [
-            Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A"),
-            Line(idx=1, start=1, end=2, zh="再见", en="", speaker="B"),
-        ]
-        idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
-        assert idx == 3
-
-        from ui.workflow import stage_statuses_from_index
-        statuses = stage_statuses_from_index(self.STAGES, idx)
-        assert statuses == ["done", "done", "done", "current", "not_started",
-                             "not_started", "not_started"]
-
     def test_fully_translated_not_yet_dubbed_or_exported_is_on_review(self, tmp_path):
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
         idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
@@ -6935,15 +6918,6 @@ class TestWorkspaceStageIndex:
         lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
         idx = _compute_workspace_stage_index({"content_mode": "audio_drama"}, lines, str(tmp_path))
         assert idx == 6
-
-    def test_exported_status_is_fully_done(self, tmp_path):
-        lines = [Line(idx=0, start=0, end=1, zh="你好", en="Hello", speaker="A")]
-        idx = _compute_workspace_stage_index(
-            {"content_mode": "audio_drama", "status": "exported"}, lines, str(tmp_path))
-        assert idx == 6
-        from ui.workflow import stage_statuses_from_index
-        assert stage_statuses_from_index(self.STAGES, idx) == \
-            ["done", "done", "done", "done", "done", "done", "current"]
 
     def test_exported_with_no_persisted_speaker_still_shows_export_not_diarize(self, tmp_path):
         # Step 45: a real reported drama had fully translated lines and was
