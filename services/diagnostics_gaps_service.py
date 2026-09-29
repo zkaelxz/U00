@@ -1,0 +1,268 @@
+"""
+services/diagnostics_gaps_service.py -- the parts of the Streamlit
+Diagnostics tab that services/diagnostics_service.py's read-only overview
+does not cover yet: setup checks (as check_setup.py reports them), model
+versions, model-cache listing, pyannote/HF-token readiness, finished-job
+history, a shareable support report, a capped log tail, and thin
+confirm-gated wrappers over the admin actions that already exist as
+non-UI functions (dependency install/upgrade, library reset).
+
+No Streamlit import, no HTTP types. Every string that could carry a
+secret, a token, the OS username or a local path goes through
+diagnostics.redact_for_support (which applies
+translate_engines.redact_secrets first); nothing here returns a path.
+
+Not ported (Streamlit-only by decision, see
+docs/streamlit-retirement-plan.md): accuracy benchmark, bug-reproduction
+bundles, App Assistant, and the source-access tests.
+"""
+
+import os
+import re
+import time
+
+import background_jobs
+import db
+import diagnostics
+
+LOG_TAIL_DEFAULT = 50
+LOG_TAIL_MAX = 200
+_ADMIN_OUTPUT_TAIL = 40
+
+# job_id prefixes this app actually uses (see background_jobs.start_job
+# call sites) -- everything before the last "_<drama_id>" segment.
+_JOB_LABELS = {
+    "translate": "Translating",
+    "transcribe": "Transcribing / reading captions",
+    "flag": "Review queue (flagging lines)",
+    "emotion": "Detecting emotional register",
+    "consistency": "Checking translation consistency",
+    "notes": "Generating translation notes",
+    "diarize": "Detecting speakers",
+}
+
+
+# Hugging Face tokens: translate_engines.redact_secrets has no pattern
+# for them, so this service strips them itself.
+_HF_TOKEN_PATTERN = re.compile(r"\bhf_[A-Za-z0-9]{20,}\b")
+
+
+def _redact(text) -> str:
+    text = diagnostics.redact_for_support("" if text is None else str(text))
+    return _HF_TOKEN_PATTERN.sub("[REDACTED]", text)
+
+
+def _project_root() -> str:
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def describe_job(job_id: str) -> str:
+    """Turns a raw job_id like 'emotion_42' into 'Detecting emotional
+    register -- Some Drama Title', so the jobs list means something at a
+    glance instead of showing internal id strings."""
+    if job_id == "live_capture":
+        return "🔴 Live capture"
+    prefix, _, suffix = job_id.rpartition("_")
+    if prefix in _JOB_LABELS and suffix.isdigit():
+        drama = db.get_drama(int(suffix))
+        title = (drama.get("title_en") or drama.get("title_zh") or f"drama #{suffix}") if drama else f"drama #{suffix} (deleted)"
+        return f"{_JOB_LABELS[prefix]} -- {title}"
+    return job_id
+
+
+# ---------------------------------------------------------------------------
+# Reads
+# ---------------------------------------------------------------------------
+
+def get_setup_checks(project_root: str = None, library_dir: str = None) -> dict:
+    """Core requirements and file checks, the same facts check_setup.py
+    prints at launch plus file completeness. Paths are never returned:
+    ffmpeg/JS runtime report found/name/version only."""
+    project_root = project_root or _project_root()
+    library_dir = library_dir or db.LIBRARY_DIR
+    py = diagnostics.check_python_version()
+    ff = diagnostics.check_ffmpeg()
+    js = diagnostics.check_js_runtime()
+    cuda = diagnostics.check_cuda()
+    files = diagnostics.check_file_completeness(project_root)
+    return {
+        "python": {"version": py.get("version"), "ok": bool(py.get("ok"))},
+        "ffmpeg": {"found": bool(ff.get("found")),
+                   "version": _redact(ff["version"]) if ff.get("version") else None},
+        "js_runtime": {"found": bool(js.get("found")), "name": js.get("name")},
+        "cuda": {"torch_installed": bool(cuda.get("torch_installed")),
+                 "cuda_available": cuda.get("cuda_available")},
+        "files": {"all_present": bool(files["all_present"]),
+                  "missing_top_level": list(files["missing_top_level"]),
+                  "missing_tabs": list(files["missing_tabs"])},
+        "library_writable": bool(diagnostics.check_library_writable(library_dir)),
+    }
+
+
+def get_model_versions(ollama_model: str = None) -> list:
+    """Model/engine version rows (local only, no network)."""
+    return [{"name": m["name"], "version": _redact(m["version"]), "url": m["url"],
+             "installed": bool(m["installed"]), "package": m.get("package"),
+             "help": m.get("help", "")}
+            for m in diagnostics.get_model_engine_versions(ollama_model)]
+
+
+def get_model_cache(hf_cache_dir: str = None, piper_voices_dir: str = None) -> dict:
+    """Hugging Face cache revisions and Piper voices by name and size --
+    no directory is ever included."""
+    hf = [{"repo_id": e["repo_id"], "repo_type": e["repo_type"],
+           "revision": e["revision"], "size_bytes": int(e["size_bytes"])}
+          for e in diagnostics.scan_hf_cache(hf_cache_dir)]
+    piper = [{"voice": e["voice"], "size_bytes": int(e["size_bytes"])}
+             for e in diagnostics.scan_piper_voices(piper_voices_dir)]
+    return {
+        "hf_cache": hf,
+        "hf_total_bytes": sum(e["size_bytes"] for e in hf),
+        "piper_voices": piper,
+        "piper_total_bytes": sum(e["size_bytes"] for e in piper),
+    }
+
+
+def get_pyannote_readiness(check_access: bool = False, api=None) -> dict:
+    """Booleans only: is pyannote.audio installed, is an HF token
+    configured, and (only when check_access=True -- this reaches the
+    network) can that token open each gated model. The token and any
+    raw error text are never returned."""
+    from services import settings_service
+    token = settings_service.resolve_key("hf_token")
+    out = {
+        "pyannote_installed": bool(diagnostics.check_dependency("pyannote.audio")),
+        "hf_token_configured": bool(token),
+        "models": None,
+    }
+    if check_access:
+        results = diagnostics.check_pyannote_gated_access(token, api=api)
+        out["models"] = [{"model": r["model"], "accessible": bool(r["accessible"])}
+                         for r in results]
+    out["ready"] = bool(out["pyannote_installed"] and out["hf_token_configured"]
+                        and (out["models"] is None or all(m["accessible"] for m in out["models"])))
+    return out
+
+
+def get_job_history() -> list:
+    """Finished jobs still in this process's memory, newest first, with
+    redacted message/error and total duration."""
+    finished = {jid: j for jid, j in background_jobs.list_all_jobs().items()
+                if j.get("status") != "running"}
+    out = []
+    for jid in sorted(finished, key=lambda j: finished[j].get("finished_at") or 0, reverse=True):
+        job = finished[jid]
+        started, ended = job.get("started_at"), job.get("finished_at")
+        out.append({
+            "job_id": jid,
+            "label": _redact(describe_job(jid)),
+            "status": job.get("status"),
+            "description": _redact(job.get("description")) or None,
+            "message": _redact(job.get("message")),
+            "error": _redact(job.get("error")) or None,
+            "gpu_touching": bool(job.get("gpu_touching")),
+            "started_at": started,
+            "finished_at": ended,
+            "duration_seconds": (ended - started) if started and ended else None,
+        })
+    return out
+
+
+def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
+    """The last n (capped at LOG_TAIL_MAX) redacted log lines, optionally
+    filtered by keyword."""
+    import applog
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        n = LOG_TAIL_DEFAULT
+    n = max(0, min(n, LOG_TAIL_MAX))
+    if n == 0:
+        return []
+    lines = applog.filter_lines(applog.tail(n), keyword or "")
+    return [_redact(ln) for ln in lines]
+
+
+def build_support_report(recent_error_lines: int = 20) -> str:
+    """Plain-text summary safe to share: versions, OS, dependency status,
+    model versions, cache totals, which keys are set (never values), and
+    recent log errors -- all passed through redact_for_support."""
+    import platform
+    from services import settings_service
+    results = diagnostics.run_full_diagnostics(
+        _project_root(), db.LIBRARY_DIR, settings_service.key_status())
+    cache = diagnostics.scan_hf_cache()
+    report = diagnostics.format_diagnostics_report(
+        results, cache, diagnostics.get_model_engine_versions())
+    extra = [f"OS: {platform.system()} {platform.release()} ({platform.machine()})"]
+    errors = [ln for ln in get_log_tail(LOG_TAIL_MAX)
+              if "ERROR" in ln or "Traceback" in ln][-max(0, int(recent_error_lines)):]
+    extra.append("Recent errors:" if errors else "Recent errors: none")
+    extra.extend(f"  {ln}" for ln in errors)
+    return _redact(report + "\n" + "\n".join(extra))
+
+
+# ---------------------------------------------------------------------------
+# Admin actions (router: local_only). Each requires confirm=True and
+# refuses while any background job runs.
+# ---------------------------------------------------------------------------
+
+class AdminActionRefused(Exception):
+    """Raised when an admin action is not confirmed, targets an unknown
+    package, or jobs are running."""
+
+
+def _guard(confirm: bool):
+    if confirm is not True:
+        raise AdminActionRefused("Confirmation required.")
+    running = background_jobs.list_running_jobs()
+    if running:
+        raise AdminActionRefused(
+            f"{len(running)} background job(s) running; wait for them to finish.")
+
+
+def installable_packages() -> set:
+    """Package names an install/upgrade wrapper accepts: optional
+    dependencies in an installable tier plus model-registry packages."""
+    names = {k for k, (_imp, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
+             if tier in diagnostics.INSTALLABLE_TIERS}
+    names |= {e["package"] for e in diagnostics.MODEL_ENGINE_REGISTRY if e.get("package")}
+    return names
+
+
+def _run_stream(gen) -> dict:
+    tail, ok = [], False
+    for item in gen:
+        if "line" in item:
+            tail = (tail + [_redact(item["line"])])[-_ADMIN_OUTPUT_TAIL:]
+        elif item.get("done"):
+            ok = bool(item.get("ok"))
+    return {"ok": ok, "output_tail": tail}
+
+
+def install_dependency(name: str, confirm: bool = False) -> dict:
+    _guard(confirm)
+    if name not in installable_packages():
+        raise AdminActionRefused("Unknown or non-installable package.")
+    result = _run_stream(diagnostics.stream_dependency_install(name, project_root=_project_root()))
+    result["package"] = name
+    return result
+
+
+def upgrade_dependency(name: str, confirm: bool = False) -> dict:
+    _guard(confirm)
+    if name not in installable_packages():
+        raise AdminActionRefused("Unknown or non-installable package.")
+    result = _run_stream(diagnostics.stream_pip_install(
+        diagnostics.upgrade_pip_args(name, _project_root())))
+    result["package"] = name
+    return result
+
+
+def reset_library(confirm: bool = False) -> dict:
+    """Irreversible. Unlike the Streamlit button it does not cancel
+    running jobs; it refuses instead, so a caller must stop them first."""
+    _guard(confirm)
+    db.reset_library()
+    background_jobs.clear_all_jobs()
+    return {"ok": True, "reset_at": time.time()}

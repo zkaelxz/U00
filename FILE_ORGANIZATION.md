@@ -186,6 +186,9 @@ baihe-subtitler/
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
 │   │                             versions, running jobs, log tail); no admin action, no network call
+│   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
+│   │                             pyannote readiness, job history, support report, log tail; confirm-gated
+│   │                             install/upgrade/reset wrappers. No router yet.
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
