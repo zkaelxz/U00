@@ -2,6 +2,7 @@
 api/routers/notification_routes). requests and DNS are faked: no network."""
 import os
 import socket
+import threading
 
 import pytest
 
@@ -358,24 +359,43 @@ def _wait(job_id):
     raise AssertionError("job did not finish")
 
 
-def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, dns, posts, no_timer):
+def test_job_end_queues_a_push_and_a_failed_send_never_breaks_the_job(env, dns, posts, no_timer,
+                                                                      monkeypatch):
     _write(env, discord=DISCORD)
     posts.exc = requests.ConnectionError(DISCORD)
+    # The runner flips a job's status first and queues the push after, so
+    # polling the status (or _pending) races the queueing. Wait instead for
+    # notify_job_finished itself to return for both of this test's jobs; a
+    # job thread left over from an earlier test in this worker may also
+    # queue an event while the env fixture has notifications on, so only
+    # this test's own messages are checked.
+    ours = {"Translation (drama #1)", "Dub generation (drama #1)"}
+    seen, both_queued = [], threading.Event()
+    real = ns.notify_job_finished
+
+    def recording(description, status):
+        real(description, status)
+        if description in ours:
+            seen.append((description, status))
+            if len(seen) == len(ours):
+                both_queued.set()
+
+    monkeypatch.setattr(ns, "notify_job_finished", recording)
 
     def boom():
         raise RuntimeError("real job error")
 
     background_jobs.start_job("notify_t1", lambda: None, description="Translation (drama #1)")
     background_jobs.start_job("notify_t2", boom, description="Dub generation (drama #1)")
-    assert _wait("notify_t1")["status"] == "done"
-    job = _wait("notify_t2")
+    assert both_queued.wait(timeout=30), f"only {seen} were queued"
+    assert background_jobs.get_status("notify_t1")["status"] == "done"
+    job = background_jobs.get_status("notify_t2")
     assert job["status"] == "error" and "real job error" in job["error"]
-    import time
-    for _ in range(200):   # the push is queued just after the status flips
-        if len(ns._pending) == 2:
-            break
-        time.sleep(0.02)
-    assert sorted(s for s, _ in ns._pending) == ["done", "error"] and len(no_timer) == 1
+    queued = [(status, msg) for status, msg in ns._pending
+              if msg in ("Finished: Translation", "Failed: Dub generation")]
+    assert sorted(queued) == [("done", "Finished: Translation"),
+                              ("error", "Failed: Dub generation")]
+    assert len(no_timer) == 1
     assert ns.flush() == {"discord": "failed", "ntfy": "not_configured"}
 
 

@@ -12,7 +12,7 @@ async function guard(page: Page): Promise<string[]> {
   const unmocked: string[] = []
   await page.route('**/api/**', (route) => {
     const r = route.request()
-    if (r.method() === 'GET') return route.continue()
+    if (r.method() === 'GET') return route.fallback() // not mocked: the real seeded API answers reads
     unmocked.push(`${r.method()} ${r.url()}`)
     return route.abort()
   })
@@ -64,7 +64,7 @@ test('set a Discord webhook, send a test, then clear it; the address is never sh
   await expect(section.getByRole('button', { name: 'Send test' })).toBeDisabled()
   await expect(section.getByTestId('ntfy-local-note')).toContainText('BAIHE_NTFY_ALLOW_LOCAL=1')
 
-  const input = section.getByLabel('Discord webhook address')
+  const input = section.getByRole('textbox', { name: 'Discord webhook address' })
   await expect(input).toHaveAttribute('type', 'password')
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save Discord address' }).click()
@@ -95,7 +95,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   const section = await open(page)
   await expect(section.getByTestId('notify-ntfy')).toHaveText('Configured: yes')
   await expect(section.getByTestId('ntfy-local-note')).toContainText('is allowed')
-  const input = section.getByLabel('ntfy topic address')
+  const input = section.getByRole('textbox', { name: 'ntfy topic address' })
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
@@ -122,7 +122,7 @@ test('away from the PC the section says PC only and makes no notification calls'
   await expect(section.locator('.section-summary')).toHaveText('PC only')
   await section.locator('summary').click()
   await expect(section.getByText('Run this on the main PC.')).toBeVisible()
-  await expect(section.getByLabel('Discord webhook address')).toHaveCount(0)
+  await expect(section.getByRole('textbox', { name: 'Discord webhook address' })).toHaveCount(0)
   expect(calls).toEqual([])
   expect(unmocked).toEqual([])
 })

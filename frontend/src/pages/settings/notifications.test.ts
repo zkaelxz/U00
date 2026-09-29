@@ -59,17 +59,25 @@ describe('notification API calls', () => {
     expect(f.mock.calls[0][0]).toBe('/api/settings/notifications')
   })
 
-  it('sends the address in the body only, with confirm and the PC-only header', async () => {
+  it('sends the address in the body only, as JSON with confirm', async () => {
     const f = fakeFetch(200, { channel: 'discord', configured: true })
     await setNotificationChannel('discord', SECRET, f)
     const [url, init] = f.mock.calls[0]
     expect(url).toBe('/api/settings/notifications/discord')
     expect(String(url)).not.toContain('SECRET')
     expect(JSON.parse(String(init?.body))).toEqual({ value: SECRET, confirm: true })
-    expect(new Headers(init?.headers).get('X-Baihe-Local')).toBe('1')
+    expect(new Headers(init?.headers).get('Content-Type')).toBe('application/json')
   })
 
-  it('clear and test are PC-only POSTs; a 403 marks the tab remote', async () => {
+  it('a refused save (key writes off) leaves the tab local', async () => {
+    resetPcModeForTests('local')
+    const refused = fakeFetch(403, { error: { code: 'forbidden', message: 'Not allowed.' } })
+    await expect(setNotificationChannel('ntfy', SECRET, refused)).rejects.toBeInstanceOf(ApiError)
+    await expect(clearNotificationChannel('ntfy', refused)).rejects.toBeInstanceOf(ApiError)
+    expect(getPcMode()).toBe('local')
+  })
+
+  it('clear is a POST with confirm; a 403 on send test marks the tab remote', async () => {
     const ok = fakeFetch(200, { channel: 'ntfy', configured: false })
     await clearNotificationChannel('ntfy', ok)
     expect(ok.mock.calls[0][0]).toBe('/api/settings/notifications/ntfy/clear')
