@@ -267,7 +267,7 @@ class TestOverwriteManual:
         from fastapi.testclient import TestClient
         from api.server import app
         did, captured = self._setup(isolated_db, monkeypatch)
-        c = TestClient(app)
+        c = TestClient(app, headers={"X-Baihe-Local": "1"})
         r = c.post(f"/api/diarization/dramas/{did}/run?overwrite_manual=true")
         assert r.status_code == 422 and captured == {}
         r = c.post(f"/api/diarization/dramas/{did}/run?overwrite_manual=true&confirm=true")
