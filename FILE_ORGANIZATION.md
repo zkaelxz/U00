@@ -48,7 +48,6 @@ baihe-subtitler/
 │
 ├── .github/
 │   ├── pull_request_template.md
-│   ├── ISSUE_TEMPLATE/bug.yml    bug issue form (label `bug`); the app's "Report a problem" pre-fills it
 │   └── workflows/                tests.yml (core-only suite), windows-bootstrap.yml (launcher check)
 │
 ├── .claude/                      session-start hook, settings + project subagents (agents/) for AI coding sessions
@@ -202,10 +201,6 @@ baihe-subtitler/
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
-│   ├── bug_report_service.py     "Report a problem" reports stored as files in <library>/bug_reports/
-│   │                             <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
-│   │                             (secrets, tokens, user names, paths), image metadata stripped
-│   │                             (router: bug_report_routes.py)
 │   ├── jobs_service.py           Migration Slice 8 -- read-only, cross-process job list (reads
 │   │                             db.job_records, Slice 7's mirror); no cancel (needs its own design)
 │   ├── settings_service.py       Migration Slice 10 -- ENV_NAMES + resolve_key/key_status/
@@ -314,9 +309,16 @@ baihe-subtitler/
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
-│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
-│                                 attempts, settings, profiles, tracked, notifications) and config
-│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│   │                             attempts, settings, profiles, tracked, notifications) and config
+│   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
+│   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
+│   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
+│   └── bug_report_service.py     "Report a problem" reports stored as files in <library>/bug_reports/
+│                                 <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
+│                                 (secrets, tokens, user names, paths), image metadata stripped
+│                                 (router: bug_report_routes.py)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -413,11 +415,14 @@ baihe-subtitler/
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
-│       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
-│       │                         screenshot PC only), GET list and GET {id} (admin.diagnostics),
-│       │                         POST {id}/delete (local_only + confirm + folder stamp)
-│       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
-│                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
+│       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
+│       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
+│       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
+│       └── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
+│                                 screenshot PC only), GET list and GET {id} (admin.diagnostics),
+│                                 POST {id}/delete (local_only + confirm + folder stamp)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
@@ -447,7 +452,6 @@ baihe-subtitler/
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
 │   │                              Install…/Upgrade…, synchronous), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,
-│   │                              BugReportsSection (saved problem reports: Copy, PC-only Delete),
 │   │                              DangerZone (typed-RESET library reset), diagnosticsAdmin.ts (pure,
 │   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts

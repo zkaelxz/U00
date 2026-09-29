@@ -539,9 +539,14 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
     engine = _llm_engine(engine_name, model) if use_llm else None
 
     def work():
-        words = [w for ln in page_lines
-                 for w, _reading in segment.segment_and_annotate(ln.zh, lang, chinese_script=script)
-                 if w.strip()]
+        try:
+            words = [w for ln in page_lines
+                     for w, _reading in segment.segment_and_annotate(ln.zh, lang, chinese_script=script)
+                     if w.strip()]
+        except ImportError as e:  # the word splitter is an optional install
+            package = e.name or "a word-splitting package"
+            raise DependencyUnavailableError(
+                f"Looking up words needs {package}, which isn't installed (see Diagnostics).") from None
         defs, needs_llm = {}, []
         for w in dict.fromkeys(words):
             hit = dictionary.lookup_cedict(w) if lang == "zh" else None
