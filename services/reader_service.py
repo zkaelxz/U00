@@ -144,6 +144,22 @@ MAX_CHAT_TOTAL_CHARS = 100_000
 MAX_MODEL_CHARS = 100
 MAX_LOOKUP_TEXT_CHARS = 200
 MAX_VOCAB_WORDS_PER_CALL = 500
+# Bounds on the synchronous LLM/ffmpeg work one request may do (security
+# review M1/M2 of route batch 2B): a recap sends at most the last
+# MAX_RECAP_LINES lines before the page and at most MAX_RECAP_CHARS of
+# their text; a wiki update reads at most MAX_WIKI_CHUNKS_PER_CALL chunks
+# of WIKI_CHUNK_LINES text lines (universe_wiki.extract_wiki_entries'
+# own default chunk size) and reports where to resume; a rich .apkg has
+# at most MAX_RICH_CARDS cards, each audio clip cut with a
+# RICH_CLIP_TIMEOUT_SECONDS ffmpeg timeout and all clips within
+# RICH_AUDIO_BUDGET_SECONDS (later cards come out text-only).
+MAX_RECAP_LINES = 400
+MAX_RECAP_CHARS = 60_000
+WIKI_CHUNK_LINES = 150
+MAX_WIKI_CHUNKS_PER_CALL = 10
+MAX_RICH_CARDS = 300
+RICH_CLIP_TIMEOUT_SECONDS = 15
+RICH_AUDIO_BUDGET_SECONDS = 120
 MEDIA_KINDS = ("original", "dub", "narration")
 CAPTION_TRACK_FIELDS = {"Source": "zh", "English": "en", "Bilingual": "bilingual"}
 _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
@@ -589,17 +605,27 @@ def export_vocab_csv(drama_id: int) -> dict:
             "content": vocab_export.export_vocab_csv(vocab)}
 
 
-def export_vocab_apkg(drama_id: int, rich: bool = False) -> dict:
-    """{filename, media_type, content: bytes} -- an Anki deck. rich=True
-    builds the sentence(+audio clip) cards from the queued words, with an
-    audio clip only when the drama has an original audio/video file.
-    Built in a temp dir that is always removed; nothing is left in the
-    drama folder. DependencyUnavailable without genanki."""
+def export_vocab_apkg(drama_id: int, rich: bool = False, include_audio: bool = True) -> dict:
+    """{filename, media_type, content: bytes, audio_omitted, cards_capped}
+    -- an Anki deck. rich=True builds the sentence(+audio clip) cards from
+    the queued words (at most MAX_RICH_CARDS), with an audio clip only when
+    the drama has an original audio/video file AND include_audio (the
+    route passes False for a caller without media.stream; audio_omitted
+    then says the drama had audio that was left out). Built in a temp dir
+    that is always removed; nothing is left in the drama folder.
+    DependencyUnavailable without genanki."""
     drama = _require_drama(drama_id)
     vocab = db.list_vocab_lookups(drama_id, rich_only=bool(rich))
     if not vocab:
         raise NotFoundError("No words queued for the rich export yet." if rich
                             else "No words have been looked up in this drama yet.")
+    cards_capped = bool(rich) and len(vocab) > MAX_RICH_CARDS
+    if cards_capped:
+        vocab = vocab[:MAX_RICH_CARDS]
+    original = _media_paths(drama_id, drama).get("original") if rich else None
+    audio_omitted = original is not None and not include_audio
+    if not include_audio:
+        original = None
     deck = _title(drama, "Baihe Vocab")
     name = "vocab_sentence.apkg" if rich else "vocab.apkg"
     tmp = tempfile.mkdtemp(prefix="baihe_vocab_")
@@ -607,10 +633,11 @@ def export_vocab_apkg(drama_id: int, rich: bool = False) -> dict:
         out_path = os.path.join(tmp, name)
         try:
             if rich:
-                original = _media_paths(drama_id, drama).get("original")
                 vocab_export.export_vocab_apkg_sentence(
                     vocab, _lines(drama_id), deck + " (sentences)", out_path,
-                    audio_path=original[1] if original else None)
+                    audio_path=original[1] if original else None,
+                    clip_timeout=RICH_CLIP_TIMEOUT_SECONDS,
+                    audio_budget_seconds=RICH_AUDIO_BUDGET_SECONDS)
             else:
                 vocab_export.export_vocab_apkg(vocab, deck, out_path)
         except ImportError:
@@ -620,7 +647,8 @@ def export_vocab_apkg(drama_id: int, rich: bool = False) -> dict:
             content = f.read()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    return {"filename": name, "media_type": "application/octet-stream", "content": content}
+    return {"filename": name, "media_type": "application/octet-stream", "content": content,
+            "audio_omitted": audio_omitted, "cards_capped": cards_capped}
 
 
 # ---------------------------------------------------------------------------
@@ -651,15 +679,25 @@ def explain_reference(drama_id: int, phrase: str, up_to_line_idx: int = None,
 def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
           engine_name: str = None, model: str = None) -> dict:
     """Summary of what came before `page` (the first page's lines when on
-    page 1), as the tab's "Recap what I've read so far"."""
+    page 1), as the tab's "Recap what I've read so far". Bounded to the
+    last MAX_RECAP_LINES lines before the page and MAX_RECAP_CHARS of
+    their English text (oldest dropped first); `truncated` says so."""
     _require_drama(drama_id)
     lines = _require_lines(drama_id)
     _check_page(page, chapter_size, len(lines))
     section = lines[:(page - 1) * chapter_size] or lines[:chapter_size]
+    full = len(section)
+    section = section[-MAX_RECAP_LINES:]
+    total = sum(len(ln.en or "") for ln in section)
+    start = 0
+    while total > MAX_RECAP_CHARS and start < len(section) - 1:
+        total -= len(section[start].en or "")
+        start += 1
+    section = section[start:]
     engine = _llm_engine(engine_name, model)
     summary = _run_engine(lambda: story_context.summarize_section(
         section, engine, section_label=f"up to page {page}"))
-    return {"drama_id": drama_id, "summary": summary}
+    return {"drama_id": drama_id, "summary": summary, "truncated": len(section) < full}
 
 
 def relationship_map(drama_id: int, up_to_line_idx: int = None,
@@ -703,22 +741,33 @@ def list_wiki(drama_id: int, up_to_line_idx: int = None, entry_type: str = None)
 
 
 def update_wiki(drama_id: int, up_to_line_idx: int = None,
-                engine_name: str = None, model: str = None) -> dict:
+                engine_name: str = None, model: str = None, from_line_idx: int = 0) -> dict:
     """Extracts entries from the lines up to the boundary and upserts each
-    by its own (entry_type, name) key -- never by list position. Returns
-    {drama_id, updated}."""
+    by its own (entry_type, name) key -- never by list position. One call
+    reads at most MAX_WIKI_CHUNKS_PER_CALL chunks of text lines starting
+    at from_line_idx; call again with from_line_idx=next_line_idx while
+    `remaining` (text lines still to read) is non-zero. Returns
+    {drama_id, updated, remaining, next_line_idx}."""
     drama = _require_drama(drama_id)
     scoped, limit = _scope(_require_lines(drama_id), up_to_line_idx)
+    _check_line_idx(from_line_idx)
+    todo = [ln for ln in scoped if ln.idx >= (from_line_idx or 0) and (ln.en or ln.zh)]
+    batch = todo[:MAX_WIKI_CHUNKS_PER_CALL * WIKI_CHUNK_LINES]
+    remaining = len(todo) - len(batch)
     engine = _llm_engine(engine_name, model)
+    if not batch:
+        return {"drama_id": drama_id, "updated": 0, "remaining": 0, "next_line_idx": None}
+    batch_limit = batch[-1].idx if remaining else limit
     found = _run_engine(lambda: universe_wiki.extract_wiki_entries(
-        scoped, engine, limit, drama, existing_entries=db.list_wiki_entries(drama_id)))
+        batch, engine, batch_limit, drama, existing_entries=db.list_wiki_entries(drama_id)))
     for e in found:
         db.upsert_wiki_entry(
             drama_id, e["entry_type"], e["name"], description=e.get("description"),
             aliases=e.get("aliases"), attributes=e.get("attributes"),
             first_seen_line_idx=e.get("first_seen_line_idx"),
             known_through_line_idx=e.get("known_through_line_idx"))
-    return {"drama_id": drama_id, "updated": len(found)}
+    return {"drama_id": drama_id, "updated": len(found), "remaining": remaining,
+            "next_line_idx": todo[len(batch)].idx if remaining else None}
 
 
 def clear_wiki(drama_id: int, confirm: bool = False) -> dict:
