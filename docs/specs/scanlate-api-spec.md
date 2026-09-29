@@ -100,3 +100,8 @@ Service modules: `scanlate_pages_service` (S1, S2, S6 fonts), `scanlate_regions_
 10. Should the drama's `content_mode`/`media_type` (manhua, `drama_service.py:51`) gate Scanlate endpoints? Today any drama works (tab :17-22).
 11. Tesseract command and default OCR backend live only in Streamlit session settings: need a server-side home, or the API documents "auto" and no tesseract path.
 12. EXIF rotation handling and maximum strip height (HYP items above).
+
+## 8. Decisions (user, 2026-09-29)
+
+- **Q1 Coexistence:** Streamlit and the browser-extension bridge (`page_server.py`) may be frozen from writing bubbles once the editor ships (the user is not using Streamlit now). S0 can therefore assume the API is the only bubble writer at that point: keep S0 additive as specced (no change to `save_bubbles` until the freeze), and make the freeze itself an explicit later step that turns those two write paths off or read-only.
+- Still open: Q2 to Q12 (text preview approach, durable brush masks, Scanlate spend cap, detect overwrite policy, page delete/reorder, new columns, job semantics, upload caps, content-type gating, tesseract/OCR defaults, EXIF/strip height).
