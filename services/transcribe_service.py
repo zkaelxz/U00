@@ -318,6 +318,19 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     return {"job_id": job_id}
 
 
+_MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
+                         "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
+                         "base": "~150 MB", "tiny": "~75 MB"}
+
+
+def _model_loading_message(whisper_size: str, cached: bool) -> str:
+    if cached:
+        return f"Loading Whisper model {whisper_size}..."
+    size = _MODEL_DOWNLOAD_SIZES.get(whisper_size)
+    hint = f", {size}" if size else ""
+    return f"Loading Whisper model {whisper_size} (downloading on first use{hint})"
+
+
 def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode, transcript_text,
                                    source_language, chinese_script, whisper_size, beam_size,
                                    min_silence_ms, vad_threshold, separate_vocals_first,
@@ -353,6 +366,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     no-hf_token case."""
     gpu_fallback_msg = []
     word_align_error = None
+    device_msg = ""
+    device_suffix = ""
 
     if transcript_mode == "hardsub_ocr":
         import hardsub_ocr
@@ -406,14 +421,26 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                 return
         else:
             try:
+                model_cached = core_module.is_whisper_model_cached(whisper_size)
+                background_jobs.update_progress(job_id, 0.0, _model_loading_message(
+                    whisper_size, model_cached))
+                # Loaded here (cached in core, so transcribe_for_timing reuses
+                # it) so the download/load phase and the device actually
+                # chosen are visible instead of "Starting..." for minutes.
+                core_module.load_whisper_model(whisper_size, use_gpu=use_gpu)
+                device_msg = core_module.describe_whisper_device(
+                    core_module.get_whisper_device_info(whisper_size, use_gpu=use_gpu))
+                device_suffix = f" ({device_msg})" if device_msg else ""
+                background_jobs.update_progress(
+                    job_id, 0.0, f"Transcribing...{device_suffix}")
                 segments = transcribe_for_timing(
                     audio_path, whisper_size, language=source_language, use_gpu=use_gpu,
                     local_model_path=None, hf_token=None, initial_prompt=initial_prompt,
                     beam_size=beam_size,
                     min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
-                    on_gpu_fallback=lambda exc: gpu_fallback_msg.append(str(exc)),
+                    on_gpu_fallback=lambda exc: gpu_fallback_msg.append(core_module._short_reason(exc)),
                     progress_cb=lambda frac: background_jobs.update_progress(
-                        job_id, frac, f"Transcribing... {frac * 100:.0f}%"),
+                        job_id, frac, f"Transcribing... {frac * 100:.0f}%{device_suffix}"),
                     fast_mode=whisper_fast_mode)
             except core_module.ModelDownloadError as exc:
                 background_jobs.set_result(job_id, {"failed_reason": "model_download", "detail": str(exc)})
@@ -437,6 +464,7 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
                      for i, seg in enumerate(segments) if seg["text"].strip()]
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "whisper"
         else:
+            background_jobs.update_progress(job_id, 1.0, "Aligning transcript to audio timing...")
             user_lines = split_user_transcript(transcript_text)
             lines = align_transcript_to_timing(user_lines, segments)
             raw_backend, raw_model, raw_mode = "whisper", whisper_size, "aligned_transcript"
@@ -474,6 +502,8 @@ def _run_transcribe_and_apply_job(job_id, drama_id, audio_path, transcript_mode,
     background_jobs.set_result(job_id, {
         "line_count": len(lines),
         "gpu_fallback": gpu_fallback_msg[0] if gpu_fallback_msg else None,
+        "device": (f"GPU unavailable ({gpu_fallback_msg[0]}); using CPU"
+                   if gpu_fallback_msg else device_msg) or None,
         "word_align_error": word_align_error,
         "diarize_started": diarize_started,
     })

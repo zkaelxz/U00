@@ -6,6 +6,7 @@ the GUI and CLI (no Streamlit/database dependency).
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import core
 
 from core import (
     Line, fmt_ts, lines_to_srt, lines_to_bilingual_srt,
@@ -1079,3 +1080,60 @@ class TestTranscribeWithGroq:
         import inspect
         import core
         assert "timeout=" in inspect.getsource(core.transcribe_with_groq)
+
+
+class TestWhisperDeviceReporting:
+    def _stub_faster_whisper(self, monkeypatch, cuda_error):
+        import sys, types
+
+        class FakeWhisperModel:
+            def __init__(self, target, device, compute_type):
+                if device == "cuda" and cuda_error:
+                    raise RuntimeError(cuda_error)
+                self.device = device
+
+        mod = types.ModuleType("faster_whisper")
+        mod.WhisperModel = FakeWhisperModel
+        monkeypatch.setitem(sys.modules, "faster_whisper", mod)
+        monkeypatch.setattr(core, "_whisper_model_cache", {})
+        monkeypatch.setattr(core, "_whisper_device_info", {})
+
+    def test_gpu_load_success_reports_gpu(self, monkeypatch):
+        self._stub_faster_whisper(monkeypatch, None)
+        core.load_whisper_model("tiny", use_gpu=True)
+        info = core.get_whisper_device_info("tiny", use_gpu=True)
+        assert info == {"device": "cuda", "compute_type": "float16", "gpu_error": None}
+        assert core.describe_whisper_device(info) == "Using GPU (float16)"
+
+    def test_gpu_failure_falls_back_and_reports_redacted_reason(self, monkeypatch):
+        self._stub_faster_whisper(
+            monkeypatch, "Library cublas64_12.dll is not found key=sk-abcdefghijklmnopqrstuvwx")
+        model = core.load_whisper_model("tiny", use_gpu=True)
+        assert model.device == "cpu"
+        info = core.get_whisper_device_info("tiny", use_gpu=True)
+        assert info["device"] == "cpu"
+        assert "cublas64_12.dll" in info["gpu_error"]
+        assert "sk-abcdefghijklmnopqrstuvwx" not in info["gpu_error"]
+        text = core.describe_whisper_device(info)
+        assert text.startswith("GPU unavailable (") and text.endswith("); using CPU")
+
+    def test_cpu_request_reports_cpu(self, monkeypatch):
+        self._stub_faster_whisper(monkeypatch, None)
+        core.load_whisper_model("tiny", use_gpu=False)
+        assert core.describe_whisper_device(
+            core.get_whisper_device_info("tiny")) == "Using CPU (int8)"
+
+    def test_gpu_status_never_raises_and_reports_both_probes(self, monkeypatch):
+        import sys, types
+        ct2 = types.ModuleType("ctranslate2")
+        ct2.get_cuda_device_count = lambda: 1
+        torch = types.ModuleType("torch")
+        torch.cuda = types.SimpleNamespace(is_available=lambda: False)
+        monkeypatch.setitem(sys.modules, "ctranslate2", ct2)
+        monkeypatch.setitem(sys.modules, "torch", torch)
+        assert core.gpu_status() == {"ctranslate2_cuda_devices": 1,
+                                     "torch_cuda_available": False, "errors": []}
+        ct2.get_cuda_device_count = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+        status = core.gpu_status()
+        assert status["ctranslate2_cuda_devices"] is None
+        assert status["errors"] and "boom" in status["errors"][0]
