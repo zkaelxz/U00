@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api, ApiError } from '../api/client'
 import type { DramaSummary } from '../api/types'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { MAX_SELECTION, selectAllVisible, toggleId } from '../pages/libraryAdmin/libraryAdmin'
 import { DramaCards } from './DramaCards'
 
 // Same choices the Streamlit Library tab offers.
@@ -14,15 +15,32 @@ interface Props {
   onSelect: (id: number) => void
   // Bump to refetch after a create/delete elsewhere on the page.
   reloadKey?: number
+  // Library admin selection (omit for a plain list). Desktop: a checkbox
+  // column; phone: a Select toggle that turns cards into checkboxes.
+  checked?: ReadonlySet<number>
+  onCheckedChange?: (next: Set<number>) => void
+  selectMode?: boolean
+  onSelectModeChange?: (on: boolean) => void
+  // Every successful load (for pruning the selection and the admin bar).
+  onItems?: (items: DramaSummary[]) => void
 }
 
-export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
+export function LibraryList({
+  selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems,
+}: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [quickFilter, setQuickFilter] = useState('')
   const [items, setItems] = useState<DramaSummary[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const phone = useMediaQuery('(max-width: 640px)')
+  const onItemsRef = useRef(onItems)
+  useEffect(() => {
+    onItemsRef.current = onItems
+  })
+  const selecting = !!checked && !!onCheckedChange
+  const toggle = (id: number) => checked && onCheckedChange?.(toggleId(checked, id))
+  const allChecked = !!items?.length && !!checked && items.slice(0, MAX_SELECTION).every((d) => checked.has(d.id))
 
   useEffect(() => {
     let cancelled = false
@@ -34,6 +52,7 @@ export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
           if (!cancelled) {
             setItems(resp.items)
             setError(null)
+            onItemsRef.current?.(resp.items)
           }
         })
         .catch((e: unknown) => {
@@ -81,16 +100,43 @@ export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
       {!error && items === null && <p className="muted">Loading…</p>}
       {!error && items !== null && (
         <>
-          <p className="muted" data-testid="drama-count">
-            {items.length} drama(s)
-          </p>
+          <div className="list-head">
+            <p className="muted" data-testid="drama-count">
+              {items.length} drama(s)
+            </p>
+            {selecting && phone && items.length > 0 && onSelectModeChange && !selectMode && (
+              <button type="button" onClick={() => onSelectModeChange(true)}>
+                Select
+              </button>
+            )}
+          </div>
+          {selecting && items.length > MAX_SELECTION && (
+            <p className="muted">At most {MAX_SELECTION} at a time.</p>
+          )}
           {items.length > 0 && phone && (
-            <DramaCards items={items} selectedId={selectedId} onSelect={onSelect} />
+            <DramaCards
+              items={items}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              selectMode={selecting && selectMode}
+              checked={checked}
+              onToggle={toggle}
+            />
           )}
           {items.length > 0 && !phone && (
             <table>
               <thead>
                 <tr>
+                  {selecting && (
+                    <th className="check-col">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible"
+                        checked={allChecked}
+                        onChange={() => onCheckedChange?.(allChecked ? new Set() : selectAllVisible(items).ids)}
+                      />
+                    </th>
+                  )}
                   <th>Title</th>
                   <th>Type</th>
                   <th>Lang</th>
@@ -105,6 +151,16 @@ export function LibraryList({ selectedId, onSelect, reloadKey = 0 }: Props) {
                     className={d.id === selectedId ? 'selected' : undefined}
                     onClick={() => onSelect(d.id)}
                   >
+                    {selecting && (
+                      <td className="check-col" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${d.title_en || d.title_zh || `#${d.id}`}`}
+                          checked={!!checked?.has(d.id)}
+                          onChange={() => toggle(d.id)}
+                        />
+                      </td>
+                    )}
                     <td>
                       <button type="button" className="link" onClick={() => onSelect(d.id)}>
                         {d.title_en || d.title_zh || `#${d.id}`}

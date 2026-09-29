@@ -14,6 +14,8 @@ import './typedConfirm.css'
 
 type TypedConfirmProps = {
   word: string
+  // Letter case must match (default false: case-insensitive).
+  exact?: boolean
   action: string
   busy?: boolean
   // A reason the action cannot run right now; shown and the button disabled.
@@ -23,10 +25,10 @@ type TypedConfirmProps = {
   children?: ReactNode
 }
 
-export function TypedConfirm({ word, action, busy, blocked, onConfirm, onCancel, children }: TypedConfirmProps) {
+export function TypedConfirm({ word, exact, action, busy, blocked, onConfirm, onCancel, children }: TypedConfirmProps) {
   const [typed, setTyped] = useState('')
   const id = useId()
-  const ready = typedMatches(typed, word) && !busy && !blocked
+  const ready = typedMatches(typed, word, exact) && !busy && !blocked
   return (
     <form
       className="delete-confirm"

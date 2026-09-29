@@ -1,14 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 
 import {
   createDrama, getCosts, getHistory, getPresets, getRecent, getSeries, getStats, getVoiceBank,
   searchLines,
 } from '../api/library'
+import { deletePreset, deleteVoiceBankEntry } from '../api/libraryAdmin'
+import type { DramaSummary } from '../api/types'
+import { ConfirmButton } from '../components/ConfirmButton'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
+import { useMediaQuery } from '../hooks/useMediaQuery'
+import { PC_ONLY_DELETE_NOTE, usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { AdminSection } from './libraryAdmin/AdminSection'
+import { SelectionBar } from './libraryAdmin/SelectionBar'
+import { exportableCount, pruneSelection, selectedItems } from './libraryAdmin/libraryAdmin'
 import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
 import {
   MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, deleteNotice, groupHistory, showFold,
@@ -73,7 +81,41 @@ function StatsStrip({ reloadKey }: { reloadKey: number }) {
   )
 }
 
-function MoreSections({ reloadKey }: { reloadKey: number }) {
+// A Library list whose rows have a PC-only two-step delete (presets, voice bank).
+function DeletableList({ pc, help, items, remove, onDeleted }: {
+  pc: PcMode
+  help: string
+  items: { id: number; name: string; meta: string | null }[] | undefined
+  remove: (id: number) => Promise<unknown>
+  onDeleted: () => void
+}) {
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const run = (id: number) => {
+    setBusyId(id)
+    setError(null)
+    remove(id).then(
+      () => { setBusyId(null); onDeleted() },
+      (e: unknown) => { setBusyId(null); setError(e) },
+    )
+  }
+  return (
+    <>
+      <ul className="deletable-list">
+        {items?.map((x) => (
+          <li key={x.id}>
+            <span>{x.name} <span className="muted">{x.meta}</span></span>
+            {pc !== 'remote' && <ConfirmButton name={x.name} busy={busyId === x.id} onConfirm={() => run(x.id)} />}
+          </li>
+        ))}
+      </ul>
+      <p className="muted">{pc === 'remote' ? PC_ONLY_DELETE_NOTE : help}</p>
+      <ErrorBanner error={error} describe={{ pcOnly: true }} />
+    </>
+  )
+}
+
+function MoreSections({ reloadKey, pc, onChanged }: { reloadKey: number; pc: PcMode; onChanged: () => void }) {
   const recent = useLoad(getRecent, reloadKey)
   const series = useLoad(getSeries, reloadKey)
   const costs = useLoad(getCosts, reloadKey)
@@ -119,18 +161,22 @@ function MoreSections({ reloadKey }: { reloadKey: number }) {
         </ul>
       </Fold>
       <Fold title="Presets" count={presets.data?.items.length} error={presets.error}>
-        <ul>
-          {presets.data?.items.map((p) => (
-            <li key={p.id}>{p.name} <span className="muted">{p.translation_engine}</span></li>
-          ))}
-        </ul>
+        <DeletableList
+          pc={pc}
+          help="Dramas that used it keep their settings."
+          items={presets.data?.items.map((p) => ({ id: p.id, name: p.name, meta: p.translation_engine }))}
+          remove={deletePreset}
+          onDeleted={onChanged}
+        />
       </Fold>
       <Fold title="Voice bank" count={voices.data?.items.length} error={voices.error}>
-        <ul>
-          {voices.data?.items.map((v) => (
-            <li key={v.id}>{v.name} <span className="muted">{v.language}</span></li>
-          ))}
-        </ul>
+        <DeletableList
+          pc={pc}
+          help="Characters that used it keep their own copy."
+          items={voices.data?.items.map((v) => ({ id: v.id, name: v.name, meta: v.language }))}
+          remove={deleteVoiceBankEntry}
+          onDeleted={onChanged}
+        />
       </Fold>
     </div>
   )
@@ -302,7 +348,38 @@ export default function LibraryPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [items, setItems] = useState<DramaSummary[]>([])
+  const [checked, setChecked] = useState<Set<number>>(() => new Set())
+  const [selectMode, setSelectMode] = useState(false)
+  const pc = usePcOnly()
+  const phone = useMediaQuery('(max-width: 640px)')
+  const stats = useLoad(getStats, reloadKey)
   const reload = () => setReloadKey((k) => k + 1)
+
+  // Prune the selection on every reload so it only holds dramas still listed.
+  const onItems = useCallback((next: DramaSummary[]) => {
+    setItems(next)
+    setChecked((c) => pruneSelection(c, next))
+  }, [])
+
+  const picked = selectedItems(items, checked)
+  const clear = () => setChecked(new Set())
+  const showBar = phone ? selectMode : picked.length > 0
+  const bar = showBar && (
+    <SelectionBar
+      selected={picked}
+      items={items}
+      pc={pc}
+      phone={phone}
+      onClear={clear}
+      onDone={() => { setSelectMode(false); clear() }}
+      onChanged={reload}
+      onDeleted={(ids) => {
+        if (selectedId !== null && ids.includes(selectedId)) setSelectedId(null)
+        setChecked((c) => new Set([...c].filter((id) => !ids.includes(id))))
+      }}
+    />
+  )
 
   return (
     <main className="library-grid">
@@ -310,12 +387,23 @@ export default function LibraryPage() {
       <div className="wide new-drama-slot">
         <CreateForm reloadKey={reloadKey} onCreated={(id) => { setSelectedId(id); reload() }} />
       </div>
-      <LibraryList selectedId={selectedId} onSelect={setSelectedId} reloadKey={reloadKey} />
+      {!phone && bar}
+      <LibraryList
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+        reloadKey={reloadKey}
+        checked={checked}
+        onCheckedChange={setChecked}
+        selectMode={selectMode}
+        onSelectModeChange={setSelectMode}
+        onItems={onItems}
+      />
+      {phone && bar}
       {selectedId !== null && (
         <DramaDetailPanel
           key={selectedId}
           dramaId={selectedId}
-          onDeleted={(r) => { setNotice(deleteNotice(r)); setSelectedId(null); reload() }}
+          onDeleted={pc === 'remote' ? undefined : (r) => { setNotice(deleteNotice(r)); setSelectedId(null); reload() }}
         />
       )}
       {notice && (
@@ -324,8 +412,11 @@ export default function LibraryPage() {
           <button type="button" className="link" onClick={() => setNotice(null)}>Dismiss</button>
         </p>
       )}
-      <MoreSections reloadKey={reloadKey} />
+      <MoreSections reloadKey={reloadKey} pc={pc} onChanged={reload} />
       <LineSearch onSelect={setSelectedId} />
+      <div className="wide">
+        <AdminSection pc={pc} exportable={exportableCount(stats.data?.by_status)} />
+      </div>
     </main>
   )
 }
