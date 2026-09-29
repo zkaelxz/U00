@@ -843,16 +843,18 @@ def extract_audio_from_video(video_path: str, out_path: str):
     return out_path
 
 
-def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str):
+def extract_audio_slice(audio_path: str, start: float, end: float, out_path: str,
+                        timeout: float = None):
     """Cuts a [start, end) slice of audio via ffmpeg. Shared by
     forced_align.py (per-chunk forced alignment) and asr_backend.py
     (per-segment Qwen3-ASR re-transcription), both of which need to hand
     a short audio clip to a model that only accepts a few minutes at a
-    time, rather than the whole file."""
+    time, rather than the whole file. `timeout` (seconds, default none)
+    raises subprocess.TimeoutExpired if ffmpeg runs longer."""
     import subprocess
     cmd = ["ffmpeg", "-y", "-i", audio_path, "-ss", str(max(start, 0.0)), "-to", str(end),
            "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", out_path]
-    subprocess.run(cmd, check=True, capture_output=True)
+    subprocess.run(cmd, check=True, capture_output=True, timeout=timeout)
     return out_path
 
 

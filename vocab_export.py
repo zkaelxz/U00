@@ -14,6 +14,7 @@ import csv
 import io
 import os
 import tempfile
+import time
 
 from core import extract_audio_slice as _extract_audio_slice
 
@@ -63,7 +64,8 @@ def export_vocab_apkg(vocab_rows, deck_name: str, out_path: str):
 
 
 def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
-                                audio_path: str = None):
+                                audio_path: str = None, clip_timeout: float = None,
+                                audio_budget_seconds: float = None):
     """Requires `pip install genanki`. Richer companion to
     export_vocab_apkg(): one card per vocab row, front = the full source
     sentence the word was looked up in (plus an embedded audio clip of
@@ -81,6 +83,10 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
     for a novel, or any drama with no real audio track -- those cards
     come out sentence-only, cleanly, not with a missing/broken sound
     reference.
+
+    `clip_timeout`: per-clip ffmpeg timeout in seconds (None = none).
+    `audio_budget_seconds`: once this much time has gone on clips, the
+    remaining cards come out sentence-only (None = no budget).
     """
     import genanki
     import random
@@ -102,6 +108,8 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
     )
     deck = genanki.Deck(deck_id, deck_name)
     media_files = []
+    audio_deadline = (time.monotonic() + audio_budget_seconds
+                      if audio_budget_seconds is not None else None)
 
     for row in vocab_rows:
         line = by_idx.get(row.get("first_seen_line_idx"))
@@ -114,11 +122,13 @@ def export_vocab_apkg_sentence(vocab_rows, lines, deck_name: str, out_path: str,
         back = f"{translation}<br><br><b>{word_label}</b>: {definitions}"
 
         sentence = line.zh or ""
-        if has_audio and line.end and line.end > (line.start or 0):
+        if (has_audio and line.end and line.end > (line.start or 0)
+                and (audio_deadline is None or time.monotonic() < audio_deadline)):
             clip_name = f"clip_{row.get('id')}.wav"
             clip_path = os.path.join(tmp_dir, clip_name)
             try:
-                _extract_audio_slice(audio_path, line.start, line.end, clip_path)
+                _extract_audio_slice(audio_path, line.start, line.end, clip_path,
+                                     **({"timeout": clip_timeout} if clip_timeout else {}))
                 media_files.append(clip_path)
                 sentence = f"{sentence}[sound:{clip_name}]"
             except Exception:
