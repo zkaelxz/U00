@@ -625,6 +625,10 @@ class CharactersEntry(BaseModel):
     series_character_id: Optional[int] = None
     series_character_name: str
     line_count: int
+    # C07/C04: the linked series character's pronouns (the default when
+    # this drama sets none) and up to two short sample source lines.
+    series_pronouns: str = ""
+    sample_lines: List[str] = Field(default_factory=list)
 
 
 class CharactersUpdateRequest(BaseModel):
@@ -3146,3 +3150,39 @@ class NovelFileTextRequest(BaseModel):
     the body itself, capped at 32 MB, before this is validated."""
     model_config = ConfigDict(extra="forbid")
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Characters extras (inventory C02, C08): recurring-voice suggestions and
+# "remember as a known series character" (services/characters_service.py).
+# ---------------------------------------------------------------------------
+
+class CharactersVoiceSuggestion(BaseModel):
+    speaker_label: str
+    series_character_id: int
+    character_name: str
+    similarity: float
+
+
+class CharactersVoiceSuggestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=100)
+    series_character_id: int = Field(ge=1, le=2147483647)
+
+
+class CharactersVoiceSuggestionResult(BaseModel):
+    """character: the updated speaker after an accept (null after a
+    reject); suggestions: what is still offered."""
+    character: Optional[CharactersEntry] = None
+    suggestions: List[CharactersVoiceSuggestion]
+
+
+class CharactersRememberRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_label: str = Field(min_length=1, max_length=200)
+
+
+class CharactersRememberResult(BaseModel):
+    character: CharactersEntry
+    series_character: CharactersSeriesEntry
+    created: bool

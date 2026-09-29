@@ -6,17 +6,23 @@ Speaker labels can contain spaces, unicode or slashes, so they travel in
 JSON bodies, never path segments. Only fields the client actually sets
 are forwarded to the service (omitted = leave alone, "" = clear).
 
+Also here: recurring-voice suggestions (C02: list, accept, reject) and
+"remember as a known series character" (C08).
+
 Out of scope: reference-audio upload / auto-extract (needs multipart),
-series-character writes, and Dub generation itself.
+series-character rename/delete, and Dub generation itself.
 """
 
 from typing import List
 
 from fastapi import APIRouter, Path
 from api.auth import require_permission
-from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersSeriesEntry,
+from api.schemas import (CharactersCloneEngines, CharactersEntry, CharactersRememberRequest,
+                         CharactersRememberResult, CharactersSeriesEntry,
                          CharactersUpdateRequest, CharactersVoiceBankApply,
-                         CharactersVoiceBankEntry, ErrorResponse)
+                         CharactersVoiceBankEntry, CharactersVoiceSuggestion,
+                         CharactersVoiceSuggestionRequest, CharactersVoiceSuggestionResult,
+                         ErrorResponse)
 from services import characters_service
 
 router = APIRouter(prefix="/api/characters", tags=["characters"])
@@ -63,3 +69,37 @@ def get_voice_bank():
 def post_voice_bank_apply(payload: CharactersVoiceBankApply, drama_id: int = Path(ge=1)):
     return characters_service.apply_voice_bank_entry(
         drama_id, payload.speaker_label, payload.voice_bank_id)
+
+
+@router.get("/dramas/{drama_id}/voice-suggestions", dependencies=[require_permission("library.read")],
+            response_model=List[CharactersVoiceSuggestion],
+            summary="Experimental 'sounds like' matches against the series cast (empty when unavailable)",
+            responses={404: {"model": ErrorResponse}})
+def get_voice_suggestions(drama_id: int = Path(ge=1)):
+    return characters_service.list_voice_suggestions(drama_id)
+
+
+@router.post("/dramas/{drama_id}/voice-suggestions/accept", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersVoiceSuggestionResult,
+             summary="Accept an offered voice suggestion: name and link the speaker",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_voice_suggestion_accept(payload: CharactersVoiceSuggestionRequest, drama_id: int = Path(ge=1)):
+    return characters_service.accept_voice_suggestion(
+        drama_id, payload.speaker_label, payload.series_character_id)
+
+
+@router.post("/dramas/{drama_id}/voice-suggestions/reject", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersVoiceSuggestionResult,
+             summary="Dismiss a voice suggestion for this drama",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_voice_suggestion_reject(payload: CharactersVoiceSuggestionRequest, drama_id: int = Path(ge=1)):
+    return characters_service.reject_voice_suggestion(
+        drama_id, payload.speaker_label, payload.series_character_id)
+
+
+@router.post("/dramas/{drama_id}/remember-series-character", dependencies=[require_permission("lines.edit")],
+             response_model=CharactersRememberResult,
+             summary="Add a speaker's saved name to the drama's series cast and link it",
+             responses={404: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_remember_series_character(payload: CharactersRememberRequest, drama_id: int = Path(ge=1)):
+    return characters_service.remember_series_character(drama_id, payload.speaker_label)

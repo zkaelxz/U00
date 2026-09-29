@@ -152,6 +152,11 @@ export interface CharacterEntry {
   series_character_id: number | null
   series_character_name: string
   line_count: number
+  // Optional: older mocks and servers may omit them. series_pronouns is
+  // the linked series character's default (C07); sample_lines are up to
+  // two short source lines (C04).
+  series_pronouns?: string
+  sample_lines?: string[]
 }
 
 export interface CharacterUpdate {

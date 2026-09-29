@@ -522,6 +522,10 @@ baihe-subtitler/
 │   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
 │   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
 │   │                              types/novelFiles.ts
+│   │                              VoiceSuggestions (Characters > "sounds like X": accept/reject) + characters.css;
+│   │                              CharactersPanel's sample lines, custom pronouns and "Remember in this series"
+│   │                              use characterForm.ts (pure, unit-tested); API in src/api/characters.ts,
+│   │                              types in src/types/characters.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
