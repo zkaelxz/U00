@@ -15,7 +15,18 @@ export const MAX_FILE_BYTES = 2048 * 1024 * 1024
 export interface FileLike {
   name: string
   size: number
-  arrayBuffer(): Promise<ArrayBuffer>
+}
+
+/** Reads a file's bytes; the browser default uses FileReader. */
+export type ReadBytes<F extends FileLike> = (file: F) => Promise<ArrayBuffer>
+
+export function fileReaderBytes(file: Blob): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as ArrayBuffer)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsArrayBuffer(file)
+  })
 }
 
 export function extensionOf(name: string): string {
@@ -38,19 +49,45 @@ export function checkTranslateFile(file: Pick<FileLike, 'name' | 'size'>): strin
 
 /** Decode like the old tab: UTF-8, invalid bytes dropped (not replaced). */
 export function decodeText(buf: ArrayBuffer): string {
-  return new TextDecoder('utf-8', { fatal: false }).decode(buf).replace(/�/g, '')
+  return new TextDecoder('utf-8', { fatal: false }).decode(buf).replace(/\uFFFD/g, '')
 }
 
 export type ReadResult = { ok: true; text: string; name: string } | { ok: false; error: string }
 
-export async function readTranslateFile(file: FileLike): Promise<ReadResult> {
+export async function readTranslateFile<F extends FileLike>(
+  file: F,
+  readBytes: ReadBytes<F>,
+): Promise<ReadResult> {
   const invalid = checkTranslateFile(file)
   if (invalid) return { ok: false, error: invalid }
   try {
-    return { ok: true, text: decodeText(await file.arrayBuffer()), name: file.name }
+    return { ok: true, text: decodeText(await readBytes(file)), name: file.name }
   } catch {
     return { ok: false, error: `Could not read "${file.name}".` }
   }
+}
+
+export interface FileLoadTarget {
+  setText(text: string): void
+  setSourceName(name: string | null): void
+  setFileMessage(message: string | null): void
+}
+
+/** Reads the chosen file and fills the text box, or shows why it could not. */
+export async function loadChosenFile<F extends FileLike>(
+  file: F | undefined,
+  target: FileLoadTarget,
+  readBytes: ReadBytes<F>,
+): Promise<void> {
+  if (!file) return
+  const read = await readTranslateFile(file, readBytes)
+  if (!read.ok) {
+    target.setFileMessage(read.error)
+    return
+  }
+  target.setFileMessage(null)
+  target.setSourceName(read.name)
+  target.setText(read.text)
 }
 
 /** "chapter1.md" + "en" -> "chapter1.en.txt"; no source -> "translation.en.txt". */

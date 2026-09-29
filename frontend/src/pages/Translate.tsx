@@ -11,7 +11,7 @@ import {
   validateTranslateInput,
 } from '../api/translate'
 import { ErrorBanner } from '../components/ErrorBanner'
-import { ACCEPT_ATTR, downloadName, downloadText, readTranslateFile } from './translateFile'
+import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
 import './translate.css'
 import type { TranslateDirection, TranslateEngine, TranslateHistoryEntry } from '../types/translate'
 
@@ -29,21 +29,6 @@ export default function TranslatePage() {
   const [sourceName, setSourceName] = useState<string | null>(null)
   const [fileMessage, setFileMessage] = useState<string | null>(null)
   const [resultTarget, setResultTarget] = useState('en')
-
-  async function openFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const input = e.currentTarget
-    const file = input.files?.[0]
-    if (!file) return
-    const read = await readTranslateFile(file)
-    input.value = ''
-    if (!read.ok) {
-      setFileMessage(read.error)
-      return
-    }
-    setFileMessage(null)
-    setSourceName(read.name)
-    setText(read.text)
-  }
 
   const refreshHistory = useCallback(() => translateApi.history().then(setHistory, setError), [])
 
@@ -160,19 +145,11 @@ export default function TranslatePage() {
             ))}
           </ul>
         </details>
-        <div className="field translate-file">
-          <label htmlFor="translate-file-input">Open a file (.txt or .md)</label>
-          <input
-            id="translate-file-input"
-            type="file"
-            accept={ACCEPT_ATTR}
-            aria-describedby="translate-file-status"
-            onChange={openFile}
-          />
-          <span id="translate-file-status" role="status" className={fileMessage ? 'bad' : 'muted'}>
-            {fileMessage ?? (sourceName ? `Loaded ${sourceName}` : '')}
-          </span>
-        </div>
+        <OpenFileField
+          sourceName={sourceName}
+          message={fileMessage}
+          target={{ setText, setSourceName, setFileMessage }}
+        />
         <label className="field">
           <span>Text to translate</span>
         <textarea
@@ -195,13 +172,11 @@ export default function TranslatePage() {
             {result}
           </pre>
           <div className="actions">
-            <button
-              type="button"
-              className="translate-download"
-              onClick={() => downloadText(result, downloadName(sourceName, resultTarget))}
-            >
-              Download result ({downloadName(sourceName, resultTarget)})
-            </button>
+            <DownloadResultButton
+              result={result}
+              sourceName={sourceName}
+              targetLanguage={resultTarget}
+            />
           </div>
         </div>
       )}
