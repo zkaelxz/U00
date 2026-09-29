@@ -64,6 +64,7 @@ same shape as diarization_service.start_diarization_run.
 """
 import importlib.util
 import os
+import subprocess
 from typing import Optional
 
 import background_jobs
@@ -171,7 +172,7 @@ def get_transcribe_config(drama_id: int) -> dict:
         raise NotFoundError(f"No drama with id {drama_id}.")
 
     source = source_service.get_source_config(drama_id)
-    whisper_size = drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"]
+    whisper_size = stored_whisper_size(drama)
 
     return {
         "drama_id": drama_id,
@@ -216,6 +217,9 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
 
     updates = {}
     if "whisper_size" in fields and fields["whisper_size"] is not None:
+        # A fixed set: faster-whisper downloads whatever repo name it is given.
+        if fields["whisper_size"] not in _allowed_whisper_sizes():
+            raise InvalidInputError(f"Unknown whisper_size {fields['whisper_size']!r}.")
         updates["whisper_size"] = fields["whisper_size"]
     if "alignment_method" in fields and fields["alignment_method"] is not None:
         if fields["alignment_method"] not in ("whisper_diff", "qwen3_forced_align"):
@@ -385,7 +389,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     started = background_jobs.start_job(
         job_id, _run_transcribe_and_apply_job, job_id, drama_id, audio_path, transcript_mode,
         transcript_text, source_language, chinese_script,
-        drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+        stored_whisper_size(drama),
         drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
         drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
         drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
@@ -446,6 +450,31 @@ def validate_transcribe_options(drama_id: int, source_language: Optional[str] = 
 _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
                          "large": "~3 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}
+
+
+def _allowed_whisper_sizes() -> frozenset:
+    """Whisper model names a drama may store: the Workspace picker's
+    (core.WHISPER_MODELS, plus tiny/base in the React picker) and the known
+    download sizes above. Anything else is refused by update_transcribe_config."""
+    return frozenset(core_module.WHISPER_MODELS) | frozenset(_MODEL_DOWNLOAD_SIZES)
+
+
+def stored_whisper_size(drama: dict) -> str:
+    """The drama's saved whisper_size, or the default when it is empty or
+    not one of _allowed_whisper_sizes() (e.g. a value planted in the DB by
+    hand): an arbitrary string must never reach WhisperModel, where it
+    would be read as a Hugging Face repo id or a local path. Logs a warning
+    (without the value) when it falls back."""
+    size = drama.get("whisper_size")
+    if not size:
+        return _DEFAULT_TUNING["whisper_size"]
+    if size not in _allowed_whisper_sizes():
+        import applog
+        applog.get_logger().warning(
+            f"drama {drama.get('id')}: stored whisper_size is not a known model size; "
+            f"using the default {_DEFAULT_TUNING['whisper_size']}")
+        return _DEFAULT_TUNING["whisper_size"]
+    return size
 
 
 def _model_loading_message(whisper_size: str, cached: bool) -> str:
@@ -777,7 +806,7 @@ def start_autotune_run(drama_id: int, candidates: Optional[list] = None,
     job_id = autotune_job_id(drama_id)
     started = background_jobs.start_process_job(
         job_id, _autotune_all_worker,
-        args=(audio_path, drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+        args=(audio_path, stored_whisper_size(drama),
               drama.get("source_language") or "zh", settings_service.get_use_gpu(),
               settings_service.resolve_key("hf_token") or None, initial_prompt,
               drama.get("beam_size") or _DEFAULT_TUNING["beam_size"], list(candidates),
@@ -834,3 +863,225 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
         raise InvalidInputError("candidate_ms must be one of the measured candidates.")
     db.update_drama(drama_id, min_silence_ms=candidate_ms)
     return get_transcribe_config(drama_id)
+
+
+# --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
+# Streamlit's Review "Re-transcribe" button re-runs Whisper on one line's own
+# timing window, shows what it heard, and only on "Use this" replaces that
+# line's source text. Same split here: the job cuts the window, transcribes it
+# with the drama's full-transcribe Whisper settings and the same automatic
+# prompt, and keeps the proposal in its in-process result WITHOUT writing.
+# The line text never goes through GET /api/jobs (only line_id does): it is
+# read back raw with get_retranscribe_result (lines.read, like auto-tune's
+# "results are only readable here"), and apply_retranscribe_line writes only
+# `zh` for that line id when the client's expected base and proposal match
+# the raw values held here and the line is unchanged since the job started (a
+# compare-and-set, so the user's edits win). Proposals live in memory only:
+# after an API restart the user re-transcribes. Local Whisper even when the
+# drama's full transcribe uses Groq (Streamlit's button did too), so no
+# paid-engine gate.
+
+# Proposed text kept in the job result: same cap as a line edit.
+_RETRANSCRIBE_MAX_CHARS = 2000
+# ffmpeg cutting one line's window; a hung ffmpeg ends the job instead of
+# holding the GPU slot.
+_RETRANSCRIBE_SLICE_TIMEOUT_S = 120
+
+# Running/queued jobs that replace this drama's lines or also write `zh`, so a
+# one-line re-transcription alongside them would be pointless or race them.
+_RETRANSCRIBE_BLOCKING_PREFIXES = ("transcribe_", "fixflag_", "resegment_", "narration_")
+
+
+def retranscribe_line_job_id(drama_id: int) -> str:
+    return f"retranscribe_{drama_id}"
+
+
+def _find_line(drama_id: int, line_id: int):
+    return next((ln for ln in db.load_line_objects(drama_id) if ln.id == line_id), None)
+
+
+def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "",
+                            extra_names: str = "") -> dict:
+    """Starts the GPU-queued job that re-transcribes one line's timing window
+    and proposes new text for it (nothing is written; see
+    apply_retranscribe_line). initial_prompt / extra_names resolve exactly as
+    for a full transcribe run (_resolve_initial_prompt). Returns {job_id,
+    drama_id, line_id}; poll GET /api/jobs/{job_id} for status (its result
+    shows only line_id), then read the proposal with get_retranscribe_result.
+
+    NotFoundError for an unknown drama or a line id that isn't this drama's;
+    UnsupportedOperationError when the drama has no audio pipeline or no
+    audio, or the line has no timing window; InvalidInputError for a
+    non-text prompt; ConflictError while a re-transcription, a full
+    transcription, fix-flagged, a re-segment or a narration run is running
+    or queued for this drama."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    line = _find_line(drama_id, line_id)
+    if line is None:
+        raise NotFoundError(f"No line with id {line_id} in drama {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    audio_path = _drama_audio_path(drama_id, drama)
+    if audio_path is None:
+        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+    if not float(line.end) > float(line.start):
+        raise UnsupportedOperationError("This line has no timing window to re-transcribe.")
+    prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
+    for prefix in _RETRANSCRIBE_BLOCKING_PREFIXES:
+        other = background_jobs.get_status(f"{prefix}{drama_id}")
+        if other and other.get("status") in ("running", "queued"):
+            raise ConflictError("Another job is changing this drama's lines. "
+                                "Try again when it finishes.")
+    job_id = retranscribe_line_job_id(drama_id)
+    started = background_jobs.start_job(
+        job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
+        float(line.start), float(line.end), line.zh,
+        drama.get("source_language") or "zh",
+        stored_whisper_size(drama),
+        drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
+        drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
+        drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+        bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
+        gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
+    if not started:
+        raise ConflictError("A line is already being re-transcribed for this drama.")
+    return {"job_id": job_id, "drama_id": drama_id, "line_id": line_id}
+
+
+def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
+                               source_language, whisper_size, beam_size, min_silence_ms,
+                               vad_threshold, fast_mode, use_gpu, initial_prompt):
+    """Job body: cut [start, end) from the drama's audio and transcribe it.
+    Writes nothing to the line. Result on success: {"line_id", "proposed_zh",
+    "base_zh", "base_start", "base_end"} (proposed_zh capped at
+    _RETRANSCRIBE_MAX_CHARS; base_zh raw, for the apply compare), plus
+    "gpu_fallback" when it ran on CPU. GET /api/jobs shows only line_id and
+    gpu_fallback (jobs_service's allowlist); the text is read in-process by
+    get_retranscribe_result and apply_retranscribe_line. A failed_reason
+    instead when the audio couldn't be cut ("audio_slice", including an
+    ffmpeg timeout), nothing was heard ("empty"), the job was cancelled, or
+    the line no longer exists ("line_gone")."""
+    # Which line this run is for, visible to pollers before it finishes.
+    background_jobs.set_result(job_id, {"line_id": line_id}, mirror=True)
+    slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
+    gpu_fallback = []
+    try:
+        try:
+            core_module.extract_audio_slice(audio_path, start, end, slice_path,
+                                            timeout=_RETRANSCRIBE_SLICE_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            background_jobs.set_result(job_id, {
+                "line_id": line_id, "failed_reason": "audio_slice",
+                "detail": "Cutting this line's audio took too long and was stopped."})
+            return
+        except Exception:
+            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "audio_slice",
+                                                "detail": "Couldn't cut this line's audio."})
+            return
+        if background_jobs.is_cancel_requested(job_id):
+            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
+            return
+        background_jobs.update_progress(job_id, 0.1, _model_loading_message(
+            whisper_size, core_module.is_whisper_model_cached(whisper_size)))
+        try:
+            segments = core_module.transcribe_for_timing(
+                slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
+                initial_prompt=initial_prompt, beam_size=beam_size,
+                min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
+                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module._short_reason(exc)),
+                fast_mode=fast_mode)
+        except core_module.ModelDownloadError as exc:
+            background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "model_download",
+                                                "detail": redact_secrets(str(exc))})
+            return
+    finally:
+        if os.path.exists(slice_path):
+            os.remove(slice_path)
+        core_module.release_gpu_models()
+
+    new_zh = " ".join((s.get("text") or "").strip() for s in segments or []).strip()
+    if not new_zh:
+        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "empty"})
+        return
+    if background_jobs.is_cancel_requested(job_id):
+        background_jobs.set_result(job_id, {"line_id": line_id, "failed_reason": "cancelled"})
+        return
+    if _find_line(drama_id, line_id) is None:
+        background_jobs.set_result(job_id, {
+            "line_id": line_id, "failed_reason": "line_gone",
+            "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
+        return
+    result = {"line_id": line_id, "proposed_zh": new_zh[:_RETRANSCRIBE_MAX_CHARS],
+              "base_zh": zh_before or "", "base_start": start, "base_end": end}
+    if gpu_fallback:
+        result["gpu_fallback"] = gpu_fallback[0]
+    background_jobs.set_result(job_id, result)
+
+
+def _finished_proposal(drama_id: int, line_id: int) -> dict:
+    """This drama's finished re-transcription result for this line, as held
+    in this process. NotFoundError for an unknown drama or line, or when there
+    is none (not run, still running, failed, another line's, or the API
+    restarted since)."""
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if _find_line(drama_id, line_id) is None:
+        raise NotFoundError(f"No line with id {line_id} in drama {drama_id}.")
+    job = background_jobs.get_status(retranscribe_line_job_id(drama_id)) or {}
+    result = job.get("result") if job.get("status") == "done" else None
+    if (not isinstance(result, dict) or result.get("line_id") != line_id
+            or not result.get("proposed_zh")):
+        raise NotFoundError("No finished re-transcription for this line.")
+    return result
+
+
+def get_retranscribe_result(drama_id: int, line_id: int) -> dict:
+    """{job_id, line_id, status: "done", proposed_zh, base_zh}: the finished
+    proposal for this line, raw (the same line text lines.read already
+    returns). NotFoundError as _finished_proposal."""
+    result = _finished_proposal(drama_id, line_id)
+    return {"job_id": retranscribe_line_job_id(drama_id), "line_id": line_id, "status": "done",
+            "proposed_zh": result["proposed_zh"], "base_zh": result.get("base_zh") or ""}
+
+
+def apply_retranscribe_line(drama_id: int, line_id: int, job_id, expected_zh,
+                            expected_proposed) -> dict:
+    """Streamlit's "Use this": writes a finished re-transcription's
+    proposed_zh to that line's `zh` and nothing else. expected_zh and
+    expected_proposed must equal the raw base_zh and proposed_zh held for this
+    run (what get_retranscribe_result showed), so what was shown is exactly
+    what is written and an apply is tied to the run the user saw. The write
+    is ONE compare-and-set (db.update_line_fields_if) on the line's zh, start
+    and end as they were when the job started, so a line edited or re-timed
+    since then is left alone (ConflictError). The old text is kept first as a
+    line-history snapshot (restorable from History). Returns {drama_id,
+    line_id, zh}.
+
+    InvalidInputError for non-text input or a job_id that isn't this drama's
+    re-transcription; NotFoundError as _finished_proposal; ConflictError when
+    the expected values don't match this run or the line changed since the
+    job started."""
+    if (not isinstance(job_id, str) or not isinstance(expected_zh, str)
+            or not isinstance(expected_proposed, str)):
+        raise InvalidInputError("job_id, expected_zh and expected_proposed must be text.")
+    if db.get_drama(drama_id) is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    if job_id != retranscribe_line_job_id(drama_id):
+        raise InvalidInputError("job_id is not this drama's re-transcription.")
+    result = _finished_proposal(drama_id, line_id)
+    base = result.get("base_zh") or ""
+    proposed = result["proposed_zh"]
+    if expected_zh != base or expected_proposed != proposed:
+        raise ConflictError("This isn't the re-transcription you were shown. Run it again.")
+    line = _find_line(drama_id, line_id)
+    unchanged = {"zh": base, "start": result["base_start"], "end": result["base_end"]}
+    if line is None or (line.zh or "", float(line.start), float(line.end)) != (
+            base, unchanged["start"], unchanged["end"]):
+        raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
+    db.save_line_history_snapshot(drama_id, db.load_line_objects(drama_id),
+                                  f"before re-transcribing line {line.idx + 1}")
+    if not db.update_line_fields_if(drama_id, line_id, {"zh": proposed}, unchanged):
+        raise ConflictError("This line changed since it was re-transcribed; your edit was kept.")
+    return {"drama_id": drama_id, "line_id": line_id, "zh": proposed}

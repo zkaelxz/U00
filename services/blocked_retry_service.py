@@ -121,7 +121,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
     _refuse_if_line_job_running(drama_id)
     engine = _build_engine(engine_name)
     used_model = getattr(engine, "model", None)
-    seen = {"zh": line.zh, "en": line.en, "flag": line.flag}
+    seen = {"zh": line.zh, "en": line.en, "flag": line.flag, "flag_note": line.flag_note}
     context = {"source_language": drama.get("source_language") or "zh", "line_ids": [line.id]}
     try:
         results = engine.translate_batch([line.zh], context)
