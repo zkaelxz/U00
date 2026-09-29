@@ -16,7 +16,8 @@ Covers:
   (C05 voice actor is a field of characters_service.update_character.)
 
 Storage: every file this module writes lives in `<drama>/voice_refs/`
-under a generated name (`clone_ref_<32 hex><ext>`, candidates under
+under a generated name (`clone_ref_<32 hex><ext>` for uploads,
+`clone_pick_<candidate id>.wav` for a chosen candidate, candidates under
 `voice_refs/candidates/<32 hex>.wav`), never a name built from the client
 filename or the speaker label. The candidate manifest
 (`voice_refs/candidates/manifest.json`) maps speaker label -> candidates.
@@ -37,13 +38,16 @@ cancel kills it) instead of pydub.
 The job never writes the database (only files in voice_refs/); choosing a
 candidate is a field-scoped `db.upsert_character` of one speaker's row.
 
-Deleting a clip is PC-only: only upload (replace) and remove, both
-local_only routes, ever delete a file, and both refuse (ConflictError)
-while a dub, narration or audiobook job for the drama is running or
-queued, since such a job holds absolute paths to the clips it was started
-with. Choosing a candidate (lines.edit, reachable remotely) only repoints
-the speaker's field and never deletes the old clip, like
-`db.apply_voice_bank_entry`; a clip left unreferenced stays on disk.
+Upload (replace) and remove, both local_only routes, delete the old clip
+if this module wrote it (`clone_ref_` or `clone_pick_`), and both refuse
+(ConflictError) while a dub, narration or audiobook job for the drama is
+running or queued, since such a job holds absolute paths to the clips it
+was started with. Choosing a candidate (lines.edit, reachable remotely)
+repoints the speaker's field and deletes only the speaker's previous
+`clone_pick_` copy (never an upload, a voice-bank copy or a tab file),
+only if no other speaker points at it and no such job is active;
+otherwise the old clip stays on disk. So repeated remote choosing keeps
+at most one pick per speaker instead of growing the disk.
 
 No Streamlit or FastAPI import.
 """
@@ -95,7 +99,12 @@ MAX_BANK_NAME_LEN = 200
 MAX_NOTES_LEN = 1000
 
 _TOKEN = re.compile(r"^[0-9a-f]{32}$")
-_OWNED_CLIP = re.compile(r"^voice_refs/clone_ref_[0-9a-f]{32}\.(wav|mp3|m4a|flac|ogg)$")
+# Clips this module wrote: uploads (clone_ref_) and chosen candidates
+# (clone_pick_). Only these are ever deleted.
+_OWNED_CLIP = re.compile(r"^voice_refs/(clone_ref_[0-9a-f]{32}\.(wav|mp3|m4a|flac|ogg)"
+                         r"|clone_pick_[0-9a-f]{32}\.wav)$")
+# A chosen candidate's copy: the only kind choose_candidate may delete.
+_PICKED_CLIP = re.compile(r"^voice_refs/clone_pick_[0-9a-f]{32}\.wav$")
 _BAD_TYPE = "Unsupported file type. Upload a wav, mp3, m4a, flac or ogg clip."
 _NOT_AUDIO = "That file isn't a readable audio clip."
 _NO_FFPROBE = "ffprobe is not installed or not on PATH, which checking a clip needs."
@@ -517,18 +526,34 @@ def candidate_audio_path(drama_id: int, candidate_id: str) -> str:
 
 def choose_candidate(drama_id: int, candidate_id: str) -> dict:
     """Makes one candidate its speaker's clone reference: the wav is copied
-    to a generated name in voice_refs/ (so a later extraction can't pull
-    it away) and the matched line's source text becomes ref_text, as the
-    tab's auto-extract does; with no matched line the stored ref_text is
-    left alone. Field-scoped write of that one speaker's row. The previous
-    clip is never deleted (this route is reachable remotely; deleting is
-    PC-only), only no longer pointed at, like db.apply_voice_bank_entry."""
+    to `voice_refs/clone_pick_<candidate id>.wav` (so a later extraction
+    can't pull it away; choosing the same candidate again reuses that copy,
+    as candidate files never change under an id) and the matched line's
+    source text becomes ref_text, as the tab's auto-extract does; with no
+    matched line the stored ref_text is left alone. Field-scoped write of
+    that one speaker's row.
+    This route is reachable remotely, so it deletes only the speaker's
+    previous `clone_pick_` copy (one it made itself), never an upload, a
+    voice-bank copy or a tab file, and only when no other speaker of the
+    drama points at it and no dub/narration/audiobook job is active (such
+    a job may hold its path); otherwise the old clip stays on disk."""
     _require_drama(drama_id)
     label, cand, path = _find_candidate(drama_id, candidate_id)
     if label not in characters_service._known_speakers(drama_id):
         raise NotFoundError("No such speaker in this drama.")
-    rel = f"{REFS_DIR}/clone_ref_{uuid.uuid4().hex}.wav"
-    shutil.copyfile(path, os.path.join(db.drama_dir(drama_id), rel))
+    root = db.drama_dir(drama_id)
+    rel = f"{REFS_DIR}/clone_pick_{candidate_id}.wav"
+    if _safe_file(root, rel) is None:
+        fd, tmp = tempfile.mkstemp(prefix=".pick_", suffix=".tmp", dir=os.path.join(root, REFS_DIR))
+        os.close(fd)
+        try:
+            shutil.copyfile(path, tmp)
+            os.replace(tmp, os.path.join(root, rel))
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
+    old = _character_row(drama_id, label).get("ref_audio_filename") or ""
     ref_text = None
     line_id = cand.get("line_id")
     if line_id is not None:
@@ -537,6 +562,8 @@ def choose_candidate(drama_id: int, candidate_id: str) -> dict:
                 ref_text = ln["zh"].strip()
                 break
     db.upsert_character(drama_id, label, ref_audio_filename=rel, ref_text=ref_text)
+    if old != rel and _PICKED_CLIP.match(old) and not _clip_reading_job_active(drama_id):
+        _remove_owned_clip(drama_id, old, label)
     return characters_service._get_one(drama_id, label)
 
 

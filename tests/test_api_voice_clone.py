@@ -110,7 +110,8 @@ def _wait(job_id, timeout=120):
 
 def _no_leak(text, did):
     assert db.DRAMAS_DIR not in text and "voice_refs" not in text
-    assert "clone_ref_" not in text and ".wav" not in text.replace("candidate_", "")
+    assert "clone_ref_" not in text and "clone_pick_" not in text
+    assert ".wav" not in text.replace("candidate_", "")
 
 
 # ---- C09 upload / remove ---------------------------------------------------------
@@ -293,7 +294,8 @@ class TestExtract:
         assert chosen.status_code == 200, chosen.text
         assert chosen.json()["has_ref_audio"] and chosen.json()["ref_text_present"]
         row = _char(did, "A")
-        assert row["ref_text"] == "台词0" and row["ref_audio_filename"].startswith("voice_refs/clone_ref_")
+        assert row["ref_text"] == "台词0"
+        assert row["ref_audio_filename"] == f"voice_refs/clone_pick_{cands[0]['id']}.wav"
         # B untouched: characters are matched by label, never by position.
         assert _char_missing_or_no_clip(did, "B")
 
@@ -561,6 +563,56 @@ class TestAuthOn:
         assert os.path.isfile(path)
         with open(path, "rb") as f:
             assert f.read() == b"RIFFpc"
+
+    def test_repeated_remote_choose_keeps_one_pick(self, isolated_db, tools):
+        # Security re-review L1: a remote lines.edit user looping choose
+        # must not grow the disk; only the speaker's own last pick is kept.
+        did = _drama(speakers=("A", "A", "A"), durations=[6.0, 5.0, 7.0])
+        c = _remote()
+        h = _household()
+        _wait(c.post(f"{BASE}/{did}/reference-clips/extract", headers=h,
+                     json={"speaker_label": "A"}).json()["job_id"])
+        cids = [x["id"] for x in c.get(f"{BASE}/{did}/reference-clips/candidates",
+                                       headers=h).json()["speakers"][0]["candidates"]]
+        assert len(cids) == 3
+        refs = os.path.join(db.drama_dir(did), "voice_refs")
+        for _ in range(3):
+            for cid in cids + [cids[0]]:
+                assert c.post(f"{BASE}/{did}/reference-clips/candidates/{cid}/choose",
+                              headers=h).status_code == 200
+                picks = [n for n in os.listdir(refs) if n.startswith("clone_pick_")]
+                assert picks == [f"clone_pick_{cid}.wav"]
+                assert _char(did, "A")["ref_audio_filename"] == f"voice_refs/clone_pick_{cid}.wav"
+        assert not [n for n in os.listdir(refs) if n.startswith((".pick_", "clone_ref_"))]
+
+    def test_choose_keeps_a_pick_shared_with_another_speaker(self, client, isolated_db, tools):
+        did = _drama(speakers=("A", "A", "B"), durations=[6.0, 5.0, 5.0])
+        _wait(client.post(f"{BASE}/{did}/reference-clips/extract",
+                          json={"speaker_label": "A"}).json()["job_id"])
+        first, second = [x["id"] for x in client.get(f"{BASE}/{did}/reference-clips/candidates")
+                         .json()["speakers"][0]["candidates"]]
+        url = f"{BASE}/{did}/reference-clips/candidates/{{}}/choose"
+        assert client.post(url.format(first), headers=LOCAL_HDR).status_code == 200
+        shared = _char(did, "A")["ref_audio_filename"]
+        db.upsert_character(did, "B", ref_audio_filename=shared)
+        assert client.post(url.format(second), headers=LOCAL_HDR).status_code == 200
+        assert os.path.isfile(os.path.join(db.drama_dir(did), shared))
+        assert _char(did, "B")["ref_audio_filename"] == shared
+
+    @pytest.mark.parametrize("prefix", ["dub_", "narration_", "audiobook_"])
+    def test_choose_keeps_old_pick_while_clip_job_active(self, client, isolated_db, tools, prefix):
+        did = _drama(speakers=("A", "A"), durations=[6.0, 5.0])
+        _wait(client.post(f"{BASE}/{did}/reference-clips/extract",
+                          json={"speaker_label": "A"}).json()["job_id"])
+        first, second = [x["id"] for x in client.get(f"{BASE}/{did}/reference-clips/candidates")
+                         .json()["speakers"][0]["candidates"]]
+        url = f"{BASE}/{did}/reference-clips/candidates/{{}}/choose"
+        assert client.post(url.format(first), headers=LOCAL_HDR).status_code == 200
+        old = os.path.join(db.drama_dir(did), _char(did, "A")["ref_audio_filename"])
+        background_jobs._jobs[f"{prefix}{did}"] = {"status": "running"}
+        assert client.post(url.format(second), headers=LOCAL_HDR).status_code == 200
+        assert os.path.isfile(old)
+        assert _char(did, "A")["ref_audio_filename"] == f"voice_refs/clone_pick_{second}.wav"
 
     def test_media_stream_and_admin_grants(self, isolated_db, tools):
         c = _remote()
