@@ -70,7 +70,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
   })
   await page.goto('/')
 
-  await page.getByText(/^Presets \(1\)/).click()
+  await page.locator('summary', { hasText: 'Presets' }).click()
   await page.getByRole('button', { name: 'Rename Wuxia preset' }).click()
   const input = page.getByLabel('New name for Wuxia preset')
   await page.getByRole('button', { name: 'Save name' }).click()
@@ -80,7 +80,7 @@ test('a preset and a voice can be renamed in the Library', async ({ page }) => {
   await expect(page.locator('.deletable-list').getByText('Palace preset')).toBeVisible()
   expect(bodies.preset).toEqual({ name: 'Palace preset' })
 
-  await page.getByText(/^Voice bank \(1\)/).click()
+  await page.locator('summary', { hasText: 'Voice bank' }).click()
   await page.getByRole('button', { name: 'Rename Narrator' }).click()
   await page.getByLabel('New name for Narrator').fill('Host')
   await page.getByRole('button', { name: 'Save name' }).click()
