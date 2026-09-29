@@ -7,3 +7,8 @@
 .source-checks { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
 .source-panel .check { display: flex; align-items: center; gap: var(--space-2); }
 .source-summary { overflow-wrap: anywhere; }
+.source-suggestions { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
+.source-analysis { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: var(--space-2) var(--space-3); }
+.source-analysis dt { font-size: 0.85em; opacity: 0.7; }
+.source-analysis dd { margin: 0; }
+.source-analysis > div { display: block; min-width: 0; }
