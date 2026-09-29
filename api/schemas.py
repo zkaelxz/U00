@@ -2698,3 +2698,20 @@ class LibraryStorageCleanResult(BaseModel):
     preset: str
     freed_bytes: int
     results: List[LibraryBulkItem]
+
+
+# --- Re-transcribe one line (parity audit B1, inventory R23) ---------------
+
+class RetranscribeLineRequest(BaseModel):
+    """Optional body. Same prompt rules as TranscribeRunRequest: a non-empty
+    initial_prompt replaces the automatic prompt; otherwise the server uses
+    glossary names + extra_names + raw-novel excerpt."""
+    model_config = ConfigDict(extra="forbid")
+    initial_prompt: str = Field("", max_length=1000)
+    extra_names: str = Field("", max_length=1000)
+
+
+class RetranscribeLineResult(BaseModel):
+    job_id: str
+    drama_id: int
+    line_id: int

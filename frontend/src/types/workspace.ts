@@ -126,3 +126,15 @@ export interface SourceConfig {
 export type SourceConfigUpdate = Partial<
   Pick<SourceConfig, 'source_language' | 'chinese_script' | 'content_mode' | 'transcript_mode'>
 >
+
+// api/schemas.py RetranscribeLineRequest / RetranscribeLineResult (parity audit B1, R23).
+export interface RetranscribeLineRequest {
+  initial_prompt?: string
+  extra_names?: string
+}
+
+export interface RetranscribeLineResult {
+  job_id: string
+  drama_id: number
+  line_id: number
+}

@@ -11,12 +11,18 @@ GET /api/jobs/{job_id} (Migration Slice 8).
 
 Route batch 2C adds auto-tune (start, status with the candidate scores,
 apply a measured candidate), whose results are only readable here.
+
+Parity audit B1 (R23) adds re-transcribing one line: a GPU-queued job that
+replaces that line's source text; poll it through GET /api/jobs/{job_id}.
 """
+
+from typing import Optional
 
 from fastapi import APIRouter, Path, Request
 from api.auth import require_paid_engines, require_permission
 from api.schemas import (AutotuneApplyRequest, AutotuneRunRequest, AutotuneRunResult,
-                         AutotuneStatus, ErrorResponse, TranscribeConfig, TranscribeConfigUpdate,
+                         AutotuneStatus, ErrorResponse, RetranscribeLineRequest,
+                         RetranscribeLineResult, TranscribeConfig, TranscribeConfigUpdate,
                          TranscribeRunRequest, TranscribeRunResult)
 from services import transcribe_service
 
@@ -89,3 +95,19 @@ def get_autotune(drama_id: int = Path(ge=1)):
                         422: {"model": ErrorResponse}})
 def post_apply_autotune(payload: AutotuneApplyRequest, drama_id: int = Path(ge=1)):
     return transcribe_service.apply_autotune_candidate(drama_id, payload.candidate_ms)
+
+
+# --- Parity audit B1 (R23): re-transcribe one line ----------------------------
+# Local Whisper only (no Groq, no LLM), so no engine gate.
+
+@router.post("/dramas/{drama_id}/lines/{line_id}/retranscribe",
+             dependencies=[require_permission("jobs.start")], response_model=RetranscribeLineResult,
+             summary="Re-transcribe one line's audio window and replace its source text (job)",
+             responses={400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
+                        409: {"model": ErrorResponse}, 422: {"model": ErrorResponse}})
+def post_retranscribe_line(payload: Optional[RetranscribeLineRequest] = None,
+                           drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
+    payload = payload or RetranscribeLineRequest()
+    return transcribe_service.start_retranscribe_line(
+        drama_id, line_id, initial_prompt=payload.initial_prompt,
+        extra_names=payload.extra_names)

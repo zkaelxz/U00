@@ -5,6 +5,8 @@ import type {
   NovelAttachResult,
   NovelMode,
   NovelStatus,
+  RetranscribeLineRequest,
+  RetranscribeLineResult,
   TranscribeConfig,
   TranscribeConfigUpdate,
   TranscribeRunRequest,
@@ -84,3 +86,12 @@ export const startNovelOcr = (
   if (tesseractCmd?.trim()) form.append('tesseract_cmd', tesseractCmd.trim())
   return postMultipart<JobStarted>(`/api/novel/dramas/${id}/ocr-chapter`, form, f)
 }
+
+// Parity audit B1 (R23): re-run Whisper on one line's audio window; the job
+// replaces that line's source text. Poll GET /api/jobs/{job_id}.
+export const startRetranscribeLine = (
+  id: number,
+  lineId: number,
+  req: RetranscribeLineRequest = {},
+  f?: Fetch,
+) => postJson<RetranscribeLineResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe`, req, f)

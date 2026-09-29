@@ -834,3 +834,144 @@ def apply_autotune_candidate(drama_id: int, candidate_ms: int) -> dict:
         raise InvalidInputError("candidate_ms must be one of the measured candidates.")
     db.update_drama(drama_id, min_silence_ms=candidate_ms)
     return get_transcribe_config(drama_id)
+
+
+# --- Re-transcribe one line (parity audit B1, inventory R23) ----------------
+# Streamlit's Review "Re-transcribe" button re-runs Whisper on one line's own
+# timing window and, after "Use this", replaces that line's source text. Here
+# the job does both (the job-does-everything decision above): it cuts the
+# window, transcribes it with the drama's full-transcribe Whisper settings and
+# the same automatic prompt, and writes only `zh` for that line id. It runs
+# local Whisper even when the drama's full transcribe uses Groq (Streamlit's
+# button did too), so it needs no paid-engine gate.
+
+# Running/queued jobs that replace this drama's lines or also write `zh`, so a
+# one-line re-transcription alongside them would be pointless or race them.
+_RETRANSCRIBE_BLOCKING_PREFIXES = ("transcribe_", "fixflag_", "resegment_", "narration_")
+
+
+def retranscribe_line_job_id(drama_id: int) -> str:
+    return f"retranscribe_{drama_id}"
+
+
+def _find_line(drama_id: int, line_id: int):
+    return next((ln for ln in db.load_line_objects(drama_id) if ln.id == line_id), None)
+
+
+def start_retranscribe_line(drama_id: int, line_id: int, initial_prompt: str = "",
+                            extra_names: str = "") -> dict:
+    """Starts the GPU-queued job that re-transcribes one line's timing window
+    and replaces that line's `zh` (field-scoped, matched by line id).
+    initial_prompt / extra_names resolve exactly as for a full transcribe
+    run (_resolve_initial_prompt). Returns {job_id, drama_id, line_id}; poll
+    GET /api/jobs/{job_id}.
+
+    NotFoundError for an unknown drama or a line id that isn't this drama's;
+    UnsupportedOperationError when the drama has no audio pipeline or no
+    audio, or the line has no timing window; InvalidInputError for a
+    non-text prompt; ConflictError while a re-transcription, a full
+    transcription, fix-flagged, a re-segment or a narration run is running
+    or queued for this drama."""
+    drama = db.get_drama(drama_id)
+    if drama is None:
+        raise NotFoundError(f"No drama with id {drama_id}.")
+    line = _find_line(drama_id, line_id)
+    if line is None:
+        raise NotFoundError(f"No line with id {line_id} in drama {drama_id}.")
+    if (drama.get("content_mode") or "audio_drama") not in ("audio_drama", "streamer_vod"):
+        raise UnsupportedOperationError(f"Drama {drama_id} has no audio pipeline.")
+    audio_path = _drama_audio_path(drama_id, drama)
+    if audio_path is None:
+        raise UnsupportedOperationError(f"No audio available for drama {drama_id}.")
+    if not float(line.end) > float(line.start):
+        raise UnsupportedOperationError("This line has no timing window to re-transcribe.")
+    prompt = _resolve_initial_prompt(drama_id, initial_prompt, extra_names)
+    for prefix in _RETRANSCRIBE_BLOCKING_PREFIXES:
+        other = background_jobs.get_status(f"{prefix}{drama_id}")
+        if other and other.get("status") in ("running", "queued"):
+            raise ConflictError("Another job is changing this drama's lines. "
+                                "Try again when it finishes.")
+    job_id = retranscribe_line_job_id(drama_id)
+    started = background_jobs.start_job(
+        job_id, _run_retranscribe_line_job, job_id, drama_id, line_id, audio_path,
+        float(line.start), float(line.end), line.zh,
+        drama.get("source_language") or "zh",
+        drama.get("whisper_size") or _DEFAULT_TUNING["whisper_size"],
+        drama.get("beam_size") or _DEFAULT_TUNING["beam_size"],
+        drama.get("min_silence_ms") or _DEFAULT_TUNING["min_silence_ms"],
+        drama.get("vad_threshold") or _DEFAULT_TUNING["vad_threshold"],
+        bool(drama.get("whisper_fast_mode")), settings_service.get_use_gpu(), prompt,
+        gpu_touching=True, description=f"Re-transcribing a line (drama #{drama_id})")
+    if not started:
+        raise ConflictError("A line is already being re-transcribed for this drama.")
+    return {"job_id": job_id, "drama_id": drama_id, "line_id": line_id}
+
+
+def _run_retranscribe_line_job(job_id, drama_id, line_id, audio_path, start, end, zh_before,
+                               source_language, whisper_size, beam_size, min_silence_ms,
+                               vad_threshold, fast_mode, use_gpu, initial_prompt):
+    """Job body: cut [start, end) from the drama's audio, transcribe it, and
+    write the joined text to that one line's `zh` (db.save_lines with
+    fields=("zh",), so nothing else on the line or the drama is touched --
+    Streamlit's "Use this" changed only zh too). The write is skipped, with a
+    failed_reason, when nothing was heard ("empty"), the job was cancelled,
+    the line no longer exists ("line_gone") or its text or timing changed
+    while the job ran ("line_changed" -- the user's newer edit wins).
+    Result on success: {"line_count": 1}, or 0 when the text came out the same."""
+    slice_path = os.path.join(os.path.dirname(audio_path), f"_retranscribe_slice_{line_id}.wav")
+    gpu_fallback = []
+    try:
+        try:
+            core_module.extract_audio_slice(audio_path, start, end, slice_path)
+        except Exception:
+            background_jobs.set_result(job_id, {"failed_reason": "audio_slice",
+                                                "detail": "Couldn't cut this line's audio."})
+            return
+        if background_jobs.is_cancel_requested(job_id):
+            background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+            return
+        background_jobs.update_progress(job_id, 0.1, _model_loading_message(
+            whisper_size, core_module.is_whisper_model_cached(whisper_size)))
+        try:
+            segments = core_module.transcribe_for_timing(
+                slice_path, whisper_size, language=source_language, use_gpu=use_gpu,
+                initial_prompt=initial_prompt, beam_size=beam_size,
+                min_silence_duration_ms=min_silence_ms, vad_threshold=vad_threshold,
+                on_gpu_fallback=lambda exc: gpu_fallback.append(core_module._short_reason(exc)),
+                fast_mode=fast_mode)
+        except core_module.ModelDownloadError as exc:
+            background_jobs.set_result(job_id, {"failed_reason": "model_download",
+                                                "detail": redact_secrets(str(exc))})
+            return
+    finally:
+        if os.path.exists(slice_path):
+            os.remove(slice_path)
+        core_module.release_gpu_models()
+
+    new_zh = " ".join((s.get("text") or "").strip() for s in segments or []).strip()
+    if not new_zh:
+        background_jobs.set_result(job_id, {"failed_reason": "empty"})
+        return
+    if background_jobs.is_cancel_requested(job_id):
+        background_jobs.set_result(job_id, {"failed_reason": "cancelled"})
+        return
+    background_jobs.update_progress(job_id, 0.9, "Saving the new text...")
+    current = _find_line(drama_id, line_id)
+    if current is None:
+        background_jobs.set_result(job_id, {
+            "failed_reason": "line_gone",
+            "detail": "The line was merged, split or deleted meanwhile; nothing was changed."})
+        return
+    if (current.zh, float(current.start), float(current.end)) != (zh_before, start, end):
+        background_jobs.set_result(job_id, {
+            "failed_reason": "line_changed",
+            "detail": "The line was edited meanwhile; your edit was kept."})
+        return
+    changed = new_zh != current.zh
+    if changed:
+        current.zh = new_zh
+        db.save_lines(drama_id, [current], fields=("zh",))
+    result = {"line_count": 1 if changed else 0}
+    if gpu_fallback:
+        result["gpu_fallback"] = gpu_fallback[0]
+    background_jobs.set_result(job_id, result)
