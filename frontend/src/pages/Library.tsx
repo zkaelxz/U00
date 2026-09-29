@@ -7,6 +7,7 @@ import {
 } from '../api/library'
 import { DramaDetailPanel } from '../components/DramaDetailPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { Field } from '../components/Field'
 import { LibraryList } from '../components/LibraryList'
 import type { DramaCreateRequest, LibrarySearchHit } from '../types/library'
 import { MEDIA_TYPES, SOURCE_LANGUAGES, groupHistory, validateCreate } from './libraryForm'
@@ -208,27 +209,23 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
       <summary>New drama</summary>
       <section aria-label="New drama">
       <form onSubmit={submit} className="stack">
-        <label className="field">
-          <span>English title</span>
+        <Field label="English title">
           <input value={form.title_en} onChange={set('title_en')} />
-        </label>
-        <label className="field">
-          <span>Original title</span>
+        </Field>
+        <Field label="Original title">
           <input value={form.title_zh} onChange={set('title_zh')} />
-        </label>
+        </Field>
         <div className="field-row">
-          <label className="field">
-            <span>Source language</span>
+          <Field label="Source language">
             <select value={form.source_language} onChange={set('source_language')}>
               {SOURCE_LANGUAGES.map((l) => <option key={l}>{l}</option>)}
             </select>
-          </label>
-          <label className="field">
-            <span>Media type</span>
+          </Field>
+          <Field label="Media type">
             <select value={form.media_type} onChange={set('media_type')}>
               {MEDIA_TYPES.map((m) => <option key={m} value={m}>{m.replace(/_/g, ' ')}</option>)}
             </select>
-          </label>
+          </Field>
         </div>
         <div className="actions">
           <button type="submit" className="primary">Create drama</button>
