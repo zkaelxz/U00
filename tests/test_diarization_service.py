@@ -292,7 +292,7 @@ class TestOverwriteManual:
 
 
 class TestDiarizationEstimateCaption:
-    """Moved from tabs/workspace_tab.py: an honest estimated-duration
+    """Moved out of the Workspace tab: an honest estimated-duration
     caption, scaled off the audio's own length, since pyannote exposes no
     incremental progress."""
 

@@ -2835,6 +2835,13 @@ class WorkflowTierApply(BaseModel):
     tier: WorkflowTierKey
 
 
+class TranslateErrorsDismissed(BaseModel):
+    """X01: the last run's failed-batch notice is cleared; lines untouched.
+    `dismissed` is False when there was nothing to clear."""
+    drama_id: int
+    dismissed: bool
+
+
 class WorkflowTierApplied(BaseModel):
     """The tier's engine is saved on the drama; the rest is for the form.
     Nothing is started."""
@@ -3168,6 +3175,50 @@ class NovelFileTextRequest(BaseModel):
     the body itself, capped at 32 MB, before this is validated."""
     model_config = ConfigDict(extra="forbid")
     text: str
+
+
+# ---------------------------------------------------------------------------
+# Sources S-6 sign-in, SO17 tier tests, S-7 check-now, tracked-series drama
+# link and the SO18 proxy (services/sources_signin_service.py,
+# services/sources_tracking_service.py, services/sources_registry_service.py).
+# Jobs are read with GET /api/sources/jobs/{job_id}/result.
+# ---------------------------------------------------------------------------
+
+class SourceSigninOpenRequest(BaseModel):
+    """`url`: a page on the source's own site ("" = its login page)."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field("", max_length=2000)
+
+
+class SourceSigninForgetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class SourceSigninForgetResult(BaseModel):
+    source: str
+    forgotten: bool
+    has_saved_signin: bool
+
+
+class SourceTierTestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tier: Literal["static", "browser", "signed_in"]
+    url: StrictStr = Field(min_length=1, max_length=2000)
+
+
+class SourceTrackedDramaRequest(BaseModel):
+    """Which drama a tracked series auto-imports into (null = none)."""
+    model_config = ConfigDict(extra="forbid")
+    source: str = Field(min_length=1, max_length=60)
+    series_id: str = Field(min_length=1, max_length=200)
+    drama_id: Optional[int] = Field(None, ge=1)
+
+
+class SourcesProxyRequest(BaseModel):
+    """"" clears it. Never returned: settings carry `proxy_configured` only."""
+    model_config = ConfigDict(extra="forbid")
+    url: StrictStr = Field("", max_length=500)
 
 
 # ---------------------------------------------------------------------------

@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 import type { Coverage, EmotionSummary, ReviewLine } from '../../../../types/review'
 import {
+  checkFormSummary,
+  checkJobBody,
   coverageGroups,
   emotionCounts,
   emotionLines,
   emotionText,
+  EMPTY_CHECK_FORM,
   EMPTY_FIX_FORM,
   fixFlaggedBody,
   fixFormSummary,
@@ -19,6 +22,21 @@ import {
 const line = (id: number, idx: number): ReviewLine => ({
   id, idx, start: 0, end: 1, zh: 'z', en: 'e', speaker: null, speaker_manual: false,
   sfx: false, flag: null, flag_note: null, dub_filename: null,
+})
+
+describe('AI check bodies (R50/R33)', () => {
+  it('sends only what was chosen; audio cues only for emotion', () => {
+    for (const k of ['consistency', 'emotion', 'notes', 'flag'] as const) expect(checkJobBody(k, EMPTY_CHECK_FORM)).toEqual({})
+    const f = { engine: ' claude ', model: 'm1', audioCues: false }
+    expect(checkJobBody('emotion', f)).toEqual({ engine: 'claude', model: 'm1', use_audio_cues: false })
+    expect(checkJobBody('consistency', f)).toEqual({ engine: 'claude', model: 'm1' })
+    expect(checkJobBody('emotion', { ...EMPTY_CHECK_FORM, audioCues: true })).toEqual({ use_audio_cues: true })
+  })
+  it('summarises the choices, with the audio default following the drama', () => {
+    expect(checkFormSummary(EMPTY_CHECK_FORM, 'gemini', true)).toBe('gemini engine · audio cues')
+    expect(checkFormSummary(EMPTY_CHECK_FORM, '', false)).toBe('default engine')
+    expect(checkFormSummary({ engine: 'claude', model: 'm1', audioCues: false }, 'gemini', true)).toBe('claude · m1')
+  })
 })
 
 describe('fix-flagged body', () => {

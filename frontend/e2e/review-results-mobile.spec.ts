@@ -12,7 +12,7 @@ test.afterAll(() => clearReviewResults())
 const rows = (page: Page) => page.locator('.review-line:not(.review-skeleton)')
 const section = (page: Page, title: string) =>
   page.locator('details.section').filter({ has: page.locator(':scope > summary .section-title', { hasText: new RegExp(`^${title}$`) }) })
-const TITLES = ['AI review', 'Options', 'Consistency', 'Emotion', 'Coverage and pacing', 'Edit tendencies', 'Compare versions', 'Notes export']
+const TITLES = ['AI review', 'Check options', 'Options', 'Consistency', 'Emotion', 'Coverage and pacing', 'Edit tendencies', 'Compare versions', 'Notes export']
 
 async function openAll(page: Page) {
   for (const t of TITLES) {
