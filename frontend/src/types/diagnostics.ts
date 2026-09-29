@@ -109,6 +109,8 @@ export interface DiagnosticsPackageInfo {
   name: string
   dist: string
   installed: boolean
+  // From installed metadata; null when not installed or unreadable.
+  installed_version?: string | null
   installable: boolean
   powers: string
   approx_mb: number | null
@@ -132,6 +134,25 @@ export interface DiagnosticsInstallTask {
 export interface DiagnosticsInstallPresets {
   tasks: DiagnosticsInstallTask[]
   packages: Record<string, DiagnosticsPackageInfo>
+}
+
+// POST /api/diagnostics/package-updates/check (PyPI, explicit click only).
+export type PackageUpdateStatus = 'update' | 'up_to_date' | 'held_back' | 'managed' | 'unknown'
+
+export interface DiagnosticsPackageUpdate {
+  name: string
+  dist: string
+  installed_version: string | null
+  status: PackageUpdateStatus
+  latest: string | null
+  // The exact version Update installs (status "update").
+  target: string | null
+  reason: string | null
+}
+
+export interface DiagnosticsPackageUpdates {
+  checked_at: number
+  packages: Record<string, DiagnosticsPackageUpdate>
 }
 
 // GET /api/diagnostics/gpu-torch and POST /api/diagnostics/gpu-torch/setup.

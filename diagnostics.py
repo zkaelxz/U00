@@ -1951,3 +1951,174 @@ def parse_torch_verify_output(stdout: str) -> dict:
                 break
             return data if isinstance(data, dict) else {"error": "unexpected output"}
     return {"error": "the check printed nothing usable"}
+
+
+# ---------------------------------------------------------------------------
+# Installed versions and an honest "is there an update I may install?"
+# (Diagnostics > Packages). The PyPI read is a network call: callers run it
+# only from an explicit "Check for updates" click and cache the result. The
+# URL is built from the static dist name only (pypi_url's pattern).
+# ---------------------------------------------------------------------------
+
+# Other distributions that provide the same import (key -> dists), tried
+# when the main one isn't installed, so a headless OpenCV still shows its
+# version.
+PIP_DIST_ALTERNATES = {
+    "cv2": ("opencv-python-headless", "opencv-contrib-python",
+            "opencv-contrib-python-headless"),
+}
+
+PYPI_JSON_TIMEOUT = 10.0
+_DIST_NAME_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?")
+
+
+def _packaging():
+    """packaging's version/specifier/requirement modules: the standalone
+    package when installed, else the copy pip vendors (pip is always there
+    when these installs can run at all)."""
+    try:
+        from packaging import requirements, specifiers, version
+    except ImportError:          # pragma: no cover - depends on the environment
+        from pip._vendor.packaging import requirements, specifiers, version
+    return version, specifiers, requirements
+
+
+def installed_dist_version(name: str):
+    """(dist, version) actually installed for a package key: its PyPI dist
+    (pip_install_name), else a known alternate dist; (dist, None) if none."""
+    dist = pip_install_name(name)
+    for candidate in (dist, *PIP_DIST_ALTERNATES.get(name, ())):
+        version = get_installed_version(candidate)
+        if version:
+            return candidate, version
+    return dist, None
+
+
+def pypi_release_versions(dist: str, timeout: float = PYPI_JSON_TIMEOUT):
+    """Final (non-pre-release), non-yanked releases PyPI lists for `dist`
+    that have at least one file, as version strings; None on any failure.
+    One GET to https://pypi.org/pypi/<dist>/json, with a timeout."""
+    if not _DIST_NAME_RE.fullmatch(dist or ""):
+        return None
+    import requests
+    version_mod, _s, _r = _packaging()
+    try:
+        resp = requests.get(f"https://pypi.org/pypi/{canonical_dist(dist)}/json",
+                            timeout=timeout, headers={"Accept": "application/json"})
+        if resp.status_code != 200:
+            return None
+        releases = resp.json().get("releases") or {}
+    except Exception:
+        return None
+    out = []
+    for text, files in releases.items():
+        if not isinstance(files, list) or not files or all(f.get("yanked") for f in files):
+            continue
+        try:
+            v = version_mod.Version(text)
+        except Exception:
+            continue
+        if not (v.is_prerelease or v.is_devrelease):
+            out.append(text)
+    return out
+
+
+def constraint_specifiers(project_root: str = None) -> dict:
+    """{canonical dist: (SpecifierSet, raw line)} from constraints.txt."""
+    _v, specifiers, requirements = _packaging()
+    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(project_root, "constraints.txt")
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            try:
+                req = requirements.Requirement(line)
+            except Exception:
+                continue
+            out[canonical_dist(req.name)] = (req.specifier, line)
+    return out
+
+
+def installed_requirements_on() -> dict:
+    """{canonical dist: [(requirer dist, SpecifierSet)]} from every
+    installed distribution's own requirements (markers evaluated for this
+    interpreter, extras off): what an upgrade must keep satisfied so it
+    doesn't break a package that's already installed."""
+    _v, _s, requirements = _packaging()
+    out = {}
+    for d in importlib.metadata.distributions():
+        requirer = (d.metadata or {}).get("Name")
+        if not requirer:
+            continue
+        for text in d.requires or []:
+            try:
+                req = requirements.Requirement(text)
+                if req.marker is not None and not req.marker.evaluate({"extra": ""}):
+                    continue
+            except Exception:
+                continue
+            if str(req.specifier):
+                out.setdefault(canonical_dist(req.name), []).append(
+                    (requirer, req.specifier))
+    return out
+
+
+def classify_update(name: str, installed_version: str, releases, constraints: dict,
+                    required_by: dict) -> dict:
+    """{"status", "latest", "target", "reason"} for one installed package:
+    "update" (target = newest release allowed by constraints.txt, the
+    installed packages that depend on it and the known limitations),
+    "held_back" (a newer release exists but none of the newer ones is
+    allowed; reason says by what), "up_to_date", or "unknown" (PyPI didn't
+    answer, or the version can't be read). Offline: releases come from
+    pypi_release_versions."""
+    version_mod, _s, _r = _packaging()
+    dist = canonical_dist(pip_install_name(name))
+    empty = {"latest": None, "target": None, "reason": None}
+    if not installed_version or not releases:
+        return {"status": "unknown", **empty}
+    try:
+        have = version_mod.Version(installed_version)
+        versions = sorted({version_mod.Version(r) for r in releases})
+    except Exception:
+        return {"status": "unknown", **empty}
+    latest = versions[-1]
+    # Compare on the public version: 2.11.0+cu128 is not "older" than 2.11.0.
+    newer = [v for v in versions if v > version_mod.Version(have.public)]
+    if not newer:
+        return {"status": "up_to_date", "latest": str(latest), "target": None, "reason": None}
+
+    reasons = []
+    known = _known_python_version_limitation(dist)
+    if known:
+        py = ".".join(str(p) for p in known["python_version"])
+        return {"status": "held_back", "latest": str(latest), "target": None,
+                "reason": f"no newer release installs on Python {py} -- {known['reason']}"}
+    allowed = newer
+    spec = constraints.get(dist)
+    if spec:
+        kept = [v for v in allowed if spec[0].contains(v, prereleases=True)]
+        if len(kept) < len(allowed):
+            reasons.append(f"constraints.txt ({spec[1]})")
+        allowed = kept
+    for requirer, spec_set in required_by.get(dist, []):
+        if canonical_dist(requirer) == dist:
+            continue
+        kept = [v for v in allowed if spec_set.contains(v, prereleases=True)]
+        if len(kept) < len(allowed):
+            reasons.append(f"{requirer} (needs {name} {spec_set})")
+        allowed = kept
+    kept = [v for v in allowed if not _known_dependent_limitation(dist, str(v))]
+    if len(kept) < len(allowed):
+        reasons.append(KNOWN_UPGRADE_LIMITATIONS[dist]["reason"])
+    allowed = kept
+    reason = ("held back by " + "; ".join(reasons)) if reasons else None
+    if allowed:
+        return {"status": "update", "latest": str(latest), "target": str(allowed[-1]),
+                "reason": reason if allowed[-1] != latest else None}
+    return {"status": "held_back", "latest": str(latest), "target": None, "reason": reason}

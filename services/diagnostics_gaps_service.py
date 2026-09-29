@@ -474,14 +474,105 @@ def install_dependency(name: str, confirm: bool = False) -> dict:
 
 
 def upgrade_dependency(name: str, confirm: bool = False) -> dict:
+    """Upgrades to the version the last "Check for updates" found allowed
+    (pinned exactly, with constraints.txt); refuses when that check found
+    no allowed update. Without a check, `--upgrade` with constraints.txt as
+    before."""
     if name in diagnostics.TORCH_FAMILY:
         _guard(confirm)
         raise AdminActionNotPossible(
             "torch, torchvision and torchaudio are upgraded together: use GPU PyTorch setup.")
-    return _run_pip(name, confirm, lambda n: [
-        (_pip("install", *diagnostics.upgrade_pip_args(diagnostics.pip_install_name(n),
-                                                       _project_root())),
-         PIP_TIMEOUT_SECONDS)])
+    checked = _cached_update(name)
+    if checked is not None and checked["status"] != "update":
+        _guard(confirm)
+        raise AdminActionNotPossible(
+            "The last update check found no update allowed for this package; check again.")
+
+    def cmds(n):
+        dist = diagnostics.pip_install_name(n)
+        if checked is not None:
+            args = [f"{checked['dist']}=={checked['target']}"]
+            constraints = os.path.join(_project_root(), "constraints.txt")
+            if os.path.exists(constraints):
+                args += ["-c", constraints]
+        else:
+            args = diagnostics.upgrade_pip_args(dist, _project_root())
+        return [(_pip("install", *args), PIP_TIMEOUT_SECONDS)]
+    result = _run_pip(name, confirm, cmds)
+    if result["ok"] and checked is not None:
+        _mark_upgraded(name, checked["target"])
+    return result
+
+
+# ---------------------------------------------------------------------------
+# "Check for updates": PyPI, only on an explicit click (admin.diagnostics),
+# cached in this process so the Upgrade route installs exactly the version
+# the check showed. A repeat within UPDATE_CHECK_MIN_INTERVAL returns the
+# cache instead of asking PyPI again.
+# ---------------------------------------------------------------------------
+
+UPDATE_CHECK_MIN_INTERVAL = 60
+UPDATE_CHECK_WORKERS = 8
+_UPDATES_LOCK = threading.Lock()
+_UPDATES = {"checked_at": None, "packages": {}}
+
+
+def _cached_update(name: str):
+    with _UPDATES_LOCK:
+        entry = _UPDATES["packages"].get(name)
+        return dict(entry) if entry else None
+
+
+def _mark_upgraded(name: str, version: str) -> None:
+    with _UPDATES_LOCK:
+        entry = _UPDATES["packages"].get(name)
+        if not entry:
+            return
+        entry.update(installed_version=version, target=None)
+        if entry.get("latest") == version:
+            entry.update(status="up_to_date", reason=None)
+        else:
+            entry["status"] = "held_back"
+
+
+def check_package_updates(force: bool = False) -> dict:
+    """For every installed package the Upgrade route accepts: installed
+    version, newest PyPI release, and the newest one allowed by
+    constraints.txt, the installed packages that depend on it and the
+    known limitations (diagnostics.classify_update). torch/torchvision/
+    torchaudio are "managed" (GPU PyTorch setup), never an update here.
+    One PyPI request per distribution, in parallel, each with a timeout."""
+    from concurrent.futures import ThreadPoolExecutor
+    with _UPDATES_LOCK:
+        recent = (_UPDATES["checked_at"] is not None and
+                  time.time() - _UPDATES["checked_at"] < UPDATE_CHECK_MIN_INTERVAL)
+        if recent and not force:
+            return {"checked_at": _UPDATES["checked_at"],
+                    "packages": {k: dict(v) for k, v in _UPDATES["packages"].items()}}
+    names = sorted(n for n in installable_packages() if _package_installed(n))
+    installed = {n: diagnostics.installed_dist_version(n) for n in names}
+    to_fetch = sorted({dist for n, (dist, v) in installed.items()
+                       if v and n not in diagnostics.TORCH_FAMILY})
+    with ThreadPoolExecutor(max_workers=UPDATE_CHECK_WORKERS) as pool:
+        releases = dict(zip(to_fetch, pool.map(diagnostics.pypi_release_versions, to_fetch)))
+    constraints = diagnostics.constraint_specifiers(_project_root())
+    required_by = diagnostics.installed_requirements_on()
+    packages = {}
+    for n in names:
+        dist, version = installed[n]
+        if n in diagnostics.TORCH_FAMILY:
+            info = {"status": "managed", "latest": None, "target": None,
+                    "reason": "set up together with torchvision/torchaudio under GPU PyTorch"}
+        else:
+            info = diagnostics.classify_update(n, version, releases.get(dist), constraints,
+                                               required_by)
+        packages[n] = {"name": n, "dist": dist, "installed_version": version, **info}
+        if packages[n]["reason"]:
+            packages[n]["reason"] = _redact(packages[n]["reason"])[:300]
+    checked_at = time.time()
+    with _UPDATES_LOCK:
+        _UPDATES.update(checked_at=checked_at, packages=packages)
+    return {"checked_at": checked_at, "packages": {k: dict(v) for k, v in packages.items()}}
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +730,7 @@ def _package_info(name: str, installed: bool, offered: set) -> dict:
         "name": name,
         "dist": dist,
         "installed": installed,
+        "installed_version": diagnostics.installed_dist_version(name)[1] if installed else None,
         "installable": name in offered and not installed and reason is None,
         "powers": dep[1] if dep else "",
         "approx_mb": diagnostics.approx_download_mb(name),
@@ -658,8 +750,7 @@ def get_install_presets() -> dict:
     checks only (import specs, installed metadata), no network."""
     offered = installable_packages()
     names = set(offered) | {n for t in diagnostics.INSTALL_TASKS for n in t["packages"]}
-    names |= {k for k, (_i, _f, tier) in diagnostics.OPTIONAL_DEPENDENCIES.items()
-              if tier in diagnostics.INSTALLABLE_TIERS}
+    names |= set(diagnostics.OPTIONAL_DEPENDENCIES)    # versions for required ones too
     packages = {n: _package_info(n, _package_installed(n), offered) for n in sorted(names)}
     tasks = []
     for t in diagnostics.INSTALL_TASKS:

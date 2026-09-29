@@ -9,6 +9,7 @@ import type {
   DiagnosticsJobHistoryItem,
   DiagnosticsLogTail,
   DiagnosticsModelCache,
+  DiagnosticsPackageUpdates,
   DiagnosticsOverview,
   DiagnosticsPyannoteReadiness,
   DiagnosticsResetResult,
@@ -63,6 +64,11 @@ export const upgradeDependency = (name: string, f?: Fetch) =>
   postJson<DiagnosticsInstallResult>(
     `${BASE}/dependencies/${encodeURIComponent(name)}/upgrade`, { confirm: true }, pcOnlyFetch(f),
   )
+
+// Asks PyPI on the server (only when called; cached there, and Update installs
+// exactly the target it reports).
+export const checkPackageUpdates = (f?: Fetch) =>
+  postJson<DiagnosticsPackageUpdates>(`${BASE}/package-updates/check`, {}, f)
 
 // probe: the server also imports torch in a fresh Python to test CUDA (a few seconds).
 export const getGpuTorch = (probe = false, f?: Fetch) =>

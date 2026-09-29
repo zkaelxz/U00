@@ -17,6 +17,9 @@
 .pkg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: var(--font-sm); }
 .pkg-source { white-space: nowrap; }
 .pkg-text .warn { font-size: var(--font-sm); }
+/* Installed version and the "Check for updates" result. */
+.pkg-version { font-size: var(--font-sm); color: var(--muted); font-variant-numeric: tabular-nums; }
+.pkg-text .ok { font-size: var(--font-sm); color: var(--ok); }
 
 /* Install by task: a group heading, then task rows like package rows. */
 .task-group { margin: var(--space-2) 0 0; font-size: var(--font-sm); text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }

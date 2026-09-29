@@ -439,7 +439,8 @@ baihe-subtitler/
 │       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
-│       │                         support-report|install-presets|gpu-torch (GET, admin.diagnostics);
+│       │                         support-report|install-presets|gpu-torch (GET) and package-updates/check (POST,
+│       │                         PyPI on click), all admin.diagnostics;
 │       │                         dependencies/{pkg}/install|upgrade, gpu-torch/setup, reset-library
 │       │                         (POST, local_only + confirm; API batch 1)
 │       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
@@ -488,7 +489,8 @@ baihe-subtitler/
 │   │                              AdminSection (Backup & storage), AdminJobLine, useAdminJob,
 │   │                              libraryAdmin.ts (pure, unit-tested)
 │   ├── src/pages/diagnostics/     Diagnostics admin sections: SetupSection, PackagesSection (PC-only
-│   │                              Install…/Upgrade…, synchronous; "Install by task" presets, approx.
+│   │                              Install…/Update to X…, synchronous; installed versions, "Check for
+│   │                              updates" + packageUpdates.ts; "Install by task" presets, approx.
 │   │                              sizes, PyPI Source links; GpuTorchPanel + gpuTorch.ts: GPU/driver,
 │   │                              installed torch family, matched-set setup), PyannoteSection, ModelCacheSection,
 │   │                              JobHistorySection, LogSection (+ CopyBlock), SupportReportSection,

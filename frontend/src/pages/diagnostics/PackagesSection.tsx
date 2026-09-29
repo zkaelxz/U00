@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 
-import { getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
+import { checkPackageUpdates, getInstallPresets, installDependency, setupGpuTorch, upgradeDependency } from '../../api/diagnostics'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Section } from '../../components/Section'
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import type {
-  DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo, DiagnosticsTorchVariant,
+  DiagnosticsInstallPresets, DiagnosticsInstallTask, DiagnosticsOverview, DiagnosticsPackageInfo, DiagnosticsPackageUpdate,
+  DiagnosticsPackageUpdates, DiagnosticsTorchVariant,
 } from '../../types/diagnostics'
 import { splitDependencies } from '../diagnosticsFormat'
 import {
@@ -14,6 +15,7 @@ import {
 } from './diagnosticsAdmin'
 import { GpuTorchPanel } from './GpuTorchPanel'
 import { setupConfirmLabel, verifyText } from './gpuTorch'
+import { canUpdate, markUpdated, updateLine, updatesSummary, versionLabel } from './packageUpdates'
 import {
   firstHint, groupTasks, packageSizeText, safeSourceUrl, sortTasksNeedingInstall, taskConfirmLabel, taskNotes,
   taskOutput, taskResultText, taskStatus, type TaskRunResult,
@@ -74,12 +76,29 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   const blocked = installBlockedReason(jobsActive, busy)
   const running = busyLine(busy)
 
+  // "Check for updates": PyPI is asked (on the server) only when pressed.
+  const [updates, setUpdates] = useState<DiagnosticsPackageUpdates | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [checkError, setCheckError] = useState<string | null>(null)
+  const checkUpdates = async () => {
+    setChecking(true)
+    setCheckError(null)
+    try {
+      setUpdates(await checkPackageUpdates())
+    } catch (e) {
+      setCheckError(adminErrorText(e, 'upgrade'))
+    } finally {
+      setChecking(false)
+    }
+  }
+
   const run = async (kind: Kind, name: string) => {
     onBusy({ kind, name })
     setOutcome(null)
     try {
       const r = await (kind === 'install' ? installDependency(name) : upgradeDependency(name))
       setOutcome({ kind, name, ok: r.ok, output: r.output_tail, hint: r.hint })
+      if (r.ok && kind === 'upgrade') setUpdates((u) => (u ? markUpdated(u, name) : u))
       if (r.ok) changed()
     } catch (e) {
       setOutcome({ kind, name, error: e })
@@ -141,14 +160,15 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     }
   }
 
-  const action = (kind: Kind, name: string) =>
+  const action = (kind: Kind, name: string, target?: string) =>
     local && (
       <ConfirmButton
         name={name}
-        label={kind === 'install' ? 'Install…' : 'Upgrade…'}
-        verb={kind}
+        label={kind === 'install' ? 'Install…' : `Update to ${target}…`}
+        ariaLabel={kind === 'install' ? undefined : `Update ${name} to ${target}`}
+        verb={kind === 'install' ? 'install' : 'update'}
         tone="primary"
-        confirmLabel={kind === 'install' ? installConfirmLabel(name) : undefined}
+        confirmLabel={kind === 'install' ? installConfirmLabel(name) : `Confirm update ${name} to ${target}`}
         disabled={!!blocked}
         describedBy={running ? runningId : blocked ? reasonId : undefined}
         busy={busy?.name === name && busy.kind === kind}
@@ -240,13 +260,25 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         )}
         {deps.installed.length > 0 && (
           <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length}>
+            <div className="actions" data-testid="update-check">
+              <button type="button" onClick={() => void checkUpdates()} disabled={checking} aria-busy={checking}>
+                {checking ? 'Checking PyPI…' : updates ? 'Check again' : 'Check for updates'}
+              </button>
+              <span className="muted" aria-live="polite">
+                {checkError ?? (updates ? updatesSummary(updates)
+                  : 'Asks PyPI for newer releases; nothing is checked until you press it.')}
+              </span>
+            </div>
             <ul aria-label="Installed packages" className="pkg-list">
-              {deps.installed.map((d) => (
-                <li key={d.name}>
-                  <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} installed />
-                  {isInstallable(d.tier) && !info(d.name)?.not_offered_reason && action('upgrade', d.name)}
-                </li>
-              ))}
+              {deps.installed.map((d) => {
+                const u = updates?.packages[d.name]
+                return (
+                  <li key={d.name}>
+                    <PackageText name={d.name} text={d.powers} info={info(d.name)} torchInstalled={torchInstalled} installed update={u} />
+                    {isInstallable(d.tier) && canUpdate(u) && action('upgrade', d.name, u.target)}
+                  </li>
+                )
+              })}
             </ul>
           </Section>
         )}
@@ -256,20 +288,26 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
 }
 
 /** Name and purpose, then approx. size, a PyPI link, and any caveat. */
-function PackageText({ name, text, info, torchInstalled, installed = false }: {
+function PackageText({ name, text, info, torchInstalled, installed = false, update }: {
   name: string
   text: string
   info: DiagnosticsPackageInfo | undefined
   torchInstalled: boolean
   installed?: boolean
+  // The last "Check for updates" result for this package, if any.
+  update?: DiagnosticsPackageUpdate
 }) {
   const size = info && !installed ? packageSizeText(info, torchInstalled) : null
   const url = safeSourceUrl(info?.source_url)
+  const version = installed ? versionLabel(update?.installed_version ?? info?.installed_version) : null
+  const line = update ? updateLine(update) : null
   return (
     <span className="pkg-text">
       <span>
-        <strong>{name}</strong> <span className="muted">{text}</span>
+        <strong>{name}</strong>{version && <> <span className="pkg-version" data-testid="pkg-version">{version}</span></>}{' '}
+        <span className="muted">{text}</span>
       </span>
+      {line && <span className={line.tone === 'muted' ? 'muted' : line.tone} data-testid="pkg-update">{line.text}</span>}
       {(size || url) && (
         <span className="pkg-meta muted">
           {size && <span data-testid="pkg-size">{size}</span>}

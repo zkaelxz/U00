@@ -260,3 +260,24 @@ def test_auth_on_writes_are_pc_only(fakes):
     for path, body in WRITES:
         assert local.post(path, json=body).status_code == 200, path
     assert ("reset",) in fakes
+
+
+def test_package_updates_check_needs_admin_and_asks_only_when_called(fakes, monkeypatch):
+    asked = []
+    monkeypatch.setattr(diagnostics, "pypi_release_versions",
+                        lambda dist: asked.append(dist) or ["99.0.0"])
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda d: "1.0.0")
+    svc._UPDATES.update(checked_at=None, packages={})
+    c = TestClient(create_app(ApiSettings(auth_mode="on")), base_url=REMOTE,
+                   raise_server_exceptions=False)
+    url = "/api/diagnostics/package-updates/check"
+    admin = _admin_session()
+    c.get("/api/diagnostics/install-presets", headers=_h(admin))
+    assert asked == []                                     # page load never asks PyPI
+    assert c.post(url, json={}).status_code in (401, 403)
+    r = c.post(url, json={}, headers=_h(admin))
+    b = _clean(r)
+    assert r.status_code == 200 and asked
+    assert b["packages"]["edge_tts"]["status"] == "update"
+    assert b["packages"]["edge_tts"]["target"] == "99.0.0"
+    svc._UPDATES.update(checked_at=None, packages={})

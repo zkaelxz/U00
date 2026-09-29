@@ -17,6 +17,7 @@ const overview = {
     streamlit_drawable_canvas: { installed: false, powers: 'Scanlate manual erase/heal brush', tier: 'feature' },
     torch: { installed: false, powers: 'ML backends', tier: 'feature' },
     pandas: { installed: true, powers: 'tables', tier: 'required' },
+    transformers: { installed: true, powers: 'local NLLB-200', tier: 'feature' },
   },
   file_completeness: { missing_top_level: [], missing_tabs: [], all_present: true },
   library_writable: true,
@@ -60,7 +61,9 @@ const presets = {
   ],
   packages: {
     jieba: pkg('jieba', { approx_mb: 20 }),
-    pypinyin: pkg('pypinyin', { installed: true, installable: false }),
+    pypinyin: pkg('pypinyin', { installed: true, installable: false, installed_version: '0.53.0' }),
+    transformers: pkg('transformers', { installed: true, installable: false, installed_version: '5.2.0' }),
+    pandas: pkg('pandas', { installed: true, installable: false, installed_version: '2.2.3' }),
     'opencc-python-reimplemented': pkg('opencc-python-reimplemented'),
     cv2: pkg('cv2', { dist: 'opencv-python', approx_mb: 45, source_url: 'https://pypi.org/project/opencv-python/' }),
     torch: pkg('torch', { approx_mb: 2500 }),
@@ -98,6 +101,20 @@ const gpuTorch = (probe: boolean) => ({
   variants: [CU128], probe: probe ? { ...VERIFY, torchvision: '0.29.0' } : null,
 })
 
+const UPDATES = {
+  checked_at: 1_790_000_000,
+  packages: {
+    pypinyin: {
+      name: 'pypinyin', dist: 'pypinyin', installed_version: '0.53.0', status: 'update', latest: '0.55.0',
+      target: '0.55.0', reason: null,
+    },
+    transformers: {
+      name: 'transformers', dist: 'transformers', installed_version: '5.2.0', status: 'held_back', latest: '6.0.0',
+      target: null, reason: 'held back by constraints.txt (transformers<6)',
+    },
+  },
+}
+
 const HINT = 'pip couldn\'t write to its download cache. Close other Python windows, or delete %LOCALAPPDATA%\\pip\\cache.'
 
 async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string[] }> {
@@ -116,6 +133,10 @@ async function mockPage(page: Page): Promise<{ sent: Request[]; unmocked: string
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch',
     (r) => r.fulfill({ json: gpuTorch(new URL(r.request().url()).searchParams.get('probe') === 'true') }))
+  await page.route((u) => u.pathname === '/api/diagnostics/package-updates/check', (r) => {
+    sent.push(r.request())
+    return r.fulfill({ json: UPDATES })
+  })
   await page.route((u) => u.pathname === '/api/diagnostics/gpu-torch/setup', (r) => {
     sent.push(r.request())
     return r.fulfill({
@@ -222,5 +243,36 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
   expect(sent).toHaveLength(1)
   expect(sent[0].postDataJSON()).toEqual({ confirm: true, variant: 'cu128' })
   expect(sent[0].headers()['x-baihe-local']).toBe('1')
+  expect(unmocked).toEqual([])
+})
+
+test('installed packages show versions; Update appears only after a check, with its target', async ({ page }) => {
+  const { sent, unmocked } = await mockPage(page)
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await openSection(page, /^Installed packages/)
+  const list = page.getByRole('list', { name: 'Installed packages' })
+  const pinyin = list.locator('li', { hasText: 'pypinyin' })
+  await expect(pinyin.getByTestId('pkg-version')).toHaveText('v0.53.0')
+  await expect(list.locator('li', { hasText: 'pandas' }).getByTestId('pkg-version')).toHaveText('v2.2.3')
+  await expect(list.getByRole('button')).toHaveCount(0)
+  expect(sent).toHaveLength(0) // nothing asked PyPI on load
+
+  await page.getByRole('button', { name: 'Check for updates' }).click()
+  await expect(page.getByTestId('update-check')).toContainText('1 update available, 1 held back')
+  expect(sent.map((r) => new URL(r.url()).pathname)).toEqual(['/api/diagnostics/package-updates/check'])
+  await expect(pinyin.getByTestId('pkg-update')).toHaveText('Update to 0.55.0 available')
+  await expect(list.locator('li', { hasText: 'transformers' }).getByTestId('pkg-update')).toHaveText(
+    'Newer 6.0.0 exists but is held back by constraints.txt (transformers<6)')
+  await expect(list.locator('li', { hasText: 'transformers' }).getByRole('button')).toHaveCount(0)
+  await expect(list.locator('li', { hasText: 'pandas' }).getByRole('button')).toHaveCount(0)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/packages-updates.png`, fullPage: true })
+
+  await pinyin.getByRole('button', { name: 'Update pypinyin to 0.55.0' }).click()
+  await page.getByRole('button', { name: 'Confirm update pypinyin to 0.55.0' }).click()
+  await expect(page.getByTestId('install-result')).toContainText('Updated pypinyin.')
+  expect(new URL(sent[1].url()).pathname).toBe('/api/diagnostics/dependencies/pypinyin/upgrade')
+  await expect(pinyin.getByTestId('pkg-update')).toHaveText('Up to date')
+  await expect(pinyin.getByTestId('pkg-version')).toHaveText('v0.55.0')
   expect(unmocked).toEqual([])
 })

@@ -2163,6 +2163,9 @@ class DiagnosticsPackageInfo(BaseModel):
     name: str
     dist: str
     installed: bool
+    # From installed metadata (the real dist, or a known alternate like
+    # opencv-python-headless); None when not installed or unreadable.
+    installed_version: Optional[str] = None
     installable: bool
     powers: str
     approx_mb: Optional[int] = None
@@ -2188,6 +2191,24 @@ class DiagnosticsInstallPresets(BaseModel):
     PyPI link and install caveats (GET /api/diagnostics/install-presets)."""
     tasks: List[DiagnosticsInstallTask]
     packages: Dict[str, DiagnosticsPackageInfo]
+
+
+class DiagnosticsPackageUpdate(BaseModel):
+    name: str
+    dist: str
+    installed_version: Optional[str] = None
+    # update | up_to_date | held_back | managed | unknown
+    status: str
+    latest: Optional[str] = None
+    target: Optional[str] = None      # the version Upgrade installs (status "update")
+    reason: Optional[str] = None      # what holds a newer release back
+
+
+class DiagnosticsPackageUpdates(BaseModel):
+    """POST /api/diagnostics/package-updates/check: asks PyPI (fixed URL per
+    static dist name) only when called; cached in the server process."""
+    checked_at: float
+    packages: Dict[str, DiagnosticsPackageUpdate]
 
 
 class DiagnosticsGpuTorchNvidia(BaseModel):
