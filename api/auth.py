@@ -282,6 +282,29 @@ def _json_refusal(status: int, code: str, message: str):
     return JSONResponse(status_code=status, content=error_body(code, message))
 
 
+class LocalOnlyCrossSiteGate:
+    """Pure-ASGI middleware, installed in both auth modes. Applies the
+    local_only() content-type/header rule (_cross_site_safe) to local_only
+    routes before the body is read, so a no-cors multipart POST from a page
+    on another loopback port is refused before Starlette spools the upload
+    to disk. The route dependency still runs the same check afterwards."""
+
+    def __init__(self, app, local_only_fn):
+        self.app = app
+        self._local_only_fn = local_only_fn
+        self._local_only = None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("method", "").upper() in _BODY_METHODS:
+            if self._local_only is None:
+                self._local_only = self._local_only_fn()
+            path, method = scope.get("path", ""), scope.get("method", "")
+            if any(rx.match(path) and method in methods for rx, methods in self._local_only) \
+                    and not _cross_site_safe(Request(scope)):
+                return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
+        return await self.app(scope, receive, send)
+
+
 class EarlyAuthGate:
     """Pure-ASGI middleware, installed only with auth on. For any /api path
     that isn't a public route it refuses, before the body is read, any

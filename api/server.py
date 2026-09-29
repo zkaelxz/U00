@@ -27,7 +27,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.api_config import ApiSettings, check_bind_safety, load_settings
-from api.auth import EarlyAuthGate, LoopbackOnlyGate, local_only_matchers, public_api_paths
+from api.auth import (EarlyAuthGate, LocalOnlyCrossSiteGate, LoopbackOnlyGate, local_only_matchers,
+                      public_api_paths)
 from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
@@ -118,6 +119,9 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
                            local_only_fn=lambda: local_only_matchers(app))
     else:
         app.add_middleware(LoopbackOnlyGate)
+    # Both modes: refuse a simple (no-preflight) POST to a local_only route
+    # before its body is read (see api.auth._cross_site_safe).
+    app.add_middleware(LocalOnlyCrossSiteGate, local_only_fn=lambda: local_only_matchers(app))
     if settings.is_development and settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,

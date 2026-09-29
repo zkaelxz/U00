@@ -419,6 +419,25 @@ class TestLocalOnlyNeedsPreflightedPost:
         r = c.post("/api/extension/token", files=files, data={"confirm": "true"})
         assert r.status_code == 403 and "tok" not in r.text
 
+    @pytest.mark.parametrize("auth", ["off", "on"])
+    def test_refused_before_the_body_is_read(self, isolated_db, auth, monkeypatch):
+        """L5: the early gate refuses before Starlette parses (spools) the
+        multipart body."""
+        read = []
+        import starlette.formparsers as fp
+        orig = fp.MultiPartParser.parse
+
+        async def spy(self):
+            read.append(1)
+            return await orig(self)
+        monkeypatch.setattr(fp.MultiPartParser, "parse", spy)
+        c = _local(_app(auth))
+        files = {"file": ("a.mp4", b"0" * 4096, "video/mp4")}
+        assert c.post("/api/media/dramas/1/upload", files=files).status_code == 403
+        assert read == []
+        r = c.post("/api/media/dramas/1/upload", files=files, headers={"X-Baihe-Local": "1"})
+        assert r.status_code not in (401, 403) and read == [1]
+
     def test_header_value_must_be_exactly_1(self, isolated_db):
         c = _local(_app("off"))
         for v in ("0", "true", "", "1 "):
