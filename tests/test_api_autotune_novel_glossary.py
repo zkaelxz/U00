@@ -22,6 +22,7 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service, glossary_service, transcribe_service, translate_service
+from services.service_errors import ConflictError
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
 REMOTE = "https://baihe.example.com"
@@ -410,6 +411,34 @@ class TestAuthOn:
         did, _ = _novel_drama(isolated_db, engine="ollama")
         r = c.post(_gl(did), headers=_session())
         assert r.status_code not in (401, 403), r.text
+
+    def test_engine_switched_after_gate_is_409(self, isolated_db, monkeypatch):
+        """The gate sees ollama; the stored engine becomes claude before the
+        run starts (e.g. a bulk resume). The run must not go to claude."""
+        did, _ = _novel_drama(isolated_db, engine="ollama")
+        resolved, started = [], []
+        monkeypatch.setattr(translate_service, "resolve_api_key",
+                            lambda name, *a: resolved.append(name) or SECRET)
+        monkeypatch.setattr(background_jobs, "start_job",
+                            lambda *a, **k: started.append(a) or True)
+        real = glossary_service.novel_glossary_engine
+
+        def gate_then_switch(drama_id):
+            name = real(drama_id)
+            isolated_db.update_drama(drama_id, translation_engine="claude")
+            return name
+        monkeypatch.setattr(glossary_service, "novel_glossary_engine", gate_then_switch)
+        r = _remote().post(_gl(did), headers=_session())
+        assert r.status_code == 409, r.text
+        assert resolved == [] and started == []
+
+    def test_service_uses_only_the_checked_engine(self, isolated_db, fake_engine, monkeypatch):
+        monkeypatch.setattr(background_jobs, "start_job", lambda *a, **k: True)
+        did, _ = _novel_drama(isolated_db, engine="claude")
+        with pytest.raises(ConflictError):
+            glossary_service.start_novel_glossary_run(did, engine_name="ollama")
+        assert glossary_service.start_novel_glossary_run(
+            did, engine_name="claude")["engine"] == "claude"
 
     def test_household_can_autotune_and_apply(self, isolated_db, fake_process_job):
         c = _remote()
