@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../api/client'
 import { ConfirmButton } from './ConfirmButton'
-import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep, replay } from './confirmButton'
+import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep, replay } from './confirmButtonState'
 import { PC_ONLY_FORBIDDEN, describeError } from './errorMessages'
 
 describe('confirmStep', () => {

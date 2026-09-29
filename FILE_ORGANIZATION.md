@@ -272,6 +272,8 @@ baihe-subtitler/
 │   ├── media_upload_service.py   Migration Slice 31 -- audio/video upload into the drama folder
 │   │                             (safe stored name, extension whitelist, size cap, temp+atomic rename)
 │   ├── media_playback_service.py Migration Slice 52 -- contained path lookup for audio/video playback
+│   ├── comic_view_service.py     comic viewer: page list, contained page-image lookup (magic-byte type,
+│   │                             no symlinks, 50 MB cap, no PIL), visible text regions, page progress
 │   ├── narration_service.py      Migration Slice 33 -- get_narration_config/start_narration_run:
 │   │                             novel chunk_and_tag as a job-does-everything background job
 │   ├── metadata_service.py       Migration Slice 37 -- ffprobe media analysis + metadata auto-fill
@@ -289,10 +291,6 @@ baihe-subtitler/
 │   ├── discover_lookup_service.py    Discover D-2 -- query translation, baihehub search, import suggestion,
 │   │                              bulk extract/commit, navigation help (safe_fetch only; router: discover_lookup_routes.py)
 │   ├── novel_attach_service.py   Migration Slice 38 -- attach novel text/safe-EPUB text, chapter OCR job
-│   ├── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
-│   │                             (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
-│   │                             removal; upload or pasted text; encoding fallback; 409 while a drama job or
-│   │                             (raw novel) any Sources import runs (router: novel_files_routes.py)
 │   ├── review_jobs_service.py    Migration Slice 44 -- Review AI jobs (consistency, emotion,
 │   │                             notes, flag, fix-flagged): background jobs that write themselves,
 │   │                             field-scoped by line id; reuse workspace_job_service runners
@@ -302,6 +300,8 @@ baihe-subtitler/
 │   │                             English (snapshot, then `en`-only write by line id; refuses restructured lines)
 │   ├── blocked_retry_service.py  Review parity R10 -- retry one content-blocked line with another engine
 │   │                             (synchronous, id-keyed result, compare-and-set write of en/flag/flag_note)
+│   ├── series_people_service.py  Parity X15-X17 -- add a series person and edit name/pronouns/aliases/
+│   │                             notes by id (field-scoped UPDATE; taken name = 409)
 │   ├── media_export_service.py   Migration Slices 29+30 -- audiobook (.m4b) and burned-in video
 │   │                             export as thread jobs; ffmpeg via fixed arg lists, output via artifact_service
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
@@ -309,9 +309,13 @@ baihe-subtitler/
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
-│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
-│                                 attempts, settings, profiles, tracked, notifications) and config
-│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│   │                             attempts, settings, profiles, tracked, notifications) and config
+│   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   └── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
+│                                 (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
+│                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
+│                                 (raw novel) any Sources import runs (router: novel_files_routes.py)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -331,6 +335,7 @@ baihe-subtitler/
 │   │                             1 per caller, 429 when busy): Reader LLM routes and the blocked-line retry
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
+│   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -385,14 +390,15 @@ baihe-subtitler/
 │       ├── metadata_routes.py    POST /api/metadata/dramas/{id}/analyze-media, .../autofill, .../autofill/apply
 │       │                         (Migration Slice 37)
 │       ├── novel_routes.py       /api/novel/dramas/{id}/attach-text|attach-epub|ocr-chapter, GET status (Slice 38)
-│       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
-│       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
 │       ├── review_jobs_routes.py /api/review-jobs/dramas/{id}/consistency|emotion|notes|flag|
 │       │                         fix-flagged (POST, start job; Migration Slice 44)
 │       ├── line_ai_routes.py     /api/line-ai/dramas/{id}/lines/{lid}/improve|explain (POST; Slice 50)
 │       ├── translation_version_routes.py /api/review/dramas/{id}/versions/{vid}/activate (POST, lines.edit, confirm=true; R39)
 │       ├── blocked_retry_routes.py /api/lines/dramas/{id}/lines/{lid}/retry-blocked (POST, jobs.start + engine gate; R10)
+│       ├── series_people_routes.py POST /api/characters/series/{id}/characters[/{cid}] (add / edit, lines.edit; X15-X17)
 │       ├── delete_routes.py      POST .../remove|.../delete for the delete_service deletes (local_only, confirm=true)
+│       ├── comic_routes.py       /api/scanlate/dramas/{id}/pages, pages/{pid}/image (GET/HEAD, media.stream),
+│       │                         pages/{pid}/regions, progress (GET/POST) -- comic viewer; tests/test_api_comic_viewer.py
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
@@ -406,8 +412,10 @@ baihe-subtitler/
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
-│       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
-│                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
+│       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       └── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
+│                                 /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
@@ -445,7 +453,7 @@ baihe-subtitler/
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
 │   │                              ReaderStory (story tools, wiki, Q&A), ReaderEngine, ReaderAction +
-│   │                              useReaderAction (per-action error/429 retry), readerPrefs.ts and
+│   │                              useReaderAction (per-action error/429 retry), readerPrefsStore.ts and
 │   │                              readerErrors.ts (pure, unit-tested), reader.css
 │   ├── src/pages/Sources.tsx      Sources page (#/sources): search the enabled sources and open a series (paced
 │   │                              jobs), New chapters, PC-only Source settings; api/sources.ts, types/sources.ts
@@ -453,13 +461,12 @@ baihe-subtitler/
 │   │                              PacingForm, useSourcesJob (job-result polling + reattach), sourcesFormat.ts
 │   │                              (pure, unit-tested), sources.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
-│   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
+│   │                              novel), SeriesCast (Characters > Series cast: list, add, inline edit of
+│   │                              name/pronouns/aliases/notes, PC-only remove; seriesPeopleForm.ts pure,
+│   │                              unit-tested), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
-│   │                              NovelFilePanel (novel reference in Translate, raw novel in Transcribe;
-│   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
-│   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
-│   │                              types/novelFiles.ts
+│   │                              + src/api/seriesPeople.ts (add/edit series people)
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │
