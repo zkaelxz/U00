@@ -10,8 +10,9 @@ delete (see services/translate_service.py's own docstring for why it
 requires an explicit confirm=true rather than a bare DELETE).
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from api.auth import local_only, require_permission
+from api.llm_slots import llm_slot
 from api.schemas import (ClearHistoryResult, ErrorResponse, TranslateEngineListResponse,
                          TranslateHistoryResponse, TranslateRequest, TranslateResponse)
 from services import translate_service
@@ -34,11 +35,13 @@ def get_history(limit: int = Query(50, ge=1, le=200)):
 @router.post("", dependencies=[require_permission("engines.paid")], response_model=TranslateResponse,
             summary="Translate text with a chosen engine (server-side key resolution, D2)",
             responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse},
-                      503: {"model": ErrorResponse}})
-def post_translate(payload: TranslateRequest):
-    return translate_service.translate(
-        payload.text, payload.engine, payload.source_language, payload.target_language,
-        model=payload.model, free_tier=payload.free_tier)
+                      429: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
+def post_translate(payload: TranslateRequest, request: Request):
+    # Synchronous LLM call: capped by the shared slot pool (api/llm_slots.py).
+    with llm_slot(request):
+        return translate_service.translate(
+            payload.text, payload.engine, payload.source_language, payload.target_language,
+            model=payload.model, free_tier=payload.free_tier)
 
 
 @router.delete("/history", dependencies=[local_only()], response_model=ClearHistoryResult,

@@ -15,7 +15,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Section } from '../../../../components/Section'
 import { TypedConfirm } from '../../../../components/TypedConfirm'
 import type { HistoryItem, ReviewNote, TmSuggestion, VersionItem } from '../../../../types/review'
-import { JOB_RUNNING_MESSAGE, structureErrorText } from './reviewLogic'
+import { JOB_RUNNING_MESSAGE, keptNote, structureErrorText } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
 import { ConfirmButton } from '../../../../components/ConfirmButton'
 import { PC_ONLY_DELETE_NOTE, usePcOnly } from '../../../../hooks/usePcOnly'
@@ -115,7 +115,8 @@ export function RecordsPanel({ dramaId, reloads, onChanged, jobRunning }: Props)
         (r) => {
           setError(null)
           setActivated(
-            `Now using “${r.label || `Version ${v.id}`}” (${r.lines_changed} line${r.lines_changed === 1 ? '' : 's'} changed). The lines before it are saved in Line history.`,
+            `Now using “${r.label || `Version ${v.id}`}” (${r.lines_changed} line${r.lines_changed === 1 ? '' : 's'} changed). The lines before it are saved in Line history.` +
+              keptNote(r.conflicts?.length ?? 0),
           )
           onChanged()
         },

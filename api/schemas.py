@@ -2766,6 +2766,7 @@ class TranslationVersionActivateResult(BaseModel):
     label: str
     activated: bool
     lines_changed: int
+    conflicts: list[int] = []  # line ids edited meanwhile; left as they were
 
 
 class BlockedRetryRequest(BaseModel):

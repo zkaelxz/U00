@@ -93,6 +93,14 @@ class TestDiagnostics:
             assert deps[pip_name][0] == import_name
             assert deps[pip_name][2] == "feature"
 
+    def test_upload_and_numpy_deps_are_registered(self):
+        """python-multipart (requirements-core; the upload routes) and numpy
+        (imported directly by dub_service/scanlate/hardsub_ocr)."""
+        deps = diagnostics.OPTIONAL_DEPENDENCIES
+        assert deps["python-multipart"][0] == "multipart"
+        assert deps["python-multipart"][2] == "required"
+        assert deps["numpy"][0] == "numpy" and deps["numpy"][2] == "feature"
+
     def test_media_only_deps_are_not_tagged_required(self):
         """Step 83: faster_whisper, cv2, and PIL are only in
         requirements-media.txt, not requirements-core.txt, so the Core
@@ -798,9 +806,11 @@ class TestPyannoteGatedAccessCheck:
         def __init__(self, gated=()):
             self.gated = set(gated)
             self.calls = []
+            self.timeouts = []
 
-        def model_info(self, model, token=None):
+        def model_info(self, model, token=None, timeout=None):
             self.calls.append((model, token))
+            self.timeouts.append(timeout)
             if model in self.gated:
                 raise RuntimeError(f"Access to model {model} is restricted. You must be "
                                    "authenticated to access it.")
@@ -820,6 +830,16 @@ class TestPyannoteGatedAccessCheck:
         api = self._FakeApi()
         diagnostics.check_pyannote_gated_access(hf_token="hf_faketoken", api=api)
         assert all(token == "hf_faketoken" for _, token in api.calls)
+
+    def test_every_hub_call_has_a_timeout(self):
+        api = self._FakeApi()
+        diagnostics.check_pyannote_gated_access(api=api)
+        assert api.timeouts and all(t == 10 for t in api.timeouts)
+
+    def test_real_hfapi_model_info_accepts_timeout(self):
+        hub = pytest.importorskip("huggingface_hub")
+        import inspect
+        assert "timeout" in inspect.signature(hub.HfApi.model_info).parameters
 
     def test_huggingface_hub_not_installed_returns_empty(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)

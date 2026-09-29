@@ -35,15 +35,19 @@ E2E_STUB_OUTPUT = ["stubbed in e2e"]
 E2E_STUB_TOKEN = "e2e-stub-token"
 
 
-def install_e2e_stubs(setattr_=setattr):
+def install_e2e_stubs(setattr_=setattr, environ=None):
     """Replace every action here that reaches outside the throwaway library:
-    pip install/upgrade, the library reset, and the extension bridge's
-    on/off and token. An e2e mock that leaks a request (a held route
-    Chromium lets through when the page closes) then hits a stub, never a
-    real pip run or the real extension token. `setattr_` lets a test pass
-    monkeypatch.setattr so the stubs are undone afterwards."""
+    pip install/upgrade, the library reset, the extension bridge's on/off
+    and token, and every engine key / HF token. An e2e mock that leaks a
+    request (a held route Chromium lets through when the page closes) then
+    hits a stub, never a real pip run, the real extension token or a paid
+    engine on the user's own key. `setattr_` lets a test pass
+    monkeypatch.setattr so the stubs are undone afterwards; `environ`
+    (default os.environ) is the environment the key variables are removed
+    from."""
     from services import diagnostics_gaps_service as diag
     from services import extension_service as ext
+    from services import settings_service
     from services.service_errors import ConflictError
 
     def refuse_pip(name, confirm=False):
@@ -60,6 +64,18 @@ def install_e2e_stubs(setattr_=setattr):
     setattr_(ext, "set_enabled", lambda enabled, start_now=True: {
         "enabled": bool(enabled), "running": False, "restart_needed": False})
     setattr_(ext, "reveal_token", lambda confirm=False: {"token": E2E_STUB_TOKEN})
+    # Keys: every server-side read goes through settings_service (the .env
+    # parse and resolve_key, looked up as a module attribute everywhere), and
+    # core/scanlate/huggingface_hub also read HF_TOKEN-style variables from
+    # the process environment directly -- so blank all three.
+    setattr_(settings_service, "_read_env_file", lambda env_path=None: {})
+    setattr_(settings_service, "resolve_key", lambda settings_key, env_path=None: None)
+    environ = os.environ if environ is None else environ
+    for key, names in settings_service.ENV_NAMES.items():
+        if key in settings_service.KEY_WRITE_ENGINES:
+            for name in names:
+                environ.pop(name, None)
+    environ["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"  # no cached `huggingface-cli login` token
 
 
 def main():

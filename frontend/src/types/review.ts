@@ -282,6 +282,8 @@ export interface VersionActivateResult {
   label: string
   activated: boolean
   lines_changed: number
+  // Ids of lines edited after the server read them; they kept their English.
+  conflicts: number[]
 }
 
 // Review parity R10: POST /api/lines/dramas/{id}/lines/{lid}/retry-blocked

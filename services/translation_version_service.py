@@ -8,7 +8,9 @@ the drama's current English (parity item R39). Mirrors the Review tab's
 What it writes: a "before switching version" line-history snapshot (so the
 switch can be undone from Version history), then ONLY the `en` column of the
 drama's existing lines, matched by permanent line id
-(`db.save_lines(..., fields=("en",))`), then the version's active mark. It
+(`db.update_lines_fields_if_many`: one transaction of compare-and-sets against
+the English read at the start; a line edited meanwhile is skipped and its id
+listed in `conflicts`), then the version's active mark. It
 never does a full line sync, so it can't insert, delete or reorder a line.
 
 Deliberate difference from the tab: when the version was saved over a
@@ -25,8 +27,6 @@ drama's version is the same NotFoundError as a missing one.
 No Streamlit or FastAPI import; plain dicts in and out. Messages never echo
 line text.
 """
-from dataclasses import replace
-
 import core as core_module
 import db
 from services import drama_service
@@ -52,7 +52,9 @@ def _owned_version(drama_id: int, version_id: int) -> dict:
 def activate_version(drama_id: int, version_id: int, confirm: bool = False) -> dict:
     """Sets every current line's `en` to the version's translation for the
     same permanent line id, and marks the version active. Returns
-    {drama_id, version_id, label, activated, lines_changed}."""
+    {drama_id, version_id, label, activated, lines_changed, conflicts}:
+    `conflicts` lists the ids of lines edited after this call read them;
+    those keep their newer English and are not counted in lines_changed."""
     _require_drama(drama_id)
     version = _owned_version(drama_id, version_id)
     if confirm is not True:
@@ -68,10 +70,14 @@ def activate_version(drama_id: int, version_id: int, confirm: bool = False) -> d
                             "split or re-segmented since), so its translations can't be "
                             "matched to the current lines. Nothing was changed.")
     en_by_id = {r["id"]: r.get("en") or "" for r in rows}
-    changed = [replace(ln, en=en_by_id[ln.id]) for ln in current if ln.en != en_by_id[ln.id]]
+    to_change = [ln for ln in current if (ln.en or "") != en_by_id[ln.id]]
     db.save_line_history_snapshot(drama_id, current, SNAPSHOT_LABEL)
-    if changed:
-        db.save_lines(drama_id, changed, fields=("en",))
+    # Compare-and-set per line id, in one transaction: a line edited after
+    # `current` was read keeps its newer English and is reported as a
+    # conflict instead of overwritten; an error writes nothing.
+    conflicts = db.update_lines_fields_if_many(
+        drama_id, [(ln.id, {"en": en_by_id[ln.id]}, {"en": ln.en or ""}) for ln in to_change])
+    written = len(to_change) - len(conflicts)
     db.set_active_translation_version(drama_id, version_id)
     return {"drama_id": drama_id, "version_id": version_id, "label": version.get("label") or "",
-            "activated": True, "lines_changed": len(changed)}
+            "activated": True, "lines_changed": written, "conflicts": conflicts}

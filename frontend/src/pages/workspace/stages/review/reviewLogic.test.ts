@@ -16,6 +16,7 @@ import {
   isDirty,
   jobRunsOnDrama,
   JOB_RUNNING_MESSAGE,
+  keptNote,
   lineRange,
   LINES_CHANGED_MESSAGE,
   mergedText,
@@ -145,5 +146,13 @@ describe('re-segmentation summary', () => {
   it('reads as one line', () => {
     const p = { drama_id: 1, source_line_ids: [], line_count_before: 40, line_count_after: 46, changed: new Array(6).fill({ line_id: 1, idx: 1, zh: '', pieces: [] }), translated: 3, flagged: 1, notes: 0, needs_confirm: true }
     expect(resegmentSummary(p)).toBe('40 → 46 lines; 6 change; 3 translated, 1 flagged, 0 notes would be split')
+  })
+})
+
+describe('keptNote', () => {
+  it('says nothing without conflicts and counts them otherwise', () => {
+    expect(keptNote(0)).toBe('')
+    expect(keptNote(1)).toBe(' 1 line was edited meanwhile and kept.')
+    expect(keptNote(3)).toBe(' 3 lines were edited meanwhile and kept.')
   })
 })

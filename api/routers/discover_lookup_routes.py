@@ -21,6 +21,7 @@ Engine keys are resolved server-side and never accepted or returned.
 from fastapi import APIRouter, Request
 
 from api.auth import require_engines_allowed, require_permission
+from api.llm_slots import llm_slot
 from api.schemas import (DiscoverBaihehubResult, DiscoverBaihehubSearchRequest,
                          DiscoverBulkCommitRequest, DiscoverBulkCommitResult,
                          DiscoverBulkExtractRequest, DiscoverImportSuggestion,
@@ -42,7 +43,8 @@ _ERRS = {400: {"model": ErrorResponse}, 404: {"model": ErrorResponse},
              summary="Translate a search query to Chinese (button-driven; LLM)", responses=_ERRS)
 def post_translate_query(body: DiscoverTranslateQueryRequest, request: Request):
     require_engines_allowed(request, body.engine)
-    return svc.translate_query(body.q, body.engine)
+    with llm_slot(request):
+        return svc.translate_query(body.q, body.engine)
 
 
 @router.post("/baihehub-search", dependencies=[require_permission("library.read")],

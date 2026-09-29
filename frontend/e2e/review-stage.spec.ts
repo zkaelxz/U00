@@ -363,6 +363,22 @@ test('no configured key shows a short message pointing to Settings', async ({ pa
   await expect(row.getByTestId('line-ai-unavailable')).toContainText('Settings')
 })
 
+test('why-this offers Try again after the AI was busy', async ({ page }) => {
+  let n = 0
+  await page.route('**/api/line-ai/dramas/3/lines/*/explain', (route) => {
+    n += 1
+    return n === 1
+      ? route.fulfill({ status: 429, json: { error: { code: 'rate_limited', message: 'busy' } } })
+      : route.fulfill({ json: { line_id: 1, explanation: 'Second time lucky.', engine: 'x', model: null } })
+  })
+  await open(page)
+  const row = await openAi(page, 0, 'Why this?')
+  await row.getByTestId('line-ai-retry').click()
+  await expect(row.getByTestId('line-ai-explanation')).toHaveText('Second time lucky.')
+  await expect(row.getByTestId('line-ai-retry')).toHaveCount(0)
+  expect(n).toBe(2)
+})
+
 test('applying a suggestion over a concurrent edit shows the conflict', async ({ page }) => {
   await page.route('**/api/line-ai/dramas/3/lines/*/improve', (route) =>
     route.fulfill({ json: improveOut('Thanks, friend') }))

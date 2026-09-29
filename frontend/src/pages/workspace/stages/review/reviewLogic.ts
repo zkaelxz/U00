@@ -267,3 +267,9 @@ export function resegmentSummary(p: ResegmentPreview): string {
   const notes = `${p.notes} note${p.notes === 1 ? '' : 's'}`
   return `${p.line_count_before} → ${p.line_count_after} lines; ${p.changed.length} change; ${p.translated} translated, ${p.flagged} flagged, ${notes} would be split`
 }
+
+// Lines someone edited while the version switch ran keep their own English.
+export function keptNote(n: number): string {
+  if (n <= 0) return ''
+  return n === 1 ? ' 1 line was edited meanwhile and kept.' : ` ${n} lines were edited meanwhile and kept.`
+}
