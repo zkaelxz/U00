@@ -379,6 +379,7 @@ baihe-subtitler/
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   ├── comic_schemas.py          comic viewer request/response models (kept apart from schemas.py)
+│   ├── sources_import_schemas.py import-state models (Step 107; kept apart from schemas.py)
 │   └── routers/
 │       ├── __init__.py
 │       ├── system_routes.py      /api/health, /api/meta (incl. `local`: viewer is at the PC)
@@ -460,7 +461,7 @@ baihe-subtitler/
 │       │                         bulk-commit|navigation-help[/result] (spec D-2; API batch 1)
 │       ├── sources_search_routes.py POST /api/sources/search, /api/sources/{name}/series (jobs), GET
 │       │                         /api/sources/jobs/{job_id}/result (spec S-3; API batch 1)
-│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import
+│       ├── sources_import_routes.py POST /api/sources/url/preview, /url/import, /{name}/import, GET /{name}/import-state
 │       │                         (sources.import; specs S-4, S-5)
 │       ├── sources_local_routes.py POST /api/sources/settings/proxy, /{name}/signin/open|forget,
 │       │                         /{name}/tier-test (all local_only; spec S-6, SO17, SO18)
