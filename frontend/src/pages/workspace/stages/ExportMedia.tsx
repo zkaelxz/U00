@@ -5,6 +5,7 @@ import { getArtifactInfo, getEpub, startAudiobook, startBurnedVideo } from '../.
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { useJob, useJobRun } from '../../../hooks/useJob'
+import { jobSucceeded } from '../../../types/jobs'
 import type { ArtifactInfo, AssExportRequest, MediaExportStarted, MediaKind } from '../../../types/export'
 import { formatBytes } from '../exportForm'
 import { useStage } from '../StageContext'
@@ -90,7 +91,7 @@ function MediaJobSection({ title, label, kind, start, note }: JobProps) {
       {problem && <p className="error" role="alert">{problem}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {jobId && <JobPanel job={job} pollError={pollError} />}
-      {artifact && job?.status === 'done' && (
+      {artifact && jobSucceeded(job) && (
         <p data-testid={`artifact-${kind}`}>
           <a href={artifactUrl(dramaId, kind)} download>Download {artifact.name}</a>{' '}
           <span className="muted">({formatBytes(artifact.size)})</span>

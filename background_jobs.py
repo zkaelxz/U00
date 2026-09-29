@@ -53,13 +53,21 @@ def _mirror_locked(job_id):
     job = _jobs.get(job_id)
     if job is None:
         return
+    result_json = None
+    try:
+        from services.jobs_service import project_result_json
+        result_json = project_result_json(job.get("result"))
+    except Exception:
+        import applog
+        applog.get_logger().warning(f"job {job_id}: could not project result", exc_info=True)
     try:
         import db
         db.save_job_record(
             job_id, status=job.get("status"), progress=job.get("progress"),
             message=job.get("message"), error=job.get("error"),
             description=job.get("description"), gpu_touching=bool(job.get("gpu_touching")),
-            started_at=job.get("started_at"), finished_at=job.get("finished_at"))
+            started_at=job.get("started_at"), finished_at=job.get("finished_at"),
+            result_json=result_json)
     except Exception:
         import applog
         applog.get_logger().warning(f"job {job_id}: failed to mirror status to job_records",
