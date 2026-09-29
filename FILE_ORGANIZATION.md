@@ -198,6 +198,9 @@ baihe-subtitler/
 │   │                             versions, running jobs, log tail); no admin action, no network call
 │   ├── extension_service.py      API batch 1 -- browser-extension bridge (page_server) status, on/off
 │   │                             (persists page_server_enabled) and token reveal; for local_only routes
+│   ├── notification_service.py   Step 44 -- Discord webhook / ntfy push when a background job ends
+│   │                             (hooked from background_jobs._notify_job_finished): URLs kept in .env like
+│   │                             keys, SSRF-checked and pinned, burst-collapsed + per-minute cap, never raises
 │   ├── diagnostics_gaps_service.py  M1 (Streamlit retirement) -- setup checks, model versions and cache,
 │   │                             pyannote readiness, job history, support report, log tail; confirm-gated
 │   │                             install/upgrade/reset wrappers (router: diagnostics_gaps_routes.py)
@@ -312,9 +315,20 @@ baihe-subtitler/
 │   ├── oidc_service.py           Step 134 (A1) -- Google sign-in: PKCE/state/nonce single-use login
 │   │                             transactions, id_token check against Google's JWKS (Authlib), user
 │   │                             resolution by sub then first-login email binding; tests/test_auth_login.py
-│   └── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
-│                                 attempts, settings, profiles, tracked, notifications) and config
-│                                 writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── sources_registry_service.py Migration Slice 56 -- Sources catalog/status (list, detail,
+│   │                             attempts, settings, profiles, tracked, notifications) and config
+│   │                             writes; URLs reduced to scheme+host+path, text scrubbed, proxy = bool
+│   ├── voice_clone_service.py    Voice-clone setup (parity blocker #7; C01/C03/C09/C13) -- reference
+│   │                             clip upload/remove (ffprobe-checked), extract candidates per speaker
+│   │                             (job voiceref_<id>, files only), choose, save to voice bank, series link
+│   ├── bug_report_service.py     "Report a problem" reports stored as files in <library>/bug_reports/
+│   │                             <UTC stamp>_<n>/ (report.json, report.md, screenshot); every text redacted
+│   │                             (secrets, tokens, user names, paths), image metadata stripped
+│   │                             (router: bug_report_routes.py)
+│   └── novel_files_service.py    Parity B1 #3/#4 -- set/replace/status of the English novel reference
+│                                 (novel_reference.txt) and raw novel (raw_novel_context.txt); reference
+│                                 removal; upload or pasted text; encoding fallback; 409 while a drama job or
+│                                 (raw novel) any Sources import runs (router: novel_files_routes.py)
 │
 ├── api/                        ← HTTP API (FastAPI), EXPERIMENTAL. Runs alongside Streamlit, same library/.
 │   ├── __init__.py               (empty, marks the package)
@@ -415,8 +429,19 @@ baihe-subtitler/
 │       ├── diagnostics_gaps_routes.py /api/diagnostics/setup-checks|model-cache|pyannote|job-history|log|
 │       │                         support-report (GET, admin.diagnostics); dependencies/{pkg}/install|upgrade,
 │       │                         reset-library (POST, local_only + confirm; API batch 1)
-│       └── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
-│                                 token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── extension_routes.py   /api/extension/status (GET), /enabled, /token (POST; all local_only;
+│       │                         token only with confirm=true and Cache-Control: no-store; API batch 1)
+│       ├── voice_clone_routes.py /api/characters/dramas/{id}/reference-clip[/remove] (local_only),
+│       │                         .../reference-clips/extract|candidates[/{cid}/audio|/choose],
+│       │                         .../voice-bank/save (admin.library), .../series-link (voice-clone setup)
+│       ├── bug_report_routes.py  /api/diagnostics/bug-reports: POST (library.read, multipart report;
+│       │                         screenshot PC only), GET list and GET {id} (admin.diagnostics),
+│       │                         POST {id}/delete (local_only + confirm + folder stamp)
+│       ├── novel_files_routes.py /api/novel/dramas/{id}/reference (GET/POST, .../text, .../remove) and
+│       │                         /raw-novel (GET/POST, .../text); paste bodies streamed with a 32 MB cap
+│       └── notification_routes.py /api/settings/notifications (GET, admin.settings: booleans only); /test,
+│                                 /{channel}, /{channel}/clear (POST, local_only; set/clear also use the
+│                                 key-write gate; Step 44)
 │
 ├── frontend/                   ← REACT APP (Vite + TypeScript), EXPERIMENTAL. Not a Python package.
 │   ├── package.json, vite.config.ts, tsconfig*.json, index.html
@@ -431,6 +456,11 @@ baihe-subtitler/
 │   │                              ErrorBoundary (page crash fallback, resets on route change) +
 │   │                              errorFallbackText.ts; src/bootFallback.ts (last-resort message in #root
 │   │                              when React never mounts; index.html also holds a static no-JS note)
+│   ├── src/report/                "Report a problem": capture.ts (ring buffers of console errors, window
+│   │                              errors, failed API calls (method/path/status/code only) and route history;
+│   │                              installed in main.tsx), ReportProblem.tsx (header button + dialog),
+│   │                              reportDialogStore.ts (openReportDialog()), reportBundle.ts (pure: report,
+│   │                              markdown, GitHub issue link); API in src/api/bugReports.ts
 │   ├── public/                    favicon.ico (copy of assets/app_icon.ico), icon-32/192.png
 │   ├── src/hooks/                 useJob, useMediaQuery, useShortcut (list keyboard shortcuts),
 │   │                              usePersistedState (per-viewer prefs in localStorage),
@@ -445,7 +475,10 @@ baihe-subtitler/
 │   │                              unit-tested, + useDetailsOpen), diagnostics.css; API in
 │   │                              src/api/diagnostics.ts
 │   ├── src/pages/settings/        ExtensionSection (Settings > Browser extension: on/off, show token;
-│   │                              the token lives in component state only); API in src/api/extension.ts
+│   │                              the token lives in component state only); API in src/api/extension.ts.
+│   │                              NotificationsSection + notifications.ts (Settings > Notifications, Step 44:
+│   │                              Discord/ntfy set/clear/send test, PC only, configured yes/no only); API in
+│   │                              src/api/notifications.ts
 │   ├── src/pages/workspace/stages/review/  Review editor: LinesPanel (active line, edit mode, structure
 │   │                              edits), LineRow, ReviewToolbar, Player, LineActionsSheet (+ SplitDialog,
 │   │                              MergeConfirm, AddLineForm), StructureSection, ShortcutSheet, RecordsPanel,
@@ -472,6 +505,13 @@ baihe-subtitler/
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in
 │   │                              src/api/autotuneGlossary.ts + src/api/stageDeletes.ts (PC-only deletes via pcOnlyFetch)
 │   │                              + src/api/seriesPeople.ts (add/edit series people)
+│   │                              VoiceClonePanel (Dub > Voices and cloning: clip upload/extract/pick, voice
+│   │                              bank, voice actor, series link, clone warnings) + voiceClone.ts (pure,
+│   │                              unit-tested); API in src/api/voiceClone.ts, types in src/types/voiceClone.ts
+│   │                              NovelFilePanel (novel reference in Translate, raw novel in Transcribe;
+│   │                              PC-only upload or paste, remove) + novelFile.ts + novelFileEvents.ts (shared
+│   │                              "changed" counter NovelPanel's glossary link reads); src/api/novelFiles.ts,
+│   │                              types/novelFiles.ts
 │   ├── e2e/                       Playwright end-to-end test + seeded-API launcher
 │   └── playwright.config.ts
 │

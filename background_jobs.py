@@ -182,7 +182,17 @@ def _notify_job_finished(description, status):
     """Best-effort only -- never raises. A missing `plyer` install, or no
     notification daemon at all (common on a minimal Linux desktop), must
     never take down the job runner that calls this right after finishing
-    the job's real work."""
+    the job's real work.
+
+    Step 44: also queues a Discord/ntfy push when a channel is configured
+    (services/notification_service; its own opt-in is configuring a
+    channel, independent of the desktop toggle). That call only queues --
+    the send happens on a timer thread -- and never raises."""
+    try:
+        from services import notification_service
+        notification_service.notify_job_finished(description, status)
+    except Exception:
+        pass
     if not get_notify_on_completion():
         return
     try:
@@ -856,6 +866,7 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "transcribe_", "consistency_", "emotion_", "notes_", "resegment_",
     "dub_", "autotune_", "sensevoice_", "diarize_", "narration_", "ocrchapter_",
     "audiobook_", "burned_video_", "bulk_translate_", "novel_glossary_", "extract_audio_",
+    "voiceref_",
 )
 
 

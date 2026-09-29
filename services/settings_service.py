@@ -81,8 +81,15 @@ def resolve_key(settings_key: str, env_path: str = None) -> Optional[str]:
     the return value over an API response -- callers that report status
     over HTTP must use key_status()/get_settings_overview() instead.
     """
+    return resolve_env_names(ENV_NAMES.get(settings_key, ()), env_path)
+
+
+def resolve_env_names(names, env_path: str = None) -> Optional[str]:
+    """Server-side only: the first non-empty value among `names`, from .env
+    then real environment variables. Shared with notification_service's
+    webhook/topic secrets, which are not engine keys."""
     env = _read_env_file(env_path)
-    for name in ENV_NAMES.get(settings_key, ()):
+    for name in names:
         val = env.get(name) or os.environ.get(name)
         if val:
             return val
@@ -244,7 +251,15 @@ def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
     _validate_engine(engine)
     value = _validate_key_value(value)
     env_path = env_path or _default_env_path()
-    var_name = ENV_NAMES[engine][0]
+    write_env_var(ENV_NAMES[engine][0], value, env_path)
+    return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
+
+
+def write_env_var(var_name: str, value: str, env_path: str = None):
+    """Sets `var_name=value` in .env in place (appends when absent),
+    keeping every other line. `value` must already be validated (no
+    whitespace, quotes or control characters)."""
+    env_path = env_path or _default_env_path()
 
     def transform(lines):
         new_line = f"{var_name}={value}\n"
@@ -263,7 +278,14 @@ def set_engine_key(engine: str, value: str, env_path: str = None) -> dict:
         return out
 
     _rewrite_env(env_path, transform)
-    return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
+
+
+def remove_env_vars(names, env_path: str = None):
+    """Removes every line setting one of `names` from .env (if it exists)."""
+    env_path = env_path or _default_env_path()
+    names = set(names)
+    if os.path.exists(env_path):
+        _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
 
 
 def clear_engine_key(engine: str, env_path: str = None) -> dict:
@@ -272,7 +294,5 @@ def clear_engine_key(engine: str, env_path: str = None) -> dict:
     configured -- `configured` reports the truth."""
     _validate_engine(engine)
     env_path = env_path or _default_env_path()
-    names = set(ENV_NAMES[engine])
-    if os.path.exists(env_path):
-        _rewrite_env(env_path, lambda lines: [l for l in lines if _line_var(l) not in names])
+    remove_env_vars(ENV_NAMES[engine], env_path)
     return {"engine": engine, "configured": bool(resolve_key(engine, env_path))}
