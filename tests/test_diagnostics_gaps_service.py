@@ -127,6 +127,38 @@ def test_pyannote_readiness_booleans_no_token(monkeypatch):
     _assert_clean(out)
 
 
+def test_pyannote_readiness_without_hf_hub_returns_models_none(monkeypatch):
+    """Check requested but huggingface_hub can't be imported: models is None
+    (the UI's "can't check" message), not an empty list."""
+    import sys
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, env_path=None: HF_TOKEN)
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)  # import raises ImportError
+    out = svc.get_pyannote_readiness(check_access=True)
+    assert out["models"] is None
+    assert out["ready"] is True
+
+
+def test_pyannote_readiness_with_hf_hub_returns_list(monkeypatch):
+    """An installed huggingface_hub still yields one row per gated model."""
+    import sys
+    import types
+    monkeypatch.setattr(settings_service, "resolve_key", lambda k, env_path=None: HF_TOKEN)
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+
+    class FakeHfApi:
+        def model_info(self, model, token=None, timeout=None):
+            return object()
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = FakeHfApi
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+    out = svc.get_pyannote_readiness(check_access=True)
+    assert out["models"] == [{"model": m, "accessible": True}
+                             for m in diagnostics.diarize.DIARIZATION_MODELS]
+    assert out["ready"] is True
+
+
 def test_job_history_redacted(isolated_db, dirty_jobs):
     hist = svc.get_job_history()
     assert [h["job_id"] for h in hist] == ["emotion_999999", "custom_job"]
