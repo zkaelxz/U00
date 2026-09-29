@@ -19,6 +19,9 @@ from . import ladder, registry, store
 from .models import SourceError
 
 CHECK_JOB_ID = "sources_chapter_check"
+# A cycle's claim expires after this long, so a process that died
+# mid-cycle doesn't block checks forever. Well above a paced cycle's length.
+CYCLE_LEASE_SECONDS = 2 * 3600
 _scheduler_started = False
 _scheduler_lock = threading.Lock()
 
@@ -31,14 +34,37 @@ def check_series(adapter, row: dict) -> list:
     known = store.known_chapter_ids(row["source"], row["series_id"])
     new = [c for c in chapters if c.chapter_id not in known]
     if new:
-        store.record_new_chapters(row["source"], row["series_id"], new)
+        # Only what this call actually recorded: another process checking
+        # the same series at the same moment gets the rest.
+        new = store.record_new_chapters(row["source"], row["series_id"], new)
     store.mark_checked(row["source"], row["series_id"])
     return new
 
 
-def run_check_cycle(job_id: str = None, adapter_factory=None) -> dict:
+def run_check_cycle(job_id: str = None, adapter_factory=None, scheduled: bool = False) -> dict:
     """One pass over every tracked series. `adapter_factory(name)` is
-    injectable for tests; defaults to the registry."""
+    injectable for tests; defaults to the registry.
+
+    Safe to run from two processes (the API and Streamlit each run a
+    scheduler): the cycle is claimed first (store.claim_check_cycle), and a
+    cycle that can't claim returns {"skipped": True, ...} without checking
+    anything. A `scheduled` cycle is also skipped when another process
+    finished one within the interval since this one was found due."""
+    now = time.time()
+    min_gap = float(store.get_setting("check_interval_hours") or 0) * 3600 if scheduled else 0.0
+    token = store.claim_check_cycle(now, CYCLE_LEASE_SECONDS, min_gap)
+    if token is None:
+        summary = {"checked": 0, "new": 0, "errors": {}, "queued": [], "skipped": True}
+        if job_id:
+            background_jobs.set_result(job_id, summary)
+        return summary
+    try:
+        return _run_claimed_cycle(job_id, adapter_factory)
+    finally:
+        store.release_check_cycle(token)
+
+
+def _run_claimed_cycle(job_id, adapter_factory) -> dict:
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
     summary = {"checked": 0, "new": 0, "errors": {}, "queued": []}
@@ -83,8 +109,9 @@ def check_due(now: float = None) -> bool:
     return now - float(last) >= hours * 3600
 
 
-def start_check_now() -> bool:
+def start_check_now(scheduled: bool = False) -> bool:
     return background_jobs.start_job(CHECK_JOB_ID, run_check_cycle, CHECK_JOB_ID,
+                                     scheduled=scheduled,
                                      description="Checking tracked series for new chapters")
 
 
@@ -101,7 +128,7 @@ def ensure_scheduler_started(poll_seconds: float = 300.0):
         while True:
             try:
                 if store.list_tracked_series() and check_due():
-                    start_check_now()
+                    start_check_now(scheduled=True)
             except Exception:
                 pass    # a transient DB/lock hiccup shouldn't kill the scheduler
             time.sleep(poll_seconds)

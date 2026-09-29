@@ -206,7 +206,9 @@ def test_missing_or_bad_confirm_is_422_and_nothing_changes(client, tmp_path, bod
               db.list_voice_bank_entries(), db.list_bug_reports())
     for url in urls:
         r = client.post(url, json=body) if body is not None else client.post(url)
-        assert r.status_code == 422, (url, r.text)
+        # A body-less POST is not JSON and has no X-Baihe-Local header, so
+        # local_only's cross-site rule refuses it (403) before validation.
+        assert r.status_code == (403 if body is None else 422), (url, r.text)
     assert (db.list_dramas(), db.list_translation_versions(1), db.list_presets(),
             db.list_voice_bank_entries(), db.list_bug_reports()) == before
     assert os.path.exists(os.path.join(db.DRAMAS_DIR, "1", "audio.wav"))

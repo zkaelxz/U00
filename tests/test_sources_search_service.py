@@ -129,6 +129,23 @@ def test_sources_filter_and_validation(fakes):
         svc.start_search("abc", sources=["beta"])
 
 
+@pytest.mark.parametrize("bad", ["//169.254.169.254/x", "/abs/path", "\\\\evil\\x",
+                                 "a\\b", "user@evil.invalid", "http:evil", "a/../../x",
+                                 "a b", "a\nb", "a\x00b"])
+def test_series_id_that_could_change_the_host_is_refused(fakes, bad):
+    fakes["alpha"] = _make("alpha")
+    with pytest.raises(InvalidInputError):
+        svc.start_series("alpha", bad)
+    assert background_jobs.get_status(svc.SERIES_JOB_PREFIX + "alpha") is None
+
+
+def test_series_id_with_a_relative_path_is_allowed(fakes):
+    fakes["alpha"] = _make("alpha")
+    assert svc.start_series("alpha", "KeHuan/20_b/bkceK.html") == {
+        "job_id": svc.SERIES_JOB_PREFIX + "alpha"}
+    _wait(svc.SERIES_JOB_PREFIX + "alpha")
+
+
 def test_cancel_mid_search(fakes):
     def cancel_on_first(url):
         background_jobs.request_cancel("sources_search")

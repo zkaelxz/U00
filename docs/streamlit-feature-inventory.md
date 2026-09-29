@@ -48,8 +48,8 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | `apply_style_profile` | Review adaptive style (`workspace_tab.py:5037`) | Translate run (`:3531`) | MISSING (no API) |
 | `sub_style_current_{id}` | Export style fragment (`:254`) | Review burned preview (`:965`) | MISSING |
 | `diarize_job_expected_speakers_{id}`, `speaker_segments_{id}` | Diarize/transcribe completion (`:1096,3446,1060`) | Diarize apply, Characters auto-extract (`:3644`) | Server-side in `diarization_service.make_apply_on_done` |
-| `page_server` config bridge | `settings_tab.py:418-485` (`page_server.ensure_server_started`, `set_translation_config`) | Browser extension endpoint | **MISSING**, and the extension bridge is orphaned (plan section 0, M0-b) |
-| `chapter_check.ensure_scheduler_started()` | `sources_tab.py:975` | Tracked-series notifications | **MISSING**: only Streamlit starts it (M0-b) |
+| `page_server` config bridge | `settings_tab.py:418-485` (`page_server.ensure_server_started`, `set_translation_config`) | Browser extension endpoint | API: started by the API startup hook (`api/background.py`, #372); control routes `/api/extension/*` (#372) |
+| `chapter_check.ensure_scheduler_started()` | `sources_tab.py:975` | Tracked-series notifications | API: started by the API startup hook (`api/background.py`, #372) |
 
 ## 2. Workspace (`tabs/workspace_tab.py`)
 
@@ -82,8 +82,8 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | S01 | Source language (saved to the drama) | 1557-1564 | `db.update_drama` | `stages/TranscribeStage.tsx` (sent with the run) | `POST /api/transcribe/dramas/{id}/run` (`source_language`); `POST /api/source/dramas/{id}/config` | — |
 | S02 | Chinese script: simplified or traditional | 1566-1581 | `db.update_drama` | `stages/TranscribeStage.tsx` | same | — |
 | S03 | Content mode: audio drama, streamer VOD or novel narration. Streamer VOD also sets media type | 1583-1605 | `db.update_drama` | MISSING | `POST /api/source/dramas/{id}/config` (`content_mode`) | wt TestRawNovelToggleGatedByContentMode |
-| S04 | "I have the original novel" toggle: upload, save or remove the raw novel used to prime Whisper | 1619-1660 | `core.load_novel_text_for_context` → `raw_novel_context.txt` | MISSING | no API | test_workspace_raw_novel TestRawNovelContextRemove; wt TestRawNovelToggleGatedByContentMode |
-| S05 | Current audio/video caption, and remove it (with confirm) | 1667-1690 | `os.remove`, `db.update_drama` | PARTIAL `stages/SourceStage.tsx` (status only); remove MISSING | `GET /api/media/dramas/{id}/status`; remove: no API | wt TestFourMoreDestructiveActionsNeedConfirmation |
+| S04 | "I have the original novel" toggle: upload, save or remove the raw novel used to prime Whisper | 1619-1660 | `core.load_novel_text_for_context` → `raw_novel_context.txt` | MISSING | `POST /api/novel/dramas/{id}/raw-novel/remove` (remove only, #374); upload/save: no API | test_workspace_raw_novel TestRawNovelContextRemove; wt TestRawNovelToggleGatedByContentMode |
+| S05 | Current audio/video caption, and remove it (with confirm) | 1667-1690 | `os.remove`, `db.update_drama` | PARTIAL `stages/SourceStage.tsx` (status only); remove MISSING | `GET /api/media/dramas/{id}/status`; remove: `POST /api/media/dramas/{id}/remove` (#374) | wt TestFourMoreDestructiveActionsNeedConfirmation |
 | S06 | Upload an audio or video file (video is converted to `audio.wav` on run) | 1703-1707, 3107-3122 | `extract_audio_from_video`, `db.update_drama` | `stages/SourceStage.tsx` | `POST /api/media/dramas/{id}/upload`, `/upload-and-transcribe` | — |
 | S07 | Download from a URL with yt-dlp: audio-only default per content mode, cookies from Settings, title auto-fill | 1708-1769 | `video_download.download`, `core.extract_audio_from_video` | MISSING (needs Sources S-5) | no API | wt TestDownloadButtonUsesCookieSettings, TestDownloadAudioOnlyDefault |
 | S08 | Transcript source: have transcript, Whisper, or burned-in captions (OCR, video only) | 1771-1792 | `db.update_drama(transcript_mode)` | MISSING picker (React follows the stored mode) | `POST /api/source/dramas/{id}/config` (`transcript_mode`) | — |
@@ -99,7 +99,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | ID | Feature | Source | Calls | React | API | Tests |
 |---|---|---|---|---|---|---|
 | T01 | Upload or paste an existing English novel translation as translation reference | 1913-1928, saved 3124-3132, used 3514-3519 | file write, `db.update_drama(novel_reference_filename)` | MISSING | no API (`translate_run_service` reads the file) | wt TestReferenceNovelUploadDoesNotLeakAcrossDramas |
-| T02 | Build a glossary from the novel (LLM), optionally paired with the original; review the proposals, then add them to the series glossary | 1931-2039 | `tguide.extract_glossary_from_novel`, `db.upsert_glossary_term` | MISSING | no API | wt TestOriginalNovelForGlossaryDoesNotLeakAndNeedsExplicitSave |
+| T02 | Build a glossary from the novel (LLM), optionally paired with the original; review the proposals, then add them to the series glossary | 1931-2039 | `tguide.extract_glossary_from_novel`, `db.upsert_glossary_term` | MISSING | `POST /api/glossary/dramas/{id}/from-novel`, `GET .../from-novel`, `POST .../from-novel/apply` (#365) | wt TestOriginalNovelForGlossaryDoesNotLeakAndNeedsExplicitSave |
 | T03 | Import a glossary file (CSV/TSV/JSON) | 2041-2059 | `tguide.parse_glossary_file` | MISSING | no API | — |
 | T04 | Export the glossary as CSV | 2061-2066 | `tguide.glossary_to_csv` | MISSING | no API | — |
 | T05 | Speech model picker, language warning and "not downloaded yet" note | 2068-2084, 2952-2956 | `core.whisper_model_warning`, `is_whisper_model_cached` | `stages/TranscribeStage.tsx` + `sourceForm.whisperModelWarning` | `GET/POST /api/transcribe/dramas/{id}/config` | wt TestWhisperSizeDefaultsToLargeV3 |
@@ -107,7 +107,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | T07 | Groq cloud transcription toggle and key | 2091-2102 | `synced_api_key_input` | PARTIAL: toggle in TranscribeStage; key entry MISSING (see G06) | config `use_groq`; key via `POST /api/settings/keys/groq` | — |
 | T08 | Initial prompt built automatically from glossary names and a raw-novel excerpt, plus extra typed names | 2104-2135 | `core.build_initial_prompt`, `extract_novel_excerpt_for_prompt`, `combine_initial_prompt` | PARTIAL: manual "Initial prompt" only; auto derivation MISSING | run `initial_prompt` | test_transcription_quality TestWhisperSettings |
 | T09 | Beam size, silence split and VAD sensitivity sliders | 2137-2164 | — | `stages/TranscribeStage.tsx` Advanced | config | wt TestSpeechSplittingSensitivityDefaultAndPersistence |
-| T10 | Auto-tune the silence split: one background re-transcription per candidate, cancel, results table, "Use X ms", discard | 2166-2282 | `core.autotune_subprocess_worker`, `diagnose_line_coverage` | MISSING | no API | wt TestAutotuneRealMidRunStop |
+| T10 | Auto-tune the silence split: one background re-transcription per candidate, cancel, results table, "Use X ms", discard | 2166-2282 | `core.autotune_subprocess_worker`, `diagnose_line_coverage` | MISSING | `POST /api/transcribe/dramas/{id}/autotune`, `GET .../autotune`, `POST .../autotune/apply` (#365) | wt TestAutotuneRealMidRunStop |
 | T11 | Remove background music first, plus model choice | 2284-2300 | `audio_preprocess.SEPARATION_BACKENDS` | `stages/TranscribeStage.tsx` | config | test_transcription_quality TestVocalSeparationBackends |
 | T12 | Split long merged lines by word alignment | 2302-2314 | — | `stages/TranscribeStage.tsx` | config | — |
 | T13 | Timing method (character diff or Qwen3 forced align) | 2320-2341 | `db.update_drama` | `stages/TranscribeStage.tsx` | config | test_transcription_quality TestForcedAlignerReliability |
@@ -150,7 +150,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | X16 | Bulk set pronouns for selected series people | 2752-2768 | `db.upsert_series_character` | MISSING | no API | wt TestBulkGlossaryAndPronounActions |
 | X17 | Add a known series character | 2770-2777 | same | MISSING | no API | — |
 | X18 | Engine and model pickers (Claude/Gemini/Ollama/NLLB) | 2780-2833 | `translate_engines.ENGINES`, `*_MODELS` | `stages/TranslateStage.tsx` | `GET /api/translate-run/.../config`, run `engine`/`model` | wt TestFreeEngineVersionLabelling, TestGemini31FlashLiteInDropdown |
-| X19 | Gemini free tier blocks Pro | 2810-2813, 2834-2836 | `GEMINI_FREE_TIER_UNAVAILABLE_MODELS` | Server side (`translate_run_service.py:138`) | run | wt TestGeminiFreeTierProGating |
+| X19 | Gemini free tier blocks Pro | 2810-2813, 2834-2836 | `GEMINI_FREE_TIER_UNAVAILABLE_MODELS` | Server side (`translate_run_service.py`, review jobs, line AI): an omitted `gemini_free_tier` now falls back to the saved Settings value (`settings_service.resolve_gemini_free_tier`), so Pro is blocked for a free-tier user without the client sending the flag | run | wt TestGeminiFreeTierProGating |
 | X20 | Per-engine API key field (test_offline needs none) | 2838-2854 | `synced_api_key_input` | MISSING (see G06) | `POST /api/settings/keys/{engine}` | — |
 | X21 | Style notes and English variant | 2868-2877 | — | `stages/TranslateStage.tsx` Style note, Locale | run `style_note`, `locale` | — |
 | X22 | Save current settings as a preset | 2879-2892 | `db.save_preset` | MISSING | no API | wt TestPresetsInWorkspaceUI |
@@ -166,7 +166,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | X32 | Cost estimate captions | 3063-3089 | `estimate_translation_cost` | `stages/TranslateStage.tsx` "Estimate cost" | `GET .../estimate` | — |
 | X33 | Per-job cost cap | 3091-3102 | — | `stages/TranslateStage.tsx` Cost cap | run `job_cost_cap_usd` | wt TestSpendingCapUI |
 | X34 | Translate job progress and done messages (cap reached, failed lines) | 3596-3633 | — | `stages/JobPanel.tsx`; now served: `result` (`errors`, `cap_reached`, `lines_replaced`) and `outcome` partial/failed shown in words (branch `api-job-results`) | `/api/jobs` | wt TestTranslateJobRefreshesStaleEnBoxes |
-| X35 | Bulk jobs panel: list, "Check now", cancel, auto-resume after restart | 493-577 | `bulk_translate.resume_pending`, `check_once`, `cancel_bulk_job` | PARTIAL: "Resume pending batches" button only; list, check and cancel MISSING | `POST .../bulk/resume`; no list endpoint | test_bulk_translate TestRestartCancelAuth |
+| X35 | Bulk jobs panel: list, "Check now", cancel, auto-resume after restart | 493-577 | `bulk_translate.resume_pending`, `check_once`, `cancel_bulk_job` | `stages/TranslateStage.tsx` bulk batches panel: list, resume, cancel (#379) | `POST .../bulk/resume`; list `GET .../bulk` and `POST .../bulk/{id}/cancel` (Slice 51, #352) | test_bulk_translate TestRestartCancelAuth |
 | C01 | Auto-extract voice reference clips from the diarized audio | 3650-3681 | `dub.extract_reference_clips` | MISSING | no API | wt TestCharacterNamingGaps |
 | C02 | Recurring-voice suggestions ("sounds like X"): accept or reject | 3685-3720 | `voice_id.suggest_speaker_matches`, `db.dismiss_voice_suggestion` | MISSING | no API | wt TestVoiceMatchSuggestions |
 | C03 | Pick a known series character for a speaker | 3729-3746 | `db.upsert_character(series_character_id)` | MISSING | no API field | wt TestCharacterNamingGaps |
@@ -187,7 +187,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | ID | Feature | Source | Calls | React | API | Tests |
 |---|---|---|---|---|---|---|
 | R01 | Pick up a finished flag job before counting flags | 3982-3984 | `db.load_line_objects` | N/A | — | test_step20_ux_polish TestAutoQCToastVsWarning |
-| R02 | Media player with seek, "Jump to time", "Play current segment" (Alt+Space), selected line | 823-988, 3988-3990 | `st.video`/`st.audio`, `parse_timestamp` | MISSING | no API (no Range media endpoint) | test_media_preview TestReviewPlayer, TestRowClickSeeksInWorkspace, TestParseTimestamp, TestPlayerTimes |
+| R02 | Media player with seek, "Jump to time", "Play current segment" (Alt+Space), selected line | 823-988, 3988-3990 | `st.video`/`st.audio`, `parse_timestamp` | MISSING | `GET`/`HEAD /api/media/dramas/{id}/audio` and `.../video` with Range (Slice 52, #352) | test_media_preview TestReviewPlayer, TestRowClickSeeksInWorkspace, TestParseTimestamp, TestPlayerTimes |
 | R03 | Burned-subtitle preview around the selected line (video) | 958-987, 877-894 | `video_export.render_preview_clip` | MISSING | no API | test_media_preview TestBurnPreview |
 | R04 | Find and replace over translations: preview, apply by line id, skip stale lines, update translation memory | 3992-4066 | `scanlate.bulk_find_replace_preview`, `db.update_translation_memory_after_replace` | `stages/review/FindReplacePanel.tsx` | `POST /api/review/.../find-replace/preview`, `POST /api/lines/.../find-replace/apply` | test_review_workspace TestLineFindAndReplace |
 | R05 | Search the transcript and jump to the line's page | 4068-4085 | `_search_transcript` | PARTIAL `stages/review/LinesPanel.tsx` search (jump to page MISSING) | `GET /api/review/dramas/{id}/search` | test_step20_ux_polish TestSearchTranscript, TestTranscriptSearchJumpsToCorrectPage |
@@ -217,7 +217,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R29 | Consistency check job, with a bulk option, and the found issues listed | 4571-4650 | `run_consistency_job`, `db.load_consistency_issues` | PARTIAL `stages/review/ReviewJobsPanel.tsx` starts it; results list MISSING; bulk MISSING | `POST /api/review-jobs/.../consistency`; `GET /api/review/.../consistency` | test_bulk_translate TestBulkConsistency |
 | R30 | Review queue: flag lines for a second look (with bulk option) | 4652-4715 | `run_flag_job` | `stages/review/ReviewJobsPanel.tsx` (bulk MISSING) | `POST /api/review-jobs/.../flag` | test_bulk_translate TestBulkFlag |
 | R31 | Run Auto QC (numbers, dates, names, units) | 4717-4745 | `_run_auto_qc` 779 → `auto_qc.run_auto_qc` | `stages/ExportFlags.tsx` (in Export, not Review) | `POST /api/export/.../flag-auto-qc` | test_auto_qc; test_step20_ux_polish TestAutoQCToastVsWarning |
-| R32 | Fix flagged lines: re-transcribe and re-translate, with the cap | 4747-4845 | `run_fix_flagged_lines_job` | `stages/review/ReviewJobsPanel.tsx`; fixed/total/errors/cap now served as job `result` + `outcome` (branch `api-job-results`) | `POST /api/review-jobs/.../fix-flagged` | wt TestFixFlaggedLinesCapUI; wt fix_flagged job tests |
+| R32 | Fix flagged lines: re-transcribe and re-translate, with the cap | 4747-4845 | `run_fix_flagged_lines_job` | `stages/review/ReviewJobsPanel.tsx` (free tier now from the saved setting when omitted; the per-job cap defaults to none, same as a translate run, and the monthly cap still applies); fixed/total/errors/cap now served as job `result` + `outcome` (branch `api-job-results`) | `POST /api/review-jobs/.../fix-flagged` | wt TestFixFlaggedLinesCapUI; wt fix_flagged job tests |
 | R33 | Emotion detection job (audio cues, bulk option) | 4848-4918 | `run_emotion_job` | PARTIAL `stages/review/ReviewJobsPanel.tsx` (audio-cues toggle and bulk MISSING) | `POST /api/review-jobs/.../emotion` (`use_audio_cues`) | test_emotion_manhua_ui TestDetectEmotionsProgress |
 | R34 | Emotion summary (tagged, high-risk, per emotion) | 4920-4929 | `emotion.emotion_summary` | MISSING | `GET /api/review/dramas/{id}/emotions` | test_emotion_manhua_ui TestEmotionSummary |
 | R35 | SenseVoice tagging from the audio, with a side-by-side table | 4931-4985 | `run_sensevoice_job`, `sensevoice_tags.side_by_side` | MISSING | no API | test_transcription_quality TestSenseVoiceTags |
@@ -225,7 +225,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | R37 | Learn my style (LLM), show the profile, apply toggle, reset | 5004-5042 | `adaptive_style.analyze_edit_patterns`, `db.save_style_profile` | MISSING | no API | — |
 | R38 | Translation versions list | 5044-5058 | `db.list_translation_versions` | `stages/review/RecordsPanel.tsx` | `GET /api/review/dramas/{id}/versions` | test_library_features TestTranslationVersions |
 | R39 | Activate a version (with stale-id guard) | 5059-5076, `_restore_saved_lines` 629 | `core.restore_saved_lines`, `db.set_active_translation_version` | MISSING | no API | wt TestRestoreAndActivateKeepSpeakerCorrections |
-| R40 | Delete a version (with confirm) | 5077-5086 | `db.delete_translation_version` | MISSING | no API | wt TestFourMoreDestructiveActionsNeedConfirmation |
+| R40 | Delete a version (with confirm) | 5077-5086 | `db.delete_translation_version` | MISSING | `POST /api/review/dramas/{id}/versions/{version_id}/delete` (#374) | wt TestFourMoreDestructiveActionsNeedConfirmation |
 | R41 | Compare two versions | 5088-5106 | `db.get_translation_version` | MISSING | `GET /api/review/dramas/{id}/versions/compare` | — |
 | R42 | Translation notes job (with bulk option) | 5108-5173 | `run_translation_notes_job` | `stages/review/ReviewJobsPanel.tsx` (bulk MISSING) | `POST /api/review-jobs/.../notes` | test_bulk_translate TestBulkTranslationNotes |
 | R43 | Notes list with jump-to-line and delete | 5175-5188 | `db.delete_translation_note` | PARTIAL `stages/review/RecordsPanel.tsx` (list + delete; jump MISSING) | `GET /api/review/.../notes`, `DELETE /api/lines/.../notes/{id}` | — |
@@ -288,15 +288,15 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | L06 | Search text across every drama's lines | 147-154 | `db.search_lines_globally` | `pages/Library.tsx` "Search all lines" | `GET /api/library/search` | test_db TestLibraryStatsAndSearch |
 | L07 | All dramas filters: title/summary, studio, author, voice actor, status, language, type, quick filter (Favorite, On Hold, Plan to Translate), custom tags | 156-176 | `library_service.list_library_dramas` | PARTIAL `components/LibraryList.tsx` (search, status, quick filter); studio, author, voice actor, language, type and tags MISSING | `GET /api/library/dramas` (all filters) | test_library_features TestAnimeInLibraryTypeFilter, TestOrganizationalTags |
 | L08 | Table with bilingual credits and row selection | 178-203 | `tguide.format_bilingual_credit` | PARTIAL `components/LibraryList.tsx` (no selection) | same | — |
-| L09 | Bulk: set status of selected | 205-214 | `db.update_drama` | MISSING | no API | — |
-| L10 | Bulk: delete selected (confirm) | 215-220 | `db.delete_drama` | MISSING (single delete in `components/DramaDetailPanel.tsx`) | single `DELETE /api/dramas/{id}` | — |
-| L11 | Bulk translate selected "aligned" dramas (one job, cancel, refresh, summary) | 222-305 | `run_bulk_series_translate_job` | MISSING | no API | test_library_features TestBulkSeriesTranslate, TestBulkSeriesTranslateStatusUI, TestBulkSeriesTranslateRefreshesOpenWorkspaceDrama |
-| L12 | Add/remove selected to a quick list | 253-263 | `db.set_custom_tag` | MISSING | no API | test_library_features TestOrganizationalTags |
-| L13 | Bulk export translated dramas as .zip (SRTs + dub track) | 307-333 | `lines_to_srt`, `clamp_overlaps` | MISSING | no API | test_library_features TestBulkExportClampsOverlappingCues |
-| L14 | Storage: quality preset, scan, reclaimable by category and by drama, clean (confirm) | 340-376 | `storage.scan_library_storage`, `clean_drama_storage` | MISSING | no API | test_library_features TestStorage |
+| L09 | Bulk: set status of selected | 205-214 | `db.update_drama` | MISSING | `POST /api/library/admin/bulk/status` (#376) | — |
+| L10 | Bulk: delete selected (confirm) | 215-220 | `db.delete_drama` | MISSING (single delete in `components/DramaDetailPanel.tsx`) | single `DELETE /api/dramas/{id}`; bulk `POST /api/library/admin/bulk/delete` (#376) | — |
+| L11 | Bulk translate selected "aligned" dramas (one job, cancel, refresh, summary) | 222-305 | `run_bulk_series_translate_job` | MISSING | `POST /api/library/admin/bulk/translate` (#376) | test_library_features TestBulkSeriesTranslate, TestBulkSeriesTranslateStatusUI, TestBulkSeriesTranslateRefreshesOpenWorkspaceDrama |
+| L12 | Add/remove selected to a quick list | 253-263 | `db.set_custom_tag` | MISSING | `POST /api/library/admin/bulk/tags` (#376) | test_library_features TestOrganizationalTags |
+| L13 | Bulk export translated dramas as .zip (SRTs + dub track) | 307-333 | `lines_to_srt`, `clamp_overlaps` | MISSING | `POST /api/library/admin/export` + `GET /api/library/admin/artifacts/{kind}` (#376) | test_library_features TestBulkExportClampsOverlappingCues |
+| L14 | Storage: quality preset, scan, reclaimable by category and by drama, clean (confirm) | 340-376 | `storage.scan_library_storage`, `clean_drama_storage` | MISSING | `GET /api/library/admin/storage`, `POST .../storage/clean` (#376) | test_library_features TestStorage |
 | L15 | Reading history and Clear | 378-390 | `db.list_reading_history`, `clear_reading_history` | PARTIAL `pages/Library.tsx` "Reading history" (clear MISSING) | `GET /api/library/history` | test_library_features TestProgressTracking |
-| L16 | Backup: database-only snapshot plus download; full .zip backup without saved sign-ins | 392-449 | `db.snapshot_database`, `zipfile` | MISSING (E0 deferred) | no API | test_db TestSnapshotDatabase; test_sources_auth_browser TestPersistentProfiles |
-| L17 | Restore from a backup .zip (confirm) | 451-461 | `workspace_job_service.restore_library_backup` | MISSING | no API | test_library_features TestRestoreFromBackupValidatesBeforeDestroying |
+| L16 | Backup: database-only snapshot plus download; full .zip backup without saved sign-ins | 392-449 | `db.snapshot_database`, `zipfile` | MISSING (E0 deferred) | `POST /api/library/admin/backup` + `GET /api/library/admin/artifacts/{kind}` (#376) | test_db TestSnapshotDatabase; test_sources_auth_browser TestPersistentProfiles |
+| L17 | Restore from a backup .zip (confirm) | 451-461 | `workspace_job_service.restore_library_backup` | MISSING | `POST /api/library/admin/restore` (#376) | test_library_features TestRestoreFromBackupValidatesBeforeDestroying |
 | L18 | Presets: list, rename, delete (confirm) | 463-503 | `db.list_presets`, `rename_preset`, `delete_preset` | PARTIAL `pages/Library.tsx` "Presets" (list only) | `GET /api/library/presets`, `POST .../rename`; delete: no API | test_library_features TestManagePresetsUI |
 | L19 | Voice bank: list with audio preview, rename, delete (confirm) | 505-549 | `db.list_voice_bank_entries`, `rename_`, `delete_voice_bank_entry` | PARTIAL `pages/Library.tsx` "Voice bank" (list only) | `GET /api/library/voice-bank`, `POST .../rename`; delete/audio: no API | test_library_features TestVoiceBankDeleteConfirm |
 
@@ -310,7 +310,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G04 | Reading experience: spoiler-free, text size, spacing, width, theme, font | 212-235 | — | MISSING (Reader) | no API | test_dark_mode_step68 TestReaderFollowsAppDarkMode |
 | G05 | OCR default backend, prefer PaddleOCR-VL for Japanese, Tesseract path | 237-262 | `ocr.OCR_BACKEND_OPTIONS` | MISSING (per-run Tesseract path only) | no API | test_settings_tab TestOcrDefaultBackendSetting |
 | G06 | API keys and endpoints (Claude, DeepSeek, Gemini, DeepL, Google, Ollama URL, LibreTranslate URL, GPT-SoVITS URL, Groq, HF token), "Save to .env" | 124-135, 292-305, `save_key_to_env` 87 | `synced_api_key_input`, `save_key_to_env` | MISSING (React only shows "configured") | `POST /api/settings/keys/{engine}`, `/clear` (keys only; no URL endpoints) | test_settings_tab TestSaveKeyToEnv, TestApiKeySaveToEnvButton; test_settings_writes |
-| G07 | "My Gemini key is free-tier" | 306-322 | — | `pages/Settings.tsx` | `POST /api/settings` | test_settings_tab TestGeminiFreeTierCheckbox |
+| G07 | "My Gemini key is free-tier" | 306-322 | — | `pages/Settings.tsx`; the saved flag is now applied server-side to every run that omits it (translate run and estimate, review jobs, line AI, `/api/translate`) | `POST /api/settings` | test_settings_tab TestGeminiFreeTierCheckbox |
 | G08 | Defaults for new dramas: engine, English variant, style note, episode-summary engine | 264-290 | — | MISSING | no API | — |
 | G09 | Offline Whisper model folder | 327-334 | — | MISSING | no API | test_local_model_defaults |
 | G10 | Use GPU | 336-342 | — | `pages/Settings.tsx` | `POST /api/settings` | — |
@@ -319,7 +319,7 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | G13 | Ollama context window override | 373-381 | — | MISSING | no API | — |
 | G14 | Monthly spending cap | 383-395 | — | MISSING (read from `BAIHE_MONTHLY_CAP_USD` server side, UNK) | no API | wt TestSpendingCapUI |
 | G15 | yt-dlp cookies from a browser or a cookies.txt | 397-413 | `video_download.COOKIE_BROWSERS` | MISSING | no API | test_settings_tab TestCookieBasedLoginSettings; test_live_tab |
-| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | MISSING (and only Streamlit starts `page_server`, see M0-b) | no API | test_page_server_settings |
+| G16 | Browser extension: run the local endpoint, engine for extension pages, token to paste | 418-485 | `page_server.ensure_server_started`, `set_translation_config`, `load_or_create_token` | MISSING (and only Streamlit starts `page_server`, see M0-b) | `GET /api/extension/status`, `POST /api/extension/enabled`, `POST /api/extension/token` (local_only, #372) | test_page_server_settings |
 
 ## 5. Diagnostics (`tabs/diagnostics_tab.py`, 987 lines)
 
@@ -330,21 +330,21 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | Q03 | Project files check | 296-311 | `check_file_completeness` | `pages/Diagnostics.tsx` | `GET /api/diagnostics` | test_diagnostics_and_export TestDiagnostics |
 | Q04 | Dependencies by tier, installed or missing | 313-373 | same | `pages/Diagnostics.tsx` | same | test_diagnostics_and_export |
 | Q05 | Check for dependency updates (PyPI) | 322-328 | `check_dependency_versions` | MISSING | no API | test_install_buttons TestDiagnosticsTabCheckForUpdatesButton |
-| Q06 | Install, upgrade or "Test first" per package (with confirms and known-limitation notes) | 375-429 | `stream_dependency_install`, `upgrade_pip_args`, `check_upgrade_candidate` | MISSING | no API | test_install_buttons (several UI classes) |
+| Q06 | Install, upgrade or "Test first" per package (with confirms and known-limitation notes) | 375-429 | `stream_dependency_install`, `upgrade_pip_args`, `check_upgrade_candidate` | MISSING | `POST /api/diagnostics/dependencies/{package}/install` and `.../upgrade` (local_only, #372) | test_install_buttons (several UI classes) |
 | Q07 | Bulk install a whole requirements tier | 436-451 | `_run_bulk_install_stream` | MISSING | no API | test_install_buttons TestBulkTierInstallUI |
 | Q08 | Running jobs, auto-refreshing, with Cancel; nudges the GPU queue | 203-235, 453-454 | `background_jobs.list_running_jobs`, `recheck_gpu_queue` | `pages/Diagnostics.tsx` Jobs (GPU-queue nudge UNK) | `GET /api/jobs`, `POST .../cancel` | test_diagnostics_and_export TestRunningJobsPanelAutoRefresh, TestDescribeJob |
 | Q09 | Finished job history with duration and error | 456-476 | `debug_view.explain_job` | PARTIAL (job list shows status/error; duration via `diagnosticsFormat.formatDuration`; each record now also carries `result`/`outcome`/`outcome_message`, persisted across restarts, branch `api-job-results`) | `GET /api/jobs` | — |
-| Q10 | Saved bug bundles: replay, delete (confirm) | 478-511 | `debug_view.replay_bug_bundle`, `db.delete_bug_report` | MISSING (a Diagnostics extra, undecided) | no API | test_diagnostics_and_export TestBugBundleDeleteNeedsConfirmation |
+| Q10 | Saved bug bundles: replay, delete (confirm) | 478-511 | `debug_view.replay_bug_bundle`, `db.delete_bug_report` | MISSING (a Diagnostics extra, undecided) | delete: `POST /api/diagnostics/bug-bundles/{id}/delete` (#374); replay: no API | test_diagnostics_and_export TestBugBundleDeleteNeedsConfirmation |
 | Q11 | Model and engine versions, with install buttons and help | 513-539 | `get_model_engine_versions` | PARTIAL `pages/Diagnostics.tsx` (list; install MISSING) | `GET /api/diagnostics` | test_diagnostics_regrouping TestModelEngineVersionsTable, TestModelEngineVersionsInstallAndHelp |
 | Q12 | GPU status, plus "Install GPU PyTorch" when the build is CPU-only | 541-565 | `get_gpu_status`, `gpu_torch_mismatch`, `stream_gpu_torch_reinstall` | PARTIAL (status shown; reinstall MISSING) | `GET /api/diagnostics` | test_diagnostics_regrouping TestGpuStatusDisplay; test_install_buttons TestDiagnosticsTabGpuTorchButtonVisibility |
 | Q13 | Source access "Test Now" per adapter | 567-600 | `sources.ladder.test_tier` | MISSING | no API | test_diagnostics_source_access |
-| Q14 | Downloaded model cache and Piper voices, with delete | 603-639 | `scan_hf_cache`, `delete_hf_cache_revision`, `scan_piper_voices` | MISSING | no API | test_diagnostics_and_export TestHfCacheScanAndDelete, TestPiperVoicesPanelUI |
-| Q15 | pyannote gated-model access check | 641-661 | `check_pyannote_gated_access` | MISSING | no API | test_diagnostics_and_export TestPyannoteGatedAccessCheck |
+| Q14 | Downloaded model cache and Piper voices, with delete | 603-639 | `scan_hf_cache`, `delete_hf_cache_revision`, `scan_piper_voices` | MISSING | `GET /api/diagnostics/model-cache` (#372) | test_diagnostics_and_export TestHfCacheScanAndDelete, TestPiperVoicesPanelUI |
+| Q15 | pyannote gated-model access check | 641-661 | `check_pyannote_gated_access` | MISSING | `GET /api/diagnostics/pyannote` (#372) | test_diagnostics_and_export TestPyannoteGatedAccessCheck |
 | Q16 | App Assistant chat and developer report | 663-702 | `app_help.ask_about_app` (grounded in `tabs/*_tab.py` source) | MISSING (a Diagnostics extra, undecided; `app_help.py` stops working once `tabs/` is gone) | no API | test_app_help |
-| Q17 | Copyable redacted support report | 704-714 | `format_diagnostics_report`, `redact_for_support` | MISSING | no API | test_diagnostics_and_export TestDiagnosticsTabSupportReport |
+| Q17 | Copyable redacted support report | 704-714 | `format_diagnostics_report`, `redact_for_support` | MISSING | `GET /api/diagnostics/support-report` (#372) | test_diagnostics_and_export TestDiagnosticsTabSupportReport |
 | Q18 | Log tail with keyword filter | 716-729 | `applog.tail`, `filter_lines` | PARTIAL (recent log lines shown; filter MISSING) | `GET /api/diagnostics` (`recent_log_lines`) | test_diagnostics_regrouping TestLogKeywordFilter |
 | Q19 | Accuracy benchmark: register cases, run all, compare engines, regression warnings, run history, remove | 731-926 | `benchmark.run_suite`, `compare_configs`, `db.*benchmark*` | MISSING (a Diagnostics extra, undecided) | no API | test_benchmark |
-| Q20 | Reset the entire library (checkbox, typed RESET, stops jobs first) | 928-987 | `db.reset_library`, `background_jobs.clear_all_jobs` | MISSING (plan section 3 item 2: replace with a CLI or a documented step) | no API | test_db TestFullLibraryReset |
+| Q20 | Reset the entire library (checkbox, typed RESET, stops jobs first) | 928-987 | `db.reset_library`, `background_jobs.clear_all_jobs` | MISSING (plan section 3 item 2: replace with a CLI or a documented step) | `POST /api/diagnostics/reset-library` (local_only, confirm + RESET, #372) | test_db TestFullLibraryReset |
 
 ## 6. Translate (`tabs/translate_tab.py`, 193 lines)
 
@@ -355,13 +355,13 @@ These are the Streamlit globals other tabs read. Each one needs a server-side or
 | N03 | API key field | 79-92 | `synced_api_key_input` | MISSING (see G06) | `POST /api/settings/keys/{engine}` | — |
 | N04 | Direction support warning | 94-99 | `standalone_direction_support` | UNK (server raises) | `POST /api/translate` | test_standalone_translate |
 | N05 | Upload a .txt/.md/.epub to translate | 103-112 | `core.load_novel_text_for_context` | MISSING | no API | — |
-| N06 | Translate and Clear | 114-150 | `translate_engines.standalone_translate`, `db.save_translate_history` | `pages/Translate.tsx` | `POST /api/translate` | test_translate_tab |
+| N06 | Translate and Clear | 114-150 | `translate_engines.standalone_translate`, `db.save_translate_history` | `pages/Translate.tsx` (free tier from the saved setting when omitted; Ollama always uses the configured URL, a client `base_url` is no longer accepted) | `POST /api/translate` | test_translate_tab |
 | N07 | Result side by side and "Download .txt" | 152-168 | — | PARTIAL (result shown; download MISSING) | — | — |
 | N08 | History list and Clear (confirm) | 170-193 | `db.list_translate_history`, `clear_translate_history` | PARTIAL (list; clear MISSING) | `GET /api/translate/history`, `DELETE /api/translate/history` | test_db TestTranslateHistory |
 
 ## 7. Read & Watch (`tabs/reader_tab.py`, 424 lines)
 
-The whole page is MISSING in React. The only API is `GET /api/reader/dramas/{id}/page`.
+The whole page is MISSING in React (branch `react-reader-page` not merged). API: `GET /api/reader/dramas/{id}/page` plus the route batch 2B Reader routes (#370).
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
@@ -382,7 +382,7 @@ The whole page is MISSING in React. The only API is `GET /api/reader/dramas/{id}
 
 ## 8. Sources (`tabs/sources_tab.py`, 990 lines)
 
-The whole page is MISSING in React. The API covers only the registry and settings (56a/56b).
+The whole page is MISSING in React. The API covers the registry and settings (56a/56b) and search/series jobs (S-3, #372).
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
@@ -404,11 +404,11 @@ The whole page is MISSING in React. The API covers only the registry and setting
 | SO16 | Pasted-URL diagnostics and site profile rollback | 768-796 | `adaptive.recent_extractions`, `profiles.rollback` | `GET /api/sources/profiles`, `POST .../rollback` | test_adaptive_extraction TestDiagnostics |
 | SO17 | Per-source enable, adult toggle, health, "try again now", test tiers, sign in, attempt log | 799-893 | `registry.set_enabled`, `store.set_adult_enabled`, `health.reset`, `ladder.test_tier` | `POST /api/sources/{name}/enabled|adult|health/reset`, `GET .../attempts`; test tiers: no API | test_sources_tab |
 | SO18 | Source settings: pacing, concurrency, retries, session breaks, cache mode, check interval, auto-import, demo source, diagnostics mode, proxy; clear cache | 896-967 | `store.set_setting`, `cache.RawCache` | `GET/POST /api/sources/settings`, `POST /api/sources/cache/clear` | test_sources_tab |
-| SO19 | Starts the chapter-check scheduler | 975 | `chapter_check.ensure_scheduler_started` | **MISSING**: must move to API startup (M0-b) | — |
+| SO19 | Starts the chapter-check scheduler | 975 | `chapter_check.ensure_scheduler_started` | Done in the API startup hook (`api/background.py`, #372) | — |
 
 ## 9. Discover (`tabs/discover_tab.py`, 394 lines)
 
-The whole page is MISSING in React. The API covers the catalog only (D-0/D-1).
+The whole page is MISSING in React. The API covers the catalog (D-0/D-1) and the D-2 network helpers (#372).
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
@@ -425,7 +425,7 @@ The whole page is MISSING in React. The API covers the catalog only (D-0/D-1).
 
 ## 10. Live (`tabs/live_tab.py`, 149 lines)
 
-Kept and to be ported (plan section 8, M6). The whole page is MISSING and there is no API (L-1).
+Kept and to be ported (plan section 8, M6). The whole page is MISSING; the L-1 API (polling) is merged (#372).
 
 | ID | Feature | Source | Calls | Tests |
 |---|---|---|---|---|

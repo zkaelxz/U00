@@ -106,12 +106,37 @@ def public_route():
     return _marked(dependency, "public")
 
 
+LOCAL_HEADER = "X-Baihe-Local"
+_PREFLIGHTED_TYPES = frozenset(("application/json",))
+_BODY_METHODS = frozenset(("POST", "PUT", "PATCH"))
+
+
+def _cross_site_safe(request: Request) -> bool:
+    """A page on another loopback port passes the Origin check (it ignores
+    the port) and can send a "simple" POST with no CORS preflight
+    (text/plain or form-urlencoded, e.g. a no-cors fetch). So a POST/PUT/
+    PATCH to a local_only route must be JSON (forces a preflight, which
+    CORS refuses) or carry `X-Baihe-Local: 1` (a custom header also forces
+    a preflight; the React upload helper sends it with every multipart
+    POST, since multipart/form-data is itself a simple type). DELETE is
+    never a simple method."""
+    if request.method.upper() not in _BODY_METHODS:
+        return True
+    if request.headers.get(LOCAL_HEADER) == "1":
+        return True
+    media = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    return media in _PREFLIGHTED_TYPES
+
+
 def local_only():
-    """PC-only route. Off mode: no-op (today's behaviour; routes that had
-    their own loopback guard keep it). On mode: the connection must be a
-    direct loopback one."""
+    """PC-only route. Both modes: a POST/PUT/PATCH must be JSON or carry
+    X-Baihe-Local: 1 (see _cross_site_safe). Off mode: otherwise a
+    no-op (today's behaviour; routes that had their own loopback guard
+    keep it). On mode: the connection must be a direct loopback one."""
     def dependency(request: Request):
         if _auth_enabled(request.app) and not is_local_request(request):
+            raise ForbiddenError(_GENERIC_403)
+        if not _cross_site_safe(request):
             raise ForbiddenError(_GENERIC_403)
         request.state.principal = local_owner_principal()
         return request.state.principal
@@ -255,6 +280,29 @@ def _json_refusal(status: int, code: str, message: str):
     from fastapi.responses import JSONResponse
     from api.error_handlers import error_body
     return JSONResponse(status_code=status, content=error_body(code, message))
+
+
+class LocalOnlyCrossSiteGate:
+    """Pure-ASGI middleware, installed in both auth modes. Applies the
+    local_only() content-type/header rule (_cross_site_safe) to local_only
+    routes before the body is read, so a no-cors multipart POST from a page
+    on another loopback port is refused before Starlette spools the upload
+    to disk. The route dependency still runs the same check afterwards."""
+
+    def __init__(self, app, local_only_fn):
+        self.app = app
+        self._local_only_fn = local_only_fn
+        self._local_only = None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("method", "").upper() in _BODY_METHODS:
+            if self._local_only is None:
+                self._local_only = self._local_only_fn()
+            path, method = scope.get("path", ""), scope.get("method", "")
+            if any(rx.match(path) and method in methods for rx, methods in self._local_only) \
+                    and not _cross_site_safe(Request(scope)):
+                return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
+        return await self.app(scope, receive, send)
 
 
 class EarlyAuthGate:

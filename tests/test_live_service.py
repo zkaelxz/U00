@@ -8,7 +8,7 @@ import pytest
 
 import background_jobs
 import live_translate
-from services import live_service, metadata_service, translate_service
+from services import live_service, translate_service
 from services.service_errors import (DependencyUnavailableError, InvalidInputError,
                                      NotFoundError)
 
@@ -34,8 +34,9 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds):
+    def fake_capture(source_url, out_dir, segment_seconds, protocol_whitelist=None):
         calls["out_dir"] = out_dir
+        calls["protocol_whitelist"] = protocol_whitelist
         p = FakeProc()
         calls["procs"].append(p)
         return p
@@ -133,12 +134,24 @@ def test_each_start_gets_own_session_and_dir(live, monkeypatch):
     seen = []
     monkeypatch.setattr(live_translate, "run_live_job",
                         lambda *a, **k: seen.append((a[0], a[2], os.path.isdir(a[2]))))
-    a, b = _start(), _start()
+    a = _start()
+    assert _terminal(a)   # one session at a time: the second starts after the first ends
+    b = _start()
     assert a != b and a.startswith("live_") and b.startswith("live_")
-    assert _terminal(a) and _terminal(b)
+    assert _terminal(b)
     assert {s[0] for s in seen} == {a, b}
     assert seen[0][1] != seen[1][1] and all(s[2] for s in seen)
     assert all(not os.path.exists(s[1]) for s in seen)  # removed on finish
+
+
+def test_second_start_while_one_runs_is_conflict(live):
+    from services.service_errors import ConflictError
+    a = _start()
+    assert _wait(lambda: "out_dir" in live)
+    with pytest.raises(ConflictError):
+        _start()
+    assert list(live_service._sessions) == [a]
+    assert live["protocol_whitelist"] == live_service.FFMPEG_PROTOCOL_WHITELIST
 
 
 def test_dir_removed_on_error_and_message_clean(live, monkeypatch):
@@ -295,8 +308,29 @@ def test_list_sessions(live, monkeypatch):
     assert set(listed[0]) == {"session_id", "status", "engine", "cue_count"}
 
 
-def test_check_public_url_is_the_one_used(live, monkeypatch):
+def test_url_guard_is_the_one_policy(live, monkeypatch):
+    """Both the typed URL and the resolved stream URL go through
+    services.url_guard.resolve_public (the B-25 policy)."""
+    from services import url_guard
     called = []
-    monkeypatch.setattr(metadata_service, "_check_public_url", lambda u: called.append(u))
-    _start()
-    assert called
+    monkeypatch.setattr(url_guard, "resolve_public", lambda u: called.append(u) or "93.184.216.34")
+    sid = _start()
+    assert _wait(lambda: len(called) >= 2)
+    assert called[0] == "https://www.youtube.com/watch?v=abc" and called[1] == "http://media"
+    live_service.stop_session(sid)
+
+
+def test_reap_keeps_a_session_that_is_still_starting(live, monkeypatch):
+    """L3: between the reservation and start_job there is no job record;
+    a concurrent _reap must not remove that session's directory."""
+    real_start = background_jobs.start_job
+    seen = {}
+
+    def start_after_reap(job_id, *a, **k):
+        live_service._reap()                       # another request's reap, mid-start
+        seen["dir"] = live_service._sessions[job_id].get("dir")
+        return real_start(job_id, *a, **k)
+    monkeypatch.setattr(background_jobs, "start_job", start_after_reap)
+    sid = _start()
+    assert seen["dir"] and _wait(lambda: "out_dir" in live)
+    assert "starting" not in live_service._sessions[sid]
