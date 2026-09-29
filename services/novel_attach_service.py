@@ -58,7 +58,7 @@ def _require_drama(drama_id: int) -> dict:
 
 
 def _check_idle(drama_id: int):
-    if drama_service._job_running_for_drama(drama_id):
+    if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A job is running for this drama. Wait for it to finish or cancel it.")
 
 

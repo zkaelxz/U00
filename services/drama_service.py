@@ -219,7 +219,7 @@ _LEFTOVER_FILES_MESSAGE = ("The drama was deleted from the library, but some of 
                            "using them and remove the leftover folder manually.")
 
 
-def _job_running_for_drama(drama_id) -> bool:
+def job_running_for_drama(drama_id) -> bool:
     """In-process jobs, plus fresh running/queued job_records rows written
     by another process (the API server and Streamlit are separate
     processes; the in-memory tracker only sees its own)."""
@@ -292,7 +292,7 @@ def delete_drama(drama_id, confirm=False, confirm_text="") -> dict:
     if confirm is not True or confirm_text != _DELETE_CONFIRM_TEXT:
         raise InvalidInputError("Deleting a drama needs confirm=true and confirm_text set to "
                                 "the word DELETE, in capitals.")
-    if _job_running_for_drama(drama_id):
+    if job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this drama -- wait for it "
                             "to finish or cancel it before deleting.")
     leftover = _hard_delete_drama(drama_id)

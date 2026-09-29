@@ -74,7 +74,7 @@ def list_history(limit: int = 50) -> list:
     return db.list_translate_history(limit=limit)
 
 
-def _resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
+def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
     """The literal value to pass into translate_engines.get_engine, per
     engine (see tabs/translate_tab.py's own api_key handling, lines
     79-92, for the exact behavior this mirrors):
@@ -113,7 +113,7 @@ def translate(text: str, engine_name: str, source_language: str, target_language
     if not ok:
         raise UnsupportedOperationError(message)
 
-    api_key = _resolve_api_key(engine_name, env_path)
+    api_key = resolve_api_key(engine_name, env_path)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
             f"No {engine_name} key is configured. Set one in Settings first.")

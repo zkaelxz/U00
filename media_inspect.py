@@ -57,7 +57,7 @@ _STREAMER_KEYWORDS = ("vtuber", "stream", "live", "vod", "broadcast")
 _ASMR_KEYWORDS = ("asmr", "binaural", "roleplay", " rp ", "-rp-")
 
 
-def _run_ffprobe(path: str, timeout: int = 30) -> dict:
+def run_ffprobe(path: str, timeout: int = 30) -> dict:
     cmd = ["ffprobe", "-v", "error", "-print_format", "json",
            "-show_format", "-show_streams", path]
     try:
@@ -96,7 +96,7 @@ def probe_media(path: str, filename: str | None = None, timeout: int = 30) -> Me
     whenever `path` is a temp file, since the filename-keyword part of the
     content-type guess needs the real name, not a generated temp one.
     """
-    probe = _run_ffprobe(path, timeout=timeout)
+    probe = run_ffprobe(path, timeout=timeout)
     fmt = probe.get("format", {}) or {}
     duration = float(fmt.get("duration", 0.0) or 0.0)
 

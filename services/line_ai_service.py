@@ -46,7 +46,7 @@ def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier):
     if (gemini_free_tier and engine_name == "gemini"
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError("That model isn't available on Gemini's free tier.")
-    api_key = translate_service._resolve_api_key(engine_name)
+    api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None and engine_name != "nllb":
         raise DependencyUnavailableError(
             f"No {engine_name} key is configured. Set one in Settings first.")

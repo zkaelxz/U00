@@ -76,7 +76,7 @@ def _require_drama(drama_id: int) -> dict:
 
 
 def _refuse_if_job_running(drama_id: int):
-    if drama_service._job_running_for_drama(drama_id):
+    if drama_service.job_running_for_drama(drama_id):
         raise ConflictError("A background job is still running for this drama -- wait for it "
                             "to finish or cancel it before restructuring lines.")
 
@@ -345,7 +345,7 @@ def _build_engine(drama: dict, engine_name: Optional[str], model: Optional[str])
     if engine_name in translate_engines.TRANSLATION_ONLY_ENGINES:
         raise UnsupportedOperationError(
             f"{engine_name} is a translation-only engine and can't suggest split points.")
-    api_key = translate_service._resolve_api_key(engine_name)
+    api_key = translate_service.resolve_api_key(engine_name)
     if api_key is None:
         raise DependencyUnavailableError(
             f"No {engine_name} key is configured. Set one in Settings first.")

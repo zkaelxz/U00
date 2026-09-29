@@ -56,7 +56,7 @@ def engines(monkeypatch):
     made = {n: _make(n) for n in ("claude", "deepseek", "deepl", "google")}
     for n, cls in made.items():
         monkeypatch.setitem(translate_engines.ENGINES, n, cls)
-    monkeypatch.setattr(translate_service, "_resolve_api_key", lambda n: "k")
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda n: "k")
     monkeypatch.setattr(svc, "_summary_engine", lambda: (None, None))
     yield made
     background_jobs.clear_all_jobs()

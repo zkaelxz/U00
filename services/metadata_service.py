@@ -82,7 +82,7 @@ def analyze_media(drama_id: int) -> dict:
     if path is None:
         raise InvalidInputError("This drama has no media file yet.")
     try:
-        probe = media_inspect._run_ffprobe(path)
+        probe = media_inspect.run_ffprobe(path)
     except media_inspect.ProbeError as e:
         raise DependencyUnavailableError(
             "Media analysis is unavailable: ffprobe is missing or cannot read this file.") from e
