@@ -7,12 +7,12 @@ Role files (`.claude/agents/*.md`, `.claude/CLAUDE.md`) link here instead of res
 
 1. **While iterating:** run the test file or selection for what you touched (`python run_tests.py <path>` or `-k`; `run_tests.py` forwards arguments to pytest).
 2. **When a change crosses a shared module** (database layer, `background_jobs`, `translate_engines`, API schemas, `services/`): also run the relevant subsystem tests.
-3. **At the integration boundary** (finishing a step, per the root `CLAUDE.md`; merging a migration slice, per `docs/migration-handoff.md`): run the full suite, `python run_tests.py`, on the integrated result; for the frontend also `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
+3. **At the integration boundary** (finishing a step, per the root `CLAUDE.md`; for migration slices the handoff, `docs/migration-handoff.md`, currently allows focused tests per slice and the full suite before a big merge): run the full suite, `python run_tests.py`, on the integrated result; for the frontend also `npm run lint`, `npm test`, `npm run build` and `npm run e2e` from `frontend/`.
 4. Do not re-run an identical check on an unchanged tree without a reason. Never weaken, skip or narrow a required check to save time or CI minutes.
 5. A failure is not "environmental" or "flaky" until the mechanism is confirmed (a real background thread left running by an earlier test was the cause of the "database is locked" errors fixed in PR #259).
 6. Tests must not leave real job threads or subprocesses running: wait for them or mock them.
 
-## Current merge gate (verified 2026-09-29)
+## Current merge gate (per the handoff and roadmap master, snapshots of 2026-09-28)
 
 GitHub Actions minutes are exhausted and every PR since #212 fails within seconds, so the local full suite (and the local frontend checks) is the gate;
 see `docs/migration-handoff.md` and `docs/baihe-roadmap-master.md`. Re-check this before assuming CI is usable again.

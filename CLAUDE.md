@@ -120,7 +120,7 @@ merged.
   planning session's own `CLAUDE.md`, or by an explicit, dated user
   instruction (for the React/FastAPI migration slices:
   `docs/migration-handoff.md`). The mode bullets above are the roadmap's
-  step-number defaults, verified still present in the roadmap on 2026-09-29;
+  step-number defaults, as last read in the roadmap on 2026-09-29 (re-check there);
   with no applicable instruction, push and stop.
 
 ## Lead session: delegating to subagents

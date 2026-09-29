@@ -10,7 +10,7 @@ If two documents disagree, follow the precedence below and fix the lower one.
 From highest to lowest:
 
 1. The user's explicit instruction in the current session.
-2. The roadmap's working agreement and model table (`docs/baihe-roadmap.md` §4, on the planning branch; fetch command in the root `CLAUDE.md`) and, for who merges, the planning session's own `CLAUDE.md` (the roadmap names it as the single canonical source). Dated decisions live there. Before changing a copy of one elsewhere, check the roadmap.
+2. The roadmap's working agreement and model table (`docs/baihe-roadmap.md` §4, on the planning branch; fetch command in the root `CLAUDE.md`) and, for who merges, the planning session's own `CLAUDE.md` (per the roadmap as last read on 2026-09-29; re-check it there). Dated decisions live there. Before changing a copy of one elsewhere, check the roadmap.
 3. The root `CLAUDE.md` (repo workflow and code rules).
 4. This file (shared principles).
 5. `.claude/CLAUDE.md` (delegation policy), then the role file for the agent you are.
