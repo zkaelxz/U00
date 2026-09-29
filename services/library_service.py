@@ -26,6 +26,12 @@ import db
 from services.service_errors import ConflictError, InvalidInputError, NotFoundError
 
 
+def cache_hit_share(usage: dict) -> float:
+    """Share of logged input tokens that were prompt-cache reads."""
+    total = usage.get("input_tokens") or 0
+    return (usage.get("cache_read_tokens") or 0) / total if total else 0.0
+
+
 def split_custom_tags(drama: dict) -> list:
     """A drama's `custom_tags` column (comma-separated text) as a list of
     trimmed, non-empty tags, in stored order."""

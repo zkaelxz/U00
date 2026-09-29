@@ -186,6 +186,11 @@ baihe-subtitler/
 │   │                             unchanged; those tabs import them back and call them as before)
 │   ├── workflow_service.py       Streamlit retirement M0a -- compute_workspace_stage_index (the
 │   │                             pipeline-stage index, Step 19 invariant), moved out of workspace_tab
+│   │                             + stage_statuses_from_index (from ui/workflow.py)
+│   ├── scanlate_service.py       add_uploaded_pages -- save uploaded images/PDFs as a drama's next
+│   │                             Scanlate pages (moved from tabs/scanlate_tab.py; Streamlit upload; API callers must pass
+│   │                             client filename as .name + a synchronous read()/getbuffer(), and a future
+│   │                             route must enforce a png/jpg/jpeg/pdf allowlist and a size cap)
 │   ├── reader_service.py         Migration Slice 4 -- one page of a drama's Reader HTML, definitions
 │   │                             from cache only, never a live/paid lookup or a DB write
 │   ├── diagnostics_service.py    Migration Slice 5 -- read-only Diagnostics overview (deps, GPU,
@@ -266,6 +271,7 @@ baihe-subtitler/
 │   ├── discover_catalog_service.py Migration Slice 55 -- Discover known-titles catalog (no network/LLM)
 │   ├── delete_service.py         PC-only deletes (handoff queue item 2): remove audio/video, raw novel
 │   │                             text; delete version, series character, bug bundle, preset, voice bank
+│   ├── url_guard.py              B-25 -- shared public-address check (http(s), every resolved IP global) for services and sources/http
 │   ├── safe_fetch.py             Migration Slice 54 -- shared static-only public page text fetch
 │   │                             (wraps metadata_service SSRF checks; hop/byte caps, needs_manual, no browser)
 │   ├── live_service.py           Live capture L-1 -- per-session start/stop/poll over live_translate (per-session
