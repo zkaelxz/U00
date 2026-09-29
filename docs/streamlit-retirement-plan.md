@@ -35,7 +35,7 @@ React today: routes library/drama/settings/diagnostics/translate (`frontend/src/
 | Reader (424) | none (1 route) | NOT STARTED: watch/listen (needs Range), glossary, story tools, wiki, Q&A, notes, vocab/Anki export |
 | Sources (990) | none | PARTIAL (API only): registry and config done (56a/56b); search/series (S-3), import (S-4), URL front door (S-5), sign-in (S-6), check-now (S-7) missing; no UI |
 | Discover (394) | none | PARTIAL (API only): D-0 and D-1 done; D-2 helpers missing; no UI |
-| Live (149) | none | NOT STARTED; DROP candidate |
+| Live (149) | none | NOT STARTED; KEPT and to be ported (see section 8): API L-1 polling plus a React Live page |
 | Scanlate (639) | none | NOT STARTED; DROP or DEFER candidate (specs only) |
 
 ## 2. Streamlit-only versus what stays
@@ -50,7 +50,7 @@ React today: routes library/drama/settings/diagnostics/translate (`frontend/src/
 
 1. Streamlit machinery: `ui_theme` CSS, the drawable-canvas brush (it "fails to load at all" on the pinned Streamlit, `requirements-optional.txt:139-145`), `_safe_render`, `synced_api_key_input`. Loses nothing.
 2. Diagnostics "danger zone / reset library" (`diagnostics_tab.py:928`): replace with a documented manual step or CLI.
-3. **Live tab** (149 lines): never tested against a real broadcast (`live_translate.py:59-65`), the tab never passes `use_gpu`, saves nothing, roadmap-master 5c defers live capture.
+3. ~~**Live tab** (149 lines)~~ REVERSED 2026-09-29: kept and ported (see section 8).
 4. **Scanlate** brush and, HYP, the whole tab: ML detector and LaMa "not run end-to-end", 639 lines plus 9 serial API slices plus a canvas editor. Alternative: keep `scanlate.py` and the extension pipeline (`page_server.py:268-363`) and drop only the UI.
 5. **`MEDIA_TYPE_OPTIONS` (11 values):** real branching is on `content_mode`, not `media_type`. `streamer_vod` is real (syncs `content_mode`); `video_drama` and `asmr` have small uses; the manga family is a label plus prompt phrase; `music` is label-only (Step 89; absent from the prompt label map, `translate_engines.py:294-297`); `other` is the fallback; `anime` has no branch found. Safe cut: `music` and `other` as UI options while still accepting them on read.
 6. Vertical/shorts export and "package" export (no API, Slice 30 out of scope).
@@ -73,12 +73,12 @@ Dates assume 2.5 sessions per day plus about 30% slack (all HYP):
 | M3 (12) | D-2; S-3..S-7; React Discover and Sources | 10-02 to 10-14 | sources and discover tabs deleted; video URL import works from React or is pruned |
 | M4 (5) | Reader service split plus React page (needs the Range endpoint) | 10-09 to 10-14 | reader tab deleted |
 | M5 (about 12, serial) | Scanlate S0-S8 plus canvas | 10-06 to 10-25, if approved | scanlate tab deleted; page_server bubble writes frozen |
-| M6 (2) | Live, only if not pruned | parallel | live tab deleted |
+| M6 (4) | Live: L-1 polling API (per-session temp dir, `max_minutes`, `use_gpu`, stop with generation bump) plus React Live page; L-2 SSE optional | parallel with M2-M4 | live tab deleted after the user's real-stream check |
 | M7 (5) | Delete workspace tab, remaining tabs, app, common, ui_theme, ui, .streamlit; remove deps; rewrite launchers and `windows-bootstrap.yml`; triage tests; docs | +2 days after M2-M6 | `grep -r streamlit` finds only history docs; suite passes; a fresh-venv launch works |
 
 Critical path (HYP): without Scanlate, M0, the Range endpoint, the Review player and line-structure UI, in parallel with the Sources chain S-3, S-4, S-5 (S-5 is on the path because Workspace video URL download has no other API), then your real-device pass, then M7. With Scanlate the serial S0-S8 chain is the path. **Auth step 133 is not on the retirement path** (only LAN/phone/remote use needs 133-140); S-3..S-6 may ship loopback-only.
 
-Earliest realistic removal (HYP): about 2026-10-23 (plus or minus 4 days, about 45 sessions) with Scanlate and Live cut or deferred; about 2026-11-10 (plus or minus 5, about 57 sessions) with Scanlate ported. Recommended hard date: 2026-10-30, with the prune list as the scope lever.
+Earliest realistic removal (HYP): about 2026-10-23 (plus or minus 4 days, about 45 sessions) with Scanlate deferred and Live ported (Live adds about 4 sessions, in parallel with M2-M4); about 2026-11-10 (plus or minus 5, about 57 sessions) with Scanlate ported. Recommended hard date: 2026-10-30, with the prune list as the scope lever.
 
 Real-device checks, one owed-to-you card per milestone (5-8 one-line actions each; deletion PRs are prepared but merged after "pass"). Proposed default-pass rule (needs approval): if a path was equally unverified in Streamlit, silence after 3 days permits deletion (F-12 shows the Streamlit dub was silently broken since #161).
 - M1: restore a real backup zip on a copy; storage clean on a scratch drama; a real pip install through Diagnostics (if kept).
@@ -111,7 +111,7 @@ Decisions needed (ranked): 1. Scanlate: port, defer past the removal date, or dr
 
 - **Goal:** complete the React migration and remove Streamlit. **End date: 2026-10-30** (hard date; the prune list is the scope lever; earliest realistic finish is about 2026-10-23 without Scanlate).
 - **Scanlate:** deferred past removal. The Streamlit Scanlate tab is deleted with the rest; keep `scanlate.py` and the browser-extension pipeline (`page_server.py:268-363`). The React canvas editor is built later from `docs/specs/scanlate-api-spec.md`.
-- **Live capture:** dropped. Delete the Live tab with Streamlit; `docs/specs/discover-sources-live-api-spec.md` keeps the design if it is wanted later.
+- **Live capture: KEPT (reversed the same day).** The user first chose to drop it, then said they misunderstood what it was and want it to work. It is ported before removal (milestone M6 is no longer optional): API slice L-1 (polling) from `docs/specs/discover-sources-live-api-spec.md` section 4, plus a React Live page, before `tabs/live_tab.py` is deleted. Any public URL that yt-dlp can resolve is allowed (earlier decision). The capture pipeline itself (`live_translate.py`) was verified end to end only against a local looping source; it has never run against a real broadcast, so a real-stream check by the user gates deletion of the Streamlit tab. Known issues to fix in the port: the tab never passes `use_gpu` (Whisper runs on CPU while holding the GPU slot, `live_tab.py:96-103` vs `live_translate.py:475-478`); a fixed shared temp dir means stale `chunk_*.wav` files can be processed as new (use a per-session directory); no spend or duration cap (add `max_minutes`); the resolved stream URL can expire after a few hours (restart to re-resolve); cookies never travel over the API. Permission: `media.import_url`.
 - **Frontend delivery:** a prebuilt release zip built locally (users need no Node). Actions minutes are exhausted, so CI cannot build it.
 - **Freeze (in force from 2026-09-29):** no new features, polish or tests in `tabs/`, `ui/`, `ui_theme.py`, `common.py`, `app.py`. Allowed: crash or data-loss fixes that block the migration (state the justification in the PR), deletions, and extraction to services. New logic is service-first.
 - **Still open (need the user):** approval of the prune list in section 3 (items 1-2 and the Live and Scanlate rows are decided above; the media types, export extras, Diagnostics extras, Sources leftovers and Discover D-2 extras are not), the default-pass rule for real-device checks, the LAN/phone gap (recommendation: do not expose an unauthenticated API), the extension-bridge interim (recommended: API-started `page_server`), profiles (26e), who owns the chapter scheduler, and whether the planning-branch roadmap is copied into `docs/history/`.
