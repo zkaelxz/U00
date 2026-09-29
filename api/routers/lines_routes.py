@@ -11,7 +11,8 @@ is a DELETE with no confirm, matching the Review tab.
 Auto-shorten overlong lines (review parity R28) calls an LLM, so besides
 `lines.edit` the handler runs `require_engines_allowed` and takes an LLM
 slot; it writes only `en` (compare-and-set per line) after a line_history
-snapshot (services/line_tools_service.py).
+snapshot, needs confirm=true and is refused (409) while a job runs for the
+drama (services/line_tools_service.py).
 """
 
 from fastapi import APIRouter, Path, Request
@@ -73,10 +74,11 @@ def delete_note(drama_id: int = Path(ge=1), note_id: int = Path(ge=1)):
 @router.post("/dramas/{drama_id}/shorten-overlong", dependencies=[require_permission("lines.edit")],
              response_model=LinesShortenResult,
              summary="Rewrite lines too long for their time slot more concisely (LLM)",
-             responses={**_404_422, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
+             responses={**_404_409_422, 403: {"model": ErrorResponse}, 429: {"model": ErrorResponse},
                         503: {"model": ErrorResponse}})
 def post_shorten_overlong(body: LinesShortenRequest, request: Request, drama_id: int = Path(ge=1)):
     require_engines_allowed(request, body.engine)
     with llm_slot(request):
         return line_tools_service.shorten_overlong(drama_id, body.line_ids, body.engine,
-                                                   body.model, body.gemini_free_tier)
+                                                   body.model, body.gemini_free_tier,
+                                                   confirm=body.confirm)

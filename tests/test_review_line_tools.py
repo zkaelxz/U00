@@ -248,7 +248,7 @@ class TestShorten:
             # reordered on purpose: matched by id, never by position
             return json.dumps({"2": "Short two.", "1": "Short one."})
         monkeypatch.setattr(translate_engines, "call_llm_json", fake_llm)
-        r = client.post(_shorten(did), json={"engine": "ollama"})
+        r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama"})
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["shortened"] == 2 and body["stale"] == 0 and body["snapshot_saved"]
@@ -277,7 +277,7 @@ class TestShorten:
                 w.en = "short"
             return work
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake_rewrite)
-        r = client.post(_shorten(did), json={"engine": "ollama", "line_ids": [ids[0], ids[1]]})
+        r = client.post(_shorten(did), json={"confirm": True, "engine": "ollama", "line_ids": [ids[0], ids[1]]})
         body = r.json()
         assert body["shortened"] == 0 and body["stale"] == 1
         rows = {x["id"]: x for x in db.load_lines(did)}
@@ -289,14 +289,14 @@ class TestShorten:
         _forbid_writes(monkeypatch)
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
                             lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
-        r = client.post(_shorten(did), json={})
+        r = client.post(_shorten(did), json={"confirm": True})
         assert r.status_code == 200 and r.json()["shortened"] == 0
 
     def test_unchanged_writes_nothing(self, client, monkeypatch):
         did, _ = _overlong_drama()
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
-        r = client.post(_shorten(did), json={})
+        r = client.post(_shorten(did), json={"confirm": True})
         assert r.json()["unchanged"] == 2 and not r.json()["snapshot_saved"]
         assert db.list_line_history(did) == []
 
@@ -311,12 +311,32 @@ class TestShorten:
                 w.en = "s"
             return work
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm", fake)
-        body = client.post(_shorten(did), json={}).json()
+        body = client.post(_shorten(did), json={"confirm": True}).json()
         assert seen == [2] and body["shortened"] == 2 and body["remaining"] == 3
+
+    def test_needs_confirm(self, client, monkeypatch):
+        did, _ = _overlong_drama()
+        _forbid_writes(monkeypatch)
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
+        assert client.post(_shorten(did), json={}).status_code == 422
+        assert client.post(_shorten(did), json={"confirm": False}).status_code == 422
+        with pytest.raises(InvalidInputError):
+            line_tools_service.shorten_overlong(did)
+
+    def test_refused_while_a_job_runs(self, client, monkeypatch):
+        from services import drama_service
+        did, _ = _overlong_drama()
+        _forbid_writes(monkeypatch)
+        monkeypatch.setattr(drama_service, "job_running_for_drama", lambda d: d == did)
+        monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
+                            lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")))
+        r = client.post(_shorten(did), json={"confirm": True})
+        assert r.status_code == 409 and "job" in r.json()["error"]["message"]
 
     def test_translation_only_engine_refused(self, client):
         did, _ = _overlong_drama()
-        assert client.post(_shorten(did), json={"engine": "nllb"}).status_code in (400, 422)
+        assert client.post(_shorten(did), json={"confirm": True, "engine": "nllb"}).status_code in (400, 422)
 
 
 # ---------------------------------------------------------------------------
@@ -354,9 +374,9 @@ class TestMonthlyCap:
         _forbid_writes(monkeypatch)
         monkeypatch.setattr(translate_engines, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
-        r = client.post(_shorten(did), json={"engine": "deepseek"})
+        r = client.post(_shorten(did), json={"confirm": True, "engine": "deepseek"})
         assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
-        assert client.post(_shorten(did), json={"engine": "ollama"}).status_code == 200
+        assert client.post(_shorten(did), json={"confirm": True, "engine": "ollama"}).status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -445,10 +465,10 @@ class TestPermissions:
                             lambda work, engine, usage_cb=None: work)
         url = _shorten(did)
         reader = _user("r@example.com", "lines.read", "engines.paid")
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(reader)).status_code == 403
+        assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(reader)).status_code == 403
         editor = _user("e@example.com", "lines.edit")
-        assert remote.post(url, json={"engine": "claude"}, headers=_h(editor)).status_code == 403
-        assert remote.post(url, json={"engine": "ollama"}, headers=_h(editor)).status_code == 200
+        assert remote.post(url, json={"confirm": True, "engine": "claude"}, headers=_h(editor)).status_code == 403
+        assert remote.post(url, json={"confirm": True, "engine": "ollama"}, headers=_h(editor)).status_code == 200
 
     def test_pronounce_and_navigation_need_lines_read(self, remote):
         did, ids = _seed()

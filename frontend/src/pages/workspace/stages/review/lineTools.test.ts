@@ -49,8 +49,8 @@ describe('per-line tool api', () => {
     await review.shortenOverlong(2, undefined, fakeFetch(200, {}, calls))
     await review.shortenOverlong(2, [4, 5], fakeFetch(200, {}, calls))
     expect(calls[0].url).toBe('/api/lines/dramas/2/shorten-overlong')
-    expect(JSON.parse(String(calls[0].init?.body))).toEqual({})
-    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ line_ids: [4, 5] })
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({ confirm: true })
+    expect(JSON.parse(String(calls[1].init?.body))).toEqual({ line_ids: [4, 5], confirm: true })
   })
 
   it('asks for the nearest flagged line with the view it is in', async () => {

@@ -143,9 +143,10 @@ export const pronounceLine = (id: number, lineId: number, f?: Fetch) =>
   fetchBody(`${lineAi(id, lineId)}/pronounce`, { method: 'POST', headers: { Accept: 'audio/mpeg' } }, (r) => r.blob(), f)
 
 // Review parity R28: rewrites only "en" of the too-long lines, after a
-// line-history snapshot; a line edited meanwhile is skipped as stale.
+// line-history snapshot; a line edited meanwhile is skipped as stale. The
+// server needs confirm (the UI asks first) and refuses while a job runs.
 export const shortenOverlong = (id: number, lineIds?: number[], f?: Fetch) =>
-  postJson<ShortenResult>(`${lines(id)}/shorten-overlong`, lineIds ? { line_ids: lineIds } : {}, f)
+  postJson<ShortenResult>(`${lines(id)}/shorten-overlong`, lineIds ? { line_ids: lineIds, confirm: true } : { confirm: true }, f)
 
 // Review parity R08: the nearest flagged line before/after a line, any page.
 export const flaggedAdjacent = (

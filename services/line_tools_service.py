@@ -30,8 +30,9 @@ import dub
 import line_tools
 import translate_engines
 from core import Line
-from services import line_ai_service, lines_service
-from services.service_errors import (DependencyUnavailableError, InvalidInputError,
+from services import drama_service, line_ai_service, lines_service
+from services.service_errors import (ConflictError, DependencyUnavailableError,
+                                      InvalidInputError,
                                       NotFoundError, ServiceError,
                                       UnsupportedOperationError)
 
@@ -87,11 +88,13 @@ def _too_long_lines(lines) -> list:
 
 
 def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
-                     model: str = None, gemini_free_tier: bool = None) -> dict:
+                     model: str = None, gemini_free_tier: bool = None,
+                     confirm: bool = False) -> dict:
     """Rewrites the drama's too-long-for-slot lines (or just those of
     `line_ids` that are too long) more concisely. At most MAX_SHORTEN_LINES
     per call, in line order; `remaining` says how many were left for
-    another call. Returns {shortened, unchanged, stale, remaining,
+    another call. Needs confirm=True (it overwrites English) and is refused
+    while a background job runs for the drama. Returns {shortened, unchanged, stale, remaining,
     snapshot_saved, lines: [{id, idx, before, after}]}."""
     if line_ids is not None:
         if (not isinstance(line_ids, (list, tuple)) or len(line_ids) > MAX_SHORTEN_IDS
@@ -100,6 +103,12 @@ def shorten_overlong(drama_id: int, line_ids=None, engine_name: str = None,
     drama = db.get_drama(drama_id)
     if drama is None:
         raise NotFoundError(f"No drama with id {drama_id}.")
+    if confirm is not True:
+        raise InvalidInputError("Shortening overwrites the English of the overlong lines; "
+                                "send confirm=true.")
+    if drama_service.job_running_for_drama(drama_id):
+        raise ConflictError("A background job is still running for this drama -- wait for it "
+                            "to finish or cancel it before shortening lines.")
     targets = _too_long_lines(db.load_line_objects(drama_id))
     if line_ids is not None:
         wanted = set(line_ids)

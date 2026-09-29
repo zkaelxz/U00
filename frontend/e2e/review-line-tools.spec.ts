@@ -206,8 +206,10 @@ test('restore the original transcript text of one line', async ({ page }) => {
 
 test('shorten overlong lines asks first, then reports what changed', async ({ page }) => {
   let calls = 0
+  let sent: unknown = null
   await page.route('**/api/lines/dramas/3/shorten-overlong', (route) => {
     calls += 1
+    sent = route.request().postDataJSON()
     return route.fulfill({ json: {
       shortened: 1, unchanged: 0, stale: 0, remaining: 0, snapshot_saved: true,
       lines: [{ id: ids[3], idx: 3, before: LONG, after: 'Too many words.' }],
@@ -222,5 +224,6 @@ test('shorten overlong lines asks first, then reports what changed', async ({ pa
   await expect(box.getByTestId('shorten-status')).toContainText('Shortened 1 line')
   await expect(box.getByTestId('shorten-status')).toContainText('Too many words.')
   expect(calls).toBe(1)
+  expect(sent).toEqual({ confirm: true })
   await cov.screenshot({ path: `${shotDir}/desktop-shorten.png` })
 })

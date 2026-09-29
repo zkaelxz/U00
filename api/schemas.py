@@ -1585,8 +1585,10 @@ class LineGrammar(BaseModel):
 
 class LinesShortenRequest(LineExplainRequest):
     """Auto-shorten overlong lines. line_ids: only these (still only the
-    ones the pacing check calls too long); omitted = every such line."""
+    ones the pacing check calls too long); omitted = every such line.
+    confirm must be true: it overwrites English."""
     line_ids: Optional[List[int]] = Field(None, max_length=1000)
+    confirm: bool = False
 
 
 class LinesShortenedLine(BaseModel):
