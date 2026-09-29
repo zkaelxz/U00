@@ -2700,6 +2700,50 @@ class LibraryStorageCleanResult(BaseModel):
     results: List[LibraryBulkItem]
 
 
+# --- Re-transcribe one line (parity audit B1, inventory R23) ---------------
+
+class RetranscribeLineRequest(BaseModel):
+    """Optional body. Same prompt rules as TranscribeRunRequest: a non-empty
+    initial_prompt replaces the automatic prompt; otherwise the server uses
+    glossary names + extra_names + raw-novel excerpt."""
+    model_config = ConfigDict(extra="forbid")
+    initial_prompt: str = Field("", max_length=1000)
+    extra_names: str = Field("", max_length=1000)
+
+
+class RetranscribeLineResult(BaseModel):
+    job_id: str
+    drama_id: int
+    line_id: int
+
+
+class RetranscribeApplyRequest(BaseModel):
+    """"Use this": job_id is the finished re-transcription; expected_zh and
+    expected_proposed are the base_zh and proposed_zh that
+    GET .../retranscribe showed. Anything else, or a line changed since the
+    job started, is a 409 (nothing written)."""
+    model_config = ConfigDict(extra="forbid")
+    job_id: str = Field(..., min_length=1, max_length=100)
+    expected_zh: str = Field(..., max_length=20000)
+    expected_proposed: str = Field(..., min_length=1, max_length=2000)
+
+
+class RetranscribeApplyResult(BaseModel):
+    drama_id: int
+    line_id: int
+    zh: str
+
+
+class RetranscribeResult(BaseModel):
+    """A finished re-transcription's proposal for one line, raw (held in this
+    API process only; gone after a restart)."""
+    job_id: str
+    line_id: int
+    status: str
+    proposed_zh: str
+    base_zh: str
+
+
 # ---------------------------------------------------------------------------
 # Review parity R39/R10: activate a saved translation version
 # (services/translation_version_service.py) and retry a content-blocked line

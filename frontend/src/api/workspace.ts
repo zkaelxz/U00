@@ -5,6 +5,11 @@ import type {
   NovelAttachResult,
   NovelMode,
   NovelStatus,
+  RetranscribeApplyRequest,
+  RetranscribeApplyResult,
+  RetranscribeLineRequest,
+  RetranscribeLineResult,
+  RetranscribeResult,
   TranscribeConfig,
   TranscribeConfigUpdate,
   TranscribeRunRequest,
@@ -84,3 +89,21 @@ export const startNovelOcr = (
   if (tesseractCmd?.trim()) form.append('tesseract_cmd', tesseractCmd.trim())
   return postMultipart<JobStarted>(`/api/novel/dramas/${id}/ocr-chapter`, form, f)
 }
+
+// Parity audit B1 (R23): re-run Whisper on one line's audio window; the job
+// proposes text without writing. Poll GET /api/jobs/{job_id} for status (its
+// result carries only line_id), then read the proposal with getRetranscribeResult.
+export const startRetranscribeLine = (
+  id: number,
+  lineId: number,
+  req: RetranscribeLineRequest = {},
+  f?: Fetch,
+) => postJson<RetranscribeLineResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe`, req, f)
+
+export const getRetranscribeResult = (id: number, lineId: number, f?: Fetch) =>
+  getJson<RetranscribeResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe`, f)
+
+// "Use this": writes exactly the proposal shown, only if the line still has
+// expected_zh and the run is the one shown (409 otherwise).
+export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
+  postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)
