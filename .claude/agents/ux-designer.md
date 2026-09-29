@@ -2,7 +2,7 @@
 name: ux-designer
 description: Read-only web UX design for Baihe's React frontend (desktop and mobile browsers) — critiques a screen or flow and returns a buildable spec; use before UI implementation or redesign.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 effort: medium
 ---
 

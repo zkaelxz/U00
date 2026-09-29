@@ -2,7 +2,7 @@
 name: code-reviewer
 description: Independently reviews a supplied Baihe diff or implementation against its task and applicable standards for defects, regressions, security risks, and missing coverage; use after edits and before integration.
 tools: Read, Grep, Glob
-model: sonnet
+model: opus
 effort: medium
 ---
 

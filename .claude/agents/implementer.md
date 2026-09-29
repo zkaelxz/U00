@@ -2,7 +2,7 @@
 name: implementer
 description: Implements one explicitly assigned, bounded Baihe task after the lead provides its approved scope, exact files, and prerequisites.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: sonnet
+model: opus
 effort: low
 ---
 
