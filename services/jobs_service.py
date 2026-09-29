@@ -41,7 +41,7 @@ RESULT_ALLOWED_KEYS = (
     "gpu_fallback", "device", "word_align_error", "forced_align_error",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
-    "status", "stage", "last_error",
+    "status", "stage", "last_error", "line_id",
 )
 _MAX_STR = 500
 _MAX_LIST = 20

@@ -126,3 +126,38 @@ export interface SourceConfig {
 export type SourceConfigUpdate = Partial<
   Pick<SourceConfig, 'source_language' | 'chinese_script' | 'content_mode' | 'transcript_mode'>
 >
+
+// api/schemas.py RetranscribeLineRequest / RetranscribeLineResult (parity audit B1, R23).
+export interface RetranscribeLineRequest {
+  initial_prompt?: string
+  extra_names?: string
+}
+
+export interface RetranscribeLineResult {
+  job_id: string
+  drama_id: number
+  line_id: number
+}
+
+// api/schemas.py RetranscribeResult: the finished proposal, raw (GET .../retranscribe).
+export interface RetranscribeResult {
+  job_id: string
+  line_id: number
+  status: string
+  proposed_zh: string
+  base_zh: string
+}
+
+// api/schemas.py RetranscribeApplyRequest / RetranscribeApplyResult: "Use this"
+// for exactly the proposal shown (expected_zh = base_zh, expected_proposed = proposed_zh).
+export interface RetranscribeApplyRequest {
+  job_id: string
+  expected_zh: string
+  expected_proposed: string
+}
+
+export interface RetranscribeApplyResult {
+  drama_id: number
+  line_id: number
+  zh: string
+}
