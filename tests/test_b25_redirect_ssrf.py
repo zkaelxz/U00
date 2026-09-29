@@ -72,8 +72,6 @@ def fake_net(monkeypatch, isolated_db):
 
 
 class TestB25RedirectTargets:
-    @pytest.mark.xfail(strict=True, reason="B-25: b23.tv HEAD (sources.http._requests_transport, "
-                       "allow_redirects=True) follows a redirect to a link-local/private host")
     def test_b23_short_link_redirect_to_metadata_ip_is_not_followed(self, fake_net):
         from sources.adapters.bilibili import BilibiliSource
         routes, contacted = fake_net
@@ -88,8 +86,6 @@ class TestB25RedirectTargets:
         assert "b23.tv" in contacted  # the short link itself was resolved
         assert not (set(contacted) & PRIVATE_HOSTS), contacted
 
-    @pytest.mark.xfail(strict=True, reason="B-25: BilibiliSource.normalize_url returns whatever the "
-                       "b23.tv resolver landed on and hands it to yt-dlp unchecked")
     def test_resolved_short_link_to_non_bilibili_host_never_reaches_ytdlp(self, isolated_db):
         from sources.adapters.bilibili import BilibiliSource
         seen = []
@@ -120,8 +116,6 @@ class TestB25RedirectTargets:
                if not (urlsplit(u).hostname or "").endswith("bilibili.com")]
         assert bad == [], bad
 
-    @pytest.mark.xfail(strict=True, reason="B-25: front_door.preview's static fetch follows a "
-                       "redirect from a public page to a private address")
     def test_front_door_preview_redirect_to_private_host_is_not_followed(self, fake_net):
         from sources import front_door
         routes, contacted = fake_net
@@ -139,3 +133,38 @@ class TestB25RedirectTargets:
             pass
         assert "example.org" in contacted
         assert not (set(contacted) & PRIVATE_HOSTS), contacted
+
+
+class TestB25TransportStillWorks:
+    def test_public_cross_host_redirect_is_followed(self, fake_net):
+        routes, contacted = fake_net
+        routes["example.org"] = (302, {"Location": "https://www.bilibili.com/mirror"}, b"")
+        routes["www.bilibili.com"] = (200, {"Content-Type": "text/plain"}, b"mirror-ok")
+        resp = _no_pace_client("generic").request("GET", "https://example.org/start")
+        assert resp.content == b"mirror-ok"
+        assert resp.url == "https://www.bilibili.com/mirror"
+        assert contacted == ["example.org", "www.bilibili.com"]
+
+    def test_loopback_proxy_setting_does_not_refuse_a_public_target(self, fake_net):
+        from sources import store
+        routes, contacted = fake_net
+        store.set_setting("http_proxy_url", "http://127.0.0.1:8080")
+        routes["example.org"] = (200, {"Content-Type": "text/plain"}, b"via-proxy")
+        resp = _no_pace_client("generic").request("GET", "https://example.org/p")
+        assert resp.content == b"via-proxy"
+        assert contacted == ["example.org"]
+
+    def test_private_first_hop_is_refused(self, fake_net):
+        from sources.http import UnsafeRedirect, _requests_transport
+        _, contacted = fake_net
+        with pytest.raises(UnsafeRedirect):
+            _requests_transport("GET", "http://10.0.0.5/admin", {}, None, 5)
+        assert contacted == []
+
+    def test_redirect_hop_cap_is_enforced(self, fake_net):
+        from sources.http import MAX_REDIRECTS, UnsafeRedirect, _requests_transport
+        routes, contacted = fake_net
+        routes["example.org"] = (302, {"Location": "/again"}, b"")
+        with pytest.raises(UnsafeRedirect):
+            _requests_transport("GET", "https://example.org/loop", {}, None, 5)
+        assert len(contacted) == MAX_REDIRECTS + 1
