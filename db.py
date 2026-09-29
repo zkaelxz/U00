@@ -1686,6 +1686,36 @@ def rename_series_character(series_character_id: int, new_name: str):
         conn.commit()
 
 
+def insert_series_character(series_id: int, character_name: str, aliases: str = "",
+                            notes: str = "", gender: str = "") -> int:
+    """Plain INSERT (unlike upsert_series_character, which would overwrite
+    an existing same-named row's aliases/notes). Raises
+    sqlite3.IntegrityError when the series already has that name."""
+    with contextlib.closing(get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO series_characters (series_id, character_name, aliases, notes, gender, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (series_id, character_name, aliases, notes, gender,
+             datetime.datetime.utcnow().isoformat()))
+        conn.commit()
+        return cur.lastrowid
+
+
+def update_series_character(series_character_id: int, *, character_name: str = None,
+                            aliases: str = None, notes: str = None, gender: str = None):
+    """Field-scoped update of one series character by id, in one statement:
+    None leaves a column alone, "" clears it. Fixed column list (no
+    caller-supplied keys reach the SQL). Raises sqlite3.IntegrityError
+    (nothing written) when the new name is already taken in the series."""
+    with contextlib.closing(get_conn()) as conn:
+        conn.execute(
+            "UPDATE series_characters SET character_name = COALESCE(?, character_name), "
+            "aliases = COALESCE(?, aliases), notes = COALESCE(?, notes), "
+            "gender = COALESCE(?, gender) WHERE id = ?",
+            (character_name, aliases, notes, gender, series_character_id))
+        conn.commit()
+
+
 def list_series_characters(series_id: int):
     with contextlib.closing(get_conn()) as conn:
         rows = conn.execute(

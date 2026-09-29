@@ -1,3 +1,10 @@
 /* Series cast list (SeriesCast.tsx): name on the left, action on the right. */
 .series-cast { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .series-cast > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.series-cast-notes { display: block; }
+/* Inline edit (replaces the row) and the add form below the list. */
+.series-cast > li > .series-person-edit { flex: 1 1 100%; }
+.series-person-edit, .series-person-add { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); margin: var(--space-2) 0 0; min-width: 0; display: grid; gap: var(--space-2); }
+.series-person-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: var(--space-2) var(--space-3); min-width: 0; }
+.series-person-grid .series-person-wide { grid-column: 1 / -1; }
+.series-person-grid input, .series-person-grid select { width: 100%; min-width: 0; box-sizing: border-box; }
