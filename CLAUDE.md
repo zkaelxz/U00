@@ -11,6 +11,12 @@ git show FETCH_HEAD:docs/baihe-roadmap.md
 It lists every step in build order, what each one changes, and its exit
 condition. If you were told to "do Step X", that's Step X in this doc.
 
+Shared principles, instruction precedence, the review policy and the git/safety
+rules live in [`docs/engineering-standards.md`](docs/engineering-standards.md);
+testing and CI guidance in [`docs/testing-and-ci.md`](docs/testing-and-ci.md).
+This file holds the repo workflow and code rules and links to them rather
+than copying them.
+
 ## Current work
 
 Kept current by the planning session and by implementing sessions
@@ -76,6 +82,9 @@ merged.
   ignoring it or fixing it inline — fixing it would violate "keep changes
   minimal" and widen the diff the planning session has to review. The
   planning session decides whether it's worth its own step.
+  (This bullet is for implementers. A reviewer follows the scope bound in
+  `docs/engineering-standards.md` §3 and does not report pre-existing issues
+  the diff neither depends on nor worsens.)
 - **Default to Sonnet. Check the roadmap's §4 "Model recommendation per
   step" table before starting each step** (reversed 2026-09-26 from an
   earlier "run everything on Opus" decision — cost was higher than
@@ -107,28 +116,21 @@ merged.
   "create a PR for this step" (that means the planning session has
   already reviewed and approved the branch). Open it into
   `baihe-subtitler`. Don't merge it yourself.
+- **Who may merge** is decided by the roadmap's §4 working agreement and the
+  planning session's own `CLAUDE.md`, or by an explicit, dated user
+  instruction (for the React/FastAPI migration slices:
+  `docs/migration-handoff.md`). The mode bullets above are the roadmap's
+  step-number defaults, verified still present in the roadmap on 2026-09-29;
+  with no applicable instruction, push and stop.
 
 ## Lead session: delegating to subagents
 
 The session the user talks to is the **lead orchestrator**. The delegation
-policy lives in `.claude/CLAUDE.md` (it complements this file; this file
-and the roadmap win where they overlap) and the project agents live in
-`.claude/agents/`:
-
-- `codebase-analyst`: read-only map of current behavior, data flow, tests
-- `migration-architect`: read-only migration map and thin-slice plan
-- `roadmap-planner`: read-only step analysis; give it the roadmap text or
-  a readable path, since it has no shell to fetch the planning branch
-- `implementer`: edits only the files it is assigned; no git writes
-- `code-reviewer`: read-only review; give it the diff, base commit, and
-  changed-file list (inline if small, a saved patch file if large)
-- `qa-runner`: runs the assigned checks and diagnoses failures; no edits
-
-In short: delegate substantial research, planning, review, and QA; run
-independent tasks concurrently in the background; assign file ownership
-before any parallel edits (one writer per file); brief each agent
-completely; keep tiny tasks, tightly coupled changes, and integration in
-the lead; report agent status, verify results, and review the final diff.
+policy (task packets, file ownership, what a read-only agent must be handed,
+reporting) lives in [`.claude/CLAUDE.md`](.claude/CLAUDE.md); it complements
+this file, and this file and the roadmap win where they overlap. The project
+agents (`codebase-analyst`, `migration-architect`, `roadmap-planner`,
+`implementer`, `code-reviewer`, `qa-runner`) are defined in `.claude/agents/`.
 Delegation never widens the user's requested scope.
 
 ## If you were spawned directly by the planning session
@@ -194,138 +196,18 @@ from here. When in doubt whether your step counts as "structural," treat
 it as not requiring this and let the planning session ask for a
 screenshot specifically if it wants one.
 
-## Tests
 
-- Run with `python run_tests.py` (wraps `pytest`).
-- **Fresh environment:** `pytest` itself isn't preinstalled — `pip install
-  -r requirements.txt` covers it (it's listed there), or install it plus
-  `requirements-core.txt` directly if you're skipping the heavy optional
-  extras.
-- **Known false-failure gotcha:** if `tests/test_sources_mangaz.py`'s RSA
-  tests fail with `pyo3_runtime.PanicException: Python API call failed` /
-  `ModuleNotFoundError: No module named '_cffi_backend'`, that's a missing
-  `cffi` package (a runtime dependency of `cryptography` that a
-  system/apt-installed `cryptography` doesn't always pull in via pip), not
-  an app bug — `pip install cffi` fixes it. Confirmed by reproducing the
-  failure, installing `cffi`, and seeing all 20 tests in that file pass.
-- Tests are mocked throughout: fake model classes, no GPU, no real models,
-  no network calls to AI services. Follow that pattern for new tests —
-  don't add a test that needs a real API key, a GPU, or a downloaded
-  model.
-- Use the `isolated_db` fixture (`tests/conftest.py`) for anything that
-  touches the database or `db.LIBRARY_DIR`, so tests never touch a real
-  library folder.
-- A test that needs an optional library (`jieba`, `pytesseract`, `cv2`,
-  `paddleocr`, ...) should `pytest.importorskip` it, not hard-import it,
-  so a core-only install still gets a clean run.
-- **Diarization (pyannote) needs a real, gated-access-accepted Hugging
-  Face token to run outside the mocked test suite.**
-  `pyannote/speaker-diarization-community-1` is a gated model — an
-  `HF_TOKEN` alone isn't enough; the account it belongs to also has to
-  have accepted that specific model's license on huggingface.co first
-  (`diagnostics.check_pyannote_gated_access` is what checks this in-app;
-  the CLI's own `--hf-token`/`HF_TOKEN`/`BAIHE_HF_TOKEN`, `cli.py:186-188`,
-  and the UI's `settings_hf_token` both need the same accepted token). If
-  a step touches diarization and needs a real (not mocked) run to verify
-  — a real audio file, not `tests/`'s fake model classes — **ask the user
-  for a real, gated-access-accepted token up front** rather than
-  discovering the gap from a failed run.
+## Tests and CI
 
-## GitHub Actions minutes
+Testing is risk-based; the full guidance, known false failures and the CI/minutes notes moved to
+[`docs/testing-and-ci.md`](docs/testing-and-ci.md) (shared principles and review policy:
+[`docs/engineering-standards.md`](docs/engineering-standards.md)). The essentials:
 
-- **Before a discretionary CI run** (re-running a job on a hunch, a
-  speculative push just to see what happens), check the org's remaining
-  monthly Actions minutes allowance and its reset date first. GitHub's
-  own billing usage page is the source of truth, not an estimate from
-  workflow-file line counts — different runner types (Linux/Windows/
-  macOS) bill minutes at different multipliers, so the same job costs a
-  different amount depending on where it runs.
-- **Iterate locally, reserve Actions for what actually gates a merge.**
-  Run focused/relevant tests locally (per the Tests section above and
-  the project's own test-cadence agreement) while working on a change;
-  push to trigger CI once for the PR/merge-required checks, not once
-  per intermediate edit.
-- **Avoid duplicate runs**: batch related commits into one push rather
-  than pushing each small edit separately. Both workflows also cancel
-  their own superseded runs automatically (`concurrency:` with
-  `cancel-in-progress: true`, on `${{ github.workflow }}-${{
-  github.ref }}`) — checked safe for this repo specifically because
-  neither `tests.yml` nor `windows-bootstrap.yml` does anything
-  irreversible mid-run (no deployment, no publish step); re-check that's
-  still true before adding a workflow that does, and don't rely on
-  auto-cancellation for a run whose own completion something else
-  depends on (a release, a required deployment gate) — those need it
-  turned off for that job, not just assumed safe.
-- **Never weaken a check to save minutes.** Skipping, shortening, or
-  narrowing a required check or real test coverage to cut CI cost is
-  not an acceptable trade — minutes are cheaper than a regression a
-  weakened check would have caught.
-- **Set each job's `timeout-minutes` from its own real observed
-  duration, not a guess.** `test`/`frontend` (`tests.yml`) and
-  `bootstrap` (`windows-bootstrap.yml`) already carry one, sized from
-  actual GitHub Actions run history (roughly 2-3x the slowest observed
-  run, not a round number picked on instinct) — re-derive it the same
-  way (`actions_list`/`actions_get`'s workflow-run and workflow-job
-  methods, not the workflow file's own step count) if runtime shifts
-  meaningfully, rather than leaving a stale number or widening it
-  without checking first.
-- **Job grouping (merging jobs to cut per-job startup overhead) is not
-  worth reviewing at this repo's current job count** (2 in `tests.yml`,
-  1 in `windows-bootstrap.yml`) — each already does one coherent thing,
-  and merging any of them would cost the failure-isolation and
-  parallelism a split gives, for a few seconds of saved startup at most.
-  Revisit only if CI actually grows several more small jobs, and
-  benchmark the real before/after duration then — don't merge jobs on
-  a hunch that it should be faster.
-- **Caching a dependency install is only worth it if the measured
-  install time clearly exceeds the cache's own restore+save overhead.**
-  Checked directly for this repo (2026-09-28): `tests.yml`'s Python
-  installs (`pip install -r requirements-core.txt ...`) measured ~20-26
-  seconds across several real runs — short enough that a cache's own
-  round-trip overhead likely meets or exceeds what it would save, so
-  none was added. `frontend`'s `npm ci` already caches via
-  `actions/setup-node`'s built-in `cache: npm` and stays that way. If a
-  requirements file grows enough to push the Python install past
-  roughly a minute, re-measure before adding `actions/cache`/
-  `setup-python`'s own `cache: pip` — don't add one on the assumption
-  that caching is free.
-- **Before changing triggers, matrices, concurrency limits, or caching**
-  in a workflow file, inspect which jobs are actually consuming the
-  minutes (the billing usage page's own per-workflow/per-job breakdown,
-  not a guess) and state the real trade-off being made — what coverage
-  or turnaround time is given up for what minutes saved — before making
-  the change.
-
-## Background tasks — avoid stuck monitor loops
-
-Multiple `while pgrep ...; do sleep N; done` loops have been left running
-for hours (in one case 425+ minutes) after the thing they were waiting on
-had already finished. Root cause, confirmed directly: a loop shaped like
-`while pgrep -f "python run_tests.py" >/dev/null; do sleep 15; done; echo
-DONE` **matches its own command line** — the bash process running the
-loop has "python run_tests.py" sitting right there in its own `-c` string
-(in the `pgrep` pattern and/or a later `echo`/`tail` line), so `pgrep -f`
-finds it and the loop never sees "no process found," even after the real
-test run exited. It then loops forever, silently.
-
-- **Capture the PID once, don't re-search by pattern every iteration.**
-  Launch the real command, save `$!` immediately, and poll that exact PID
-  (`while kill -0 "$PID" 2>/dev/null; do sleep N; done`) — never
-  `pgrep -f` a pattern that could also match the polling loop's own
-  command text.
-- **If you must `pgrep -f` a pattern, make sure the loop's own command
-  line can't contain that same substring** (e.g. don't `echo` or `tail`
-  a message that repeats the process name you're grepping for in the
-  same `bash -c` string).
-- **Don't stack a second monitor loop for the same wait.** Check running
-  background tasks before starting another "wait for tests to finish"
-  loop — several redundant ones for the same suite run is a sign
-  something already went wrong, not a reason to add one more.
-- **Before starting a new long-running background task, glance at
-  already-running ones for anything that's been going far longer than
-  the operation it's waiting on should take** (a full suite run is a few
-  minutes; a loop still going after 20+ is stuck, not slow) and stop it
-  with `TaskStop` rather than leaving it to accumulate.
+- `python run_tests.py` (wraps `pytest`); run the full suite when you finish a step (see "How to work"), focused checks while iterating.
+- Tests are mocked (no GPU, real models, or network), use the `isolated_db` fixture for anything touching the database, and use `pytest.importorskip` for optional libraries.
+- Real diarization needs a gated-access-accepted Hugging Face token: ask the user for one up front (details in the testing doc).
+- GitHub Actions minutes are currently exhausted, so the local suite is the merge gate; never weaken a check to save time or minutes.
+- Never poll a background job with `pgrep -f` on a pattern in your own command line; capture the PID and poll it with `kill -0`.
 
 ## Rules learned from real bugs — don't reintroduce these
 
