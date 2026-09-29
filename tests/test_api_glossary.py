@@ -229,6 +229,25 @@ class TestImportExportBulk:
         assert t["term_translation"] == "Changed"
         assert t["aliases"] == FULL["aliases"]   # kept on overwrite
 
+    def test_import_without_overwrite_never_replaces_a_term_added_meanwhile(
+            self, client, isolated_db, monkeypatch):
+        did = _drama(isolated_db)
+        sid = isolated_db.get_drama(did)["series_id"]
+        real_list = isolated_db.list_glossary_terms
+
+        def list_then_race(series_id):
+            rows = real_list(series_id)
+            isolated_db.upsert_glossary_term(sid, "沈清疑", "Added meanwhile")
+            return rows
+
+        monkeypatch.setattr(isolated_db, "list_glossary_terms", list_then_race)
+        r = client.post(_url(did, "import"), json={"text": "term,translation\n沈清疑,Import\nb,B\n"})
+        monkeypatch.setattr(isolated_db, "list_glossary_terms", real_list)
+        assert r.status_code == 200, r.text
+        assert r.json()["added"] == ["b"] and r.json()["skipped_existing"] == ["沈清疑"]
+        terms = {t["term_original"]: t["term_translation"] for t in real_list(sid)}
+        assert terms == {"沈清疑": "Added meanwhile", "b": "B"}
+
     @pytest.mark.parametrize("text", ["", "[]", "{}", "not json [", '[{"term_original": 5}]',
                                       '[{"term_original": "x", "category": ["a"]}]'])
     def test_bad_imports_are_422_and_write_nothing(self, client, isolated_db, text):

@@ -299,8 +299,12 @@ def import_glossary_text(drama_id: int, text: str, filename: str = "",
             continue   # a later duplicate row in the same file adds nothing new
         seen.add(original)
         current = existing.get(original)
-        if current is not None and not overwrite_existing:
-            report["skipped_existing"].append(original)
+        if not overwrite_existing:
+            # Insert-only, so a term added since `existing` was read is not replaced.
+            added = current is None and db.insert_glossary_term_if_absent(
+                sid, original, translation, notes=notes, category=e["category"],
+                policy=e["policy"], enforce_exact=bool(e["enforce_exact"]))
+            report["added" if added else "skipped_existing"].append(original)
             continue
         db.upsert_glossary_term(sid, original, translation, notes=notes,
                                 category=e["category"], policy=e["policy"],
