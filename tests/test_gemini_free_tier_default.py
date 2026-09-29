@@ -112,6 +112,28 @@ def test_fix_flagged_default_setting_and_cap(_env, monkeypatch):
     assert _env[1]["cost_cap_usd"] == 7.0
 
 
+def test_bulk_estimate_refused_like_run():
+    did = _seed()
+    with pytest.raises(UnsupportedOperationError, match="Gemini \\(paid\\)"):
+        translate_run_service.estimate_translate_cost(did, "gemini", bulk=True)
+    with pytest.raises(UnsupportedOperationError, match="Gemini \\(paid\\)"):
+        translate_run_service.start_translate_run(did, "gemini", bulk=True)
+    assert translate_run_service.estimate_translate_cost(
+        did, "gemini", bulk=True, gemini_free_tier=False)["cap_applies"] is True
+
+
+def test_config_follows_saved_setting(monkeypatch):
+    did = _seed()
+    cfg = translate_run_service.get_translate_config(did)
+    assert "gemini" not in cfg["bulk_supported_engines"]
+    assert cfg["cap_applies_by_engine"]["gemini"] is False
+    assert cfg["cap_applies_by_engine"]["claude"] is True
+    monkeypatch.setattr(settings_service, "get_gemini_free_tier", lambda: False)
+    cfg = translate_run_service.get_translate_config(did)
+    assert "gemini" in cfg["bulk_supported_engines"]
+    assert cfg["cap_applies_by_engine"]["gemini"] is True
+
+
 def test_line_ai_defaults_to_setting(_env, monkeypatch):
     did = _seed()
     lid = db.load_lines(did)[0]["id"]

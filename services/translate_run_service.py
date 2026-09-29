@@ -90,6 +90,7 @@ def get_translate_config(drama_id: int) -> dict:
         os.path.join(db.DRAMAS_DIR, str(drama_id), filename))
     lines = db.load_lines(drama_id)
     monthly_cap = _monthly_cap()
+    free_tier = settings_service.get_gemini_free_tier()
     return {
         "drama_id": drama_id,
         "translation_engine": drama.get("translation_engine") or "claude",
@@ -113,9 +114,10 @@ def get_translate_config(drama_id: int) -> dict:
         "previous_episode_summary_present": bool(drama.get("previous_episode_summary")),
         "monthly_cap_usd": monthly_cap,
         "month_spend": db.get_month_spend() if monthly_cap else 0.0,
-        "cap_applies_by_engine": {name: _cap_applies(name)
+        "cap_applies_by_engine": {name: _cap_applies(name, free_tier)
                                   for name in translate_engines.ENGINES},
-        "bulk_supported_engines": list(bulk_translate.BULK_ENGINES),
+        "bulk_supported_engines": [e for e in bulk_translate.BULK_ENGINES
+                                   if not (e == "gemini" and free_tier)],
     }
 
 
@@ -138,6 +140,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str = None, model: str =
     if (gemini_free_tier and engine_name == "gemini"
             and model in translate_engines.GEMINI_FREE_TIER_UNAVAILABLE_MODELS):
         raise UnsupportedOperationError(f"{model} isn't available on Gemini's free tier.")
+    if bulk and engine_name == "gemini" and gemini_free_tier:
+        raise UnsupportedOperationError("Bulk mode needs Claude, Gemini (paid) or DeepSeek.")
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
 
