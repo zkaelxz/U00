@@ -282,7 +282,8 @@ baihe-subtitler/
 │   ├── static_frontend.py        serves the built React app (frontend/dist) at / on the same origin as /api;
 │   │                             no-op (API only) if dist is missing; traversal-safe; tests/test_api_static_frontend.py
 │   ├── auth.py                   Step 133 -- require_permission/public_route/local_only (one per route,
-│   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate
+│   │                             tests/test_api_permissions.py), session cookie + CSRF, EarlyAuthGate (auth on),
+│   │                             LoopbackOnlyGate (auth off: direct loopback requests only)
 │   ├── error_handlers.py         one JSON error shape; no tracebacks/secrets to clients
 │   ├── schemas.py                the API contract (Pydantic models, API_VERSION)
 │   └── routers/
