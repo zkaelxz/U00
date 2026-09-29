@@ -441,6 +441,11 @@ baihe-subtitler/
 │   │                              ReaderStory (story tools, wiki, Q&A), ReaderEngine, ReaderAction +
 │   │                              useReaderAction (per-action error/429 retry), readerPrefs.ts and
 │   │                              readerErrors.ts (pure, unit-tested), reader.css
+│   ├── src/pages/Sources.tsx      Sources page (#/sources): search the enabled sources and open a series (paced
+│   │                              jobs), New chapters, PC-only Source settings; api/sources.ts, types/sources.ts
+│   ├── src/pages/sources/         SearchPanel, SeriesPanel, NewChapters, SourceSettings, SourceDetail,
+│   │                              PacingForm, useSourcesJob (job-result polling + reattach), sourcesFormat.ts
+│   │                              (pure, unit-tested), sources.css
 │   ├── src/pages/workspace/stages/  also AutoTune (Transcribe > Advanced), NovelGlossary (Glossary > From
 │   │                              novel), SeriesCast (Characters > Series cast), useRunStatus (per-drama run
 │   │                              polling), autotuneGlossary.ts (pure, unit-tested); API in

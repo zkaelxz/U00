@@ -382,7 +382,7 @@ The whole page is MISSING in React (branch `react-reader-page` not merged). API:
 
 ## 8. Sources (`tabs/sources_tab.py`, 990 lines)
 
-The whole page is MISSING in React. The API covers the registry and settings (56a/56b) and search/series jobs (S-3, #372).
+The API covers the registry and settings (56a/56b) and search/series jobs (S-3, #372). React: `pages/Sources.tsx` + `pages/sources/` (`#/sources`, branch `react-sources-page`, not merged) builds SO12 and the non-import parts of SO13 and SO15-SO18, marked "React:" in the API column. No React for import (S-4/S-5), tracking a new series, check now, pasted URLs, test tiers, sign-in or the proxy URL: those have no API.
 
 | ID | Feature | Source | Calls | API | Tests |
 |---|---|---|---|---|---|
@@ -397,13 +397,13 @@ The whole page is MISSING in React. The API covers the registry and settings (56
 | SO09 | AI-assisted fallback engine (optional) | 334-359 | `translate_engines.get_engine` | no API | test_adaptive_extraction TestLlmOnlyAsFallback |
 | SO10 | Review extraction: confidence, pick containers, title, next/prev links, re-run, save profile, approve, import; comic roles and order | 362-543 | `ai_extract.*`, `profiles.*` | no API (plan section 3 item 8 prune candidate) | test_adaptive_extraction |
 | SO11 | Sign in through a real browser window, or forget the sign-in | 270-320 | `auth_browser.manual_login`, `forget` | no API (S-6) | test_sources_auth_browser |
-| SO12 | Search every enabled source, clear results, open a result | 574-603 | `registry.multi_search` | no API (S-3) | test_sources_tab |
-| SO13 | Series browser: chapter list, reload, tick chapters, import into a drama, track for new chapters | 606-684 | `pipeline.start_import`, `store.track_series` | `POST /api/sources/tracked` (track only) | test_sources_tab |
+| SO12 | Search every enabled source, clear results, open a result | 574-603 | `registry.multi_search` | `POST /api/sources/search` + job result (S-3). React: REPLACED (search, Search in, cancel, clear, open; no cover images) | test_sources_tab |
+| SO13 | Series browser: chapter list, reload, tick chapters, import into a drama, track for new chapters | 606-684 | `pipeline.start_import`, `store.track_series` | `POST /api/sources/{name}/series` + job result; `POST /api/sources/tracked` (untrack only; track is refused). React: PARTIAL (info, chapter list, reload, stop tracking; no ticks, import or track) | test_sources_tab |
 | SO14 | Source access status: live job metrics, cancel, results per chapter, dismiss | 687-734 | `background_jobs.list_running_jobs` | `/api/jobs` | test_sources_tab |
-| SO15 | New chapters: check now, open, dismiss; tracked series with "stop tracking" | 737-765 | `chapter_check.start_check_now`, `store.dismiss_notification`, `untrack_series` | `GET /api/sources/notifications`, `POST .../dismiss`, `GET/POST /api/sources/tracked`; check-now: no API (S-7) | test_sources_tab |
-| SO16 | Pasted-URL diagnostics and site profile rollback | 768-796 | `adaptive.recent_extractions`, `profiles.rollback` | `GET /api/sources/profiles`, `POST .../rollback` | test_adaptive_extraction TestDiagnostics |
-| SO17 | Per-source enable, adult toggle, health, "try again now", test tiers, sign in, attempt log | 799-893 | `registry.set_enabled`, `store.set_adult_enabled`, `health.reset`, `ladder.test_tier` | `POST /api/sources/{name}/enabled|adult|health/reset`, `GET .../attempts`; test tiers: no API | test_sources_tab |
-| SO18 | Source settings: pacing, concurrency, retries, session breaks, cache mode, check interval, auto-import, demo source, diagnostics mode, proxy; clear cache | 896-967 | `store.set_setting`, `cache.RawCache` | `GET/POST /api/sources/settings`, `POST /api/sources/cache/clear` | test_sources_tab |
+| SO15 | New chapters: check now, open, dismiss; tracked series with "stop tracking" | 737-765 | `chapter_check.start_check_now`, `store.dismiss_notification`, `untrack_series` | `GET /api/sources/notifications`, `POST .../dismiss`, `GET/POST /api/sources/tracked`; check-now: no API (S-7). React: PARTIAL (open, dismiss, stop tracking; no check now) | test_sources_tab |
+| SO16 | Pasted-URL diagnostics and site profile rollback | 768-796 | `adaptive.recent_extractions`, `profiles.rollback` | `GET /api/sources/profiles`, `POST .../rollback`. React: PARTIAL (profile versions + Make active; no pasted-URL diagnostics) | test_adaptive_extraction TestDiagnostics |
+| SO17 | Per-source enable, adult toggle, health, "try again now", test tiers, sign in, attempt log | 799-893 | `registry.set_enabled`, `store.set_adult_enabled`, `health.reset`, `ladder.test_tier` | `POST /api/sources/{name}/enabled|adult|health/reset`, `GET .../attempts`; test tiers: no API. React: PARTIAL (on, adult, health text, try again now, details, attempts; no test tiers or sign-in) | test_sources_tab |
+| SO18 | Source settings: pacing, concurrency, retries, session breaks, cache mode, check interval, auto-import, demo source, diagnostics mode, proxy; clear cache | 896-967 | `store.set_setting`, `cache.RawCache` | `GET/POST /api/sources/settings`, `POST /api/sources/cache/clear`. React: PARTIAL (all but the proxy URL, shown as set/none; save sends changed keys only) | test_sources_tab |
 | SO19 | Starts the chapter-check scheduler | 975 | `chapter_check.ensure_scheduler_started` | Done in the API startup hook (`api/background.py`, #372) | — |
 
 ## 9. Discover (`tabs/discover_tab.py`, 394 lines)
@@ -462,7 +462,7 @@ These are held until after the removal (plan section 8). `scanlate.py` and `page
 |---|---|---|---|---|
 | A01 | Page title, icon, the "Baihe Studio" heading | 44-57 | `App.tsx` | tested by test_app TestAppIcon |
 | A02 | Per-tab crash containment with a traceback | 59-82 | N/A (React error boundaries and `components/ErrorBanner.tsx`) | tested by test_app (AppTest smoke) |
-| A03 | Nine top-level tabs | 90-118 | `router.ts` (library, drama, settings, diagnostics, translate) | Reader, Scanlate, Sources, Discover and Live have no route |
+| A03 | Nine top-level tabs | 90-118 | `router.ts` (library, drama, settings, diagnostics, translate; sources on branch `react-sources-page`) | Reader, Scanlate, Discover and Live have no route |
 
 ## 13. Counts
 
@@ -485,7 +485,7 @@ These are counts of feature rows, computed from the tables above. Each row is co
 | Diagnostics (Q) | 20 | 3 | 5 | 12 | 0 | 0 | 0 | 0 |
 | Translate page (N) | 8 | 3 | 2 | 2 | 0 | 0 | 0 | 1 |
 | Reader (RD) | 14 | 0 | 0 | 14 | 0 | 0 | 0 | 0 |
-| Sources (SO) | 19 | 0 | 0 | 19 | 0 | 0 | 0 | 0 |
+| Sources (SO) | 19 | 1 | 5 | 13 | 0 | 0 | 0 | 0 |
 | Discover (DI) | 10 | 0 | 0 | 10 | 0 | 0 | 0 | 0 |
 | Live (LV) | 6 | 0 | 0 | 6 | 0 | 0 | 0 | 0 |
 | Scanlate (SC) | 11 | 0 | 0 | 0 | 0 | 11 | 0 | 0 |
