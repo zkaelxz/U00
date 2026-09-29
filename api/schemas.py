@@ -3211,3 +3211,139 @@ class GlossaryProposalsApplyRequest(NovelGlossaryApplyRequest):
     (never by position); edits for terms not in `terms` are ignored."""
     overrides: Dict[Annotated[str, Field(min_length=1, max_length=200)], GlossaryProposalEdit] = Field(
         default_factory=dict, max_length=1000)
+
+# Review AI extras (inventory R46, R37, R35, R03): auto-merge short lines,
+# learn my style, SenseVoice audio tags, burned-subtitle preview clip.
+# services/review_extras_service.py; no key, URL or path is accepted or returned.
+# ---------------------------------------------------------------------------
+
+class MergeShortOptions(BaseModel):
+    min_duration: float
+    max_gap: float
+    max_chars: int
+
+
+class MergeShortGroup(BaseModel):
+    line_id: int
+    idx: int
+    merged_line_ids: List[int]
+    start: float
+    end: float
+    zh: str
+    en: str
+
+
+class MergeShortPreview(BaseModel):
+    drama_id: int
+    options: MergeShortOptions
+    source_line_ids: List[int]
+    line_count_before: int
+    line_count_after: int
+    groups: List[List[int]]
+    merges: List[MergeShortGroup]
+
+
+class MergeShortApply(_RestructureBase):
+    expected_groups: List[List[int]] = Field(
+        max_length=50_000,
+        description="The preview's `groups`; 409 if a fresh merge would differ.")
+    min_duration: Optional[float] = Field(None, ge=0.1, le=10)
+    max_gap: Optional[float] = Field(None, ge=0, le=5)
+    max_chars: Optional[int] = Field(None, ge=10, le=500)
+
+
+class MergeShortResult(RestructureResult):
+    merged_groups: int
+
+
+class StyleProfileView(BaseModel):
+    summary: str
+    confidence: Optional[str] = None
+    preferences: List[str]
+    sample_count: int
+    updated_at: Optional[str] = None
+    applied: bool
+
+
+class StyleState(BaseModel):
+    drama_id: int
+    scope: str
+    edit_count: int
+    drama_edit_count: int
+    min_samples: int
+    profile: Optional[StyleProfileView] = None
+    message: Optional[str] = None
+
+
+class StyleLearnRequest(ReviewJobStart):
+    pass
+
+
+class StyleApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    apply: StrictBool
+
+
+class StyleResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm: StrictBool = False
+
+
+class SenseVoiceStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    line_count: int
+
+
+class SenseVoiceRow(BaseModel):
+    line_id: Optional[int] = None
+    idx: int
+    text: str
+    text_emotion: str
+    audio_emotion: str
+    audio_events: str
+    disagree: bool
+
+
+class SenseVoiceTags(BaseModel):
+    drama_id: int
+    installed: bool
+    has_audio: bool
+    license_note: str
+    tagged: int
+    disagree: int
+    rows: List[SenseVoiceRow]
+
+
+class BurnPreviewStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line_id: int = Field(ge=1)
+    pad_seconds: Optional[float] = Field(None, ge=0, le=5)
+    preset: Optional[str] = Field(None, max_length=40)
+
+
+class BurnPreviewStarted(BaseModel):
+    job_id: str
+    drama_id: int
+    line_id: int
+    start: float
+    end: float
+
+
+class BurnPreviewClip(BaseModel):
+    line_id: Optional[int] = None
+    idx: Optional[int] = None
+    start: Optional[float] = None
+    end: Optional[float] = None
+    preset: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class BurnPreviewInfo(BaseModel):
+    drama_id: int
+    has_video: bool
+    ffmpeg_available: bool
+    presets: List[str]
+    max_clip_seconds: float
+    max_pad_seconds: float
+    clip: Optional[BurnPreviewClip] = None

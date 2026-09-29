@@ -318,6 +318,10 @@ baihe-subtitler/
 │   ├── restructure_service.py    Migration Slice 45 -- add/delete/merge/split lines, re-segmentation
 │   │                             preview + apply job, version-history restore (snapshot first,
 │   │                             expected_line_ids 409, running-job refusal, refs follow line ids)
+│   ├── review_extras_service.py  Review AI extras (R46/R37/R35/R03) -- auto-merge short lines (read-only
+│   │                             preview; apply re-checks ids + groups, snapshot first), learn my style +
+│   │                             apply toggle/reset, SenseVoice tag job + side-by-side rows, burned
+│   │                             preview clip job (capped, fixed file name in the drama folder)
 │   ├── auth_service.py           Step 133 -- users allowlist, permission catalogue (deny by default),
 │   │                             hashed server-side sessions + CSRF, audit log, login rate limiter
 │   ├── oidc_service.py           Step 134 (A1) -- Google sign-in: PKCE/state/nonce single-use login
@@ -430,6 +434,9 @@ baihe-subtitler/
 │       ├── discover_routes.py    /api/discover/titles (GET/POST), titles/seed|{id}/delete|{id}/import-to-library (POST), platforms, search-links (GET; Slice 55)
 │       ├── restructure_routes.py /api/restructure/dramas/{id}/lines/add|lines/{lid}/delete|merge|
 │       │                         lines/{lid}/split|resegment(/preview)|history(/{hid}/restore) (Slice 45)
+│       ├── review_extras_routes.py /api/review-extras/dramas/{id}/merge-short/preview|apply, style(/learn|
+│       │                         /apply|/reset), sensevoice (POST job, GET rows), burn-preview (POST job,
+│       │                         /info, /clip Range); tests/test_api_review_extras.py
 │       ├── sources_catalog_routes.py /api/sources registry/status GETs + config POSTs (Slice 56; not the Workspace Source stage above)
 │       ├── workflow_routes.py    GET /api/workflow/dramas/{id}/progress (stage bar state + counts; API batch 1)
 │       ├── live_routes.py        /api/live/sessions (POST start, GET list), /{id} (GET poll), /{id}/stop (spec L-1; API batch 1)
@@ -499,7 +506,10 @@ baihe-subtitler/
 │   │                              (consistency, emotion), ReviewChecks (coverage/pacing, tendencies, version
 │   │                              compare, notes Markdown link), LineOrigin (per-line provenance + original
 │   │                              text) with RetranscribeLine (one-line re-transcribe job,
-│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested)
+│   │                              retranscribeLogic.ts), FindingList, reviewResults.ts (pure, unit-tested);
+│   │                              AiExtras (+ AiExtrasMerge, AiExtrasStyle, AiExtrasSenseVoice,
+│   │                              AiExtrasBurnPreview, aiExtrasLogic.ts pure): auto-merge short lines, learn my
+│   │                              style, SenseVoice tags, burned preview clip; API in src/api/reviewExtras.ts
 │   ├── src/pages/Reader.tsx       Reader page (#/read/<id>[?page=N]) over /api/reader: page HTML in a sandboxed
 │   │                              iframe, pager, resume, Watch / listen; api/reader.ts, types/reader.ts
 │   ├── src/pages/reader/          ReaderPrefs (Aa popover/sheet), ReaderWords (Words, Vocabulary, Glossary),
