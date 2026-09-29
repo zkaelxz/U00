@@ -35,60 +35,71 @@ function useLoad<T>(load: () => Promise<T>, reloadKey: number) {
   return state
 }
 
-function Panel({ title, error, children }: { title: string; error: unknown; children: ReactNode }) {
+// A collapsed-by-default section; the summary carries the count, so nothing is an empty box.
+function Fold({ title, count, error, children }: {
+  title: string; count?: number; error: unknown; children: ReactNode
+}) {
   return (
-    <section className="panel" aria-label={title}>
-      <h2>{title}</h2>
-      <ErrorBanner error={error} />
-      {children}
+    <details className="panel fold">
+      <summary>{title}{count !== undefined && ` (${count})`}</summary>
+      <section aria-label={title}>
+        <ErrorBanner error={error} />
+        {count === 0 ? <p className="muted">Nothing yet</p> : children}
+      </section>
+    </details>
+  )
+}
+
+function StatsStrip({ reloadKey }: { reloadKey: number }) {
+  const stats = useLoad(getStats, reloadKey)
+  const s = stats.data
+  return (
+    <section className="wide stats-strip" aria-label="Stats">
+      <ErrorBanner error={stats.error} />
+      {s && (
+        <p data-testid="stats">
+          {s.total_dramas} drama(s) · {s.translated_lines}/{s.total_lines} lines translated · $
+          {s.usage.estimated_cost_usd.toFixed(2)} spent
+        </p>
+      )}
     </section>
   )
 }
 
-function Summaries({ reloadKey }: { reloadKey: number }) {
-  const stats = useLoad(getStats, reloadKey)
+function MoreSections({ reloadKey }: { reloadKey: number }) {
   const recent = useLoad(getRecent, reloadKey)
   const series = useLoad(getSeries, reloadKey)
   const costs = useLoad(getCosts, reloadKey)
   const history = useLoad(getHistory, reloadKey)
   const presets = useLoad(getPresets, reloadKey)
   const voices = useLoad(getVoiceBank, reloadKey)
-  const s = stats.data
+  const grouped = history.data ? groupHistory(history.data.items) : undefined
   return (
-    <>
-      <Panel title="Stats" error={stats.error}>
-        {s && (
-          <p data-testid="stats">
-            {s.total_dramas} drama(s) · {s.translated_lines}/{s.total_lines} lines translated · $
-            {s.usage.estimated_cost_usd.toFixed(2)} spent
-          </p>
-        )}
-      </Panel>
-      <Panel title="Recently active" error={recent.error}>
+    <div className="more-grid wide">
+      <Fold title="Recently active" count={recent.data?.items.length} error={recent.error}>
         <ul>
           {recent.data?.items.map((d) => (
             <li key={d.id}>{name(d)} <span className="muted">{d.status}</span></li>
           ))}
         </ul>
-      </Panel>
-      <Panel title="Series" error={series.error}>
-        {series.data?.items.length === 0 && <p className="muted">No series with 2+ dramas.</p>}
+      </Fold>
+      <Fold title="Series" count={series.data?.items.length} error={series.error}>
         <ul>
           {series.data?.items.map((x) => (
             <li key={x.id}>{x.name} <span className="muted">{x.dramas.length} dramas</span></li>
           ))}
         </ul>
-      </Panel>
-      <Panel title="Cost by drama" error={costs.error}>
+      </Fold>
+      <Fold title="Cost by drama" count={costs.data?.items.length} error={costs.error}>
         <ul>
           {costs.data?.items.map((c) => (
             <li key={c.id}>{name(c)} <span className="muted">${c.estimated_cost_usd.toFixed(2)}</span></li>
           ))}
         </ul>
-      </Panel>
-      <Panel title="Reading history" error={history.error}>
+      </Fold>
+      <Fold title="Reading history" count={grouped?.length} error={history.error}>
         <ul>
-          {groupHistory(history.data?.items ?? []).map(({ entry: h, count }) => (
+          {grouped?.map(({ entry: h, count }) => (
             <li key={`${h.drama_id}-${h.accessed_at}`}>
               {name({ ...h, id: h.drama_id })}
               {count > 1 && <span className="badge"> ×{count}</span>}
@@ -99,22 +110,22 @@ function Summaries({ reloadKey }: { reloadKey: number }) {
             </li>
           ))}
         </ul>
-      </Panel>
-      <Panel title="Presets" error={presets.error}>
+      </Fold>
+      <Fold title="Presets" count={presets.data?.items.length} error={presets.error}>
         <ul>
           {presets.data?.items.map((p) => (
             <li key={p.id}>{p.name} <span className="muted">{p.translation_engine}</span></li>
           ))}
         </ul>
-      </Panel>
-      <Panel title="Voice bank" error={voices.error}>
+      </Fold>
+      <Fold title="Voice bank" count={voices.data?.items.length} error={voices.error}>
         <ul>
           {voices.data?.items.map((v) => (
             <li key={v.id}>{v.name} <span className="muted">{v.language}</span></li>
           ))}
         </ul>
-      </Panel>
-    </>
+      </Fold>
+    </div>
   )
 }
 
@@ -134,19 +145,17 @@ function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
   }
 
   return (
-    <section className="panel" aria-label="Search lines">
-      <h2>Search lines</h2>
+    <details className="panel fold wide">
+      <summary>Search all lines</summary>
+      <section aria-label="Search lines">
       <form onSubmit={submit} className="stack">
-        <label className="field">
-          <span>Search all lines</span>
-          <input
-            type="search"
-            aria-label="Search all lines"
-            maxLength={200}
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </label>
+        <input
+          type="search"
+          aria-label="Search all lines"
+          maxLength={200}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
         <div className="actions">
           <button type="submit">Search</button>
         </div>
@@ -163,7 +172,8 @@ function LineSearch({ onSelect }: { onSelect: (id: number) => void }) {
           </li>
         ))}
       </ul>
-    </section>
+      </section>
+    </details>
   )
 }
 
@@ -173,6 +183,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   })
   const [error, setError] = useState<unknown>(null)
   const [invalid, setInvalid] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
 
@@ -185,6 +196,7 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
       (d) => {
         setError(null)
         setForm({ ...form, title_en: '', title_zh: '' })
+        setOpen(false)
         onCreated(d.id)
       },
       (err: unknown) => setError(err),
@@ -192,8 +204,9 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
   }
 
   return (
-    <section className="panel" aria-label="New drama">
-      <h2>New drama</h2>
+    <details className="panel fold new-drama" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>New drama</summary>
+      <section aria-label="New drama">
       <form onSubmit={submit} className="stack">
         <label className="field">
           <span>English title</span>
@@ -223,7 +236,8 @@ function CreateForm({ onCreated }: { onCreated: (id: number) => void }) {
       </form>
       {invalid && <p className="error" role="alert">{invalid}</p>}
       <ErrorBanner error={error} />
-    </section>
+      </section>
+    </details>
   )
 }
 
@@ -234,9 +248,10 @@ export default function LibraryPage() {
 
   return (
     <main className="library-grid">
-      <Summaries reloadKey={reloadKey} />
-      <LineSearch onSelect={setSelectedId} />
-      <CreateForm onCreated={(id) => { setSelectedId(id); reload() }} />
+      <StatsStrip reloadKey={reloadKey} />
+      <div className="wide new-drama-slot">
+        <CreateForm onCreated={(id) => { setSelectedId(id); reload() }} />
+      </div>
       <LibraryList selectedId={selectedId} onSelect={setSelectedId} reloadKey={reloadKey} />
       {selectedId !== null && (
         <DramaDetailPanel
@@ -245,6 +260,8 @@ export default function LibraryPage() {
           onDeleted={() => { setSelectedId(null); reload() }}
         />
       )}
+      <MoreSections reloadKey={reloadKey} />
+      <LineSearch onSelect={setSelectedId} />
     </main>
   )
 }
