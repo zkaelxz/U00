@@ -21,7 +21,7 @@ import type { TranslateEngine } from '../../types/translate'
 import { ActionError } from './ReaderAction'
 import { useAction } from './useReaderAction'
 import { ENGINE_PICKER_ID, EngineLine, EnginePicker } from './ReaderEngine'
-import { trimHistory } from './readerPrefs'
+import { trimHistory } from './readerPrefsStore'
 
 type Common = {
   dramaId: number

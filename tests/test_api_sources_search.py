@@ -76,6 +76,7 @@ def test_series_flow_and_challenge_409(client, fakes):
     _wait("sources_series_alpha")
     b = _clean(client.get("/api/sources/jobs/sources_series_alpha/result"))
     assert [c["chapter_id"] for c in b["result"]["chapters"]] == ["c1", "c2", "c10"]
+    assert (b["source"], b["series_id"]) == ("alpha", "s1")
     fakes["alpha"] = _make("alpha", series_exc=ChallengeDetected(
         "challenge", f"{HOST}/p?cf_token={SECRET}", FailureReason.CLOUDFLARE_CHALLENGE))
     client.post("/api/sources/alpha/series", json={"series_id": "s1"})

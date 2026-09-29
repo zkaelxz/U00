@@ -28,6 +28,36 @@ from api.auth import public_route
 
 log = logging.getLogger(__name__)
 
+# Explicit types for what a Vite build emits. FileResponse otherwise guesses
+# with `mimetypes`, which on Windows reads the registry and can answer
+# `text/plain` for `.js`; browsers refuse a module script served that way
+# and the app loads blank.
+_MEDIA_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".json": "application/json",
+    ".map": "application/json",
+    ".webmanifest": "application/manifest+json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+    ".txt": "text/plain; charset=utf-8",
+    ".wasm": "application/wasm",
+}
+
+
+def _media_type(path: Path) -> str:
+    return _MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+
 DEFAULT_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
@@ -65,10 +95,13 @@ def install_frontend(app: FastAPI, dist_dir=None) -> bool:
         candidate = (root / path).resolve() if path else index
         inside = candidate == root or root in candidate.parents
         if inside and candidate.is_file():
-            headers = {"Cache-Control": "no-cache"} if candidate.name == "index.html" else None
-            return FileResponse(candidate, headers=headers)
+            headers = {"X-Content-Type-Options": "nosniff"}
+            if candidate.name == "index.html":
+                headers["Cache-Control"] = "no-cache"
+            return FileResponse(candidate, headers=headers, media_type=_media_type(candidate))
         if "." in path.rsplit("/", 1)[-1]:
             raise HTTPException(status_code=404)  # a missing asset, not a page
-        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+        return FileResponse(index, media_type=_MEDIA_TYPES[".html"],
+                            headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"})
 
     return True

@@ -7,12 +7,11 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { getExtensionStatus, revealExtensionToken, setExtensionEnabled } from '../../api/extension'
-import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { Section } from '../../components/Section'
-import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly } from '../../hooks/usePcOnly'
+import { PC_ONLY_BODY, PC_ONLY_SUMMARY, usePcOnly, usePcPendingNote } from '../../hooks/usePcOnly'
 import type { ExtensionStatus } from '../../types/extension'
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import {
@@ -24,6 +23,14 @@ const SERVER = { pcOnly: true, serverText: true } as const
 
 export function ExtensionSection() {
   const pc = usePcOnly()
+  const pending = usePcPendingNote(pc)
+  if (pending) {
+    return (
+      <Section title="Browser extension" storageKey="settings.extension">
+        <p className="muted" data-testid="pc-pending">{pending}</p>
+      </Section>
+    )
+  }
   if (pc === 'remote') {
     return (
       <Section title="Browser extension" summary={PC_ONLY_SUMMARY} storageKey="settings.extension">
@@ -40,16 +47,13 @@ function ExtensionControls() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<unknown>(null)
 
-  // Wait for /api/meta first, so a viewer away from the PC makes no extension calls.
+  // Mounted only once /api/meta said this is the main PC.
   useEffect(() => {
     let live = true
-    void loadPcMode().then(() => {
-      if (!live || getPcMode() === 'remote') return
-      getExtensionStatus().then(
-        (s) => live && setStatus(s),
-        (e: unknown) => live && setError(e),
-      )
-    })
+    getExtensionStatus().then(
+      (s) => live && setStatus(s),
+      (e: unknown) => live && setError(e),
+    )
     return () => {
       live = false
     }
