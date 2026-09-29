@@ -439,20 +439,39 @@ class TestUndefinedNameCheckerItself:
         assert problems == []
 
 
+_HTTP_VERBS = ("post", "get", "put", "patch", "delete", "head", "request")
+
+
 def _find_requests_calls_missing_timeout(path):
-    """Every requests.post()/requests.get() call in `path` that has no
-    `timeout=` keyword. A hung server on one of these leaves a background
-    job stuck at "running" forever -- a real, shipped gap this checks for
-    directly rather than trusting every call site to remember it."""
+    """Every network call in `path` that has no `timeout=` keyword:
+    requests.<verb>() / session.request(), and urllib's urlopen().
+    A hung server on one of these leaves a background job stuck at
+    "running" forever -- a real, shipped gap this checks for directly
+    rather than trusting every call site to remember it. Only
+    unambiguous names are matched (`requests.<verb>`, `session.request`,
+    `urlopen`), so ordinary `dict.get` / router `.post` decorators aren't."""
     tree = ast.parse(open(path, encoding="utf-8").read(), path)
     problems = []
     for node in ast.walk(tree):
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr in ("post", "get")
-                and isinstance(node.func.value, ast.Name) and node.func.value.id == "requests"):
-            if not any(kw.arg == "timeout" for kw in node.keywords):
-                problems.append(node.lineno)
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        is_http = (isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name)
+                   and ((f.value.id == "requests" and f.attr in _HTTP_VERBS)
+                        or (f.value.id == "session" and f.attr == "request")))
+        is_http = is_http or (isinstance(f, ast.Attribute) and f.attr == "urlopen") \
+            or (isinstance(f, ast.Name) and f.id == "urlopen")
+        if is_http and not any(kw.arg == "timeout" for kw in node.keywords):
+            problems.append(node.lineno)
     return problems
+
+
+def _py_files_under(dirname):
+    out = []
+    for root, dirs, files in os.walk(os.path.join(PROJECT_ROOT, dirname)):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        out += [os.path.join(root, f) for f in files if f.endswith(".py")]
+    return sorted(out)
 
 
 class TestHttpCallsHaveTimeouts:
@@ -503,6 +522,23 @@ class TestHttpCallsHaveTimeouts:
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
 
+    def test_sources_http_and_dictionary(self):
+        # sources/http.py (session.request) and dictionary.py (urlopen).
+        for name in ("sources/http.py", "dictionary.py"):
+            problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, name))
+            assert problems == [], f"{name}: call(s) missing timeout= at line(s): {problems}"
+
+    def test_services_and_api_packages(self):
+        # B-07: the FastAPI layer's services/ (metadata autofill's page
+        # fetch, etc.) and api/ must never make an untimed HTTP call.
+        files = _py_files_under("services") + _py_files_under("api")
+        assert files, "services/ and api/ were not found"
+        problems = {os.path.relpath(f, PROJECT_ROOT): _find_requests_calls_missing_timeout(f)
+                    for f in files}
+        problems = {k: v for k, v in problems.items() if v}
+        assert problems == {}, f"call(s) missing timeout=: {problems}"
+
+
 class TestTimeoutCheckerItself:
     def test_catches_a_call_with_no_timeout(self, tmp_path):
         src = "import requests\nrequests.post(url, json={})\n"
@@ -512,6 +548,20 @@ class TestTimeoutCheckerItself:
 
     def test_does_not_flag_a_call_with_timeout(self, tmp_path):
         src = "import requests\nrequests.post(url, json={}, timeout=30)\n"
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_requests_calls_missing_timeout(str(p)) == []
+
+    def test_catches_urlopen_and_session_request_without_timeout(self, tmp_path):
+        src = ("import urllib.request\nurllib.request.urlopen(u)\n"
+               "session.request('GET', u)\nrequests.put(u)\n")
+        p = tmp_path / "mod.py"
+        p.write_text(src)
+        assert _find_requests_calls_missing_timeout(str(p)) == [2, 3, 4]
+
+    def test_accepts_urlopen_and_session_request_with_timeout(self, tmp_path):
+        src = ("urllib.request.urlopen(u, timeout=5)\n"
+               "session.request('GET', u, timeout=5)\n")
         p = tmp_path / "mod.py"
         p.write_text(src)
         assert _find_requests_calls_missing_timeout(str(p)) == []
