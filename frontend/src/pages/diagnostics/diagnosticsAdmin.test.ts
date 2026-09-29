@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '../../api/client'
 import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../../types/diagnostics'
 import {
-  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText, extensionSummary, extensionToggleNote,
+  LOST_CONTACT_INSTALL, adminErrorText, bugBundleReplayText, bugBundleTitle, busyLine, copyFallbackText, extensionEngineNote, extensionSummary, extensionToggleNote,
   headerParts, historySummary, installBlockedReason, installConfirmLabel, installResultText, installableEngines,
   isInstallable, libraryStatsLine, logEmptyText, modelCacheSummary, pyannoteSummary, resetBlockedReason,
   setupRows, setupSummary,
@@ -192,6 +192,17 @@ describe('other sections', () => {
 })
 
 describe('browser extension', () => {
+  it('engine note says what happens to a page', () => {
+    const base = { model: null, engines: [] }
+    expect(extensionEngineNote({ ...base, engine: null, ready: false })).toBe(
+      'No engine: pages come back with their original text only.')
+    expect(extensionEngineNote({ ...base, engine: 'claude', ready: false })).toBe(
+      'No claude key is saved on this PC, so pages come back untranslated.')
+    expect(extensionEngineNote({ ...base, engine: 'claude', ready: true })).toBe(
+      'Pages are translated with claude. The key stays on this PC.')
+  })
+
+
   it('summarises every enabled/running pair', () => {
     expect(extensionSummary({ enabled: true, running: true })).toBe('On · running')
     expect(extensionSummary({ enabled: true, running: false })).toBe('On · starts next time Baihe starts')

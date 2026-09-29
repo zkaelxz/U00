@@ -36,3 +36,5 @@
 .stage-translate .bulk-table td:last-child { width: 1%; }
 .stage-translate .bulk-table .bulk-confirm { min-width: 16rem; }
 .stage-translate .bulk-list li > button { justify-self: start; }
+.translate-failed p { margin: 0 0 var(--space-2); }
+.translate-failed-reasons { margin: 0 0 var(--space-2); padding-left: var(--space-4); font-size: var(--font-sm); overflow-wrap: anywhere; }

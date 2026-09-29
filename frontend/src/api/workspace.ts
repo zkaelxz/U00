@@ -14,6 +14,7 @@ import type {
   TranscribeConfigUpdate,
   TranscribeRunRequest,
   UploadAndTranscribeResult,
+  WorkflowProgress,
 } from '../types/workspace'
 import { getJson, postJson, postMultipart } from './client'
 
@@ -128,3 +129,7 @@ export const getRetranscribeResult = (id: number, lineId: number, f?: Fetch) =>
 // expected_zh and the run is the one shown (409 otherwise).
 export const applyRetranscribeLine = (id: number, lineId: number, req: RetranscribeApplyRequest, f?: Fetch) =>
   postJson<RetranscribeApplyResult>(`/api/transcribe/dramas/${id}/lines/${lineId}/retranscribe/apply`, req, f)
+
+// P16/P17: the drama's current stage and per-stage state for the stage bar.
+export const getWorkflowProgress = (id: number, f?: Fetch) =>
+  getJson<WorkflowProgress>(`/api/workflow/dramas/${id}/progress`, f)

@@ -8,7 +8,7 @@ import type {
   DiagnosticsBugBundle, DiagnosticsJobHistoryItem, DiagnosticsModelCache, DiagnosticsPyannoteReadiness, DiagnosticsSetupChecks,
   GpuStatus, ModelEngineVersion,
 } from '../../types/diagnostics'
-import type { ExtensionEnabledResult, ExtensionStatus } from '../../types/extension'
+import type { ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus } from '../../types/extension'
 import type { LibraryDashboard } from '../../types/library'
 import { formatBytes } from '../libraryAdmin/libraryAdmin'
 import { describeGpu, formatSeconds, statusLabel } from '../diagnosticsFormat'
@@ -219,6 +219,13 @@ export function extensionToggleNote(r: ExtensionEnabledResult): string | null {
   if (!r.enabled && (r.restart_needed || r.running)) return 'Off. Restart Baihe to stop it now.'
   if (r.enabled && !r.running) return 'On. It starts next time Baihe starts.'
   return null
+}
+
+/** The line under the engine picker: what the extension will do with a page. */
+export function extensionEngineNote(s: ExtensionEngineSettings): string {
+  if (!s.engine) return 'No engine: pages come back with their original text only.'
+  if (!s.ready) return `No ${s.engine} key is saved on this PC, so pages come back untranslated.`
+  return `Pages are translated with ${s.engine}. The key stays on this PC.`
 }
 
 export const TOKEN_VISIBLE_MS = 120_000

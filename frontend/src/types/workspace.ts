@@ -192,3 +192,24 @@ export interface RetranscribeApplyResult {
   line_id: number
   zh: string
 }
+
+// GET /api/workflow/dramas/{id}/progress (api/schemas.py WorkflowProgress).
+export type WorkflowStageStateName = 'done' | 'current' | 'pending' | 'optional' | 'blocked'
+
+export interface WorkflowStageState {
+  key: string
+  state: WorkflowStageStateName
+}
+
+export interface WorkflowProgress {
+  drama_id: number
+  stage_index: number
+  stage: string
+  line_count: number
+  untranslated_count: number
+  flagged_count: number
+  has_audio: boolean
+  has_dub_track: boolean
+  exported: boolean
+  stages: WorkflowStageState[]
+}
