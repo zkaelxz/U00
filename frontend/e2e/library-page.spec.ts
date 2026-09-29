@@ -15,7 +15,12 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   await page.getByLabel('Search all lines').fill('zzz-no-such-line')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
   await expect(page.getByTestId('search-count')).toHaveText('0 matches')
+  // Back to Titles: the same text now filters titles (no match), and
+  // Clear filters brings the whole library back.
   await page.getByRole('radio', { name: 'Titles' }).check()
+  await expect(page.getByLabel('Search title or summary')).toHaveValue('zzz-no-such-line')
+  await expect(page.getByText('No dramas match.')).toBeVisible()
+  await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('3 dramas')
 })
 
