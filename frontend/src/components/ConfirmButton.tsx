@@ -32,7 +32,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep, type ConfirmEvent } from './confirmButton'
+import { CONFIRM_REVERT_MS, armedAnnouncement, confirmLabelFor, confirmStep, type ConfirmEvent } from './confirmButtonState'
 
 type Props = {
   name: string
