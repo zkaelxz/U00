@@ -33,6 +33,7 @@ from api.error_handlers import install_error_handlers
 from api.routers import (
     artifact_routes,
     blocked_retry_routes,
+    bug_report_routes,
     characters_routes,
     comic_routes,
     delete_routes,
@@ -55,6 +56,8 @@ from api.routers import (
     media_routes,
     metadata_routes,
     narration_routes,
+    notification_routes,
+    novel_files_routes,
     novel_routes,
     reader_routes,
     restructure_routes,
@@ -181,9 +184,12 @@ def create_app(settings: ApiSettings = None, frontend_dist=None) -> FastAPI:
     app.include_router(delete_routes.router)
     app.include_router(translation_version_routes.router)
     app.include_router(blocked_retry_routes.router)
+    app.include_router(notification_routes.router)
     app.include_router(comic_routes.router)
     app.include_router(series_people_routes.router)
     app.include_router(voice_clone_routes.router)
+    app.include_router(bug_report_routes.router)
+    app.include_router(novel_files_routes.router)
     if settings.serve_frontend:
         install_frontend(app, frontend_dist)  # last: /api routes match first
     return app

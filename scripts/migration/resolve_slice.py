@@ -121,8 +121,19 @@ def add_entries(base, branch):
 def fix_file_org():
     base = git_show("origin/baihe-subtitler:FILE_ORGANIZATION.md")
     branch = git_show("HEAD:FILE_ORGANIZATION.md")
-    open("FILE_ORGANIZATION.md", "w", encoding="utf-8").write(add_entries(base, branch))
+    out = add_entries(base, branch)
+    open("FILE_ORGANIZATION.md", "w", encoding="utf-8").write(out)
     print("FILE_ORGANIZATION.md rebuilt from base + entries for", svc, router)
+    # Only services/ and api/routers/ entries are carried over; list any other
+    # line this branch added (frontend/, tests/, ...) so it is re-added by hand.
+    mb = subprocess.run(["git", "merge-base", "HEAD", "MERGE_HEAD"], capture_output=True, text=True).stdout.strip()
+    before = set(git_show(f"{mb}:FILE_ORGANIZATION.md").splitlines()) if mb else set()
+    kept = set(out.splitlines())
+    lost = [ln for ln in branch.splitlines() if ln not in before and ln not in kept]
+    if lost:
+        print("WARNING: branch lines not carried over; re-add them by hand:")
+        for ln in lost:
+            print("   ", ln)
 
 
 def merge_base():

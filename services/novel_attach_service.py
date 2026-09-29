@@ -22,9 +22,15 @@ import shutil
 import stat
 import tempfile
 import zipfile
+import zlib
 from html.parser import HTMLParser
 from typing import Optional
 from xml.etree import ElementTree
+
+try:
+    import lzma
+except ImportError:  # Python built without lzma: zipfile raises RuntimeError instead
+    lzma = None
 
 import background_jobs
 import db
@@ -48,6 +54,10 @@ _BACKENDS = {"zh": ("tesseract", "paddle"), "ja": ("manga_ocr", "tesseract"),
 _BACKEND_MODULES = {"tesseract": "pytesseract", "paddle": "paddleocr", "manga_ocr": "manga_ocr"}
 _BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote"}
 _SKIP_TAGS = {"script", "style", "head"}
+_BAD_ENTRY_ERRORS = (zipfile.BadZipFile, zlib.error, RuntimeError, NotImplementedError,
+                     OSError, EOFError)
+if lzma is not None:  # a corrupt LZMA (method 14) entry raises LZMAError, not OSError
+    _BAD_ENTRY_ERRORS += (lzma.LZMAError,)
 
 
 def _require_drama(drama_id: int) -> dict:
@@ -202,8 +212,12 @@ def extract_epub_text(fileobj) -> str:
         for name in _spine_order(zf, names):
             if not name.lower().endswith(_HTML_EXTENSIONS):
                 continue
-            with zf.open(name) as f:
-                raw = f.read(MAX_EPUB_UNCOMPRESSED + 1)  # bounded even if the header lied
+            try:
+                with zf.open(name) as f:
+                    raw = f.read(MAX_EPUB_UNCOMPRESSED + 1)  # bounded even if the header lied
+            except _BAD_ENTRY_ERRORS:
+                # corrupt/encrypted/unsupported entry: a client error, not a 500
+                raise InvalidInputError("That file is not a valid EPUB.") from None
             if len(raw) > MAX_EPUB_UNCOMPRESSED:
                 raise InvalidInputError("That EPUB is too large once unpacked.")
             text = _html_to_text(raw)
