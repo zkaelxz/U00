@@ -61,6 +61,8 @@ test('starts a transcription with the right body, polls the job and cancels it',
   const run = await mockRun(page, 1)
   await page.goto('/#/drama/1/source')
   await expect(page.getByRole('region', { name: 'Transcribe' })).toBeVisible()
+  // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
+  await expect(page.getByLabel('Beam size (1-10)')).toBeVisible()
   await page.getByLabel('Initial prompt').fill('names: Wei')
   await page.getByLabel('Expected speakers (0-20, blank = auto)').fill('2')
   const transcript = page.getByLabel('Transcript text')
@@ -79,6 +81,8 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
   await page.route('**/api/transcribe/dramas/1/run', (route) =>
     route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'A job is already running.' } } }))
   await page.goto('/#/drama/1/source')
+  // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
+  await expect(page.getByLabel('Beam size (1-10)')).toBeVisible()
   await page.getByLabel('Beam size (1-10)').fill('11')
   await page.getByRole('button', { name: 'Save options' }).click()
   await expect(page.getByRole('alert')).toContainText('beam size')
@@ -92,6 +96,8 @@ test('an out-of-range option is caught before saving and a server 409 shows a ba
 test('switching dramas does not leak stage state', async ({ page }) => {
   await mockRun(page, 1)
   await page.goto('/#/drama/1/source')
+  // The config form (and the Transcript text box, which depends on it) renders only once the config has loaded.
+  await expect(page.getByLabel('Beam size (1-10)')).toBeVisible()
   await page.getByLabel('Initial prompt').fill('leaky prompt')
   const transcript = page.getByLabel('Transcript text')
   if (await transcript.count()) await transcript.fill('line one')

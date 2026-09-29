@@ -1607,7 +1607,7 @@ an isolated temp database, so running them never touches your real
 library.
 
 ```bash
-pip install -r requirements.txt  # includes pytest; or: pip install -r requirements-core.txt pytest
+pip install -r requirements-core.txt pytest -c constraints.txt   # minimum plus the test runner; add requirements-media.txt / requirements-optional.txt for those features
 python run_tests.py     # run everything (a wrapper around pytest, config in pytest.ini)
 python run_tests.py -k history   # run a subset
 ```
