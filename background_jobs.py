@@ -399,6 +399,36 @@ def _promote_next_queued_gpu_job():
         _spawn(job_id, target, args, kwargs, gpu_touching=True)
 
 
+# Set while a library restore swaps the library folder: no job may start
+# then (start_job/start_process_job return False, the same "not started"
+# answer as a duplicate). See services/library_admin_service.restore_backup.
+_exclusive_label = None
+
+
+def acquire_exclusive(label: str) -> bool:
+    """Atomically: refuse (False) if any job is running/queued in this
+    process or another exclusive hold is active; otherwise take the hold,
+    so no new job can start until release_exclusive()."""
+    global _exclusive_label
+    with _lock:
+        if _exclusive_label is not None or any(
+                j.get("status") in ("running", "queued") for j in _jobs.values()):
+            return False
+        _exclusive_label = label
+        return True
+
+
+def release_exclusive():
+    global _exclusive_label
+    with _lock:
+        _exclusive_label = None
+
+
+def exclusive_active() -> bool:
+    with _lock:
+        return _exclusive_label is not None
+
+
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str = None, **kwargs) -> bool:
     """
@@ -416,6 +446,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     message; defaults to job_id if not given.
     """
     with _lock:
+        if _exclusive_label is not None:
+            return False
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False
@@ -480,6 +512,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     Carried through the GPU queue like target/args.
     """
     with _lock:
+        if _exclusive_label is not None:
+            return False
         existing = _jobs.get(job_id)
         if existing and existing["status"] in ("running", "queued"):
             return False

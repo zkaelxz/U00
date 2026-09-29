@@ -9,8 +9,15 @@ Service half only; no router yet. Rules this module keeps:
     A wrong or missing confirm raises InvalidInputError before anything
     is read for writing, so nothing changes.
   - Delete refuses any drama with a running/queued job
-    (drama_service.job_running_for_drama); restore refuses while ANY job
-    runs, in this process or (via fresh job_records rows) another one.
+    (drama_service.job_running_for_drama); delete and cleanup refuse
+    while a backup/export runs or a restore is in progress. Restore
+    refuses while ANY job runs, in this process or (via fresh job_records
+    rows) another one, holds background_jobs' exclusive lock so no job
+    starts meanwhile, and re-checks right before the folder swap.
+  - A restore never takes sign-in state from the upload: the current
+    users/permissions/audit tables, sources settings, backups/, browser
+    profiles, source profiles and extension token are kept, and every
+    session is revoked.
   - Writes are field-whitelisted: status and the organizational tags only,
     through db.update_drama / db.set_custom_tag.
   - Bulk calls return one result per requested id.
@@ -28,9 +35,11 @@ import io
 import logging
 import os
 import re
+import shutil
 import tempfile
 import time
 import zipfile
+import zlib
 
 import background_jobs
 import db
@@ -55,10 +64,15 @@ CLEAN_CONFIRM_TEXT = "CLEAN"
 BULK_TRANSLATE_JOB_ID = "bulk_series_translate"  # same id the Streamlit tab uses
 EXPORT_JOB_ID = "library_export_zip"
 BACKUP_JOB_ID = "library_backup"
+DATABASE_BACKUP_JOB_ID = "library_db_backup"
 
 # Both under LIBRARY_DIR/backups, which a full backup already skips, so an
 # export or old backup is never zipped into the next backup.
-_ARTIFACT_SUBDIRS = {"backup": ("backups",), "export": ("backups", "exports")}
+_ARTIFACT_SUBDIRS = {"backup": ("backups",), "export": ("backups", "exports"),
+                     "database": ("backups", "database")}
+_ARTIFACT_EXT = {"backup": ".zip", "export": ".zip", "database": ".db"}
+_ARTIFACT_PREFIX = {"backup": "baihe_library_backup", "export": "dramas_export",
+                    "database": "library"}
 _EXPORTABLE_STATUSES = ("translated", "dubbed", "exported")
 
 
@@ -111,6 +125,28 @@ def _any_job_running() -> bool:
                for r in db.list_job_records())
 
 
+def _job_id_running(job_id: str) -> bool:
+    """This process's job, or a fresh running/queued job_records row."""
+    job = background_jobs.get_status(job_id)
+    if job and job.get("status") in ("running", "queued"):
+        return True
+    cutoff = time.time() - drama_service._STALE_JOB_RECORD_SECONDS
+    rec = db.get_job_record(job_id)
+    return bool(rec and rec.get("status") in ("running", "queued")
+                and (rec.get("updated_at") or 0) >= cutoff)
+
+
+def _refuse_while_archiving(action: str):
+    """Delete/cleanup must not remove files a running backup or export is
+    reading, nor run while a restore swaps the library folder."""
+    if background_jobs.exclusive_active():
+        raise ConflictError(f"A restore is in progress; {action} is not possible right now.")
+    for job_id, label in ((BACKUP_JOB_ID, "backup"), (EXPORT_JOB_ID, "library export")):
+        if _job_id_running(job_id):
+            raise ConflictError(f"A {label} is running -- wait for it to finish before "
+                                f"{action}.")
+
+
 def _refuse_duplicate(job_id: str, label: str):
     job = background_jobs.get_status(job_id)
     if job and job["status"] in ("running", "queued"):
@@ -131,7 +167,7 @@ def _timestamp() -> str:
 
 
 def admin_artifact_path(kind: str) -> dict:
-    """Newest finished file of `kind` ("backup"/"export"): {path
+    """Newest finished file of `kind` ("backup"/"export"/"database"): {path
     (SERVER-SIDE ONLY, never put in a response), name, size}. Symlinks
     and anything outside the folder are ignored."""
     base = _artifact_dir(kind, create=False)
@@ -142,7 +178,7 @@ def admin_artifact_path(kind: str) -> dict:
     except OSError:
         raise NotFoundError("No artifact available.")
     for name in names:
-        if not name.endswith(".zip") or name.startswith("."):
+        if not name.endswith(_ARTIFACT_EXT[kind]) or name.startswith("."):
             continue
         path = os.path.join(base, name)
         if (os.path.islink(path) or not os.path.isfile(path)
@@ -190,6 +226,7 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     with a running/queued job is skipped with error "job_running"."""
     ids = _check_ids(drama_ids)
     _require_confirm(confirm, confirm_text, DELETE_CONFIRM_TEXT, "Deleting dramas")
+    _refuse_while_archiving("deleting dramas")
     results = []
     for did in ids:
         if db.get_drama(did) is None:
@@ -211,10 +248,38 @@ def bulk_delete(drama_ids, confirm=False, confirm_text="") -> dict:
     return {"results": results, "deleted": sum(r["ok"] for r in results)}
 
 
+def _bulk_translate_plan(ids):
+    """(queued ids, skipped [{drama_id, reason}], engines) for already
+    checked ids. A drama with any running or queued job (e.g. a translate
+    waiting for the GPU) is skipped, so the bulk job never adopts or
+    cancels a job the user started."""
+    queued, skipped, engines = [], [], set()
+    for did in ids:
+        drama = db.get_drama(did)
+        if drama is None:
+            skipped.append({"drama_id": did, "reason": "not_found"})
+        elif drama.get("status") != "aligned":
+            skipped.append({"drama_id": did, "reason": "not_aligned"})
+        elif drama_service.job_running_for_drama(did):
+            skipped.append({"drama_id": did, "reason": "job_running"})
+        else:
+            queued.append(did)
+            engines.add(drama.get("translation_engine") or "claude")
+    return queued, skipped, engines
+
+
+def bulk_translate_engines(drama_ids) -> list:
+    """The engines start_bulk_translate(drama_ids) would use: each queued
+    drama's saved translation_engine (default "claude"), sorted. For the
+    route layer's per-engine permission check."""
+    return sorted(_bulk_translate_plan(_check_ids(drama_ids))[2])
+
+
 def start_bulk_translate(drama_ids, default_locale: str = "en-US") -> dict:
     """Starts the existing bulk-series translate job
     (workspace_job_service.run_bulk_series_translate_job) for the picked
-    dramas whose status is "aligned", the same filter the tab applies.
+    dramas whose status is "aligned" (the same filter the tab applies) and
+    that have no running or queued job.
     Keys, Ollama URL, monthly cap and Gemini free tier come from Settings
     server-side. Returns {job_id, queued: [ids], skipped: [{drama_id, reason}]}."""
     from services import settings_service
@@ -223,15 +288,7 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US") -> dict:
                                                                default_locale):
         raise InvalidInputError("default_locale looks like en-US.")
     _refuse_duplicate(BULK_TRANSLATE_JOB_ID, "bulk translation")
-    queued, skipped = [], []
-    for did in ids:
-        drama = db.get_drama(did)
-        if drama is None:
-            skipped.append({"drama_id": did, "reason": "not_found"})
-        elif drama.get("status") != "aligned":
-            skipped.append({"drama_id": did, "reason": "not_aligned"})
-        else:
-            queued.append(did)
+    queued, skipped, _ = _bulk_translate_plan(ids)
     if not queued:
         raise InvalidInputError("None of the picked dramas are untranslated (status 'aligned').")
     api_keys = {}
@@ -260,13 +317,35 @@ def start_bulk_translate(drama_ids, default_locale: str = "en-US") -> dict:
 # export zip / backup (jobs)
 # --------------------------------------------------------------------------
 
-def _export_job(job_id, drama_ids):
-    final_dir = _artifact_dir("export", create=True)
-    name = f"dramas_export_{_timestamp()}.zip"
-    fd, tmp = tempfile.mkstemp(prefix=".partial_", suffix=".zip", dir=final_dir)
-    os.close(fd)
-    exported = 0
+def _write_artifact(kind: str, suffix: str, fail_message: str, write) -> tuple:
+    """Creates a hidden partial file in the kind's folder, calls
+    write(tmp_path), then renames it into place. Returns (name, size).
+    Any OSError, including creating the folder or removing the partial
+    file, becomes a RuntimeError with fail_message (no path in it)."""
+    tmp = None
     try:
+        try:
+            final_dir = _artifact_dir(kind, create=True)
+            name = f"{_ARTIFACT_PREFIX[kind]}_{_timestamp()}{suffix}"
+            fd, tmp = tempfile.mkstemp(prefix=".partial_", suffix=suffix, dir=final_dir)
+            os.close(fd)
+            write(tmp)
+            final = os.path.join(final_dir, name)
+            os.replace(tmp, final)
+            tmp = None
+            return name, os.path.getsize(final)
+        finally:
+            if tmp is not None and os.path.exists(tmp):
+                os.remove(tmp)
+    except OSError:
+        raise RuntimeError(fail_message) from None
+
+
+def _export_job(job_id, drama_ids):
+    exported = 0
+
+    def write(tmp):
+        nonlocal exported
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
             for n, did in enumerate(drama_ids):
                 background_jobs.update_progress(job_id, n / max(1, len(drama_ids)),
@@ -288,13 +367,8 @@ def _export_job(job_id, drama_ids):
                 if os.path.isfile(dub_path) and not os.path.islink(dub_path):
                     zf.write(dub_path, f"{folder}/dub_track.wav")
                 exported += 1
-        os.replace(tmp, os.path.join(final_dir, name))
-        tmp = None
-    except OSError:
-        raise RuntimeError("The export could not be written.") from None
-    finally:
-        if tmp is not None and os.path.exists(tmp):
-            os.remove(tmp)
+
+    name, _ = _write_artifact("export", ".zip", "The export could not be written.", write)
     background_jobs.set_result(job_id, {"exported": exported, "name": name})
     background_jobs.update_progress(job_id, 1.0, "Export ready.")
 
@@ -302,55 +376,85 @@ def _export_job(job_id, drama_ids):
 def start_export_zip(drama_ids=None) -> dict:
     """Job: zips english/chinese/bilingual SRT (+ dub track) for each
     translated/dubbed/exported drama -- the picked ones, or all of them.
-    Returns {job_id, drama_ids}."""
+    Returns {job_id, drama_ids}; with explicit ids also `results`, one per
+    requested id ({drama_id, ok, error: not_found|not_translated})."""
+    results = None
     if drama_ids is None:
         ids = [d["id"] for d in db.list_dramas() if d.get("status") in _EXPORTABLE_STATUSES]
     else:
-        ids = [did for did in _check_ids(drama_ids)
-               if (db.get_drama(did) or {}).get("status") in _EXPORTABLE_STATUSES]
+        ids, results = [], []
+        for did in _check_ids(drama_ids):
+            drama = db.get_drama(did)
+            if drama is None:
+                results.append({"drama_id": did, "ok": False, "error": "not_found"})
+            elif drama.get("status") not in _EXPORTABLE_STATUSES:
+                results.append({"drama_id": did, "ok": False, "error": "not_translated"})
+            else:
+                ids.append(did)
+                results.append({"drama_id": did, "ok": True})
     if not ids:
-        raise InvalidInputError("No translated dramas to export.")
+        raise InvalidInputError("No translated dramas to export.",
+                                details={"results": results} if results is not None else None)
     _refuse_duplicate(EXPORT_JOB_ID, "library export")
     if not background_jobs.start_job(EXPORT_JOB_ID, _export_job, EXPORT_JOB_ID, ids,
                                      description="Library export"):
         raise ConflictError("A library export is already running.")
-    return {"job_id": EXPORT_JOB_ID, "drama_ids": ids}
+    out = {"job_id": EXPORT_JOB_ID, "drama_ids": ids}
+    if results is not None:
+        out["results"] = results
+    return out
+
+
+def _sanitized_snapshot(dest: str):
+    """A consistent database snapshot with every auth session removed
+    (secure_delete, so the session hashes aren't left in free pages) and
+    folded out of WAL mode, so dest is one self-contained file."""
+    import sqlite3
+    db.snapshot_database(dest)
+    try:
+        conn = sqlite3.connect(dest, isolation_level=None)
+        try:
+            conn.execute("PRAGMA secure_delete = ON")
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                            "AND name = 'auth_sessions'").fetchone():
+                conn.execute("DELETE FROM auth_sessions")
+            conn.execute("PRAGMA journal_mode = DELETE")
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        raise OSError("snapshot could not be prepared") from None
+
+
+def _backup_excluded_top_level() -> tuple:
+    """Top-level library entries a backup never contains: old backups and
+    exports, saved site sign-ins, approved source profiles (a restore keeps
+    the current ones either way) and the browser-extension token."""
+    return wjs._restore_kept_names()
 
 
 def _backup_job(job_id):
-    from sources import store as src_store
     library_dir = db.LIBRARY_DIR
-    final_dir = _artifact_dir("backup", create=True)
-    name = f"baihe_library_backup_{_timestamp()}.zip"
     skip = {db.DB_PATH, db.DB_PATH + "-wal", db.DB_PATH + "-shm"}
-    fd, tmp = tempfile.mkstemp(prefix=".partial_", suffix=".zip", dir=final_dir)
-    os.close(fd)
-    try:
+    excluded = _backup_excluded_top_level()
+
+    def write(tmp):
         with tempfile.TemporaryDirectory() as snapdir:
             snap = os.path.join(snapdir, "library.db")
-            db.snapshot_database(snap)
+            _sanitized_snapshot(snap)
             with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
                 for root, dirs, files in os.walk(library_dir, topdown=True):
                     if root == library_dir:
-                        # Same exclusions as the tab: old backups/exports and
-                        # saved site sign-ins never go into a backup.
-                        dirs[:] = [d for d in dirs
-                                   if d not in ("backups", src_store.BROWSER_PROFILES_DIRNAME)]
+                        dirs[:] = [d for d in dirs if d not in excluded]
+                        files = [f for f in files if f not in excluded]
                     for fname in files:
                         full = os.path.join(root, fname)
                         if full in skip or os.path.islink(full):
                             continue
                         zf.write(full, os.path.relpath(full, library_dir))
                 zf.write(snap, "library.db")
-        os.replace(tmp, os.path.join(final_dir, name))
-        tmp = None
-    except OSError:
-        raise RuntimeError("The backup could not be written.") from None
-    finally:
-        if tmp is not None and os.path.exists(tmp):
-            os.remove(tmp)
-    background_jobs.set_result(job_id, {"name": name,
-                                        "size": os.path.getsize(os.path.join(final_dir, name))})
+
+    name, size = _write_artifact("backup", ".zip", "The backup could not be written.", write)
+    background_jobs.set_result(job_id, {"name": name, "size": size})
     background_jobs.update_progress(job_id, 1.0, "Backup ready.")
 
 
@@ -363,11 +467,41 @@ def start_backup() -> dict:
     return {"job_id": BACKUP_JOB_ID}
 
 
+def _database_backup_job(job_id):
+    name, size = _write_artifact("database", ".db", "The database backup could not be written.",
+                                 _sanitized_snapshot)
+    background_jobs.set_result(job_id, {"name": name, "size": size})
+    background_jobs.update_progress(job_id, 1.0, "Database backup ready.")
+
+
+def start_database_backup() -> dict:
+    """Job: database-only backup (the tab's "Database-only backup (fast,
+    small)"): one consistent library.db snapshot, auth sessions removed,
+    no media. Fetch it with admin_artifact_path("database")."""
+    _refuse_duplicate(DATABASE_BACKUP_JOB_ID, "database backup")
+    if not background_jobs.start_job(DATABASE_BACKUP_JOB_ID, _database_backup_job,
+                                     DATABASE_BACKUP_JOB_ID, description="Database backup"):
+        raise ConflictError("A database backup is already running.")
+    return {"job_id": DATABASE_BACKUP_JOB_ID}
+
+
 # --------------------------------------------------------------------------
 # restore
 # --------------------------------------------------------------------------
 
 _BAD_ZIP = "This file is not a valid Baihe library backup."
+_BUSY = ("A background job is running -- wait for it to finish or cancel it before "
+         "restoring.")
+
+# Restore-specific limits for an uploaded (network) zip, tighter than
+# workspace_job_service's generous Step 25k guardrails: expanded total at
+# most max(factor x upload size, 2 x current library size, 1 GiB), a
+# member-count cap, and enough free disk for the expanded total plus a
+# margin before anything is extracted.
+_RESTORE_MAX_MEMBERS = 100_000
+_RESTORE_EXPANSION_FACTOR = 10
+_RESTORE_MIN_TOTAL_BYTES = 1024 ** 3
+_RESTORE_DISK_MARGIN_BYTES = 256 * 1024 ** 2
 
 
 def _unsafe_member(info: zipfile.ZipInfo) -> bool:
@@ -380,58 +514,121 @@ def _unsafe_member(info: zipfile.ZipInfo) -> bool:
     return (info.external_attr >> 16) & 0o170000 == 0o120000  # symlink entry
 
 
+def _library_size() -> int:
+    """Bytes under LIBRARY_DIR, not counting the entries a backup skips."""
+    excluded = _backup_excluded_top_level()
+    root_dir = db.LIBRARY_DIR
+    total = 0
+    for root, dirs, files in os.walk(root_dir, topdown=True):
+        if root == root_dir:
+            dirs[:] = [d for d in dirs if d not in excluded]
+        for fname in files:
+            full = os.path.join(root, fname)
+            try:
+                if not os.path.islink(full):
+                    total += os.path.getsize(full)
+            except OSError:
+                continue
+    return total
+
+
+def _restore_total_cap(upload_size: int) -> int:
+    return max(_RESTORE_EXPANSION_FACTOR * upload_size, 2 * _library_size(),
+               _RESTORE_MIN_TOTAL_BYTES)
+
+
 def validate_backup_zip(zip_bytes) -> None:
     """Every check restore runs before touching the library: a real zip,
-    library.db present, no absolute/traversal/symlink member, within the
-    Step 52 member-count and size limits, no corrupt member. Fixed-text
-    InvalidInputError on failure (no member names or paths echoed)."""
+    library.db present, no absolute/traversal/symlink/encrypted member,
+    within the Step 52 limits and the tighter restore limits above
+    (member count, expanded total, free disk), no corrupt member.
+    Fixed-text InvalidInputError on failure (no member names or paths
+    echoed). The library.db itself is checked with SQLite after extraction
+    (workspace_job_service.validate_staged_library_db)."""
     if not isinstance(zip_bytes, (bytes, bytearray)) or not zip_bytes:
         raise InvalidInputError("Upload a backup .zip file.")
     try:
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
             infos = zf.infolist()
-            if len(infos) > wjs._MAX_RESTORE_MEMBERS:
+            if len(infos) > min(wjs._MAX_RESTORE_MEMBERS, _RESTORE_MAX_MEMBERS):
                 raise InvalidInputError("The backup has too many files; it looks corrupted "
                                         "or unsafe to extract.")
             if "library.db" not in zf.namelist():
                 raise InvalidInputError(_BAD_ZIP + " (no library.db inside).")
+            total_cap = min(wjs._MAX_RESTORE_TOTAL_BYTES, _restore_total_cap(len(zip_bytes)))
             total = 0
             for info in infos:
                 if _unsafe_member(info):
                     raise InvalidInputError("The backup contains an unsafe file path.")
+                if info.flag_bits & 0x1:
+                    raise InvalidInputError("The backup contains an encrypted file.")
                 if info.file_size > wjs._MAX_RESTORE_MEMBER_BYTES:
                     raise InvalidInputError("The backup contains a file that is too large; it "
                                             "looks corrupted or unsafe to extract.")
                 total += info.file_size
-                if total > wjs._MAX_RESTORE_TOTAL_BYTES:
+                if total > total_cap:
                     raise InvalidInputError("The backup would expand too large; it looks "
                                             "corrupted or unsafe to extract.")
+            try:
+                free = shutil.disk_usage(os.path.dirname(os.path.abspath(db.LIBRARY_DIR))).free
+            except OSError:
+                free = None
+            if free is not None and free < total + _RESTORE_DISK_MARGIN_BYTES:
+                raise InvalidInputError("Not enough free disk space to restore this backup.")
             if zf.testzip() is not None:
                 raise InvalidInputError("The backup zip is corrupted.")
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError):
+    except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, ValueError, NotImplementedError,
+            RuntimeError, zlib.error):
         raise InvalidInputError(_BAD_ZIP) from None
+
+
+def _count_sessions() -> int:
+    return sum(len(db.auth_list_sessions(u["id"])) for u in db.auth_list_users())
 
 
 def restore_backup(zip_bytes, confirm=False, confirm_text="") -> dict:
     """Replaces the whole library with an uploaded backup. Order: confirm
-    (confirm=True, confirm_text "RESTORE") -> refuse if any job is running
-    or queued -> full validation -> workspace_job_service.
-    restore_library_backup (staging extract, rename-aside, rename-in,
-    roll back on failure). Nothing is touched unless every check passes."""
+    (confirm=True, confirm_text "RESTORE") -> take background_jobs'
+    exclusive hold (refused if any job runs here; no job can start until
+    the restore ends) -> refuse if another process has a fresh running
+    job -> full validation -> workspace_job_service.restore_library_backup
+    (staging extract, SQLite check of library.db, current auth tables and
+    sources settings kept, job re-check right before the rename,
+    rename-aside, rename-in, roll back on failure; backups/ and the other
+    kept entries carried across). Nothing is touched unless every check
+    passes. Afterwards every sign-in session is revoked and an audit entry
+    is written. Returns {restored, sessions_revoked}."""
+    from services import auth_service
     _require_confirm(confirm, confirm_text, RESTORE_CONFIRM_TEXT, "Restoring a backup")
-    if _any_job_running():
-        raise ConflictError("A background job is running -- wait for it to finish or cancel "
-                            "it before restoring.")
-    validate_backup_zip(zip_bytes)
+    if not background_jobs.acquire_exclusive("Library restore"):
+        raise ConflictError(_BUSY)
     try:
-        wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR)
-    except (ValueError, zipfile.BadZipFile):
-        raise InvalidInputError(_BAD_ZIP) from None
-    except OSError as e:
-        log.exception("Library restore failed")
-        raise ServiceError("The restore could not be completed; the current library was "
-                           "left in place.") from e
-    return {"restored": True}
+        if _any_job_running():
+            raise ConflictError(_BUSY)
+        validate_backup_zip(zip_bytes)
+        revoked = _count_sessions()
+
+        def _recheck():
+            if _any_job_running():
+                raise ConflictError(_BUSY)
+
+        try:
+            wjs.restore_library_backup(bytes(zip_bytes), db.LIBRARY_DIR, before_swap=_recheck)
+        except ServiceError:
+            raise
+        except (ValueError, zipfile.BadZipFile, RuntimeError, zlib.error) as e:
+            msg = str(e) if str(e) == wjs._BAD_LIBRARY_DB else _BAD_ZIP
+            raise InvalidInputError(msg) from None
+        except OSError as e:
+            log.exception("Library restore failed")
+            raise ServiceError("The restore could not be completed; the current library was "
+                               "left in place.") from e
+        db.init_db()  # an older backup may predate newer tables/columns
+        auth_service.write_audit(None, "library.restore",
+                                 f"library restored from backup; sessions revoked: {revoked}")
+    finally:
+        background_jobs.release_exclusive()
+    return {"restored": True, "sessions_revoked": revoked}
 
 
 # --------------------------------------------------------------------------
@@ -473,6 +670,7 @@ def storage_cleanup(preset: str, confirm=False, confirm_text="") -> dict:
     skipped. Returns per-drama freed bytes and the total."""
     cats = _check_preset(preset)
     _require_confirm(confirm, confirm_text, CLEAN_CONFIRM_TEXT, "Cleaning storage")
+    _refuse_while_archiving("cleaning storage")
     results, freed = [], 0
     for d in db.list_dramas():
         did = d["id"]
