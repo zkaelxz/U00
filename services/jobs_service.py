@@ -15,10 +15,17 @@ No Streamlit import, no HTTP types: takes plain values, returns plain
 dicts, so `cli.py` or a script could call it too.
 """
 
+import time
+
 import db
 import diagnostics
 import background_jobs
 from services.service_errors import ConflictError, NotFoundError
+
+
+# A queued/running record untouched this long, with no live job in this
+# process, is treated as owned by a dead process (records-only mirror, no resume).
+STALE_JOB_SECONDS = 15 * 60
 
 
 def _redact(record: dict) -> dict:
@@ -58,6 +65,15 @@ def cancel_job(job_id: str) -> dict:
         raise NotFoundError(f"No job with id {job_id!r}.")
     if record.get("status") not in ("queued", "running"):
         raise ConflictError(f"Job {job_id!r} already finished ({record.get('status')}).")
+    if (background_jobs.get_status(job_id) is None
+            and time.time() - (record.get("updated_at") or 0) > STALE_JOB_SECONDS):
+        # Owner process is gone: nobody will read a cancel flag, so close the record.
+        db.save_job_record(job_id, "cancelled", progress=record.get("progress"),
+                           message=record.get("message"), error=record.get("error"),
+                           description=record.get("description"),
+                           gpu_touching=record.get("gpu_touching"),
+                           started_at=record.get("started_at"), finished_at=time.time())
+        return {"job_id": job_id, "cancel_requested": True, "status": "cancelled"}
     background_jobs.request_cancel(job_id)
     db.request_job_record_cancel(job_id)
     return {"job_id": job_id, "cancel_requested": True, "status": record["status"]}

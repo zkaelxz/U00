@@ -75,3 +75,17 @@ def test_in_process_job_cancelled_immediately(client):
         assert background_jobs.is_cancel_requested("j4")
     finally:
         _disown("j4")
+
+
+def test_stale_orphan_record_is_closed_on_cancel(client):
+    """B-04: no live owner and an old updated_at -> record becomes cancelled."""
+    import time
+    db.save_job_record("orphan", "running", progress=0.4)
+    with db.get_conn() as conn:
+        conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'orphan'",
+                     (time.time() - 3600,))
+    r = client.post("/api/jobs/orphan/cancel")
+    assert r.status_code == 200
+    assert r.json()["status"] == "cancelled"
+    assert db.get_job_record("orphan")["status"] == "cancelled"
+    assert client.post("/api/jobs/orphan/cancel").status_code == 409

@@ -358,6 +358,8 @@ def run_flag_job(job_id, drama_id, lines, engine, engine_choice):
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "flag_review",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
     current = {r["id"]: (r["flag"] or "", r["flag_note"] or "") for r in db.load_lines(drama_id)}
     for ln in lines:
         if ln.id in current and current[ln.id] != started_with[ln.id]:
@@ -382,6 +384,8 @@ def run_consistency_job(job_id, drama_id, lines, engine, engine_choice):
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "consistency_check",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
     db.save_consistency_issues(drama_id, issues)
     background_jobs.set_result(job_id, {
         "issue_count": len(issues),
@@ -400,6 +404,8 @@ def run_translation_notes_job(job_id, drama_id, lines, engine, engine_choice):
         usage_cb=lambda inp, out: db.log_usage(
             drama_id, engine_choice, getattr(engine, "model", engine_choice), "translation_notes",
             inp, out, translate_engines.estimate_cost_for_engine(engine, inp, out)))
+    if background_jobs.is_cancel_requested(job_id):
+        raise background_jobs.JobCancelled(job_id)
     if found_notes:
         db.save_translation_notes(drama_id, found_notes, id_by_idx=_id_by_idx(lines))
     background_jobs.set_result(job_id, {"note_count": len(found_notes)})

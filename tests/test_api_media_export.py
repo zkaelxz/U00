@@ -49,6 +49,8 @@ def fake_ffmpeg(monkeypatch):
             f.write(b"media")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(background_jobs, "run_cancellable",
+                        lambda job_id, cmd, **kw: fake_run(cmd, **kw))
     return fake
 
 

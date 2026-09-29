@@ -1387,3 +1387,23 @@ class TestProcessJobProgressTuples:
     def test_malformed_progress_tuple_is_ignored(self):
         assert bg._apply_progress_item("nope", ("progress", "x")) is True
         assert bg._apply_progress_item("nope", ("ok", {})) is False
+
+
+class TestRunCancellable:
+    """B-05: a thread job running an external command can be stopped."""
+
+    def test_cancel_kills_the_command_and_marks_cancelled(self, isolated_db):
+        started = bg.start_job("rc1", lambda: bg.run_cancellable(
+            "rc1", [sys.executable, "-c", "import time; time.sleep(30)"], poll_interval=0.05))
+        assert started
+        time.sleep(0.3)
+        t0 = time.time()
+        bg.request_cancel("rc1")
+        assert _wait_for(lambda: bg.get_status("rc1")["status"] == "cancelled", timeout=5)
+        assert time.time() - t0 < 5
+        assert bg.get_status("rc1")["status"] != "done"
+
+    def test_nonzero_exit_raises_called_process_error(self, isolated_db):
+        import subprocess
+        with pytest.raises(subprocess.CalledProcessError):
+            bg.run_cancellable("rc2", [sys.executable, "-c", "raise SystemExit(3)"])

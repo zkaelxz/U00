@@ -261,6 +261,11 @@ def _release_gpu_slot(job_id, gpu_touching):
         pass
 
 
+class JobCancelled(Exception):
+    """Raised by a thread job that noticed its cancel request and stopped;
+    _spawn records the job as "cancelled" (never "done"/"error")."""
+
+
 def _spawn(job_id, target, args, kwargs, gpu_touching=False):
     def runner():
         import applog
@@ -279,6 +284,13 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False):
                     _mirror_locked(job_id)
             logger.info(f"job {job_id} finished")
             _notify_job_finished(_description, "done")
+        except JobCancelled:
+            with _lock:
+                if job_id in _jobs:
+                    _jobs[job_id]["status"] = "cancelled"
+                    _jobs[job_id]["finished_at"] = time.time()
+                    _mirror_locked(job_id)
+            logger.info(f"job {job_id} cancelled")
         except Exception as exc:
             error_msg = redact_secrets(f"{type(exc).__name__}: {exc}")
             tb = redact_secrets(traceback.format_exc())
@@ -798,6 +810,25 @@ def is_cancel_requested(job_id: str) -> bool:
         if job and job.get("cancel_requested"):
             return True
     return _db_cancel_requested(job_id)
+
+
+def run_cancellable(job_id: str, cmd: list, cwd: str = None, poll_interval: float = 0.2):
+    """Runs an external command (ffmpeg) for a thread job and kills it when
+    the job's cancel is requested, raising JobCancelled. A non-zero exit
+    raises subprocess.CalledProcessError, like subprocess.run(check=True)."""
+    import subprocess
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    while True:
+        try:
+            out, err = proc.communicate(timeout=poll_interval)
+            break
+        except subprocess.TimeoutExpired:
+            if is_cancel_requested(job_id):
+                proc.kill()
+                proc.communicate()
+                raise JobCancelled(job_id) from None
+    if proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, output=out, stderr=err)
 
 
 def cancel_queued(job_id: str) -> bool:
