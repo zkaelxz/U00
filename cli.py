@@ -131,9 +131,15 @@ def cmd_narrate_prep(args):
         if engine:
             known = [c["character_name"] for c in db.list_characters(d["id"]) if c["character_name"]]
             speakers = translate_engines.tag_speakers_llm([ln.zh for ln in lines], engine, known)
-            for ln, sp in zip(lines, speakers):
-                ln.speaker = sp
-            for label in sorted(set(speakers)):
+            # Key each label by its chunk's idx and look it up by that idx --
+            # never zip a returned list onto lines. A list that isn't exactly
+            # one label per chunk can't be trusted to line up, so it falls
+            # back to "Narrator" (same guard as narration_service).
+            by_idx = ({ln.idx: sp for ln, sp in zip(lines, speakers)}
+                      if len(speakers) == len(lines) else {})
+            for ln in lines:
+                ln.speaker = (by_idx.get(ln.idx) or "").strip() or "Narrator"
+            for label in sorted({ln.speaker for ln in lines}):
                 db.upsert_character(d["id"], label, character_name=label)
         else:
             for ln in lines:
