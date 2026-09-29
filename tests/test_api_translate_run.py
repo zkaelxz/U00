@@ -73,3 +73,98 @@ def test_no_secrets_in_responses(client, monkeypatch):
     did = _seed()
     for path in ("config", "estimate"):
         assert fake not in client.get(f"{BASE}/{did}/{path}").text
+
+
+# --- Slice 51: bulk batch list + cancel -------------------------------------
+
+def test_bulk_list_and_cancel(client, monkeypatch):
+    import bulk_translate
+    did = _seed()
+    other = _seed()
+    jid = db.create_bulk_job(did, "claude", "m", "submitted", [(1, "k", "h", "")],
+                             provider_batch_id="msgbatch_SECRET",
+                             translate_args={"prompt": "SECRETPROMPT"})
+    done = db.create_bulk_job(did, "gemini", None, "applied", [])
+    foreign = db.create_bulk_job(other, "claude", "m", "submitted", [])
+    assert client.get("/api/translate-run/dramas/9999/bulk").status_code == 404
+    r = client.get(f"{BASE}/{did}/bulk")
+    assert r.status_code == 200
+    jobs = r.json()["jobs"]
+    assert [j["bulk_job_id"] for j in jobs] == [done, jid]
+    assert jobs[1]["pending"] and jobs[1]["cancellable"] and jobs[1]["line_count"] == 1
+    assert not jobs[0]["pending"] and not jobs[0]["cancellable"]
+    assert "SECRET" not in r.text
+
+    calls = []
+    monkeypatch.setattr(bulk_translate, "cancel_bulk_job",
+                        lambda i, p=None: calls.append((i, p)) or db.update_bulk_job(i, status="cancelled") or "ok")
+    assert client.post(f"{BASE}/{did}/bulk/{foreign}/cancel").status_code == 404
+    assert client.post(f"{BASE}/{did}/bulk/{done}/cancel").status_code == 409
+    c = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    assert c.status_code == 200 and c.json()["bulk_job"]["status"] == "cancelled"
+    assert calls and calls[0][0] == jid
+
+
+
+def _provider_env(monkeypatch, provider):
+    import bulk_translate
+    import translate_engines
+    from services import translate_service
+    seen = {}
+    monkeypatch.setattr(translate_service, "resolve_api_key",
+                        lambda name, env_path=None: seen.setdefault("key_for", name) and "k")
+    monkeypatch.setattr(translate_engines, "get_engine", lambda *a, **k: object())
+    monkeypatch.setattr(bulk_translate, "make_provider", lambda name, engine: provider)
+    return seen
+
+
+def test_bulk_cancel_asks_provider_when_key_exists(client, monkeypatch):
+    did = _seed()
+    jid = db.create_bulk_job(did, "claude", "m", "submitted", [(1, "k", "h", "")],
+                             provider_batch_id="msgbatch_1")
+
+    class Provider:
+        cancelled = []
+
+        def cancel(self, batch_id):
+            self.cancelled.append(batch_id)
+    p = Provider()
+    seen = _provider_env(monkeypatch, p)
+    r = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    assert r.status_code == 200
+    assert seen["key_for"] == "claude" and p.cancelled == ["msgbatch_1"]
+    assert r.json()["message"] == "Cancelled at the provider and here."
+    assert r.json()["bulk_job"]["status"] == "cancelled"
+
+
+def test_bulk_cancel_provider_failure_is_redacted_and_local_cancel_stands(client, monkeypatch):
+    did = _seed()
+    secret = "sk-ant-SECRET1234567890abcdef"
+    jid = db.create_bulk_job(did, "claude", "m", "scheduled", [(1, "k", "h", "")],
+                             provider_batch_id="msgbatch_2")
+
+    class Boom:
+        def cancel(self, batch_id):
+            raise RuntimeError(f"401 bad key {secret}")
+    _provider_env(monkeypatch, Boom())
+    r = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    assert r.status_code == 200
+    assert secret not in r.text
+    assert "provider's own cancel call failed" in r.json()["message"]
+    assert db.get_bulk_job(jid)["status"] == "cancelled"
+
+
+def test_bulk_cancel_running_job_is_409(client):
+    did = _seed()
+    jid = db.create_bulk_job(did, "claude", "m", "running", [(1, "k", "h", "")])
+    r = client.post(f"{BASE}/{did}/bulk/{jid}/cancel")
+    assert r.status_code == 409
+    assert db.get_bulk_job(jid)["status"] == "running"
+
+
+def test_bulk_line_count_uses_count(isolated_db):
+    did = _seed()
+    jid = db.create_bulk_job(did, "claude", "m", "submitted",
+                             [(1, "k", "h", ""), (2, "k", "h", "")])
+    assert db.count_bulk_job_lines(jid) == 2
+    assert db.count_bulk_job_lines(jid + 999) == 0

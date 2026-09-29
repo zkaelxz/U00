@@ -1,18 +1,21 @@
 """
-api/routers/media_routes.py -- audio/video upload for one drama (Migration
+api/routers/media_routes.py -- audio/video upload (Slice 31) and Range playback (Slice 52) for one drama (Migration
 Slice 31). Multipart body; see services/media_upload_service.py for the
 filename/size/atomic-write rules. Returns name, size and kind only.
 """
 
+import os
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Path, UploadFile
+from fastapi.responses import FileResponse
+
 from api.auth import local_only, require_permission
 from pydantic import ValidationError
 
 from api.schemas import (ErrorResponse, MediaStatus, MediaUploadResult, TranscribeRunRequest,
                          UploadAndTranscribeResult)
-from services import media_upload_service, transcribe_service
+from services import media_playback_service, media_upload_service, transcribe_service
 from services.service_errors import InvalidInputError
 
 router = APIRouter(prefix="/api/media", tags=["media"])
@@ -58,3 +61,33 @@ def post_upload_and_transcribe(
     upload = media_upload_service.upload_media(drama_id, file.filename, file.file)
     run = transcribe_service.start_transcribe_run(drama_id, **opts.model_dump())
     return {"upload": upload, "job_id": run["job_id"]}
+
+
+def _play(drama_id: int, kind: str) -> FileResponse:
+    path, ctype = media_playback_service.resolve_media(drama_id, kind)
+    # FileResponse streams in chunks and implements Range (206/416), If-Range
+    # and HEAD (starlette>=0.39). The download name is generic, never the stored one.
+    name = f"drama_{drama_id}_{kind}{os.path.splitext(path)[1].lower()}"
+    return FileResponse(path, media_type=ctype, filename=name, content_disposition_type="inline",
+                        headers={"X-Content-Type-Options": "nosniff"})
+
+
+_STREAM = [require_permission("media.stream")]
+
+
+@router.head("/dramas/{drama_id}/audio", dependencies=_STREAM, include_in_schema=False)
+@router.get("/dramas/{drama_id}/audio", dependencies=_STREAM,
+            summary="Stream a drama's audio with HTTP Range support",
+            responses={200: {"content": {"audio/*": {}}}, 206: {"content": {"audio/*": {}}},
+                       404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"}})
+def get_audio(drama_id: int = Path(ge=1)):
+    return _play(drama_id, "audio")
+
+
+@router.head("/dramas/{drama_id}/video", dependencies=_STREAM, include_in_schema=False)
+@router.get("/dramas/{drama_id}/video", dependencies=_STREAM,
+            summary="Stream a drama's source video with HTTP Range support",
+            responses={200: {"content": {"video/*": {}}}, 206: {"content": {"video/*": {}}},
+                       404: {"model": ErrorResponse}, 416: {"description": "Range not satisfiable"}})
+def get_video(drama_id: int = Path(ge=1)):
+    return _play(drama_id, "video")

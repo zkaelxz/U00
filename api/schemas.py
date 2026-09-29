@@ -1771,3 +1771,38 @@ class SourceTrackRequest(BaseModel):
     title: str = Field("", max_length=300)
     url: str = Field("", max_length=1000)
     drama_id: Optional[int] = Field(None, ge=1)
+
+
+# ---------------------------------------------------------------------------
+# Migration Slice 51: pending bulk batch list + cancel
+# ---------------------------------------------------------------------------
+
+class TranslateBulkJobEntry(BaseModel):
+    """One bulk batch as last recorded (Migration Slice 51). No prompts,
+    provider batch id or keys."""
+    bulk_job_id: int
+    engine: str
+    model: Optional[str] = None
+    kind: str
+    stage: Optional[str] = None
+    pipeline_id: Optional[str] = None
+    status: str  # submitting|submitted|scheduled|running|applied|cancelled|failed|auth_error
+    pending: bool
+    cancellable: bool
+    line_count: int
+    scheduled_for: Optional[str] = None
+    result_summary: Optional[dict] = None
+    last_error: Optional[str] = None
+    submitted_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class TranslateBulkList(BaseModel):
+    drama_id: int
+    jobs: List[TranslateBulkJobEntry]
+
+
+class TranslateBulkCancelResult(BaseModel):
+    drama_id: int
+    bulk_job: TranslateBulkJobEntry
+    message: str
